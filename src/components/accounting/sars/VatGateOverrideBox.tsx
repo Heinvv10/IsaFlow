@@ -32,7 +32,9 @@ const LABELS: Array<[keyof VatGateCounts, string]> = [
   ['unpostedInvoiceVatCount', 'unposted invoice/bill VAT'],
   ['unsupportedInputVatCount', 'input VAT that exceeds its support'],
   ['uncodedGlLineCount', 'uncoded GL VAT lines'],
-  ['invoiceTaxCodeIssueCount', 'invoice tax-code issues'],
+  // Customer invoices only (Hein, 2026-09-27) — bill tax-code issues are a
+  // non-blocking warning and never appear in this breakdown.
+  ['invoiceTaxCodeIssueCount', 'customer invoice tax-code issues'],
   ['invoiceGlMismatchCount', 'invoice ↔ GL VAT mismatches'],
   ['vatOnBalanceSheetCount', 'VAT on a balance-sheet account'],
   ['vatNonSupplyCount', 'VAT on a non-supply account'],

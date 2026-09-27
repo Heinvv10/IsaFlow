@@ -14,9 +14,16 @@ export interface UncodedGlVatLine {
   amount: number;
 }
 
+/**
+ * A CUSTOMER invoice with no tax rate, or a rate but zero VAT — BLOCKING
+ * (Hein, 2026-09-27): the record can only mean output VAT is under-declared,
+ * which is wrong in SARS's favour-against-the-vendor sense. The equivalent
+ * SUPPLIER-bill population is `BillTaxCodeWarning` below (non-blocking) —
+ * it can only mean LESS input VAT was claimed than it might have been.
+ */
 export interface InvoiceTaxCodeIssue {
   invoiceId: string;
-  invoiceKind: 'customer' | 'supplier';
+  invoiceKind: 'customer';
   invoiceNumber: string;
   counterpartyName: string;
   invoiceDate: string;
@@ -24,6 +31,31 @@ export interface InvoiceTaxCodeIssue {
   taxRate: number | null;
   taxAmount: number;
   issue: 'missing_tax_rate' | 'rate_without_vat';
+}
+
+/**
+ * A SUPPLIER bill with no tax rate, or a rate but zero VAT — NOT blocking
+ * (Hein, 2026-09-27). The pre-filing gate blocks only where the return's
+ * figures could be wrong in SARS's favour against the vendor; this record
+ * problem can only mean LESS input VAT was claimed than the bill's own rate
+ * would support (or, when the rate itself is missing, that no rate was ever
+ * set) — never more. `potentialInputVat` is `subtotal * taxRate / 100` when
+ * the rate is known, else 0 (a missing rate carries no rate to compute
+ * against). If the supplier is a VAT vendor the input VAT can still be
+ * claimed (a late claim); otherwise the rate should be corrected to zero or
+ * exempt.
+ */
+export interface BillTaxCodeWarning {
+  invoiceId: string;
+  invoiceKind: 'supplier';
+  invoiceNumber: string;
+  counterpartyName: string;
+  invoiceDate: string;
+  subtotal: number;
+  taxRate: number | null;
+  taxAmount: number;
+  issue: 'missing_tax_rate' | 'rate_without_vat';
+  potentialInputVat: number;
 }
 
 export interface InvoiceGlVatMismatch {
@@ -198,8 +230,18 @@ export interface VatExceptionsReport {
   periodEnd: string;
   uncodedGlLines: UncodedGlVatLine[];
   uncodedGlLineCount: number;
+  /** BLOCKING: CUSTOMER invoices only (Hein, 2026-09-27) — can only mean under-declared output VAT. */
   invoiceTaxCodeIssues: InvoiceTaxCodeIssue[];
   invoiceTaxCodeIssueCount: number;
+  /**
+   * NOT blocking: SUPPLIER bills with the same record problem — can only
+   * mean less input VAT was claimed than the bill supports, never more.
+   * `billTaxCodeWarningPotentialVat` is the sum of `potentialInputVat` across
+   * EVERY matching bill (not just the capped list below).
+   */
+  billTaxCodeWarnings: BillTaxCodeWarning[];
+  billTaxCodeWarningCount: number;
+  billTaxCodeWarningPotentialVat: number;
   invoiceGlMismatches: InvoiceGlVatMismatch[];
   invoiceGlMismatchCount: number;
   vatOnBalanceSheetLines: VatOnBalanceSheetLine[];
@@ -245,5 +287,5 @@ export interface VatExceptionsReport {
 // so every existing caller of this module keeps working unchanged.
 export {
   toNum, r2, dateStr, totalCount,
-  mapUncodedLine, mapTaxIssue, mapUnpostedInvoice, mapMismatch, mapDeclaredElsewhere,
+  mapUncodedLine, mapTaxIssue, mapBillTaxCodeWarning, mapUnpostedInvoice, mapMismatch, mapDeclaredElsewhere,
 } from './vatExceptionsMappers';

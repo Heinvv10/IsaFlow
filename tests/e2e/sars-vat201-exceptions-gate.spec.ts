@@ -35,6 +35,7 @@ function report(totalExceptions: number) {
     periodStart: '2026-03-01', periodEnd: '2026-03-31',
     uncodedGlLines: [], uncodedGlLineCount: totalExceptions,
     invoiceTaxCodeIssues: [], invoiceTaxCodeIssueCount: 0,
+    billTaxCodeWarnings: [], billTaxCodeWarningCount: 0, billTaxCodeWarningPotentialVat: 0,
     invoiceGlMismatches: [], invoiceGlMismatchCount: 0,
     controlRecon: {
       outputVat201: 15000, outputGl: 15000, outputVariance: 0,

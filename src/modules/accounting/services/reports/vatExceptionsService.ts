@@ -11,7 +11,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getLedgerVAT201 } from './vat201LedgerFields';
 import {
-  mapMismatch, mapTaxIssue, mapUncodedLine, mapUnpostedInvoice, r2, toNum, totalCount,
+  mapBillTaxCodeWarning, mapMismatch, mapTaxIssue, mapUncodedLine, mapUnpostedInvoice, r2, toNum, totalCount,
 } from './vatExceptionsTypes';
 import {
   findVatOnBalanceSheetLines,
@@ -100,12 +100,19 @@ export async function getVatExceptions(
         ORDER BY ci.invoice_date, ci.invoice_number
         LIMIT ${LIST_CAP}
       ` as Promise<Row[]>,
-      // 3. Supplier invoices with the same tax-code issues
+      // 3. Supplier bills with the same record problem — NOT blocking (Hein,
+      // 2026-09-27): a missing/zero-rated tax code on a bill can only mean
+      // LESS input VAT was claimed than the bill's own rate supports, never
+      // more, so it cannot put the return wrong in SARS's favour against the
+      // vendor. potential_vat_total is a window SUM over every matching row
+      // (before LIMIT), so it is the true total, not just the capped page's.
       sql`
         SELECT si.id AS invoice_id, si.invoice_number, si.invoice_date,
           si.subtotal, si.tax_rate, si.tax_amount,
           COALESCE(s.name, 'Unknown') AS counterparty_name,
-          COUNT(*) OVER() AS total_count
+          COUNT(*) OVER() AS total_count,
+          COALESCE(SUM(CASE WHEN si.tax_rate IS NOT NULL THEN si.subtotal * si.tax_rate / 100 ELSE 0 END)
+            OVER(), 0) AS potential_vat_total
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
         WHERE si.company_id = ${companyId}::UUID
@@ -214,10 +221,8 @@ export async function getVatExceptions(
   const vatOnBalanceSheetLines = balanceSheetVat.map(mapVatOnBalanceSheetLine);
   const vatNonSupplyLines = nonSupplyVat.map(mapVatNonSupplyLine);
 
-  const invoiceTaxCodeIssues = [
-    ...ciTaxIssues.map(mapTaxIssue('customer')),
-    ...siTaxIssues.map(mapTaxIssue('supplier')),
-  ];
+  const invoiceTaxCodeIssues = ciTaxIssues.map(mapTaxIssue);
+  const billTaxCodeWarnings = siTaxIssues.map(mapBillTaxCodeWarning);
   const invoiceGlMismatches = [
     ...ciMismatches.map(mapMismatch('customer')),
     ...siMismatches.map(mapMismatch('supplier')),
@@ -247,7 +252,9 @@ export async function getVatExceptions(
   };
 
   const uncodedGlLineCount = totalCount(uncoded);
-  const invoiceTaxCodeIssueCount = totalCount(ciTaxIssues) + totalCount(siTaxIssues);
+  const invoiceTaxCodeIssueCount = totalCount(ciTaxIssues);
+  const billTaxCodeWarningCount = totalCount(siTaxIssues);
+  const billTaxCodeWarningPotentialVat = r2(toNum(siTaxIssues[0]?.potential_vat_total));
   const invoiceGlMismatchCount = totalCount(ciMismatches) + totalCount(siMismatches);
   const vatOnBalanceSheetCount = totalCount(balanceSheetVat);
   const vatNonSupplyCount = totalCount(nonSupplyVat);
@@ -262,6 +269,9 @@ export async function getVatExceptions(
     uncodedGlLineCount,
     invoiceTaxCodeIssues,
     invoiceTaxCodeIssueCount,
+    billTaxCodeWarnings,
+    billTaxCodeWarningCount,
+    billTaxCodeWarningPotentialVat,
     invoiceGlMismatches,
     invoiceGlMismatchCount,
     vatOnBalanceSheetLines,
