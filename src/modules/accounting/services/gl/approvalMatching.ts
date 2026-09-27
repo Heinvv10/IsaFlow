@@ -47,6 +47,25 @@ export async function checkApproval(
   // against, so a request raised under a laxer rule stayed governed by it.
   const existingRequest = existing.length > 0 ? mapRequest(existing[0]!) : null;
 
+  const matched = await strictestMatchingRule(companyId, documentType, amount);
+
+  return {
+    requiresApproval: matched !== null || existingRequest !== null,
+    matchedRule: matched,
+    existingRequest,
+  };
+}
+
+/**
+ * The STRICTEST active rule of the company matching a document of this type
+ * and amount, or null. Also what an unattended creator asks BEFORE it inserts
+ * a bill it would approve (approvalUnattended.ts), when no document id exists.
+ */
+export async function strictestMatchingRule(
+  companyId: string,
+  documentType: DocumentType,
+  amount: number
+): Promise<ApprovalRule | null> {
   // Find matching active rules. The ORDER BY is the tiebreak, not the decision:
   // `priority` is INTEGER DEFAULT 100 and no write path sets it, so every rule a
   // company can create ties, and without created_at/id the winner was heap order.
@@ -94,11 +113,7 @@ export async function checkApproval(
     }
   }
 
-  return {
-    requiresApproval: matched !== null || existingRequest !== null,
-    matchedRule: matched,
-    existingRequest,
-  };
+  return matched;
 }
 
 // ── Mappers ──────────────────────────────────────────────────────────────────
