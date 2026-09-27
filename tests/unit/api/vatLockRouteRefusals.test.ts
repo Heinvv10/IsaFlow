@@ -44,6 +44,12 @@ const m = vi.hoisted(() => ({
 vi.mock('@/lib/neon', () => ({ sql: m.sql, withTransaction: vi.fn(), fmtDate: (d: unknown) => String(d) }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({ createJournalEntry: m.create, postJournalEntry: m.post }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ getSystemAccountId: vi.fn(async (k: string) => `acct-${k}`) }));
+// R-088's duplicate check has its own real-PG coverage (r088-receipt-content-dedupe); here it is clear.
+vi.mock('@/modules/accounting/services/capture/receiptDuplicateGuard', () => ({
+  checkReceiptDuplicate: vi.fn(async () => ({
+    kind: 'clear', fingerprint: { receiptKey: null, duplicateOf: null, confirmedBy: null },
+  })),
+}));
 vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalVatLockGuard')>()),
   assertJournalVatPeriodOpen: m.guard,
