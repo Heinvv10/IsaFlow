@@ -29,6 +29,10 @@ vi.mock('@/lib/neon', () => {
   };
 });
 
+// R-035 PR2: raising is refused under Login-as (covered through the real route
+// in r035-pr2-authors.int.test.ts); these tests are about the request row.
+vi.mock('@/lib/auth/impersonationGuard', () => ({ assertNotImpersonating: async () => undefined }));
+
 import { sql } from '@/lib/neon';
 import { requestApproval } from '@/modules/accounting/services/gl/approvalDocuments';
 

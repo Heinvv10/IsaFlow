@@ -22,10 +22,7 @@ import {
 } from '@/modules/accounting/services/core/aiInvoicePipelineService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { refusesUnattendedApproval } from '@/modules/accounting/services/core/unattendedPostingGate';
-import {
-  computeFingerprint,
-  findDuplicate,
-} from '@/modules/accounting/services/capture/captureDeduplicationService';
+import { computeFingerprint, findDuplicate } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import {
   CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE, CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
@@ -37,6 +34,7 @@ import {
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { attachEvidenceAndSettleApproved } from '@/modules/accounting/services/capture/provisionalAttachSettle';
 import { resolvePendingAlertForInvoice } from '@/modules/accounting/services/capture/alertResolutionService';
+import { raiseUnattendedApproval, unattendedBillStatus } from '@/modules/accounting/services/gl/approvalUnattended';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -164,6 +162,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   const fingerprint = computeFingerprint(supplierVatNumber, invoiceInput.invoiceNumber, invoiceInput.totalAmount);
+  // R-035 (B2): under an enforced approval rule an auto-approval becomes a draft plus a request.
+  const approval = await unattendedBillStatus(companyId, approvalRoute === 'auto_approve', invoiceInput.totalAmount);
 
   // Claim the document BEFORE the first ledger write, and AFTER the
   // duplicate-blocked branch above — that branch answers 409 having already
@@ -193,7 +193,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ${invoiceInput.totalAmount - invoiceInput.taxAmount}, ${invoiceInput.taxRate},
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
       ${invoiceInput.paymentTerms || 'net30'}, ${invoiceInput.reference || null},
-      ${approvalRoute === 'auto_approve' ? 'approved' : 'draft'},
+      ${approval.status},
       ${userId}, ${invoiceInput.notes ?? null},
       ${documentId}::uuid, NULL, ${pipelineConfidence}, 'ai:ai-invoice-pipeline:v1',
       ${fingerprint}
@@ -233,6 +233,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     `;
   }
 
+  const approvalRequest = approval.gated // after the lines: the request binds to their digest
+    ? await raiseUnattendedApproval(companyId, 'supplier_invoice', invoice.id as string, userId) : null;
   // Link document to invoice
   await sql`
     UPDATE captured_documents
@@ -291,9 +293,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     approvalRoute: provisionalAttach.settlementRefused ? 'manual_review' : approvalRoute,
     warnings: validation.warnings,
     threeWayMatch,
-    provisionalAttach,
+    provisionalAttach, approvalRequired: approval.gated, approvalRequest,
   });
 }
 
- 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

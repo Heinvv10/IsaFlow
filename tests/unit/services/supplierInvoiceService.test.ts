@@ -27,6 +27,11 @@ vi.mock('@/lib/neon', () => {
   };
 });
 
+// R-035 PR2 review HIGH-1: the currency/rate check reads the company row; it
+// has its own integration test (r035-pr2-review-amounts). ZAR at 1 here.
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceCurrency', () => ({
+  resolveBillCurrency: async () => ({ currencyCode: 'ZAR', exchangeRate: 1 }),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

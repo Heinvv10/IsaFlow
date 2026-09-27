@@ -23,6 +23,8 @@ import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemA
 import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { supplierInvoiceLineAccountRefusals } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
+import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
+import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approvalUnattended';
 import {
   type BulkApproveAdapter,
   type DocumentState,
@@ -73,6 +75,8 @@ const NOT_FOUND_REFUSAL = /^Supplier invoice \S+ not found$/;
  * hardcoded the same string would restate the drift rather than catch it.
  */
 export function racedReason(err: unknown): string | null {
+  // R-035: the gate refuses under the row lock, before any write — a skip.
+  if (err instanceof ApprovalRequiredError) return `approval_required: ${err.message}`;
   if (!(err instanceof Error)) return null;
   const status = STATUS_REFUSAL.exec(err.message)?.[1];
   if (status) return `status became ${status} before it could be approved`;
@@ -179,6 +183,8 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
     const refusals = new Map([
       ...await supplierInvoiceLineAccountRefusals(ctx.companyId, candidateIds),
       ...await invoiceVatRefusals(ctx.companyId, candidateIds),
+      // R-035 (Q6): gated by an enforced approval rule — skipped, never submitted.
+      ...await agentApprovalRefusals(ctx.companyId, 'supplier_invoice', candidateIds),
     ]);
     const postable = partitioned.postable.filter((p) => !refusals.has(p.id));
     const skipped = [...partitioned.skipped, ...partitioned.postable.filter((p) => refusals.has(p.id))

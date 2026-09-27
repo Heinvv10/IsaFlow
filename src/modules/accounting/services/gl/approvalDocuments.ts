@@ -18,6 +18,7 @@ import type { ApprovalRequest, DocumentType } from './approvalService';
 import { checkApproval as checkApprovalRules, mapRequest } from './approvalMatching';
 import { ApprovalNotRequiredError, ApprovalRuleNotFoundError } from './approvalAuthority';
 import { rebindPendingRequest } from './approvalRebind';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 /** The id names no document of that type in this company. */
 export class ApprovalDocumentNotFoundError extends Error {
@@ -56,7 +57,9 @@ const first = (rows: Row[]): Row | undefined => rows[0];
  *
  * Invoices are matched on their FUNCTIONAL (ZAR) total where they carry one:
  * `total_amount` is in the document's own currency, so a USD 5 000 bill
- * (about R92 500) slipped under a R50 000 rule.
+ * (about R92 500) slipped under a R50 000 rule. A supplier invoice is matched
+ * on the LARGER of the two (approval_supplier_invoice_gate_amount, migration
+ * 712): its approval posts total_amount, so an exchange rate must not shrink it.
  */
 async function findDocument(
   companyId: string,
@@ -72,7 +75,8 @@ async function findDocument(
       `) as Row[]);
     case 'supplier_invoice':
       return first((await sql`
-        SELECT COALESCE(functional_total, total_amount, 0) AS amount, invoice_number AS reference,
+        SELECT approval_supplier_invoice_gate_amount(total_amount, functional_total) AS amount,
+               invoice_number AS reference,
                approval_document_digest(company_id, 'supplier_invoice', id) AS digest
         FROM supplier_invoices WHERE id = ${documentId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
       `) as Row[]);
@@ -149,6 +153,9 @@ export async function requestApproval(companyId: string, input: {
   documentId: string;
   requestedBy: string;
 }): Promise<ApprovalRequest> {
+  // R-035 PR2-must (4): under Login-as the requester would be recorded as the
+  // TARGET, and the real one pushed into past_requesters. Raising is refused.
+  await assertNotImpersonating();
   const document = await resolveApprovalDocument(companyId, input.documentType, input.documentId);
   const check = await checkApprovalRules(companyId, input.documentType, input.documentId, document.amount);
   // One pending request per document — enforced by uq_approval_requests_pending
@@ -166,14 +173,17 @@ export async function requestApproval(companyId: string, input: {
   // alone does not help — a foreign-key check bypasses RLS and is global.
   // `is_active` is re-checked because checkApproval only considered active rules:
   // one deactivated in between must not be bound to a new request.
+  // `content_authors` (migration 712): who wrote the content this request
+  // vouches for — refused as approvers (approvalAuthors).
   // `approver_roster` (migration 708): the roster snapshot a sole-approver
   // self-approval is later checked against — taken only while enforcement is on
   // for the type, since Q2 applies only then.
   const insert = async () => (await sql`
-    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by, required_role, document_digest, approver_roster)
+    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by, required_role, document_digest, content_authors, approver_roster)
     SELECT ${companyId}::UUID, rl.id, ${input.documentType}::TEXT, ${input.documentId}::UUID,
            ${document.reference}::TEXT, ${document.amount}::NUMERIC,
            ${input.requestedBy}::UUID, rl.approver_role, ${document.digest}::TEXT,
+           approval_document_authors(${companyId}::UUID, ${input.documentType}::TEXT, ${input.documentId}::UUID),
            (SELECT approval_roster_snapshot(${companyId}::UUID, ${input.requestedBy}::TEXT)
             WHERE EXISTS (SELECT 1 FROM approval_enforcement ae
                           WHERE ae.company_id = ${companyId}::UUID AND ae.document_type = ${input.documentType}::TEXT))

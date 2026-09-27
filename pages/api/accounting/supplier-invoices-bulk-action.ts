@@ -42,6 +42,7 @@ import {
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import type { LateClaimInfo } from '@/modules/accounting/services/gl/vatLateClaimPlan';
 import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
+import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 
 const Schema = z.object({
   action: z.enum(['approve', 'cancel', 'post_gl']),
@@ -52,6 +53,8 @@ interface ItemResult {
   invoiceId: string;
   ok: boolean;
   error?: string;
+  /** R-035: why the approval gate refused this bill (APPROVAL_REQUIRED / _PENDING / _STALE). */
+  reason?: string;
   /** Set when the bill's input VAT was claimed late (s16(3)) — gl/vatLateClaimPlan. */
   lateClaim?: LateClaimInfo;
 }
@@ -110,7 +113,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       log.warn('Bulk supplier invoice action failed for one id', {
         action, invoiceId, error: message,
       }, 'accounting-api');
-      results.push({ invoiceId, ok: false, error: message });
+      results.push({ invoiceId, ok: false, error: message, ...(err instanceof ApprovalRequiredError ? { reason: err.reason } : {}) });
 
       // The savepoint's own ROLLBACK TO failed, so the connection is genuinely
       // aborted and nothing this request wrote can commit. Reporting the rows

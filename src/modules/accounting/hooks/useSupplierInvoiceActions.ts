@@ -9,8 +9,9 @@ import { Download, Pencil, Save, Link2, CheckCircle2, CreditCard, FileText, XCir
 import type { InvoiceActionGroup } from '@/components/invoices/InvoiceActionBar';
 import type { ActionMenuItem } from '@/components/ui/ActionMenu';
 import type { SupplierInvoice, SupplierInvoiceItem } from '@/modules/accounting/types/ap.types';
+import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
-type InvoiceWithItems = SupplierInvoice & { items: SupplierInvoiceItem[] };
+type InvoiceWithItems = SupplierInvoice & { items: SupplierInvoiceItem[]; approval?: DocumentApprovalState | null };
 
 interface Options {
   invoiceId: string;
@@ -39,7 +40,9 @@ export function useSupplierInvoiceActions(opts: Options | null): {
   } = opts;
 
   const canEdit = invoice.status === 'draft' || invoice.status === 'pending_approval';
-  const canApprove = canEdit;
+  // R-035: a bill an enforced rule holds is submitted for approval (the panel), not posted.
+  const approvalHolds = ['required', 'pending', 'stale'].includes(invoice.approval?.state ?? '');
+  const canApprove = canEdit && !approvalHolds;
   const canCancel = invoice.status !== 'paid' && invoice.status !== 'partially_paid' && invoice.status !== 'cancelled';
   const canMatch = !!invoice.purchaseOrderId;
   const canRecordPayment = ['approved', 'partially_paid'].includes(invoice.status) && invoice.balance > 0;

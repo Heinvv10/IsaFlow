@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
+import { ApprovalEnforcementPanel } from '@/components/accounting/approvals/ApprovalEnforcementPanel';
 
 function formatCurrency(amount: number): string {
   return 'R ' + Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -169,7 +170,9 @@ export default function ApprovalsPage() {
             <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
           </div>
         ) : tab === 'rules' ? (
-          /* Rules Tab */
+          /* Rules Tab — R-035: the Enforce switch above the rules it enforces */
+          <div className="space-y-4">
+          <ApprovalEnforcementPanel />
           <div className="bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] rounded-xl overflow-hidden">
             <table className="w-full text-sm">
               <thead>
@@ -205,6 +208,7 @@ export default function ApprovalsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
           </div>
         ) : (
           /* Pending / History Tab */

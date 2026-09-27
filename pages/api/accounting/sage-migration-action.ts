@@ -12,6 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { respondIfImportRefused } from '@/modules/accounting/services/gl/approvalGateResponse';
 import {
   autoMapAccounts,
   mapAccount,
@@ -75,8 +76,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     case 'import_invoices': {
-      const run = await importSupplierInvoices(companyId, userId);
-      return apiResponse.success(res, run);
+      try {
+        const run = await importSupplierInvoices(companyId, userId);
+        return apiResponse.success(res, run);
+      } catch (err) {
+        // R-035 HIGH-2: raised before the run is recorded, so the 4xx commits nothing.
+        if (respondIfImportRefused(res, err)) return;
+        throw err;
+      }
     }
 
     case 'import_customer_invoices': {

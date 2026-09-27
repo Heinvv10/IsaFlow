@@ -1,6 +1,6 @@
 /**
- * R-035 PR1: the approval gate every posting path will call (from PR2 on).
- * Nothing calls it yet; these tests call it directly.
+ * R-035: the approval gate every posting path calls (supplier invoices since
+ * PR2); these tests call it directly.
  *
  * Cleared means: enforcement is on for (company, type), a rule matches, and an
  * APPROVED request exists for this document, in THIS company, whose digest is
@@ -50,8 +50,8 @@ async function plantRequest(fx: Fx, status: 'approved' | 'pending', opts: {
   const company = opts.company ?? fx.company;
   const digest = opts.digest ?? 'current';
   const { rows } = await fx.c.query(
-    `INSERT INTO approval_requests(company_id, document_type, document_id, status, requested_by, required_role, document_digest)
-     VALUES($1, 'supplier_invoice', $2, $3, $4, $5,
+    `INSERT INTO approval_requests(company_id, document_type, document_id, status, requested_by, required_role, decided_at, document_digest)
+     VALUES($1, 'supplier_invoice', $2, $3, $4, $5, CASE WHEN $3 = 'approved' THEN now() END,
             CASE $6::TEXT WHEN 'current' THEN approval_document_digest($7, 'supplier_invoice', $2)
                           WHEN 'other' THEN md5('something else') END)
      RETURNING id`,
@@ -142,8 +142,8 @@ describe('evaluateApprovalGate', () => {
       await plantRule(fx.c, fx.company, 'owner', { documentType: 'credit_note' });
       await fx.c.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1,'credit_note',$2)", [fx.company, USER]);
       await fx.c.query(
-        `INSERT INTO approval_requests(company_id, document_type, document_id, status, requested_by, required_role)
-         VALUES($1, 'credit_note', $2, 'approved', $3, 'owner')`, [fx.company, noteId, USER]);
+        `INSERT INTO approval_requests(company_id, document_type, document_id, status, requested_by, required_role, decided_at)
+         VALUES($1, 'credit_note', $2, 'approved', $3, 'owner', now())`, [fx.company, noteId, USER]);
       expect(await evaluateApprovalGate(fx.company, 'credit_note', noteId)).toMatchObject({ reason: 'APPROVAL_STALE' });
     });
   });
