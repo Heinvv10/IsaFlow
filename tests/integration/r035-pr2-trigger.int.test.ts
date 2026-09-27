@@ -33,7 +33,7 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await pool.query('DELETE FROM sage_supplier_invoices WHERE company_id = ANY($1)', [companies]);
-  await pool.query('DELETE FROM sage_migration_runs WHERE company_id = ANY($1)', [companies]);
+  await pool.query('DELETE FROM gl_migration_runs WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM migration_sessions WHERE company_id = ANY($1)', [companies]);
   await cleanupPr2(pool, companies, [owner, other]);
 });
