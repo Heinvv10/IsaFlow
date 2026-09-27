@@ -9,9 +9,14 @@
  *   - SUPPLIER bills (`findSupplierTaxCodeIssues`) are NOT blocking — the
  *     record problem can only mean LESS input VAT was claimed than the
  *     bill's own rate supports, never more. `potential_vat_total` is a
- *     window SUM (`subtotal * tax_rate / 100`) over EVERY matching row,
- *     computed before `LIMIT`, so it is the true total across the whole
- *     population, not just the capped page `vatExceptionsService.ts` keeps.
+ *     window SUM of each row's OWN value rounded to 2dp
+ *     (`ROUND(subtotal * tax_rate / 100, 2)`, the same expression and
+ *     rounding as `mapBillTaxCodeWarning`'s `potentialInputVat`) over EVERY
+ *     matching row, computed before `LIMIT`, so it is the true total across
+ *     the whole population, not just the capped page `vatExceptionsService.ts`
+ *     keeps — and it foots to the cent against the sum of the rows shown
+ *     (PR #546 review: a window sum of UNROUNDED values, rounded once at the
+ *     end, can differ from the per-row-rounded rows on screen by a cent).
  *
  * Split out of vatExceptionsService.ts (file-size limit, Hein 2026-09-27) —
  * each function makes exactly ONE `sql` call and returns its raw rows, same
@@ -58,7 +63,11 @@ export async function findSupplierTaxCodeIssues(
       si.subtotal, si.tax_rate, si.tax_amount,
       COALESCE(s.name, 'Unknown') AS counterparty_name,
       COUNT(*) OVER() AS total_count,
-      COALESCE(SUM(CASE WHEN si.tax_rate IS NOT NULL THEN si.subtotal * si.tax_rate / 100 ELSE 0 END)
+      -- Sum of each row's OWN rounded value (same expression and rounding as
+      -- mapBillTaxCodeWarning's potentialInputVat), not a window sum of
+      -- unrounded values then rounded once — those two can differ by a cent
+      -- (PR #546 review, Hein 2026-09-27).
+      COALESCE(SUM(ROUND(CASE WHEN si.tax_rate IS NOT NULL THEN si.subtotal * si.tax_rate / 100 ELSE 0 END, 2))
         OVER(), 0) AS potential_vat_total
     FROM supplier_invoices si
     LEFT JOIN suppliers s ON s.id = si.supplier_id

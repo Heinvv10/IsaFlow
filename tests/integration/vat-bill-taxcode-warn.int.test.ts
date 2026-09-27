@@ -91,6 +91,34 @@ describeIfDb('supplier bill tax-code issues are a warning, not a block (Hein, 20
     expect(submit).toEqual({ overridden: false, counts: expect.objectContaining({ totalExceptions: 0 }) });
   });
 
+  it('billTaxCodeWarningPotentialVat foots to the cent against the rows shown (PR #546 review)', async () => {
+    // Three bills whose per-row VAT doesn't divide cleanly to the cent:
+    // 33.33 * 10% = 3.333 each, which rounds DOWN to 3.33 per row (sum of
+    // rounded rows: 9.99). Summing the three UNROUNDED values first (9.999)
+    // and rounding ONCE (the old, buggy SQL) instead rounds UP to 10.00 —
+    // one cent more than the true sum of the three displayed rows. The fix
+    // sums each row's OWN rounded value in SQL (matching
+    // mapBillTaxCodeWarning's per-row rounding), so the total foots.
+    const bills = await Promise.all([
+      seedBill(fx, { number: 'ROUND-1', date: '2026-09-08', total: 33.33, status: 'approved' }),
+      seedBill(fx, { number: 'ROUND-2', date: '2026-09-08', total: 33.33, status: 'approved' }),
+      seedBill(fx, { number: 'ROUND-3', date: '2026-09-08', total: 33.33, status: 'approved' }),
+    ]);
+    await Promise.all(bills.map((id) => setBillTax(id, 10, 0, 33.33)));
+
+    const r = await report();
+    const rows = r.billTaxCodeWarnings.filter((w) => bills.includes(w.invoiceId));
+    expect(rows).toHaveLength(3);
+    for (const row of rows) expect(row.potentialInputVat).toBe(3.33);
+
+    // The reported total across ALL warnings in the period must foot to the
+    // cent against the sum of every row it counts (the SQL's own
+    // ROUND(per-row, 2) then SUM — the same expression the mapper uses —
+    // rather than SUM(unrounded) rounded once, which can differ by a cent).
+    const sumOfAllRows = Math.round(r.billTaxCodeWarnings.reduce((s, w) => s + w.potentialInputVat, 0) * 100) / 100;
+    expect(r.billTaxCodeWarningPotentialVat).toBe(sumOfAllRows);
+  });
+
   it('the SAME record problem on a customer invoice STILL blocks — no override', async () => {
     const invoice = await seedInvoice(fx, { number: 'CI-RATE-NO-VAT', date: '2026-09-07', total: 500, status: 'sent' });
     await setInvoiceTax(invoice, 15, 0, 500);
