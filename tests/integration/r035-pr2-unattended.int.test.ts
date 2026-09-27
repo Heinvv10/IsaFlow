@@ -20,12 +20,12 @@ import { McpRegistry } from '../../src/lib/mcp/registry';
 import { approveSupplierInvoiceTool } from '../../src/lib/mcp/tools/writeSupplierInvoices';
 import { bulkApproveSupplierInvoicesTool } from '../../src/lib/mcp/tools/writeBulkApproveSupplierInvoices';
 import { updateSupplierInvoiceTool } from '../../src/lib/mcp/tools/writeUpdateSupplierInvoice';
-import { executeRecurring } from '../../src/modules/accounting/services/core/recurringTransactionService';
+import recurringExecute from '../../pages/api/accounting/recurring-transactions-execute';
 import { getAPAgingDetail } from '../../src/modules/accounting/services/ap/apAgingService';
 import pipelineRoute from '../../pages/api/accounting/ai-invoice-pipeline';
 import capturePostRoute from '../../pages/api/accounting/capture/[id]/post';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
-import { createUser, plantBill, plantRule, reasonOf, type Bill } from './r035-approval.helpers';
+import { callRoute, createUser, plantBill, plantRule, reasonOf, type Bill } from './r035-approval.helpers';
 import { billState, cleanupPr2, dataOf, enforce, postableCompany, routes } from './r035-pr2.helpers';
 
 assertDisposable();
@@ -147,7 +147,9 @@ describe('recurring autoPost (A6)', () => {
        VALUES($1,$2,'R035 AP auto-post','supplier_invoice',$3,'daily',true,$4)`,
       [id, c, JSON.stringify({ supplierId: bill.supplierId, subtotal: 100, vatAmount: 15, totalAmount: 115,
         lines: [{ description: 'Retainer', quantity: 1, unitPrice: 100, taxRate: 15, lineTotal: 100, accountId: bill.accountA }] }), u.a]);
-    const result = await asUser(u.a, c, () => executeRecurring(c, id, u.a));
+    const res = await callRoute(recurringExecute, tokens[u.a]!, c, 'POST', { templateId: id }, '/api/accounting/recurring-transactions-execute');
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    const result = dataOf<{ entityId: string; posted: boolean }>(res);
     expect(result.posted).toBe(false);
     expect(await billState(pool, result.entityId)).toMatchObject({ status: 'draft', journals: 0 });
     expect(await pendingRequests(result.entityId)).toEqual([{ requested_by: u.a }]);

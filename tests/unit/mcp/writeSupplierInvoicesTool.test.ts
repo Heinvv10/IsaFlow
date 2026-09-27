@@ -27,6 +27,9 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', () => ({
   approveSupplierInvoice: vi.fn(),
 }));
+// R-035: the approval gate has its own integration suite (r035-pr2-unattended);
+// here no enforced rule governs any bill.
+vi.mock('@/modules/accounting/services/gl/approvalUnattended', () => ({ agentApprovalRefusal: vi.fn(async () => null) }));
 vi.mock('@/modules/accounting/services/capture/capturedVatEvidence', () => ({
   invoiceVatRefusals: vi.fn(async () => new Map<string, string>()),
 }));
