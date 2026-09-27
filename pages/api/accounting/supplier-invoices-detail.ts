@@ -12,6 +12,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { withContentEditorStamp } from '@/modules/accounting/services/ap/supplierInvoiceContentEditor';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -33,7 +34,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { id, invoiceNumber, invoiceDate, dueDate, paymentTerms, notes } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
     try {
-      const updatedRows = await sql`
+      // R-035: an edit that moves the approval digest makes this user its author.
+      const userId = (req as CompanyAuthedRequest).user.id;
+      const updatedRows = await withContentEditorStamp(companyId, id, userId, () => sql`
         UPDATE supplier_invoices
         SET invoice_number = COALESCE(${invoiceNumber || null}, invoice_number),
             invoice_date = COALESCE(${invoiceDate || null}, invoice_date),
@@ -43,7 +46,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             updated_at = NOW()
         WHERE id = ${id}::UUID AND company_id = ${companyId} AND status IN ('draft', 'pending_approval')
         RETURNING id
-      `;
+      `);
       if (updatedRows.length === 0) {
         const existing = await getSupplierInvoiceById(companyId, id);
         if (!existing) return apiResponse.notFound(res, 'Supplier invoice', id);

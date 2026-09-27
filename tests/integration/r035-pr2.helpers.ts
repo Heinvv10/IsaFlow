@@ -100,6 +100,7 @@ export async function cleanupPr2(pool: Pool, companies: string[], users: string[
   await pool.query(
     'DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id = ANY($1))', [companies]);
   await pool.query('DELETE FROM fiscal_periods WHERE company_id = ANY($1)', [companies]);
+  await pool.query('DELETE FROM gl_account_merges WHERE company_id = ANY($1)', [companies]);
   for (const company of companies) clearSystemAccountCache(company);
   await cleanup(pool, companies, users);
 }

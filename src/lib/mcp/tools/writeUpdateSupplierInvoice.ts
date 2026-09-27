@@ -101,7 +101,7 @@ export const updateSupplierInvoiceTool: McpTool = {
     }
 
     // No catch — see the header.
-    await applySupplierInvoiceDraftUpdate(ctx.companyId, plan);
+    await applySupplierInvoiceDraftUpdate(ctx.companyId, plan, ctx.userId);
     const bill = await getSupplierInvoiceById(ctx.companyId, invoiceId);
     if (!bill) return toolError(NOT_FOUND);
     return ok({
