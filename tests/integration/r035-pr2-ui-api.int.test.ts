@@ -75,7 +75,7 @@ describe('the enforcement GET previews what switching on would hold', () => {
     await pool.query("UPDATE supplier_invoices SET status = 'cancelled' WHERE id = $1", [cancelled.id]);
     await plantBill(pool, c, u.a, { total: 900 });
 
-    const res = await callRoute(approvalEnforcement, tokens[u.b]!, c, 'GET', undefined, '/api/accounting/approval-enforcement');
+    const res = await callRoute(approvalEnforcement, tokens[u.b]!, c, 'GET', undefined, '/api/accounting/approval-enforcement', { preview: '1' });
     expect(res.state.statusCode).toBe(200);
     expect(dataOf<{ preview: Record<string, number> }>(res).preview).toEqual({ supplier_invoice: 2 });
   });

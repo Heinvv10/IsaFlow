@@ -28,7 +28,7 @@ export function ApprovalEnforcementPanel() {
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    const res = await apiFetch('/api/accounting/approval-enforcement');
+    const res = await apiFetch('/api/accounting/approval-enforcement?preview=1');
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       setError(body.error?.message || 'Could not load approval enforcement');

@@ -1,7 +1,8 @@
 /**
  * Approval Enforcement API (R-035)
- * GET  — this company's enforced document types, which types may be enabled, and
- *        per enforceable type how many unposted documents it holds now (`preview`)
+ * GET  — this company's enforced document types and which types may be enabled;
+ *        with `?preview=1`, also per enforceable type how many unposted documents
+ *        it holds now (`preview` — computed on demand, it hashes every such bill)
  * POST — { documentType, enabled } switch enforcement on or off for one type
  *
  * Enabling a type not in ENFORCEABLE_DOCUMENT_TYPES is a 400 NOT_ENFORCEABLE
@@ -35,6 +36,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'GET') {
     const items = await listEnforcement(companyId);
+    // Hashes every unposted bill: only on demand (the Enforce switch asks), never on the plain read.
+    if (req.query.preview !== '1') return apiResponse.success(res, { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES });
     const preview = await previewEnforcement(companyId);
     return apiResponse.success(res, { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES, preview });
   }
