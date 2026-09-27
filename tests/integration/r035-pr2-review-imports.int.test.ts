@@ -10,12 +10,13 @@
  * and with enforcement off nothing changes. Enforced in the services, so the
  * exemption cannot be reached around a route.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { als } from '../../src/lib/als';
 import apInvoicesRoute from '../../pages/api/accounting/migration/ap-invoices';
 import sageMigrationAction from '../../pages/api/accounting/sage-migration-action';
 import { commitAPInvoice } from '../../src/modules/admin/services/sageMigrationCommitService';
+import { withApprovalGateExempt } from '../../src/modules/accounting/services/gl/approvalGateExempt';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantRule, reasonOf } from './r035-approval.helpers';
 import { cleanupPr2, enforce, postableCompany } from './r035-pr2.helpers';
@@ -148,5 +149,26 @@ describe('Sage migration commit (the service the admin console drives)', () => {
     const other = await fixture();
     await commit(u.owner, other.c, other.supplier);
     expect(await bills(other.c)).toEqual([{ invoice_number: 'R035-SC-1', status: 'approved' }]);
+  });
+});
+
+describe('the wrapper holds the rank check on its own (re-check L3)', () => {
+  it('a lower rank asking to exempt an open bill is refused: no write, and the GUC is never set', async () => {
+    const { c } = await fixture();
+    const client = await pool.connect();
+    const write = vi.fn(async () => 'written');
+    try {
+      await client.query('BEGIN');
+      await als.run({ client, userId: u.manager, companyId: c, claims: {} } as never, async () => {
+        await expect(withApprovalGateExempt({ companyId: c, userId: u.manager, open: true }, write))
+          .rejects.toMatchObject({ code: 'IMPORT_APPROVAL_AUTHORITY_REQUIRED' });
+      });
+      const { rows } = await client.query("SELECT current_setting('isaflow.approval_gate_exempt', true) AS guc");
+      expect(rows[0].guc ?? '').not.toBe('import');
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+    expect(write).not.toHaveBeenCalled();
   });
 });
