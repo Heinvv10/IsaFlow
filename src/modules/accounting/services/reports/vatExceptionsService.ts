@@ -277,7 +277,16 @@ export async function getVatExceptions(
     unsupportedInputVatCount: inputSupport.unsupported.length,
     inputVatWithoutTaxInvoice: inputSupport.withoutTaxInvoice.slice(0, LIST_CAP),
     inputVatWithoutTaxInvoiceCount: inputSupport.withoutTaxInvoice.length,
-    // The "no tax invoice on file" list is deliberately NOT counted (Hein).
+    // The "no tax invoice on file" list is deliberately NOT counted (Hein) —
+    // inputSupport.unsupported now holds only `amount_mismatch`,
+    // `document_over_claimed` and `document_unlinked` rows (a chain that once
+    // had a document and no longer does) (Hein, 2026-09-26): `no_document` and
+    // `unreadable_document_vat` moved into the non-blocking
+    // inputVatWithoutTaxInvoice list (classifyInputVatSupport,
+    // vatInputSupport.ts) because they mean a RECORD is missing, not that the
+    // return's figures are wrong. What remains here means the claimed VAT
+    // does not tie to what supports it — the figures ARE wrong — so it still
+    // counts.
     totalExceptions:
       uncodedGlLineCount + invoiceTaxCodeIssueCount + invoiceGlMismatchCount
       + vatOnBalanceSheetCount + vatNonSupplyCount + reconExceptions
