@@ -11,6 +11,7 @@ import capturePostRoute from '../../pages/api/accounting/capture/[id]/post';
 import pipelineRoute from '../../pages/api/accounting/ai-invoice-pipeline';
 import claimsRoute from '../../pages/api/accounting/expense-claims';
 import attachRoute from '../../pages/api/accounting/provisional/[jeId]/attach';
+import siActionRoute from '../../pages/api/accounting/supplier-invoices-action';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
@@ -110,29 +111,99 @@ describe('R-088 the same file cannot be booked twice across routes', () => {
   });
 });
 
-// R-127: a bank-first provisional journal evidenced by a slip, and later that
-// slip's supplier invoice, is a flow R-127 is making legitimate (the invoice
-// settles against the provisional). The evidence attach books nothing new, so
-// it stamps nothing and the invoice routes do not count it — but a receipt
-// JOURNAL for the same slip would expense the bank line a second time.
-describe('R-088 an evidence attach spends a slip for expense routes only', () => {
-  it('lets the supplier invoice follow an evidenced provisional, and refuses a receipt journal', async () => {
+// R-127 x R-088: one slip, one booking. An evidence attach books nothing new
+// (so it stamps nothing), but the slip IS booked — its provisional expensed
+// the bank line. A SECOND upload of that slip is another document, and R-127
+// settles only an invoice whose OWN document evidences the provisional; so an
+// invoice from the second upload would be approved beside the provisional and
+// book the bill twice. The attach therefore counts for EVERY route, invoices
+// included. The legitimate R-127 flow — the invoice's own slip evidences the
+// provisional — never asks the fence about another document.
+/** Every debit on the provisional and on the journals of any invoice raised from these slips. */
+async function bookedDebits(je: string, documentIds: string[]): Promise<number> {
+  return Number((await pool.query(
+    `SELECT COALESCE(SUM(l.debit),0)::numeric AS dr FROM gl_journal_lines l
+      WHERE l.company_id=$1 AND l.journal_entry_id IN (
+        SELECT $2::uuid UNION
+        SELECT gl_journal_entry_id FROM supplier_invoices
+         WHERE company_id=$1 AND source_document_id = ANY($3::uuid[]) AND gl_journal_entry_id IS NOT NULL)`,
+    [company, je, documentIds])).rows[0].dr);
+}
+const attach = (je: string, documentId: string) => call(attachRoute, `/api/accounting/provisional/${je}/attach`,
+  { capturedDocumentId: documentId }, undefined, company, { jeId: je });
+
+describe('R-088 an evidence attach spends a slip for every route', () => {
+  it('refuses the invoice routes and the receipt route on a second upload of an evidenced slip', async () => {
     const je = await seedProvisional(2990);
     const evidence = await upload('evidence-2990', { total: 2990, invoice: true });
-    const attached = await call(attachRoute, `/api/accounting/provisional/${je}/attach`,
-      { capturedDocumentId: evidence }, undefined, company, { jeId: je });
+    const attached = await attach(je, evidence);
     expect(attached.state.statusCode, JSON.stringify(attached.state.body)).toBe(200);
     expect(await postedAt(evidence)).not.toBeNull();
     expect((await stamped(evidence)).content).toBeNull();
 
-    const invoice = await uploadToInbox('evidence-2990', { total: 2990, invoice: true });
-    expect((await inboxPost(invoice.eventId)).state.statusCode).toBe(200);
-    expect(await invoiceCount(invoice.documentId)).toBe(1);
+    const inbox = await uploadToInbox('evidence-2990', { total: 2990, invoice: true });
+    expectContentRefusal(await inboxPost(inbox.eventId), 409);
+    expect(await invoiceCount(inbox.documentId)).toBe(0);
+    expect(await postedAt(inbox.documentId)).toBeNull();
+
+    const viaPipeline = await upload('evidence-2990', { total: 2990, invoice: true });
+    expectContentRefusal(await pipeline(viaPipeline), 409);
+    expect(await invoiceCount(viaPipeline)).toBe(0);
+    expect(await postedAt(viaPipeline)).toBeNull();
 
     const receipt = await upload('evidence-2990', { total: 2990, invoice: true });
     const refused = await receiptToJournal(receipt);
     expect(refused.state.statusCode).toBe(409);
     expect(await journalCount([receipt])).toBe(0);
+  });
+
+  it('end to end: a second upload of an evidenced slip is never invoiced and approved into a double booking', async () => {
+    const je = await seedProvisional(3450);
+    const evidence = await upload('second-3450', { total: 3450, invoice: true });
+    expect((await attach(je, evidence)).state.statusCode).toBe(200);
+
+    // Read with low confidence, so the pipeline raises a DRAFT a person then approves.
+    const copy = await upload('second-3450', { total: 3450, invoice: true, confidence: 0.5 });
+    const raised = await pipeline(copy);
+    const [invoice] = (await pool.query(
+      'SELECT id FROM supplier_invoices WHERE company_id=$1 AND source_document_id=$2', [company, copy])).rows;
+    if (invoice) {
+      await call(siActionRoute, '/api/accounting/supplier-invoices-action', { action: 'approve', invoiceId: invoice.id });
+    }
+
+    // The slip is booked once: by the provisional, and by nothing else.
+    expect(await bookedDebits(je, [evidence, copy])).toBe(3450);
+    expectContentRefusal(raised, 409);
+    expect(await invoiceCount(copy)).toBe(0);
+  });
+
+  it('the R-127 same-document flow still settles: the invoice\'s own slip evidences the provisional', async () => {
+    const je = await seedProvisional(3565);
+    const supplier = (await pool.query(
+      "SELECT id FROM suppliers WHERE company_id=$1 AND name='Waltons Stationery'", [company])).rows[0].id as string;
+    await pool.query('UPDATE bank_transactions SET predicted_supplier_id=$2 WHERE provisional_je_id=$1', [je, supplier]);
+    const slip = await upload('same-3565', { total: 3565, invoice: true });
+
+    const out = await pipeline(slip);
+    expect(out.state.statusCode, JSON.stringify(out.state.body)).toBe(200);
+    const [row] = (await pool.query(
+      'SELECT status FROM supplier_invoices WHERE company_id=$1 AND source_document_id=$2', [company, slip])).rows;
+    expect(row.status).toBe('paid');
+    const evidenced = (await pool.query('SELECT source_document_id FROM gl_journal_entries WHERE id=$1', [je])).rows[0];
+    expect(evidenced.source_document_id).toBe(slip);
+    // Booked once: expense + VAT net over the provisional, the invoice's journal and
+    // the reclass that made the provisional its payment — cash and AP legs aside.
+    const net = Number((await pool.query(
+      `SELECT COALESCE(SUM(l.debit - l.credit),0)::numeric AS n FROM gl_journal_lines l
+         JOIN gl_accounts a ON a.id = l.gl_account_id AND a.company_id = l.company_id
+        WHERE l.company_id=$1 AND l.gl_account_id <> $2
+          AND COALESCE(a.account_subtype,'') NOT IN ('payable','accounts_payable')
+          AND l.journal_entry_id IN (
+            SELECT $3::uuid
+            UNION SELECT gl_journal_entry_id FROM supplier_invoices WHERE company_id=$1 AND source_document_id=$4
+            UNION SELECT gl_journal_entry_id FROM supplier_payments WHERE company_id=$1 AND settles_provisional_je_id=$3)`,
+      [company, accounts[company]!.bank, je, slip])).rows[0].n);
+    expect(net).toBe(3565);
   });
 
   it('counts a pre-710 slip that is both invoiced and evidences a provisional', async () => {

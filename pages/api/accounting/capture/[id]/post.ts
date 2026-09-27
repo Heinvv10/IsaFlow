@@ -248,6 +248,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     eventId,
     documentId,
     invoiceId: invoice.id as string,
+    invoiceStatus: String(invoice.status),
     supplierId: supplierMatch.supplierId,
     supplierName: supplierMatch.supplierName,
     vendorVatNumber: extracted.vendorVatNumber,
@@ -256,12 +257,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     decision: publishedDecision,
   });
 
+  const finalStatus = provisionalAttach.settlementRefused ? 'draft' : invoice.status; // R-127: withdrawn auto-approval
+  const finalRoute = provisionalAttach.settlementRefused ? 'manual_review' : approvalRoute;
   if (publishedDecision.outcome === 'route_review') {
     return apiResponse.success(res, {
-      invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: invoice.status },
+      invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: finalStatus },
       supplierMatch: { name: supplierMatch.supplierName, confidence: supplierMatch.confidence },
       pipelineConfidence,
-      approvalRoute,
+      approvalRoute: finalRoute,
       warnings: validation.warnings,
       reason: 'routed for review',
       reasons: publishedDecision.reasons,
@@ -271,10 +274,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   return apiResponse.success(res, {
-    invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: invoice.status },
+    invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: finalStatus },
     supplierMatch: { name: supplierMatch.supplierName, confidence: supplierMatch.confidence },
     pipelineConfidence,
-    approvalRoute,
+    approvalRoute: finalRoute,
     warnings: validation.warnings,
     gateOutcome: publishedDecision.outcome,
     gateReason: publishedDecision.reason,

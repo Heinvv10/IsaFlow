@@ -30,12 +30,29 @@ a receipt journal could be posted again from the capture inbox as a supplier inv
 
 ## Decisions
 
-- **Evidence attach (R-127).** `provisionalEvidenceAttach` neither checks nor stamps: it books
-  nothing new. The invoice routes skip an unstamped slip that evidences a live provisional
-  journal and has no live supplier invoice, so a provisional followed by that slip's supplier
-  invoice — the flow R-127 makes legitimate — still posts, while a pre-710 slip that was invoiced
-  and then evidenced still counts. The expense routes still count it: a receipt journal would expense the
-  bank line twice. Not covered: an evidence attach of a slip whose file is already booked.
+- **Evidence attach (R-127) — corrected 2026-09-27.** `provisionalEvidenceAttach` neither checks nor
+  stamps: it books nothing new. **An evidenced slip counts against every later posting of the same
+  content, invoice routes included** (one slip, one booking). This replaces the original decision,
+  under which the invoice routes skipped an unstamped slip that evidenced a live provisional and had
+  no live supplier invoice, on the promise that R-127 would settle the invoice against the provisional.
+  The review of R-088 with R-127 found the hole in that. R-127 settles only an invoice whose OWN
+  `source_document_id` evidences the provisional. The provisional carries the FIRST upload's id, so an
+  invoice raised from a SECOND upload of the same slip was approved beside the provisional, and the
+  bill was booked twice. Reproduced end to end through `ai-invoice-pipeline` and
+  `supplier-invoices-action`: R6 900 booked for a R3 450 slip.
+
+  The legitimate R-127 flow never asks the fence about another document. The invoice route claims its
+  own slip first, and the auto-attach then evidences the provisional with that same document; that
+  flow still settles to paid, and a test covers it. With the exception gone, the pre-710 special
+  case (an invoiced-and-evidenced slip) needs no rule of its own either.
+
+  Tests are in `r088-content-fence-routes.int.test.ts`:
+  - a second upload is refused 409 `content_posted` on the inbox, pipeline and receipt routes;
+  - the end-to-end double booking is refused at the invoice route;
+  - the same-document R-127 flow still settles.
+
+  Mutation: restoring the invoice exception turns the first two red. Not covered: an evidence attach
+  of a slip whose file is already booked.
 - **Slip numbers.** A details match is ignored when both reads printed different reference
   numbers — two identical coffees have two slip numbers.
 - **No index on the key.** The slip-number rule cannot be an index; the key check is serialised by

@@ -1,7 +1,7 @@
 /**
  * Supplier Payment Actions API
  * POST /api/accounting/supplier-payments-action
- *   action: approve | process | void
+ *   action: approve | process | void | cancel | unapply
  */
 
 import type { NextApiResponse } from 'next';
@@ -22,6 +22,7 @@ import {
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { isSupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 import { cancelSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentCancel';
+import { UnapplyRefusal, unapplySupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentUnapply';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -58,6 +59,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // P2.1 (audit W4): reverses the GL journal and un-applies allocations.
         const payment = await voidSupplierPayment(companyId, paymentId, userId);
         return apiResponse.success(res, payment);
+      }
+      case 'unapply': {
+        // Takes the payment's cash back off every bill it pays — subledger only,
+        // the journal stays. Also step one of undoing a bank-first settlement (R-127).
+        const result = await unapplySupplierPayment(companyId, { paymentId }, userId);
+        return apiResponse.success(res, result);
       }
       default:
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
@@ -97,6 +104,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // COMMITs safe here. This is NOT the blanket `err.message` badRequest the
     // typed chain replaced: an unclassified error still falls through to the
     // 500 below, which rolls the claim back with it.
+    // Every unapply refusal is decided from reads before its first write.
+    if (err instanceof UnapplyRefusal) return apiResponse.badRequest(res, err.message);
     if (isSupplierPaymentRefusal(err)) {
       return apiResponse.badRequest(res, err.message);
     }

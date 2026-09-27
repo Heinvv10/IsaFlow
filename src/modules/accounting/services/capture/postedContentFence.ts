@@ -10,18 +10,18 @@
  *
  * WHAT A POSTING SPENDS. The claim stamps `posted_content_sha256` from the
  * row's own `raw_bytes_sha256` for every caller except the provisional
- * evidence attach, which books nothing: it hangs the slip on a journal that
- * already expensed the bank line. That attach is still a spend for an
- * EXPENSE route — a receipt journal or claim line for the same file would
- * expense the bank line a second time — but not for an INVOICE route: a
- * supplier invoice for a slip that evidences a bank-first provisional is the
- * R-127 flow, where the invoice is settled against the provisional, and
- * refusing it here would block the documented path. So `spend: 'invoice'`
- * skips a candidate that carries no stamp, evidences a live provisional
- * journal AND has no live supplier invoice of its own; every other spend
- * counts it. The invoice test matters for rows posted before 710, which carry
- * no stamp either: a slip the inbox invoiced and the auto-attach then used as
- * evidence (the R-127 same-document flow) is booked, and counts.
+ * evidence attach, which books nothing new: it hangs the slip on a journal that
+ * already expensed the bank line. The slip is booked all the same, so an
+ * evidenced document counts against EVERY later posting of the same content —
+ * expense routes and invoice routes alike (one slip, one booking). The invoice
+ * routes used to be let through, on the promise that R-127 settles the invoice
+ * against the provisional; but R-127 settles only an invoice whose OWN document
+ * evidences the provisional, so an invoice raised from a SECOND upload of the
+ * slip was approved beside it and booked the bill twice. The legitimate R-127
+ * flow never reaches this check for another document: the invoice route claims
+ * its own slip first, and the evidence attach follows on that same document.
+ * `spend` therefore only decides the stamp (`capturePostingClaim.ts`), not
+ * which earlier postings count.
  *
  * SERIALISED, NOT JUST READ. Two uploads are two rows, so their row locks do
  * not order two concurrent posts; each would read "nothing posted" and post.
@@ -36,7 +36,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { referencesDistinguish } from './receiptFingerprint';
 
-/** What a posting does with the slip — see the header. */
+/** What a posting does with the slip. Decides the stamp only — see the header. */
 export type ContentSpend = 'expense' | 'invoice' | 'evidence';
 
 /** `lock_not_available` (the 5s `lock_timeout` elapsed) and `deadlock_detected`. */
@@ -107,7 +107,6 @@ export async function findPostedContent(
 ): Promise<PostedContentMatch | null> {
   const receiptKey = q.receiptKey ?? null;
   if (!q.contentSha256 && !receiptKey) return null;
-  const evidenceCounts = q.spend !== 'invoice';
   const rows = (await sql`
     SELECT cd.id, cd.file_name, cd.posted_at, cd.extracted_data->>'referenceNumber' AS reference,
            (cd.raw_bytes_sha256 IS NOT NULL AND cd.raw_bytes_sha256 = ${q.contentSha256}) IS TRUE AS same_file
@@ -117,19 +116,6 @@ export async function findPostedContent(
        AND cd.posted_at IS NOT NULL
        AND ((${q.contentSha256}::text IS NOT NULL AND cd.raw_bytes_sha256 = ${q.contentSha256})
          OR (${receiptKey}::text IS NOT NULL AND cd.posted_receipt_key = ${receiptKey}))
-       AND (${evidenceCounts}::boolean
-         OR cd.posted_content_sha256 IS NOT NULL
-         OR NOT EXISTS (
-              SELECT 1 FROM gl_journal_entries pje
-               WHERE pje.source_document_id = cd.id
-                 AND pje.company_id = cd.company_id
-                 AND pje.evidenced_at IS NOT NULL
-                 AND pje.reversed_at IS NULL)
-         OR EXISTS (
-              SELECT 1 FROM supplier_invoices si
-               WHERE si.source_document_id = cd.id
-                 AND si.company_id = cd.company_id
-                 AND si.status <> 'cancelled'))
      ORDER BY cd.posted_at, cd.id`) as DbRow[];
   const hit = rows.find((r) => r.same_file === true)
     ?? rows.find((r) => !referencesDistinguish(r.reference, q.referenceNumber));

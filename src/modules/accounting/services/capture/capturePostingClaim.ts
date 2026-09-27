@@ -120,12 +120,13 @@ export type ClaimContent = { spend: ContentSpend } & Partial<PostedReceiptFinger
  * the thing that decides it. `document_category` is stamped for the two routes
  * that set it; passing null leaves the column untouched.
  *
- * `content` (R-088) is required, so no caller can forget it. Unless the
- * claim is a provisional evidence attach (`spend: 'evidence'`, which books
- * nothing — see `postedContentFence.ts`), it first refuses a FILE already
- * booked from another upload in this company ('content_posted'), under the
- * fingerprint's advisory lock, and then stamps `posted_content_sha256` from
- * the row's own `raw_bytes_sha256` in the same UPDATE as the claim. The
+ * `content` (R-088) is required, so no caller can forget it. Every claim —
+ * the provisional evidence attach included — takes the file's advisory lock
+ * and refuses a FILE already booked from another upload in this company
+ * ('content_posted'). All but the evidence attach (`spend: 'evidence'`, which
+ * books nothing new — see `postedContentFence.ts`) then stamp
+ * `posted_content_sha256` from the row's own `raw_bytes_sha256` in the same
+ * UPDATE as the claim. The
  * partial unique index on that column (migration 710) is the backstop: a
  * writer that stamps and skips the check raises 23505 and rolls back. A
  * receipt path also stamps the key it posted under and, for a confirmed
@@ -140,21 +141,23 @@ export async function claimCapturedDocumentForPosting(
   content: ClaimContent,
 ): Promise<CapturedDocumentRefusal | null> {
   const books = content.spend !== 'evidence';
-  if (books) {
-    const [doc] = (await sql`
-      SELECT raw_bytes_sha256 FROM captured_documents
-      WHERE id = ${documentId}::uuid AND company_id = ${companyId}`) as DbRow[];
-    const contentSha256 = (doc?.raw_bytes_sha256 as string | null | undefined) ?? null;
-    if (contentSha256) {
-      try {
-        await lockPostedContent(companyId, [`sha:${contentSha256}`]);
-      } catch (err) {
-        if (err instanceof PostedContentBusyError) return 'content_busy';
-        throw err;
-      }
-      if (await findPostedContent(companyId, documentId, { contentSha256, spend: content.spend })) {
-        return 'content_posted';
-      }
+  const [doc] = (await sql`
+    SELECT raw_bytes_sha256 FROM captured_documents
+    WHERE id = ${documentId}::uuid AND company_id = ${companyId}`) as DbRow[];
+  const contentSha256 = (doc?.raw_bytes_sha256 as string | null | undefined) ?? null;
+  if (contentSha256) {
+    // Every claim serialises on the file AND refuses a file another upload has
+    // booked — the evidence attach too. It stamps nothing, but it tells the
+    // ledger the slip is the provisional's evidence: beside another upload's
+    // bill (which R-127 does not settle) that hides a double booking (R-088 x R-127).
+    try {
+      await lockPostedContent(companyId, [`sha:${contentSha256}`]);
+    } catch (err) {
+      if (err instanceof PostedContentBusyError) return 'content_busy';
+      throw err;
+    }
+    if (await findPostedContent(companyId, documentId, { contentSha256, spend: content.spend })) {
+      return 'content_posted';
     }
   }
 

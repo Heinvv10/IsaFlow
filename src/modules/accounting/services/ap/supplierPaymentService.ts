@@ -246,7 +246,10 @@ export async function createSupplierPayment(companyId: string,
 // Workflow operations (approve, process) re-exported from split file
 export { approveSupplierPayment, processSupplierPayment } from './supplierPaymentWorkflowService';
 
-export function mapPaymentRow(row: Row): SupplierPayment {
+/** R-127: set only on a payment that settled a bill out of a bank-first provisional (migration 711). */
+export type ProvisionalSettlementMark = { settlesProvisionalJeId?: string };
+
+export function mapPaymentRow(row: Row): SupplierPayment & ProvisionalSettlementMark {
   return {
     id: String(row.id),
     paymentNumber: row.payment_number ? String(row.payment_number) : '',
@@ -267,6 +270,7 @@ export function mapPaymentRow(row: Row): SupplierPayment {
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     supplierName: row.supplier_name ? String(row.supplier_name) : undefined,
+    settlesProvisionalJeId: row.settles_provisional_je_id ? String(row.settles_provisional_je_id) : undefined,
   };
 }
 

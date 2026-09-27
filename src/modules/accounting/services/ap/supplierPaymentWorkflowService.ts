@@ -240,7 +240,7 @@ async function voidSupplierPaymentInner(
     if (!payment) throw new SupplierPaymentNotFoundError(id);
     // Refuses reconciled, batch members and other statuses; a draft/approved
     // payment is voided as a status change. Only a processed one continues.
-    if (await voidIfUnprocessed(companyId, payment)) return { ...payment, status: 'cancelled' };
+    if (await voidIfUnprocessed(companyId, payment, userId)) return { ...payment, status: 'cancelled' };
     assertSameJournal(journalId, payment.glJournalEntryId);
     // A bank ALLOCATION posted this journal: undo it the MCP void's way — bills,
     // payment, contra and bank line in one call (`voidViaBankAllocation`).

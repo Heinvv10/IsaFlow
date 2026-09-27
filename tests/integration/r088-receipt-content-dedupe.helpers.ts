@@ -16,8 +16,8 @@ export const otherCompany = crypto.randomUUID();
 export const user = crypto.randomUUID();
 export const employee = crypto.randomUUID();
 export const accounts = {
-  [company]: { bank: crypto.randomUUID(), vatInput: crypto.randomUUID(), expense: crypto.randomUUID(), office: crypto.randomUUID() },
-  [otherCompany]: { bank: crypto.randomUUID(), vatInput: crypto.randomUUID(), expense: crypto.randomUUID(), office: crypto.randomUUID() },
+  [company]: { bank: crypto.randomUUID(), vatInput: crypto.randomUUID(), expense: crypto.randomUUID(), office: crypto.randomUUID(), payable: crypto.randomUUID() },
+  [otherCompany]: { bank: crypto.randomUUID(), vatInput: crypto.randomUUID(), expense: crypto.randomUUID(), office: crypto.randomUUID(), payable: crypto.randomUUID() },
 };
 
 export const today = new Date().toISOString().slice(0, 10);
@@ -164,6 +164,10 @@ export async function lockWaiters(): Promise<number> {
 
 export async function purge(): Promise<void> {
   const owners = [company, otherCompany];
+  // An invoice settled by its provisional (R-127) leaves a supplier payment and its allocation.
+  await pool.query('DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id=ANY($1::uuid[]))', [owners]);
+  await pool.query('DELETE FROM supplier_payments WHERE company_id=ANY($1::uuid[])', [owners]);
+  await pool.query('UPDATE supplier_invoices SET gl_journal_entry_id=NULL WHERE company_id=ANY($1::uuid[])', [owners]);
   await pool.query('DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (SELECT id FROM supplier_invoices WHERE company_id=ANY($1::uuid[]))', [owners]);
   await pool.query('DELETE FROM supplier_invoices WHERE company_id=ANY($1::uuid[])', [owners]);
   await pool.query('DELETE FROM suppliers WHERE company_id=ANY($1::uuid[])', [owners]);
@@ -173,6 +177,7 @@ export async function purge(): Promise<void> {
   await pool.query('DELETE FROM expense_claims WHERE company_id=ANY($1::uuid[])', [owners]);
   await pool.query('DELETE FROM capture_events WHERE id=ANY($1::uuid[])', [events]);
   await pool.query('DELETE FROM gl_journal_lines WHERE company_id=ANY($1::uuid[])', [owners]);
+  await pool.query('UPDATE gl_journal_entries SET reversal_of_id=NULL WHERE company_id=ANY($1::uuid[])', [owners]);
   await pool.query('DELETE FROM gl_journal_entries WHERE company_id=ANY($1::uuid[])', [owners]);
   await pool.query('DELETE FROM captured_documents WHERE company_id=ANY($1::uuid[])', [owners]);
   const ids = owners.flatMap((o) => Object.values(accounts[o]!));
@@ -205,8 +210,9 @@ export async function seed(): Promise<void> {
        VALUES($1,$5,'R088B','R088 Bank','asset','bank','debit',true,true),
              ($2,$5,'1140','R088 VAT Input','asset','vat_input','debit',true,true),
              ($3,$5,'R088DE','R088 Default expense','expense','default_expense','debit',true,true),
-             ($4,$5,'5100','R088 Office supplies','expense',NULL,'debit',false,true)`,
-      [a.bank, a.vatInput, a.expense, a.office, owner],
+             ($4,$5,'5100','R088 Office supplies','expense',NULL,'debit',false,true),
+             ($6,$5,'2100','R088 Accounts payable','liability','payable','credit',true,true)`,
+      [a.bank, a.vatInput, a.expense, a.office, owner, a.payable],
     );
   }
   await pool.query('INSERT INTO suppliers(id,company_id,name,is_active) VALUES($1,$2,$3,true)',
