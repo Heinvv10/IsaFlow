@@ -110,6 +110,11 @@ Every caller inherits the refusal:
 
 ## Other limits
 - **A slip only manually evidenced gets no AP bill, from any upload (accepted trade-off: one slip, one booking).** When a slip is attached to a provisional by hand (R-107 `provisional/[jeId]/attach`), that attach takes the document's own posting claim. Every OTHER upload of the same file is then refused 409 `content_posted` by the posted-content fence, since the second-upload fix. So no supplier invoice can ever be raised for it. The books are right: the provisional booked the spend once, VAT included, and the bank line is matched. What is missing is a bill in the AP subledger, so supplier-statement matching shows this payment with no bill against it. Accepted, because a second document booking the same slip is exactly what R-127 and R-088 exist to stop. A future change could let a bill be raised FROM the evidenced document itself and settled at once; nothing does that today.
+- **For the register: nothing links an already-approved invoice to its provisional and settles it.** This gap predates this item. Take a bill raised from upload B whose auto-attach missed (a date more than 2 days out, or a supplier or amount mismatch). It is booked beside the provisional that paid it, and no action connects the two:
+  - the manual attach refuses B's slip, which is already claimed by the invoice (and, since the L2 re-check, it refuses any other upload of the same file);
+  - R-127's settlement runs only at approval or Post to GL.
+
+  Today a person must correct it by hand, for example by reversing the provisional through the sanctioned undo path once it exists for an unclaimed provisional, or by journal. The action needed is "settle this approved bill against that provisional".
 - **A freed bank line can be expensed again while its bill is open** (undo-round L6). This is a general hazard, not R-127-specific, and the lead is registering it. The undo returns the bank line to `imported`, the same state every other un-allocation leaves. From there `postProvisional`, or the auto-post / categorisation sweep, may pick it up again and expense it (DR expense / CR bank) while the bill it paid is still open on AP. That would book the bill twice: once through the bill's own journal, and once through the new provisional. It matters here because the undo leaves the bill open by design. The intended next step is to allocate the freed line to that bill (tested: booked once). Nothing yet stops a sweep getting there first.
 - An approval that reuses an existing journal (the `glJournalEntryId` branch in `approveSupplierInvoice`, legacy "Post to GL then approve" drafts) is not settled. Since R-118 no new rows reach it. Legacy rows show in the census.
 
@@ -219,3 +224,16 @@ R-088's posted-content fence let the invoice routes through for a slip whose OTH
 - **L2:** a manual evidence attach now takes the file's advisory lock (`lockPostedContent` on `sha:`) in `claimCapturedDocumentForPosting`. It still neither checks nor stamps. An invoice or receipt post of the same bytes from another upload, running beside the attach, now waits for it and then answers 409 instead of reading "nothing posted" (migration 710's index cannot see the unstamped evidence row).
   - **Receipt key, decided: not locked.** The evidence claim stamps no receipt key, so no key match can ever find it. Locking the key would serialise without changing any answer.
   - Deterministic race test: `r088-evidence-attach-race`. The attach is held in an open transaction, B is seen waiting, then gets 409 with nothing written. RED 971cf7b08; dropping the lock turns it red.
+
+### L2 re-check (2026-09-27) — the evidence claim checks too
+The evidence claim used to lock but never check. That left two holes:
+- **Sequential:** B is invoiced (stamped) and its auto-attach misses. A later manual attach of A, same bytes, succeeded. The provisional then read as evidenced beside B's unsettled bill, and the bill dropped off the needs-evidence queue.
+- **Deadlock, B the victim:** B's auto-attach rolls back in its savepoint and B's claim commits. A, waiting on B's fingerprint lock, then attached unchecked. That is the sequential case again.
+
+`claimCapturedDocumentForPosting` now runs `findPostedContent` for every spend, and evidence still skips the stamp. `findPostedContent` excludes the document itself, so same-document flows are unaffected.
+
+With the check, both deadlock resolutions are safe:
+- **B the victim:** A waits for B's commit, reads B as booked, and is refused `content_posted`. The provisional still needs evidence.
+- **A the victim:** A's wait on the fingerprint lock raises the deadlock error, which the claim answers `content_busy`. Nothing is written, and B's own auto-attach evidences the provisional with B (the R-127 same-document flow).
+
+Tests in `r088-evidence-attach-check` (3): the sequential case through the real routes, and both deadlock resolutions built by hand. The victim is chosen by raising the other side's `deadlock_timeout`. Mutation: letting evidence skip the check turns the sequential and B-victim tests red.
