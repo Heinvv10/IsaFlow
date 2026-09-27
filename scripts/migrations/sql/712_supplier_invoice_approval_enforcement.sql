@@ -11,7 +11,9 @@
 --      may approve).
 --   2. approval_document_author() — the one definition of "author": the last
 --      editor, or the creator of content nobody has edited since.
---   3. approval_supplier_invoice_rule_matches() — the SQL copy of rule matching.
+--   3. approval_supplier_invoice_gate_amount() — the amount a rule sees, the
+--      larger of what posts and the ZAR value — and
+--      approval_supplier_invoice_rule_matches(), the SQL copy of rule matching.
 --   4. A backstop trigger: a supplier invoice may not ENTER the AP population
 --      (insert into, or move from draft / pending_approval / cancelled to, any
 --      other status) while enforcement is on for the company, an active rule
@@ -59,7 +61,25 @@ SET content_author = public.approval_document_author(ar.company_id, ar.document_
 WHERE ar.status = 'pending' AND ar.document_type = 'supplier_invoice'
   AND ar.content_author IS NULL AND ar.company_id IS NOT NULL;
 
--- ── 3. Does an active rule govern a bill of this amount? ────────────────────
+-- ── 3. The amount a rule sees, and whether an active rule governs it ───────
+-- The amount an approval must cover is the LARGER of what posts and what the
+-- bill is worth in ZAR. approveSupplierInvoice books total_amount into the
+-- ledger; functional_total is the ZAR value of a foreign bill. Matching on the
+-- functional figure alone let an exchange rate steer the rule (review HIGH-1:
+-- a R500 000 ZAR bill at 0.0001 carried R50 and matched nothing, then posted
+-- R500 000); matching on total_amount alone let a USD 5 000 bill (R92 500)
+-- slip under a R50 000 rule. The same function feeds the TypeScript gate
+-- (approvalDocuments.findDocument), this backstop and the preview.
+CREATE OR REPLACE FUNCTION public.approval_supplier_invoice_gate_amount(
+  p_total pg_catalog.numeric, p_functional pg_catalog.numeric
+) RETURNS pg_catalog.numeric
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT GREATEST(COALESCE(p_total, 0), COALESCE(p_functional, p_total, 0))
+$$;
+
+
 -- Mirrors checkApproval (approvalMatching.ts): 'any', and any operator it
 -- cannot evaluate, match (fail closed); a NULL threshold is 0. One SQL copy,
 -- read by the backstop below and by the enforcement preview
@@ -110,7 +130,7 @@ BEGIN
   IF NOT FOUND THEN RETURN NULL; END IF;
 
   IF NOT public.approval_supplier_invoice_rule_matches(
-    NEW.company_id, COALESCE(NEW.functional_total, NEW.total_amount, 0)) THEN
+    NEW.company_id, public.approval_supplier_invoice_gate_amount(NEW.total_amount, NEW.functional_total)) THEN
     RETURN NULL;
   END IF;
 

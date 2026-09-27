@@ -4,7 +4,8 @@
  *
  * Supplier invoices only — the one enforceable type. Counted: bills not yet in
  * the AP population (draft, pending approval; not soft-deleted) that an active
- * rule matches on their functional total (approval_supplier_invoice_rule_matches,
+ * rule matches on the amount the gate sees (approval_supplier_invoice_gate_amount /
+ * approval_supplier_invoice_rule_matches,
  * the SQL copy the backstop trigger reads), and that no approval decided under
  * the CURRENT enforcement clears for their current content. While enforcement
  * is off that is every matching unposted bill: switching on voids earlier
@@ -20,7 +21,8 @@ export async function previewEnforcement(companyId: string): Promise<Partial<Rec
     FROM supplier_invoices si
     WHERE si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL
       AND COALESCE(si.status, '') IN ('draft', 'pending_approval')
-      AND approval_supplier_invoice_rule_matches(si.company_id, COALESCE(si.functional_total, si.total_amount, 0))
+      AND approval_supplier_invoice_rule_matches(
+        si.company_id, approval_supplier_invoice_gate_amount(si.total_amount, si.functional_total))
       AND NOT EXISTS (
         SELECT 1 FROM approval_requests ar
         JOIN approval_enforcement ae ON ae.company_id = ar.company_id AND ae.document_type = ar.document_type
