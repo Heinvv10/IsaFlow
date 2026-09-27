@@ -69,6 +69,8 @@ it('marks each category blocking/non-blocking with its count and items', async (
   expect(body.totalExceptions).toBe(2);
   const byType = Object.fromEntries(body.categories.map((c: { type: string }) => [c.type, c]));
   expect(byType.uncodedGlLines).toMatchObject({ blocking: true, count: 1 });
+  // Still blocking (Hein, 2026-09-26): unsupportedInputVat now only holds
+  // amount_mismatch / document_over_claimed rows — the figures are wrong.
   expect(byType.unsupportedInputVat).toMatchObject({ blocking: true, count: 1, items: [{ journalEntryId: 'je-1' }] });
   expect(byType.declaredElsewhereVat).toMatchObject({ blocking: false, count: 1 });
   expect(byType.inputVatWithoutTaxInvoice).toMatchObject({ blocking: false, count: 0 });

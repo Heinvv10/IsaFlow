@@ -10,6 +10,7 @@ import {
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
 import { roundHours, lineTotalFor } from './practiceTimeEntryTypes';
 import { getEntryTemplate } from './practiceEntryTemplateService';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 export interface BulkFromTemplateInput {
   templateId: string;
@@ -185,6 +186,7 @@ export async function approvePracticeEntries(
   ids: string[],
   approverUserId: string,
 ): Promise<number> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   if (!ids.length) return 0;
   const rows = (await sql`
     UPDATE time_entries

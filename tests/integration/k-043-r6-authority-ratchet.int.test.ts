@@ -22,6 +22,11 @@
  * a rebind may only raise it, and the decide path demands the HIGHER of the
  * snapshot and the bound rule's live role. New facts may make a pending request
  * stricter; nothing may make it laxer.
+ *
+ * Since R-048 the admin can no longer pull these levers on an admin-level rule
+ * at all — weakening needs a rank above it. The OWNER still can, legitimately,
+ * so the cases below drive each lever as the owner: a policy change must not
+ * reach back into a request already pending.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -29,7 +34,7 @@ import { SignJWT } from 'jose';
 import approvalRules from '../../pages/api/accounting/approval-rules';
 import approvalRequests from '../../pages/api/accounting/approval-requests';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
-import { deletePlantedDocuments, plantDocument } from './approval-document.helpers';
+import { deletePlantedDocuments, plantDocument, withExpectedDigest } from './approval-document.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -40,7 +45,7 @@ const owner = crypto.randomUUID();
 const users = [admin, manager, owner];
 const tokens: Record<string, string> = {};
 
-const sign = (id: string) => new SignJWT({ sub: id, aal: 'aal2' })
+const sign = (id: string) => new SignJWT({ sub: id, aal: 'aal2', session_id: crypto.randomUUID() })
   .setProtectedHeader({ alg: 'HS256' })
   .setExpirationTime('1h')
   .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -78,11 +83,11 @@ afterAll(async () => {
   }
 });
 
-function call(handler: typeof approvalRules, as: string, companyId: string, method: string, body: unknown, query: Record<string, string> = {}) {
+async function call(handler: typeof approvalRules, as: string, companyId: string, method: string, body: unknown, query: Record<string, string> = {}) {
   const req = request({ 'sb-access-token': tokens[as]!, active_company_id: companyId }, method) as never as {
     body: unknown; query: Record<string, string>; url: string;
   };
-  req.body = body;
+  req.body = await withExpectedDigest(pool, body);
   req.query = query;
   req.url = '/api/accounting/approval-requests';
   const result = response();
@@ -125,9 +130,9 @@ describe('HIGH-1 lever A — the rebind may not move a request onto a laxer rule
   it('refuses the manager after the bound rule is raised out of range and the request re-POSTed', async () => {
     const { company, adminRule, managerRule, documentId, requestId } = await raisedUnderTheAdminRule();
 
-    // The lever: the admin edits a rule AT THEIR OWN RANK, which rule authority
-    // permits, so that the admin rule no longer matches a R500 000 invoice.
-    const edited = await call(approvalRules, admin, company, 'PUT', { id: adminRule, conditionValue: 10000000 });
+    // The lever: the admin rule is re-thresholded so it no longer matches a
+    // R500 000 invoice (by the owner — R-048 refuses the admin).
+    const edited = await call(approvalRules, owner, company, 'PUT', { id: adminRule, conditionValue: 10000000 });
     expect(edited.state.statusCode).toBe(200);
 
     const reRaised = await call(approvalRequests, admin, company, 'POST', {
@@ -157,7 +162,7 @@ describe('HIGH-1 lever A — the rebind may not move a request onto a laxer rule
   it("refuses the manager when the bound rule is DEACTIVATED instead of re-thresholded", async () => {
     const { company, adminRule, documentId, requestId } = await raisedUnderTheAdminRule();
 
-    const edited = await call(approvalRules, admin, company, 'PUT', { id: adminRule, isActive: false });
+    const edited = await call(approvalRules, owner, company, 'PUT', { id: adminRule, isActive: false });
     expect(edited.state.statusCode).toBe(200);
     await call(approvalRequests, admin, company, 'POST', {
       action: 'request', documentType: 'supplier_invoice', documentId,
@@ -174,8 +179,8 @@ describe('HIGH-1 lever B — the bound rule may not be handed down under a pendi
     const { company, adminRule, requestId } = await raisedUnderTheAdminRule();
 
     // No rebind, no re-POST, no document edit: one PUT the rule-authority guard
-    // allows, because an admin may demand `manager`.
-    const handedDown = await call(approvalRules, admin, company, 'PUT', { id: adminRule, approverRole: 'manager' });
+    // allows the owner, who ranks above the rule.
+    const handedDown = await call(approvalRules, owner, company, 'PUT', { id: adminRule, approverRole: 'manager' });
     expect(handedDown.state.statusCode).toBe(200);
     expect((await pool.query('SELECT approver_role FROM approval_rules WHERE id=$1', [adminRule])).rows[0].approver_role)
       .toBe('manager');
@@ -190,7 +195,7 @@ describe('HIGH-1 lever B — the bound rule may not be handed down under a pendi
     // to everything raised from then on, or it would be unusable.
     const company = await newCompany();
     const rule = await plantRule(company, 'r6 admin any', 'supplier_invoice', 'admin');
-    await call(approvalRules, admin, company, 'PUT', { id: rule, approverRole: 'manager' });
+    expect((await call(approvalRules, owner, company, 'PUT', { id: rule, approverRole: 'manager' })).state.statusCode).toBe(200);
     const documentId = await plantDocument(pool, company, 'supplier_invoice', 500000, admin);
 
     await call(approvalRequests, admin, company, 'POST', {
@@ -247,9 +252,12 @@ describe('adjacent cases', () => {
     const ownerRule = await plantRule(company, 'r6 legacy owner', 'supplier_invoice', 'owner');
     const documentId = await plantDocument(pool, company, 'supplier_invoice', 500000, admin);
     const requestId = crypto.randomUUID();
+    // document_digest: migration 708 binds every pending supplier-invoice row
+    // to the bill's content as it stood when it ran, so a legacy row carries
+    // one; without it the approve is a 409 DOCUMENT_CHANGED (R-035).
     await pool.query(
-      `INSERT INTO approval_requests(id,company_id,rule_id,document_type,document_id,amount,requested_by,required_role)
-       VALUES($1,$2,$3,'supplier_invoice',$4,500000,$5,NULL)`,
+      `INSERT INTO approval_requests(id,company_id,rule_id,document_type,document_id,amount,requested_by,required_role,document_digest)
+       VALUES($1,$2,$3,'supplier_invoice',$4,500000,$5,NULL,approval_document_digest($2,'supplier_invoice',$4))`,
       [requestId, company, ownerRule, documentId, admin]);
 
     const tooLow = await call(approvalRequests, manager, company, 'POST', { action: 'approve', requestId });

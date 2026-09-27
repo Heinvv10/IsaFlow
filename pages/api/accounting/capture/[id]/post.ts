@@ -29,6 +29,7 @@ import {
   type PublishedDecision,
 } from '@/modules/accounting/services/capture/capturePostFollowUps';
 import {
+  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE,
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CaptureRowLockTimeoutError,
   claimCapturedDocumentForPosting,
@@ -195,9 +196,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   //
   // This is the last point at which a 4xx is safe here: everything above is a
   // SELECT or a pure function, and a refusal matched no row.
-  const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId);
+  const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'invoice' });
   if (claimRefusal) {
-    return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
+    return apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[claimRefusal], CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
   }
 
   // ONE producer of duplicate_fingerprint, never an inline expression. This
@@ -247,6 +248,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     eventId,
     documentId,
     invoiceId: invoice.id as string,
+    invoiceStatus: String(invoice.status),
     supplierId: supplierMatch.supplierId,
     supplierName: supplierMatch.supplierName,
     vendorVatNumber: extracted.vendorVatNumber,
@@ -255,12 +257,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     decision: publishedDecision,
   });
 
+  const finalStatus = provisionalAttach.settlementRefused ? 'draft' : invoice.status; // R-127: withdrawn auto-approval
+  const finalRoute = provisionalAttach.settlementRefused ? 'manual_review' : approvalRoute;
   if (publishedDecision.outcome === 'route_review') {
     return apiResponse.success(res, {
-      invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: invoice.status },
+      invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: finalStatus },
       supplierMatch: { name: supplierMatch.supplierName, confidence: supplierMatch.confidence },
       pipelineConfidence,
-      approvalRoute,
+      approvalRoute: finalRoute,
       warnings: validation.warnings,
       reason: 'routed for review',
       reasons: publishedDecision.reasons,
@@ -270,10 +274,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   return apiResponse.success(res, {
-    invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: invoice.status },
+    invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: finalStatus },
     supplierMatch: { name: supplierMatch.supplierName, confidence: supplierMatch.confidence },
     pipelineConfidence,
-    approvalRoute,
+    approvalRoute: finalRoute,
     warnings: validation.warnings,
     gateOutcome: publishedDecision.outcome,
     gateReason: publishedDecision.reason,

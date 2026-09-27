@@ -24,7 +24,7 @@ import { SignJWT } from 'jose';
 import approvalRules from '../../pages/api/accounting/approval-rules';
 import approvalRequests from '../../pages/api/accounting/approval-requests';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
-import { deletePlantedDocuments, plantDocument } from './approval-document.helpers';
+import { deletePlantedDocuments, plantDocument, withExpectedDigest } from './approval-document.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -35,7 +35,7 @@ const owner = crypto.randomUUID();
 const users = [admin, manager, owner];
 const tokens: Record<string, string> = {};
 
-const sign = (id: string) => new SignJWT({ sub: id, aal: 'aal2' })
+const sign = (id: string) => new SignJWT({ sub: id, aal: 'aal2', session_id: crypto.randomUUID() })
   .setProtectedHeader({ alg: 'HS256' })
   .setExpirationTime('1h')
   .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -78,11 +78,11 @@ afterAll(async () => {
   }
 });
 
-function call(handler: typeof approvalRules, as: string, companyId: string, method: string, body: unknown, query: Record<string, string> = {}) {
+async function call(handler: typeof approvalRules, as: string, companyId: string, method: string, body: unknown, query: Record<string, string> = {}) {
   const req = request({ 'sb-access-token': tokens[as]!, active_company_id: companyId }, method) as never as {
     body: unknown; query: Record<string, string>; url: string;
   };
-  req.body = body;
+  req.body = await withExpectedDigest(pool, body);
   req.query = query;
   req.url = '/api/accounting/approval-requests';
   const result = response();
@@ -345,7 +345,8 @@ describe('MEDIUM-2 — deleting a rule that has requests is a 400, not a 500 wit
        VALUES($1,$2,$3,'customer_invoice',$4,100,'pending',$5)`,
       [crypto.randomUUID(), company, ruleId, crypto.randomUUID(), admin]);
 
-    const deleted = await call(approvalRules, admin, company, 'DELETE', { id: ruleId }, { id: ruleId });
+    // The owner: deleting an admin-level rule needs a rank above it (R-048).
+    const deleted = await call(approvalRules, owner, company, 'DELETE', { id: ruleId }, { id: ruleId });
     expect(deleted.state.statusCode).toBe(400);
     const message = (deleted.state.body as { error?: { message?: string } }).error?.message ?? '';
     expect(message).toContain('cannot be deleted');

@@ -9,6 +9,7 @@ import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { safeCorsOrigin } from '@/lib/cors';
 import { redactShareToken, redactTokenParams } from '@/lib/observability/redactShareToken';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 const SENSITIVE_KEYS = new Set([
   'password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key',
@@ -157,6 +158,11 @@ export function withErrorHandler(
         // could not tell the two apart. 503 (not 4xx) because 55P03 leaves the
         // transaction aborted and withAuth must ROLLBACK; see apiDocumentLock.
         if (respondIfLockTimeout(res, error)) {
+          return;
+        }
+        // R-032 L5: a Login-as session refused by an approving service — raised
+        // before that service reads or writes anything.
+        if (respondIfImpersonationForbidden(res, error)) {
           return;
         }
 

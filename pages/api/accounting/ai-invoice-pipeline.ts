@@ -28,14 +28,14 @@ import {
 } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import {
-  CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
+  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE, CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CaptureRowLockTimeoutError,
   claimCapturedDocumentForPosting,
   lockCapturedDocumentForUpdate,
   refusalForPosting,
 } from '@/modules/accounting/services/capture/captureRowLock';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
-import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
+import { attachEvidenceAndSettleApproved } from '@/modules/accounting/services/capture/provisionalAttachSettle';
 import { resolvePendingAlertForInvoice } from '@/modules/accounting/services/capture/alertResolutionService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -174,9 +174,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // This is the last point at which a 4xx is safe here: everything between the
   // duplicate branch and this line is a SELECT or a pure function, and a refusal
   // matched no row.
-  const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId);
+  const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'invoice' });
   if (claimRefusal) {
-    return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
+    return apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[claimRefusal], CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
   }
 
   // Create supplier invoice (evidence columns stamped; hash backfilled by worker)
@@ -259,19 +259,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     log.error('3-way match failed post-pipeline — continuing', { invoiceId: invoice.id, error: matchErr }, 'ai-pipeline');
   }
 
-  // Attempt to attach evidence to a matching provisional JE (best-effort, non-blocking)
-  let provisionalAttach: { attachedJeId: string | null; bankTxId: string | null } = { attachedJeId: null, bankTxId: null };
-  try {
-    provisionalAttach = await attachEvidenceToProvisional(
-      companyId,
-      documentId,
-      supplierMatch.supplierId,
-      invoiceInput.totalAmount,
-      invoiceInput.invoiceDate,
-    );
-  } catch (attachErr) {
-    log.warn('Evidence attach to provisional JE failed — continuing', { documentId, error: attachErr }, 'ai-pipeline');
-  }
+  // Attach evidence to a matching provisional JE and, when this invoice was
+  // auto-approved, settle it against that provisional (R-127). Best-effort: never throws.
+  const provisionalAttach = await attachEvidenceAndSettleApproved({
+    companyId, userId, documentId, invoiceId: invoice.id as string, invoiceStatus: String(invoice.status),
+    supplierId: supplierMatch.supplierId, totalAmount: invoiceInput.totalAmount, invoiceDate: invoiceInput.invoiceDate,
+  });
 
   // Best-effort alert resolution — non-blocking
   resolvePendingAlertForInvoice(
@@ -292,10 +285,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }, 'ai-pipeline');
 
   return apiResponse.success(res, {
-    invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: invoice.status },
+    invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: provisionalAttach.settlementRefused ? 'draft' : invoice.status },
     supplierMatch: { name: supplierMatch.supplierName, confidence: supplierMatch.confidence },
     pipelineConfidence,
-    approvalRoute,
+    approvalRoute: provisionalAttach.settlementRefused ? 'manual_review' : approvalRoute,
     warnings: validation.warnings,
     threeWayMatch,
     provisionalAttach,

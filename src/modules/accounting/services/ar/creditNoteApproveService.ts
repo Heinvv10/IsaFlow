@@ -23,6 +23,7 @@ import {
   deriveCreditNoteStatus,
   type CreditNoteAutoApply,
 } from '../shared/creditNoteFifo';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 /**
  * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
@@ -43,6 +44,7 @@ export async function approveCreditNote(
   // to list_agent_postings, which filters posting_agent LIKE 'mcp:%'.
   opts?: ApproveCreditNoteOpts,
 ): Promise<CreditNote> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   try {
     // FOR UPDATE, not a plain SELECT: the status check below and the posting
     // that follows are a check-then-act pair. Two concurrent approvals of the

@@ -18,7 +18,7 @@ import { SignJWT } from 'jose';
 import approvalRules from '../../pages/api/accounting/approval-rules';
 import approvalRequests from '../../pages/api/accounting/approval-requests';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
-import { deletePlantedDocuments, plantDocument } from './approval-document.helpers';
+import { deletePlantedDocuments, plantDocument, withExpectedDigest } from './approval-document.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -29,7 +29,7 @@ const owner = crypto.randomUUID();
 const users = [admin, manager, owner];
 const tokens: Record<string, string> = {};
 
-const sign = (id: string) => new SignJWT({ sub: id, aal: 'aal2' })
+const sign = (id: string) => new SignJWT({ sub: id, aal: 'aal2', session_id: crypto.randomUUID() })
   .setProtectedHeader({ alg: 'HS256' })
   .setExpirationTime('1h')
   .sign(new TextEncoder().encode(process.env.JWT_SECRET));
@@ -59,11 +59,11 @@ afterAll(async () => {
   }
 });
 
-function call(handler: typeof approvalRules, as: string, method: string, body: unknown, query: Record<string, string> = {}) {
+async function call(handler: typeof approvalRules, as: string, method: string, body: unknown, query: Record<string, string> = {}) {
   const req = request({ 'sb-access-token': tokens[as]!, active_company_id: alpha }, method) as never as {
     body: unknown; query: Record<string, string>; url: string;
   };
-  req.body = body;
+  req.body = await withExpectedDigest(pool, body);
   req.query = query;
   req.url = '/api/accounting/approval-rules';
   const result = response();

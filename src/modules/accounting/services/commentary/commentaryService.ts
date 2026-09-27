@@ -15,6 +15,7 @@ import { log } from '@/lib/logger';
 import { nextStatus, type CommentaryStatus } from './commentaryState';
 import { buildDraftSentences, type CommentaryPackData } from './commentaryDraft';
 import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 export interface CommentaryRow {
   id: string;
@@ -156,6 +157,7 @@ async function currentRow(
 }
 
 export async function approveCommentary(companyId: string, id: string, userId: string): Promise<CommentaryResult> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const row = await currentRow(companyId, id);
   if (!row) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
   // An approval is a person putting their name to a sentence. There is no
@@ -187,6 +189,7 @@ export async function approveCommentary(companyId: string, id: string, userId: s
 }
 
 export async function rejectCommentary(companyId: string, id: string, userId: string): Promise<CommentaryResult> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const row = await currentRow(companyId, id);
   if (!row) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
 

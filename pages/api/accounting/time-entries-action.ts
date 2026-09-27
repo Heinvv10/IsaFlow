@@ -14,6 +14,7 @@ import {
   approveEntries,
   markAsInvoiced,
 } from '@/modules/accounting/services/core/timeTrackingService';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -46,6 +47,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
     log.error('Time entry action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequestFromError(res, err, 'Action failed');
   }

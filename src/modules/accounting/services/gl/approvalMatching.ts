@@ -132,6 +132,7 @@ export function mapRequest(r: Record<string, unknown>): ApprovalRequest {
     documentId: String(r.document_id),
     documentReference: r.document_reference != null ? String(r.document_reference) : null,
     amount: r.amount ? Number(r.amount) : null,
+    documentDigest: r.document_digest != null ? String(r.document_digest) : null,
     status: String(r.status) as ApprovalStatus,
     requestedBy: String(r.requested_by),
     requestedByName: r.requested_by_name ? String(r.requested_by_name) : undefined,
