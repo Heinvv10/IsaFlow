@@ -20,7 +20,7 @@ import { getLedgerVAT201 } from '@/modules/accounting/services/reports/vat201Led
 import { getVatExceptions } from '@/modules/accounting/services/reports/vatExceptionsService';
 import {
   COMPANY_ID, PERIOD_START, PERIOD_END,
-  makeVat201, makeUncodedRow, makeTaxIssueRow, makeMismatchRow, makeBalanceSheetVatRow,
+  makeVat201, makeUncodedRow, makeTaxIssueRow, makeBillTaxIssueRow, makeMismatchRow, makeBalanceSheetVatRow,
   makeNonSupplyVatRow, mockExceptionsSql,
 } from './vatExceptionsTestUtils';
 
@@ -80,18 +80,14 @@ describe('getVatExceptions — uncoded GL VAT lines', () => {
   });
 });
 
-describe('getVatExceptions — invoice tax-code issues', () => {
-  it('flags missing tax rate and rate-without-VAT across both invoice kinds', async () => {
+describe('getVatExceptions — invoice tax-code issues (customer, BLOCKING)', () => {
+  it('flags a missing tax rate and a rate-without-VAT on customer invoices only', async () => {
     mockExceptionsSql({
-      customerTaxIssues: [makeTaxIssueRow()],
-      supplierTaxIssues: [
+      customerTaxIssues: [
+        makeTaxIssueRow({ total_count: '2' }),
         makeTaxIssueRow({
-          invoice_id: 'si-1',
-          invoice_number: 'SINV-001',
-          counterparty_name: 'Gamma Suppliers',
-          tax_rate: '15.00',
-          tax_amount: '0',
-          subtotal: '2000.00',
+          invoice_id: 'ci-2', invoice_number: 'INV-002', counterparty_name: 'Beta CC',
+          tax_rate: '15.00', tax_amount: '0', subtotal: '500.00', total_count: '2',
         }),
       ],
     });
@@ -100,15 +96,78 @@ describe('getVatExceptions — invoice tax-code issues', () => {
     const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
 
     expect(report.invoiceTaxCodeIssueCount).toBe(2);
-    const [customer, supplier] = report.invoiceTaxCodeIssues;
-    expect(customer!.invoiceKind).toBe('customer');
-    expect(customer!.issue).toBe('missing_tax_rate');
-    expect(customer!.taxRate).toBeNull();
-    expect(customer!.subtotal).toBe(1000);
-    expect(supplier!.invoiceKind).toBe('supplier');
-    expect(supplier!.issue).toBe('rate_without_vat');
-    expect(supplier!.taxRate).toBe(15);
+    const [missing, rateWithoutVat] = report.invoiceTaxCodeIssues;
+    expect(missing!.invoiceKind).toBe('customer');
+    expect(missing!.issue).toBe('missing_tax_rate');
+    expect(missing!.taxRate).toBeNull();
+    expect(missing!.subtotal).toBe(1000);
+    expect(rateWithoutVat!.invoiceKind).toBe('customer');
+    expect(rateWithoutVat!.issue).toBe('rate_without_vat');
+    expect(rateWithoutVat!.taxRate).toBe(15);
     expect(report.totalExceptions).toBe(2);
+  });
+});
+
+// Hein's decision, 2026-09-27: the pre-filing gate blocks only where the
+// return's figures could be wrong in SARS's favour AGAINST THE VENDOR. A
+// supplier bill with no tax rate, or a rate but zero VAT, can only mean LESS
+// input VAT was claimed than the bill's own rate supports — never more — so
+// it is a non-blocking warning, not a blocking exception.
+describe('getVatExceptions — supplier bill tax-code issues (NOT blocking)', () => {
+  it('a bill with a rate but zero VAT is a warning, not an exception — with its potential input VAT', async () => {
+    mockExceptionsSql({
+      supplierTaxIssues: [makeBillTaxIssueRow()],
+    });
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+
+    const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    expect(report.invoiceTaxCodeIssues).toEqual([]);
+    expect(report.invoiceTaxCodeIssueCount).toBe(0);
+    expect(report.billTaxCodeWarningCount).toBe(1);
+    const [warning] = report.billTaxCodeWarnings;
+    expect(warning!.invoiceKind).toBe('supplier');
+    expect(warning!.issue).toBe('rate_without_vat');
+    expect(warning!.taxRate).toBe(15);
+    expect(warning!.subtotal).toBe(2000);
+    expect(warning!.potentialInputVat).toBe(300);
+    expect(report.billTaxCodeWarningPotentialVat).toBe(300);
+    // The whole point: it must NOT reach the blocking gate.
+    expect(report.totalExceptions).toBe(0);
+  });
+
+  it('a bill with tax_rate NULL is also a warning, not an exception', async () => {
+    mockExceptionsSql({
+      supplierTaxIssues: [makeBillTaxIssueRow({ tax_rate: null, potential_vat_total: '0' })],
+    });
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+
+    const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    expect(report.billTaxCodeWarningCount).toBe(1);
+    const [warning] = report.billTaxCodeWarnings;
+    expect(warning!.issue).toBe('missing_tax_rate');
+    expect(warning!.taxRate).toBeNull();
+    expect(warning!.potentialInputVat).toBe(0);
+    expect(report.billTaxCodeWarningPotentialVat).toBe(0);
+    expect(report.totalExceptions).toBe(0);
+  });
+
+  it('caps the list at 100 rows while the count reflects every matching bill', async () => {
+    const rows = Array.from({ length: 100 }, (_, i) =>
+      makeBillTaxIssueRow({ invoice_id: `si-${i}`, total_count: '150', potential_vat_total: '30000.00' }),
+    );
+    mockExceptionsSql({ supplierTaxIssues: rows });
+    vi.mocked(getLedgerVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+
+    const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    expect(report.billTaxCodeWarnings).toHaveLength(100);
+    expect(report.billTaxCodeWarningCount).toBe(150);
+    // The window SUM is the true total over all 150 matching rows, not just
+    // the 100 kept in the page.
+    expect(report.billTaxCodeWarningPotentialVat).toBe(30000);
+    expect(report.totalExceptions).toBe(0);
   });
 });
 
