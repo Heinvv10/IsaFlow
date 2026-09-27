@@ -190,7 +190,7 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
   // ranks the one it is being moved to. Ranking only the current role let an
   // admin lower an admin-level rule to `viewer`.
   assertMayDemand(actor, input.approverRole);
-  const before = await assertMayEditRule(companyId, id, actor);
+  const before = await assertMayEditRule(companyId, id, actor, input);
   if (!before) throw new ApprovalRuleNotFoundError(id);
   const rows = (await sql`
     UPDATE approval_rules SET
@@ -210,7 +210,7 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
 
 /** False when the id names no rule this company owns — the route answers 404. */
 export async function deleteRule(companyId: string, id: string, actor: RuleActor): Promise<boolean> {
-  const before = await assertMayEditRule(companyId, id, actor);
+  const before = await assertMayEditRule(companyId, id, actor, 'delete');
   if (!before) return false;
   const rows = (await sql`
     DELETE FROM approval_rules WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id
