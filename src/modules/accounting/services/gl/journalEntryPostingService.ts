@@ -16,6 +16,7 @@ import {
 import { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError } from './journalEntryReversalDate';
 import { VatPeriodLockedError } from './journalVatLockGuard';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
+import { refuseReversingSettlementJournal } from '../ap/provisionalSettlementGuards';
 import { postJournalEntry } from './journalEntryPostService';
 import {
   LateClaimCompanionReversalError, copyLateClaimBaseToReversal, planLateClaimCompanionReversal,
@@ -94,6 +95,7 @@ async function reverseJournalEntryInner(
     if (entry.source === 'auto_vat_late_claim' && !opts?.lateClaimCascade) {
       throw new LateClaimCompanionReversalError(entry.entryNumber);
     }
+    await refuseReversingSettlementJournal(companyId, entry); // R-127: either half of a bank-first settlement
 
     // Debits and credits swap; every dimension and the VAT classification come
     // across unchanged EXCEPT a legacy tag naming another company's project,

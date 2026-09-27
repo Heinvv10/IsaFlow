@@ -1,0 +1,93 @@
+# R-127 mutations — each applied alone to a backup-copied file, the named test run,
+# the file restored FROM THE BACKUP and `cmp`-verified identical (restored_identical=True every time).
+# file key: S = ap/provisionalInvoiceSettlement.ts, W = ap/supplierInvoiceWorkflowService.ts,
+#           A = capture/provisionalAttachSettle.ts
+M1  S  drop `je.company_id = $companyId` from the claim query
+    -> guards "another company's provisional carrying the same slip id is ignored"
+    -> Error: Provisional journal <id> not found in company <id>
+       (first run: SURVIVED — getJournalEntryById's own company scope turned the foreign
+        journal into a silent `continue`; that null is impossible for a same-company
+        candidate, so it now throws, and the mutation goes red)
+M2  S  drop `je.status = 'posted'`      -> guards "a provisional that never posted (draft) is not used"   -> expected 'paid' to be 'approved'
+M3  S  drop `je.reversed_at IS NULL`    -> guards "a reversed provisional is not used"                    -> expected 'paid' to be 'approved'
+M4  S  drop `je.needs_evidence = false` -> guards "a provisional still needing evidence is not used, ..." -> expected 'paid' to be 'approved'
+M5  S  drop the live-payment claim check (`if (taken.length > 0) continue`)
+    -> guards "one provisional, two invoices from the same slip: only the first is settled by it"
+    -> error: duplicate key value violates unique constraint "uq_supplier_payments_settles_provisional_je"
+       (the migration-711 index is the backstop; the approval fails instead of completing)
+M6  S  drop `FOR UPDATE OF je`
+    -> race "the second approval waits for the first, then approves without reusing the provisional"
+    -> error: duplicate key value violates unique constraint "uq_gl_je_company_entry_number"
+       (unserialised, B proceeds past the claim check before A commits and fails on the
+        JE-number race — the second approval errors instead of completing)
+M7  W  approve: settle call disabled    -> double-booking "books the R115 bill once ..."                 -> expected 200 to be 100
+M8  W  Post to GL: settle call removed  -> capture "Post to GL on an approved, unposted invoice ..."     -> expected 'approved' to be 'paid'
+M9  S  application not capped (`Math.min(...)` -> bank amount)
+    -> guards "invoice R120 < bank R140: settles the invoice in full and leaves R20 unapplied"
+    -> SupplierPaymentRefusal: R140.00 exceeds the R120.00 outstanding on invoice R127-<id>.
+M10 A  withSavepoint removed
+    -> capture "a settlement that fails AFTER the invoice journal posted rolls back whole, and only itself"
+    -> expected null to be '<doc id>' (the whole request, attach included, rolled back)
+       (first run: SURVIVED against the no-items case — its failure is a JS validation error
+        before any SQL, so nothing needed a savepoint; the trigger-injected test was added)
+M11 S  line-shape refusal disabled (`if (false)`)
+    -> guards "a provisional whose lines do not add up to its bank line refuses the approval ..."
+    -> expected [Function] to throw error matching /do not match its bank line/ but got 'Invalid journal entry: Entry is not b…'
+M12 A  status check removed (settle attempted for non-approved inserts) -> SURVIVED (all 4 green).
+       Masked by R-118: postSupplierInvoiceToGL refuses a draft before any write, and the
+       refusal is caught as best-effort. Kept anyway so a draft is not sent down that path.
+M12' A settle removed entirely (`return attached`) -> capture "ai-invoice-pipeline: ..." -> expected null not to be null
+M13 DB DROP INDEX uq_supplier_payments_settles_provisional_je on the fixture
+    -> guards "the database refuses a second live payment on one provisional, and a cancelled one releases it"
+    -> AssertionError: promise resolved "Result{ command: 'INSERT', …(9) }" instead of rejecting
+       (index re-created by re-running 711; pg_indexes shows the original definition)
+
+# --- follow-up: void refusal (fix fb0aaa6f7), test file r127-settlement-void; all restored_identical=True
+# G = ap/supplierPaymentGates.ts, V = core/paymentVoidService.ts, P = ap/supplierPaymentService.ts
+V1 G  refusal call removed from voidIfUnprocessed   -> "the supplier-payments-action route answers 400 naming unapply" -> expected 200 to be 400
+V2 V  refusal call removed from voidPaymentDocument -> "the MCP void_payment tool is refused ..."                   -> expected null not to be null
+V3 P  mapPaymentRow drops settlesProvisionalJeId    -> route test                                                  -> expected 200 to be 400
+V4 V  loadPayment maps settlesProvisionalJeId: null -> MCP test                                                    -> expected null not to be null
+V5 G  refusal body returns unconditionally          -> both route and MCP tests                                    -> 200 vs 400; null not to be null
+
+# --- review round (fix 5ec2c3a35); all restored_identical=True
+R1  workflow: approve savepoint removed        -> route-atomic "a settlement failure after the invoice journal posted commits NOTHING" -> snapshot differs
+R2  workflow: Post to GL savepoint removed     -> route-atomic "Post to GL is all-or-nothing on its own ..."                           -> snapshot differs
+R3  claim: VAT-lock pre-check disabled         -> vat-lock "is refused through the route ..." -> message no longer /filed VAT period/ (savepoint keeps snapshot)
+R4  claim: deactivated-account pre-check off   -> route-atomic "deactivated account ..." -> message is postJournalEntry's (savepoint keeps snapshot)
+R5  settle: historical-copy mode removed       -> route-atomic "since-retired cost centre still settles" -> 400 "CC1 must name an active CC1 cost centre"
+R6  reverseJournalEntryInner guard call removed -> settlement-reverse: route provisional, route reclass, MCP, auto-post undo (4 red)
+R7  guard: reclass clause (gl_journal_entry_id) dropped -> "refuses to reverse the settlement's reclass" -> 200 vs 400
+R8  reverseReconciledTransaction line guard removed -> "reverse_bank_allocation on the provisional's own bank line" -> resolved instead of rejecting
+R9  claim: already-settled refusal disabled    -> guards two-invoices, race, void re-approve (3 files, each red: resolved instead of rejecting)
+R10 claim: lock-timeout mapping removed        -> race "contended provisional times out ..." -> 'canceling statement due to lock timeout' not /provisional/
+R11 DB: same-company trigger dropped           -> guards "the database refuses a payment claiming ANOTHER company's provisional" -> INSERT resolved (trigger re-created from 711)
+R12 guard: SETTLEMENT_SOURCES without auto_bank_recon -> route provisional, MCP, undo (3 red)
+Re-run after the move: company filter (M1) and FOR UPDATE (M6) in provisionalSettlementClaim.ts both still red.
+
+# --- re-check round (fix 009bed32b); all restored_identical=True
+U1  gates: settlement branch disabled        -> undo "through the route" 400 (the reversal guard refuses the plain void — defence in depth), + re-allocate, reconciled (3 red)
+U2  paymentVoidService: settlement line removed -> undo "through MCP void_payment" -> expected null not to be null
+U3  void: still-applied refusal disabled     -> "refused while the payment still pays a bill" -> expected 200 to be 400
+U4  void: reconciled refusal disabled        -> "refused while the bank line is reconciled" -> expected 200 to be 400
+U5  void: bank line reset removed            -> route/MCP/re-allocate (3 red) -> expected 'matched' to be 'imported'
+U6  void: provisional reversal removed       -> route/MCP/re-allocate (3 red) -> expected null not to be null (reversed_at)
+U7  void: payment not cancelled (claim held) -> route/MCP/re-allocate (3 red) -> 400 from the reversal guard
+U8  route: unapply action removed            -> "supplier-payments-action unapply ..." -> 400 Unknown action
+U9  page: Unapply button never rendered      -> component (2 red) -> Unable to find role="button" name "Unapply"
+U10 claim: reclass not re-dated              -> vat-lock-later -> 400 "Cannot post on 2026-08-31 ... locked"
+U11 claim: both-filed refusal disabled       -> vat-lock -> message no longer /filed VAT period/ (savepoint keeps the snapshot)
+U12 attach-settle: draft UPDATE neutered     -> capture no-items + post-journal failure (2 red)
+
+# --- undo-round LOWs (fix 2bbb2954b); all restored_identical=True
+L1  page: settlement dialog branch disabled     -> component "a settlement payment's Void says ..." red
+L3  undo: reclass roll forced to null           -> undo-vat "MCP void_payment names the reclass contra's roll" red
+L4  gate: cancelled check removed               -> undo "voiding it again is refused with the ordinary status message" red (500)
+L5a attach-settle: approval fields not cleared  -> capture "no line items ... back to draft" red
+L5b capture/[id]/post: finalStatus = INSERT's   -> capture "capture/[id]/post answers the bill's status" red
+L5c ai-invoice-pipeline: status = INSERT's      -> capture "ai-invoice-pipeline answers draft" red
+
+# --- re-confirm LOWs; all restored_identical=True
+R1 follow-ups: catch-and-continue restored around attachEvidenceAndSettleApproved -> "capture/[id]/post FAILS the request ..." -> expected 200 to be >= 500
+R2 capture/[id]/post: finalRoute = approvalRoute     -> "capture/[id]/post answers the bill's status ..." red
+R3 ai-invoice-pipeline: approvalRoute unconditioned  -> "ai-invoice-pipeline answers draft ..." red

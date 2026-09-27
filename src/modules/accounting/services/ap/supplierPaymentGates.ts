@@ -13,7 +13,9 @@
 import { assertAllocationsStillAllocatable } from './supplierBatchAllocationPlan';
 import { voidUnprocessedPayment } from './supplierPaymentCancel';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { voidProvisionalSettlement } from './provisionalSettlementVoid';
 import type { SupplierPayment } from '../../types/ap.types';
+import type { ProvisionalSettlementMark } from './supplierPaymentService';
 
 function refuseBatchMember(payment: SupplierPayment, action: 'process' | 'void'): void {
   if (!payment.batchId) return;
@@ -37,11 +39,25 @@ export async function assertPaymentStillProcessable(companyId: string, payment: 
 
 /**
  * Void: refuse what may not be voided here; void a draft/approved payment as a
- * status change (it moved nothing) and answer true; answer false for a
- * processed payment, whose journal the caller reverses.
+ * status change (it moved nothing), or undo a bank-first settlement whole, and
+ * answer true; answer false for a processed payment, whose journal the caller reverses.
  */
-export async function voidIfUnprocessed(companyId: string, payment: SupplierPayment): Promise<boolean> {
+export async function voidIfUnprocessed(
+  companyId: string,
+  payment: SupplierPayment & ProvisionalSettlementMark,
+  userId: string,
+): Promise<boolean> {
   refuseBatchMember(payment, 'void');
+  // R-127: a bank-first settlement is undone whole (provisionalSettlementVoid.ts),
+  // or refused while it still pays a bill — never voided as a plain payment.
+  // A cancelled one (already undone) falls through to the ordinary status refusal.
+  if (payment.settlesProvisionalJeId && payment.status !== 'cancelled') {
+    await voidProvisionalSettlement(companyId, {
+      id: payment.id, paymentNumber: payment.paymentNumber,
+      settlesProvisionalJeId: payment.settlesProvisionalJeId, journalEntryId: payment.glJournalEntryId ?? null,
+    }, userId);
+    return true;
+  }
   if (payment.status === 'draft' || payment.status === 'approved') {
     await voidUnprocessedPayment(companyId, payment);
     return true;

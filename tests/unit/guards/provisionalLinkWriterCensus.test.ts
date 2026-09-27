@@ -47,6 +47,13 @@ const CLASSIFICATION: Record<string, { why: string; lines: string[] }> = {
       'SELECT id, status, matched_journal_line_id, provisional_je_id, reconciliation_id',
     ],
   },
+  'src/modules/accounting/services/ap/provisionalSettlementVoid.ts': {
+    why: 'unlink only (= NULL): undoing a bank-first settlement (R-127) frees its bank line; the other line reads the link',
+    lines: [
+      "UPDATE bank_transactions SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()",
+      'WHERE provisional_je_id = ${payment.settlesProvisionalJeId}::UUID AND company_id = ${companyId}::UUID',
+    ],
+  },
   'src/modules/accounting/services/bank/provisionalDismissService.ts': {
     why: 'unlink only (= NULL), keyed on the link',
     lines: [

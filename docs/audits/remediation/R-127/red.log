@@ -1,0 +1,78 @@
+# R-127 RED — commit dee75d345 (tests only; production code as on origin/master c82cb65d2)
+# fixture: isaflow-fixture-r127fix (clone of isaflow-fixture-r112 schema + migrations 692-707)
+$ vitest run --config vitest.integration.config.ts tests/integration/r127-*.int.test.ts
+     × books the R115 bill once: expense R100, VAT R15, AP nil, bank R115 credited once; the invoice reads paid
+     × the second approval waits for the first, then approves without reusing the provisional
+     × one provisional, two invoices from the same slip: only the first is settled by it
+     × invoice R130 > bank R115: settles R115, leaves R15 open on AP, books the invoice's own figures
+     × invoice R120 < bank R140: settles the invoice in full and leaves R20 unapplied on the payment
+     × ai-invoice-pipeline: an auto-approved slip that evidences a provisional ends paid, booked once
+     × Post to GL on an approved, unposted invoice whose slip evidences a provisional settles it
+ FAIL  r127-capture-auto-approve > ai-invoice-pipeline: ...        AssertionError: expected null not to be null
+ FAIL  r127-capture-auto-approve > Post to GL on an approved, ...  AssertionError: expected 'approved' to be 'paid'
+ FAIL  r127-double-booking > books the R115 bill once: ...          AssertionError: expected 200 to be 100
+ FAIL  r127-provisional-settle-guards > one provisional, two ...    AssertionError: expected 'approved' to be 'paid'
+ FAIL  r127-provisional-settle-guards > invoice R130 > bank R115    AssertionError: expected 'approved' to be 'partially_paid'
+ FAIL  r127-provisional-settle-guards > invoice R120 < bank R140    AssertionError: expected 'approved' to be 'paid'
+ FAIL  r127-provisional-settle-race > the second approval waits...  AssertionError: expected 'approved' to be 'paid'
+ Test Files  4 failed (4)
+      Tests  7 failed | 6 passed (13)
+# The 6 passing at RED pin pre-fix behaviour that must not change: no provisional,
+# not evidenced, reversed, draft, other tenant, capture/[id]/post no-items shape.
+
+# --- follow-up: void refusal (Hein option C) — RED commit e18c4b0d1 ---
+$ vitest run --config vitest.integration.config.ts tests/integration/r127-settlement-void.int.test.ts
+     × the supplier-payments-action route answers 400 naming unapply
+     × the MCP void_payment tool is refused with a coded refusal naming unapply
+ FAIL  ... > the supplier-payments-action route answers 400 naming unapply
+AssertionError: expected 200 to be 400 // Object.is equality
+ FAIL  ... > the MCP void_payment tool is refused with a coded refusal naming unapply
+AssertionError: expected null not to be null
+      Tests  2 failed | 4 passed (6)
+# The 4 passing pin existing behaviour: tenant not-found, unapply figures, re-apply, claim held.
+
+# --- review round RED — commit f3337c3e9 (13 failed | 19 passed) ---
+ × is refused through the route with nothing written, VAT claimed once
+   AssertionError: expected '{"success":false,"error":{"code":"BAD…' to match /filed VAT period/i
+   (log: "Late input VAT claim split" claimDate 2026-10-01 — the invoice journal posted, then 400, committed)
+ × a settlement failure after the invoice journal posted commits NOTHING
+   AssertionError: expected { Object (invoice, journals, ...) } to deeply equal { …(5) }
+ × a provisional line on an inactive account and an inactive cost centre still settles
+   expected 400 to be 200 — "CC1 must name an active CC1 cost centre in this company"
+   (split after RED into the retired-CC test and the deactivated-account refusal; both proven by R5 / R4)
+ × journal-entries-action refuses to reverse the provisional            expected 200 to be 400
+ × journal-entries-action refuses to reverse the settlement's reclass   expected 200 to be 400
+ × MCP reverse_journal_entry answers the refusal                        expected undefined to be true
+ × the auto-post undo skips the settled provisional's line              expected 1 to be +0
+ × reverse_bank_allocation on the provisional's own bank line           promise resolved "{ invoicesReopened: +0, …(2) }"
+ × the reopened bill cannot be settled a second time                    promise resolved "{ …(31) }" instead of rejecting
+ × one provisional, two invoices: the second is REFUSED                 promise resolved "{ …(31) }" instead of rejecting
+ × the database refuses a payment claiming ANOTHER company's provisional  promise resolved "Result{ command: 'INSERT' …"
+ × the second approval waits, then is refused                           promise resolved "{ …(31) }" instead of rejecting
+ × a contended provisional times out naming the provisional             expected 'Supplier invoice 8f2ce84a-…' to match /provisional/i
+
+# --- re-check round RED — commit afc920625 (10 integration failed | 32 passed; 2 component failed | 2 passed) ---
+ × supplier-payments-action unapply ...             expected 400 to be 200 — "Unknown action: unapply"
+ × through the route: both journals reversed ...     expected 400 to be 200 — "... cannot be voided ... Unapply it instead (unapply_supplier_payment) ..."
+ × through MCP void_payment: the same undo           (coded refusal thrown)
+ × after the undo the bank line pays the bill once   expected 400 to be 200
+ × refused while the payment still pays a bill, pointing to the Unapply action   expected '…' to match /Unapply on the payment/
+ × refused while the bank line is reconciled          expected '…' to match /reconcil/i
+ × is refused through the route ... (filed VAT)       expected '…' not to match /reverse it first/i
+ × settles, dating the reclass with the provisional   expected 400 to be 200 — "This bill is dated in a filed VAT period (2026-08-01 to 2026-08-31) ..."
+ × capture/[id]/post shape ... back to draft          expected 'approved' to be 'draft'
+ × a settlement that fails AFTER the invoice journal  expected 'approved' to be 'draft'
+ × (component) a processed / reconciled payment that pays bills offers Unapply   Unable to find role="button" and name "Unapply"
+
+# --- undo-round LOWs RED — commit e5114c596 (5 integration failed | 41 passed; 1 component failed) ---
+ × MCP void_payment names the reclass contra's roll ...          expected undefined to be truthy
+ × capture/[id]/post shape ... back to draft, off AP             expected { …(2) } to deeply equal { approved_by: null, approved_at: null }
+ × capture/[id]/post answers the bill's status as it ends         expected 'approved' to be 'draft'
+ × ai-invoice-pipeline answers draft when ... refused              expected 'approved' to be 'draft'
+ × voiding it again is refused with the ordinary status message   expected 500 to be 400
+ × (component) a settlement payment's Void says it reverses the settlement ...   Unable to find /reverses the settlement and the bank-first provisional journal/
+
+# --- re-confirm LOWs RED — commit 0f2449262 (3 failed | 4 passed) ---
+ × capture/[id]/post FAILS the request when withdrawing the auto-approval fails   expected 200 to be greater than or equal to 500
+ × capture/[id]/post answers ... draft ...     expected 'auto_approve' to be 'manual_review'
+ × ai-invoice-pipeline answers draft ...       expected 'auto_approve' to be 'manual_review'

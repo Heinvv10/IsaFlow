@@ -13,7 +13,7 @@
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { recordCoding, type SupplierRule } from './supplierRulesService';
-import { attachEvidenceToProvisional } from './evidenceAttachmentService';
+import { attachEvidenceAndSettleApproved } from './provisionalAttachSettle';
 import { resolvePendingAlertForInvoice } from './alertResolutionService';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 
@@ -27,6 +27,8 @@ export interface CapturePostFollowUpInput {
   eventId: string;
   documentId: string;
   invoiceId: string;
+  /** The status the route inserted the invoice with ('approved' on auto-approve). */
+  invoiceStatus: string;
   supplierId: string;
   supplierName: string;
   vendorVatNumber: string | null | undefined;
@@ -36,7 +38,7 @@ export interface CapturePostFollowUpInput {
 }
 
 export interface CapturePostFollowUps {
-  provisionalAttach: { attachedJeId: string | null; bankTxId: string | null };
+  provisionalAttach: { attachedJeId: string | null; bankTxId: string | null; settlementRefused?: string };
   threeWayMatch: Awaited<ReturnType<typeof performThreeWayMatch>> | null;
 }
 
@@ -75,19 +77,20 @@ export async function runCapturePostFollowUps(input: CapturePostFollowUpInput): 
     gateOutcome: input.decision.outcome,
   }, 'capture-post');
 
-  // Attempt to attach evidence to a matching provisional JE (best-effort, non-blocking)
-  let provisionalAttach: CapturePostFollowUps['provisionalAttach'] = { attachedJeId: null, bankTxId: null };
-  try {
-    provisionalAttach = await attachEvidenceToProvisional(
-      companyId,
-      documentId,
-      supplierId,
-      input.totalAmount,
-      input.invoiceDate,
-    );
-  } catch (attachErr) {
-    log.warn('Evidence attach to provisional JE failed — continuing', { eventId, error: attachErr }, 'capture-post');
-  }
+  // Attach evidence to a matching provisional JE; an auto-approved invoice is then
+  // settled against it (R-127). Not caught: the attach and the settlement handle
+  // their own failures, so the only throw is the draft revert failing — the request
+  // must fail then (≥500), not answer 200 over a COMMIT that became a ROLLBACK.
+  const provisionalAttach: CapturePostFollowUps['provisionalAttach'] = await attachEvidenceAndSettleApproved({
+    companyId,
+    userId,
+    documentId,
+    invoiceId,
+    invoiceStatus: input.invoiceStatus,
+    supplierId,
+    totalAmount: input.totalAmount,
+    invoiceDate: input.invoiceDate,
+  });
 
   // Best-effort alert resolution — non-blocking
   resolvePendingAlertForInvoice(
