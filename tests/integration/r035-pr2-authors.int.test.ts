@@ -82,13 +82,33 @@ describe('the content author may not approve', () => {
     expect((await r.decide(pool, u.c, c, requestId)).state.statusCode).toBe(200);
   });
 
-  it('A requests, B edits and re-requests: A did not author this content and MAY approve', async () => {
+  it('A creates and requests, B edits and re-requests: A still authored the content and is refused (review MEDIUM-1)', async () => {
     const { c, bill } = await fixture();
+    const requestId = await raise(u.a, c, bill.id);
+    expect((await r.editBill(u.b, c, { id: bill.id, invoiceDate: '2026-09-03' })).state.statusCode).toBe(200);
+    await raise(u.b, c, bill.id);
+    expect(reasonOf(await r.decide(pool, u.a, c, requestId))).toBe('SELF_APPROVAL_FORBIDDEN');
+    expect((await r.decide(pool, u.c, c, requestId)).state.statusCode).toBe(200);
+  });
+
+  it('C creates, A requests, B edits and re-requests: A authored nothing and MAY approve', async () => {
+    const { c } = await fixture();
+    const bill = await plantBill(pool, c, u.c);
     const requestId = await raise(u.a, c, bill.id);
     expect((await r.editBill(u.b, c, { id: bill.id, invoiceDate: '2026-09-03' })).state.statusCode).toBe(200);
     await raise(u.b, c, bill.id);
     const decided = await r.decide(pool, u.a, c, requestId);
     expect(decided.state.statusCode, JSON.stringify(decided.state.body)).toBe(200);
+  });
+
+  it("authorship accumulates: another's later edit does not strip B's (review MEDIUM-1)", async () => {
+    const { c, bill } = await fixture();
+    expect((await r.editBill(u.b, c, { id: bill.id, invoiceDate: '2026-09-03' })).state.statusCode).toBe(200);
+    expect((await r.editBill(u.c, c, { id: bill.id, invoiceNumber: `R035-ACC-${bill.id.slice(0, 6)}` })).state.statusCode).toBe(200);
+    const requestId = await raise(u.d, c, bill.id);
+    expect(reasonOf(await r.decide(pool, u.b, c, requestId))).toBe('SELF_APPROVAL_FORBIDDEN');
+    expect(reasonOf(await r.decide(pool, u.c, c, requestId))).toBe('SELF_APPROVAL_FORBIDDEN');
+    expect(reasonOf(await r.decide(pool, u.a, c, requestId))).toBe('SELF_APPROVAL_FORBIDDEN');
   });
 
   it('an MCP update_supplier_invoice line edit makes its caller the author', async () => {
@@ -106,6 +126,16 @@ describe('the content author may not approve', () => {
     expect(edited.isError, JSON.stringify(edited)).toBeFalsy();
     await raise(u.a, c, bill.id);
     expect(reasonOf(await r.decide(pool, u.b, c, requestId))).toBe('SELF_APPROVAL_FORBIDDEN');
+  });
+
+  it('an account merge adds the merger as an author without stripping the creator (review MEDIUM-1)', async () => {
+    const { c } = await fixture();
+    const bill = await plantBill(pool, c, u.c);
+    await asUser(u.b, c, () => mergeAccounts(c, bill.accountA, bill.accountB, u.b));
+    const requestId = await raise(u.a, c, bill.id);
+    expect(reasonOf(await r.decide(pool, u.c, c, requestId))).toBe('SELF_APPROVAL_FORBIDDEN');
+    expect(reasonOf(await r.decide(pool, u.b, c, requestId))).toBe('SELF_APPROVAL_FORBIDDEN');
+    expect((await r.decide(pool, u.d, c, requestId)).state.statusCode).toBe(200);
   });
 
   it('an account merge that repoints the bill lines makes the merger the author', async () => {
