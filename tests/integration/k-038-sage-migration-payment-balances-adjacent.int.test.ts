@@ -19,10 +19,32 @@ vi.mock('@/modules/accounting/services/ar/customerPaymentAllocationService', () 
   postCustomerInvoiceToGL: vi.fn(async () => undefined),
 }));
 
-const { commitARInvoice, commitAPInvoice } = await import('@/modules/admin/services/sageMigrationCommitService');
+const { commitARInvoice, commitAPInvoice: commitAPInvoiceInTx } = await import('@/modules/admin/services/sageMigrationCommitService');
+const { als } = await import('@/lib/als');
 const { mapSageARInvoices, mapSageAPInvoices } = await import('@/modules/accounting/services/core/sageAutoImportService');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+/**
+ * commitAPInvoice runs, as in production (withPlatformAdmin), inside a request
+ * transaction: its import exemption (R-035) is transaction-local and refuses
+ * to run without one. Committed, so the reads below see it.
+ */
+async function commitAPInvoice(...args: Parameters<typeof commitAPInvoiceInTx>) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const out = await als.run({ client, userId: args[1], companyId: args[0], claims: {} } as never,
+      () => commitAPInvoiceInTx(...args));
+    await client.query('COMMIT');
+    return out;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 const companyId = randomUUID();
 const otherCompanyId = randomUUID();
 const userId = randomUUID();
