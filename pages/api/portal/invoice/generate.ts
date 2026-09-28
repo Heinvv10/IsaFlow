@@ -8,7 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import crypto from 'crypto';
@@ -20,26 +20,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
   }
 
-  const authReq = req as AuthenticatedNextApiRequest;
   const { invoiceId } = req.body as { invoiceId?: string };
 
   if (!invoiceId) {
     return apiResponse.badRequest(res, 'invoiceId is required');
   }
 
-  const userId = authReq.user.id;
-
-  const companyRows = (await sql`
-    SELECT company_id FROM company_users
-    WHERE user_id = ${userId}
-    ORDER BY is_default DESC, created_at ASC
-    LIMIT 1
-  `) as Row[];
-
-  if (!companyRows[0]) {
-    return apiResponse.badRequest(res, 'No company assigned to user');
-  }
-  const companyId = String(companyRows[0].company_id);
+  // K-101: the active company withAuth verified, not the user's default one.
+  const companyId = (req as CompanyAuthedRequest).companyId;
 
   const existing = (await sql`
     SELECT id, portal_token FROM customer_invoices

@@ -10,7 +10,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { createPaymentLink, getPaymentLink } from '@/modules/accounting/services/ar/portalService';
 import { assertCustomerInCompany, CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { sql } from '@/lib/neon';
@@ -56,17 +56,8 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'amount must be a positive number');
     }
 
-    const userId = (req as AuthenticatedNextApiRequest).user.id;
-    const companyRows = (await sql`
-      SELECT company_id FROM company_users
-      WHERE user_id = ${userId}
-      ORDER BY is_default DESC, created_at ASC
-      LIMIT 1
-    `) as Row[];
-    if (companyRows.length === 0) {
-      return apiResponse.badRequest(res, 'No company assigned to this user');
-    }
-    const companyId = companyRows[0]!.company_id as string;
+    // K-101: the active company withAuth verified, not the user's default one.
+    const companyId = (req as CompanyAuthedRequest).companyId;
 
     const invoice = (await sql`
       SELECT id FROM customer_invoices
