@@ -64,6 +64,91 @@ describe('customer-activities resolves created_by name for a DIFFERENT company m
   });
 });
 
+/** Sets the session GUCs a real withAuth request would (sub + active company), then SET ROLE app_user. */
+async function asSession(client: import('pg').PoolClient, userId: string, sessionCompanyId: string): Promise<void> {
+  await client.query("SELECT set_config('request.jwt.claims', $1, false)", [JSON.stringify({ sub: userId })]);
+  await client.query("SELECT set_config('app.current_company_id', $1, false)", [sessionCompanyId]);
+  await client.query('SET ROLE app_user');
+}
+
+/**
+ * R-151 review — same two 42501 guards as 714's approval_company_member_name
+ * (f16f9b347 covers those for 714, plus its own target-not-a-member case:
+ * "the name lookup cannot resolve a user outside the caller's company" in
+ * r147-approval-requester-name.int.test.ts, which already proves 714's
+ * target-membership join with the same shape as (c) below), ported to 715's
+ * table-returning sibling.
+ */
+describe('approval_company_member_profile refuses the two 42501 guards and the target-membership boundary (R-151 review)', () => {
+  it('refuses (42501, "own company") when the session company differs from the p_company_id argument', async () => {
+    const companyA = await newCompany(pool, [[creator, 'owner']], companies);
+    const companyB = await newCompany(pool, [[viewer, 'owner']], companies);
+    const client = await pool.connect();
+    try {
+      await asSession(client, creator, companyA);
+      await expect(
+        client.query('SELECT * FROM public.approval_company_member_profile($1, $2)', [companyB, viewer]),
+      ).rejects.toMatchObject({
+        code: '42501',
+        message: expect.stringContaining("answers only for the caller's own company"),
+      });
+    } finally {
+      await client.query('RESET ROLE');
+      client.release();
+    }
+  });
+
+  it('refuses (42501, "not a member") when the session company matches p_company_id but the caller has no row there', async () => {
+    // creator is deliberately NOT added as a member of companyC.
+    const companyC = await newCompany(pool, [[viewer, 'owner']], companies);
+    const client = await pool.connect();
+    try {
+      await asSession(client, creator, companyC);
+      await expect(
+        client.query('SELECT * FROM public.approval_company_member_profile($1, $2)', [companyC, viewer]),
+      ).rejects.toMatchObject({
+        code: '42501',
+        message: expect.stringContaining('caller is not a member of this company'),
+      });
+    } finally {
+      await client.query('RESET ROLE');
+      client.release();
+    }
+  });
+
+  it('returns no row for a target who is a member of a DIFFERENT company, not p_company_id', async () => {
+    const company = await newCompany(pool, [[creator, 'owner']], companies);
+    await newCompany(pool, [[viewer, 'owner']], companies); // viewer's only membership is elsewhere
+    const client = await pool.connect();
+    try {
+      await asSession(client, creator, company);
+      const { rows } = await client.query(
+        'SELECT * FROM public.approval_company_member_profile($1, $2)', [company, viewer]);
+      expect(rows).toHaveLength(0);
+    } finally {
+      await client.query('RESET ROLE');
+      client.release();
+    }
+  });
+
+  it('returns the target\'s email/first_name/last_name when both caller and target are members (paired positive)', async () => {
+    const company = await newCompany(pool, [[creator, 'owner'], [viewer, 'owner']], companies);
+    const client = await pool.connect();
+    try {
+      await asSession(client, viewer, company);
+      const { rows } = await client.query(
+        'SELECT * FROM public.approval_company_member_profile($1, $2)', [company, creator]);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        email: 'r147-activity-creator@test.local', first_name: 'Zanele', last_name: 'Botha',
+      });
+    } finally {
+      await client.query('RESET ROLE');
+      client.release();
+    }
+  });
+});
+
 describe('supplier-activities resolves created_by name for a DIFFERENT company member (R-147 review)', () => {
   it('shows the real name, not null, when someone else lists the activity', async () => {
     const company = await newCompany(pool, [[creator, 'owner'], [viewer, 'owner']], companies);
