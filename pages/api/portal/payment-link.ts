@@ -18,6 +18,11 @@ import { isUuidParam } from '@/lib/validation';
 import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
 
+/** A body amount given as a string: plain decimal, at most cents (no '0x10', '1e3', ' 7 '). */
+const AMOUNT_STRING_RE = /^\d+(\.\d{1,2})?$/;
+/** portal_payment_links.amount is numeric(15,2). */
+const MAX_LINK_AMOUNT = 9_999_999_999_999.99;
+
 async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     const token = req.query.token as string;
     if (!token) return apiResponse.badRequest(res, 'token is required');
@@ -58,12 +63,13 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     if (typeof clientId !== 'string') {
       return apiResponse.badRequest(res, 'clientId must be a string');
     }
-    if (typeof amount !== 'number' && typeof amount !== 'string') {
+    if (typeof amount === 'string' ? !AMOUNT_STRING_RE.test(amount) : typeof amount !== 'number') {
       return apiResponse.badRequest(res, 'amount must be a positive number');
     }
+    // The 0.01 floor stops a sub-cent amount becoming a R0.00 link once the column rounds it.
     const amountNum = Number(amount);
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      return apiResponse.badRequest(res, 'amount must be a positive number');
+    if (!Number.isFinite(amountNum) || amountNum < 0.01 || amountNum > MAX_LINK_AMOUNT) {
+      return apiResponse.badRequest(res, 'amount must be between 0.01 and 9 999 999 999 999.99');
     }
 
     // K-101: the active company withAuth verified, not the user's default one.
