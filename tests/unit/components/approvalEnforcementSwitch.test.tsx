@@ -34,6 +34,10 @@ const enforcementPosts = () => vi.mocked(apiFetch).mock.calls
   .filter(([url, init]) => String(url).startsWith('/api/accounting/approval-enforcement') && init?.method === 'POST')
   .map(([, init]) => JSON.parse(String(init?.body)));
 
+const enforcementPreviewGets = () => vi.mocked(apiFetch).mock.calls
+  .filter(([url, init]) => String(url).startsWith('/api/accounting/approval-enforcement') && String(url).includes('preview=1') && !init?.method)
+  .length;
+
 async function openRules() {
   render(<ApprovalsPage />);
   fireEvent.click(await screen.findByRole('button', { name: /rules/i }));
@@ -56,6 +60,18 @@ it('switching it on posts { documentType, enabled: true } and shows it on', asyn
   fireEvent.click(toggle);
   await waitFor(() => expect(enforcementPosts()).toEqual([{ documentType: 'supplier_invoice', enabled: true }]));
   await waitFor(() => expect(screen.getByRole('checkbox', { name: /enforce supplier invoice approvals/i })).toBeChecked());
+});
+
+it('R-149: switching to the rules tab fetches the preview once, not twice', async () => {
+  // The pending tab's own load finishing (setLoading(false)) after the tab
+  // switch re-mounts ApprovalEnforcementPanel a second time, firing its
+  // mount effect twice for one visit to the tab.
+  answer(false);
+  await openRules();
+  await waitFor(() => expect(enforcementPreviewGets()).toBeGreaterThan(0));
+  // Give any second mount's effect a chance to fire before asserting.
+  await new Promise((r) => setTimeout(r, 50));
+  expect(enforcementPreviewGets()).toBe(1);
 });
 
 it('a refused switch shows the reason and stays as it was', async () => {
