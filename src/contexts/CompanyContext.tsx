@@ -100,18 +100,31 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
     // active_company_id cookie every API call on the page is served from.
     let list: CompanyUser[] = [];
     let targetId: string | null = null;
+    let answered = false;
     try {
       const res = await apiFetch('/api/accounting/companies?action=user-companies');
       if (res.ok) {
         const data = await res.json();
         list = mapCompanyUsers(data.data?.items ?? data.data ?? []);
         targetId = typeof data.data?.activeCompanyId === 'string' ? data.data.activeCompanyId : null;
+        answered = true;
+      } else {
+        log.warn('Failed to load user companies', { status: res.status }, 'context');
       }
     } catch (e) {
       log.warn('Failed to load user companies', { error: e }, 'context');
     }
 
     setCompanies(list);
+
+    // No answer says nothing about which company the session serves: show no
+    // name, but leave localStorage alone so a transient failure cannot wipe a
+    // stored (e.g. impersonated) company. A successful empty list clears below.
+    if (!answered) {
+      setActiveCompany(null);
+      setLoading(false);
+      return;
+    }
 
     // Activate the company the SERVER session serves, never the localStorage
     // copy: when the two disagree (cookie A, stored B), the stored one would

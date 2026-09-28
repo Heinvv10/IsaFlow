@@ -128,6 +128,41 @@ describe('CompanySwitcher names the company the server session serves (R-148)', 
     expect(window.localStorage.getItem(COMPANY_STORAGE_KEY)).toBeNull();
   });
 
+  // A failed membership fetch says nothing about which company the session
+  // serves: show no name (never the stored one), but do not wipe the stored
+  // company — a transient blip must not cost a super admin their impersonated
+  // company. A SUCCESSFUL empty list is an answer, and clears it.
+  for (const [how, respond] of [
+    ['answers 500', async () => new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } })],
+    ['throws', async () => { throw new TypeError('Failed to fetch'); }],
+  ] as const) {
+    it(`user-companies ${how}: no company name is shown and the stored company is left untouched`, async () => {
+      const fetchSpy = vi.fn(respond);
+      vi.stubGlobal('fetch', fetchSpy);
+      storeCompany(B);
+      const before = window.localStorage.getItem(COMPANY_STORAGE_KEY);
+
+      renderSwitcher();
+
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+      await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+      expect(screen.queryByRole('button')).toBeNull();
+      expect(document.body.textContent).not.toContain(B.name);
+      expect(window.localStorage.getItem(COMPANY_STORAGE_KEY)).toBe(before);
+    });
+  }
+
+  it('a successful empty membership list clears the stored company', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ success: true, data: { items: [] } })));
+    storeCompany(B);
+
+    renderSwitcher();
+
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(window.localStorage.getItem(COMPANY_STORAGE_KEY)).toBeNull();
+  });
+
   it('server serves A, nothing stored: the label shows A, not the stored default B', async () => {
     stubServer(A.id);
 
