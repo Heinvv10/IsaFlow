@@ -263,3 +263,18 @@ lists the failed shares.
 - Neither generate route nor payment-link POST is wrapped in `withCsrf` or `withWriteAccess`, so
   a viewer-role member can mint a permanent portal token. Pre-existing and not this item's
   trigger. Candidate register item.
+
+## Deployed (2026-09-28, Hein's "deploy all of them now")
+
+- #556 was merged as `e47a4b9d7` after a merge of master (`b0e82e834`, which kept both ar/.claude.md entries). Both reviewers re-confirmed SHIP on the merge commit, and the GitHub checks passed on it.
+- It was deployed with master `d2a0664c0` at about 16:00 SAST on Monday, on Hein's explicit business-hours approval. The same deploy shipped the peer PRs #550–#555, #557 and #558 (R-146 to R-152).
+- Prod was `9a78ef9a5`. The deploy's own CI printed `[ci] all checks passed`. It applied 4 migrations (713–716, none of them K-101's).
+- Golden paths: 13/13. Integrity: 16/16.
+- `RELEASE_SHA`: `d2a0664c0`.
+- Live bundle:
+  - "amount must be a positive number in whole cents" and "this invoice's customer" are in `.next/server/pages/api/portal/payment-link.js`;
+  - "invoiceId must be a UUID" is in `portal/invoice/generate.js`;
+  - neither file contains `is_default`.
+- `/api/health` returns 200. An unauthenticated `POST /api/portal/invoice/generate` returns 401.
+- Rollback target: `9a78ef9a5`, code only. Migrations 713–716 stay applied.
+- **Still owed (Hein):** the sizing SQL above on prod, and the amount-cap product decision (Follow-ups).
