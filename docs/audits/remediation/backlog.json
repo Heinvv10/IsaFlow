@@ -13817,8 +13817,8 @@
       "correctedTrigger": null,
       "severityRationale": "Provisional low: if it holds on prod, AFS client annotations notify nobody (silent, no data exposure). Contradicted on dev.",
       "auditedSha": "d2a0664c0",
-      "currentSha": "d2a0664c0",
-      "status": "candidate",
+      "currentSha": "bb193dc95",
+      "status": "false-positive",
       "dependencies": [],
       "testNames": [],
       "evidencePaths": [],
@@ -13833,7 +13833,7 @@
       "reportedSeverity": "low",
       "title": "Portal annotation notifications may resolve zero recipients (users JOIN on the withPortalAuth path)",
       "claim": "notifyAnnotationReceived JOINs users to find the company's owners/admins/managers. It is called from a withPortalAuth route that sets no request.jwt.claims, so if the connection is subject to users_self_read (FORCE RLS, id = auth.uid()), auth.uid() is NULL and no recipient resolves.",
-      "processNotes": "2026-09-28: Raised by the R-152 reviewer; not reproduced. On isaflow_dev the raw pool connects as postgres with rolbypassrls = true, so users_self_read does not apply on this path there and recipients should resolve. Prod's pool role (from /home/velo/isaflow/.env.local) was NOT checked. Close only after confirming prod's connecting role, or with an integration test that forces app_user plus RLS on this path."
+      "processNotes": "2026-09-28: Raised by the R-152 reviewer; not reproduced. On isaflow_dev the raw pool connects as postgres with rolbypassrls = true, so users_self_read does not apply on this path there and recipients should resolve. Prod's pool role (from /home/velo/isaflow/.env.local) was NOT checked. Close only after confirming prod's connecting role, or with an integration test that forces app_user plus RLS on this path.\n\n2026-09-28 (later): FALSE POSITIVE, disconfirmed on prod with a read-only catalog query (Hein OK): the prod pool (/home/velo/isaflow/.env.local DATABASE_URL, database isaflow) connects as postgres with rolbypassrls = true. users and company_users have FORCE RLS, but a BYPASSRLS role is exempt from it. pages/api/accounting/portal/documents/[documentId]/annotate.ts is wrapped only by withPortalAuth, which sets no ALS client, so notifyAnnotationReceived runs on the raw pool (src/lib/neon.ts uses the ALS client only when withAuth set one, and only that client does SET LOCAL ROLE app_user). users_self_read therefore never applies on this path, and recipients resolve on both dev and prod. The residual risk, recorded rather than fixed: if the pool role ever loses BYPASSRLS, this and every other raw-pool read of users breaks silently."
     }
   ],
   "sourceInventory": [
