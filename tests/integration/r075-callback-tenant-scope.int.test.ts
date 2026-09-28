@@ -70,8 +70,12 @@ beforeAll(async () => {
     `INSERT INTO company_documents (company_id, document_type, document_name, file_data, mime_type, file_size, uploaded_by)
      VALUES ($1,'cipc_certificate','R075r2',$2,'image/png',8,$3) RETURNING id`, [coA, PNG_URL, user])).rows[0].id;
 
+  const supplier = await pool.query(
+    'INSERT INTO suppliers (company_id, name) VALUES ($1, $2) RETURNING id', [coA, 'R075r2 Supplier']);
   parentInvoiceId = (await pool.query(
-    `INSERT INTO sage_supplier_invoices (company_id) VALUES ($1) RETURNING id`, [coA])).rows[0].id;
+    `INSERT INTO supplier_invoices (company_id, invoice_number, supplier_id, invoice_date, created_by)
+     VALUES ($1, 'R075r2-SI', $2, '2026-03-10', $3) RETURNING id`,
+    [coA, supplier.rows[0].id, user])).rows[0].id;
   procDocId = (await pool.query(
     `INSERT INTO procurement_documents (entity_type, entity_id, document_type, document_name, mime_type, file_size)
      VALUES ('supplier_invoice',$1,'other','R075r2','image/png',8) RETURNING id`, [parentInvoiceId])).rows[0].id;
@@ -79,7 +83,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await pool.query('DELETE FROM procurement_documents WHERE id = $1', [procDocId]);
-  await pool.query('DELETE FROM sage_supplier_invoices WHERE company_id = ANY($1::uuid[])', [[coA, coB]]);
+  await pool.query('DELETE FROM supplier_invoices WHERE company_id = ANY($1::uuid[])', [[coA, coB]]);
+  await pool.query('DELETE FROM suppliers WHERE company_id = ANY($1::uuid[])', [[coA, coB]]);
   await pool.query('DELETE FROM company_documents WHERE company_id = ANY($1::uuid[])', [[coA, coB]]);
   await pool.query(
     'DELETE FROM bank_transaction_attachments WHERE bank_transaction_id IN (SELECT id FROM bank_transactions WHERE company_id = ANY($1::uuid[]))',
