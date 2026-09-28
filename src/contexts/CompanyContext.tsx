@@ -96,12 +96,16 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
     // even for super_admins. The previous short-circuit that trusted localStorage
     // for super_admins without loading memberships left the switcher empty and
     // could pin the UI to a stale/impersonated company the user couldn't leave.
+    // The same response carries the company withAuth scoped it to — the
+    // active_company_id cookie every API call on the page is served from.
     let list: CompanyUser[] = [];
+    let targetId: string | null = null;
     try {
       const res = await apiFetch('/api/accounting/companies?action=user-companies');
       if (res.ok) {
         const data = await res.json();
         list = mapCompanyUsers(data.data?.items ?? data.data ?? []);
+        targetId = typeof data.data?.activeCompanyId === 'string' ? data.data.activeCompanyId : null;
       }
     } catch (e) {
       log.warn('Failed to load user companies', { error: e }, 'context');
@@ -109,24 +113,15 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
 
     setCompanies(list);
 
+    // Activate the company the SERVER session serves, never the localStorage
+    // copy: when the two disagree (cookie A, stored B), the stored one would
+    // put B's name over A's data (R-148). localStorage is corrected to the
+    // server, not the other way round — nothing here POSTs switch-company,
+    // so a stale copy can never move the session. Impersonation needs no
+    // branch: impersonate-exchange sets the cookie, so it arrives here.
     const storedId = readStoredCompanyId(
       (e) => log.warn('Failed to parse stored company data', { error: e }, 'context'),
     );
-
-    // Determine which company to activate.
-    // Regular users: localStorage id must be in their membership list.
-    // Super admins: localStorage id is honored even if not a member (impersonation).
-    let targetId: string | null = null;
-    const storedIsMember = storedId !== null && list.some(c => c.companyId === storedId);
-
-    if (storedIsMember) {
-      targetId = storedId;
-    } else if (userRole === 'super_admin' && storedId) {
-      targetId = storedId;
-    } else if (list.length > 0) {
-      const defaultCompany = list.find(c => c.isDefault) ?? list[0];
-      targetId = defaultCompany?.companyId ?? null;
-    }
 
     if (!targetId) {
       clearStoredCompany();
@@ -134,6 +129,11 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
       setLoading(false);
       return;
     }
+
+    if (storedId !== targetId) clearStoredCompany();
+    // Drop the first-paint stub when it names another company, so a failed
+    // details fetch below cannot leave it on screen.
+    setActiveCompany(prev => (prev?.id === targetId ? prev : null));
 
     const match = list.find(c => c.companyId === targetId);
     if (match) {
