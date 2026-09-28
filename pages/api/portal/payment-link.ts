@@ -14,6 +14,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { createPaymentLink, getPaymentLink } from '@/modules/accounting/services/ar/portalService';
 import { assertCustomerInCompany, CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { sql } from '@/lib/neon';
+import { isValidUUID } from '@/lib/validation';
 import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
 
@@ -51,6 +52,9 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     if (!invoiceId || !clientId || !amount) {
       return apiResponse.badRequest(res, 'invoiceId, clientId, and amount are required');
     }
+    if (!isValidUUID(String(invoiceId))) {
+      return apiResponse.badRequest(res, 'invoiceId must be a UUID');
+    }
     const amountNum = Number(amount);
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
       return apiResponse.badRequest(res, 'amount must be a positive number');
@@ -60,10 +64,15 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     const companyId = (req as CompanyAuthedRequest).companyId;
 
     const invoice = (await sql`
-      SELECT id FROM customer_invoices
+      SELECT COALESCE(client_id, customer_id) AS customer_id FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+        AND status != 'cancelled'
     `) as Row[];
     if (invoice.length === 0) return apiResponse.notFound(res, 'Invoice not found');
+    // A link pays THIS invoice, so it is for this invoice's customer only.
+    if (String(clientId).toLowerCase() !== String(invoice[0]!.customer_id).toLowerCase()) {
+      return apiResponse.badRequest(res, "clientId is not this invoice's customer");
+    }
 
     // R-067: clientId comes from the request body, and the unauthenticated GET
     // above hands the link's client_id to anyone holding the token.

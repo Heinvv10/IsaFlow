@@ -10,6 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
+import { isValidUUID } from '@/lib/validation';
 import { log } from '@/lib/logger';
 import crypto from 'crypto';
 
@@ -24,6 +25,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (!invoiceId) {
     return apiResponse.badRequest(res, 'invoiceId is required');
+  }
+  if (!isValidUUID(String(invoiceId))) {
+    return apiResponse.badRequest(res, 'invoiceId must be a UUID');
   }
 
   // K-101: the active company withAuth verified, not the user's default one.

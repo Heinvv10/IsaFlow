@@ -150,6 +150,11 @@ describe.each(ROUTES)('K-101 $name follows the active company', (route) => {
     expect(await route.written(id)).toBe(0);
   });
 
+  it('answers 400, not 500, for an invoiceId that is not a UUID', async () => {
+    const state = await call(route, OTHER, route.body(OTHER, 'not-a-uuid'));
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+  });
+
   it('refuses a company the user does not belong to, writing nothing', async () => {
     const id = await invoice(FOREIGN);
     const state = await call(route, FOREIGN, route.body(FOREIGN, id));
@@ -171,6 +176,35 @@ it('the generate routes do not hand out the token of an invoice in the user\'s o
     expect(state.statusCode).toBe(404);
     expect(JSON.stringify(state.body)).not.toContain(existing);
   }
+});
+
+const paymentLinkRoute = ROUTES[2]!;
+const linkCount = paymentLinkRoute.written;
+
+it('payment-link refuses a customer of the same company who is not the invoice\'s customer', async () => {
+  const id = await invoice(OTHER);
+  const stranger = randomUUID();
+  await pool.query('INSERT INTO customers (id, company_id, name) VALUES ($1, $2, $3)',
+    [stranger, OTHER, 'K101 Other second customer']);
+  const state = await call(paymentLinkRoute, OTHER, { invoiceId: id, clientId: stranger, amount: 115 });
+  expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+  expect(await linkCount(id)).toBe(0);
+});
+
+it('payment-link refuses a cancelled invoice, writing nothing', async () => {
+  const id = await invoice(OTHER);
+  await pool.query("UPDATE customer_invoices SET status = 'cancelled' WHERE id = $1", [id]);
+  const state = await call(paymentLinkRoute, OTHER, paymentLinkRoute.body(OTHER, id));
+  expect(state.statusCode).toBe(404);
+  expect(await linkCount(id)).toBe(0);
+});
+
+it('payment-link accepts the invoice\'s customer held only in the legacy customer_id column', async () => {
+  const id = await invoice(OTHER);
+  await pool.query('UPDATE customer_invoices SET client_id = NULL WHERE id = $1', [id]);
+  const state = await call(paymentLinkRoute, OTHER, paymentLinkRoute.body(OTHER, id));
+  expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
+  expect(await linkCount(id)).toBe(1);
 });
 
 it('the generate routes return the token they stored', async () => {
