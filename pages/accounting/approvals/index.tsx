@@ -165,14 +165,19 @@ export default function ApprovalsPage() {
           </div>
         )}
 
+        {/* R-149: mounted outside the `loading` branch — the switch's own preview
+            GET fires on mount, and gating it on `loading` unmounted/remounted it
+            (and refired the GET) every time the shared rules/requests fetch
+            re-ran after the tab switch, doubling the request for one visit. */}
+        {tab === 'rules' && <ApprovalEnforcementPanel />}
+
         {loading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
           </div>
         ) : tab === 'rules' ? (
-          /* Rules Tab — R-035: the Enforce switch above the rules it enforces */
+          /* Rules Tab — R-035: rules the Enforce switch (above) governs */
           <div className="space-y-4">
-          <ApprovalEnforcementPanel />
           <div className="bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] rounded-xl overflow-hidden">
             <table className="w-full text-sm">
               <thead>
