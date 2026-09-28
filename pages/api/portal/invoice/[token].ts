@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
+import { isValidUUID } from '@/lib/validation';
 import { log } from '@/lib/logger';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import crypto from 'crypto';
@@ -167,6 +168,9 @@ async function handleGenerateToken(req: CompanyAuthedRequest, res: NextApiRespon
   const { invoiceId } = req.body as { invoiceId?: string };
   if (!invoiceId) {
     return apiResponse.badRequest(res, 'invoiceId is required');
+  }
+  if (!isValidUUID(String(invoiceId))) {
+    return apiResponse.badRequest(res, 'invoiceId must be a UUID');
   }
 
   // K-101: the active company withAuth verified, not the user's default one.
