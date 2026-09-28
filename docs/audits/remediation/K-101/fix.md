@@ -86,8 +86,20 @@ remove each one to prove it matters.
   - `'0x10'` and `' 7 '` were parsed as 16 and 7.
 - The upper bound is the column's range, not a business cap. Capping at the invoice balance is
   still Hein's decision (Follow-ups).
-- Not changed, for Hein: `amount` is still not checked against the invoice total or balance (see
-  Follow-ups). That is a product decision, not a defect of this item.
+
+### Review round 5 (both SHIP; one LOW, fixed here)
+
+- A NUMBER amount finer than a cent passed (100.005 was stored as 100.01, 0.014 as 0.01) while
+  the string `'100.005'` was refused. Both forms now go through the same text check,
+  `AMOUNT_STRING_RE.test(String(amount))`. JavaScript prints a number in its shortest round-trip
+  form, so a JSON `12.34` is `"12.34"` and passes, while 12.345 fails.
+  - An arithmetic check (`|x·100 − round(x·100)| > 1e-6`) was tried first and rejected.
+    Floating-point error made it refuse 10 908 of 280 000 random valid cent amounts from 1c to 1e13.
+    The text check refused none of them.
+- Everything below a cent is now refused by the text check, so the floor is plain `> 0`. It exists
+  to refuse `'0.00'`, which passes the text check.
+- The type check stays because `String([5])` is `"5"`. Booleans are refused by the text check as
+  well (`"true"`).
 
 ## Census of the pattern (step 1, `git grep` on origin/master `7d992b3e5`)
 
@@ -135,8 +147,9 @@ None re-derives the company for a request that already has one.
     400, the `client_id` one is 200);
   - a non-string `clientId` (an array, an object): 400, no link (round 2);
   - an `amount` of `true`, `[5]` or an object: 400, no link, while `'115.00'` is 200 (round 3);
-  - an `amount` below 0.01, above the column, or a loose string: 400, no link. 0.01 and
-    9 999 999 999 999.99 are 200 and stored exactly (round 4);
+  - an `amount` below 0.01 (including `'0.00'`), above the column, finer than a cent (100.005,
+    0.014 as numbers), or a loose string: 400, no link. 0.01, 12.34 and 9 999 999 999 999.99 are
+    200 and stored exactly (rounds 4 and 5);
   - the invoice's own `client_id` names another company's customer: 400, no link (R-067, round 2).
 
   Two more cases:
@@ -158,10 +171,12 @@ None re-derives the company for a request that already has one.
     answered 200 and wrote a link;
   - `red.r4.int.log`: the round-4 amount-range case fails on the round-3 code (`945b8ce52`): 0.001
     answered 200;
+  - `red.r5.int.log`: the round-5 extension fails on the round-4 code (`1e705d9ff`): the number
+    100.005 answered 200;
   - `green.log`: 31/31. It also covers the adjacent portal suites (r095 session scoping, k122
     dunning portal link, k122b token race: 16/16) and the R-067 fence routes including
     payment-link POST (32/32);
-  - `mutations.log`: every changed line mutated, 26/26 RED:
+  - `mutations.log`: every changed line mutated, 27/27 RED:
     - for each route, the company comes from the default membership (the original defect) or from
       the user id, or the SELECT's `company_id` predicate is dropped;
     - each UUID check removed;
@@ -170,8 +185,15 @@ None re-derives the company for a request that already has one.
     - each UUID check without its type check (the round-1 code);
     - the `clientId` string check removed;
     - R-067 `assertCustomerInCompany` made a no-op;
-    - the `amount` type check removed or widened to admit booleans, the string format check
-      skipped, the floor put back to `> 0`, and the `numeric(15,2)` ceiling removed.
+    - on `amount`:
+      - the whole check removed;
+      - the type check removed (`[5]`);
+      - the text check skipped;
+      - only strings text-checked (the round-4 code);
+      - the floor removed (`'0.00'`);
+      - the `numeric(15,2)` ceiling removed.
+    - One mutant is logged as equivalent and dropped: admitting booleans to the type check
+      changes nothing, because the text check refuses `"true"`.
 - Fixture: a clone of `isaflow_schema_fixture` (to 691) in the session's own container, with
   692–712 applied, and `DATABASE_SSL=disable`. The shared fixture was not written to.
 

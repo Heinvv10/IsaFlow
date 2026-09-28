@@ -1,4 +1,4 @@
-# K-101 GREEN at 8eedfdf46 — own fixture clone of isaflow_schema_fixture (to 691) + migrations 692-712
+# K-101 GREEN at 16ba00691 — own fixture clone of isaflow_schema_fixture (to 691) + migrations 692-712
 
 ## K-101 suite + adjacent portal suites (isaflow_schema_fixture)
 
@@ -7,8 +7,8 @@
 
  Test Files  4 passed (4)
       Tests  47 passed (47)
-   Start at  11:39:13
-   Duration  2.73s (transform 497ms, setup 0ms, import 975ms, tests 1.35s, environment 0ms)
+   Start at  11:50:07
+   Duration  3.43s (transform 474ms, setup 0ms, import 967ms, tests 2.02s, environment 0ms)
 
 
 ## R-067 fence routes incl. portal payment-link POST (same fixture, cloned as isaflow_test: the suite refuses other DB names)
@@ -18,6 +18,6 @@
 
  Test Files  1 passed (1)
       Tests  32 passed (32)
-   Start at  11:39:16
-   Duration  2.09s (transform 1.05s, setup 0ms, import 1.55s, tests 411ms, environment 0ms)
+   Start at  11:50:11
+   Duration  2.25s (transform 969ms, setup 0ms, import 1.49s, tests 631ms, environment 0ms)
 
