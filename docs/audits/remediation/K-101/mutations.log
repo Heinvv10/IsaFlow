@@ -1,143 +1,149 @@
-# K-101 mutations — each mutant applied alone to the fixed code at 8eedfdf46, then restored
+# K-101 mutations — each mutant applied alone to the fixed code at 16ba00691, then restored
 
 baseline (unmutated): Tests  31 passed (31)
 
 M1 generate: company re-derived from the default membership (the defect)
   -> RED: Tests  4 failed | 27 passed (31)
-     × serves and writes an invoice in the active company when it is not the default 23ms
-     × refuses an invoice in the default company while another company is active, writing nothing 9ms
-     × the generate routes do not hand out the token of an invoice in the user's other company 8ms
-     × the generate routes return the token they stored 5ms
+     × serves and writes an invoice in the active company when it is not the default 40ms
+     × refuses an invoice in the default company while another company is active, writing nothing 10ms
+     × the generate routes do not hand out the token of an invoice in the user's other company 16ms
+     × the generate routes return the token they stored 9ms
 
 M2 generate: SELECT drops the company_id predicate
   -> RED: Tests  3 failed | 28 passed (31)
-     × refuses an invoice in the default company while another company is active, writing nothing 11ms
-     × refuses an invoice in the non-default company while the default is active, writing nothing 7ms
-     × the generate routes do not hand out the token of an invoice in the user's other company 7ms
+     × refuses an invoice in the default company while another company is active, writing nothing 17ms
+     × refuses an invoice in the non-default company while the default is active, writing nothing 11ms
+     × the generate routes do not hand out the token of an invoice in the user's other company 25ms
 
 M3 generate: company is the user id (any wrong source)
   -> RED: Tests  3 failed | 28 passed (31)
-     × serves and writes an invoice in the active company when it is not the default 20ms
-     × still serves the default company when it is the active one 8ms
-     × the generate routes return the token they stored 5ms
+     × serves and writes an invoice in the active company when it is not the default 131ms
+     × still serves the default company when it is the active one 110ms
+     × the generate routes return the token they stored 12ms
 
 M4 [token]: company re-derived from the default membership (the defect)
   -> RED: Tests  4 failed | 27 passed (31)
-     × serves and writes an invoice in the active company when it is not the default 8ms
-     × refuses an invoice in the default company while another company is active, writing nothing 9ms
-     × the generate routes do not hand out the token of an invoice in the user's other company 23ms
-     × the generate routes return the token they stored 16ms
+     × serves and writes an invoice in the active company when it is not the default 17ms
+     × refuses an invoice in the default company while another company is active, writing nothing 12ms
+     × the generate routes do not hand out the token of an invoice in the user's other company 37ms
+     × the generate routes return the token they stored 24ms
 
 M5 [token]: SELECT drops the company_id predicate
   -> RED: Tests  3 failed | 28 passed (31)
-     × refuses an invoice in the default company while another company is active, writing nothing 12ms
-     × refuses an invoice in the non-default company while the default is active, writing nothing 7ms
-     × the generate routes do not hand out the token of an invoice in the user's other company 16ms
+     × refuses an invoice in the default company while another company is active, writing nothing 11ms
+     × refuses an invoice in the non-default company while the default is active, writing nothing 9ms
+     × the generate routes do not hand out the token of an invoice in the user's other company 40ms
 
 M6 [token]: company is the user id (any wrong source)
   -> RED: Tests  3 failed | 28 passed (31)
-     × serves and writes an invoice in the active company when it is not the default 7ms
-     × still serves the default company when it is the active one 5ms
-     × the generate routes return the token they stored 14ms
+     × serves and writes an invoice in the active company when it is not the default 11ms
+     × still serves the default company when it is the active one 13ms
+     × the generate routes return the token they stored 26ms
 
 M7 payment-link: company re-derived from the default membership (the defect)
   -> RED: Tests  8 failed | 23 passed (31)
-     × serves and writes an invoice in the active company when it is not the default 10ms
-     × refuses an invoice in the default company while another company is active, writing nothing 10ms
-     × payment-link refuses a customer of the same company who is not the invoice's customer 9ms
-     × payment-link refuses an amount that is not a number or a numeric string, writing nothing 9ms
-     × payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99 or a loose string 25ms
-     × payment-link refuses an invoice whose own customer belongs to another company 9ms
-     × payment-link accepts the invoice's customer held only in the legacy customer_id column 10ms
-     × payment-link takes client_id over customer_id when they differ (COALESCE(client_id, customer_id)) 10ms
+     × serves and writes an invoice in the active company when it is not the default 12ms
+     × refuses an invoice in the default company while another company is active, writing nothing 13ms
+     × payment-link refuses a customer of the same company who is not the invoice's customer 13ms
+     × payment-link refuses an amount that is not a number or a numeric string, writing nothing 12ms
+     × payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99, finer than a cent, or a loose string 27ms
+     × payment-link refuses an invoice whose own customer belongs to another company 19ms
+     × payment-link accepts the invoice's customer held only in the legacy customer_id column 13ms
+     × payment-link takes client_id over customer_id when they differ (COALESCE(client_id, customer_id)) 18ms
 
 M8 payment-link: SELECT drops the company_id predicate
   -> RED: Tests  2 failed | 29 passed (31)
-     × refuses an invoice in the default company while another company is active, writing nothing 8ms
-     × refuses an invoice in the non-default company while the default is active, writing nothing 6ms
+     × refuses an invoice in the default company while another company is active, writing nothing 13ms
+     × refuses an invoice in the non-default company while the default is active, writing nothing 14ms
 
 M9 payment-link: company is the user id (any wrong source)
   -> RED: Tests  8 failed | 23 passed (31)
-     × serves and writes an invoice in the active company when it is not the default 10ms
-     × still serves the default company when it is the active one 7ms
-     × payment-link refuses a customer of the same company who is not the invoice's customer 9ms
+     × serves and writes an invoice in the active company when it is not the default 14ms
+     × still serves the default company when it is the active one 12ms
+     × payment-link refuses a customer of the same company who is not the invoice's customer 15ms
      × payment-link refuses an amount that is not a number or a numeric string, writing nothing 10ms
-     × payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99 or a loose string 18ms
-     × payment-link refuses an invoice whose own customer belongs to another company 9ms
-     × payment-link accepts the invoice's customer held only in the legacy customer_id column 11ms
-     × payment-link takes client_id over customer_id when they differ (COALESCE(client_id, customer_id)) 14ms
+     × payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99, finer than a cent, or a loose string 24ms
+     × payment-link refuses an invoice whose own customer belongs to another company 17ms
+     × payment-link accepts the invoice's customer held only in the legacy customer_id column 16ms
+     × payment-link takes client_id over customer_id when they differ (COALESCE(client_id, customer_id)) 22ms
 
 M10 generate: UUID check removed
   -> RED: Tests  2 failed | 29 passed (31)
-     × answers 400, not 500, for an invoiceId that is not a UUID 7ms
-     × answers 400, not 500, for an invoiceId sent as a one-element array 5ms
+     × answers 400, not 500, for an invoiceId that is not a UUID 8ms
+     × answers 400, not 500, for an invoiceId sent as a one-element array 16ms
 
 M11 [token]: UUID check removed
   -> RED: Tests  2 failed | 29 passed (31)
-     × answers 400, not 500, for an invoiceId that is not a UUID 8ms
-     × answers 400, not 500, for an invoiceId sent as a one-element array 6ms
+     × answers 400, not 500, for an invoiceId that is not a UUID 9ms
+     × answers 400, not 500, for an invoiceId sent as a one-element array 15ms
 
 M12 payment-link: UUID check removed
   -> RED: Tests  2 failed | 29 passed (31)
      × answers 400, not 500, for an invoiceId that is not a UUID 7ms
-     × answers 400, not 500, for an invoiceId sent as a one-element array 6ms
+     × answers 400, not 500, for an invoiceId sent as a one-element array 14ms
 
 M13 payment-link: cancelled invoices admitted
   -> RED: Tests  1 failed | 30 passed (31)
-     × payment-link refuses a cancelled invoice, writing nothing 18ms
+     × payment-link refuses a cancelled invoice, writing nothing 58ms
 
 M14 payment-link: invoice-customer check removed
   -> RED: Tests  2 failed | 29 passed (31)
-     × payment-link refuses a customer of the same company who is not the invoice's customer 14ms
-     × payment-link takes client_id over customer_id when they differ (COALESCE(client_id, customer_id)) 14ms
+     × payment-link refuses a customer of the same company who is not the invoice's customer 28ms
+     × payment-link takes client_id over customer_id when they differ (COALESCE(client_id, customer_id)) 25ms
 
 M15 payment-link: customer read from client_id only (legacy customer_id ignored)
   -> RED: Tests  1 failed | 30 passed (31)
-     × payment-link accepts the invoice's customer held only in the legacy customer_id column 10ms
+     × payment-link accepts the invoice's customer held only in the legacy customer_id column 18ms
 
 M16 payment-link: customer read from customer_id only
   -> RED: Tests  1 failed | 30 passed (31)
-     × payment-link takes client_id over customer_id when they differ (COALESCE(client_id, customer_id)) 21ms
+     × payment-link takes client_id over customer_id when they differ (COALESCE(client_id, customer_id)) 32ms
 
 M17 generate: UUID check without the type check (isValidUUID(String(x)), the r1 code)
   -> RED: Tests  1 failed | 30 passed (31)
-     × answers 400, not 500, for an invoiceId sent as a one-element array 10ms
+     × answers 400, not 500, for an invoiceId sent as a one-element array 14ms
 
 M18 [token]: UUID check without the type check (the r1 code)
   -> RED: Tests  1 failed | 30 passed (31)
-     × answers 400, not 500, for an invoiceId sent as a one-element array 24ms
+     × answers 400, not 500, for an invoiceId sent as a one-element array 16ms
 
 M19 payment-link: UUID check without the type check (the r1 code)
   -> RED: Tests  1 failed | 30 passed (31)
-     × answers 400, not 500, for an invoiceId sent as a one-element array 12ms
+     × answers 400, not 500, for an invoiceId sent as a one-element array 18ms
 
 M20 payment-link: clientId string check removed (compare via String())
   -> RED: Tests  1 failed | 30 passed (31)
-     × payment-link answers 400, not 500, for a clientId that is not a string 12ms
+     × payment-link answers 400, not 500, for a clientId that is not a string 16ms
 
 M21 payment-link: R-067 assertCustomerInCompany made a no-op
   -> RED: Tests  1 failed | 30 passed (31)
-     × payment-link refuses an invoice whose own customer belongs to another company 19ms
+     × payment-link refuses an invoice whose own customer belongs to another company 26ms
 
 M22 payment-link: amount type/format check removed
   -> RED: Tests  2 failed | 29 passed (31)
-     × payment-link refuses an amount that is not a number or a numeric string, writing nothing 17ms
-     × payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99 or a loose string 29ms
+     × payment-link refuses an amount that is not a number or a numeric string, writing nothing 40ms
+     × payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99, finer than a cent, or a loose string 28ms
 
-M23 payment-link: amount type check admits booleans
+M23 payment-link: amount type check removed (text check only: String([5]) is "5")
   -> RED: Tests  1 failed | 30 passed (31)
-     × payment-link refuses an amount that is not a number or a numeric string, writing nothing 11ms
+     × payment-link refuses an amount that is not a number or a numeric string, writing nothing 19ms
 
-M24 payment-link: string amounts not format-checked
+M24 payment-link: amount text check skipped (type check only)
   -> RED: Tests  1 failed | 30 passed (31)
-     × payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99 or a loose string 21ms
+     × payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99, finer than a cent, or a loose string 27ms
 
-M25 payment-link: floor back to > 0 (a sub-cent amount stores R0.00)
+M25 payment-link: floor removed (0.00 accepted)
   -> RED: Tests  1 failed | 30 passed (31)
-     × payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99 or a loose string 15ms
+     × payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99, finer than a cent, or a loose string 30ms
 
 M26 payment-link: numeric(15,2) ceiling removed
   -> RED: Tests  1 failed | 30 passed (31)
-     × payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99 or a loose string 42ms
+     × payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99, finer than a cent, or a loose string 23ms
+
+M27 payment-link: only strings are text-checked (the r4 code: 100.005 stored as 100.01)
+  -> RED: Tests  1 failed | 30 passed (31)
+     × payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99, finer than a cent, or a loose string 19ms
 
 restored: clean
+
+Note: an earlier M23 ("type check admits booleans") was an EQUIVALENT mutant at this head and is dropped: String(true) is "true", which AMOUNT_STRING_RE refuses anyway, so booleans stay refused by the text check.
