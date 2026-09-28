@@ -69,6 +69,12 @@ remove each one to prove it matters.
   `isUuidParam` (`@/lib/validation`), which checks the type as well.
 - `payment-link` refuses a non-string `clientId` (400) before the compare. An array or an object
   whose `toString` is not a function used to 500.
+
+### Review round 3 (both SHIP; one pre-existing LOW, fixed here)
+
+- `payment-link` refuses an `amount` that is neither a number nor a string (400). `Number(true)` is
+  1 and `Number([5])` is 5, so a malformed body wrote a real payment link. An object whose
+  `toString` is not a function 500'd. A numeric string (`'115.00'`) is still accepted.
 - Not changed, for Hein: `amount` is still not checked against the invoice total or balance (see
   Follow-ups). That is a product decision, not a defect of this item.
 
@@ -98,7 +104,7 @@ None re-derives the company for a request that already has one.
 
 ## Tests
 
-- `tests/integration/k101-portal-routes-use-active-company.int.test.ts`: 29 cases through the real
+- `tests/integration/k101-portal-routes-use-active-company.int.test.ts`: 30 cases through the real
   handlers (withAuth as `app_user` with RLS and the membership check, withErrorHandler). One user
   belongs to a default company and a second company, and a third company is foreign. For each of
   the three routes:
@@ -117,6 +123,7 @@ None re-derives the company for a request that already has one.
   - `client_id` and `customer_id` differ: `client_id` is the customer (the `customer_id` one is
     400, the `client_id` one is 200);
   - a non-string `clientId` (an array, an object): 400, no link (round 2);
+  - an `amount` of `true`, `[5]` or an object: 400, no link, while `'115.00'` is 200 (round 3);
   - the invoice's own `client_id` names another company's customer: 400, no link (R-067, round 2).
 
   Two more cases:
@@ -134,10 +141,12 @@ None re-derives the company for a request that already has one.
   - `red.r2.int.log`: the round-2 cases, 4 fail on the round-1 code (`4f3e1fafb`): the three array
     `invoiceId` 500s and the non-string `clientId`. The R-067 case passes there, as it should,
     because the guard was already in place; mutant M21 proves the case bites;
-  - `green.log`: 29/29. It also covers the adjacent portal suites (r095 session scoping, k122
+  - `red.r3.int.log`: the round-3 amount case fails on the round-2 code (`8ed477d41`): `true`
+    answered 200 and wrote a link;
+  - `green.log`: 30/30. It also covers the adjacent portal suites (r095 session scoping, k122
     dunning portal link, k122b token race: 16/16) and the R-067 fence routes including
     payment-link POST (32/32);
-  - `mutations.log`: every changed line mutated, 21/21 RED:
+  - `mutations.log`: every changed line mutated, 23/23 RED:
     - for each route, the company comes from the default membership (the original defect) or from
       the user id, or the SELECT's `company_id` predicate is dropped;
     - each UUID check removed;
@@ -145,7 +154,8 @@ None re-derives the company for a request that already has one.
     - the customer read from `client_id` only, or from `customer_id` only;
     - each UUID check without its type check (the round-1 code);
     - the `clientId` string check removed;
-    - R-067 `assertCustomerInCompany` made a no-op.
+    - R-067 `assertCustomerInCompany` made a no-op;
+    - the `amount` type check removed, or widened to admit booleans.
 - Fixture: a clone of `isaflow_schema_fixture` (to 691) in the session's own container, with
   692–712 applied, and `DATABASE_SSL=disable`. The shared fixture was not written to.
 
