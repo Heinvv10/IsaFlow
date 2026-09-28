@@ -3605,7 +3605,7 @@
       "correctedTrigger": "Three authenticated portal actions (generate.ts, [token].ts handleGenerateToken, payment-link.ts POST) re-derived the company from company_users ORDER BY is_default instead of withAuth's active company. A multi-company user whose active company is not the default got 404 for the active company's invoice and no token or link was written. customer_invoices RLS USING admits every member company (only WITH CHECK is the active one), so an invoice in the default company was read: an existing token was returned for the non-active company, otherwise the write failed WITH CHECK and 500'd. Not an outsider leak: the user belongs to both.",
       "severityRationale": "Corrected from high to medium: a functional 404 for multi-company users, not a tenant-boundary break. The only cross-company read is to a member of that company; no wrong row was written.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "0b32c2fe3",
+      "currentSha": "8eedfdf46",
       "status": "in-progress",
       "dependencies": [],
       "testNames": [
@@ -3619,6 +3619,7 @@
         "K-101/red.r1.int.log",
         "K-101/red.r2.int.log",
         "K-101/red.r3.int.log",
+        "K-101/red.r4.int.log",
         "K-101/green.log",
         "K-101/mutations.log"
       ],
@@ -3629,7 +3630,7 @@
       "canonicalItem": null,
       "reportedSeverity": "high",
       "branch": "fix/k101-portal-active-company-20260928",
-      "reviewRounds": 3
+      "reviewRounds": 4
     },
     {
       "id": "K-102",
