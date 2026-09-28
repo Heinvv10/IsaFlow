@@ -1,0 +1,34 @@
+# K-101 review round 4 RED — the amount-range case on the r3 code (945b8ce52), own fixture clone
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/k101
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts (31 tests | 1 failed) 452ms
+   × payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99 or a loose string 13ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99 or a loose string
+AssertionError: {"amount":0.001,"body":{"success":true,"data":{"token":"<64-hex token redacted>","url":"/portal/pay/<64-hex token redacted>"},"meta":{"timestamp":"2026-09-28T09:36:52.775Z"}}}: expected 200 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 200
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts:229:76
+    227|   for (const amount of [0.001, 1e-7, '0.004', 1e15, '1e20', '0x10', ' …
+    228|     const state = await call(paymentLinkRoute, OTHER, { invoiceId: id,…
+    229|     expect(state.statusCode, JSON.stringify({ amount, body: state.body…
+       |                                                                            ^
+    230|   }
+    231|   expect(await linkCount(id)).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 30 passed (31)
+   Start at  11:36:51
+   Duration  1.22s (transform 357ms, setup 0ms, import 647ms, tests 452ms, environment 0ms)
+
