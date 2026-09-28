@@ -220,6 +220,24 @@ it('payment-link refuses an amount that is not a number or a numeric string, wri
   expect(await linkCount(id)).toBe(1);
 });
 
+// portal_payment_links.amount is numeric(15,2): a sub-cent amount stored a live R0.00 link, an
+// oversized one overflowed at the INSERT (500), and loose strings ('0x10', ' 7 ') were parsed.
+it('payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99 or a loose string', async () => {
+  const id = await invoice(OTHER);
+  for (const amount of [0.001, 1e-7, '0.004', 1e15, '1e20', '0x10', ' 7 ', '-5', '']) {
+    const state = await call(paymentLinkRoute, OTHER, { invoiceId: id, clientId: customerOf[OTHER], amount });
+    expect(state.statusCode, JSON.stringify({ amount, body: state.body })).toBe(400);
+  }
+  expect(await linkCount(id)).toBe(0);
+  for (const amount of [0.01, 9999999999999.99]) {
+    const state = await call(paymentLinkRoute, OTHER, { invoiceId: id, clientId: customerOf[OTHER], amount });
+    expect(state.statusCode, JSON.stringify({ amount, body: state.body })).toBe(200);
+  }
+  const { rows } = await pool.query(
+    'SELECT amount::text AS amount FROM portal_payment_links WHERE invoice_id = $1 ORDER BY amount', [id]);
+  expect(rows.map((r) => r.amount)).toEqual(['0.01', '9999999999999.99']);
+});
+
 // R-067: client_id has no FK, so a bad import can leave an invoice naming another company's
 // customer. The invoice-customer match passes it; assertCustomerInCompany must still refuse.
 it('payment-link refuses an invoice whose own customer belongs to another company', async () => {
