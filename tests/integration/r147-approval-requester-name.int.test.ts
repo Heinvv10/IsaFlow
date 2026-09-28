@@ -123,3 +123,62 @@ describe('the name lookup cannot resolve a user outside the caller\'s company', 
     }
   });
 });
+
+/** Sets the session GUCs a real withAuth request would (sub + active company), then SET ROLE app_user. */
+async function asSession(client: import('pg').PoolClient, userId: string, sessionCompanyId: string): Promise<void> {
+  await client.query("SELECT set_config('request.jwt.claims', $1, false)", [JSON.stringify({ sub: userId })]);
+  await client.query("SELECT set_config('app.current_company_id', $1, false)", [sessionCompanyId]);
+  await client.query('SET ROLE app_user');
+}
+
+describe('approval_company_member_name refuses the two 42501 guards, review round 1 M1', () => {
+  it('refuses (42501, "own company") when the session company differs from the p_company_id argument', async () => {
+    const companyA = await newCompany(pool, [[requester, 'owner']], companies);
+    const companyB = await newCompany(pool, [[approver, 'owner']], companies);
+    const client = await pool.connect();
+    try {
+      await asSession(client, requester, companyA);
+      await expect(
+        client.query('SELECT public.approval_company_member_name($1, $2) AS name', [companyB, approver]),
+      ).rejects.toMatchObject({
+        code: '42501',
+        message: expect.stringContaining('answers only for the caller\'s own company'),
+      });
+    } finally {
+      await client.query('RESET ROLE');
+      client.release();
+    }
+  });
+
+  it('refuses (42501, "not a member") when the session company matches p_company_id but the caller has no row there', async () => {
+    // requester is deliberately NOT added as a member of companyC.
+    const companyC = await newCompany(pool, [[approver, 'owner']], companies);
+    const client = await pool.connect();
+    try {
+      await asSession(client, requester, companyC);
+      await expect(
+        client.query('SELECT public.approval_company_member_name($1, $2) AS name', [companyC, approver]),
+      ).rejects.toMatchObject({
+        code: '42501',
+        message: expect.stringContaining('caller is not a member of this company'),
+      });
+    } finally {
+      await client.query('RESET ROLE');
+      client.release();
+    }
+  });
+
+  it('still allows the direct call when the session company matches AND the caller is a member (paired positive)', async () => {
+    const company = await newCompany(pool, [[requester, 'owner'], [approver, 'owner']], companies);
+    const client = await pool.connect();
+    try {
+      await asSession(client, requester, company);
+      const { rows } = await client.query(
+        'SELECT public.approval_company_member_name($1, $2) AS name', [company, approver]);
+      expect(rows[0].name).toBe('Sipho Khumalo');
+    } finally {
+      await client.query('RESET ROLE');
+      client.release();
+    }
+  });
+});
