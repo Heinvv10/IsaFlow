@@ -228,7 +228,7 @@ export async function deleteRule(companyId: string, id: string, actor: RuleActor
 
 /** List approval requests with optional status filter */
 export async function listRequests(companyId: string, status?: ApprovalStatus): Promise<ApprovalRequest[]> {
-  // Name lookup goes through approval_company_member_name (mig 713), not a
+  // Name lookup goes through approval_company_member_name (mig 714), not a
   // plain join to `users`: app_user can only SELECT its own row there
   // (users_self_read, FORCE RLS), so a join resolved a name only when the
   // caller happened to be the requester/decider themselves — everyone else's

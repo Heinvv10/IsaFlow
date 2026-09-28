@@ -4,7 +4,7 @@
  * (approvalService.ts) joined `users` directly to resolve the name, but
  * `users_self_read` (FORCE RLS) lets app_user SELECT only its OWN row —
  * an approver listing anyone else's request always got a blocked join.
- * Fixed by approval_company_member_name() (migration 713), a SECURITY
+ * Fixed by approval_company_member_name() (migration 714), a SECURITY
  * DEFINER lookup bound to the caller's own company and a target who is also
  * a member of it.
  */

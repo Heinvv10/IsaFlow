@@ -1,4 +1,4 @@
--- 713: R-147 — the approvals list showed "Requested by Unknown" for a real
+-- 714: R-147 — the approvals list showed "Requested by Unknown" for a real
 -- requester because the fix reaches further than the reported symptom.
 --
 -- Two independent defects in listRequests' name lookup (approvalService.ts):
@@ -73,10 +73,10 @@ GRANT EXECUTE ON FUNCTION public.approval_company_member_name(UUID, TEXT) TO app
 DO $$
 BEGIN
   IF has_function_privilege('public', 'public.approval_company_member_name(uuid, text)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'migration 713: PUBLIC can still execute approval_company_member_name';
+    RAISE EXCEPTION 'migration 714: PUBLIC can still execute approval_company_member_name';
   END IF;
   IF NOT has_function_privilege('app_user', 'public.approval_company_member_name(uuid, text)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'migration 713: app_user cannot execute approval_company_member_name';
+    RAISE EXCEPTION 'migration 714: app_user cannot execute approval_company_member_name';
   END IF;
   -- Same FORCE RLS hazard as 708: a definer owner without BYPASSRLS would see
   -- nothing and the function would fail closed but silently wrong (every
@@ -86,6 +86,6 @@ BEGIN
     WHERE p.oid = 'public.approval_company_member_name(uuid, text)'::pg_catalog.regprocedure
       AND (r.rolbypassrls OR r.rolsuper)
   ) THEN
-    RAISE EXCEPTION 'migration 713: the owner of approval_company_member_name must bypass RLS';
+    RAISE EXCEPTION 'migration 714: the owner of approval_company_member_name must bypass RLS';
   END IF;
 END $$;
