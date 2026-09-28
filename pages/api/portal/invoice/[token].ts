@@ -9,7 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import crypto from 'crypto';
 import { hashSessionToken } from '@/modules/accounting/services/ar/portalTokenService';
 import { logCustomerInvoiceView } from '@/modules/accounting/services/ar/readReceiptService';
@@ -163,24 +163,14 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, data);
 }
 
-async function handleGenerateToken(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+async function handleGenerateToken(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { invoiceId } = req.body as { invoiceId?: string };
   if (!invoiceId) {
     return apiResponse.badRequest(res, 'invoiceId is required');
   }
 
-  const userId = req.user.id;
-  const companyRows = (await sql`
-    SELECT company_id FROM company_users
-    WHERE user_id = ${userId}
-    ORDER BY is_default DESC, created_at ASC
-    LIMIT 1
-  `) as Row[];
-
-  if (!companyRows[0]) {
-    return apiResponse.badRequest(res, 'No company assigned to user');
-  }
-  const companyId = String(companyRows[0].company_id);
+  // K-101: the active company withAuth verified, not the user's default one.
+  const companyId = req.companyId;
 
   // Verify invoice belongs to this company
   const existing = (await sql`
@@ -218,7 +208,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   if (req.method === 'POST') {
     return withAuth(
-      (authReq, authRes) => handleGenerateToken(authReq as AuthenticatedNextApiRequest, authRes)
+      (authReq, authRes) => handleGenerateToken(authReq as CompanyAuthedRequest, authRes)
     )(req, res);
   }
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
