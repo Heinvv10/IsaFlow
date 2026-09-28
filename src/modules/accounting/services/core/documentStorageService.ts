@@ -83,7 +83,7 @@ export function mapRow(
 /** Verify an entity belongs to the given company by checking all parent tables */
 export async function verifyEntityOwnership(entityId: string, companyId: string): Promise<boolean> {
   const [owner] = await sql`
-    SELECT 1 AS ok FROM sage_supplier_invoices WHERE id = ${entityId}::uuid AND company_id = ${companyId}
+    SELECT 1 AS ok FROM supplier_invoices WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     UNION ALL SELECT 1 FROM customer_invoices WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     UNION ALL SELECT 1 FROM supplier_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     UNION ALL SELECT 1 FROM customer_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}
@@ -139,7 +139,7 @@ export async function uploadDocument(input: UploadDocumentInput): Promise<Linked
   const docId = (row as Record<string, unknown>).id as string;
 
   if (entityType === 'supplier_invoice') {
-    await autoLinkSupplierInvoice(docId, entityId);
+    await autoLinkSupplierInvoice(docId, entityId, companyId);
   }
 
   if (isVlmAvailable()) {
@@ -157,10 +157,11 @@ export async function uploadDocument(input: UploadDocumentInput): Promise<Linked
  * Auto-link a newly uploaded supplier_invoice doc to related PO/GRN,
  * and create reverse links so existing PO/GRN docs appear on the invoice.
  */
-export async function autoLinkSupplierInvoice(docId: string, invoiceId: string) {
+export async function autoLinkSupplierInvoice(docId: string, invoiceId: string, companyId: string) {
   try {
     const [invoice] = await sql`
-      SELECT purchase_order_id, grn_id FROM sage_supplier_invoices WHERE id = ${invoiceId}::uuid
+      SELECT purchase_order_id, grn_id FROM supplier_invoices
+      WHERE id = ${invoiceId}::uuid AND company_id = ${companyId}::uuid
     `;
     if (!invoice) return;
 
@@ -247,7 +248,7 @@ export async function extractAndStoreDocMetadata(
       SET extracted_data = ${JSON.stringify(extracted)}::jsonb
       WHERE d.id = ${docId}::uuid
         AND (
-          (d.entity_type = 'supplier_invoice' AND EXISTS (SELECT 1 FROM sage_supplier_invoices p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
+          (d.entity_type = 'supplier_invoice' AND EXISTS (SELECT 1 FROM supplier_invoices p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
           OR (d.entity_type = 'customer_invoice' AND EXISTS (SELECT 1 FROM customer_invoices p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
           OR (d.entity_type = 'supplier_payment' AND EXISTS (SELECT 1 FROM supplier_payments p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))
           OR (d.entity_type = 'customer_payment' AND EXISTS (SELECT 1 FROM customer_payments p WHERE p.id = d.entity_id AND p.company_id = ${companyId}::uuid))

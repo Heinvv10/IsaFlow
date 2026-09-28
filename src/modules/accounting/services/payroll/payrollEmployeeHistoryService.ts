@@ -65,6 +65,11 @@ export async function listEmployeeHistory(
   companyId: string,
   employeeId: string,
 ): Promise<EmployeeHistoryEntry[]> {
+  // Name lookup goes through approval_company_member_name (mig 714), not a
+  // plain join to `users`: app_user can only SELECT its own row there
+  // (users_self_read, FORCE RLS), so a join resolved a name only when the
+  // caller happened to be the one who made the change themselves — everyone
+  // else's history entries showed a blank name. See gl/.claude.md.
   const rows = (await sql`
     SELECT h.id,
            h.field_name,
@@ -73,10 +78,9 @@ export async function listEmployeeHistory(
            h.effective_from,
            h.change_reason,
            h.changed_by,
-           u.first_name || ' ' || u.last_name AS changed_by_name,
+           public.approval_company_member_name(h.company_id, h.changed_by) AS changed_by_name,
            h.created_at
       FROM payroll_employee_history h
-      LEFT JOIN users u ON u.id = h.changed_by
      WHERE h.company_id = ${companyId}::uuid
        AND h.employee_id = ${employeeId}::uuid
      ORDER BY h.effective_from DESC, h.created_at DESC
