@@ -140,12 +140,13 @@ export async function checkPermission(
 }
 
 export async function getCompanyUsersWithPermissions(companyId: string): Promise<UserWithPermissions[]> {
+  // company_member_directory (mig 716), not a users JOIN: under app_user
+  // users_self_read hides every other member's users row (R-152). It mirrors
+  // cu_select — owner/admin get every member, lower roles only their own row.
   const userRows = await sql`
-    SELECT cu.user_id, cu.role, u.email, u.first_name, u.last_name
-    FROM company_users cu
-    JOIN users u ON u.id = cu.user_id
-    WHERE cu.company_id = ${companyId}::UUID
-    ORDER BY cu.created_at ASC
+    SELECT m.user_id, m.role, m.email, m.first_name, m.last_name
+    FROM company_member_directory(${companyId}::UUID) m
+    ORDER BY m.created_at ASC
   `;
   if (userRows.length === 0) return [];
 
