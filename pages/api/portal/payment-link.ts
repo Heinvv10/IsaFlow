@@ -58,6 +58,9 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     if (typeof clientId !== 'string') {
       return apiResponse.badRequest(res, 'clientId must be a string');
     }
+    if (typeof amount !== 'number' && typeof amount !== 'string') {
+      return apiResponse.badRequest(res, 'amount must be a positive number');
+    }
     const amountNum = Number(amount);
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
       return apiResponse.badRequest(res, 'amount must be a positive number');
