@@ -208,6 +208,18 @@ it('payment-link answers 400, not 500, for a clientId that is not a string', asy
   expect(await linkCount(id)).toBe(0);
 });
 
+it('payment-link refuses an amount that is not a number or a numeric string, writing nothing', async () => {
+  const id = await invoice(OTHER);
+  for (const amount of [true, [5], { toString: 1 }]) {
+    const state = await call(paymentLinkRoute, OTHER, { invoiceId: id, clientId: customerOf[OTHER], amount });
+    expect(state.statusCode, JSON.stringify({ amount, body: state.body })).toBe(400);
+  }
+  expect(await linkCount(id)).toBe(0);
+  const ok = await call(paymentLinkRoute, OTHER, { invoiceId: id, clientId: customerOf[OTHER], amount: '115.00' });
+  expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
+  expect(await linkCount(id)).toBe(1);
+});
+
 // R-067: client_id has no FK, so a bad import can leave an invoice naming another company's
 // customer. The invoice-customer match passes it; assertCustomerInCompany must still refuse.
 it('payment-link refuses an invoice whose own customer belongs to another company', async () => {
