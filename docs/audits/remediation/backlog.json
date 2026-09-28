@@ -3594,31 +3594,38 @@
       "claim": "Portal token and payment-link routes use the default companyThe routes read the user's default company rather than the active one, minting tokens against the wrong tenant.",
       "area": "portal",
       "affectedPaths": [
-        "pages/api/portal/invoice/generate.ts:32"
+        "pages/api/portal/invoice/generate.ts:32",
+        "pages/api/portal/payment-link.ts:62",
+        "pages/api/portal/invoice/[token].ts:176"
       ],
       "sourceLabel": "AA H",
       "sourceIds": [
         "A H52"
       ],
-      "correctedTrigger": null,
-      "severityRationale": "Source priority only; impact and reachability not yet validated.",
+      "correctedTrigger": "Three authenticated portal actions (generate.ts, [token].ts handleGenerateToken, payment-link.ts POST) re-derived the company from company_users ORDER BY is_default instead of withAuth's active company. A multi-company user whose active company is not the default got 404 for the active company's invoice and no token or link was written. customer_invoices RLS USING admits every member company (only WITH CHECK is the active one), so an invoice in the default company was read: an existing token was returned for the non-active company, otherwise the write failed WITH CHECK and 500'd. Not an outsider leak: the user belongs to both.",
+      "severityRationale": "Corrected from high to medium: a functional 404 for multi-company users, not a tenant-boundary break. The only cross-company read is to a member of that company; no wrong row was written.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "currentSha": "d3835c3a8",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
-        "tests/integration/k101-portal-generate-uses-default-company.int.test.ts"
+        "tests/integration/k101-portal-routes-use-active-company.int.test.ts"
       ],
       "evidencePaths": [
+        "K-101/validation.md",
         "K-101/red.log",
-        "K-101/validation.md"
+        "K-101/fix.md",
+        "K-101/red.int.log",
+        "K-101/green.log",
+        "K-101/mutations.log"
       ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "None to correct: no wrong row was written (the other-company write failed RLS WITH CHECK and rolled back). Residue: invoices in non-default companies left without a portal_token after a failed share. Sizing SQL in K-101/fix.md; not run on prod (Hein).",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "branch": "fix/k101-portal-active-company-20260928"
     },
     {
       "id": "K-102",
