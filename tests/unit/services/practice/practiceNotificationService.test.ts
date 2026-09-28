@@ -9,20 +9,20 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 vi.mock('@/modules/accounting/services/practice/practiceUsersService', () => ({
-  listCompanyUsers: vi.fn(),
+  listCompanyUsersForSystem: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/core/emailService', () => ({
   sendEmail: vi.fn(),
 }));
 
 import { sql } from '@/lib/neon';
-import { listCompanyUsers } from '@/modules/accounting/services/practice/practiceUsersService';
+import { listCompanyUsersForSystem } from '@/modules/accounting/services/practice/practiceUsersService';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 
 import { runDailyDigest } from '@/modules/accounting/services/practice/practiceNotificationService';
 
 const sqlMock = sql as unknown as ReturnType<typeof vi.fn>;
-const listUsersMock = listCompanyUsers as ReturnType<typeof vi.fn>;
+const listUsersMock = listCompanyUsersForSystem as ReturnType<typeof vi.fn>;
 const sendEmailMock = sendEmail as ReturnType<typeof vi.fn>;
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-000000000001';

@@ -7,7 +7,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
-import { listCompanyUsers } from './practiceUsersService';
+import { listCompanyUsersForSystem } from './practiceUsersService';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import {
   renderPracticeDigestHtml,
@@ -119,7 +119,7 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
 
     let users;
     try {
-      users = await listCompanyUsers(companyId);
+      users = await listCompanyUsersForSystem(companyId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error('Failed to list company users', { companyId, error: msg }, 'practiceNotificationService');
