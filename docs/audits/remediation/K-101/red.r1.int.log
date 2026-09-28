@@ -1,0 +1,78 @@
+# K-101 review round 1 RED — the five review-round cases on the r0 code (94c0c1b7e), own fixture clone
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/k101
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts (23 tests | 5 failed) 487ms
+     × answers 400, not 500, for an invoiceId that is not a UUID 12ms
+     × answers 400, not 500, for an invoiceId that is not a UUID 5ms
+     × answers 400, not 500, for an invoiceId that is not a UUID 7ms
+   × payment-link refuses a customer of the same company who is not the invoice's customer 15ms
+   × payment-link refuses a cancelled invoice, writing nothing 16ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > K-101 'POST /api/portal/invoice/generate' follows the active company > answers 400, not 500, for an invoiceId that is not a UUID
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > K-101 'POST /api/portal/invoice/[token] (gen…' follows the active company > answers 400, not 500, for an invoiceId that is not a UUID
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > K-101 'POST /api/portal/payment-link' follows the active company > answers 400, not 500, for an invoiceId that is not a UUID
+AssertionError: {"success":false,"data":null,"message":"invalid input syntax for type uuid: \"not-a-uuid\"","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 500
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts:155:58
+    153|   it('answers 400, not 500, for an invoiceId that is not a UUID', asyn…
+    154|     const state = await call(route, OTHER, route.body(OTHER, 'not-a-uu…
+    155|     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+       |                                                          ^
+    156|   });
+    157|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > payment-link refuses a customer of the same company who is not the invoice's customer
+AssertionError: {"success":true,"data":{"token":"<64-hex token redacted>","url":"/portal/pay/<64-hex token redacted>"},"meta":{"timestamp":"2026-09-28T09:11:56.906Z"}}: expected 200 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 200
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts:190:56
+    188|     [stranger, OTHER, 'K101 Other second customer']);
+    189|   const state = await call(paymentLinkRoute, OTHER, { invoiceId: id, c…
+    190|   expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+       |                                                        ^
+    191|   expect(await linkCount(id)).toBe(0);
+    192| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > payment-link refuses a cancelled invoice, writing nothing
+AssertionError: expected 200 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 200
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts:198:28
+    196|   await pool.query("UPDATE customer_invoices SET status = 'cancelled' …
+    197|   const state = await call(paymentLinkRoute, OTHER, paymentLinkRoute.b…
+    198|   expect(state.statusCode).toBe(404);
+       |                            ^
+    199|   expect(await linkCount(id)).toBe(0);
+    200| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 18 passed (23)
+   Start at  11:11:55
+   Duration  1.59s (transform 521ms, setup 0ms, import 944ms, tests 487ms, environment 0ms)
+

@@ -10,12 +10,18 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { createPaymentLink, getPaymentLink } from '@/modules/accounting/services/ar/portalService';
 import { assertCustomerInCompany, CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { sql } from '@/lib/neon';
+import { isUuidParam } from '@/lib/validation';
 import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
+
+/** A body amount as text: plain decimal, at most cents (no '0x10', '1e3', ' 7 ', 12.345). */
+const AMOUNT_STRING_RE = /^\d+(\.\d{1,2})?$/;
+/** portal_payment_links.amount is numeric(15,2). */
+const MAX_LINK_AMOUNT = 9_999_999_999_999.99;
 
 async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     const token = req.query.token as string;
@@ -51,28 +57,36 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     if (!invoiceId || !clientId || !amount) {
       return apiResponse.badRequest(res, 'invoiceId, clientId, and amount are required');
     }
+    if (!isUuidParam(invoiceId)) {
+      return apiResponse.badRequest(res, 'invoiceId must be a UUID');
+    }
+    if (typeof clientId !== 'string') {
+      return apiResponse.badRequest(res, 'clientId must be a string');
+    }
+    // A number is checked by its shortest round-trip text, so 12.34 passes and 12.345 (which the
+    // column would silently round to 12.35) does not, the same as the string '12.345'.
+    if ((typeof amount !== 'number' && typeof amount !== 'string') || !AMOUNT_STRING_RE.test(String(amount))) {
+      return apiResponse.badRequest(res, 'amount must be a positive number in whole cents');
+    }
+    // '0.00' passes the text check; the floor refuses it, so no link is ever for R0.00.
     const amountNum = Number(amount);
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      return apiResponse.badRequest(res, 'amount must be a positive number');
+    if (!Number.isFinite(amountNum) || amountNum <= 0 || amountNum > MAX_LINK_AMOUNT) {
+      return apiResponse.badRequest(res, 'amount must be between 0.01 and 9 999 999 999 999.99');
     }
 
-    const userId = (req as AuthenticatedNextApiRequest).user.id;
-    const companyRows = (await sql`
-      SELECT company_id FROM company_users
-      WHERE user_id = ${userId}
-      ORDER BY is_default DESC, created_at ASC
-      LIMIT 1
-    `) as Row[];
-    if (companyRows.length === 0) {
-      return apiResponse.badRequest(res, 'No company assigned to this user');
-    }
-    const companyId = companyRows[0]!.company_id as string;
+    // K-101: the active company withAuth verified, not the user's default one.
+    const companyId = (req as CompanyAuthedRequest).companyId;
 
     const invoice = (await sql`
-      SELECT id FROM customer_invoices
+      SELECT COALESCE(client_id, customer_id) AS customer_id FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+        AND status != 'cancelled'
     `) as Row[];
     if (invoice.length === 0) return apiResponse.notFound(res, 'Invoice not found');
+    // A link pays THIS invoice, so it is for this invoice's customer only.
+    if (clientId.toLowerCase() !== String(invoice[0]!.customer_id).toLowerCase()) {
+      return apiResponse.badRequest(res, "clientId is not this invoice's customer");
+    }
 
     // R-067: clientId comes from the request body, and the unauthenticated GET
     // above hands the link's client_id to anyone holding the token.

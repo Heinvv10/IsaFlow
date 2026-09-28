@@ -1,0 +1,131 @@
+# K-101 RED — tests/integration/k101-portal-routes-use-active-company.int.test.ts on origin/master code (7d992b3e5), own fixture clone (migrations to 712)
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/k101
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts (17 tests | 8 failed) 536ms
+     × serves and writes an invoice in the active company when it is not the default 24ms
+     × refuses an invoice in the default company while another company is active, writing nothing 12ms
+     × serves and writes an invoice in the active company when it is not the default 10ms
+     × refuses an invoice in the default company while another company is active, writing nothing 12ms
+     × serves and writes an invoice in the active company when it is not the default 11ms
+     × refuses an invoice in the default company while another company is active, writing nothing 13ms
+   × the generate routes do not hand out the token of an invoice in the user's other company 19ms
+   × the generate routes return the token they stored 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > K-101 'POST /api/portal/invoice/generate' follows the active company > serves and writes an invoice in the active company when it is not the default
+AssertionError: {"success":false,"error":{"code":"NOT_FOUND","message":"Invoice not found"},"meta":{"timestamp":"2026-09-28T09:01:44.345Z"}}: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts:128:58
+    126|     const id = await invoice(OTHER);
+    127|     const state = await call(route, OTHER, route.body(OTHER, id));
+    128|     expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
+       |                                                          ^
+    129|     expect(await route.written(id)).toBe(1);
+    130|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > K-101 'POST /api/portal/invoice/generate' follows the active company > refuses an invoice in the default company while another company is active, writing nothing
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > K-101 'POST /api/portal/invoice/[token] (gen…' follows the active company > refuses an invoice in the default company while another company is active, writing nothing
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > K-101 'POST /api/portal/payment-link' follows the active company > refuses an invoice in the default company while another company is active, writing nothing
+AssertionError: expected 500 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 500
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts:142:30
+    140|     const id = await invoice(DEF);
+    141|     const state = await call(route, OTHER, route.body(DEF, id));
+    142|     expect(state.statusCode).toBe(404);
+       |                              ^
+    143|     expect(await route.written(id)).toBe(0);
+    144|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > K-101 'POST /api/portal/invoice/[token] (gen…' follows the active company > serves and writes an invoice in the active company when it is not the default
+AssertionError: {"success":false,"error":{"code":"NOT_FOUND","message":"Invoice not found"},"meta":{"timestamp":"2026-09-28T09:01:44.411Z"}}: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts:128:58
+    126|     const id = await invoice(OTHER);
+    127|     const state = await call(route, OTHER, route.body(OTHER, id));
+    128|     expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
+       |                                                          ^
+    129|     expect(await route.written(id)).toBe(1);
+    130|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > K-101 'POST /api/portal/payment-link' follows the active company > serves and writes an invoice in the active company when it is not the default
+AssertionError: {"success":false,"error":{"code":"NOT_FOUND","message":"Invoice not found not found"},"meta":{"timestamp":"2026-09-28T09:01:44.484Z"}}: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts:128:58
+    126|     const id = await invoice(OTHER);
+    127|     const state = await call(route, OTHER, route.body(OTHER, id));
+    128|     expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
+       |                                                          ^
+    129|     expect(await route.written(id)).toBe(1);
+    130|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > the generate routes do not hand out the token of an invoice in the user's other company
+AssertionError: expected 200 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 200
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts:171:30
+    169|     await pool.query('UPDATE customer_invoices SET portal_token = $2 W…
+    170|     const state = await call(route, OTHER, route.body(DEF, id));
+    171|     expect(state.statusCode).toBe(404);
+       |                              ^
+    172|     expect(JSON.stringify(state.body)).not.toContain(existing);
+    173|   }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > the generate routes return the token they stored
+TypeError: Cannot read properties of undefined (reading 'token')
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts:181:61
+    179|     const state = await call(route, OTHER, route.body(OTHER, id));
+    180|     const stored = (await pool.query('SELECT portal_token FROM custome…
+    181|     expect((state.body as { data: { token: string } }).data.token).toB…
+       |                                                             ^
+    182|   }
+    183| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 9 passed (17)
+   Start at  11:01:43
+   Duration  1.09s (transform 224ms, setup 0ms, import 451ms, tests 536ms, environment 0ms)
+
