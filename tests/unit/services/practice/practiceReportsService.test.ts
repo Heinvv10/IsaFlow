@@ -61,13 +61,11 @@ describe('getStaffUtilisation', () => {
     expect(row.utilisationPct).toBe(75);
   });
 
-  it('resolves userDisplayName from joined first_name + last_name', async () => {
+  it('resolves userDisplayName from approval_company_member_name', async () => {
     sqlMock.mockResolvedValueOnce([
       {
         user_id: USER_1,
-        first_name: 'Alex',
-        last_name: 'Botha',
-        email: 'alex@example.com',
+        display_name: 'Alex Botha',
         total_hours: '4',
         billable_hours: '4',
         billable_value: '3400',
@@ -84,9 +82,7 @@ describe('getStaffUtilisation', () => {
     sqlMock.mockResolvedValueOnce([
       {
         user_id: USER_1,
-        first_name: null,
-        last_name: null,
-        email: 'someone@example.com',
+        display_name: 'someone@example.com',
         total_hours: '1',
         billable_hours: '1',
         billable_value: '850',
@@ -103,9 +99,7 @@ describe('getStaffUtilisation', () => {
     sqlMock.mockResolvedValueOnce([
       {
         user_id: USER_1,
-        first_name: null,
-        last_name: null,
-        email: null,
+        display_name: null,
         total_hours: '2',
         billable_hours: '0',
         billable_value: '0',

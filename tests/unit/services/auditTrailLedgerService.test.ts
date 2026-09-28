@@ -143,14 +143,14 @@ describe('queryAuditTrail', () => {
   it('casts the uuid side, never users.id — users.id is varchar(255)', async () => {
     mockFourQueries([], [], [], 0);
     await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
-    expect(texts()[0]).toContain('u.id::TEXT = je.created_by::TEXT');
+    expect(texts()[0]).toContain('approval_company_member_name(je.company_id, je.created_by::TEXT)');
     expect(texts()[0]).not.toMatch(/u\.id\s*=\s*\?::UUID/);
   });
 
-  it('joins users with LEFT JOIN so a posting with no user row does not vanish', async () => {
+  it('resolves the creator name via approval_company_member_name (R-147 review round 1: users_self_read FORCE RLS blocked a plain join), so a posting with no user row does not vanish', async () => {
     mockFourQueries([{ ...PAGE_ROW, created_by_name: null }], [], [], 1);
     const res = await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
-    expect(texts()[0]).toContain('LEFT JOIN users');
+    expect(texts()[0]).toContain('approval_company_member_name(je.company_id, je.created_by::TEXT)');
     expect(res.rows).toHaveLength(1);
     expect(res.rows[0]!.userName).toBeNull();
   });
@@ -168,13 +168,13 @@ describe('queryAuditTrail', () => {
     expect(res.rows[0]!.postedByUserName).toBe('Willem Marneweck');
   });
 
-  it('joins the poster with a SECOND left join, cast on the uuid side', async () => {
+  it('resolves the poster name via a SECOND approval_company_member_name call, cast on the uuid side', async () => {
     mockFourQueries([], [], [], 0);
     await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
     const t = texts()[0]!;
     // users.id is character varying(255); casting the param to ::UUID throws.
-    expect(t).toContain('pu.id::TEXT = je.posted_by::TEXT');
-    expect(t.match(/LEFT JOIN users/g)).toHaveLength(2);
+    expect(t).toContain('approval_company_member_name(je.company_id, je.posted_by::TEXT)');
+    expect(t.match(/approval_company_member_name\(je\.company_id/g)).toHaveLength(2);
     expect(t).not.toMatch(/(?:u|pu)\.id\s*=\s*\?::UUID/);
   });
 

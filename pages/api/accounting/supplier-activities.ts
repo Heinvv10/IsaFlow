@@ -54,6 +54,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const limitNum = Math.min(parseInt(typeof limit === 'string' ? limit : '50', 10) || 50, 200);
 
     try {
+      // Name lookup goes through approval_company_member_profile (mig 715),
+      // not a plain join to `users`: app_user can only SELECT its own row
+      // there (users_self_read, FORCE RLS), so a join resolved the creator's
+      // name only when the viewer was the creator themselves.
       const rows = (await sql`
         SELECT
           sa.id,
@@ -67,7 +71,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
           u.first_name   AS created_by_first_name,
           u.last_name    AS created_by_last_name
         FROM supplier_activities sa
-        LEFT JOIN users u ON u.id = sa.created_by
+        LEFT JOIN LATERAL public.approval_company_member_profile(sa.company_id, sa.created_by)
+          AS u(email, first_name, last_name) ON true
         WHERE sa.supplier_id = ${supplierId}
           AND sa.company_id  = ${companyId}
         ORDER BY sa.created_at DESC
