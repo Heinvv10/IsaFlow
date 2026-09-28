@@ -28,7 +28,7 @@ export async function generateCreditNotePdf(companyId: string, creditNoteId: str
            c.contact_person AS client_contact,
            s.name AS supplier_name,
            ci.invoice_number AS original_invoice_number,
-           NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), '') AS approved_by_name
+           public.approval_company_member_name(cn.company_id, cn.approved_by::TEXT) AS approved_by_name
     FROM credit_notes cn
     -- Two columns named here did not exist: cn.customer_id and u.full_name
     -- (users carries first_name/last_name). credit_notes has NO customer_id; the repo's
@@ -38,13 +38,14 @@ export async function generateCreditNotePdf(companyId: string, creditNoteId: str
     -- Every join carries company_id. credit_notes.client_id has no FK (the same
     -- shape as customer_invoices.client_id), so a drifted id would otherwise print
     -- another tenant's customer name, VAT number and billing address onto a
-    -- customer-facing PDF. The users table is the one exception: it is a platform
-    -- table keyed by the auth id, not scoped to a company.
+    -- customer-facing PDF. approved_by_name goes through approval_company_member_name
+    -- (mig 714), not a join to users: app_user can only SELECT its own row there
+    -- (users_self_read, FORCE RLS), so a plain join resolved a name only when the
+    -- viewer was the approver themselves (R-147 review round 1).
     LEFT JOIN customers c ON c.id = cn.client_id AND c.company_id = cn.company_id
     LEFT JOIN suppliers s ON s.id = cn.supplier_id AND s.company_id = cn.company_id
     LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
                                   AND ci.company_id = cn.company_id
-    LEFT JOIN users u ON u.id = cn.approved_by::TEXT
     WHERE cn.id = ${creditNoteId}::UUID
       AND cn.company_id = ${companyId}::UUID
   `) as DbRow[];

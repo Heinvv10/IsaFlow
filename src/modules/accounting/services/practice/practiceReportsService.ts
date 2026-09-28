@@ -89,21 +89,22 @@ export async function getStaffUtilisation(
   const { dateFrom, dateTo } = input;
   const userId = input.userId ?? null;
 
+  // Name lookup goes through approval_company_member_name (mig 714), not a
+  // plain join to `users`: app_user can only SELECT its own row there
+  // (users_self_read, FORCE RLS), so a join resolved a name only when the
+  // viewer was the staff member themselves (R-147 review round 1).
   const rows = (await sql`
     SELECT te.user_id,
-           u.first_name,
-           u.last_name,
-           u.email,
+           public.approval_company_member_name(${companyId}::UUID, te.user_id::TEXT) AS display_name,
            SUM(te.hours)::NUMERIC AS total_hours,
            SUM(CASE WHEN te.billable THEN te.hours ELSE 0 END)::NUMERIC AS billable_hours,
            SUM(CASE WHEN te.billable THEN COALESCE(te.line_total, 0) ELSE 0 END)::NUMERIC AS billable_value
     FROM time_entries te
-    LEFT JOIN users u ON u.id = te.user_id::TEXT
     WHERE te.company_id = ${companyId}::UUID
       AND te.entry_date BETWEEN ${dateFrom}::DATE AND ${dateTo}::DATE
       AND te.practice_client_id IS NOT NULL
       AND (${userId}::UUID IS NULL OR te.user_id = ${userId}::UUID)
-    GROUP BY te.user_id, u.first_name, u.last_name, u.email
+    GROUP BY te.user_id
   `) as DbRow[];
 
   return rows.map((r) => {
@@ -113,10 +114,7 @@ export async function getStaffUtilisation(
     const billableValue = Number(r.billable_value);
     const utilisationPct =
       totalHours > 0 ? Math.round((billableHours / totalHours) * 10000) / 100 : 0;
-    const first = r.first_name ? String(r.first_name).trim() : '';
-    const last = r.last_name ? String(r.last_name).trim() : '';
-    const fullName = [first, last].filter(Boolean).join(' ').trim();
-    const userDisplayName = fullName || (r.email ? String(r.email) : null);
+    const userDisplayName = r.display_name ? String(r.display_name) : null;
     return {
       userId: String(r.user_id),
       userDisplayName,
