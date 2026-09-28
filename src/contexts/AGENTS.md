@@ -15,18 +15,14 @@ The React providers `_app.tsx` wraps every page in: who the user is (`AuthContex
 - `readStoredCompany()` · `readStoredCompanyId(onParseError?)` · `writeStoredCompany(entry)` · `clearStoredCompany()` · `COMPANY_STORAGE_KEY` (`companyModel.ts`)
 
 ## Business rules
-- **The server reads the `active_company_id` COOKIE, not anything this provider holds.** `withAuth` scopes every query by that cookie. `localStorage` (`isaflow_active_company`) exists only so the first client render has a name to show instead of flashing the fallback title. The two are separate sources of truth, and only `switchCompany` aligns them: it POSTs `/api/auth/switch-company` to flip the cookie, mirrors the choice into `localStorage`, then hard-reloads.
+- **The server reads the `active_company_id` COOKIE, not anything this provider holds.** `withAuth` scopes every query by that cookie. `localStorage` (`isaflow_active_company`) exists only so the first client render has a name to show instead of flashing the fallback title. Only `switchCompany` moves the cookie: it POSTs `/api/auth/switch-company`, mirrors the choice into `localStorage`, then hard-reloads; on mount the provider follows the cookie (below).
 - A changed user identity inside one provider instance drops the previous user's tenant state immediately, rather than leaving it visible until the refetch returns.
 - Memberships are always fetched, super admins included. A previous short-circuit that trusted `localStorage` for super admins left the switcher empty and could pin the UI to a company the user could not leave.
 
-## Known issue — display can disagree with the data (FOLLOW-UP, not fixed here)
-**Owner: whoever owns auth/tenant switching. Seen independently by two reviewers during the 2026-09-06 reporting review; recorded, deliberately not fixed in that PR — it is pre-existing and outside reporting.**
+## Business rule — the label names the company the SERVER serves (R-148)
+`loadUserCompanies` activates the company in `activeCompanyId` from `GET /api/accounting/companies?action=user-companies` — the `active_company_id` cookie `withAuth` scoped that request to, membership-checked. `localStorage` is never a selection input: when it names another company it is cleared (and rewritten from the server's company once its details load), and the first-paint stub is dropped so a failed details fetch cannot leave the wrong name on screen. Nothing on mount POSTs `switch-company`, so a stale `localStorage` cannot move the session. Impersonation needs no branch: `impersonate-exchange` sets the cookie. Tests: `tests/unit/components/contexts/CompanySwitcherSessionCompany.dom.test.tsx`.
 
-`loadUserCompanies` runs on mount, reads the company id from `localStorage`, and activates it when it is one of the user's memberships (or unconditionally for a super admin). It never POSTs `/api/auth/switch-company`, so the server-side `active_company_id` cookie is left exactly as it was.
-
-When the two disagree — the cookie says company A, `localStorage` says company B, and the user is a member of both — the header and the company switcher say **B** while every API call on the page is scoped to **A**. Both halves are individually correct and nothing on screen says they disagree, which is what makes it worth fixing: a reader can read one tenant's figures under another tenant's name. Reachable whenever the two drift, for example a cookie refreshed to the default company while `localStorage` still holds a previously switched one, or a second tab that switched company.
-
-The shape of a fix, for whoever picks it up: on mount, when the activated id differs from the cookie, either align the server (POST `switch-company` before rendering tenant data) or trust the server and correct `localStorage` — not both, and the choice decides whether a second tab wins or loses. Whatever is chosen needs a test that a mismatched pair cannot render tenant data under the wrong name.
+**Residual:** the check runs once per mount. A tab left open while another tab (or another app on the same cookie domain, e.g. a second dev port on `localhost`) switches company keeps its old label until it reloads, while its API calls follow the new cookie.
 
 ## Related files
 - `src/lib/auth/withAuth.ts` — reads the cookie; the server-side authority on the active company.
@@ -34,4 +30,5 @@ The shape of a fix, for whoever picks it up: on mount, when the activated id dif
 - `tests/unit/components/contexts/` — provider behaviour, including the print-render gate.
 
 ## Recent changes
+- 2026-09-28: R-148 — the mount-time divergence is fixed: the provider activates the server's `activeCompanyId` and corrects `localStorage` to it.
 - 2026-09-06: `skipFetch` added to both providers for the PDF print render; the mount-time cookie/`localStorage` divergence above recorded as a follow-up.
