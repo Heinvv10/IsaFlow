@@ -30,10 +30,11 @@ import { APPROVED_BILL_STATUSES, ISSUED_CUSTOMER_INVOICE_STATUSES } from './vatU
  * requires the journal to NOT be posted, which excludes it just the same.
  *
  * `marked_by_name` resolves `vat_declared_elsewhere_by` (users.id) to a
- * display name with the LEFT JOIN users + CONCAT_WS(first_name, last_name)
- * that vatPeriodLockService.listVatPeriodLocks uses for `locked_by_name`;
- * unlike that one, the email fallback is done here in SQL. `users` is a
- * platform table, not company-scoped, so the join carries no company_id.
+ * display name via approval_company_member_name (mig 714), not a plain join
+ * to `users`: app_user can only SELECT its own row there (users_self_read,
+ * FORCE RLS), so a join resolved a name only when the viewer was the one who
+ * marked the document (R-147 review round 1) — same fix as
+ * vatPeriodLockService.listVatPeriodLocks' `locked_by_name`.
  */
 export async function findVatDeclaredElsewhere(
   companyId: string, periodStart: string, periodEnd: string,
@@ -44,12 +45,11 @@ export async function findVatDeclaredElsewhere(
         COALESCE(c.name, cl.name, 'Unknown') AS counterparty_name,
         COALESCE(ci.tax_amount, 0) AS unposted_vat,
         ci.vat_declared_elsewhere_at AS marked_at, ci.vat_declared_elsewhere_by AS marked_by,
-        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', mu.first_name, mu.last_name)), ''), mu.email) AS marked_by_name,
+        public.approval_company_member_name(ci.company_id, ci.vat_declared_elsewhere_by::TEXT) AS marked_by_name,
         ci.vat_declared_elsewhere_reason AS marked_reason
       FROM customer_invoices ci
       LEFT JOIN customers c ON c.id = ci.customer_id AND c.company_id = ${companyId}::UUID
       LEFT JOIN clients cl ON cl.id = ci.client_id
-      LEFT JOIN users mu ON mu.id::TEXT = ci.vat_declared_elsewhere_by::TEXT
       LEFT JOIN gl_journal_entries je
         ON je.id = ci.gl_journal_entry_id AND je.company_id = ${companyId}::UUID
       WHERE ci.company_id = ${companyId}::UUID
@@ -83,11 +83,10 @@ export async function findVatDeclaredElsewhere(
         COALESCE((SELECT SUM(sii.tax_amount) FROM supplier_invoice_items sii
                   WHERE sii.supplier_invoice_id = si.id AND si.company_id = ${companyId}::UUID), si.tax_amount, 0),
         si.vat_declared_elsewhere_at, si.vat_declared_elsewhere_by,
-        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', mu.first_name, mu.last_name)), ''), mu.email),
+        public.approval_company_member_name(si.company_id, si.vat_declared_elsewhere_by::TEXT),
         si.vat_declared_elsewhere_reason
       FROM supplier_invoices si
       LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = ${companyId}::UUID
-      LEFT JOIN users mu ON mu.id::TEXT = si.vat_declared_elsewhere_by::TEXT
       LEFT JOIN gl_journal_entries je
         ON je.id = si.gl_journal_entry_id AND je.company_id = ${companyId}::UUID
       WHERE si.company_id = ${companyId}::UUID
