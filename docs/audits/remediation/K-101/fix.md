@@ -40,16 +40,33 @@ remove each one to prove it matters.
     that company. A forged `active_company_id` cookie for a company the user does not belong to
     is a 403 before the handler runs.
   - `AuthenticatedNextApiRequest`, which the validation named, is `UserAuthedRequest` and has no
-    `companyId`. `CompanyAuthedRequest` is the type the other 21 routes use.
+    `companyId`. `CompanyAuthedRequest` is the type behind the house idiom
+    `(req as CompanyAuthedRequest).companyId`, which 21 other routes read.
 - The "No company assigned to user" 400 is gone. withAuth refuses a request with no active
   company (400 `NO_ACTIVE_COMPANY`) or no membership (403) before the handler, so the branch was
   unreachable.
 - Refusal order is unchanged. Each route validates, then does the scoped SELECT (404), then the
   write, so a refusal still comes before the first write (withAuth commits a 4xx).
 
+### Review round 1 (both blind reviewers SHIP; their pre-existing LOWs fixed here)
+
+- All three routes answer **400** for an `invoiceId` that is not a UUID (`isValidUUID`,
+  `@/lib/validation`). Before, the `::UUID` cast raised 22P02 and the request 500'd; it rolled back,
+  so nothing was half-written.
+- `payment-link` POST now reads the invoice's customer, `COALESCE(client_id, customer_id)`, and:
+  - refuses a `clientId` that is not that customer (**400**). Before, any customer of the active
+    company could be given a link to pay any of its invoices. Executed by the adversarial reviewer:
+    a second customer of the same company with amount 999 999 answered 200 and wrote the link;
+  - refuses a **cancelled** invoice (404, like the generate routes).
+  - `assertCustomerInCompany` (R-067) stays: an invoice whose customer column names another
+    company's customer is still refused.
+- Not changed, for Hein: `amount` is still not checked against the invoice total or balance (see
+  Follow-ups). That is a product decision, not a defect of this item.
+
 ## Census of the pattern (step 1, `git grep` on origin/master `7d992b3e5`)
 
-Every other `company_users … LIMIT 1` / `ORDER BY is_default` site is one of three kinds:
+Every other `company_users … LIMIT 1` / `ORDER BY is_default` site found by `git grep` over `pages/`
+and `src/` is one of three kinds:
 
 - **choosing** a session's starting company (the correct use of the default);
 - **checking** membership of a named company;
@@ -65,13 +82,14 @@ None re-derives the company for a request that already has one.
 | `pages/api/auth/switch-company.ts:31`, `auth/impersonate-exchange.ts:70`, `oauth/consent.ts:87` | membership check for a named company | correct |
 | `pages/api/auth/verify-email.ts:81,154` | the owner's first company at provisioning | correct: runs before any session |
 | `pages/api/admin/users/export.ts:86` | first company name in an admin export | correct: display only |
+| `src/modules/admin/services/adminUserService.ts:95` | `primary_company` name in the admin user list | correct: display only |
 | `src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts:233` | a member of a KNOWN company to attribute a gateway receipt to | correct: scoped by `company_id` |
 | `src/modules/accounting/services/core/companyService.ts:242` (`getUserCompanies`) | list memberships | correct: callers (`companies.ts`, `landing.ts`, `portfolioWorkbenchService.ts`) list or check, they do not pick one to act in |
 | `pages/api/accounting/customer-delivery-addresses.ts:49` | a customer's default address | unrelated `is_default` |
 
 ## Tests
 
-- `tests/integration/k101-portal-routes-use-active-company.int.test.ts`: 17 cases through the real
+- `tests/integration/k101-portal-routes-use-active-company.int.test.ts`: 24 cases through the real
   handlers (withAuth as `app_user` with RLS and the membership check, withErrorHandler). One user
   belongs to a default company and a second company, and a third company is foreign. For each of
   the three routes:
@@ -79,7 +97,15 @@ None re-derives the company for a request that already has one.
   - the default company while it is active: 200 and written (still works);
   - an invoice in the default company while the other is active: 404, nothing written;
   - an invoice in the non-default company while the default is active: 404, nothing written;
+  - a non-UUID `invoiceId`: 400 (review round 1);
   - a foreign company in the cookie: 403, nothing written.
+
+  Payment-link only (review round 1):
+  - another customer of the same company: 400, no link;
+  - a cancelled invoice: 404, no link;
+  - the customer held only in the legacy `customer_id` column: 200;
+  - `client_id` and `customer_id` differ: `client_id` is the customer (the `customer_id` one is
+    400, the `client_id` one is 200).
 
   Two more cases:
   - both generate routes: an existing token on an invoice in the user's other company is not
@@ -90,12 +116,17 @@ None re-derives the company for a request that already has one.
   - `red.int.log`: 8/17 fail on origin/master code: the three "active non-default" cases, the
     three "default company while the other is active" cases (500 from WITH CHECK), the existing
     token handed out, and the returned token;
-  - `green.log`: 17/17. It also covers the adjacent portal suites (r095 session scoping, k122
+  - `red.r1.int.log`: the review-round cases, 5 fail on the round-0 code (`94c0c1b7e`): the three
+    non-UUID 500s, the stranger customer and the cancelled invoice;
+  - `green.log`: 24/24. It also covers the adjacent portal suites (r095 session scoping, k122
     dunning portal link, k122b token race: 16/16) and the R-067 fence routes including
     payment-link POST (32/32);
-  - `mutations.log`: every changed line mutated, 9/9 RED. For each route, the company comes from
-    the default membership (the original defect) or from the user id, or the SELECT's
-    `company_id` predicate is dropped.
+  - `mutations.log`: every changed line mutated, 16/16 RED:
+    - for each route, the company comes from the default membership (the original defect) or from
+      the user id, or the SELECT's `company_id` predicate is dropped;
+    - each UUID check removed;
+    - the payment-link cancelled filter removed and its customer check removed;
+    - the customer read from `client_id` only, or from `customer_id` only.
 - Fixture: a clone of `isaflow_schema_fixture` (to 691) in the session's own container, with
   692–712 applied, and `DATABASE_SSL=disable`. The shared fixture was not written to.
 
@@ -149,6 +180,11 @@ and companyId, so a `journalctl` grep for `/api/portal/invoice/generate` with st
 lists the failed shares.
 
 ## Follow-ups (not in this fix)
+
+- **For Hein:** `payment-link` POST accepts any positive `amount`, with no check against the
+  invoice's total or outstanding balance. A link for more than is owed can be created and paid.
+  Whether to cap at the balance, allow part-payments only, or allow any amount is a product call.
+  Candidate register item.
 
 - `generate.ts` and `handleGenerateToken` still mint with a read-then-write (`SELECT
   portal_token`, then `UPDATE … SET portal_token`). `getOrMintInvoicePortalToken`
