@@ -14,7 +14,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { createPaymentLink, getPaymentLink } from '@/modules/accounting/services/ar/portalService';
 import { assertCustomerInCompany, CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { sql } from '@/lib/neon';
-import { isValidUUID } from '@/lib/validation';
+import { isUuidParam } from '@/lib/validation';
 import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
 
@@ -52,8 +52,11 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     if (!invoiceId || !clientId || !amount) {
       return apiResponse.badRequest(res, 'invoiceId, clientId, and amount are required');
     }
-    if (!isValidUUID(String(invoiceId))) {
+    if (!isUuidParam(invoiceId)) {
       return apiResponse.badRequest(res, 'invoiceId must be a UUID');
+    }
+    if (typeof clientId !== 'string') {
+      return apiResponse.badRequest(res, 'clientId must be a string');
     }
     const amountNum = Number(amount);
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
@@ -70,7 +73,7 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     `) as Row[];
     if (invoice.length === 0) return apiResponse.notFound(res, 'Invoice not found');
     // A link pays THIS invoice, so it is for this invoice's customer only.
-    if (String(clientId).toLowerCase() !== String(invoice[0]!.customer_id).toLowerCase()) {
+    if (clientId.toLowerCase() !== String(invoice[0]!.customer_id).toLowerCase()) {
       return apiResponse.badRequest(res, "clientId is not this invoice's customer");
     }
 

@@ -155,6 +155,14 @@ describe.each(ROUTES)('K-101 $name follows the active company', (route) => {
     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
   });
 
+  it('answers 400, not 500, for an invoiceId sent as a one-element array', async () => {
+    const id = await invoice(OTHER);
+    const body = { ...route.body(OTHER, id), invoiceId: [id] };
+    const state = await call(route, OTHER, body);
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+    expect(await route.written(id)).toBe(0);
+  });
+
   it('refuses a company the user does not belong to, writing nothing', async () => {
     const id = await invoice(FOREIGN);
     const state = await call(route, FOREIGN, route.body(FOREIGN, id));
@@ -187,6 +195,25 @@ it('payment-link refuses a customer of the same company who is not the invoice\'
   await pool.query('INSERT INTO customers (id, company_id, name) VALUES ($1, $2, $3)',
     [stranger, OTHER, 'K101 Other second customer']);
   const state = await call(paymentLinkRoute, OTHER, { invoiceId: id, clientId: stranger, amount: 115 });
+  expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+  expect(await linkCount(id)).toBe(0);
+});
+
+it('payment-link answers 400, not 500, for a clientId that is not a string', async () => {
+  const id = await invoice(OTHER);
+  for (const clientId of [[customerOf[OTHER]], { toString: 1 }]) {
+    const state = await call(paymentLinkRoute, OTHER, { invoiceId: id, clientId, amount: 115 });
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+  }
+  expect(await linkCount(id)).toBe(0);
+});
+
+// R-067: client_id has no FK, so a bad import can leave an invoice naming another company's
+// customer. The invoice-customer match passes it; assertCustomerInCompany must still refuse.
+it('payment-link refuses an invoice whose own customer belongs to another company', async () => {
+  const id = await invoice(OTHER);
+  await pool.query('UPDATE customer_invoices SET client_id = $2 WHERE id = $1', [id, customerOf[FOREIGN]]);
+  const state = await call(paymentLinkRoute, OTHER, { invoiceId: id, clientId: customerOf[FOREIGN], amount: 115 });
   expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
   expect(await linkCount(id)).toBe(0);
 });
