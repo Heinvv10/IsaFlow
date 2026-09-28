@@ -1,0 +1,94 @@
+# K-101 review round 2 RED — the round-2 cases on the r1 code (4f3e1fafb), own fixture clone
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/k101
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts (29 tests | 4 failed) 372ms
+     × answers 400, not 500, for an invoiceId sent as a one-element array 11ms
+     × answers 400, not 500, for an invoiceId sent as a one-element array 6ms
+     × answers 400, not 500, for an invoiceId sent as a one-element array 6ms
+   × payment-link answers 400, not 500, for a clientId that is not a string 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > K-101 'POST /api/portal/invoice/generate' follows the active company > answers 400, not 500, for an invoiceId sent as a one-element array
+AssertionError: {"success":false,"data":null,"message":"invalid input syntax for type uuid: \"{\"d230327a-73ee-4972-b560-ca60632a0fbd\"}\"","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 500
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts:162:58
+    160|     const body = { ...route.body(OTHER, id), invoiceId: [id] };
+    161|     const state = await call(route, OTHER, body);
+    162|     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+       |                                                          ^
+    163|     expect(await route.written(id)).toBe(0);
+    164|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > K-101 'POST /api/portal/invoice/[token] (gen…' follows the active company > answers 400, not 500, for an invoiceId sent as a one-element array
+AssertionError: {"success":false,"data":null,"message":"invalid input syntax for type uuid: \"{\"af9fcf6b-1d5a-420a-9ce3-d6443d68eddb\"}\"","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 500
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts:162:58
+    160|     const body = { ...route.body(OTHER, id), invoiceId: [id] };
+    161|     const state = await call(route, OTHER, body);
+    162|     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+       |                                                          ^
+    163|     expect(await route.written(id)).toBe(0);
+    164|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > K-101 'POST /api/portal/payment-link' follows the active company > answers 400, not 500, for an invoiceId sent as a one-element array
+AssertionError: {"success":false,"data":null,"message":"invalid input syntax for type uuid: \"{\"d23bff03-14bc-443a-abb3-ad23874041f8\"}\"","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 500
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts:162:58
+    160|     const body = { ...route.body(OTHER, id), invoiceId: [id] };
+    161|     const state = await call(route, OTHER, body);
+    162|     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+       |                                                          ^
+    163|     expect(await route.written(id)).toBe(0);
+    164|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/integration/k101-portal-routes-use-active-company.int.test.ts > payment-link answers 400, not 500, for a clientId that is not a string
+AssertionError: {"success":false,"data":null,"message":"Cannot convert object to primitive value","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 500
+
+ ❯ tests/integration/k101-portal-routes-use-active-company.int.test.ts:206:58
+    204|   for (const clientId of [[customerOf[OTHER]], { toString: 1 }]) {
+    205|     const state = await call(paymentLinkRoute, OTHER, { invoiceId: id,…
+    206|     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+       |                                                          ^
+    207|   }
+    208|   expect(await linkCount(id)).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 25 passed (29)
+   Start at  11:21:49
+   Duration  1.17s (transform 376ms, setup 0ms, import 648ms, tests 372ms, environment 0ms)
+
