@@ -65,13 +65,13 @@ export async function getCompanyUser(
   userId: string,
 ): Promise<CompanyUserSummary | null> {
   log.info('getCompanyUser', { companyId, userId }, 'practice-users');
+  // Request-scoped, same as listCompanyUsers: a users JOIN resolves only the
+  // viewer under users_self_read (R-152). A lower role gets null for others.
   const rows = await sql`
-    SELECT u.id, u.email, u.first_name, u.last_name, cu.role AS company_role
-    FROM users u
-    JOIN company_users cu ON cu.user_id::TEXT = u.id
-    WHERE cu.company_id = ${companyId}::UUID
-      AND u.is_active = true
-      AND u.id = ${userId}
+    SELECT m.user_id AS id, m.email, m.first_name, m.last_name, m.role AS company_role
+    FROM company_member_directory(${companyId}::UUID) m
+    WHERE m.is_active = true
+      AND m.user_id = ${userId}
     LIMIT 1
   `;
   if (rows.length === 0) return null;
