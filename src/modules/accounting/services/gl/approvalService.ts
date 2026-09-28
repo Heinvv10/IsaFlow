@@ -228,26 +228,27 @@ export async function deleteRule(companyId: string, id: string, actor: RuleActor
 
 /** List approval requests with optional status filter */
 export async function listRequests(companyId: string, status?: ApprovalStatus): Promise<ApprovalRequest[]> {
+  // Name lookup goes through approval_company_member_name (mig 714), not a
+  // plain join to `users`: app_user can only SELECT its own row there
+  // (users_self_read, FORCE RLS), so a join resolved a name only when the
+  // caller happened to be the requester/decider themselves — everyone else's
+  // request showed "Unknown" regardless of whether the requester had a name.
   const rows = status
     ? (await sql`
         SELECT ar.*, rl.name AS rule_name,
-               u1.first_name || ' ' || u1.last_name AS requested_by_name,
-               u2.first_name || ' ' || u2.last_name AS decided_by_name
+               public.approval_company_member_name(ar.company_id, ar.requested_by::TEXT) AS requested_by_name,
+               public.approval_company_member_name(ar.company_id, ar.decided_by::TEXT) AS decided_by_name
         FROM approval_requests ar
         LEFT JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ar.company_id
-        LEFT JOIN users u1 ON u1.id = ar.requested_by::TEXT
-        LEFT JOIN users u2 ON u2.id = ar.decided_by::TEXT
         WHERE ar.company_id = ${companyId} AND ar.status = ${status}
         ORDER BY ar.created_at DESC
       `) as Record<string, unknown>[]
     : (await sql`
         SELECT ar.*, rl.name AS rule_name,
-               u1.first_name || ' ' || u1.last_name AS requested_by_name,
-               u2.first_name || ' ' || u2.last_name AS decided_by_name
+               public.approval_company_member_name(ar.company_id, ar.requested_by::TEXT) AS requested_by_name,
+               public.approval_company_member_name(ar.company_id, ar.decided_by::TEXT) AS decided_by_name
         FROM approval_requests ar
         LEFT JOIN approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ar.company_id
-        LEFT JOIN users u1 ON u1.id = ar.requested_by::TEXT
-        LEFT JOIN users u2 ON u2.id = ar.decided_by::TEXT
         WHERE ar.company_id = ${companyId}
         ORDER BY ar.created_at DESC
       `) as Record<string, unknown>[];
