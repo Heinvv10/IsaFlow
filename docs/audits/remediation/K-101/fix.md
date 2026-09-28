@@ -59,7 +59,16 @@ remove each one to prove it matters.
     a second customer of the same company with amount 999 999 answered 200 and wrote the link;
   - refuses a **cancelled** invoice (404, like the generate routes).
   - `assertCustomerInCompany` (R-067) stays: an invoice whose customer column names another
-    company's customer is still refused.
+    company's customer is still refused. `client_id` has no FK, so a bad import can produce one,
+    and the invoice-customer match lets it through (review round 2 pinned this with a test).
+
+### Review round 2 (both SHIP; one LOW each, fixed here)
+
+- The round-1 UUID check was `isValidUUID(String(invoiceId))`. A one-element array passes it
+  (`String([id])` is the id), and pg's `'{…}'::UUID` then 500'd. All three routes now use
+  `isUuidParam` (`@/lib/validation`), which checks the type as well.
+- `payment-link` refuses a non-string `clientId` (400) before the compare. An array or an object
+  whose `toString` is not a function used to 500.
 - Not changed, for Hein: `amount` is still not checked against the invoice total or balance (see
   Follow-ups). That is a product decision, not a defect of this item.
 
@@ -89,7 +98,7 @@ None re-derives the company for a request that already has one.
 
 ## Tests
 
-- `tests/integration/k101-portal-routes-use-active-company.int.test.ts`: 24 cases through the real
+- `tests/integration/k101-portal-routes-use-active-company.int.test.ts`: 29 cases through the real
   handlers (withAuth as `app_user` with RLS and the membership check, withErrorHandler). One user
   belongs to a default company and a second company, and a third company is foreign. For each of
   the three routes:
@@ -97,7 +106,8 @@ None re-derives the company for a request that already has one.
   - the default company while it is active: 200 and written (still works);
   - an invoice in the default company while the other is active: 404, nothing written;
   - an invoice in the non-default company while the default is active: 404, nothing written;
-  - a non-UUID `invoiceId`: 400 (review round 1);
+  - a non-UUID `invoiceId`: 400 (review round 1), and a one-element array: 400, nothing written
+    (round 2);
   - a foreign company in the cookie: 403, nothing written.
 
   Payment-link only (review round 1):
@@ -105,7 +115,9 @@ None re-derives the company for a request that already has one.
   - a cancelled invoice: 404, no link;
   - the customer held only in the legacy `customer_id` column: 200;
   - `client_id` and `customer_id` differ: `client_id` is the customer (the `customer_id` one is
-    400, the `client_id` one is 200).
+    400, the `client_id` one is 200);
+  - a non-string `clientId` (an array, an object): 400, no link (round 2);
+  - the invoice's own `client_id` names another company's customer: 400, no link (R-067, round 2).
 
   Two more cases:
   - both generate routes: an existing token on an invoice in the user's other company is not
@@ -117,16 +129,23 @@ None re-derives the company for a request that already has one.
     three "default company while the other is active" cases (500 from WITH CHECK), the existing
     token handed out, and the returned token;
   - `red.r1.int.log`: the review-round cases, 5 fail on the round-0 code (`94c0c1b7e`): the three
-    non-UUID 500s, the stranger customer and the cancelled invoice;
-  - `green.log`: 24/24. It also covers the adjacent portal suites (r095 session scoping, k122
+    non-UUID 500s, the stranger customer and the cancelled invoice. It was recorded before the
+    `client_id`-over-`customer_id` case was added; mutants M15 and M16 cover that one;
+  - `red.r2.int.log`: the round-2 cases, 4 fail on the round-1 code (`4f3e1fafb`): the three array
+    `invoiceId` 500s and the non-string `clientId`. The R-067 case passes there, as it should,
+    because the guard was already in place; mutant M21 proves the case bites;
+  - `green.log`: 29/29. It also covers the adjacent portal suites (r095 session scoping, k122
     dunning portal link, k122b token race: 16/16) and the R-067 fence routes including
     payment-link POST (32/32);
-  - `mutations.log`: every changed line mutated, 16/16 RED:
+  - `mutations.log`: every changed line mutated, 21/21 RED:
     - for each route, the company comes from the default membership (the original defect) or from
       the user id, or the SELECT's `company_id` predicate is dropped;
     - each UUID check removed;
     - the payment-link cancelled filter removed and its customer check removed;
-    - the customer read from `client_id` only, or from `customer_id` only.
+    - the customer read from `client_id` only, or from `customer_id` only;
+    - each UUID check without its type check (the round-1 code);
+    - the `clientId` string check removed;
+    - R-067 `assertCustomerInCompany` made a no-op.
 - Fixture: a clone of `isaflow_schema_fixture` (to 691) in the session's own container, with
   692–712 applied, and `DATABASE_SSL=disable`. The shared fixture was not written to.
 
