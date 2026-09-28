@@ -27,7 +27,7 @@ vi.mock('@/modules/accounting/services/practice/practiceReportsService', () => (
   getWipAging: getWipMock,
 }));
 vi.mock('@/modules/accounting/services/practice/practiceUsersService', () => ({
-  listCompanyUsers: listUsersMock,
+  listCompanyUsersForSystem: listUsersMock,
 }));
 vi.mock('@/modules/accounting/services/core/emailService', () => ({
   sendEmail: sendEmailMock,

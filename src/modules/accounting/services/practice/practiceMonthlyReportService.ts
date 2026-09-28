@@ -17,7 +17,7 @@ import {
   getWipAging,
   type UtilisationRow,
 } from './practiceReportsService';
-import { listCompanyUsers } from './practiceUsersService';
+import { listCompanyUsersForSystem } from './practiceUsersService';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import {
   renderMonthlyReportHtml,
@@ -124,7 +124,7 @@ export async function runMonthlyReports(
         getWipAging(company.id, { asOfDate: periodEnd }),
       ]);
 
-      const users = await listCompanyUsers(company.id);
+      const users = await listCompanyUsersForSystem(company.id);
       userMap = new Map(users.map((u) => [u.id, u.displayName]));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
