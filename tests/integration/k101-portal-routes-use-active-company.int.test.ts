@@ -207,6 +207,20 @@ it('payment-link accepts the invoice\'s customer held only in the legacy custome
   expect(await linkCount(id)).toBe(1);
 });
 
+it('payment-link takes client_id over customer_id when they differ (COALESCE(client_id, customer_id))', async () => {
+  const id = await invoice(OTHER);
+  const billTo = randomUUID();
+  await pool.query('INSERT INTO customers (id, company_id, name) VALUES ($1, $2, $3)',
+    [billTo, OTHER, 'K101 Other bill-to customer']);
+  await pool.query('UPDATE customer_invoices SET client_id = $2 WHERE id = $1', [id, billTo]);
+  const legacy = await call(paymentLinkRoute, OTHER, { invoiceId: id, clientId: customerOf[OTHER], amount: 115 });
+  expect(legacy.statusCode).toBe(400);
+  expect(await linkCount(id)).toBe(0);
+  const state = await call(paymentLinkRoute, OTHER, { invoiceId: id, clientId: billTo, amount: 115 });
+  expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
+  expect(await linkCount(id)).toBe(1);
+});
+
 it('the generate routes return the token they stored', async () => {
   for (const route of ROUTES.slice(0, 2)) {
     const id = await invoice(OTHER);
