@@ -262,16 +262,15 @@ export async function getAuditTrail(
         je.entry_date, je.entry_number, je.description, je.source, je.status,
         COALESCE(SUM(jl.debit), 0) AS total_debit,
         COALESCE(SUM(jl.credit), 0) AS total_credit,
-        COALESCE(CONCAT_WS(' ', u.first_name, u.last_name), je.created_by::TEXT) AS created_by_name,
+        COALESCE(public.approval_company_member_name(je.company_id, je.created_by::TEXT), je.created_by::TEXT) AS created_by_name,
         je.created_at, je.posted_at
       FROM gl_journal_entries je
       LEFT JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
-      LEFT JOIN users u ON u.id::TEXT = je.created_by::TEXT
       WHERE je.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
       GROUP BY je.id, je.entry_date, je.entry_number, je.description,
-        je.source, je.status, u.first_name, u.last_name, je.created_by, je.created_at, je.posted_at
+        je.source, je.status, je.created_by, je.created_at, je.posted_at
       ORDER BY je.created_at DESC
     `) as Row[];
 

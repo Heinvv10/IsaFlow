@@ -220,18 +220,16 @@ export async function queryAuditTrail(
              je.created_by, je.posted_by, je.created_at, je.posted_at, je.reversed_at,
              je.reversal_of_id, je.source_record_id, je.source_document_id,
              je.acting_company_id,
-             CONCAT_WS(' ', u.first_name, u.last_name) AS created_by_name,
-             CONCAT_WS(' ', pu.first_name, pu.last_name) AS posted_by_name,
+             public.approval_company_member_name(je.company_id, je.created_by::TEXT) AS created_by_name,
+             public.approval_company_member_name(je.company_id, je.posted_by::TEXT) AS posted_by_name,
              COALESCE(SUM(jl.debit), 0) AS amount
       FROM gl_journal_entries je
       LEFT JOIN gl_journal_lines jl
         ON jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
-      -- users.id is character varying(255) and created_by/posted_by are uuid,
-      -- so the UUID side is cast to TEXT, never the other way (CI guard).
-      -- Both joins are OUTER: a posting whose user row is missing must not
-      -- vanish from the trail, and must not silently become someone else.
-      LEFT JOIN users u ON u.id::TEXT = je.created_by::TEXT
-      LEFT JOIN users pu ON pu.id::TEXT = je.posted_by::TEXT
+      -- Name lookup goes through approval_company_member_name (mig 714), not
+      -- a join to users: app_user can only SELECT its own row there
+      -- (users_self_read, FORCE RLS), so a plain join resolved a name only
+      -- when the viewer was the actor themselves (R-147 review round 1).
       WHERE je.company_id = ${companyId}::UUID
         AND je.entry_date >= ${f.from}::DATE
         AND je.entry_date <= ${f.to}::DATE
@@ -258,7 +256,7 @@ export async function queryAuditTrail(
               OR (${entityType} = 'source_document' AND je.source_document_id::TEXT = ${entityId})))
         AND (${curDate}::TEXT IS NULL
              OR (je.entry_date, je.id::TEXT) < (${curDate}::DATE, ${curId}::TEXT))
-      GROUP BY je.id, u.first_name, u.last_name, pu.first_name, pu.last_name
+      GROUP BY je.id
       ORDER BY je.entry_date DESC, je.id DESC
       LIMIT ${f.limit + 1}
     `) as DbRow[];
