@@ -2,6 +2,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
+import { assertPracticeClientInCompany } from './practiceClientFence';
 
 export interface PracticeJob {
   id: string;
@@ -203,6 +204,8 @@ export async function updateJob(
     SELECT id FROM practice_jobs WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!existing.length) throw new Error('not found');
+  // R-073: createJob reads the client company-scoped; the update did not.
+  await assertPracticeClientInCompany(companyId, input.practiceClientId);
 
   if (input.title !== undefined && !input.title.trim()) throw new Error('job title is required');
 
