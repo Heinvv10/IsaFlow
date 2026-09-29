@@ -25,6 +25,7 @@ import { decide } from '@/modules/accounting/services/capture/autoPublishGateSer
 import { raiseUnattendedApproval, unattendedBillStatus } from '@/modules/accounting/services/gl/approvalUnattended';
 import { isCaptureEventPostable } from '@/modules/accounting/services/capture/captureEventLock';
 import { computeFingerprint } from '@/modules/accounting/services/capture/captureDeduplicationService';
+import { insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
 import {
   runCapturePostFollowUps,
   type PublishedDecision,
@@ -191,6 +192,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     : gateDecision.outcome === 'auto_publish' ? 'approved' : (approvalRoute === 'auto_approve' ? 'approved' : 'draft');
   // R-035 (B1): under an enforced approval rule an auto-approval becomes a draft plus a request.
   const approval = await unattendedBillStatus(companyId, invoiceStatus === 'approved', invoiceInput.totalAmount);
+  // R-131: the bill's lines, or a refusal — before the claim, so a 4xx commits nothing.
+  const linePlan = await planCaptureBillLines(companyId, invoiceInput, extracted.lineItems?.length ?? 0, gateDecision.rule);
+  if ('refusal' in linePlan) return apiResponse.badRequest(res, linePlan.refusal);
 
   // Claim the document BEFORE the first ledger write, and AFTER the
   // duplicate-blocked branch above — that branch answers 409 having written the
@@ -240,6 +244,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   ` as Row[];
 
   if (!invoice) return apiResponse.internalError(res, null, 'Failed to create invoice');
+  await insertCaptureBillLines(invoice.id as string, linePlan.lines); // before the request: it binds to their digest
   const approvalRequest = approval.gated
     ? await raiseUnattendedApproval(companyId, 'supplier_invoice', invoice.id as string, userId) : null;
 

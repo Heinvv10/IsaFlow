@@ -249,6 +249,22 @@ describe('capture and the AI pipeline (B1, B2)', () => {
     await assertHeldForApproval(c, supplier, await billFor(c, doc));
   });
 
+  // R-131: the route writes the bill's lines BEFORE it raises the request, whose
+  // digest binds them — so once decided, the bill approves and posts its journal.
+  it('capture/[id]/post: the request it raises, once approved, lets the bill approve and post', async () => {
+    const { c } = await fixture();
+    const { doc } = await extractedDoc(c);
+    const res = await capturePost(c, doc, await token(u.a));
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    const billId = await billFor(c, doc);
+    const [request] = (await pool.query(
+      "SELECT id FROM approval_requests WHERE document_id = $1 AND status = 'pending'", [billId])).rows;
+    expect((await r.decide(pool, u.b, c, String(request.id))).state.statusCode).toBe(200);
+    const approved = await r.approveBill(u.a, c, billId);
+    expect(approved.state.statusCode, JSON.stringify(approved.state.body)).toBe(200);
+    expect(await billState(pool, billId)).toMatchObject({ status: 'approved', journals: 1 });
+  });
+
   it('ai-invoice-pipeline inserts a draft and raises the request', async () => {
     const { c } = await fixture();
     const { doc, supplier } = await extractedDoc(c);
