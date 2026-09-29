@@ -25,10 +25,6 @@ const clientId = crypto.randomUUID();
 const otherClientId = crypto.randomUUID();
 const staffUserId = crypto.randomUUID();
 const onDate = '2026-06-15';
-let createdAuthUsers = false;
-const AUTH_USERS_STUB_LOCK = 39039039;
-// Advisory locks are per-connection, so the lock is held on a client of its own.
-let lockClient: import('pg').PoolClient;
 
 /**
  * Write a row shaped the way it was before migration 626. The mirror trigger has to be
@@ -64,19 +60,6 @@ async function insertPreMirrorRow(values: {
 }
 
 beforeAll(async () => {
-  // GoTrue owns auth.users and does not ship in the schema fixture; the service
-  // joins it for the staff display name. Stand up a stub only when the table is
-  // absent, and remember to drop it, so this test leaves no DDL behind in the
-  // shared fixture database for another suite to collide with.
-  // Two concurrent runs of this file would race on creating and dropping the stub;
-  // the advisory lock makes the create/use/drop window exclusive across sessions.
-  lockClient = await pool.connect();
-  await lockClient.query('SELECT pg_advisory_lock($1)', [AUTH_USERS_STUB_LOCK]);
-  const present = await pool.query("SELECT to_regclass('auth.users') AS reg");
-  createdAuthUsers = present.rows[0].reg === null;
-  if (createdAuthUsers) {
-    await pool.query('CREATE TABLE auth.users(id UUID PRIMARY KEY, email TEXT, raw_user_meta_data JSONB)');
-  }
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)', [
     companyId,
     'K-039 fixture',
@@ -95,9 +78,6 @@ afterAll(async () => {
   await pool.query('DELETE FROM practice_staff_rates WHERE company_id=ANY($1)', [ids]);
   await pool.query('DELETE FROM practice_clients WHERE company_id=ANY($1)', [ids]);
   await pool.query('DELETE FROM companies WHERE id=ANY($1)', [ids]);
-  if (createdAuthUsers) await pool.query('DROP TABLE auth.users');
-  await lockClient.query('SELECT pg_advisory_unlock($1)', [AUTH_USERS_STUB_LOCK]);
-  lockClient.release();
   await pool.end();
 });
 
