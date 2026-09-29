@@ -11,7 +11,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
@@ -79,7 +79,12 @@ describe('supplier invoice detail page — save refusal', () => {
 
     fireEvent.click(await screen.findByText('Save'));
 
-    await waitFor(() => expect(screen.queryByText('Save')).toBeNull());
-    expect(screen.getByText('Edit')).toBeDefined();
+    // R-150: wait for 'Edit', not for 'Save' to vanish. While the PUT is in
+    // flight the button reads 'Saving...', so "no 'Save'" already held
+    // mid-save and the next line raced the refetch — it failed under CPU load.
+    // 'Edit' returns only once editing is off AND the refetch has rendered.
+    expect(await screen.findByText('Edit')).toBeDefined();
+    expect(screen.getByText('saved')).toBeDefined();
+    expect(screen.queryByText('Save')).toBeNull();
   });
 });
