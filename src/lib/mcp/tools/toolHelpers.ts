@@ -199,6 +199,8 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'PAYMENT_POSTED_DURING_VOID',
   'PAYROLL_LOAN_LOCK_TIMEOUT',
   'PAYROLL_RUN_JOURNAL_POSTED',
+  // R-073 practice client fence: names only the id the caller passed; raised before any write.
+  'PRACTICE_CLIENT_NOT_FOUND',
   // Another request is posting a document with the same content (R-088): one
   // fixed "retry" sentence naming no document, raised before any write.
   'RECEIPT_POST_BUSY',
