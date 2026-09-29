@@ -10770,7 +10770,7 @@
       "historicalDataImpact": "Not assessed.",
       "canonicalItem": null,
       "reportedSeverity": "low",
-      "processNotes": "2026-09-26: Failed two pre-push runs on 2026-09-25/26.",
+      "processNotes": "2026-09-26: Failed two pre-push runs on 2026-09-25/26.\n\n2026-09-28: Reproduced twice under the R-150 pinning recipe (taskset to 1 core, heavy component mix, 12 workers): 'expected /api/accounting/reports-income-statem… to contain business_unit_id=business-a' at the waitFor on :89. Not diagnosed; check whether it is the same intermediate-render class as R-150 (see tests/unit/components/.claude.md).",
       "branch": null,
       "severity": "low",
       "title": "ReportPageDrillDimensions component test is flaky under load"
@@ -13707,23 +13707,25 @@
       "correctedTrigger": null,
       "severityRationale": "Observed during browser QA; severity provisional, cause not traced.",
       "auditedSha": "9a78ef9a5",
-      "currentSha": "7d992b3e5",
-      "status": "candidate",
+      "currentSha": "95006f678",
+      "status": "fixed",
       "dependencies": [],
-      "testNames": [],
+      "testNames": [
+        "tests/unit/components/supplierInvoiceSaveRefusal.test.tsx"
+      ],
       "evidencePaths": [],
-      "fixCommit": null,
-      "pr": null,
+      "fixCommit": "3e5c602a9",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/562",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed.",
       "canonicalItem": null,
-      "branch": null,
+      "branch": "fix/r150-save-refusal-flake-20260928",
       "id": "R-150",
       "severity": "low",
       "reportedSeverity": "low",
       "title": "supplierInvoiceSaveRefusal component test fails intermittently under machine load",
       "claim": "The component test failed once in the pre-push CI gate at high load and passed three times in a row alone; a flaky gate blocks pushes and trains people to retry.",
-      "processNotes": "2026-09-27: Seen on the R-035 PR2 push. Not diagnosed: likely a timing-sensitive waitFor. Reproduce under load before fixing.\n\n2026-09-28: NOT REPRODUCED on origin/master 7d992b3e5; stays candidate. 62 executions, 0 failures: 20 sequential runs of the file under added CPU load (busy loops, loadavg 23->38); 20 runs as 4 rounds of 5 concurrent vitest processes (load ~18); 2 full component-suite runs (bun run test:components, 738/738 each) at load 22->32; 20 sequential runs at load 25-28. Code read: none of the page's non-mocked children fires an extra apiFetch that could consume a queued mockResolvedValueOnce, and the post-PUT setState calls batch together, so no logic race was found. The original failure output was not recoverable from the R-035 PR2 session. Not fixed: the only candidate mechanism left is testing-library's 1000 ms default findBy/waitFor timeout under extreme contention, and lengthening a timeout without a reproduction is not a fix. Reopen with the failing output if it recurs. Related: R-138 (ReportPageDrillDimensions timeout under load, seen again 2026-09-28 in an R-148 CI run)."
+      "processNotes": "2026-09-27: Seen on the R-035 PR2 push. Not diagnosed: likely a timing-sensitive waitFor. Reproduce under load before fixing.\n\n2026-09-28: NOT REPRODUCED on origin/master 7d992b3e5; stays candidate. 62 executions, 0 failures: 20 sequential runs of the file under added CPU load (busy loops, loadavg 23->38); 20 runs as 4 rounds of 5 concurrent vitest processes (load ~18); 2 full component-suite runs (bun run test:components, 738/738 each) at load 22->32; 20 sequential runs at load 25-28. Code read: none of the page's non-mocked children fires an extra apiFetch that could consume a queued mockResolvedValueOnce, and the post-PUT setState calls batch together, so no logic race was found. The original failure output was not recoverable from the R-035 PR2 session. Not fixed: the only candidate mechanism left is testing-library's 1000 ms default findBy/waitFor timeout under extreme contention, and lengthening a timeout without a reproduction is not a fix. Reopen with the failing output if it recurs. Related: R-138 (ReportPageDrillDimensions timeout under load, seen again 2026-09-28 in an R-148 CI run).\n\n2026-09-28 (later): REPRODUCED by starving only the test process: `taskset -c <1 core> bunx vitest run --config vitest.components.config.ts --maxWorkers=12` with the target plus the 11 heaviest component files gave 4/72 failures on master, all 'Unable to find an element with the text: Edit' at :83 in 'closes the form and refetches when the save succeeds', with the button reading 'Saving...' in the DOM dump. Full suite pinned to 1-2 cores: 0/10; the target alone on 1 core passes. Cause: not a timeout (the failing test ran in ~155 ms). waitFor(queryByText('Save') === null) is satisfied mid-save, because the button is relabelled 'Saving...' and the batched setEditing(false)/setIsLoading(true) commit shows the spinner, so the synchronous getByText('Edit') raced the PUT and the refetch. Fix (test-only, #562): await findByText('Edit'), which can only resolve on the atomic final commit, then assert that the refetched notes render and 'Save' is gone. Same pinning on the branch: 0/72. No timeout changed. Mutations: the page swallowing the refusal, the form never closing, and the refetch removed each turn a named test red; master's test passed the refetch-removed mutant. The recipe is in tests/unit/components/.claude.md. Blind review: SHIP, no findings.\n\n2026-09-29: merged via #562 as 95006f678. Test-only change: nothing ships to prod, so deployedSha stays null."
     },
     {
       "area": "accounting/core",
@@ -13834,6 +13836,37 @@
       "title": "Portal annotation notifications may resolve zero recipients (users JOIN on the withPortalAuth path)",
       "claim": "notifyAnnotationReceived JOINs users to find the company's owners/admins/managers. It is called from a withPortalAuth route that sets no request.jwt.claims, so if the connection is subject to users_self_read (FORCE RLS, id = auth.uid()), auth.uid() is NULL and no recipient resolves.",
       "processNotes": "2026-09-28: Raised by the R-152 reviewer; not reproduced. On isaflow_dev the raw pool connects as postgres with rolbypassrls = true, so users_self_read does not apply on this path there and recipients should resolve. Prod's pool role (from /home/velo/isaflow/.env.local) was NOT checked. Close only after confirming prod's connecting role, or with an integration test that forces app_user plus RLS on this path.\n\n2026-09-28 (later): FALSE POSITIVE, disconfirmed on prod with a read-only catalog query (Hein OK): the prod pool (/home/velo/isaflow/.env.local DATABASE_URL, database isaflow) connects as postgres with rolbypassrls = true. users and company_users have FORCE RLS, but a BYPASSRLS role is exempt from it. pages/api/accounting/portal/documents/[documentId]/annotate.ts is wrapped only by withPortalAuth, which sets no ALS client, so notifyAnnotationReceived runs on the raw pool (src/lib/neon.ts uses the ALS client only when withAuth set one, and only that client does SET LOCAL ROLE app_user). users_self_read therefore never applies on this path, and recipients resolve on both dev and prod. The residual risk, recorded rather than fixed: if the pool role ever loses BYPASSRLS, this and every other raw-pool read of users breaks silently."
+    },
+    {
+      "area": "tests",
+      "affectedPaths": [
+        "tests/unit/components/autoPostRunsPanelHandOffset.test.tsx",
+        "src/components/accounting/bank-transactions/AutoPostRunsPanel.tsx"
+      ],
+      "sourceLabel": "R-150 reproduction sweep, 2026-09-28",
+      "sourceIds": [
+        "R-150"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "A flaky gate test blocks pushes and trains people to retry; no product defect is claimed.",
+      "auditedSha": "129f5587d",
+      "currentSha": "129f5587d",
+      "status": "confirmed",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None.",
+      "canonicalItem": null,
+      "branch": null,
+      "id": "R-154",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "autoPostRunsPanelHandOffset test asserts the DOM before React commits (flaky when starved)",
+      "claim": "'records that decision…' waits (vi.waitFor) on the onUndone spy, but AutoPostRunsPanel.decided() calls onUndone right after setState, before React commits, so the following DOM assertion (:99, expected <span>… to be null) can run against the previous render.",
+      "processNotes": "2026-09-28: Failed 3/20 under the R-150 pinning recipe (4 master copies + heavy component files, taskset 1 core, 12 workers). The same intermediate-render class as R-150: wait on the rendered outcome (findBy/waitFor on the DOM), not on the spy. Not fixed. tests/unit/components/autoPostRunsPanelUndoResult.test.tsx may share the pattern; check it too."
     }
   ],
   "sourceInventory": [
