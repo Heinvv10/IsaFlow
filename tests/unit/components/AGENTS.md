@@ -16,6 +16,11 @@ Run by `bun run test:components` (`vitest.components.config.ts`), inside `bun ru
   commits, so the DOM assertion can see the old render. Wait on the DOM instead — in
   `AutoPostRunsPanel`, the button reading `Undo` again (not `Undoing…`) is the end state (R-154).
   Such a test can also pass wrongly: the old render can hide a notice that should not be there.
+- Before `fireEvent.change` on a `<select>`, wait for the OPTION (`findByRole('option', …)`), not the
+  select: its placeholder shows before the options' fetch lands, and changing to a value with no
+  option leaves it at `''` — nothing is selected and a later waitFor times out (R-138). Waiting on
+  the report or another fetch is not enough; each option list is its own fetch. Same for reading a
+  restored option label: `await findByDisplayValue('CC2 — Project')`, not `getByDisplayValue`.
 - Reproduce a load flake without loading the box: pin only your run, e.g.
   `taskset -c <idle core> bunx vitest run --config vitest.components.config.ts --maxWorkers=12 <target> <heaviest ~11 files>`.
   `DEBUG_PRINT_LIMIT=200000` makes the failure print the whole DOM (default cuts at 7000 chars).
@@ -29,5 +34,9 @@ Run by `bun run test:components` (`vitest.components.config.ts`), inside `bun ru
 ## Recent changes
 - 2026-09-29: R-154 — `autoPostRunsPanelHandOffset` / `autoPostRunsPanelUndoResult` waited on the
   `onUndone` spy; now wait on the DOM (line + notice gone, or the `Undo` button back).
+- 2026-09-29: R-138/R-098 — `ReportPageDrillDimensions` BU tests changed the select before the BU
+  option rendered; now wait for the option first.
+- 2026-09-29: R-138 sweep — same fix in `CostCentreComparatorGate` (6 tests), `ReportReturnState`,
+  `TrialBalanceExport`, `expenseClaimLateClaimNotice`, `apPaymentRefusalMessages`.
 - 2026-09-28: R-150 — `supplierInvoiceSaveRefusal` waited for `Save` to vanish (true mid-save);
   now waits for `Edit` and asserts the refetched notes.

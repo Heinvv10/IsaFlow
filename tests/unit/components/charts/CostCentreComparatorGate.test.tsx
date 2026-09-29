@@ -76,7 +76,10 @@ describe('the income statement with a cost centre selected', () => {
     await waitFor(() => expect(comparatorCalls().length).toBe(2));
     const beforeFilter = comparatorCalls().length;
 
-    fireEvent.change(await screen.findByDisplayValue('All Cost Centres'), { target: { value: 'cc-1' } });
+    // Wait for the option: changing a select to a value it has no option for
+    // leaves it at '' — the cost-centre list is its own fetch (R-138).
+    await screen.findByRole('option', { name: 'OPS — Operations' });
+    fireEvent.change(screen.getByDisplayValue('All Cost Centres'), { target: { value: 'cc-1' } });
 
     expect(await screen.findByText(COMPANY_WIDE_UNAVAILABLE)).toBeInTheDocument();
     expect((screen.getByLabelText('12-month trend') as HTMLInputElement).disabled).toBe(true);
@@ -92,7 +95,8 @@ describe('the income statement with a cost centre selected', () => {
     render(<IncomeStatementPage />);
 
     fireEvent.click(await screen.findByLabelText('12-month trend'));
-    const select = await screen.findByDisplayValue('All Cost Centres');
+    await screen.findByRole('option', { name: 'OPS — Operations' });
+    const select = screen.getByDisplayValue('All Cost Centres');
     fireEvent.change(select, { target: { value: 'cc-1' } });
     expect((screen.getByLabelText('12-month trend') as HTMLInputElement).checked).toBe(false);
 
@@ -112,7 +116,8 @@ describe('the income statement with a business unit selected', () => {
     fireEvent.click(screen.getByLabelText('Budget'));
     await waitFor(() => expect(comparatorCalls().length).toBe(2));
 
-    fireEvent.change(await screen.findByDisplayValue('All Business Units'), { target: { value: 'bu-1' } });
+    await screen.findByRole('option', { name: 'SALES — Sales' });
+    fireEvent.change(screen.getByDisplayValue('All Business Units'), { target: { value: 'bu-1' } });
     expect(await screen.findByText(COMPANY_WIDE_UNAVAILABLE)).toBeInTheDocument();
     expect((screen.getByLabelText('12-month trend') as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByLabelText('Budget') as HTMLInputElement).disabled).toBe(true);
@@ -135,7 +140,8 @@ describe('touching a live checkbox while the gate is on', () => {
     fireEvent.click(await screen.findByLabelText('12-month trend'));
     fireEvent.click(screen.getByLabelText('Budget'));
 
-    const select = await screen.findByDisplayValue('All Cost Centres');
+    await screen.findByRole('option', { name: 'OPS — Operations' });
+    const select = screen.getByDisplayValue('All Cost Centres');
     fireEvent.change(select, { target: { value: 'cc-1' } });
     expect(await screen.findByText(COMPANY_WIDE_UNAVAILABLE)).toBeInTheDocument();
 
@@ -162,7 +168,8 @@ describe('the balance sheet with a cost centre selected', () => {
     await waitFor(() => expect(comparatorCalls().length).toBe(1));
     const beforeFilter = comparatorCalls().length;
 
-    fireEvent.change(await screen.findByDisplayValue('All Cost Centres'), { target: { value: 'cc-1' } });
+    await screen.findByRole('option', { name: 'OPS — Operations' });
+    fireEvent.change(screen.getByDisplayValue('All Cost Centres'), { target: { value: 'cc-1' } });
 
     expect(await screen.findByText(COMPANY_WIDE_UNAVAILABLE)).toBeInTheDocument();
     expect((screen.getByLabelText('12-month trend') as HTMLInputElement).disabled).toBe(true);
@@ -179,7 +186,8 @@ describe('the balance sheet with a business unit selected', () => {
     await waitFor(() => expect(comparatorCalls().length).toBe(1));
     const beforeFilter = comparatorCalls().length;
 
-    fireEvent.change(await screen.findByDisplayValue('All Business Units'), {target:{value:'bu-1'}});
+    await screen.findByRole('option', { name: 'SALES — Sales' });
+    fireEvent.change(screen.getByDisplayValue('All Business Units'), {target:{value:'bu-1'}});
     expect(await screen.findByText(COMPANY_WIDE_UNAVAILABLE)).toBeInTheDocument();
     expect((screen.getByLabelText('12-month trend') as HTMLInputElement).disabled).toBe(true);
     expect(comparatorCalls().length).toBe(beforeFilter);
