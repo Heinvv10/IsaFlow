@@ -102,15 +102,17 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
 
 // R-157: a link is a public credential to pay this invoice, so creating one is a write:
 // CSRF-checked, and owner/admin/manager only, refused before the first write (withAuth COMMITs a 4xx).
-// withErrorHandler must sit INSIDE withAuth as well: withAuth defers res.end until COMMIT/ROLLBACK
-// and replays it only on a normal return, so a throw that reached the router's outer
-// withErrorHandler was rolled back but its 500 never reached the client.
+// withErrorHandler sits INSIDE withAuth, as on every withAuth route: withAuth defers res.end until
+// COMMIT/ROLLBACK and replays it only on a normal return, so a 500 from a withErrorHandler outside
+// it never reached the client. Each method is wrapped once, so a request is logged once.
 const authedPost = withAuth(withErrorHandler(withCsrf(withWriteAccess(postHandler))));
+const publicGet = withErrorHandler(getHandler);
+/** Every other method: 405, except OPTIONS, which withErrorHandler answers (CORS preflight). */
+const otherMethods = withErrorHandler(async (req: NextApiRequest, res: NextApiResponse) =>
+  apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']));
 
-async function router(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method === 'GET') return getHandler(req, res);
+export default async function router(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method === 'GET') return publicGet(req, res);
   if (req.method === 'POST') return authedPost(req, res);
-  return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
+  return otherMethods(req, res);
 }
-
-export default withErrorHandler(router);
