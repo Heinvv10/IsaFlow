@@ -8648,21 +8648,21 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "status": "in-progress",
+      "currentSha": "3e4728e98",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [],
       "evidencePaths": [],
       "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/567",
+      "deployedSha": "3e4728e98",
       "historicalDataImpact": "Not assessed",
       "canonicalItem": "R-157",
       "sourceReferences": [
         "inputs/api-admin-auth-billing-portal.md:222"
       ],
       "reportedSeverity": "low",
-      "processNotes": "2026-09-29: The CSRF half of R-157 (fix/r155-157-portal-followups-20260929). generate.ts and payment-link.ts POST (and ar/invoice/[id]/portal-link POST) are withCsrf(withWriteAccess(...)); a request without the CSRF header is 403 before any write. Tracked under R-157."
+      "processNotes": "2026-09-29: The CSRF half of R-157 (fix/r155-157-portal-followups-20260929). generate.ts and payment-link.ts POST (and ar/invoice/[id]/portal-link POST) are withCsrf(withWriteAccess(...)); a request without the CSRF header is 403 before any write. Tracked under R-157. 2026-09-29: merged as #567 (3e4728e98) and deployed to prod 3e4728e98 at 10:04 SAST on Hein's explicit business-hours 'Deploy now'. Applied 0 migrations, golden paths green, integrity 16/16, RELEASE_SHA verified, fix strings in the live .next chunks; live POST /api/portal/invoice/<token> answers 405 and unauthenticated generate 401."
     },
     {
       "id": "K-277",
@@ -13906,8 +13906,8 @@
       "correctedTrigger": null,
       "severityRationale": "Needs two mints of one invoice within milliseconds; the loss is a dead customer link, not a data leak.",
       "auditedSha": "6d1f4a488",
-      "currentSha": "6d1f4a488",
-      "status": "in-progress",
+      "currentSha": "3e4728e98",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r155-157-portal-mint-guards.int.test.ts"
@@ -13920,8 +13920,8 @@
         "docs/audits/remediation/R-155/mutations.log"
       ],
       "fixCommit": "f2cbe5250;fb6f94117",
-      "pr": null,
-      "deployedSha": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/567",
+      "deployedSha": "3e4728e98",
       "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
       "canonicalItem": null,
       "branch": "fix/r155-157-portal-followups-20260929",
@@ -13930,7 +13930,7 @@
       "reportedSeverity": "low",
       "title": "Portal generate route mints the invoice token read-then-write, so a concurrent mint is overwritten",
       "claim": "POST /api/portal/invoice/generate SELECTs portal_token and then runs a plain UPDATE SET portal_token = $new. A second mint (dunning cron, manual send, another click) committing in between is overwritten, so the link it already handed out goes dead. getOrMintInvoicePortalToken (K-122b) already mints with COALESCE ... RETURNING; the route did not use it.",
-      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 42/42 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. The route now uses findOrMintInvoicePortalToken (null -> 404; getOrMint wraps it and still throws for dunning); proven by a real interleave through the route with the hook asserted fired."
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 42/42 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. The route now uses findOrMintInvoicePortalToken (null -> 404; getOrMint wraps it and still throws for dunning); proven by a real interleave through the route with the hook asserted fired. 2026-09-29: merged as #567 (3e4728e98) and deployed to prod 3e4728e98 at 10:04 SAST on Hein's explicit business-hours 'Deploy now'. Applied 0 migrations, golden paths green, integrity 16/16, RELEASE_SHA verified, fix strings in the live .next chunks; live POST /api/portal/invoice/<token> answers 405 and unauthenticated generate 401."
     },
     {
       "area": "accounting/ar portal",
@@ -13944,8 +13944,8 @@
       "correctedTrigger": null,
       "severityRationale": "Duplicate code path carrying R-155's race; no UI caller.",
       "auditedSha": "6d1f4a488",
-      "currentSha": "6d1f4a488",
-      "status": "in-progress",
+      "currentSha": "3e4728e98",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r155-157-portal-mint-guards.int.test.ts"
@@ -13957,8 +13957,8 @@
         "docs/audits/remediation/R-155/mutations.log"
       ],
       "fixCommit": "f2cbe5250;fb6f94117",
-      "pr": null,
-      "deployedSha": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/567",
+      "deployedSha": "3e4728e98",
       "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
       "canonicalItem": null,
       "branch": "fix/r155-157-portal-followups-20260929",
@@ -13967,7 +13967,7 @@
       "reportedSeverity": "low",
       "title": "POST /api/portal/invoice/[token] duplicates the generate route and ignores ?action=",
       "claim": "The public token route also accepted an authenticated POST that minted a token (its own read-then-write copy of generate.ts), whatever ?action= said. A second mint path to keep in step.",
-      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 42/42 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided: delete the POST arm (now 405); the public GET is untouched. Prod journalctl and nginx logs (retained since 2026-09-25 and 2026-09-16) show no /api/portal/ traffic at all."
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 42/42 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided: delete the POST arm (now 405); the public GET is untouched. Prod journalctl and nginx logs (retained since 2026-09-25 and 2026-09-16) show no /api/portal/ traffic at all. 2026-09-29: merged as #567 (3e4728e98) and deployed to prod 3e4728e98 at 10:04 SAST on Hein's explicit business-hours 'Deploy now'. Applied 0 migrations, golden paths green, integrity 16/16, RELEASE_SHA verified, fix strings in the live .next chunks; live POST /api/portal/invoice/<token> answers 405 and unauthenticated generate 401."
     },
     {
       "area": "accounting/ar portal",
@@ -13984,8 +13984,8 @@
       "correctedTrigger": null,
       "severityRationale": "Privilege: a read-only member creates a public credential exposing an invoice outside the company; CSRF lets a third-party page trigger the mint.",
       "auditedSha": "6d1f4a488",
-      "currentSha": "6d1f4a488",
-      "status": "in-progress",
+      "currentSha": "3e4728e98",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r155-157-portal-mint-guards.int.test.ts",
@@ -14000,8 +14000,8 @@
         "docs/audits/remediation/R-155/red.r5.int.log"
       ],
       "fixCommit": "f2cbe5250;fb6f94117;0f8f41ad4;fe1e74eb3",
-      "pr": null,
-      "deployedSha": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/567",
+      "deployedSha": "3e4728e98",
       "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
       "canonicalItem": null,
       "branch": "fix/r155-157-portal-followups-20260929",
@@ -14010,7 +14010,7 @@
       "reportedSeverity": "medium",
       "title": "A viewer can mint a permanent public invoice token or payment link; the mint routes take no CSRF token",
       "claim": "generate.ts and payment-link.ts POST had neither withCsrf nor withWriteAccess, so a company viewer could create a permanent unauthenticated credential for an invoice (or a payment link) and the requests needed no CSRF token. GET /api/accounting/ar/invoice/[id]/portal-link also minted, and withWriteAccess/withCsrf pass every GET.",
-      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 42/42 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided DEFAULT_WRITE_ROLES; all three mint routes are withCsrf(withWriteAccess(...)); scope extended (Hein, 2026-09-29) to portal-link GET, which now only reads (404 when no token). Refusals come before any write (withAuth COMMITs a 4xx). Review round 4: payment-link POST was wrapped withErrorHandler only OUTSIDE withAuth, so a throw after the link INSERT rolled back but never sent its 500 (client hang, pre-existing); now withAuth(withErrorHandler(...)), proven by tests/integration/r157-payment-link-throw-responds.int.test.ts (R-155/red.r4.int.log, mutant M39). Review round 5: the round-4 wiring logged each authenticated POST twice (outer router wrap + inner); each method is now wrapped once (R-155/red.r5.int.log, mutants M40-M42)."
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 42/42 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided DEFAULT_WRITE_ROLES; all three mint routes are withCsrf(withWriteAccess(...)); scope extended (Hein, 2026-09-29) to portal-link GET, which now only reads (404 when no token). Refusals come before any write (withAuth COMMITs a 4xx). Review round 4: payment-link POST was wrapped withErrorHandler only OUTSIDE withAuth, so a throw after the link INSERT rolled back but never sent its 500 (client hang, pre-existing); now withAuth(withErrorHandler(...)), proven by tests/integration/r157-payment-link-throw-responds.int.test.ts (R-155/red.r4.int.log, mutant M39). Review round 5: the round-4 wiring logged each authenticated POST twice (outer router wrap + inner); each method is now wrapped once (R-155/red.r5.int.log, mutants M40-M42). 2026-09-29: merged as #567 (3e4728e98) and deployed to prod 3e4728e98 at 10:04 SAST on Hein's explicit business-hours 'Deploy now'. Applied 0 migrations, golden paths green, integrity 16/16, RELEASE_SHA verified, fix strings in the live .next chunks; live POST /api/portal/invoice/<token> answers 405 and unauthenticated generate 401."
     },
     {
       "area": "accounting/ar portal",
@@ -14026,8 +14026,8 @@
       "correctedTrigger": null,
       "severityRationale": "Owner/admin/manager only (both routes are withCsrf + withWriteAccess); the harm is a payable link on a dead invoice or a 500, not an authorization bypass.",
       "auditedSha": "6d1f4a488",
-      "currentSha": "6d1f4a488",
-      "status": "in-progress",
+      "currentSha": "3e4728e98",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r158-payment-link-creation-guards.int.test.ts"
@@ -14040,8 +14040,8 @@
         "docs/audits/remediation/R-155/mutations.log"
       ],
       "fixCommit": "fb6f94117;c98f6a61d",
-      "pr": null,
-      "deployedSha": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/567",
+      "deployedSha": "3e4728e98",
       "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
       "canonicalItem": null,
       "branch": "fix/r155-157-portal-followups-20260929",
@@ -14050,7 +14050,7 @@
       "reportedSeverity": "low",
       "title": "pay-now and payment-gateway 500 on a bad id and create payment links for cancelled, deleted or fully paid invoices",
       "claim": "POST /api/accounting/customer-invoices/[id]/pay-now and POST /api/accounting/payment-gateway cast the id to ::UUID unchecked (22P02, 500). pay-now created a link for a cancelled or soft-deleted invoice. enableOnlinePayment inserted ci.client_id only (a legacy invoice with only customer_id 500'd on the NOT NULL column), had no status, deleted_at or balance filter, and threw (500) for an unknown invoice.",
-      "processNotes": "2026-09-29: Found by the adversarial reviewer of R-155..R-157 (pre-existing) and fixed on the same branch. RED 11/16 on master code (R-155/red.r1.int.log), GREEN 20/20 (4 viewer/CSRF refusal cases added in review round 2), mutants M23-M38 RED (R-155/mutations.log)."
+      "processNotes": "2026-09-29: Found by the adversarial reviewer of R-155..R-157 (pre-existing) and fixed on the same branch. RED 11/16 on master code (R-155/red.r1.int.log), GREEN 20/20 (4 viewer/CSRF refusal cases added in review round 2), mutants M23-M38 RED (R-155/mutations.log). 2026-09-29: merged as #567 (3e4728e98) and deployed to prod 3e4728e98 at 10:04 SAST on Hein's explicit business-hours 'Deploy now'. Applied 0 migrations, golden paths green, integrity 16/16, RELEASE_SHA verified, fix strings in the live .next chunks; live POST /api/portal/invoice/<token> answers 405 and unauthenticated generate 401."
     },
     {
       "area": "auth",
