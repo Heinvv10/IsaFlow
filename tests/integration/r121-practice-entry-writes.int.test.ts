@@ -28,11 +28,6 @@ const category = randomUUID();
 const workItem = randomUUID();
 const otherCompany = randomUUID();
 const otherClient = randomUUID();
-// GoTrue owns auth.users and it does not ship in the schema fixture; the
-// override service joins it. Same stub and lock as k-039 (they share it).
-const AUTH_USERS_STUB_LOCK = 39039039;
-let createdAuthUsers = false;
-let lockClient: import('pg').PoolClient;
 
 async function inTx<T>(fn: () => Promise<T>): Promise<T> {
   const c = await pool.connect();
@@ -48,13 +43,6 @@ async function inTx<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 beforeAll(async () => {
-  lockClient = await pool.connect();
-  await lockClient.query('SELECT pg_advisory_lock($1)', [AUTH_USERS_STUB_LOCK]);
-  createdAuthUsers = (await pool.query("SELECT to_regclass('auth.users') AS reg")).rows[0].reg === null;
-  if (createdAuthUsers) {
-    await pool.query('CREATE TABLE auth.users(id UUID PRIMARY KEY, email TEXT, raw_user_meta_data JSONB)');
-    await pool.query('GRANT SELECT ON auth.users TO app_user');
-  }
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)', [company, 'R121 company', otherCompany, 'R121 other tenant']);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   await pool.query(
@@ -82,9 +70,6 @@ afterAll(async () => {
     await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM companies WHERE id = ANY($1)', [[company, otherCompany]]);
     await pool.query('DELETE FROM users WHERE id=$1', [user]);
-    if (createdAuthUsers) await pool.query('DROP TABLE auth.users');
-    await lockClient.query('SELECT pg_advisory_unlock($1)', [AUTH_USERS_STUB_LOCK]);
-    lockClient.release();
   } finally { await pool.end(); }
 });
 
