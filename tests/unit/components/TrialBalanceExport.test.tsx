@@ -27,6 +27,7 @@ describe('trial balance CSV selection', () => {
     const select = await screen.findByDisplayValue('All Cost Centres');
     const businessUnit = await screen.findByDisplayValue('All Business Units');
     await screen.findByRole('option', {name: 'PROJECT — Project'});
+    await screen.findByRole('option', {name: 'OPS — Operations'});
     fireEvent.change(select, {target: {value:'cc2'}});
     fireEvent.change(businessUnit, {target: {value:'bu1'}});
     await waitFor(() => expect(screen.getByRole('button', {name:'Export CSV'})).toBeEnabled());

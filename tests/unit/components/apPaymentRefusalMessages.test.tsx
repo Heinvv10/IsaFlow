@@ -113,6 +113,7 @@ it('new batch still lists bills, at their outstanding, when reservations cannot 
   const { container } = render(<NewBatch />);
   expect(await screen.findByRole('status')).toBeTruthy();
   expect(screen.getByRole('status').textContent).toContain('could not be loaded');
+  await screen.findByText('Supplier One');
   fireEvent.change(container.querySelector('select[name="supplierId"]')!, { target: { value: 's1' } });
   const option = await screen.findByText(/INV-8/);
   expect(option.textContent).toMatch(/500,00/);
