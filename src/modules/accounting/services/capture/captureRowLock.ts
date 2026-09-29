@@ -164,6 +164,8 @@ export interface CaptureEventForPosting {
   extractedData: unknown;
   /** A person's correction of the vendor (`captured_documents.vendor_name`), which the meals hold reads first (K-072 r37). */
   documentVendorName: string | null;
+  /** The event's own expense account, first in R-131's fallback for a bill with no extracted lines. */
+  resolvedGlAccountId: string | null;
 }
 
 /**
@@ -194,7 +196,7 @@ export async function lockCaptureEventForPosting(
   const [row] = (await sql`
     SELECT ce.status AS event_status, ce.captured_document_id,
            cd.status AS document_status, cd.posted_at AS document_posted_at,
-           cd.extracted_data, cd.vendor_name
+           cd.extracted_data, cd.vendor_name, ce.resolved_gl_account_id
     FROM capture_events ce
     JOIN captured_documents cd ON cd.id = ce.captured_document_id
     WHERE ce.id = ${eventId}::uuid
@@ -210,5 +212,6 @@ export async function lockCaptureEventForPosting(
     documentPostedAt: (row.document_posted_at as Date | string | null) ?? null,
     extractedData: row.extracted_data,
     documentVendorName: (row.vendor_name as string | null) ?? null,
+    resolvedGlAccountId: (row.resolved_gl_account_id as string | null) ?? null,
   };
 }

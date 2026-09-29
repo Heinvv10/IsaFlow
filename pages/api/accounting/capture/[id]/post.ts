@@ -192,8 +192,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     : gateDecision.outcome === 'auto_publish' ? 'approved' : (approvalRoute === 'auto_approve' ? 'approved' : 'draft');
   // R-035 (B1): under an enforced approval rule an auto-approval becomes a draft plus a request.
   const approval = await unattendedBillStatus(companyId, invoiceStatus === 'approved', invoiceInput.totalAmount);
-  // R-131: the bill's lines, or a refusal — before the claim, so a 4xx commits nothing.
-  const linePlan = await planCaptureBillLines(companyId, invoiceInput, extracted.lineItems?.length ?? 0, gateDecision.rule);
+  const linePlan = await planCaptureBillLines( // R-131: lines or a refusal, before the claim so a 4xx commits nothing
+    companyId, invoiceInput, extracted.lineItems?.length ?? 0, event.resolvedGlAccountId, gateDecision.rule);
   if ('refusal' in linePlan) return apiResponse.badRequest(res, linePlan.refusal);
 
   // Claim the document BEFORE the first ledger write, and AFTER the
