@@ -83,7 +83,11 @@ it('income statement carries a selected business unit through report, exports, t
 
   const startCallIndex = vi.mocked(apiFetch).mock.calls.length;
   render(<IncomeStatementPage />);
-  fireEvent.change(await screen.findByDisplayValue('All Business Units'), {target:{value:'business-a'}});
+  // Wait for the OPTION, not the select: 'All Business Units' shows before the
+  // business-units fetch lands, and changing a select to a value it has no
+  // option for leaves it at '' — no BU is ever selected (R-138).
+  await screen.findByRole('option', {name:'OPS — Operations'});
+  fireEvent.change(screen.getByDisplayValue('All Business Units'), {target:{value:'business-a'}});
   const request = (fragment: string) => vi.mocked(apiFetch).mock.calls
     .slice(startCallIndex).filter(([url]) => String(url).includes(fragment)).at(-1)?.[0];
   await waitFor(() => expect(String(request('reports-income-statement'))).toContain('business_unit_id=business-a'));
@@ -127,7 +131,8 @@ it('balance sheet carries a selected business unit through report, exports, link
 
   const startCallIndex = vi.mocked(apiFetch).mock.calls.length;
   render(<BalanceSheetPage />);
-  fireEvent.change(await screen.findByDisplayValue('All Business Units'), {target:{value:'business-a'}});
+  await screen.findByRole('option', {name:'OPS — Operations'});
+  fireEvent.change(screen.getByDisplayValue('All Business Units'), {target:{value:'business-a'}});
   const request = (fragment: string) => vi.mocked(apiFetch).mock.calls
     .slice(startCallIndex).filter(([url]) => String(url).includes(fragment)).at(-1)?.[0];
   await waitFor(() => expect(String(request('reports-balance-sheet'))).toContain('business_unit_id=business-a'));
