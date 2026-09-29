@@ -13906,7 +13906,7 @@
       "reportedSeverity": "low",
       "title": "Portal generate route mints the invoice token read-then-write, so a concurrent mint is overwritten",
       "claim": "POST /api/portal/invoice/generate SELECTs portal_token and then runs a plain UPDATE SET portal_token = $new. A second mint (dunning cron, manual send, another click) committing in between is overwritten, so the link it already handed out goes dead. getOrMintInvoicePortalToken (K-122b) already mints with COALESCE ... RETURNING; the route did not use it.",
-      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 39/39 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. The route now uses findOrMintInvoicePortalToken (null -> 404; getOrMint wraps it and still throws for dunning); proven by a real interleave through the route with the hook asserted fired."
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 42/42 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. The route now uses findOrMintInvoicePortalToken (null -> 404; getOrMint wraps it and still throws for dunning); proven by a real interleave through the route with the hook asserted fired."
     },
     {
       "area": "accounting/ar portal",
@@ -13943,7 +13943,7 @@
       "reportedSeverity": "low",
       "title": "POST /api/portal/invoice/[token] duplicates the generate route and ignores ?action=",
       "claim": "The public token route also accepted an authenticated POST that minted a token (its own read-then-write copy of generate.ts), whatever ?action= said. A second mint path to keep in step.",
-      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 39/39 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided: delete the POST arm (now 405); the public GET is untouched. Prod journalctl and nginx logs (retained since 2026-09-25 and 2026-09-16) show no /api/portal/ traffic at all."
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 42/42 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided: delete the POST arm (now 405); the public GET is untouched. Prod journalctl and nginx logs (retained since 2026-09-25 and 2026-09-16) show no /api/portal/ traffic at all."
     },
     {
       "area": "accounting/ar portal",
@@ -13972,9 +13972,10 @@
         "docs/audits/remediation/R-155/red.int.log",
         "docs/audits/remediation/R-155/green.log",
         "docs/audits/remediation/R-155/mutations.log",
-        "docs/audits/remediation/R-155/red.r4.int.log"
+        "docs/audits/remediation/R-155/red.r4.int.log",
+        "docs/audits/remediation/R-155/red.r5.int.log"
       ],
-      "fixCommit": "f2cbe5250;fb6f94117;0f8f41ad4",
+      "fixCommit": "f2cbe5250;fb6f94117;0f8f41ad4;fe1e74eb3",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
@@ -13985,7 +13986,7 @@
       "reportedSeverity": "medium",
       "title": "A viewer can mint a permanent public invoice token or payment link; the mint routes take no CSRF token",
       "claim": "generate.ts and payment-link.ts POST had neither withCsrf nor withWriteAccess, so a company viewer could create a permanent unauthenticated credential for an invoice (or a payment link) and the requests needed no CSRF token. GET /api/accounting/ar/invoice/[id]/portal-link also minted, and withWriteAccess/withCsrf pass every GET.",
-      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 39/39 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided DEFAULT_WRITE_ROLES; all three mint routes are withCsrf(withWriteAccess(...)); scope extended (Hein, 2026-09-29) to portal-link GET, which now only reads (404 when no token). Refusals come before any write (withAuth COMMITs a 4xx). Review round 4: payment-link POST was wrapped withErrorHandler only OUTSIDE withAuth, so a throw after the link INSERT rolled back but never sent its 500 (client hang, pre-existing); now withAuth(withErrorHandler(...)), proven by tests/integration/r157-payment-link-throw-responds.int.test.ts (R-155/red.r4.int.log, mutant M39)."
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 42/42 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided DEFAULT_WRITE_ROLES; all three mint routes are withCsrf(withWriteAccess(...)); scope extended (Hein, 2026-09-29) to portal-link GET, which now only reads (404 when no token). Refusals come before any write (withAuth COMMITs a 4xx). Review round 4: payment-link POST was wrapped withErrorHandler only OUTSIDE withAuth, so a throw after the link INSERT rolled back but never sent its 500 (client hang, pre-existing); now withAuth(withErrorHandler(...)), proven by tests/integration/r157-payment-link-throw-responds.int.test.ts (R-155/red.r4.int.log, mutant M39). Review round 5: the round-4 wiring logged each authenticated POST twice (outer router wrap + inner); each method is now wrapped once (R-155/red.r5.int.log, mutants M40-M42)."
     },
     {
       "area": "accounting/ar portal",
@@ -14026,6 +14027,42 @@
       "title": "pay-now and payment-gateway 500 on a bad id and create payment links for cancelled, deleted or fully paid invoices",
       "claim": "POST /api/accounting/customer-invoices/[id]/pay-now and POST /api/accounting/payment-gateway cast the id to ::UUID unchecked (22P02, 500). pay-now created a link for a cancelled or soft-deleted invoice. enableOnlinePayment inserted ci.client_id only (a legacy invoice with only customer_id 500'd on the NOT NULL column), had no status, deleted_at or balance filter, and threw (500) for an unknown invoice.",
       "processNotes": "2026-09-29: Found by the adversarial reviewer of R-155..R-157 (pre-existing) and fixed on the same branch. RED 11/16 on master code (R-155/red.r1.int.log), GREEN 20/20 (4 viewer/CSRF refusal cases added in review round 2), mutants M23-M38 RED (R-155/mutations.log)."
+    },
+    {
+      "area": "auth",
+      "affectedPaths": [
+        "src/lib/auth/withAuth.ts",
+        "src/lib/auth/bearerPipeline.ts",
+        "src/lib/auth/withExtensionToken.ts",
+        "pages/api/invitations/revoke/[id].ts"
+      ],
+      "sourceLabel": "R-155..R-158 review rounds 4-5, 2026-09-29",
+      "sourceIds": [
+        "R-157"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "The write is rolled back (no data harm); the client hangs instead of getting a 500. Only on an unexpected throw.",
+      "auditedSha": "6d1f4a488",
+      "currentSha": "6d1f4a488",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-155/fix.md",
+        "docs/audits/remediation/R-155/red.r4.int.log"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None: the transaction rolls back.",
+      "canonicalItem": null,
+      "branch": null,
+      "id": "R-159",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "A route whose auth wrapper buffers res.end hangs the client when the handler throws, unless withErrorHandler sits inside the wrapper",
+      "claim": "withAuth (and bearerPipeline, withExtensionToken) replace res.end with a buffer and replay it only when the handler returns normally; on a throw they ROLLBACK and rethrow without replaying, so any 500 written after that (by an outer withErrorHandler or by Next) never reaches the client and the request hangs until the socket times out. Known instance: pages/api/invitations/revoke/[id].ts is withAuth(withCsrf(handler)) with no withErrorHandler. payment-link POST had it and was fixed under R-157. Routes behind bearerPipeline / withExtensionToken were not censused.",
+      "processNotes": "2026-09-29: Reported by the blind reviewers of PR #567 (R-157 round 4: executed for payment-link, reasoned for invitations/revoke). Not fixed. Options: add withErrorHandler inside the wrapper on each such route, or have the wrappers replay a 500 on a throw (one fix for every route). Census first: every export wrapping withAuth / withBearerOrCookieAuth / withExtensionToken without an inner withErrorHandler."
     }
   ],
   "sourceInventory": [

@@ -92,18 +92,18 @@ Evidence:
 - `red.int.log` (the original 28 cases): 14 fail on origin/master `6d1f4a488`: the generate race, both
   soft-deleted cases, both 405s, the viewer and no-CSRF cases for generate and payment-link, both
   minting GETs, the two non-UUID 500s, and the unknown-invoice 500.
-- `green.log`, all on the review-round-4 head:
+- `green.log`, all on the review-round-5 head:
   - this suite: 30/30;
   - R-158: 20/20;
-  - R-157 throw-after-write: 2/2;
+  - R-157 throw-after-write: 6/6;
   - K-101: 24/24;
   - k122: 6/6;
   - k122b: 3/3;
   - r095: 7/7 + 7/7 + 8/8;
   - customer-ownership-fence-routes, on an `isaflow_test` clone: 32/32;
   - unit tests for `portalTokenService` + `dunningService`: 30/30.
-- `mutations.log`: 39/39 mutants RED. M1–M34 ran on the round-1 head, M35–M38 on the round-2 head, and
-  M39 (with M12–M14 re-run) on the round-4 head.
+- `mutations.log`: 42/42 mutants RED. M1–M34 ran on the round-1 head and M35–M38 on the round-2 head. M39
+  ran on the round-4 head, and M40–M42 on the round-5 head; M12–M14 and M39 were re-run on each.
   That includes the R-158 lines: each UUID
   check (M23, M27) and its type check (M24, M28), each filter, the COALESCE, and null vs throw.
   Every changed source line was mutated:
@@ -207,8 +207,11 @@ rollback happens, but the 500 was never sent.
 - The wiring was the same before this PR (`withAuth(postHandler)` under `withErrorHandler(router)`).
 - POST is now `withAuth(withErrorHandler(withCsrf(withWriteAccess(...))))`. The router's outer
   `withErrorHandler` still covers the public GET.
-- The reviewer grepped `pages/api` and found no other `withAuth(...)` sitting inside only an outer
-  `withErrorHandler`.
+- No other route has `withAuth(...)` inside only an outer `withErrorHandler`: the one other route
+  with an outer wrapper, `capture/upload.ts`, also has an inner one. But one route has no
+  `withErrorHandler` at all: `invitations/revoke/[id].ts` is `withAuth(withCsrf(handler))`, so it
+  hangs the same way on a throw. `bearerPipeline` and `withExtensionToken` buffer `res.end` like
+  `withAuth` does. That class is registered as **R-159** and is not fixed here.
 - `tests/integration/r157-payment-link-throw-responds.int.test.ts` forces a throw after the write
   and asserts:
   - no link row;
@@ -219,6 +222,23 @@ rollback happens, but the 500 was never sent.
   `generate` is the control. The test is RED on `b52eb1f06` (`red.r4.int.log`: `end` called 0
   times) and GREEN after. Mutant M39 restores the old wiring and is RED. M12–M14 were re-run
   against the new wiring and are RED.
+
+## Review round 5 (adversarial, LOW)
+
+After round 4, every authenticated `payment-link` POST passed through `withErrorHandler` twice, once
+on the router and once inside `withAuth`. So it was logged twice, under two request ids, and the
+client's `X-Request-Id` matched only the inner one.
+
+- Each method is now wrapped once:
+  - the public GET: `withErrorHandler(getHandler)`;
+  - POST: `withAuth(withErrorHandler(...))`;
+  - every other method: a `withErrorHandler`-wrapped 405, which also answers the OPTIONS preflight.
+- The throw-after-write suite now has 6 cases. It asserts that POST sets one `X-Request-Id`
+  (`red.r5.int.log`: 2 on `5fd2d80fd`), and that GET 400, OPTIONS 200 and PUT 405 are each answered
+  once through `withErrorHandler`.
+- Mutants:
+  - M40 wraps the router again, M41 unwraps GET and M42 unwraps the fallback. All three are RED;
+  - M12–M14 and M39 were re-run against this wiring and are RED.
 
 ## Census SQL for prod (read-only; not run by this session)
 
