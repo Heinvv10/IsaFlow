@@ -6,7 +6,7 @@
  * behind its own confirm dialog, never one click.
  */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
 
@@ -94,10 +94,18 @@ it.each([
   fireEvent.click(screen.getByRole('button', { name: button }));
   fireEvent.click(await screen.findByRole('button', { name: accept }));
 
-  await vi.waitFor(() => expect(onUndone).toHaveBeenCalledTimes(2));
+  // R-154: onUndone fires right after setState, before React commits, so wait
+  // on the rendered outcome, not the spy. Both were on screen until the
+  // decision was recorded. The run row is listed by every GET here, so it only
+  // guards against the panel unmounting or crashing, which would also make
+  // the two absences true.
+  await waitFor(() => {
+    expect(screen.queryByText(/Line 2026-05-15/)).toBeNull();
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByText(/Auto-posted 1/)).toBeTruthy();
+  });
+  expect(onUndone).toHaveBeenCalledTimes(2);
   expect(posted[1]).toEqual({ action, runId: 'run-1', transactionId: 'tx-1', offsetJournalId: 'je-hand' });
-  expect(screen.queryByText(/Line 2026-05-15/)).toBeNull();
-  expect(screen.queryByRole('status')).toBeNull();
 });
 
 it('shows the next blocking journal when undo-anyway finds another one', async () => {
