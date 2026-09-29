@@ -273,6 +273,18 @@ WHERE l.status = 'active'
 - The payment-link amount cap (should it be capped at the invoice balance?) is still Hein's
   decision (K-101).
 
+## Deployed
+
+- #567 was merged as `3e4728e98` and deployed to prod at 10:04 SAST on 2026-09-29. It went out during business hours on Hein's explicit "Deploy now".
+- Deploy results: "Applied 0 migrations", golden paths green, and integrity 16/16.
+- `RELEASE_SHA` is `3e4728e98`.
+- The fix strings are in the live `.next` server chunks for `payment-gateway`, `pay-now` and `portal-link`.
+- Live checks:
+  - `POST /api/portal/invoice/<64 hex>` answers 405;
+  - an unauthenticated `POST /api/portal/invoice/generate` answers 401;
+  - health answers 200.
+- Rollback target: `d2a0664c0`. This is code only; there is no migration.
+
 ## Migration / rollback
 
 There is no migration. To roll back, revert the PR. The token column and the stored tokens are
