@@ -57,11 +57,20 @@ async function invoice(): Promise<string> {
   return id;
 }
 
-/** Calls the real route; counts calls of the response's own end(), which withAuth defers. */
-async function post(path: string, body: Record<string, unknown>) {
-  const req = request({ 'sb-access-token': jwt, active_company_id: CO }, 'POST') as never as { body: unknown; url: string };
+/**
+ * Calls the real route; counts calls of the response's own end(), which withAuth defers, and of
+ * withErrorHandler's X-Request-Id header (one per withErrorHandler the request passes through).
+ */
+async function post(path: string, body: Record<string, unknown>, method = 'POST') {
+  const req = request({ 'sb-access-token': jwt, active_company_id: CO }, method) as never as { body: unknown; url: string };
   req.body = body;
   const out = response();
+  let requestIds = 0;
+  const setHeader = out.res.setHeader.bind(out.res);
+  (out.res as unknown as { setHeader: (n: string, v: unknown) => unknown }).setHeader = (n: string, v: unknown) => {
+    if (n.toLowerCase() === 'x-request-id') requestIds += 1;
+    return setHeader(n, v as never);
+  };
   let ends = 0;
   const end = out.res.end.bind(out.res) as (...a: unknown[]) => unknown;
   (out.res as unknown as { end: (...a: unknown[]) => unknown }).end = (...a: unknown[]) => { ends += 1; return end(...a); };
@@ -72,7 +81,7 @@ async function post(path: string, body: Record<string, unknown>) {
   } catch (err) {
     threw = err;
   }
-  return { status: out.state.statusCode, ends, threw };
+  return { status: out.state.statusCode, ends, threw, requestIds };
 }
 
 beforeAll(async () => {
@@ -120,3 +129,20 @@ it('generate (control) rolls back the token and sends its 500 exactly once', asy
   expect(r.status).toBe(500);
   expect(r.ends).toBe(1);
 });
+
+// Review round 5: withErrorHandler wrapped the whole router AND the POST inside withAuth, so every
+// authenticated POST was logged twice under two request ids. Only the public side is wrapped now.
+it('payment-link POST passes through withErrorHandler once (one X-Request-Id)', async () => {
+  const id = await invoice();
+  const r = await post('../../pages/api/portal/payment-link', { invoiceId: id, clientId: CUSTOMER, amount: 10 });
+  expect(r.status).toBe(500);
+  expect(r.requestIds).toBe(1);
+});
+
+it.each([['GET', 400], ['OPTIONS', 200], ['PUT', 405]] as const)(
+  'payment-link still answers %s (%i) through withErrorHandler (GET: public, no token given)', async (method, status) => {
+    const r = await post('../../pages/api/portal/payment-link', {}, method);
+    expect(r.status).toBe(status);
+    expect(r.ends).toBe(1);
+    expect(r.requestIds).toBe(1);
+  });
