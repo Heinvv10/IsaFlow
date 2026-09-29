@@ -1,4 +1,4 @@
-# GREEN on 0f8f41ad4 (review round 4), fixture clone at 716 (2026-09-29T06:32:04Z). 64-hex tokens redacted.
+# GREEN on fe1e74eb3 (review round 5), fixture clone at 716 (2026-09-29T06:40:34Z). 64-hex tokens redacted.
 ## r155-157-portal-mint-guards
  Test Files  1 passed (1)
       Tests  30 passed (30)
@@ -7,7 +7,7 @@
       Tests  20 passed (20)
 ## r157-payment-link-throw-responds
  Test Files  1 passed (1)
-      Tests  2 passed (2)
+      Tests  6 passed (6)
 ## k101-portal-routes-use-active-company
  Test Files  1 passed (1)
       Tests  24 passed (24)

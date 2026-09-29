@@ -194,3 +194,38 @@ M39 [pages/api/portal/payment-link.ts] payment-link: inner withErrorHandler remo
      × payment-link POST rolls back the link and still sends its 500 exactly once 319ms
 
 SUMMARY 4/4 RED; source restored clean: True
+
+# Round 5 on fe1e74eb3: payment-link wraps each method once; M12-M14 and M39 re-run, M40-M42 new. 2026-09-29T06:40:33Z.
+M12 [pages/api/portal/payment-link.ts] payment-link: withCsrf removed
+  -> RED: Tests  1 failed | 29 passed (30)
+     × refuses a request without the CSRF header (403) before any write 14ms
+
+M13 [pages/api/portal/payment-link.ts] payment-link: withWriteAccess removed
+  -> RED: Tests  1 failed | 29 passed (30)
+     × refuses a viewer (403) before any write 14ms
+
+M14 [pages/api/portal/payment-link.ts] payment-link: write roles narrowed to owner/admin
+  -> RED: Tests  1 failed | 29 passed (30)
+     × a manager with a CSRF token mints (200) 10ms
+
+M40 [pages/api/portal/payment-link.ts] payment-link: router wrapped in withErrorHandler again (double wrap)
+  -> RED: Tests  3 failed | 3 passed (6)
+     × payment-link POST passes through withErrorHandler once (one X-Request-Id) 10ms
+     × payment-link still answers GET (400) through withErrorHandler (GET: public, no token given) 1ms
+     × payment-link still answers PUT (405) through withErrorHandler (GET: public, no token given) 1ms
+
+M41 [pages/api/portal/payment-link.ts] payment-link: public GET not wrapped
+  -> RED: Tests  1 failed | 5 passed (6)
+     × payment-link still answers GET (400) through withErrorHandler (GET: public, no token given) 3ms
+
+M42 [pages/api/portal/payment-link.ts] payment-link: other methods not wrapped (plain 405, no preflight)
+  -> RED: Tests  2 failed | 4 passed (6)
+     × payment-link still answers OPTIONS (200) through withErrorHandler (GET: public, no token given) 3ms
+     × payment-link still answers PUT (405) through withErrorHandler (GET: public, no token given) 1ms
+
+M39 [pages/api/portal/payment-link.ts] payment-link: inner withErrorHandler removed (round-3 wiring)
+  -> RED: Tests  2 failed | 4 passed (6)
+     × payment-link POST rolls back the link and still sends its 500 exactly once 416ms
+     × payment-link POST passes through withErrorHandler once (one X-Request-Id) 8ms
+
+SUMMARY 7/7 RED; source restored clean: True
