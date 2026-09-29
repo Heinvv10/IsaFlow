@@ -6,7 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   getLeaveRequest,
@@ -17,7 +17,7 @@ import {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
   const id = String(req.query.id);
 
   if (!UUID_RE.test(id)) return apiResponse.notFound(res, 'Leave request not found');
@@ -29,13 +29,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 
   if (req.method === 'PUT') {
-    const { status, approvedBy } = req.body as Record<string, unknown>;
+    // R-135: the approver is the session user; a body `approvedBy` is ignored.
+    const { status } = req.body as Record<string, unknown>;
     if (!status || !['approved', 'rejected', 'cancelled'].includes(String(status))) {
       return apiResponse.badRequest(res, 'status must be approved, rejected, or cancelled');
     }
     const updated = await updateLeaveRequest(id, companyId, {
       status: String(status) as 'approved' | 'rejected' | 'cancelled',
-      approvedBy: approvedBy ? String(approvedBy) : undefined,
+      approvedBy: status === 'approved' ? user.id : undefined,
     });
     return apiResponse.success(res, updated);
   }
@@ -48,4 +49,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PUT', 'DELETE']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
