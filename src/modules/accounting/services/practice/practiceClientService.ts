@@ -1,6 +1,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
+import { assertPracticeClientInCompany } from './practiceClientFence';
 import type { DbRow } from '@/types/db';
 
 export interface PracticeClient {
@@ -254,6 +255,8 @@ export async function createClientContact(
   clientId: string,
   input: { name: string; email?: string; phone?: string; role?: string; isPrimary?: boolean },
 ): Promise<ClientContact> {
+  // R-073: clientId comes from the request body; the FK does not check the tenant.
+  await assertPracticeClientInCompany(companyId, clientId);
   const rows = (await sql`
     INSERT INTO practice_client_contacts (company_id, client_id, name, email, phone, role, is_primary)
     VALUES (
