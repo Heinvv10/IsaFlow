@@ -1,0 +1,6 @@
+## GREEN 3e4728e98+working tree, fixture: auth.users present, has_table_privilege(app_user,auth.users,SELECT)=f
+     × resolves a pre-migration-626 row that carries only the legacy pair 4ms
+     × lists a legacy-only row at its real rate and staff member 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed | 2 passed (3)
+      Tests  2 failed | 21 passed (23)
