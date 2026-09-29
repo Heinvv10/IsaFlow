@@ -29,7 +29,9 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const CO = randomUUID();
 const CUSTOMER = randomUUID();
 const USER = randomUUID();
+const VIEWER = randomUUID();
 let jwt = '';
+let viewerJwt = '';
 const appUrlBefore = process.env.NEXT_PUBLIC_APP_URL;
 
 type Handler = (req: never, res: never) => Promise<unknown> | unknown;
@@ -46,10 +48,13 @@ async function invoice(opts: InvoiceOpts = {}): Promise<string> {
   return id;
 }
 
-async function call(handler: Handler, query: Record<string, unknown>, body: Record<string, unknown>) {
-  const req = request({ 'sb-access-token': jwt, active_company_id: CO }, 'POST') as never as {
-    body: unknown; query: Record<string, unknown>;
+interface As { viewer?: boolean; csrf?: boolean }
+
+async function call(handler: Handler, query: Record<string, unknown>, body: Record<string, unknown>, as: As = {}) {
+  const req = request({ 'sb-access-token': as.viewer ? viewerJwt : jwt, active_company_id: CO }, 'POST') as never as {
+    body: unknown; query: Record<string, unknown>; headers: Record<string, string>;
   };
+  if (as.csrf === false) delete req.headers['x-csrf-token'];
   req.query = query;
   req.body = body;
   const out = response();
@@ -64,9 +69,9 @@ const links = async (invoiceId: string) => (await pool.query(
 const ROUTES = [
   // pay-now answers 400 for a paid invoice (its own balance check); enableOnlinePayment folds
   // "no balance" into its one not-eligible result, a 404.
-  { name: 'pay-now', paidStatus: 400, send: (id: unknown) => call(payNow as Handler, { id }, {}) },
+  { name: 'pay-now', paidStatus: 400, send: (id: unknown, as?: As) => call(payNow as Handler, { id }, {}, as) },
   { name: 'payment-gateway enable', paidStatus: 404,
-    send: (id: unknown) => call(paymentGateway as Handler, {}, { invoiceId: id, action: 'enable' }) },
+    send: (id: unknown, as?: As) => call(paymentGateway as Handler, {}, { invoiceId: id, action: 'enable' }, as) },
 ];
 
 beforeAll(async () => {
@@ -77,6 +82,12 @@ beforeAll(async () => {
     [USER, `r158-${USER}@isaflow.test`]);
   await pool.query("INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'admin', true)",
     [CO, USER]);
+  await pool.query("INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)",
+    [VIEWER, `r158-viewer-${VIEWER}@isaflow.test`]);
+  await pool.query("INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'viewer', true)",
+    [CO, VIEWER]);
+  viewerJwt = await new SignJWT({ sub: VIEWER, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+    .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   jwt = await new SignJWT({ sub: USER, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
 });
@@ -90,13 +101,26 @@ afterAll(async () => {
       await pool.query(`DELETE FROM ${t} WHERE company_id = $1`, [CO]);
     }
     await pool.query('DELETE FROM companies WHERE id = $1', [CO]);
-    await pool.query('DELETE FROM users WHERE id = $1', [USER]);
+    await pool.query('DELETE FROM users WHERE id = ANY($1)', [[USER, VIEWER]]);
   } finally {
     await pool.end();
   }
 });
 
 describe.each(ROUTES)('R-158 $name', (route) => {
+  it.each([
+    ['a viewer', { viewer: true }],
+    ['a request without the CSRF header', { csrf: false }],
+  ] as const)('refuses %s (403) before any write', async (_label, as) => {
+    const id = await invoice();
+    const state = await route.send(id, as);
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(403);
+    expect(await links(id)).toEqual([]);
+    const { rows } = await pool.query(
+      'SELECT online_payment_enabled, payment_url FROM customer_invoices WHERE id = $1', [id]);
+    expect(rows[0]).toEqual({ online_payment_enabled: false, payment_url: null });
+  });
+
   it('creates a link for an open invoice (200)', async () => {
     const id = await invoice();
     const state = await route.send(id);
