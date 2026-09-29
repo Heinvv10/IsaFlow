@@ -1,103 +1,158 @@
-# Mutation run on f2cbe5250: every changed source line mutated, suites on the fixture clone (716). 2026-09-29T05:57:08Z. 64-hex tokens redacted.
+# Mutation run on fb6f94117 (review round 1): every changed source line mutated, suites on the fixture clone (716). 2026-09-29T06:07:05Z. 64-hex tokens redacted.
 M1 [src/modules/accounting/services/ar/portalTokenService.ts] service: mint UPDATE without COALESCE (plain overwrite)
-  -> RED: Tests  2 failed | 26 passed (28)
-     × 'POST /api/portal/invoice/generate' returns the rival token and does not overwrite it 294ms
+  -> RED: Tests  4 failed | 26 passed (30)
+     × 'POST /api/portal/invoice/generate' returns the rival token and does not overwrite it 366ms
      × 'POST /api/accounting/ar/invoice/[id]/…' returns the rival token and does not overwrite it 20ms
+     × 'POST /api/portal/invoice/generate': two mints in flight at once both return the one stored token 25ms
 
 M2 [src/modules/accounting/services/ar/portalTokenService.ts] service: mint UPDATE drops deleted_at IS NULL
-  -> RED: Tests  2 failed | 26 passed (28)
-     × 'POST /api/portal/invoice/generate' refuses a soft-deleted invoice (404), minting nothing 11ms
-     × 'POST /api/accounting/ar/invoice/[id]/…' refuses a soft-deleted invoice (404), minting nothing 7ms
+  -> RED: Tests  2 failed | 28 passed (30)
+     × 'POST /api/portal/invoice/generate' refuses a soft-deleted invoice (404), minting nothing 15ms
+     × 'POST /api/accounting/ar/invoice/[id]/…' refuses a soft-deleted invoice (404), minting nothing 13ms
 
 M3 [src/modules/accounting/services/ar/portalTokenService.ts] service: findOrMint throws instead of returning null
-  -> RED: Tests  3 failed | 25 passed (28)
-     × 'POST /api/portal/invoice/generate' refuses a soft-deleted invoice (404), minting nothing 9ms
+  -> RED: Tests  3 failed | 27 passed (30)
+     × 'POST /api/portal/invoice/generate' refuses a soft-deleted invoice (404), minting nothing 12ms
      × 'POST /api/accounting/ar/invoice/[id]/…' refuses a soft-deleted invoice (404), minting nothing 6ms
      × POST answers 404, not 500, for an unknown invoice 3ms
 
 M4 [src/modules/accounting/services/ar/portalTokenService.ts] service: getOrMint returns null instead of throwing
   -> RED: Tests  1 failed | 2 passed (3)
-     × does not mint for another tenant 35ms
+     × does not mint for another tenant 44ms
 
 M5 [pages/api/portal/invoice/generate.ts] generate: withCsrf removed
-  -> RED: Tests  1 failed | 27 passed (28)
-     × refuses a request without the CSRF header (403) before any write 11ms
+  -> RED: Tests  1 failed | 29 passed (30)
+     × refuses a request without the CSRF header (403) before any write 12ms
 
 M6 [pages/api/portal/invoice/generate.ts] generate: withWriteAccess removed
-  -> RED: Tests  1 failed | 27 passed (28)
-     × refuses a viewer (403) before any write 11ms
+  -> RED: Tests  1 failed | 29 passed (30)
+     × refuses a viewer (403) before any write 15ms
 
 M7 [pages/api/portal/invoice/generate.ts] generate: write roles narrowed to owner/admin (manager dropped)
-  -> RED: Tests  1 failed | 27 passed (28)
-     × a manager with a CSRF token mints (200) 8ms
+  -> RED: Tests  1 failed | 29 passed (30)
+     × a manager with a CSRF token mints (200) 10ms
 
 M8 [pages/api/portal/invoice/generate.ts] generate: 404 on ineligible invoice removed
-  -> RED: Tests  1 failed | 27 passed (28)
-     × 'POST /api/portal/invoice/generate' refuses a soft-deleted invoice (404), minting nothing 10ms
+  -> RED: Tests  1 failed | 29 passed (30)
+     × 'POST /api/portal/invoice/generate' refuses a soft-deleted invoice (404), minting nothing 11ms
 
 M9 [pages/api/portal/invoice/generate.ts] generate: portalUrl not the stored token
-  -> RED: Tests  1 failed | 27 passed (28)
-     × 'POST /api/portal/invoice/generate' returns the rival token and does not overwrite it 271ms
+  -> RED: Tests  1 failed | 29 passed (30)
+     × 'POST /api/portal/invoice/generate' returns the rival token and does not overwrite it 327ms
 
 M10 [pages/api/portal/invoice/generate.ts] generate: company from the user id instead of the active company
-  -> RED: Tests  7 failed | 45 passed (52)
-     × 'POST /api/portal/invoice/generate' returns the rival token and does not overwrite it 219ms
-     × a owner with a CSRF token mints (200) 5ms
-     × a admin with a CSRF token mints (200) 5ms
+  -> RED: Tests  8 failed | 46 passed (54)
+     × 'POST /api/portal/invoice/generate' returns the rival token and does not overwrite it 225ms
+     × 'POST /api/portal/invoice/generate': two mints in flight at once both return the one stored token 16ms
+     × a owner with a CSRF token mints (200) 11ms
 
 M11 [pages/api/portal/invoice/[token].ts] [token]: POST routed to the public GET again
-  -> RED: Tests  2 failed | 26 passed (28)
-     × answers 405 for query {"token":"generate","action":"generate"} and writes no token 12ms
+  -> RED: Tests  2 failed | 28 passed (30)
+     × answers 405 for query {"token":"generate","action":"generate"} and writes no token 14ms
      × answers 405 for query {"token":"generate"} and writes no token 4ms
 
 M12 [pages/api/portal/payment-link.ts] payment-link: withCsrf removed
-  -> RED: Tests  1 failed | 27 passed (28)
+  -> RED: Tests  1 failed | 29 passed (30)
      × refuses a request without the CSRF header (403) before any write 14ms
 
 M13 [pages/api/portal/payment-link.ts] payment-link: withWriteAccess removed
-  -> RED: Tests  1 failed | 27 passed (28)
-     × refuses a viewer (403) before any write 10ms
+  -> RED: Tests  1 failed | 29 passed (30)
+     × refuses a viewer (403) before any write 15ms
 
 M14 [pages/api/portal/payment-link.ts] payment-link: write roles narrowed to owner/admin
-  -> RED: Tests  1 failed | 27 passed (28)
-     × a manager with a CSRF token mints (200) 7ms
+  -> RED: Tests  1 failed | 29 passed (30)
+     × a manager with a CSRF token mints (200) 11ms
 
 M15 [pages/api/accounting/ar/invoice/[id]/portal-link.ts] portal-link: UUID check removed
-  -> RED: Tests  2 failed | 26 passed (28)
-     × GET answers 400, not 500, for an id that is not a UUID 6ms
+  -> RED: Tests  2 failed | 28 passed (30)
+     × GET answers 400, not 500, for an id that is not a UUID 7ms
      × POST answers 400, not 500, for an id that is not a UUID 3ms
 
 M16 [pages/api/accounting/ar/invoice/[id]/portal-link.ts] portal-link: GET mints again
-  -> RED: Tests  2 failed | 26 passed (28)
-     × a viewer GET on an invoice with no token is 404 and mints nothing 12ms
-     × a admin GET on an invoice with no token is 404 and mints nothing 9ms
+  -> RED: Tests  2 failed | 28 passed (30)
+     × a viewer GET on an invoice with no token is 404 and mints nothing 15ms
+     × a admin GET on an invoice with no token is 404 and mints nothing 10ms
 
 M17 [pages/api/accounting/ar/invoice/[id]/portal-link.ts] portal-link: GET never returns a stored token
-  -> RED: Tests  1 failed | 27 passed (28)
-     × a GET returns the token a POST minted 15ms
+  -> RED: Tests  1 failed | 29 passed (30)
+     × a GET returns the token a POST minted 24ms
 
 M18 [pages/api/accounting/ar/invoice/[id]/portal-link.ts] portal-link: GET url is not the portal URL
-  -> RED: Tests  1 failed | 27 passed (28)
-     × a GET returns the token a POST minted 15ms
+  -> RED: Tests  1 failed | 29 passed (30)
+     × a GET returns the token a POST minted 17ms
 
 M19 [pages/api/accounting/ar/invoice/[id]/portal-link.ts] portal-link: POST never mints (read only)
-  -> RED: Tests  5 failed | 23 passed (28)
-     × 'POST /api/accounting/ar/invoice/[id]/…' returns the rival token and does not overwrite it 12ms
-     × a owner with a CSRF token mints (200) 5ms
-     × a admin with a CSRF token mints (200) 5ms
+  -> RED: Tests  6 failed | 24 passed (30)
+     × 'POST /api/accounting/ar/invoice/[id]/…' returns the rival token and does not overwrite it 15ms
+     × 'POST /api/accounting/ar/invoice/[id]/…': two mints in flight at once both return the one stored token 9ms
+     × a owner with a CSRF token mints (200) 7ms
 
 M20 [pages/api/accounting/ar/invoice/[id]/portal-link.ts] portal-link: 404 on no link removed
-  -> RED: Tests  4 failed | 24 passed (28)
-     × 'POST /api/accounting/ar/invoice/[id]/…' refuses a soft-deleted invoice (404), minting nothing 8ms
-     × a viewer GET on an invoice with no token is 404 and mints nothing 5ms
-     × a admin GET on an invoice with no token is 404 and mints nothing 4ms
+  -> RED: Tests  4 failed | 26 passed (30)
+     × 'POST /api/accounting/ar/invoice/[id]/…' refuses a soft-deleted invoice (404), minting nothing 15ms
+     × a viewer GET on an invoice with no token is 404 and mints nothing 8ms
+     × a admin GET on an invoice with no token is 404 and mints nothing 9ms
 
 M21 [pages/api/accounting/ar/invoice/[id]/portal-link.ts] portal-link: withWriteAccess removed
-  -> RED: Tests  1 failed | 27 passed (28)
-     × refuses a viewer (403) before any write 11ms
+  -> RED: Tests  1 failed | 29 passed (30)
+     × refuses a viewer (403) before any write 16ms
 
 M22 [pages/api/accounting/ar/invoice/[id]/portal-link.ts] portal-link: withCsrf removed
-  -> RED: Tests  1 failed | 27 passed (28)
-     × refuses a request without the CSRF header (403) before any write 10ms
+  -> RED: Tests  1 failed | 29 passed (30)
+     × refuses a request without the CSRF header (403) before any write 14ms
 
-SUMMARY 22/22 RED; source restored clean: True
+M23 [pages/api/accounting/customer-invoices/[id]/pay-now.ts] pay-now: UUID check removed
+  -> RED: Tests  2 failed | 14 passed (16)
+     × answers 400, not 500, for id "not-a-uuid" 7ms
+     × answers 400, not 500, for id "00000000-0000-4000-8000-000000000001" 3ms
+
+M24 [pages/api/accounting/customer-invoices/[id]/pay-now.ts] pay-now: UUID check without its type check
+  -> RED: Tests  1 failed | 15 passed (16)
+     × answers 400, not 500, for id "00000000-0000-4000-8000-000000000001" 7ms
+
+M25 [pages/api/accounting/customer-invoices/[id]/pay-now.ts] pay-now: cancelled filter removed
+  -> RED: Tests  1 failed | 15 passed (16)
+     × refuses a cancelled invoice (404), creating no link 18ms
+
+M26 [pages/api/accounting/customer-invoices/[id]/pay-now.ts] pay-now: deleted_at filter removed
+  -> RED: Tests  1 failed | 15 passed (16)
+     × refuses a soft-deleted invoice (404), creating no link 12ms
+
+M27 [pages/api/accounting/payment-gateway.ts] payment-gateway: UUID check removed
+  -> RED: Tests  2 failed | 14 passed (16)
+     × answers 400, not 500, for id "not-a-uuid" 14ms
+     × answers 400, not 500, for id "00000000-0000-4000-8000-000000000001" 22ms
+
+M28 [pages/api/accounting/payment-gateway.ts] payment-gateway: UUID check without its type check
+  -> RED: Tests  1 failed | 15 passed (16)
+     × answers 400, not 500, for id "00000000-0000-4000-8000-000000000001" 19ms
+
+M29 [pages/api/accounting/payment-gateway.ts] payment-gateway: 404 on a null link removed
+  -> RED: Tests  4 failed | 12 passed (16)
+     × refuses a cancelled invoice (404), creating no link 14ms
+     × refuses a soft-deleted invoice (404), creating no link 13ms
+     × refuses an unknown invoice (404, not 500) 4ms
+
+M30 [src/modules/accounting/services/core/paymentGatewayPortalService.ts] enableOnlinePayment: client_id only (no COALESCE)
+  -> RED: Tests  1 failed | 15 passed (16)
+     × links the customer held only in the legacy customer_id column 12ms
+
+M31 [src/modules/accounting/services/core/paymentGatewayPortalService.ts] enableOnlinePayment: cancelled filter removed
+  -> RED: Tests  1 failed | 15 passed (16)
+     × refuses a cancelled invoice (404), creating no link 17ms
+
+M32 [src/modules/accounting/services/core/paymentGatewayPortalService.ts] enableOnlinePayment: deleted_at filter removed
+  -> RED: Tests  1 failed | 15 passed (16)
+     × refuses a soft-deleted invoice (404), creating no link 13ms
+
+M33 [src/modules/accounting/services/core/paymentGatewayPortalService.ts] enableOnlinePayment: balance filter removed
+  -> RED: Tests  1 failed | 15 passed (16)
+     × refuses a fully paid invoice, creating no link 10ms
+
+M34 [src/modules/accounting/services/core/paymentGatewayPortalService.ts] enableOnlinePayment: throws instead of returning null
+  -> RED: Tests  4 failed | 12 passed (16)
+     × refuses a cancelled invoice (404), creating no link 9ms
+     × refuses a soft-deleted invoice (404), creating no link 7ms
+     × refuses an unknown invoice (404, not 500) 4ms
+
+SUMMARY 34/34 RED; source restored clean: True

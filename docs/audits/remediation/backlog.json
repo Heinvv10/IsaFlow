@@ -8649,7 +8649,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "status": "candidate",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [],
       "evidencePaths": [],
@@ -8657,11 +8657,12 @@
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
-      "canonicalItem": null,
+      "canonicalItem": "R-157",
       "sourceReferences": [
         "inputs/api-admin-auth-billing-portal.md:222"
       ],
-      "reportedSeverity": "low"
+      "reportedSeverity": "low",
+      "processNotes": "2026-09-29: The CSRF half of R-157 (fix/r155-157-portal-followups-20260929). generate.ts and payment-link.ts POST (and ar/invoice/[id]/portal-link POST) are withCsrf(withWriteAccess(...)); a request without the CSRF header is 403 before any write. Tracked under R-157."
     },
     {
       "id": "K-277",
@@ -13893,7 +13894,7 @@
         "docs/audits/remediation/R-155/green.log",
         "docs/audits/remediation/R-155/mutations.log"
       ],
-      "fixCommit": "f2cbe5250",
+      "fixCommit": "f2cbe5250;fb6f94117",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
@@ -13930,7 +13931,7 @@
         "docs/audits/remediation/R-155/green.log",
         "docs/audits/remediation/R-155/mutations.log"
       ],
-      "fixCommit": "f2cbe5250",
+      "fixCommit": "f2cbe5250;fb6f94117",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
@@ -13952,7 +13953,8 @@
       ],
       "sourceLabel": "K-101 review follow-ups (K-101/fix.md), 2026-09-28",
       "sourceIds": [
-        "K-101"
+        "K-101",
+        "K-276"
       ],
       "correctedTrigger": null,
       "severityRationale": "Privilege: a read-only member creates a public credential exposing an invoice outside the company; CSRF lets a third-party page trigger the mint.",
@@ -13969,7 +13971,7 @@
         "docs/audits/remediation/R-155/green.log",
         "docs/audits/remediation/R-155/mutations.log"
       ],
-      "fixCommit": "f2cbe5250",
+      "fixCommit": "f2cbe5250;fb6f94117",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
@@ -13981,6 +13983,45 @@
       "title": "A viewer can mint a permanent public invoice token or payment link; the mint routes take no CSRF token",
       "claim": "generate.ts and payment-link.ts POST had neither withCsrf nor withWriteAccess, so a company viewer could create a permanent unauthenticated credential for an invoice (or a payment link) and the requests needed no CSRF token. GET /api/accounting/ar/invoice/[id]/portal-link also minted, and withWriteAccess/withCsrf pass every GET.",
       "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28, mutants 22/22 RED; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided DEFAULT_WRITE_ROLES; all three mint routes are withCsrf(withWriteAccess(...)); scope extended (Hein, 2026-09-29) to portal-link GET, which now only reads (404 when no token). Refusals come before any write (withAuth COMMITs a 4xx)."
+    },
+    {
+      "area": "accounting/ar portal",
+      "affectedPaths": [
+        "pages/api/accounting/customer-invoices/[id]/pay-now.ts",
+        "pages/api/accounting/payment-gateway.ts",
+        "src/modules/accounting/services/core/paymentGatewayPortalService.ts"
+      ],
+      "sourceLabel": "R-155..R-157 adversarial review round 1, 2026-09-29",
+      "sourceIds": [
+        "R-157"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Owner/admin/manager only (both routes are withCsrf + withWriteAccess); the harm is a payable link on a dead invoice or a 500, not an authorization bypass.",
+      "auditedSha": "6d1f4a488",
+      "currentSha": "6d1f4a488",
+      "status": "in-progress",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/r158-payment-link-creation-guards.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-155/fix.md",
+        "docs/audits/remediation/R-155/red.int.log",
+        "docs/audits/remediation/R-155/green.log",
+        "docs/audits/remediation/R-155/mutations.log"
+      ],
+      "fixCommit": "fb6f94117",
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
+      "canonicalItem": null,
+      "branch": "fix/r155-157-portal-followups-20260929",
+      "id": "R-158",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "pay-now and payment-gateway 500 on a bad id and create payment links for cancelled, deleted or fully paid invoices",
+      "claim": "POST /api/accounting/customer-invoices/[id]/pay-now and POST /api/accounting/payment-gateway cast the id to ::UUID unchecked (22P02, 500). pay-now created a link for a cancelled or soft-deleted invoice. enableOnlinePayment inserted ci.client_id only (a legacy invoice with only customer_id 500'd on the NOT NULL column), had no status, deleted_at or balance filter, and threw (500) for an unknown invoice.",
+      "processNotes": "2026-09-29: Found by the adversarial reviewer of R-155..R-157 (pre-existing) and fixed on the same branch. RED 11/16 on master code (R-155/red.r1.int.log), GREEN 16/16, mutants M23-M34 RED (R-155/mutations.log)."
     }
   ],
   "sourceInventory": [

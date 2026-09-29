@@ -1,6 +1,7 @@
-# R-155, R-156, R-157 — fix (the K-101 portal follow-ups)
+# R-155, R-156, R-157, R-158 — fix (the K-101 portal follow-ups)
 
-These three came out of the K-101 review (K-101/fix.md, Follow-ups). One PR fixes all three, and
+These three came out of the K-101 review (K-101/fix.md, Follow-ups). The audit's K-276 (no CSRF on
+the portal mint and payment-link routes) is the CSRF half of R-157, and its `canonicalItem` is now R-157. One PR fixes all three, and
 this folder holds the evidence for all three.
 
 ## Triggers
@@ -55,11 +56,11 @@ which calls `generate`.
   - The `ar/.../portal-link` GET now 404s where it used to mint. Its only callers were the two
     e2e specs, which now mint with POST.
 - The invoice page's `apiFetch` sends `X-CSRF-Token` on POST (`src/lib/apiFetch.ts:69-72`), so
-  the button keeps working for owner/admin/manager. The browser check is below.
+  the button keeps working for owner/admin/manager.
 
 ## Tests
 
-`tests/integration/r155-157-portal-mint-guards.int.test.ts` has 28 cases. They run through the
+`tests/integration/r155-157-portal-mint-guards.int.test.ts` has 30 cases (28, plus the two-mint case from review round 1). They run through the
 real routes: withAuth as `app_user` with RLS and the membership check, then withErrorHandler.
 
 - **R-155:** for `generate` and `portal-link` POST, a rival write on another connection commits
@@ -81,22 +82,27 @@ real routes: withAuth as `app_user` with RLS and the membership check, then with
   - an unknown invoice is 404 for POST.
 
 `tests/integration/k101-portal-routes-use-active-company.int.test.ts` drops the `[token]` POST
-route, which is gone. Its other 24 cases are unchanged.
+route, which is gone, so it has 24 cases. Two of them used to loop over both generate routes: "does
+not hand out the token of an invoice in the user's other company" and "returns the token it
+stored". They now cover `generate` only. The rest are unchanged.
 
 Evidence:
 
-- `red.int.log`: 14 of 28 cases fail on origin/master `6d1f4a488`: the generate race, both
+- `red.int.log` (the original 28 cases): 14 fail on origin/master `6d1f4a488`: the generate race, both
   soft-deleted cases, both 405s, the viewer and no-CSRF cases for generate and payment-link, both
   minting GETs, the two non-UUID 500s, and the unknown-invoice 500.
-- `green.log`, all on the fix commit:
-  - this suite: 28/28;
+- `green.log`, all on the review-round-1 head:
+  - this suite: 30/30;
+  - R-158: 16/16;
   - K-101: 24/24;
   - k122: 6/6;
   - k122b: 3/3;
   - r095: 7/7 + 7/7 + 8/8;
   - customer-ownership-fence-routes, on an `isaflow_test` clone: 32/32;
   - unit tests for `portalTokenService` + `dunningService`: 30/30.
-- `mutations.log`: 22/22 mutants RED. Every changed source line was mutated:
+- `mutations.log`: 34/34 mutants RED on the round-1 head. That includes the R-158 lines: each UUID
+  check (M23, M27) and its type check (M24, M28), each filter, the COALESCE, and null vs throw.
+  Every changed source line was mutated:
   - `COALESCE` removed;
   - the `deleted_at` filter removed;
   - `findOrMint` throwing instead of returning null;
@@ -116,6 +122,39 @@ Evidence:
   server, so they were not run here. Their only change is `request.get` → `request.post`, with the
   CSRF headers they already sent.
 
+## Review round 1
+
+The general reviewer returned three LOWs, all about the docs; they are fixed here. The adversarial
+reviewer returned SHIP with three LOWs.
+
+- Test gap: the race test only covered a rival that had already committed. A new case runs two
+  mints at once. Both requests read NULL and are held at the mint UPDATE until both have arrived,
+  and the test asserts both return the one stored token. It is RED on master's `generate.ts`
+  (`red.r1.int.log`), and mutant M1 (COALESCE removed) kills it.
+- **A viewer can still READ an existing token** through `portal-link` GET. This is left as it is,
+  and it is Hein's call. The viewer could already do this before the change: the invoice detail
+  read already returns `payment_url`, and anyone holding the token can open the public page and
+  file a dispute.
+- Pre-existing, registered as **R-158** and fixed in this PR. These are the two other routes that
+  create a portal payment link:
+  - `customer-invoices/[id]/pay-now` and `payment-gateway` cast a non-UUID id and answered 500.
+    `isUuidParam` now answers 400, including for a one-element array;
+  - `pay-now` created a link for a cancelled or soft-deleted invoice. It now answers 404;
+  - `enableOnlinePayment` had four problems:
+    - it linked `ci.client_id` only, so a legacy invoice holding its customer in `customer_id`
+      500'd on the NOT NULL column;
+    - it had no status or `deleted_at` filter;
+    - it had no balance filter;
+    - it threw (500) for an unknown invoice.
+
+    It now links `COALESCE(client_id, customer_id)`, refuses cancelled, deleted and fully paid
+    invoices, and returns null, so the route answers 404.
+
+  `tests/integration/r158-payment-link-creation-guards.int.test.ts` has 16 cases. Eleven fail on
+  master code (`red.r1.int.log`); `pay-now` already refused a fully paid invoice, and both routes
+  already served the legacy customer and an open invoice. The positive `pay-now` path mocks only
+  the Paystack client.
+
 ## Census SQL for prod (read-only; not run by this session)
 
 ```sql
@@ -131,6 +170,12 @@ SELECT status, count(*), min(created_at), max(created_at) FROM portal_payment_li
 -- minted a token, so this count is the whole exposure.
 SELECT count(*) FROM customer_invoices
 WHERE portal_token IS NOT NULL AND status <> 'cancelled' AND deleted_at IS NULL;
+
+-- R-158: live payment links on invoices that are cancelled, deleted or fully paid.
+SELECT count(*) FROM portal_payment_links l JOIN customer_invoices ci ON ci.id = l.invoice_id
+WHERE l.status = 'active'
+  AND (ci.status = 'cancelled' OR ci.deleted_at IS NOT NULL
+       OR ci.total_amount - COALESCE(ci.amount_paid, 0) <= 0);
 ```
 
 ## Follow-ups (not fixed here)
@@ -138,6 +183,8 @@ WHERE portal_token IS NOT NULL AND status <> 'cancelled' AND deleted_at IS NULL;
 - The "share portal link" button still shows for a viewer. It now answers 403, and the page
   shows its generic "Failed to generate portal link". Hiding the button is a UI change and was
   not requested.
+- A viewer can read an existing token through `portal-link` GET (see review round 1). This is
+  Hein's decision.
 - The payment-link amount cap (should it be capped at the invoice balance?) is still Hein's
   decision (K-101).
 
