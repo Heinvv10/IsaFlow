@@ -92,16 +92,18 @@ Evidence:
 - `red.int.log` (the original 28 cases): 14 fail on origin/master `6d1f4a488`: the generate race, both
   soft-deleted cases, both 405s, the viewer and no-CSRF cases for generate and payment-link, both
   minting GETs, the two non-UUID 500s, and the unknown-invoice 500.
-- `green.log`, all on the review-round-2 head:
+- `green.log`, all on the review-round-4 head:
   - this suite: 30/30;
   - R-158: 20/20;
+  - R-157 throw-after-write: 2/2;
   - K-101: 24/24;
   - k122: 6/6;
   - k122b: 3/3;
   - r095: 7/7 + 7/7 + 8/8;
   - customer-ownership-fence-routes, on an `isaflow_test` clone: 32/32;
   - unit tests for `portalTokenService` + `dunningService`: 30/30.
-- `mutations.log`: 38/38 mutants RED. M1–M34 ran on the round-1 head and M35–M38 on the round-2 head.
+- `mutations.log`: 39/39 mutants RED. M1–M34 ran on the round-1 head, M35–M38 on the round-2 head, and
+  M39 (with M12–M14 re-run) on the round-4 head.
   That includes the R-158 lines: each UUID
   check (M23, M27) and its type check (M24, M28), each filter, the COALESCE, and null vs throw.
   Every changed source line was mutated:
@@ -188,8 +190,35 @@ Both blind reviewers returned SHIP on `6095cb320`. `/review` (a fresh reviewer) 
 with two LOWs:
 
 - `payment-link.ts` composes `withAuth(withCsrf(withWriteAccess(...)))` with `withErrorHandler`
-  outside `withAuth`, unlike `generate.ts`. This was not a bug, but a comment now says why;
+  outside `withAuth`, unlike `generate.ts`. A comment was added to say why. Review round 4 showed
+  the comment was wrong, and that this wiring is a real defect (below);
 - the viewer-reads-token point, which is already listed under Follow-ups.
+
+## Review round 4 (adversarial, LOW, pre-existing)
+
+The round-3 comment said withAuth rolls back a throw "before withErrorHandler answers 500". The
+rollback happens, but the 500 was never sent.
+
+- withAuth defers `res.end` until COMMIT/ROLLBACK and replays it only when the handler returns
+  normally. On a throw it rolls back and rethrows, without replaying (`withAuth.ts:271-273`).
+- `payment-link`'s only `withErrorHandler` wrapped the router, outside `withAuth`. Its 500 went into
+  the dead buffer, so a POST that threw after the link INSERT was rolled back while the client hung
+  until its socket timed out.
+- The wiring was the same before this PR (`withAuth(postHandler)` under `withErrorHandler(router)`).
+- POST is now `withAuth(withErrorHandler(withCsrf(withWriteAccess(...))))`. The router's outer
+  `withErrorHandler` still covers the public GET.
+- The reviewer grepped `pages/api` and found no other `withAuth(...)` sitting inside only an outer
+  `withErrorHandler`.
+- `tests/integration/r157-payment-link-throw-responds.int.test.ts` forces a throw after the write
+  and asserts:
+  - no link row;
+  - no rethrow;
+  - status 500;
+  - the response's own `end` called exactly once.
+
+  `generate` is the control. The test is RED on `b52eb1f06` (`red.r4.int.log`: `end` called 0
+  times) and GREEN after. Mutant M39 restores the old wiring and is RED. M12–M14 were re-run
+  against the new wiring and are RED.
 
 ## Census SQL for prod (read-only; not run by this session)
 

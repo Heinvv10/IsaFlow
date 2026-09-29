@@ -175,3 +175,22 @@ M38 [pages/api/accounting/payment-gateway.ts] payment-gateway: withWriteAccess r
      × refuses a viewer (403) before any write 23ms
 
 SUMMARY 4/4 RED; source restored clean: True
+
+# Round 4 on 0f8f41ad4: payment-link POST is now withAuth(withErrorHandler(...)); M12-M14 re-run against the new wiring, M39 new. 2026-09-29T06:31:51Z.
+M12 [pages/api/portal/payment-link.ts] payment-link: withCsrf removed
+  -> RED: Tests  1 failed | 29 passed (30)
+     × refuses a request without the CSRF header (403) before any write 45ms
+
+M13 [pages/api/portal/payment-link.ts] payment-link: withWriteAccess removed
+  -> RED: Tests  1 failed | 29 passed (30)
+     × refuses a viewer (403) before any write 67ms
+
+M14 [pages/api/portal/payment-link.ts] payment-link: write roles narrowed to owner/admin
+  -> RED: Tests  1 failed | 29 passed (30)
+     × a manager with a CSRF token mints (200) 13ms
+
+M39 [pages/api/portal/payment-link.ts] payment-link: inner withErrorHandler removed (round-3 wiring)
+  -> RED: Tests  1 failed | 1 passed (2)
+     × payment-link POST rolls back the link and still sends its 500 exactly once 319ms
+
+SUMMARY 4/4 RED; source restored clean: True

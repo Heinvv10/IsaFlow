@@ -13906,7 +13906,7 @@
       "reportedSeverity": "low",
       "title": "Portal generate route mints the invoice token read-then-write, so a concurrent mint is overwritten",
       "claim": "POST /api/portal/invoice/generate SELECTs portal_token and then runs a plain UPDATE SET portal_token = $new. A second mint (dunning cron, manual send, another click) committing in between is overwritten, so the link it already handed out goes dead. getOrMintInvoicePortalToken (K-122b) already mints with COALESCE ... RETURNING; the route did not use it.",
-      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 38/38 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. The route now uses findOrMintInvoicePortalToken (null -> 404; getOrMint wraps it and still throws for dunning); proven by a real interleave through the route with the hook asserted fired."
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 39/39 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. The route now uses findOrMintInvoicePortalToken (null -> 404; getOrMint wraps it and still throws for dunning); proven by a real interleave through the route with the hook asserted fired."
     },
     {
       "area": "accounting/ar portal",
@@ -13943,7 +13943,7 @@
       "reportedSeverity": "low",
       "title": "POST /api/portal/invoice/[token] duplicates the generate route and ignores ?action=",
       "claim": "The public token route also accepted an authenticated POST that minted a token (its own read-then-write copy of generate.ts), whatever ?action= said. A second mint path to keep in step.",
-      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 38/38 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided: delete the POST arm (now 405); the public GET is untouched. Prod journalctl and nginx logs (retained since 2026-09-25 and 2026-09-16) show no /api/portal/ traffic at all."
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 39/39 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided: delete the POST arm (now 405); the public GET is untouched. Prod journalctl and nginx logs (retained since 2026-09-25 and 2026-09-16) show no /api/portal/ traffic at all."
     },
     {
       "area": "accounting/ar portal",
@@ -13964,15 +13964,17 @@
       "status": "in-progress",
       "dependencies": [],
       "testNames": [
-        "tests/integration/r155-157-portal-mint-guards.int.test.ts"
+        "tests/integration/r155-157-portal-mint-guards.int.test.ts",
+        "tests/integration/r157-payment-link-throw-responds.int.test.ts"
       ],
       "evidencePaths": [
         "docs/audits/remediation/R-155/fix.md",
         "docs/audits/remediation/R-155/red.int.log",
         "docs/audits/remediation/R-155/green.log",
-        "docs/audits/remediation/R-155/mutations.log"
+        "docs/audits/remediation/R-155/mutations.log",
+        "docs/audits/remediation/R-155/red.r4.int.log"
       ],
-      "fixCommit": "f2cbe5250;fb6f94117",
+      "fixCommit": "f2cbe5250;fb6f94117;0f8f41ad4",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
@@ -13983,7 +13985,7 @@
       "reportedSeverity": "medium",
       "title": "A viewer can mint a permanent public invoice token or payment link; the mint routes take no CSRF token",
       "claim": "generate.ts and payment-link.ts POST had neither withCsrf nor withWriteAccess, so a company viewer could create a permanent unauthenticated credential for an invoice (or a payment link) and the requests needed no CSRF token. GET /api/accounting/ar/invoice/[id]/portal-link also minted, and withWriteAccess/withCsrf pass every GET.",
-      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 38/38 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided DEFAULT_WRITE_ROLES; all three mint routes are withCsrf(withWriteAccess(...)); scope extended (Hein, 2026-09-29) to portal-link GET, which now only reads (404 when no token). Refusals come before any write (withAuth COMMITs a 4xx)."
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 39/39 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided DEFAULT_WRITE_ROLES; all three mint routes are withCsrf(withWriteAccess(...)); scope extended (Hein, 2026-09-29) to portal-link GET, which now only reads (404 when no token). Refusals come before any write (withAuth COMMITs a 4xx). Review round 4: payment-link POST was wrapped withErrorHandler only OUTSIDE withAuth, so a throw after the link INSERT rolled back but never sent its 500 (client hang, pre-existing); now withAuth(withErrorHandler(...)), proven by tests/integration/r157-payment-link-throw-responds.int.test.ts (R-155/red.r4.int.log, mutant M39)."
     },
     {
       "area": "accounting/ar portal",
