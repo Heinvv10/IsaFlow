@@ -57,6 +57,10 @@ it('restores the actual TB link round trip including period, centre, business un
   await screen.findByRole('link', {name:'Bank'});
   fireEvent.change(screen.getByDisplayValue('Current (open)'), {target:{value:'historic'}});
   fireEvent.change(screen.getByDisplayValue('No comparison'), {target:{value:'current'}});
+  // The centre and BU lists are their own fetches, not the report's: wait for
+  // their options, or the change leaves the select at '' (R-138).
+  await screen.findByRole('option', {name:'CC2 — Project'});
+  await screen.findByRole('option', {name:'OPS — Operations'});
   fireEvent.change(screen.getByDisplayValue('All Cost Centres'), {target:{value:cc}});
   fireEvent.change(screen.getByDisplayValue('All Business Units'), {target:{value:bu}});
   fireEvent.click(screen.getByRole('button', {name:'Show movement'}));
@@ -68,8 +72,8 @@ it('restores the actual TB link round trip including period, centre, business un
   navigate(screen.getByRole('link', {name:'Back to Trial Balance'}).getAttribute('href')!);
   view.unmount(); render(<TrialBalancePage />);
   await screen.findByRole('link', {name:'Bank'});
-  expect(screen.getByDisplayValue('CC2 — Project')).toBeInTheDocument();
-  expect(screen.getByDisplayValue('OPS — Operations')).toBeInTheDocument();
+  expect(await screen.findByDisplayValue('CC2 — Project')).toBeInTheDocument();
+  expect(await screen.findByDisplayValue('OPS — Operations')).toBeInTheDocument();
   expect(screen.getByDisplayValue('Historic (closed)')).toBeInTheDocument();
   expect(screen.getByDisplayValue('Current')).toBeInTheDocument();
   expect(screen.getByRole('button', {name:'Hide movement'})).toHaveAttribute('aria-pressed','true');
@@ -94,6 +98,10 @@ it('restores the actual BS link round trip with date, centre, business unit and 
   route.query = {as_at_date:'2026-04-30'};
   let view = render(<BalanceSheetPage />);
   await screen.findByRole('link', {name:'Bank'});
+  // The centre and BU lists are their own fetches, not the report's: wait for
+  // their options, or the change leaves the select at '' (R-138).
+  await screen.findByRole('option', {name:'CC2 — Project'});
+  await screen.findByRole('option', {name:'OPS — Operations'});
   fireEvent.change(screen.getByDisplayValue('All Cost Centres'), {target:{value:cc}});
   fireEvent.change(screen.getByDisplayValue('All Business Units'), {target:{value:bu}});
   fireEvent.click(screen.getByRole('checkbox', {name:'Prior period'}));
@@ -103,8 +111,8 @@ it('restores the actual BS link round trip with date, centre, business unit and 
   navigate(screen.getByRole('link', {name:'Back to Balance Sheet'}).getAttribute('href')!);
   view.unmount(); render(<BalanceSheetPage />);
   await screen.findByRole('link', {name:'Bank'});
-  expect(screen.getByDisplayValue('CC2 — Project')).toBeInTheDocument();
-  expect(screen.getByDisplayValue('OPS — Operations')).toBeInTheDocument();
+  expect(await screen.findByDisplayValue('CC2 — Project')).toBeInTheDocument();
+  expect(await screen.findByDisplayValue('OPS — Operations')).toBeInTheDocument();
   expect(screen.getByDisplayValue('2026-04-30')).toBeInTheDocument();
   expect(screen.getByRole('checkbox', {name:'Prior period'})).toBeChecked();
   expect(params('reports-balance-sheet').at(-1)?.get('compare_date')).toBe('2025-04-30');
@@ -118,7 +126,7 @@ it('retains centre and matches the fiscal period for older TB ledger URLs', asyn
   view.unmount(); render(<TrialBalancePage />);
   await screen.findByRole('link', {name:'Bank'});
   expect(screen.getByDisplayValue('Historic (closed)')).toBeInTheDocument();
-  expect(screen.getByDisplayValue('CC2 — Project')).toBeInTheDocument();
+  expect(await screen.findByDisplayValue('CC2 — Project')).toBeInTheDocument();
 });
 
 it('does not fetch default BS data during hydration and restores subsequent query changes', async () => {
