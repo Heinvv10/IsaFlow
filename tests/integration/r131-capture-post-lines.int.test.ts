@@ -9,8 +9,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SignJWT } from 'jose';
 import capturePostRoute from '../../pages/api/accounting/capture/[id]/post';
 import { request, response } from './mfa-impersonation-postgres.helpers';
+import { planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
+import type { PipelineInvoiceInput } from '@/modules/accounting/services/core/aiInvoicePipelineService';
+import type { SupplierRule } from '@/modules/accounting/services/capture/supplierRulesService';
 import {
-  company, expenseGl, invoiceState, otherCompany, payableGl, pool, supplier, today, useR127Fixture, user, vatGl,
+  company, expenseGl, inTx, invoiceState, otherCompany, payableGl, pool, supplier, today, useR127Fixture, user, vatGl,
 } from './r127-double-booking.helpers';
 
 useR127Fixture();
@@ -241,6 +244,20 @@ describe('R-131: capture/[id]/post writes the bill\'s lines, and an auto-approve
       await pool.query('UPDATE vat_period_locks SET unlocked_at=NOW(), unlocked_by=$2, unlock_reason=$3 WHERE id=$1',
         [lock, user, 'R131 test cleanup']);
     }
+  });
+
+  it('an extracted line\'s own account is kept; the rule\'s account codes only the uncoded lines', async () => {
+    const invoice = {
+      supplierId: supplier, invoiceNumber: 'R131-OWN', invoiceDate: today, totalAmount: 230, taxAmount: 30, taxRate: 15,
+      items: [
+        { description: 'Coded', quantity: 1, unitPrice: 100, taxRate: 15, glAccountId: captureGl },
+        { description: 'Uncoded', quantity: 1, unitPrice: 100, taxRate: 15 },
+      ],
+    } as PipelineInvoiceInput;
+    const rule = { defaultGlAccountId: ruleGl } as SupplierRule;
+    const plan = await inTx(() => planCaptureBillLines(company, invoice, 2, null, rule));
+    expect('lines' in plan ? plan.lines.map((l) => [l.description, l.glAccountId]) : plan)
+      .toEqual([['Coded', captureGl], ['Uncoded', ruleGl]]);
   });
 
   it('no total: 4xx, and nothing is inserted or claimed', async () => {
