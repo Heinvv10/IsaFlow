@@ -1,11 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { sqlMock } = vi.hoisted(() => {
+const { sqlMock, fenceMock } = vi.hoisted(() => {
   const sqlMock = vi.fn();
-  return { sqlMock };
+  const fenceMock = vi.fn();
+  return { sqlMock, fenceMock };
 });
 
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+// The R-073 tenant fence runs its own savepointed read; it is exercised against
+// real PG in tests/integration/practice-client-ownership-fence.int.test.ts.
+vi.mock('@/modules/accounting/services/practice/practiceClientFence', () => ({
+  assertPracticeClientInCompany: fenceMock,
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
@@ -109,6 +115,7 @@ describe('createEntryTemplate', () => {
     expect(result.id).toBe(TEMPLATE_ID);
     expect(result.name).toBe('SARS Tax Return');
     expect(result.defaultHours).toBe(2.5);
+    expect(fenceMock).toHaveBeenCalledWith(COMPANY, CLIENT_ID);
   });
 
   it('defaults billable to true when not provided', async () => {
