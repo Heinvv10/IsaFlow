@@ -1,0 +1,273 @@
+# RED: tests/integration/r155-157-portal-mint-guards.int.test.ts on origin/master code (6d1f4a488), fixture clone at 716, 2026-09-29T05:52:45Z. 64-hex tokens redacted.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r155-157
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts (28 tests | 14 failed) 2282ms
+     × 'POST /api/portal/invoice/generate' returns the rival token and does not overwrite it 1063ms
+     × 'POST /api/portal/invoice/generate' refuses a soft-deleted invoice (404), minting nothing 16ms
+     × 'POST /api/accounting/ar/invoice/[id]/…' refuses a soft-deleted invoice (404), minting nothing 18ms
+     × answers 405 for query {"token":"generate","action":"generate"} and writes no token 48ms
+     × answers 405 for query {"token":"generate"} and writes no token 22ms
+     × refuses a viewer (403) before any write 21ms
+     × refuses a request without the CSRF header (403) before any write 24ms
+     × refuses a viewer (403) before any write 15ms
+     × refuses a request without the CSRF header (403) before any write 19ms
+     × a viewer GET on an invoice with no token is 404 and mints nothing 13ms
+     × a admin GET on an invoice with no token is 404 and mints nothing 12ms
+     × GET answers 400, not 500, for an id that is not a UUID 7ms
+     × POST answers 400, not 500, for an id that is not a UUID 5ms
+     × POST answers 404, not 500, for an unknown invoice 10ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 14 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-155 generate keeps a token a concurrent writer already stored > 'POST /api/portal/invoice/generate' returns the rival token and does not overwrite it
+AssertionError: expected '<TOKEN…>' to be '<TOKEN…>' // Object.is equality
+
+Expected: "<TOKEN64>"
+Received: "<TOKEN64>"
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts:152:37
+    150|     expect(rivalRan).toBe(true);
+    151|     expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
+    152|     expect(state.body?.data?.token).toBe(rival);
+       |                                     ^
+    153|     const { rows } = await pool.query('SELECT portal_token FROM custom…
+    154|     expect(rows[0].portal_token).toBe(rival);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/14]⎯
+
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-155 generate keeps a token a concurrent writer already stored > 'POST /api/portal/invoice/generate' refuses a soft-deleted invoice (404), minting nothing
+AssertionError: {"success":true,"data":{"token":"<TOKEN64>","portalUrl":"http://localhost:3101/portal/invoice/<TOKEN64>"},"meta":{"timestamp":"2026-09-29T05:52:48.033Z"}}: expected 200 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 200
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts:160:58
+    158|     const id = await invoice({ deleted: true });
+    159|     const state = await mint(r, id);
+    160|     expect(state.statusCode, JSON.stringify(state.body)).toBe(404);
+       |                                                          ^
+    161|     expect(await tokenCount(id)).toBe(0);
+    162|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/14]⎯
+
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-155 generate keeps a token a concurrent writer already stored > 'POST /api/accounting/ar/invoice/[id]/…' refuses a soft-deleted invoice (404), minting nothing
+AssertionError: {"success":false,"data":null,"message":"Invoice not found or not eligible for portal: f2682519-46f9-4cb7-9b5e-44aa34f98a9e","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 500
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts:160:58
+    158|     const id = await invoice({ deleted: true });
+    159|     const state = await mint(r, id);
+    160|     expect(state.statusCode, JSON.stringify(state.body)).toBe(404);
+       |                                                          ^
+    161|     expect(await tokenCount(id)).toBe(0);
+    162|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/14]⎯
+
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-156 POST /api/portal/invoice/[token] is gone > answers 405 for query {"token":"generate","action":"generate"} and writes no token
+AssertionError: {"success":true,"data":{"token":"<TOKEN64>","portalUrl":"http://localhost:3101/portal/invoice/<TOKEN64>"},"meta":{"timestamp":"2026-09-29T05:52:48.101Z"}}: expected 200 to be 405 // Object.is equality
+
+- Expected
++ Received
+
+- 405
++ 200
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts:171:60
+    169|       const state = await call(await route('../../pages/api/portal/inv…
+    170|         { query, url: '/api/portal/invoice/generate?action=generate' }…
+    171|       expect(state.statusCode, JSON.stringify(state.body)).toBe(405);
+       |                                                            ^
+    172|       expect(await tokenCount(id)).toBe(0);
+    173|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/14]⎯
+
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-156 POST /api/portal/invoice/[token] is gone > answers 405 for query {"token":"generate"} and writes no token
+AssertionError: {"success":true,"data":{"token":"<TOKEN64>","portalUrl":"http://localhost:3101/portal/invoice/<TOKEN64>"},"meta":{"timestamp":"2026-09-29T05:52:48.120Z"}}: expected 200 to be 405 // Object.is equality
+
+- Expected
++ Received
+
+- 405
++ 200
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts:171:60
+    169|       const state = await call(await route('../../pages/api/portal/inv…
+    170|         { query, url: '/api/portal/invoice/generate?action=generate' }…
+    171|       expect(state.statusCode, JSON.stringify(state.body)).toBe(405);
+       |                                                            ^
+    172|       expect(await tokenCount(id)).toBe(0);
+    173|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/14]⎯
+
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-157 'POST /api/portal/invoice/generate' > refuses a viewer (403) before any write
+AssertionError: {"success":true,"data":{"token":"<TOKEN64>","portalUrl":"http://localhost:3101/portal/invoice/<TOKEN64>"},"meta":{"timestamp":"2026-09-29T05:52:48.239Z"}}: expected 200 to be 403 // Object.is equality
+
+- Expected
++ Received
+
+- 403
++ 200
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts:201:58
+    199|     mintWrites = 0;
+    200|     const state = await mint(r, id, { role: 'viewer' });
+    201|     expect(state.statusCode, JSON.stringify(state.body)).toBe(403);
+       |                                                          ^
+    202|     expect(await r.written(id)).toBe(0);
+    203|     expect(mintWrites).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/14]⎯
+
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-157 'POST /api/portal/invoice/generate' > refuses a request without the CSRF header (403) before any write
+AssertionError: {"success":true,"data":{"token":"<TOKEN64>","portalUrl":"http://localhost:3101/portal/invoice/<TOKEN64>"},"meta":{"timestamp":"2026-09-29T05:52:48.264Z"}}: expected 200 to be 403 // Object.is equality
+
+- Expected
++ Received
+
+- 403
++ 200
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts:210:58
+    208|     mintWrites = 0;
+    209|     const state = await mint(r, id, { csrf: false });
+    210|     expect(state.statusCode, JSON.stringify(state.body)).toBe(403);
+       |                                                          ^
+    211|     expect(state.body && JSON.stringify(state.body)).toMatch(/CSRF/);
+    212|     expect(await r.written(id)).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/14]⎯
+
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-157 'POST /api/portal/payment-link' > refuses a viewer (403) before any write
+AssertionError: {"success":true,"data":{"token":"<TOKEN64>","url":"/portal/pay/<TOKEN64>"},"meta":{"timestamp":"2026-09-29T05:52:48.945Z"}}: expected 200 to be 403 // Object.is equality
+
+- Expected
++ Received
+
+- 403
++ 200
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts:201:58
+    199|     mintWrites = 0;
+    200|     const state = await mint(r, id, { role: 'viewer' });
+    201|     expect(state.statusCode, JSON.stringify(state.body)).toBe(403);
+       |                                                          ^
+    202|     expect(await r.written(id)).toBe(0);
+    203|     expect(mintWrites).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/14]⎯
+
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-157 'POST /api/portal/payment-link' > refuses a request without the CSRF header (403) before any write
+AssertionError: {"success":true,"data":{"token":"<TOKEN64>","url":"/portal/pay/<TOKEN64>"},"meta":{"timestamp":"2026-09-29T05:52:48.960Z"}}: expected 200 to be 403 // Object.is equality
+
+- Expected
++ Received
+
+- 403
++ 200
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts:210:58
+    208|     mintWrites = 0;
+    209|     const state = await mint(r, id, { csrf: false });
+    210|     expect(state.statusCode, JSON.stringify(state.body)).toBe(403);
+       |                                                          ^
+    211|     expect(state.body && JSON.stringify(state.body)).toMatch(/CSRF/);
+    212|     expect(await r.written(id)).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/14]⎯
+
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-157 GET /api/accounting/ar/invoice/[id]/portal-link only reads > a viewer GET on an invoice with no token is 404 and mints nothing
+AssertionError: {"success":true,"data":{"token":"<TOKEN64>","url":"http://localhost:3101/portal/invoice/<TOKEN64>","pixelUrl":"http://localhost:3101/api/portal/pixel/<TOKEN64>"},"meta":{"timestamp":"2026-09-29T05:52:48.977Z"}}: expected 200 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 200
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts:221:58
+    219|     const id = await invoice();
+    220|     const state = await mint(PORTAL_LINK, id, { role, method: 'GET' });
+    221|     expect(state.statusCode, JSON.stringify(state.body)).toBe(404);
+       |                                                          ^
+    222|     expect(await tokenCount(id)).toBe(0);
+    223|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/14]⎯
+
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-157 GET /api/accounting/ar/invoice/[id]/portal-link only reads > a admin GET on an invoice with no token is 404 and mints nothing
+AssertionError: {"success":true,"data":{"token":"<TOKEN64>","url":"http://localhost:3101/portal/invoice/<TOKEN64>","pixelUrl":"http://localhost:3101/api/portal/pixel/<TOKEN64>"},"meta":{"timestamp":"2026-09-29T05:52:48.989Z"}}: expected 200 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 200
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts:221:58
+    219|     const id = await invoice();
+    220|     const state = await mint(PORTAL_LINK, id, { role, method: 'GET' });
+    221|     expect(state.statusCode, JSON.stringify(state.body)).toBe(404);
+       |                                                          ^
+    222|     expect(await tokenCount(id)).toBe(0);
+    223|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/14]⎯
+
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-157 GET /api/accounting/ar/invoice/[id]/portal-link only reads > GET answers 400, not 500, for an id that is not a UUID
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-157 GET /api/accounting/ar/invoice/[id]/portal-link only reads > POST answers 400, not 500, for an id that is not a UUID
+AssertionError: {"success":false,"data":null,"message":"invalid input syntax for type uuid: \"not-a-uuid\"","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 500
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts:237:58
+    235|   it.each(['GET', 'POST'])('%s answers 400, not 500, for an id that is…
+    236|     const state = await call(await route(PORTAL_LINK.path), {}, { meth…
+    237|     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+       |                                                          ^
+    238|   });
+    239|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/14]⎯
+
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-157 GET /api/accounting/ar/invoice/[id]/portal-link only reads > POST answers 404, not 500, for an unknown invoice
+AssertionError: {"success":false,"data":null,"message":"Invoice not found or not eligible for portal: b099e5f3-6b18-453d-b3b0-739ebf37069d","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 500
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts:242:58
+    240|   it('POST answers 404, not 500, for an unknown invoice', async () => {
+    241|     const state = await call(await route(PORTAL_LINK.path), {}, { quer…
+    242|     expect(state.statusCode, JSON.stringify(state.body)).toBe(404);
+       |                                                          ^
+    243|   });
+    244| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/14]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  14 failed | 14 passed (28)
+   Start at  07:52:46
+   Duration  2.83s (transform 1.06s, setup 0ms, import 255ms, tests 2.28s, environment 0ms)
+
