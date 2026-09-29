@@ -102,9 +102,10 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
 
 // R-157: a link is a public credential to pay this invoice, so creating one is a write:
 // CSRF-checked, and owner/admin/manager only, refused before the first write (withAuth COMMITs a 4xx).
-// withErrorHandler wraps the whole router (the GET is public), so it runs OUTSIDE withAuth here,
-// unlike generate.ts; withAuth still rolls back on a throw before withErrorHandler answers 500.
-const authedPost = withAuth(withCsrf(withWriteAccess(postHandler)));
+// withErrorHandler must sit INSIDE withAuth as well: withAuth defers res.end until COMMIT/ROLLBACK
+// and replays it only on a normal return, so a throw that reached the router's outer
+// withErrorHandler was rolled back but its 500 never reached the client.
+const authedPost = withAuth(withErrorHandler(withCsrf(withWriteAccess(postHandler))));
 
 async function router(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') return getHandler(req, res);
