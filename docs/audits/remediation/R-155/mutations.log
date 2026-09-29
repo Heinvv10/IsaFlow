@@ -156,3 +156,22 @@ M34 [src/modules/accounting/services/core/paymentGatewayPortalService.ts] enable
      × refuses an unknown invoice (404, not 500) 4ms
 
 SUMMARY 34/34 RED; source restored clean: True
+
+# Round 2 on c98f6a61d: the guards covered by the new R-158 refusal cases. 2026-09-29T06:10:22Z.
+M35 [pages/api/accounting/customer-invoices/[id]/pay-now.ts] pay-now: withCsrf removed
+  -> RED: Tests  1 failed | 19 passed (20)
+     × refuses a request without the CSRF header (403) before any write 28ms
+
+M36 [pages/api/accounting/customer-invoices/[id]/pay-now.ts] pay-now: withWriteAccess removed
+  -> RED: Tests  1 failed | 19 passed (20)
+     × refuses a viewer (403) before any write 51ms
+
+M37 [pages/api/accounting/payment-gateway.ts] payment-gateway: withCsrf removed
+  -> RED: Tests  1 failed | 19 passed (20)
+     × refuses a request without the CSRF header (403) before any write 23ms
+
+M38 [pages/api/accounting/payment-gateway.ts] payment-gateway: withWriteAccess removed
+  -> RED: Tests  1 failed | 19 passed (20)
+     × refuses a viewer (403) before any write 23ms
+
+SUMMARY 4/4 RED; source restored clean: True

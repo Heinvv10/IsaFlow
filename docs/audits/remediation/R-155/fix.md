@@ -1,8 +1,9 @@
 # R-155, R-156, R-157, R-158 — fix (the K-101 portal follow-ups)
 
-These three came out of the K-101 review (K-101/fix.md, Follow-ups). The audit's K-276 (no CSRF on
-the portal mint and payment-link routes) is the CSRF half of R-157, and its `canonicalItem` is now R-157. One PR fixes all three, and
-this folder holds the evidence for all three.
+R-155..R-157 came out of the K-101 review (K-101/fix.md, Follow-ups). R-158 came out of this PR's
+adversarial review (see Review round 1). One PR fixes all four, and this folder holds the evidence
+for all four. The audit's K-276 (no CSRF on the portal mint and payment-link routes) is the CSRF
+half of R-157, and its `canonicalItem` is now R-157.
 
 ## Triggers
 
@@ -91,16 +92,17 @@ Evidence:
 - `red.int.log` (the original 28 cases): 14 fail on origin/master `6d1f4a488`: the generate race, both
   soft-deleted cases, both 405s, the viewer and no-CSRF cases for generate and payment-link, both
   minting GETs, the two non-UUID 500s, and the unknown-invoice 500.
-- `green.log`, all on the review-round-1 head:
+- `green.log`, all on the review-round-2 head:
   - this suite: 30/30;
-  - R-158: 16/16;
+  - R-158: 20/20;
   - K-101: 24/24;
   - k122: 6/6;
   - k122b: 3/3;
   - r095: 7/7 + 7/7 + 8/8;
   - customer-ownership-fence-routes, on an `isaflow_test` clone: 32/32;
   - unit tests for `portalTokenService` + `dunningService`: 30/30.
-- `mutations.log`: 34/34 mutants RED on the round-1 head. That includes the R-158 lines: each UUID
+- `mutations.log`: 38/38 mutants RED. M1–M34 ran on the round-1 head and M35–M38 on the round-2 head.
+  That includes the R-158 lines: each UUID
   check (M23, M27) and its type check (M24, M28), each filter, the COALESCE, and null vs throw.
   Every changed source line was mutated:
   - `COALESCE` removed;
@@ -150,10 +152,18 @@ reviewer returned SHIP with three LOWs.
     It now links `COALESCE(client_id, customer_id)`, refuses cancelled, deleted and fully paid
     invoices, and returns null, so the route answers 404.
 
-  `tests/integration/r158-payment-link-creation-guards.int.test.ts` has 16 cases. Eleven fail on
-  master code (`red.r1.int.log`); `pay-now` already refused a fully paid invoice, and both routes
-  already served the legacy customer and an open invoice. The positive `pay-now` path mocks only
-  the Paystack client.
+  `tests/integration/r158-payment-link-creation-guards.int.test.ts` has 16 cases from round 1.
+  Eleven of them fail on master code (`red.r1.int.log`). The five that pass on master:
+  - pay-now: an open invoice, the legacy customer, an unknown invoice (already a 404), and a
+    fully paid invoice (already a 400);
+  - payment-gateway: an open invoice.
+
+  The positive `pay-now` path mocks only the Paystack client.
+- Round 2 (adversarial, LOW): the existing `withCsrf`/`withWriteAccess` guards on `pay-now` and
+  `payment-gateway` had no committed test. Four cases were added (20 in all): a viewer and a
+  request without the CSRF header both get 403, and no link, `payment_url` or
+  `online_payment_enabled` is written. These guards were already on master, so the cases pass
+  there. Mutants M35–M38 remove each guard, and each one fails its case.
 
 ## Census SQL for prod (read-only; not run by this session)
 
