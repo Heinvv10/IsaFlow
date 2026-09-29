@@ -1,0 +1,41 @@
+## M1 override reads join auth.users again (R-123 cause)
+     × creating an override returns the staff name, and the list and update carry it 11ms
+     × an override naming another company's member never shows that member's name or email 8ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: {"success":false,"data":null,"message":"permission denied for table users","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 201 // Object.is equality
+AssertionError: {"success":false,"data":null,"message":"permission denied for table users","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 200 // Object.is equality
+      Tests  2 failed | 1 passed (3)
+## M2 listCompanyStaff joins auth.users again
+     × the staff dropdown lists this company's members with names, never another company's 16ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: {"success":false,"data":null,"message":"permission denied for table users","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 200 // Object.is equality
+      Tests  1 failed | 2 passed (3)
+## M3 715 target-membership join removed
+     × an override naming another company's member never shows that member's name or email 10ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected { …(12) } to match object { staffName: null, …(2) }
+      Tests  1 failed | 2 passed (3)
+## M4 716 company_id row filter removed
+      Tests  3 passed (3)
+## M4 (re-run, caller owns both companies) 716 company_id row filter removed
+     × the staff dropdown lists this company's members with names, never another company's 16ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected [ { …(3) }, { …(3) }, { …(3) }, …(1) ] to have a length of 2 but got 4
+      Tests  1 failed | 2 passed (3)
+## M3 (re-run) 715 target-membership join removed
+     × an override naming another company's member never shows that member's name or email 11ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected { …(12) } to match object { staffName: null, …(2) }
+      Tests  1 failed | 2 passed (3)
+## M1 (final test) override reads join auth.users again
+     × creating an override returns the staff name, and the list and update carry it 11ms
+     × an override naming another company's member never shows that member's name or email 9ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: {"success":false,"data":null,"message":"permission denied for table users","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 201 // Object.is equality
+AssertionError: {"success":false,"data":null,"message":"permission denied for table users","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 200 // Object.is equality
+      Tests  2 failed | 1 passed (3)
+## M2 (final test) staff list reads auth.users again
+     × the staff dropdown lists this company's members with names, never another company's 17ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: {"success":false,"data":null,"message":"permission denied for table users","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 200 // Object.is equality
+      Tests  1 failed | 2 passed (3)

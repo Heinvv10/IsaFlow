@@ -1,0 +1,13 @@
+## master repro on dev 2026-09-29T10:01:48+02:00
+GET rate-overrides:
+{"success":false,"data":null,"message":"relation \"auth.users\" does not exist","code":"INTERNAL_SERVER_ERROR","details":{"message":"relation \"auth.users\" doe  HTTP 500
+POST rate-overrides:
+{"success":false,"data":null,"message":"column \"user_id\" of relation \"practice_client_rate_overrides\" does not exist","code":"INTERNAL_SERVER_ERROR","detail  HTTP 500
+GET staff:
+{"success":false,"data":null,"message":"relation \"auth.users\" does not exist","code":"INTERNAL_SERVER_ERROR","details":{"message":"relation \"auth.users\" doe  HTTP 500
+
+## fixed branch on dev 2026-09-29T10:04:40+02:00
+GET staff:
+{"success":true,"data":[{"userId":"f110ef4f-e388-442e-8428-1a265b8d0a6a","email":"hein@h10.co.za","fullName":"Hein van Vuuren"},{"userId":"233f3bd5-9f54-45bb-9b88-a9389ce0c8f3","email":"reporting-qa@isaflow.dev","fullName":"Reporting QA"}],"meta":{"timestamp":"2026-09-29T08:04:40.748Z"}} HTTP 200
+GET rate-overrides:
+{"success":false,"data":null,"message":"column pcro.user_id does not exist","code":"INTERNAL_SERVER_ERROR","details":{"message":"column pcro.user_id does not exist","stack":"error: column pcro.user_id does not exist\n    at /home/hein/Workspace/IsaFlow/.worktrees/r123/node_modules/pg/lib/client.js:631:17\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at asy
