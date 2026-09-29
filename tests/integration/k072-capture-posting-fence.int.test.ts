@@ -35,6 +35,8 @@ const bank = crypto.randomUUID();
 const vatInput = crypto.randomUUID();
 const defaultExpense = crypto.randomUUID();
 const office = crypto.randomUUID();
+/** R-131: an auto-approved capture now posts its journal (DR expense / VAT, CR AP). */
+const payable = crypto.randomUUID();
 const supplier = crypto.randomUUID();
 const bankTx = crypto.randomUUID();
 
@@ -206,7 +208,7 @@ async function purge(): Promise<void> {
   await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [company]);
   await pool.query('DELETE FROM suppliers WHERE company_id=$1', [company]);
   await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id=ANY($1::uuid[])',
-    [[bank, vatInput, defaultExpense, office]]);
+    [[bank, vatInput, defaultExpense, office, payable]]);
   await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [company]);
   await pool.query('DELETE FROM fiscal_periods WHERE company_id=$1', [company]);
   await pool.query('DELETE FROM company_users WHERE company_id=ANY($1::uuid[])', [[company, otherCompany]]);
@@ -227,8 +229,9 @@ beforeAll(async () => {
      VALUES($1,$5,'K072FB','K072F Bank','asset','bank','debit',true,true),
            ($2,$5,'1140','K072F VAT Input','asset','vat_input','debit',true,true),
            ($3,$5,'K072FDE','K072F Default expense','expense','default_expense','debit',true,true),
-           ($4,$5,'5100','K072F Office supplies','expense',NULL,'debit',false,true)`,
-    [bank, vatInput, defaultExpense, office, company],
+           ($4,$5,'5100','K072F Office supplies','expense',NULL,'debit',false,true),
+           ($6,$5,'K072FAP','K072F Accounts Payable','liability','payable','credit',true,true)`,
+    [bank, vatInput, defaultExpense, office, company, payable],
   );
   await pool.query('INSERT INTO suppliers(id,company_id,name,is_active) VALUES($1,$2,$3,true)',
     [supplier, company, 'Waltons Stationery']);
