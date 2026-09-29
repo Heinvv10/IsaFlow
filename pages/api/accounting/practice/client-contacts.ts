@@ -14,6 +14,7 @@ import {
   listClientContacts,
   createClientContact,
 } from '@/modules/accounting/services/practice/practiceClientService';
+import { PracticeClientNotInCompanyError } from '@/modules/accounting/services/practice/practiceClientFence';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -28,10 +29,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { clientId, name, email, phone, role, isPrimary } = req.body;
     if (!clientId) return apiResponse.badRequest(res, 'clientId is required');
     if (!name) return apiResponse.badRequest(res, 'name is required');
-    return apiResponse.created(
-      res,
-      await createClientContact(companyId, clientId, { name, email, phone, role, isPrimary }),
-    );
+    try {
+      return apiResponse.created(
+        res,
+        await createClientContact(companyId, clientId, { name, email, phone, role, isPrimary }),
+      );
+    } catch (err) {
+      if (err instanceof PracticeClientNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
