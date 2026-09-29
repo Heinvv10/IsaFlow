@@ -1,0 +1,9 @@
+## RED: master service (3e4728e98), final test, auth.users present without app_user grant
+     × the staff dropdown lists this company's members with names, never another company's 14ms
+     × creating an override returns the staff name, and the list and update carry it 6ms
+     × an override naming another company's member never shows that member's name or email 7ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: {"success":false,"data":null,"message":"permission denied for table users","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 200 // Object.is equality
+AssertionError: {"success":false,"data":null,"message":"permission denied for table users","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 201 // Object.is equality
+AssertionError: {"success":false,"data":null,"message":"permission denied for table users","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 200 // Object.is equality
+      Tests  3 failed (3)
