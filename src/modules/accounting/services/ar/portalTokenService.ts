@@ -26,7 +26,7 @@ function isValidTokenShape(token: string): boolean {
   return /^[a-f0-9]{64}$/.test(token);
 }
 
-function portalUrl(token: string): string {
+export function portalUrl(token: string): string {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3101';
   return `${appUrl}/portal/invoice/${token}`;
 }
@@ -57,6 +57,8 @@ export async function getInvoicePortalToken(
 /**
  * Idempotent: returns the invoice's existing portal_token if one is stored,
  * otherwise mints a fresh 32-byte hex token and persists it. Company-scoped.
+ * Null when the invoice is not in this company, is cancelled or is
+ * soft-deleted — for routes that answer 404 rather than fail.
  *
  * The mint is a single COALESCE UPDATE ... RETURNING, not a read-modify-write:
  * two concurrent renders of the same invoice (the dunning cron and a manual
@@ -65,10 +67,10 @@ export async function getInvoicePortalToken(
  * 404 this path exists to remove. COALESCE makes the second writer keep the
  * first writer's token and RETURNING hands back whatever is actually stored.
  */
-export async function getOrMintInvoicePortalToken(
+export async function findOrMintInvoicePortalToken(
   invoiceId: string,
   companyId: string,
-): Promise<{ token: string; url: string }> {
+): Promise<{ token: string; url: string } | null> {
   const existing = await getInvoicePortalToken(invoiceId, companyId);
   if (existing) return { token: existing, url: portalUrl(existing) };
 
@@ -83,12 +85,22 @@ export async function getOrMintInvoicePortalToken(
     RETURNING portal_token
   `) as DbRow[];
 
-  if (!rows[0]) {
-    throw new Error(`Invoice not found or not eligible for portal: ${invoiceId}`);
-  }
+  if (!rows[0]) return null;
 
   const token = String(rows[0].portal_token);
   return { token, url: portalUrl(token) };
+}
+
+/** findOrMintInvoicePortalToken, throwing when the invoice is not eligible (dunning). */
+export async function getOrMintInvoicePortalToken(
+  invoiceId: string,
+  companyId: string,
+): Promise<{ token: string; url: string }> {
+  const minted = await findOrMintInvoicePortalToken(invoiceId, companyId);
+  if (!minted) {
+    throw new Error(`Invoice not found or not eligible for portal: ${invoiceId}`);
+  }
+  return minted;
 }
 
 /**

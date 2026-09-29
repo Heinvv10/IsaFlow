@@ -52,7 +52,7 @@ test.describe('PRD-06 Phase 3 — disputes', () => {
     const outstanding = Number(invoice.total_amount) - Number(invoice.amount_paid);
     const disputedAmount = Math.max(1, Math.floor(outstanding / 2));
 
-    const linkRes = await request.get(`/api/accounting/ar/invoice/${invoiceId}/portal-link`, {
+    const linkRes = await request.post(`/api/accounting/ar/invoice/${invoiceId}/portal-link`, {
       headers: await csrfHeaders(request),
     });
     expect(linkRes.status(), 'portal-link status').toBe(200);

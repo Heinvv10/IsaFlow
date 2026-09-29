@@ -10,7 +10,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withAuth, withCsrf, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { createPaymentLink, getPaymentLink } from '@/modules/accounting/services/ar/portalService';
 import { assertCustomerInCompany, CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { sql } from '@/lib/neon';
@@ -100,7 +100,9 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { token, url: `/portal/pay/${token}` });
 }
 
-const authedPost = withAuth(postHandler);
+// R-157: a link is a public credential to pay this invoice, so creating one is a write:
+// CSRF-checked, and owner/admin/manager only, refused before the first write (withAuth COMMITs a 4xx).
+const authedPost = withAuth(withCsrf(withWriteAccess(postHandler)));
 
 async function router(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') return getHandler(req, res);
