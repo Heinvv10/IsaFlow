@@ -8649,7 +8649,7 @@
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "status": "candidate",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [],
       "evidencePaths": [],
@@ -8657,11 +8657,12 @@
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
-      "canonicalItem": null,
+      "canonicalItem": "R-157",
       "sourceReferences": [
         "inputs/api-admin-auth-billing-portal.md:222"
       ],
-      "reportedSeverity": "low"
+      "reportedSeverity": "low",
+      "processNotes": "2026-09-29: The CSRF half of R-157 (fix/r155-157-portal-followups-20260929). generate.ts and payment-link.ts POST (and ar/invoice/[id]/portal-link POST) are withCsrf(withWriteAccess(...)); a request without the CSRF header is 403 before any write. Tracked under R-157."
     },
     {
       "id": "K-277",
@@ -13891,6 +13892,201 @@
       "title": "autoPostRunsPanelHandOffset test asserts the DOM before React commits (flaky when starved)",
       "claim": "'records that decision…' waits (vi.waitFor) on the onUndone spy, but AutoPostRunsPanel.decided() calls onUndone right after setState, before React commits, so the following DOM assertion (:99, expected <span>… to be null) can run against the previous render.",
       "processNotes": "2026-09-28: Failed 3/20 under the R-150 pinning recipe (4 master copies + heavy component files, taskset 1 core, 12 workers). The same intermediate-render class as R-150: wait on the rendered outcome (findBy/waitFor on the DOM), not on the spy. Not fixed. tests/unit/components/autoPostRunsPanelUndoResult.test.tsx may share the pattern; check it too.\n\n2026-09-29: REPRODUCED (taskset 1 core, heavy mix + 4 copies, 12 workers): master 3/20 runs, 'records that decision…' → expected <span><a …(2)></a></span> to be null. Fix (#565, test-only): wait on the rendered outcome (the line and notice gone) instead of the onUndone spy. UndoResult waits on the Undo button's label returning, which is batched with the notice. The old UndoResult test could pass falsely (the `if (result) setUndoNotice` mutant passed it 1/50). Fix: 0/50 pinned runs (250 executions per file). 3 mutants turn named tests red. Component unchanged: no user-visible race. Separately investigated, not changed: the _app tests' 5 s timeouts under 16 workers on 1 core are pure starvation (a cold import('pages/_app') in each first test); the real gate runs ~1 worker per core with ~20x headroom. Blind review: SHIP r1 (LOW, a comment overstating an assertion, fixed in 6a195a241), SHIP r2.\n\n2026-09-29: merged via #565 as 3f2a9832f, after a master merge 77bf47e5b (docs conflict with #564, both sides kept; the reviewer re-confirmed SHIP). Test-only: deployedSha stays null."
+    },
+    {
+      "area": "accounting/ar portal",
+      "affectedPaths": [
+        "pages/api/portal/invoice/generate.ts",
+        "src/modules/accounting/services/ar/portalTokenService.ts"
+      ],
+      "sourceLabel": "K-101 review follow-ups (K-101/fix.md), 2026-09-28",
+      "sourceIds": [
+        "K-101"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Needs two mints of one invoice within milliseconds; the loss is a dead customer link, not a data leak.",
+      "auditedSha": "6d1f4a488",
+      "currentSha": "6d1f4a488",
+      "status": "in-progress",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/r155-157-portal-mint-guards.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-155/fix.md",
+        "docs/audits/remediation/R-155/red.r1.int.log",
+        "docs/audits/remediation/R-155/red.int.log",
+        "docs/audits/remediation/R-155/green.log",
+        "docs/audits/remediation/R-155/mutations.log"
+      ],
+      "fixCommit": "f2cbe5250;fb6f94117",
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
+      "canonicalItem": null,
+      "branch": "fix/r155-157-portal-followups-20260929",
+      "id": "R-155",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "Portal generate route mints the invoice token read-then-write, so a concurrent mint is overwritten",
+      "claim": "POST /api/portal/invoice/generate SELECTs portal_token and then runs a plain UPDATE SET portal_token = $new. A second mint (dunning cron, manual send, another click) committing in between is overwritten, so the link it already handed out goes dead. getOrMintInvoicePortalToken (K-122b) already mints with COALESCE ... RETURNING; the route did not use it.",
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 42/42 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. The route now uses findOrMintInvoicePortalToken (null -> 404; getOrMint wraps it and still throws for dunning); proven by a real interleave through the route with the hook asserted fired."
+    },
+    {
+      "area": "accounting/ar portal",
+      "affectedPaths": [
+        "pages/api/portal/invoice/[token].ts"
+      ],
+      "sourceLabel": "K-101 review follow-ups (K-101/fix.md), 2026-09-28",
+      "sourceIds": [
+        "K-101"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Duplicate code path carrying R-155's race; no UI caller.",
+      "auditedSha": "6d1f4a488",
+      "currentSha": "6d1f4a488",
+      "status": "in-progress",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/r155-157-portal-mint-guards.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-155/fix.md",
+        "docs/audits/remediation/R-155/red.int.log",
+        "docs/audits/remediation/R-155/green.log",
+        "docs/audits/remediation/R-155/mutations.log"
+      ],
+      "fixCommit": "f2cbe5250;fb6f94117",
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
+      "canonicalItem": null,
+      "branch": "fix/r155-157-portal-followups-20260929",
+      "id": "R-156",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "POST /api/portal/invoice/[token] duplicates the generate route and ignores ?action=",
+      "claim": "The public token route also accepted an authenticated POST that minted a token (its own read-then-write copy of generate.ts), whatever ?action= said. A second mint path to keep in step.",
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 42/42 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided: delete the POST arm (now 405); the public GET is untouched. Prod journalctl and nginx logs (retained since 2026-09-25 and 2026-09-16) show no /api/portal/ traffic at all."
+    },
+    {
+      "area": "accounting/ar portal",
+      "affectedPaths": [
+        "pages/api/portal/invoice/generate.ts",
+        "pages/api/portal/payment-link.ts",
+        "pages/api/accounting/ar/invoice/[id]/portal-link.ts"
+      ],
+      "sourceLabel": "K-101 review follow-ups (K-101/fix.md), 2026-09-28",
+      "sourceIds": [
+        "K-101",
+        "K-276"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Privilege: a read-only member creates a public credential exposing an invoice outside the company; CSRF lets a third-party page trigger the mint.",
+      "auditedSha": "6d1f4a488",
+      "currentSha": "6d1f4a488",
+      "status": "in-progress",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/r155-157-portal-mint-guards.int.test.ts",
+        "tests/integration/r157-payment-link-throw-responds.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-155/fix.md",
+        "docs/audits/remediation/R-155/red.int.log",
+        "docs/audits/remediation/R-155/green.log",
+        "docs/audits/remediation/R-155/mutations.log",
+        "docs/audits/remediation/R-155/red.r4.int.log",
+        "docs/audits/remediation/R-155/red.r5.int.log"
+      ],
+      "fixCommit": "f2cbe5250;fb6f94117;0f8f41ad4;fe1e74eb3",
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
+      "canonicalItem": null,
+      "branch": "fix/r155-157-portal-followups-20260929",
+      "id": "R-157",
+      "severity": "medium",
+      "reportedSeverity": "medium",
+      "title": "A viewer can mint a permanent public invoice token or payment link; the mint routes take no CSRF token",
+      "claim": "generate.ts and payment-link.ts POST had neither withCsrf nor withWriteAccess, so a company viewer could create a permanent unauthenticated credential for an invoice (or a payment link) and the requests needed no CSRF token. GET /api/accounting/ar/invoice/[id]/portal-link also minted, and withWriteAccess/withCsrf pass every GET.",
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28 (30/30 with the round-1 two-mint case), mutants 42/42 RED across R-155..R-158; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided DEFAULT_WRITE_ROLES; all three mint routes are withCsrf(withWriteAccess(...)); scope extended (Hein, 2026-09-29) to portal-link GET, which now only reads (404 when no token). Refusals come before any write (withAuth COMMITs a 4xx). Review round 4: payment-link POST was wrapped withErrorHandler only OUTSIDE withAuth, so a throw after the link INSERT rolled back but never sent its 500 (client hang, pre-existing); now withAuth(withErrorHandler(...)), proven by tests/integration/r157-payment-link-throw-responds.int.test.ts (R-155/red.r4.int.log, mutant M39). Review round 5: the round-4 wiring logged each authenticated POST twice (outer router wrap + inner); each method is now wrapped once (R-155/red.r5.int.log, mutants M40-M42)."
+    },
+    {
+      "area": "accounting/ar portal",
+      "affectedPaths": [
+        "pages/api/accounting/customer-invoices/[id]/pay-now.ts",
+        "pages/api/accounting/payment-gateway.ts",
+        "src/modules/accounting/services/core/paymentGatewayPortalService.ts"
+      ],
+      "sourceLabel": "R-155..R-157 adversarial review round 1, 2026-09-29",
+      "sourceIds": [
+        "R-157"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Owner/admin/manager only (both routes are withCsrf + withWriteAccess); the harm is a payable link on a dead invoice or a 500, not an authorization bypass.",
+      "auditedSha": "6d1f4a488",
+      "currentSha": "6d1f4a488",
+      "status": "in-progress",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/r158-payment-link-creation-guards.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-155/fix.md",
+        "docs/audits/remediation/R-155/red.r1.int.log",
+        "docs/audits/remediation/R-155/red.int.log",
+        "docs/audits/remediation/R-155/green.log",
+        "docs/audits/remediation/R-155/mutations.log"
+      ],
+      "fixCommit": "fb6f94117;c98f6a61d",
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
+      "canonicalItem": null,
+      "branch": "fix/r155-157-portal-followups-20260929",
+      "id": "R-158",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "pay-now and payment-gateway 500 on a bad id and create payment links for cancelled, deleted or fully paid invoices",
+      "claim": "POST /api/accounting/customer-invoices/[id]/pay-now and POST /api/accounting/payment-gateway cast the id to ::UUID unchecked (22P02, 500). pay-now created a link for a cancelled or soft-deleted invoice. enableOnlinePayment inserted ci.client_id only (a legacy invoice with only customer_id 500'd on the NOT NULL column), had no status, deleted_at or balance filter, and threw (500) for an unknown invoice.",
+      "processNotes": "2026-09-29: Found by the adversarial reviewer of R-155..R-157 (pre-existing) and fixed on the same branch. RED 11/16 on master code (R-155/red.r1.int.log), GREEN 20/20 (4 viewer/CSRF refusal cases added in review round 2), mutants M23-M38 RED (R-155/mutations.log)."
+    },
+    {
+      "area": "auth",
+      "affectedPaths": [
+        "src/lib/auth/withAuth.ts",
+        "src/lib/auth/bearerPipeline.ts",
+        "src/lib/auth/withExtensionToken.ts",
+        "pages/api/invitations/revoke/[id].ts"
+      ],
+      "sourceLabel": "R-155..R-158 review rounds 4-5, 2026-09-29",
+      "sourceIds": [
+        "R-157"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "The write is rolled back (no data harm); the client hangs instead of getting a 500. Only on an unexpected throw.",
+      "auditedSha": "6d1f4a488",
+      "currentSha": "6d1f4a488",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-155/fix.md",
+        "docs/audits/remediation/R-155/red.r4.int.log"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None: the transaction rolls back.",
+      "canonicalItem": null,
+      "branch": null,
+      "id": "R-159",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "A route whose auth wrapper buffers res.end hangs the client when the handler throws, unless withErrorHandler sits inside the wrapper",
+      "claim": "withAuth (and bearerPipeline, withExtensionToken) replace res.end with a buffer and replay it only when the handler returns normally; on a throw they ROLLBACK and rethrow without replaying, so any 500 written after that (by an outer withErrorHandler or by Next) never reaches the client and the request hangs until the socket times out. Known instance: pages/api/invitations/revoke/[id].ts is withAuth(withCsrf(handler)) with no withErrorHandler. payment-link POST had it and was fixed under R-157. Routes behind bearerPipeline / withExtensionToken were not censused.",
+      "processNotes": "2026-09-29: Reported by the blind reviewers of PR #567 (R-157 round 4: executed for payment-link, reasoned for invitations/revoke). Not fixed. Options: add withErrorHandler inside the wrapper on each such route, or have the wrappers replay a 500 on a throw (one fix for every route). Census first: every export wrapping withAuth / withBearerOrCookieAuth / withExtensionToken without an inner withErrorHandler."
     }
   ],
   "sourceInventory": [

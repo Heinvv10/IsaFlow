@@ -1,0 +1,34 @@
+# RED (review round 5): the one-X-Request-Id case in tests/integration/r157-payment-link-throw-responds.int.test.ts on 5fd2d80fd code (withErrorHandler on the router AND inside withAuth). 2026-09-29T06:38:53Z.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r155-157
+
+ ❯ tests/integration/r157-payment-link-throw-responds.int.test.ts (5 tests | 1 failed) 554ms
+   × payment-link POST passes through withErrorHandler once (one X-Request-Id) 11ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r157-payment-link-throw-responds.int.test.ts > payment-link POST passes through withErrorHandler once (one X-Request-Id)
+AssertionError: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ tests/integration/r157-payment-link-throw-responds.int.test.ts:139:24
+    137|   const r = await post('../../pages/api/portal/payment-link', { invoic…
+    138|   expect(r.status).toBe(500);
+    139|   expect(r.requestIds).toBe(1);
+       |                        ^
+    140| });
+    141|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  08:38:53
+   Duration  741ms (transform 256ms, setup 0ms, import 84ms, tests 554ms, environment 0ms)
+

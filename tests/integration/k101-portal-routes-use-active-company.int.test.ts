@@ -2,7 +2,8 @@
  * K-101 — the three authenticated portal actions must act in the ACTIVE company.
  *
  * POST /api/portal/invoice/generate, POST /api/portal/invoice/[token] (the
- * internal generate action) and POST /api/portal/payment-link re-derived the
+ * internal generate action; removed by R-156, which tests its 405) and
+ * POST /api/portal/payment-link re-derived the
  * company from `company_users ORDER BY is_default DESC` instead of taking
  * withAuth's active company. A user in two companies whose active company is
  * not their default got a 404 for an invoice on the screen in front of them,
@@ -19,7 +20,6 @@ import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { SignJWT } from 'jose';
 import generate from '../../pages/api/portal/invoice/generate';
-import tokenRoute from '../../pages/api/portal/invoice/[token]';
 import paymentLink from '../../pages/api/portal/payment-link';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 
@@ -55,9 +55,6 @@ const portalTokenSet = async (invoiceId: string) => Number((await pool.query(
 const ROUTES: Route[] = [
   { name: 'POST /api/portal/invoice/generate', handler: generate as Handler,
     url: '/api/portal/invoice/generate', query: {},
-    body: (_c, invoiceId) => ({ invoiceId }), written: portalTokenSet },
-  { name: 'POST /api/portal/invoice/[token] (generate action)', handler: tokenRoute as Handler,
-    url: '/api/portal/invoice/generate?action=generate', query: { token: 'generate', action: 'generate' },
     body: (_c, invoiceId) => ({ invoiceId }), written: portalTokenSet },
   { name: 'POST /api/portal/payment-link', handler: paymentLink as Handler,
     url: '/api/portal/payment-link', query: {},
@@ -174,19 +171,18 @@ describe.each(ROUTES)('K-101 $name follows the active company', (route) => {
 // customer_invoices' RLS USING clause admits every company the user belongs to
 // (only WITH CHECK is the active company), so it is the handler's company_id
 // predicate, not RLS, that keeps an existing token in the other company unread.
-it('the generate routes do not hand out the token of an invoice in the user\'s other company', async () => {
-  for (const route of ROUTES.slice(0, 2)) {
-    const id = await invoice(DEF);
-    const existing = 'b'.repeat(64);
-    await pool.query('UPDATE customer_invoices SET portal_token = NULL WHERE portal_token = $1', [existing]);
-    await pool.query('UPDATE customer_invoices SET portal_token = $2 WHERE id = $1', [id, existing]);
-    const state = await call(route, OTHER, route.body(DEF, id));
-    expect(state.statusCode).toBe(404);
-    expect(JSON.stringify(state.body)).not.toContain(existing);
-  }
+it('generate does not hand out the token of an invoice in the user\'s other company', async () => {
+  const route = ROUTES[0]!;
+  const id = await invoice(DEF);
+  const existing = 'b'.repeat(64);
+  await pool.query('UPDATE customer_invoices SET portal_token = NULL WHERE portal_token = $1', [existing]);
+  await pool.query('UPDATE customer_invoices SET portal_token = $2 WHERE id = $1', [id, existing]);
+  const state = await call(route, OTHER, route.body(DEF, id));
+  expect(state.statusCode).toBe(404);
+  expect(JSON.stringify(state.body)).not.toContain(existing);
 });
 
-const paymentLinkRoute = ROUTES[2]!;
+const paymentLinkRoute = ROUTES[1]!;
 const linkCount = paymentLinkRoute.written;
 
 it('payment-link refuses a customer of the same company who is not the invoice\'s customer', async () => {
@@ -278,11 +274,10 @@ it('payment-link takes client_id over customer_id when they differ (COALESCE(cli
   expect(await linkCount(id)).toBe(1);
 });
 
-it('the generate routes return the token they stored', async () => {
-  for (const route of ROUTES.slice(0, 2)) {
-    const id = await invoice(OTHER);
-    const state = await call(route, OTHER, route.body(OTHER, id));
-    const stored = (await pool.query('SELECT portal_token FROM customer_invoices WHERE id = $1', [id])).rows[0];
-    expect((state.body as { data: { token: string } }).data.token).toBe(stored.portal_token);
-  }
+it('generate returns the token it stored', async () => {
+  const route = ROUTES[0]!;
+  const id = await invoice(OTHER);
+  const state = await call(route, OTHER, route.body(OTHER, id));
+  const stored = (await pool.query('SELECT portal_token FROM customer_invoices WHERE id = $1', [id])).rows[0];
+  expect((state.body as { data: { token: string } }).data.token).toBe(stored.portal_token);
 });

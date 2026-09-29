@@ -10,19 +10,23 @@ import { log } from '@/lib/logger';
 /**
  * Enable online payment for an invoice and generate a payment URL.
  * Creates a portal payment link token for public access.
+ * Null (nothing written) when the invoice is not this company's, is cancelled or
+ * soft-deleted, or has no balance due.
  */
-export async function enableOnlinePayment(companyId: string, invoiceId: string): Promise<string> {
+export async function enableOnlinePayment(companyId: string, invoiceId: string): Promise<string | null> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3101';
 
   const linkRows = (await sql`
     INSERT INTO portal_payment_links (invoice_id, client_id, amount)
-    SELECT ci.id, ci.client_id, ci.total_amount - COALESCE(ci.amount_paid, 0)
+    SELECT ci.id, COALESCE(ci.client_id, ci.customer_id), ci.total_amount - COALESCE(ci.amount_paid, 0)
     FROM customer_invoices ci
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
+      AND ci.status != 'cancelled' AND ci.deleted_at IS NULL
+      AND ci.total_amount - COALESCE(ci.amount_paid, 0) > 0
     RETURNING token
   `) as Record<string, unknown>[];
 
-  if (!linkRows[0]) throw new Error('Invoice not found or no balance due');
+  if (!linkRows[0]) return null;
 
   const token = linkRows[0].token as string;
   const paymentUrl = `${appUrl}/portal/pay/${token}`;

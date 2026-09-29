@@ -10,7 +10,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withAuth, withCsrf, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { createPaymentLink, getPaymentLink } from '@/modules/accounting/services/ar/portalService';
 import { assertCustomerInCompany, CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { sql } from '@/lib/neon';
@@ -100,12 +100,19 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { token, url: `/portal/pay/${token}` });
 }
 
-const authedPost = withAuth(postHandler);
+// R-157: a link is a public credential to pay this invoice, so creating one is a write:
+// CSRF-checked, and owner/admin/manager only, refused before the first write (withAuth COMMITs a 4xx).
+// withErrorHandler sits INSIDE withAuth, as on every withAuth route: withAuth defers res.end until
+// COMMIT/ROLLBACK and replays it only on a normal return, so a 500 from a withErrorHandler outside
+// it never reached the client. Each method is wrapped once, so a request is logged once.
+const authedPost = withAuth(withErrorHandler(withCsrf(withWriteAccess(postHandler))));
+const publicGet = withErrorHandler(getHandler);
+/** Every other method: 405, except OPTIONS, which withErrorHandler answers (CORS preflight). */
+const otherMethods = withErrorHandler(async (req: NextApiRequest, res: NextApiResponse) =>
+  apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']));
 
-async function router(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method === 'GET') return getHandler(req, res);
+export default async function router(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method === 'GET') return publicGet(req, res);
   if (req.method === 'POST') return authedPost(req, res);
-  return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
+  return otherMethods(req, res);
 }
-
-export default withErrorHandler(router);

@@ -1,0 +1,34 @@
+# GREEN on fe1e74eb3 (review round 5), fixture clone at 716 (2026-09-29T06:40:34Z). 64-hex tokens redacted.
+## r155-157-portal-mint-guards
+ Test Files  1 passed (1)
+      Tests  30 passed (30)
+## r158-payment-link-creation-guards
+ Test Files  1 passed (1)
+      Tests  20 passed (20)
+## r157-payment-link-throw-responds
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+## k101-portal-routes-use-active-company
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+## k122-dunning-portal-link-404
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+## k122b-portal-token-race
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## r095-portal-round4
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+## r095-portal-session-scoping
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+## r095-portal-statement-matches-inapp
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+## customer-ownership-fence-routes (isaflow_test clone of the same fixture)
+ Test Files  1 passed (1)
+      Tests  32 passed (32)
+## unit: portalTokenService + dunningService (env -u DATABASE_URL)
+ Test Files  2 passed (2)
+      Tests  30 passed (30)
