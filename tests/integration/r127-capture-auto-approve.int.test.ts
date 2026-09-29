@@ -62,6 +62,23 @@ async function seedExtractedDoc(total: number): Promise<string> {
   return id;
 }
 
+/**
+ * Files this month's VAT period, so the bank date and the slip date are both
+ * filed and the settlement is refused. Returns the unlock. capture/[id]/post
+ * used to fail its settlement for want of line items (R-131); it writes them now.
+ */
+async function fileThisMonth(): Promise<() => Promise<void>> {
+  const monthStart = `${today.slice(0, 8)}01`;
+  const monthEnd = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0)).toISOString().slice(0, 10);
+  const lock = (await pool.query(
+    `INSERT INTO vat_period_locks(company_id,period_start,period_end,output_tax,input_tax,net_vat,posted_through,locked_by,actor_type)
+     VALUES($1,$2,$3,0,0,0,NOW(),$4,'human') RETURNING id`, [company, monthStart, monthEnd, user])).rows[0].id as string;
+  return async () => {
+    await pool.query('UPDATE vat_period_locks SET unlocked_at=NOW(), unlocked_by=$2, unlock_reason=$3 WHERE id=$1',
+      [lock, user, 'R127 test cleanup']);
+  };
+}
+
 async function invoiceForDoc(documentId: string): Promise<string> {
   const { rows } = await pool.query(
     'SELECT id FROM supplier_invoices WHERE company_id=$1 AND source_document_id=$2', [company, documentId],
@@ -187,11 +204,16 @@ describe('R-127: auto-approved captured invoices settle against the provisional 
     (req as unknown as { query: Record<string, string> }).query = { id: eventId };
     req.body = {};
     const res = response();
-    await capturePostRoute(req as never, res.res as never);
+    const unlock = await fileThisMonth();
+    try {
+      await capturePostRoute(req as never, res.res as never);
+    } finally {
+      await unlock();
+    }
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     const invoiceId = await invoiceForDoc(doc);
-    // capture/[id]/post writes no line items, so the settlement fails and the
-    // auto-approval is withdrawn — and the response must not still say 'approved'.
+    // Both dates are filed, so the settlement is refused and the auto-approval
+    // is withdrawn — and the response must not still say 'approved'.
     expect((await invoiceState(invoiceId)).status).toBe('draft');
     expect((res.state.body as { data: { invoice: { status: string } } }).data.invoice.status).toBe('draft');
     // The auto-approval was withdrawn: the route it reports is the one needing a human.
@@ -234,6 +256,7 @@ describe('R-127: auto-approved captured invoices settle against the provisional 
                       WHEN (OLD.status = 'approved' AND NEW.status = 'draft' AND NEW.company_id = '${company}'::uuid)
                       EXECUTE FUNCTION r127_fail_revert()`);
     const res = response();
+    const unlock = await fileThisMonth();
     try {
       const req = request({ 'sb-access-token': token, active_company_id: company }, 'POST');
       req.url = `/api/accounting/capture/${eventId}/post`;
@@ -241,6 +264,7 @@ describe('R-127: auto-approved captured invoices settle against the provisional 
       req.body = {};
       await capturePostRoute(req as never, res.res as never);
     } finally {
+      await unlock();
       await pool.query('DROP TRIGGER IF EXISTS r127_fail_revert ON supplier_invoices');
       await pool.query('DROP FUNCTION IF EXISTS r127_fail_revert()');
     }

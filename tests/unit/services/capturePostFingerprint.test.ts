@@ -94,6 +94,11 @@ vi.mock('@/modules/accounting/services/capture/evidenceAttachmentService', () =>
 vi.mock('@/modules/accounting/services/capture/alertResolutionService', () => ({
   resolvePendingAlertForInvoice: vi.fn(async () => undefined),
 }));
+// R-131's lines are proven against real PG (r131-capture-post-lines.int.test.ts); not this file's subject.
+vi.mock('@/modules/accounting/services/capture/captureBillLines', () => ({
+  planCaptureBillLines: vi.fn(async () => ({ lines: [] })),
+  insertCaptureBillLines: vi.fn(async () => undefined),
+}));
 
 // The helper stays REAL: it is the canonical form the assertion compares against.
 import { computeFingerprint } from '@/modules/accounting/services/capture/captureDeduplicationService';
