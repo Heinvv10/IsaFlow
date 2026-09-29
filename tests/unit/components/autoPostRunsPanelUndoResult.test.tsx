@@ -75,7 +75,10 @@ it('clears the partial notice when a retry completes the run', async () => {
   await screen.findByRole('status');
 
   fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
-  await vi.waitFor(() => expect(onUndone).toHaveBeenCalledTimes(2));
+  // R-154: the button reads "Undoing…" until the undo's last render commits;
+  // the onUndone spy fires before that commit, so it cannot be the wait.
+  await screen.findByRole('button', { name: 'Undo' });
+  expect(onUndone).toHaveBeenCalledTimes(2);
   expect(screen.queryByRole('status')).toBeNull();
 });
 
@@ -84,7 +87,8 @@ it('shows nothing extra when the whole run was undone', async () => {
   const onUndone = vi.fn();
   await clickUndo(onUndone);
 
-  await vi.waitFor(() => expect(onUndone).toHaveBeenCalled());
+  await screen.findByRole('button', { name: 'Undo' });
+  expect(onUndone).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole('status')).toBeNull();
 });
 
