@@ -30,6 +30,9 @@ async function post(response: Response) {
     .mockResolvedValueOnce(response);
   render(<Page />);
   fireEvent.click(await screen.findByText('Post to GL'));
+  // The accounts are their own fetch; without the option the change leaves the
+  // select at '' and 'Post' stays disabled (R-138).
+  await screen.findAllByRole('option', { name: '2300 — Reimbursements' });
   fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: 'a1' } });
   fireEvent.click(screen.getByRole('button', { name: 'Post' }));
 }
