@@ -25,6 +25,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { isUuidParam } from '@/lib/validation';
 import { initializeTransaction } from '@/modules/billing/services/paystackClient';
 
 interface InvoiceRow {
@@ -48,8 +49,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId, user } = req as CompanyAuthedRequest;
-  const invoiceId = String(req.query.id ?? '');
+  const invoiceId = req.query.id;
   if (!invoiceId) return apiResponse.badRequest(res, 'invoice id required');
+  // R-158: type-checked, so neither 'x' nor ['<uuid>'] reaches the ::UUID cast.
+  if (!isUuidParam(invoiceId)) return apiResponse.badRequest(res, 'invoice id must be a UUID');
 
   const invRows = await sql<InvoiceRow>`
     SELECT ci.id, ci.company_id, ci.invoice_number,
@@ -61,6 +64,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       FROM customer_invoices ci
       LEFT JOIN clients c ON c.id = COALESCE(ci.client_id, ci.customer_id)
      WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
+       AND ci.status != 'cancelled' AND ci.deleted_at IS NULL
      LIMIT 1
   `;
   const invoice = invRows[0];
