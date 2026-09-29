@@ -13867,6 +13867,120 @@
       "title": "autoPostRunsPanelHandOffset test asserts the DOM before React commits (flaky when starved)",
       "claim": "'records that decision…' waits (vi.waitFor) on the onUndone spy, but AutoPostRunsPanel.decided() calls onUndone right after setState, before React commits, so the following DOM assertion (:99, expected <span>… to be null) can run against the previous render.",
       "processNotes": "2026-09-28: Failed 3/20 under the R-150 pinning recipe (4 master copies + heavy component files, taskset 1 core, 12 workers). The same intermediate-render class as R-150: wait on the rendered outcome (findBy/waitFor on the DOM), not on the spy. Not fixed. tests/unit/components/autoPostRunsPanelUndoResult.test.tsx may share the pattern; check it too."
+    },
+    {
+      "area": "accounting/ar portal",
+      "affectedPaths": [
+        "pages/api/portal/invoice/generate.ts",
+        "src/modules/accounting/services/ar/portalTokenService.ts"
+      ],
+      "sourceLabel": "K-101 review follow-ups (K-101/fix.md), 2026-09-28",
+      "sourceIds": [
+        "K-101"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Needs two mints of one invoice within milliseconds; the loss is a dead customer link, not a data leak.",
+      "auditedSha": "6d1f4a488",
+      "currentSha": "6d1f4a488",
+      "status": "in-progress",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/r155-157-portal-mint-guards.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-155/fix.md",
+        "docs/audits/remediation/R-155/red.int.log",
+        "docs/audits/remediation/R-155/green.log",
+        "docs/audits/remediation/R-155/mutations.log"
+      ],
+      "fixCommit": "f2cbe5250",
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
+      "canonicalItem": null,
+      "branch": "fix/r155-157-portal-followups-20260929",
+      "id": "R-155",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "Portal generate route mints the invoice token read-then-write, so a concurrent mint is overwritten",
+      "claim": "POST /api/portal/invoice/generate SELECTs portal_token and then runs a plain UPDATE SET portal_token = $new. A second mint (dunning cron, manual send, another click) committing in between is overwritten, so the link it already handed out goes dead. getOrMintInvoicePortalToken (K-122b) already mints with COALESCE ... RETURNING; the route did not use it.",
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28, mutants 22/22 RED; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. The route now uses findOrMintInvoicePortalToken (null -> 404; getOrMint wraps it and still throws for dunning); proven by a real interleave through the route with the hook asserted fired."
+    },
+    {
+      "area": "accounting/ar portal",
+      "affectedPaths": [
+        "pages/api/portal/invoice/[token].ts"
+      ],
+      "sourceLabel": "K-101 review follow-ups (K-101/fix.md), 2026-09-28",
+      "sourceIds": [
+        "K-101"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Duplicate code path carrying R-155's race; no UI caller.",
+      "auditedSha": "6d1f4a488",
+      "currentSha": "6d1f4a488",
+      "status": "in-progress",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/r155-157-portal-mint-guards.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-155/fix.md",
+        "docs/audits/remediation/R-155/red.int.log",
+        "docs/audits/remediation/R-155/green.log",
+        "docs/audits/remediation/R-155/mutations.log"
+      ],
+      "fixCommit": "f2cbe5250",
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
+      "canonicalItem": null,
+      "branch": "fix/r155-157-portal-followups-20260929",
+      "id": "R-156",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "POST /api/portal/invoice/[token] duplicates the generate route and ignores ?action=",
+      "claim": "The public token route also accepted an authenticated POST that minted a token (its own read-then-write copy of generate.ts), whatever ?action= said. A second mint path to keep in step.",
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28, mutants 22/22 RED; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided: delete the POST arm (now 405); the public GET is untouched. Prod journalctl and nginx logs (retained since 2026-09-25 and 2026-09-16) show no /api/portal/ traffic at all."
+    },
+    {
+      "area": "accounting/ar portal",
+      "affectedPaths": [
+        "pages/api/portal/invoice/generate.ts",
+        "pages/api/portal/payment-link.ts",
+        "pages/api/accounting/ar/invoice/[id]/portal-link.ts"
+      ],
+      "sourceLabel": "K-101 review follow-ups (K-101/fix.md), 2026-09-28",
+      "sourceIds": [
+        "K-101"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Privilege: a read-only member creates a public credential exposing an invoice outside the company; CSRF lets a third-party page trigger the mint.",
+      "auditedSha": "6d1f4a488",
+      "currentSha": "6d1f4a488",
+      "status": "in-progress",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/r155-157-portal-mint-guards.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-155/fix.md",
+        "docs/audits/remediation/R-155/red.int.log",
+        "docs/audits/remediation/R-155/green.log",
+        "docs/audits/remediation/R-155/mutations.log"
+      ],
+      "fixCommit": "f2cbe5250",
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "No stored data changes. Prod census SQL (read-only, not run) is in R-155/fix.md.",
+      "canonicalItem": null,
+      "branch": "fix/r155-157-portal-followups-20260929",
+      "id": "R-157",
+      "severity": "medium",
+      "reportedSeverity": "medium",
+      "title": "A viewer can mint a permanent public invoice token or payment link; the mint routes take no CSRF token",
+      "claim": "generate.ts and payment-link.ts POST had neither withCsrf nor withWriteAccess, so a company viewer could create a permanent unauthenticated credential for an invoice (or a payment link) and the requests needed no CSRF token. GET /api/accounting/ar/invoice/[id]/portal-link also minted, and withWriteAccess/withCsrf pass every GET.",
+      "processNotes": "2026-09-29: Fixed on fix/r155-157-portal-followups-20260929 (one PR for R-155..R-157). RED 14/28 on origin/master 6d1f4a488, GREEN 28/28, mutants 22/22 RED; adjacent K-101, k122, k122b, r095 and fence suites green. Awaiting blind review, CI, PR and browser proof. Hein decided DEFAULT_WRITE_ROLES; all three mint routes are withCsrf(withWriteAccess(...)); scope extended (Hein, 2026-09-29) to portal-link GET, which now only reads (404 when no token). Refusals come before any write (withAuth COMMITs a 4xx)."
     }
   ],
   "sourceInventory": [
