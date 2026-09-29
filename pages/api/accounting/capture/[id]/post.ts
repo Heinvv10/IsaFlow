@@ -244,7 +244,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   ` as Row[];
 
   if (!invoice) return apiResponse.internalError(res, null, 'Failed to create invoice');
-  await insertCaptureBillLines(invoice.id as string, linePlan.lines); // before the request: it binds to their digest
+  await insertCaptureBillLines(invoice.id as string, linePlan.lines); // before: requestApproval's digest (mig 708) hashes them
   const approvalRequest = approval.gated
     ? await raiseUnattendedApproval(companyId, 'supplier_invoice', invoice.id as string, userId) : null;
 

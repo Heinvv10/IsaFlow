@@ -250,7 +250,8 @@ describe('capture and the AI pipeline (B1, B2)', () => {
   });
 
   // R-131: the route writes the bill's lines BEFORE it raises the request, whose
-  // digest binds them — so once decided, the bill approves and posts its journal.
+  // stored digest (approval_document_digest, migration 708) hashes them — so once
+  // decided, the bill approves and posts.
   it('capture/[id]/post: the request it raises, once approved, lets the bill approve and post', async () => {
     const { c } = await fixture();
     const { doc } = await extractedDoc(c);

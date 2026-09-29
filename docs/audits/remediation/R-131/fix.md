@@ -41,7 +41,7 @@ The bill is owing in the AP subledger with no journal. "Post to GL" cannot book 
   - The shared pieces are reused instead: `assertSupplierInvoiceLines`, `computeSupplierInvoiceTotals`, `defaultVatClassification`, `billLineAccountRefusal`. Posting goes through the one journal path, `postSupplierInvoiceToGL` → `buildExpenseLines`, so lines, VAT and journal follow the same path as every other bill.
 - **`pages/api/accounting/capture/[id]/post.ts`**
   - It plans the lines before the claim (answering 400 on a refusal).
-  - It inserts them before `raiseUnattendedApproval`, because the approval request's digest (migration 708) binds the lines.
+  - It inserts them before `raiseUnattendedApproval`. `gl/approvalDocuments.requestApproval` (via `raiseUnattendedApproval`) stores `approval_requests.document_digest` = SQL `approval_document_digest()` (migration 708), which hashes the bill's `supplier_invoice_items` rows; `gl/approvalDecideDocument.assertDocumentUnchanged` answers 409 DOCUMENT_CHANGED on decide when the stored digest differs from the live one, and `gl/approvalGate.gateOutcome` (behind `assertApprovalCleared`) clears approval only for an approved request whose digest equals the current one. Whether a bill is gated at all (`gl/approvalUnattended.unattendedBillStatus`) depends on its amount only.
 - **`captureRowLock.lockCaptureEventForPosting`** also returns `resolvedGlAccountId`.
 - **`provisionalAttachSettle.attachEvidenceAndSettleApproved`**
   - New `postUnattached` input. Only `capturePostFollowUps` passes it.
@@ -67,7 +67,7 @@ Test changes needed by the fix:
 - `capturePostFingerprint` (unit, fully mocked): mocks the new `captureBillLines` module.
 
 ## Tests (real PG, through the route, app_user with withAuth GUCs)
-`tests/integration/r131-capture-post-lines.int.test.ts`. On master 7 of 8 fail; the tenant case passes on master.
+`tests/integration/r131-capture-post-lines.int.test.ts`. On master 7 of the 8 route tests fail; the tenant case passes on master. The ninth calls `planCaptureBillLines` directly (review L1).
 
 | Test | Proves |
 |---|---|
@@ -77,6 +77,7 @@ Test changes needed by the fix:
 | no extracted lines: the capture event's own account comes before the rule's | event account first |
 | no extracted lines and no account anywhere: 4xx, and nothing is inserted or claimed | 400 in a tenant with no `default_expense`; no bill, document unclaimed, event unchanged |
 | an auto-approved bill whose journal cannot post goes back to draft, off AP, and says so | filed VAT period → draft, no journal, note, response `draft` |
+| an extracted line's own account is kept; the rule's account codes only the uncoded lines | `planCaptureBillLines` directly: a per-line account is not overwritten (review L1) |
 | no total: 4xx, and nothing is inserted or claimed | 400; nothing written |
 | another company's capture is refused, and nothing is inserted | 404; nothing written |
 
@@ -90,7 +91,7 @@ Each mutation was applied to a backup copy, the named test was run, and the file
 | M1 | `insertCaptureBillLines` call (route) | extracted line items become… | `expected [] to deeply equal [ …(2) ]` |
 | M2 | total ≤ 0 refusal | no total: 4xx… | `expected 200 to be 400` |
 | M4 | `postUnattached` (post only when a provisional is attached) | extracted line items become… | `the approved bill carries a journal: expected null not to be null` |
-| M5 | lines inserted AFTER `raiseUnattendedApproval` | r035-pr2 › the request it raises, once approved… | `expected 409 to be 200` (stale digest) |
+| M5 | lines inserted AFTER `raiseUnattendedApproval` | r035-pr2 › the request it raises, once approved… | `expected 409 to be 200` (`assertDocumentUnchanged`: the stored digest hashed no lines, the live one hashes two) |
 | M8 | one-line fallback left uncoded | …supplier coding rule's default account… | `toMatchObject` on `gl_account_id` |
 | M9 | withdraw-to-draft result dropped | …journal cannot post goes back to draft… | `expected 'approved' to be 'draft'` |
 | M10 | rule before event account | …event's own account comes before the rule's | `toMatchObject` on `gl_account_id` |
@@ -98,6 +99,7 @@ Each mutation was applied to a backup copy, the named test was run, and the file
 | M12 | no-account refusal removed | …no account anywhere: 4xx… | `expected 200 to be 400` |
 | M13 | `MissingSystemAccountError` → null removed | …no account anywhere: 4xx… | `expected 500 to be 400` |
 | M14 | lock returns no `resolvedGlAccountId` | …event's own account comes before the rule's | `toMatchObject` on `gl_account_id` |
+| M15 | a line's own account overwritten (`glAccountId: accountId`) | an extracted line's own account is kept… | `toEqual` on `[description, glAccountId]` pairs |
 | M7 | both `company_id` filters in `lockCaptureEventForPosting` | another company's capture… | **stays green**: app_user's RLS `tenant_isolation` on `capture_events` / `captured_documents` still hides the row, so a third, independent layer refuses it (defence in depth, not a gap) |
 
 ## Browser proof (dev, Brightsphere, reporting-qa@isaflow.dev)
