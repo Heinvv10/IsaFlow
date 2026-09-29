@@ -165,6 +165,32 @@ reviewer returned SHIP with three LOWs.
   `online_payment_enabled` is written. These guards were already on master, so the cases pass
   there. Mutants M35–M38 remove each guard, and each one fails its case.
 
+## Browser proof (dev, 2026-09-29)
+
+The check ran on a local `next dev` built from this branch (`6095cb320`), against `isaflow_dev`. The
+QA user `reporting-qa@isaflow.dev` was signed in with a GoTrue `generate_link` + `email_otp`
+session. Both runs clicked "Copy Portal Link" on an ISAFlow Demo invoice. Playwright recorded the
+`/api/portal/invoice/generate` exchange.
+
+- **As owner (INV0003562):** POST answered 200. `X-CSRF-Token` was sent. The page shows the minted
+  link in "Portal link", and the token is stored on the invoice.
+- **As viewer (INV0002619):** the QA user's Demo membership was set to `viewer` for this run only
+  and restored to `owner` straight after. POST answered 403, "Your role (viewer) does not allow
+  this action.". `X-CSRF-Token` was sent, so the refusal came from `withWriteAccess`. The page
+  shows "Failed to generate portal link", and no token was stored.
+
+The screenshots are not committed because the owner one shows a live dev token. Dev residue:
+INV0003562 now carries a portal token.
+
+## Review round 3 and `/review`
+
+Both blind reviewers returned SHIP on `6095cb320`. `/review` (a fresh reviewer) returned APPROVED
+with two LOWs:
+
+- `payment-link.ts` composes `withAuth(withCsrf(withWriteAccess(...)))` with `withErrorHandler`
+  outside `withAuth`, unlike `generate.ts`. This was not a bug, but a comment now says why;
+- the viewer-reads-token point, which is already listed under Follow-ups.
+
 ## Census SQL for prod (read-only; not run by this session)
 
 ```sql
