@@ -23,6 +23,8 @@ import { assertDisposable, request, response } from './mfa-impersonation-postgre
 /** Runs once, just before the next portal_token mint UPDATE (after the route's own read). */
 let beforeNextTokenWrite: (() => Promise<void>) | null = null;
 let mintWrites = 0;
+/** When set, every mint UPDATE waits until two have arrived: both requests past their read, neither written. */
+let mintGate: { arrived: number; open: () => void; opened: Promise<void> } | null = null;
 
 vi.mock('@/lib/neon', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/neon')>();
@@ -30,6 +32,12 @@ vi.mock('@/lib/neon', async (importOriginal) => {
     const text = strings.join(' ');
     if (/UPDATE\s+customer_invoices/.test(text) && /SET\s+portal_token/.test(text)) {
       mintWrites += 1;
+      if (mintGate) {
+        const gate = mintGate;
+        gate.arrived += 1;
+        if (gate.arrived === 2) gate.open();
+        return gate.opened.then(() => original.sql(strings, ...values));
+      }
       if (beforeNextTokenWrite) {
         const hook = beforeNextTokenWrite;
         beforeNextTokenWrite = null;
@@ -154,6 +162,22 @@ describe('R-155 generate keeps a token a concurrent writer already stored', () =
     expect(state.body?.data?.portalUrl ?? state.body?.data?.url).toMatch(new RegExp(`/portal/invoice/${rival}$`));
     const { rows } = await pool.query('SELECT portal_token FROM customer_invoices WHERE id = $1', [id]);
     expect(rows[0].portal_token).toBe(rival);
+  });
+
+  it.each([GENERATE, PORTAL_LINK])('$name: two mints in flight at once both return the one stored token', async (r) => {
+    const id = await invoice();
+    let open = () => {};
+    const opened = new Promise<void>((resolve) => { open = resolve; });
+    mintGate = { arrived: 0, open, opened };
+    const [a, b] = await Promise.all([mint(r, id), mint(r, id)]);
+    const arrived = mintGate.arrived;
+    mintGate = null;
+    // Both requests read NULL and reached the mint before either wrote.
+    expect(arrived).toBe(2);
+    expect([a.statusCode, b.statusCode]).toEqual([200, 200]);
+    const { rows } = await pool.query('SELECT portal_token FROM customer_invoices WHERE id = $1', [id]);
+    expect(a.body?.data?.token).toBe(rows[0].portal_token);
+    expect(b.body?.data?.token).toBe(rows[0].portal_token);
   });
 
   it.each([GENERATE, PORTAL_LINK])('$name refuses a soft-deleted invoice (404), minting nothing', async (r) => {
