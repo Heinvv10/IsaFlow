@@ -78,8 +78,13 @@ export async function planCaptureBillLines(
     // The rounding rules every bill's lines follow. The header totals stay the
     // document's own: posting books those, and buildExpenseLines allocates them
     // over these lines.
+    // Field by field, and a line's own account wins: the event's or the rule's
+    // account only codes a line the extraction left uncoded.
     lines = computeSupplierInvoiceTotals(invoice.items, invoice.taxRate, false).items
-      .map((i) => ({ ...i, glAccountId: accountId }));
+      .map((i) => ({
+        description: i.description, quantity: i.quantity, unitPrice: i.unitPrice, taxRate: i.taxRate,
+        taxAmount: i.taxAmount, lineTotal: i.lineTotal, glAccountId: i.glAccountId ?? accountId,
+      }));
   } else {
     const lineAccountId = accountId ?? await companyDefaultExpense(companyId);
     if (!lineAccountId) {
