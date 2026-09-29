@@ -1,11 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { sqlMock } = vi.hoisted(() => {
+const { sqlMock, fenceMock } = vi.hoisted(() => {
   const sqlMock = vi.fn();
-  return { sqlMock };
+  const fenceMock = vi.fn();
+  return { sqlMock, fenceMock };
 });
 
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+// The R-073 tenant fence runs its own savepointed read; it is exercised against
+// real PG in tests/integration/practice-client-ownership-fence.int.test.ts.
+vi.mock('@/modules/accounting/services/practice/practiceClientFence', () => ({
+  assertPracticeClientInCompany: fenceMock,
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
@@ -159,6 +165,13 @@ describe('createClientContact', () => {
     sqlMock.mockResolvedValueOnce([{ id: CONTACT_ID, company_id: COMPANY, client_id: CLIENT_ID, name: 'Jane', email: 'jane@example.com', phone: null, role: null, is_primary: false, created_at: new Date() }]);
     const result = await createClientContact(COMPANY, CLIENT_ID, { name: 'Jane', email: 'jane@example.com' });
     expect(result.id).toBe(CONTACT_ID);
+    expect(fenceMock).toHaveBeenCalledWith(COMPANY, CLIENT_ID);
+  });
+
+  it('writes nothing when the fence refuses the client', async () => {
+    fenceMock.mockRejectedValueOnce(new Error('not this company'));
+    await expect(createClientContact(COMPANY, CLIENT_ID, { name: 'Jane' })).rejects.toThrow('not this company');
+    expect(sqlMock).not.toHaveBeenCalled();
   });
 });
 
