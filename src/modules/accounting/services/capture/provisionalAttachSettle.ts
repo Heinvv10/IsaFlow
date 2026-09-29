@@ -19,6 +19,11 @@
  * in the response. Left 'approved' with no journal it read as owing in the AP
  * ageing a bill the provisional has already paid, and paying it would pay twice;
  * a draft is outside the AP population until a person approves it.
+ *
+ * `postUnattached` (capture/[id]/post, R-131): an auto-approved invoice that
+ * evidences NO provisional is posted the same way — without it that bill sat
+ * 'approved' with no journal, owing in the AP subledger and absent from the GL —
+ * and is withdrawn to draft the same way when its journal cannot post.
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -35,6 +40,8 @@ export interface AttachAndSettleInput {
   supplierId: string;
   totalAmount: number;
   invoiceDate: string;
+  /** Also post an auto-approved invoice that evidences no provisional (R-131). */
+  postUnattached?: boolean;
 }
 
 export async function attachEvidenceAndSettleApproved(
@@ -44,13 +51,16 @@ export async function attachEvidenceAndSettleApproved(
   const attached = await attachEvidenceToProvisional(
     companyId, documentId, input.supplierId, input.totalAmount, input.invoiceDate,
   );
-  if (!attached.attachedJeId || input.invoiceStatus !== 'approved') return attached;
+  if (input.invoiceStatus !== 'approved' || (!attached.attachedJeId && !input.postUnattached)) return attached;
 
   try {
     await withSavepoint('provisional_settle', () => postSupplierInvoiceToGL(companyId, invoiceId, input.userId));
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    log.warn('Auto-approved invoice could not be settled against its provisional — returned to draft', {
+    const why = attached.attachedJeId
+      ? `this bill's slip is already booked by a bank-first provisional journal, and settling the bill against it failed (${reason})`
+      : `its journal could not be posted (${reason})`;
+    log.warn('Auto-approved invoice could not be posted or settled — returned to draft', {
       companyId, invoiceId, provisionalJeId: attached.attachedJeId, error: reason,
     }, 'evidence-attachment');
     // Outside the savepoint, on the request transaction: no journal was left, so
@@ -58,7 +68,7 @@ export async function attachEvidenceAndSettleApproved(
     await sql`
       UPDATE supplier_invoices
       SET status = 'draft', approved_by = NULL, approved_at = NULL,
-          notes = concat_ws(E'\n', notes, ${`Auto-approval withdrawn: this bill's slip is already booked by a bank-first provisional journal, and settling the bill against it failed (${reason}). Review it and approve it by hand.`}::TEXT)
+          notes = concat_ws(E'\n', notes, ${`Auto-approval withdrawn: ${why}. Review it and approve it by hand.`}::TEXT)
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
         AND status = 'approved' AND gl_journal_entry_id IS NULL
     `;
