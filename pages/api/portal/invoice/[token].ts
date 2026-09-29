@@ -1,17 +1,16 @@
 /**
  * Portal Invoice API — Public, token-based (no auth required)
- * GET  /api/portal/invoice/[token] — fetch invoice for public view
- * POST /api/portal/invoice/[token]?action=generate — generate token (internal, needs auth)
+ * GET /api/portal/invoice/[token] — fetch invoice for public view
+ *
+ * R-156: the authenticated POST that minted a token here is gone. It duplicated
+ * POST /api/portal/invoice/generate, which is the one mint route.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
-import { isUuidParam } from '@/lib/validation';
 import { log } from '@/lib/logger';
-import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
-import crypto from 'crypto';
 import { hashSessionToken } from '@/modules/accounting/services/ar/portalTokenService';
 import { logCustomerInvoiceView } from '@/modules/accounting/services/ar/readReceiptService';
 
@@ -164,58 +163,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, data);
 }
 
-async function handleGenerateToken(req: CompanyAuthedRequest, res: NextApiResponse) {
-  const { invoiceId } = req.body as { invoiceId?: string };
-  if (!invoiceId) {
-    return apiResponse.badRequest(res, 'invoiceId is required');
-  }
-  if (!isUuidParam(invoiceId)) {
-    return apiResponse.badRequest(res, 'invoiceId must be a UUID');
-  }
-
-  // K-101: the active company withAuth verified, not the user's default one.
-  const companyId = req.companyId;
-
-  // Verify invoice belongs to this company
-  const existing = (await sql`
-    SELECT id, portal_token FROM customer_invoices
-    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
-      AND status != 'cancelled'
-    LIMIT 1
-  `) as Row[];
-
-  if (!existing[0]) {
-    return apiResponse.notFound(res, 'Invoice');
-  }
-
-  // Return existing token or generate new one
-  let token = existing[0].portal_token ? String(existing[0].portal_token) : null;
-  if (!token) {
-    token = crypto.randomBytes(32).toString('hex');
-    await sql`
-      UPDATE customer_invoices
-      SET portal_token = ${token}
-      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
-    `;
-    log.info('Portal token generated', { invoiceId }, 'Portal');
-  }
-
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3101';
-  const portalUrl = `${appUrl}/portal/invoice/${token}`;
-
-  return apiResponse.success(res, { token, portalUrl });
-}
-
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     return handleGet(req, res);
   }
-  if (req.method === 'POST') {
-    return withAuth(
-      (authReq, authRes) => handleGenerateToken(authReq as CompanyAuthedRequest, authRes)
-    )(req, res);
-  }
-  return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
+  return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 }
 
 export default withErrorHandler(handler);

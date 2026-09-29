@@ -13,6 +13,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { isUuidParam } from '@/lib/validation';
 import { enableOnlinePayment } from '@/modules/accounting/services/core/paymentGatewayPortalService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -24,11 +25,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { invoiceId, action } = req.body ?? {};
 
   if (!invoiceId) return apiResponse.badRequest(res, 'invoiceId is required');
+  if (!isUuidParam(invoiceId)) return apiResponse.badRequest(res, 'invoiceId must be a UUID');
   if (action !== 'enable') {
     return apiResponse.badRequest(res, 'Only action=enable is supported on this endpoint');
   }
 
   const paymentUrl = await enableOnlinePayment(companyId, invoiceId);
+  if (!paymentUrl) return apiResponse.notFound(res, 'Open invoice with a balance due');
   return apiResponse.success(res, { paymentUrl });
 }
 

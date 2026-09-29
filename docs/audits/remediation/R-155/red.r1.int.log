@@ -1,0 +1,234 @@
+# RED (review round 1): the R-158 suite and the new two-mint race case for generate, on origin/master code (6d1f4a488) for pay-now.ts, payment-gateway.ts, paymentGatewayPortalService.ts, generate.ts and portalTokenService.ts; tests from fb6f94117. The portal-link two-mint case is excluded: portal-link already used the COALESCE mint on master (it passes there), and HEAD's portal-link cannot load against master's service. 2026-09-29T06:05:22Z. 64-hex tokens redacted.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r155-157
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts (30 tests | 1 failed | 29 skipped) 354ms
+     × 'POST /api/portal/invoice/generate': two mints in flight at once both return the one stored token 238ms
+ ❯ tests/integration/r158-payment-link-creation-guards.int.test.ts (16 tests | 11 failed) 247ms
+     × answers 400, not 500, for id "not-a-uuid" 9ms
+     × answers 400, not 500, for id "00000000-0000-4000-8000-000000000001" 3ms
+     × refuses a cancelled invoice (404), creating no link 10ms
+     × refuses a soft-deleted invoice (404), creating no link 13ms
+     × links the customer held only in the legacy customer_id column 8ms
+     × answers 400, not 500, for id "not-a-uuid" 3ms
+     × answers 400, not 500, for id "00000000-0000-4000-8000-000000000001" 3ms
+     × refuses a cancelled invoice (404), creating no link 12ms
+     × refuses a soft-deleted invoice (404), creating no link 11ms
+     × refuses an unknown invoice (404, not 500) 4ms
+     × refuses a fully paid invoice, creating no link 10ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 12 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r155-157-portal-mint-guards.int.test.ts > R-155 generate keeps a token a concurrent writer already stored > 'POST /api/portal/invoice/generate': two mints in flight at once both return the one stored token
+AssertionError: expected '<TOKEN…>' to be '<TOKEN…>' // Object.is equality
+
+Expected: "<TOKEN64>"
+Received: "<TOKEN64>"
+
+ ❯ tests/integration/r155-157-portal-mint-guards.int.test.ts:180:33
+    178|     const { rows } = await pool.query('SELECT portal_token FROM custom…
+    179|     expect(a.body?.data?.token).toBe(rows[0].portal_token);
+    180|     expect(b.body?.data?.token).toBe(rows[0].portal_token);
+       |                                 ^
+    181|   });
+    182|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/12]⎯
+
+ FAIL  tests/integration/r158-payment-link-creation-guards.int.test.ts > R-158 'pay-now' > answers 400, not 500, for id "not-a-uuid"
+ FAIL  tests/integration/r158-payment-link-creation-guards.int.test.ts > R-158 'payment-gateway enable' > answers 400, not 500, for id "not-a-uuid"
+AssertionError: {"success":false,"data":null,"message":"invalid input syntax for type uuid: \"not-a-uuid\"","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 500
+
+ ❯ tests/integration/r158-payment-link-creation-guards.int.test.ts:116:58
+    114|   it.each(['not-a-uuid', ['00000000-0000-4000-8000-000000000001']])('a…
+    115|     const state = await route.send(bad);
+    116|     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+       |                                                          ^
+    117|   });
+    118|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/12]⎯
+
+ FAIL  tests/integration/r158-payment-link-creation-guards.int.test.ts > R-158 'pay-now' > answers 400, not 500, for id "00000000-0000-4000-8000-000000000001"
+AssertionError: {"success":false,"error":{"code":"NOT_FOUND","message":"Invoice not found"},"meta":{"timestamp":"2026-09-29T06:05:22.850Z"}}: expected 404 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 404
+
+ ❯ tests/integration/r158-payment-link-creation-guards.int.test.ts:116:58
+    114|   it.each(['not-a-uuid', ['00000000-0000-4000-8000-000000000001']])('a…
+    115|     const state = await route.send(bad);
+    116|     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+       |                                                          ^
+    117|   });
+    118|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/12]⎯
+
+ FAIL  tests/integration/r158-payment-link-creation-guards.int.test.ts > R-158 'pay-now' > refuses a cancelled invoice (404), creating no link
+AssertionError: {"success":true,"data":{"checkoutUrl":"https://checkout.example.test/r158","reference":"inv_45560173093b_82e230ef1c13","paymentUrl":"https://app.r158.example.test/portal/pay/<TOKEN64>"},"meta":{"timestamp":"2026-09-29T06:05:22.858Z"}}: expected 200 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 200
+
+ ❯ tests/integration/r158-payment-link-creation-guards.int.test.ts:125:58
+    123|     const id = await invoice(opts);
+    124|     const state = await route.send(id);
+    125|     expect(state.statusCode, JSON.stringify(state.body)).toBe(404);
+       |                                                          ^
+    126|     expect(await links(id)).toEqual([]);
+    127|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/12]⎯
+
+ FAIL  tests/integration/r158-payment-link-creation-guards.int.test.ts > R-158 'pay-now' > refuses a soft-deleted invoice (404), creating no link
+AssertionError: {"success":true,"data":{"checkoutUrl":"https://checkout.example.test/r158","reference":"inv_2b7403946646_cc2e20cda52a","paymentUrl":"https://app.r158.example.test/portal/pay/<TOKEN64>"},"meta":{"timestamp":"2026-09-29T06:05:22.870Z"}}: expected 200 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 200
+
+ ❯ tests/integration/r158-payment-link-creation-guards.int.test.ts:125:58
+    123|     const id = await invoice(opts);
+    124|     const state = await route.send(id);
+    125|     expect(state.statusCode, JSON.stringify(state.body)).toBe(404);
+       |                                                          ^
+    126|     expect(await links(id)).toEqual([]);
+    127|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/12]⎯
+
+ FAIL  tests/integration/r158-payment-link-creation-guards.int.test.ts > R-158 'payment-gateway enable' > links the customer held only in the legacy customer_id column
+AssertionError: {"success":false,"data":null,"message":"null value in column \"client_id\" of relation \"portal_payment_links\" violates not-null constraint","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 500
+
+ ❯ tests/integration/r158-payment-link-creation-guards.int.test.ts:110:58
+    108|     const id = await invoice({ legacyCustomerOnly: true });
+    109|     const state = await route.send(id);
+    110|     expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
+       |                                                          ^
+    111|     expect((await links(id)).map((l) => l.client_id)).toEqual([CUSTOME…
+    112|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/12]⎯
+
+ FAIL  tests/integration/r158-payment-link-creation-guards.int.test.ts > R-158 'payment-gateway enable' > answers 400, not 500, for id "00000000-0000-4000-8000-000000000001"
+AssertionError: {"success":false,"data":null,"message":"invalid input syntax for type uuid: \"{\"00000000-0000-4000-8000-000000000001\"}\"","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 500
+
+ ❯ tests/integration/r158-payment-link-creation-guards.int.test.ts:116:58
+    114|   it.each(['not-a-uuid', ['00000000-0000-4000-8000-000000000001']])('a…
+    115|     const state = await route.send(bad);
+    116|     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+       |                                                          ^
+    117|   });
+    118|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/12]⎯
+
+ FAIL  tests/integration/r158-payment-link-creation-guards.int.test.ts > R-158 'payment-gateway enable' > refuses a cancelled invoice (404), creating no link
+AssertionError: {"success":true,"data":{"paymentUrl":"https://app.r158.example.test/portal/pay/<TOKEN64>"},"meta":{"timestamp":"2026-09-29T06:05:22.912Z"}}: expected 200 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 200
+
+ ❯ tests/integration/r158-payment-link-creation-guards.int.test.ts:125:58
+    123|     const id = await invoice(opts);
+    124|     const state = await route.send(id);
+    125|     expect(state.statusCode, JSON.stringify(state.body)).toBe(404);
+       |                                                          ^
+    126|     expect(await links(id)).toEqual([]);
+    127|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/12]⎯
+
+ FAIL  tests/integration/r158-payment-link-creation-guards.int.test.ts > R-158 'payment-gateway enable' > refuses a soft-deleted invoice (404), creating no link
+AssertionError: {"success":true,"data":{"paymentUrl":"https://app.r158.example.test/portal/pay/<TOKEN64>"},"meta":{"timestamp":"2026-09-29T06:05:22.923Z"}}: expected 200 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 200
+
+ ❯ tests/integration/r158-payment-link-creation-guards.int.test.ts:125:58
+    123|     const id = await invoice(opts);
+    124|     const state = await route.send(id);
+    125|     expect(state.statusCode, JSON.stringify(state.body)).toBe(404);
+       |                                                          ^
+    126|     expect(await links(id)).toEqual([]);
+    127|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/12]⎯
+
+ FAIL  tests/integration/r158-payment-link-creation-guards.int.test.ts > R-158 'payment-gateway enable' > refuses an unknown invoice (404, not 500)
+AssertionError: {"success":false,"data":null,"message":"Invoice not found or no balance due","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 500
+
+ ❯ tests/integration/r158-payment-link-creation-guards.int.test.ts:131:58
+    129|   it('refuses an unknown invoice (404, not 500)', async () => {
+    130|     const state = await route.send(randomUUID());
+    131|     expect(state.statusCode, JSON.stringify(state.body)).toBe(404);
+       |                                                          ^
+    132|   });
+    133|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/12]⎯
+
+ FAIL  tests/integration/r158-payment-link-creation-guards.int.test.ts > R-158 'payment-gateway enable' > refuses a fully paid invoice, creating no link
+AssertionError: {"success":true,"data":{"paymentUrl":"https://app.r158.example.test/portal/pay/<TOKEN64>"},"meta":{"timestamp":"2026-09-29T06:05:22.938Z"}}: expected 200 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 200
+
+ ❯ tests/integration/r158-payment-link-creation-guards.int.test.ts:137:58
+    135|     const id = await invoice({ paid: 115 });
+    136|     const state = await route.send(id);
+    137|     expect(state.statusCode, JSON.stringify(state.body)).toBe(route.pa…
+       |                                                          ^
+    138|     expect(await links(id)).toEqual([]);
+    139|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/12]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  12 failed | 5 passed | 29 skipped (46)
+   Start at  08:05:22
+   Duration  728ms (transform 271ms, setup 0ms, import 473ms, tests 601ms, environment 0ms)
+
