@@ -96,7 +96,9 @@ it.each([
 
   // R-154: onUndone fires right after setState, before React commits, so wait
   // on the rendered outcome, not the spy. Both were on screen until the
-  // decision was recorded; the run row proves the panel itself did not vanish.
+  // decision was recorded. The run row is listed by every GET here, so it only
+  // guards against the panel unmounting or crashing, which would also make
+  // the two absences true.
   await waitFor(() => {
     expect(screen.queryByText(/Line 2026-05-15/)).toBeNull();
     expect(screen.queryByRole('status')).toBeNull();
