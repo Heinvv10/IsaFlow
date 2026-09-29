@@ -16,6 +16,7 @@ import {
   updateEntryTemplate,
   deleteEntryTemplate,
 } from '@/modules/accounting/services/practice/practiceEntryTemplateService';
+import { PracticeClientNotInCompanyError } from '@/modules/accounting/services/practice/practiceClientFence';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -28,8 +29,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'PUT') {
-    const template = await updateEntryTemplate(companyId, id, req.body as Record<string, unknown>);
-    return apiResponse.success(res, template);
+    try {
+      const template = await updateEntryTemplate(companyId, id, req.body as Record<string, unknown>);
+      return apiResponse.success(res, template);
+    } catch (err) {
+      if (err instanceof PracticeClientNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   if (req.method === 'DELETE') {
