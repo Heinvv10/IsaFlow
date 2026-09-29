@@ -1,6 +1,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
+import { assertPracticeClientInCompany } from './practiceClientFence';
 
 export interface EntryTemplate {
   id: string;
@@ -77,6 +78,8 @@ export async function createEntryTemplate(
 ): Promise<EntryTemplate> {
   const trimmedName = input.name.trim();
   if (!trimmedName) throw new Error('template name is required');
+  // R-073: practiceClientId comes from the request body; the FK does not check the tenant.
+  await assertPracticeClientInCompany(companyId, input.practiceClientId);
 
   const rows = (await sql`
     INSERT INTO practice_entry_templates (
@@ -113,6 +116,7 @@ export async function updateEntryTemplate(
 
   const trimmedName = input.name !== undefined ? input.name.trim() : undefined;
   if (trimmedName !== undefined && !trimmedName) throw new Error('template name is required');
+  await assertPracticeClientInCompany(companyId, input.practiceClientId);
 
   const rows = (await sql`
     UPDATE practice_entry_templates SET
