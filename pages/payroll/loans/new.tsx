@@ -9,6 +9,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Banknote, Save, Loader2 } from 'lucide-react';
 
+import { localISODate } from '@/lib/dateUtils';
 interface Employee {
   id: string;
   employeeNumber: string;
@@ -98,7 +99,7 @@ export default function NewLoanPage() {
   const [method, setMethod] = useState<'declining_balance' | 'straight_line' | 'interest_free'>('declining_balance');
   const [firstPeriodYear, setFirstPeriodYear] = useState<number>(now.getFullYear());
   const [firstPeriodMonth, setFirstPeriodMonth] = useState<number>(now.getMonth() + 2 > 12 ? 1 : now.getMonth() + 2);
-  const [startDate, setStartDate] = useState<string>(now.toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState<string>(localISODate(now));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 

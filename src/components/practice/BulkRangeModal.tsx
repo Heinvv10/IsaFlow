@@ -9,9 +9,10 @@ import { apiFetch } from '@/lib/apiFetch';
 import { fetchEntryTemplates, type EntryTemplate } from './practiceApi';
 import type { BulkFromTemplateInput, BulkFromTemplateResult } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 
-function todayIso() { return new Date().toISOString().slice(0, 10); }
+import { localISODate } from '@/lib/dateUtils';
+function todayIso() { return localISODate(); }
 function offsetDate(iso: string, d: number): string {
-  const dt = new Date(iso); dt.setDate(dt.getDate() + d); return dt.toISOString().slice(0, 10);
+  const dt = new Date(`${iso}T00:00:00`); dt.setDate(dt.getDate() + d); return localISODate(dt);
 }
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

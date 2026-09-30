@@ -11,6 +11,7 @@ import { BarChart3, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } 
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 
+import { localISODate } from '@/lib/dateUtils';
 interface BudgetLine {
   account_code: string;
   account_name: string;
@@ -32,12 +33,12 @@ interface BudgetReport {
 function getDrillDownDates(period: string): { start: string; end: string } {
   const now = new Date();
   const year = now.getFullYear();
-  const todayStr = now.toISOString().split('T')[0] ?? `${year}-01-01`;
+  const todayStr = localISODate(now);
   if (period === 'ytd') return { start: `${year}-01-01`, end: todayStr };
   if (period === 'full_year') return { start: `${year}-01-01`, end: `${year}-12-31` };
   // current period = current month
   const monthStart = new Date(year, now.getMonth(), 1);
-  const monthStartStr = monthStart.toISOString().split('T')[0] ?? `${year}-01-01`;
+  const monthStartStr = localISODate(monthStart);
   return { start: monthStartStr, end: todayStr };
 }
 

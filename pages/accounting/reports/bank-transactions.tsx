@@ -10,6 +10,7 @@ import { ArrowLeft, Landmark, Loader2, AlertCircle, Download } from 'lucide-reac
 import { apiFetch } from '@/lib/apiFetch';
 import { groupBankAccountOptions } from '@/components/accounting/bank/groupBankOptions';
 
+import { localISODate } from '@/lib/dateUtils';
 interface AcctOpt { id: string; accountCode: string; label: string; parentAccountId: string | null }
 
 interface Txn {
@@ -33,7 +34,7 @@ const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', c
 function getDefaultDates() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  return { periodStart: start.toISOString().split('T')[0], periodEnd: now.toISOString().split('T')[0] };
+  return { periodStart: localISODate(start), periodEnd: localISODate(now) };
 }
 
 export default function BankTransactionsPage() {

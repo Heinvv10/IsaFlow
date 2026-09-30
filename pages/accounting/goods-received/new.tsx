@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { ArrowLeft, PackageCheck, Loader2, Receipt } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
+import { localISODate } from '@/lib/dateUtils';
 interface PurchaseOrder {
   id: string;
   po_number: string;
@@ -37,7 +38,7 @@ export default function NewGRNPage() {
   const [selectedPO, setSelectedPO] = useState('');
   const [poItems, setPoItems] = useState<POItem[]>([]);
   const [receivedQtys, setReceivedQtys] = useState<Record<string, number>>({});
-  const [receivedDate, setReceivedDate] = useState(new Date().toISOString().split('T')[0] ?? '');
+  const [receivedDate, setReceivedDate] = useState(localISODate());
   const [deliveryNote, setDeliveryNote] = useState('');
   const [notes, setNotes] = useState('');
   const [loadingPOs, setLoadingPOs] = useState(true);

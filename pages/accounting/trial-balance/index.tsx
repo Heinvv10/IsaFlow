@@ -15,6 +15,7 @@ import { apiFetch } from '@/lib/apiFetch';
 
 import { useTrialBalanceFilters } from '@/components/reports/useTrialBalanceFilters';
 
+import { localISODate } from '@/lib/dateUtils';
 interface CostCentre { id: string; code: string; name: string }
 interface BusinessUnit { id: string; code: string; name: string }
 interface EvidenceTarget { accountId: string; accountName: string }
@@ -96,7 +97,7 @@ export default function TrialBalancePage() {
     rows.reduce((s, r) => s + (r[key] ?? 0), 0);
 
   const selectedPeriodObj = periods.find(p => p.id === selectedPeriod);
-  const todayStr = new Date().toISOString().substring(0, 10);
+  const todayStr = localISODate();
   const drillDownStart = selectedPeriodObj?.startDate
     ? selectedPeriodObj.startDate.substring(0, 10)
     : todayStr.substring(0, 4) + '-01-01';

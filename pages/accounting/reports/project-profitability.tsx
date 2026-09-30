@@ -11,12 +11,13 @@ import type { ProjectProfitabilityReport } from '@/modules/accounting/types/gl.t
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 
+import { localISODate } from '@/lib/dateUtils';
 function getDefaultDates() {
   const now = new Date();
   const start = new Date(now.getFullYear(), 0, 1);
   return {
-    periodStart: start.toISOString().split('T')[0],
-    periodEnd: now.toISOString().split('T')[0],
+    periodStart: localISODate(start),
+    periodEnd: localISODate(now),
   };
 }
 

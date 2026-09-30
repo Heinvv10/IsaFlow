@@ -11,6 +11,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 
+import { localISODate } from '@/lib/dateUtils';
 interface VATAdjustment {
   id: string; adjustmentNumber: string; adjustmentDate: string; vatPeriod?: string;
   adjustmentType: string; amount: number; reason: string; status: string;
@@ -32,7 +33,7 @@ export default function VATAdjustmentsPage() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [form, setForm] = useState({
-    adjustmentDate: new Date().toISOString().split('T')[0],
+    adjustmentDate: localISODate(),
     vatPeriod: '', adjustmentType: 'input', amount: '', reason: '',
   });
   const [dateFrom, setDateFrom] = useState('');
@@ -67,7 +68,7 @@ export default function VATAdjustmentsPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed');
       setShowForm(false);
-      setForm({ adjustmentDate: new Date().toISOString().split('T')[0], vatPeriod: '', adjustmentType: 'input', amount: '', reason: '' });
+      setForm({ adjustmentDate: localISODate(), vatPeriod: '', adjustmentType: 'input', amount: '', reason: '' });
       await load();
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
     finally { setBusy(''); }

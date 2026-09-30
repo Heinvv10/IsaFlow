@@ -5,6 +5,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ShoppingCart, Loader2, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
+import { localISODate } from '@/lib/dateUtils';
 interface SupplierPoRow {
   id: string;
   orderNumber: string;
@@ -95,7 +96,7 @@ function downloadCsv(suppliers: SupplierPoGroup[]) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `supplier-pos-${new Date().toISOString().split('T')[0]}.csv`;
+  a.download = `supplier-pos-${localISODate()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -173,8 +174,8 @@ export default function SupplierPosReport() {
   const [error, setError] = useState('');
 
   const today = new Date();
-  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0]!;
-  const todayStr = today.toISOString().split('T')[0]!;
+  const firstOfMonth = localISODate(new Date(today.getFullYear(), today.getMonth(), 1));
+  const todayStr = localISODate(today);
 
   const [status, setStatus] = useState('');
   const [dateFrom, setDateFrom] = useState(firstOfMonth);

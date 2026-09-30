@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { apiFetch } from '@/lib/apiFetch';
 
+import { localISODate } from '@/lib/dateUtils';
 interface Category {
   id: string;
   name: string;
@@ -43,7 +44,7 @@ export default function NewAssetPage() {
     sarsCategory: '',
     serialNumber: '',
     location: '',
-    purchaseDate: new Date().toISOString().split('T')[0],
+    purchaseDate: localISODate(),
     cost: '',
     salvageValue: '0',
     usefulLifeYears: '',

@@ -11,6 +11,7 @@ import {
   ShieldCheck, Copy, Check, X,
 } from 'lucide-react';
 
+import { localISODate } from '@/lib/dateUtils';
 interface AuditExport {
   id: string;
   periodStart: string;
@@ -60,8 +61,8 @@ export default function AuditTrailPage() {
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
   const [createMode, setCreateMode] = useState(false);
-  const [periodStart, setPeriodStart] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toISOString().slice(0, 10));
-  const [periodEnd, setPeriodEnd] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 0).toISOString().slice(0, 10));
+  const [periodStart, setPeriodStart] = useState(() => localISODate(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)));
+  const [periodEnd, setPeriodEnd] = useState(() => localISODate(new Date(new Date().getFullYear(), new Date().getMonth(), 0)));
   const [creating, setCreating] = useState(false);
 
   const [inviteId, setInviteId] = useState<string | null>(null);

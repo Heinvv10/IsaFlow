@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import { toDepreciationMethod } from '@/modules/accounting/services/items/farDepreciationService';
 import { buildDepreciationSchedule } from '@/modules/accounting/services/items/depreciationSchedule';
 
+import { localISODate } from '@/lib/dateUtils';
 // ---- Types ----
 
 interface Asset {
@@ -104,7 +105,7 @@ export default function AssetDetailPage() {
   const [showDisposal, setShowDisposal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [disposalError, setDisposalError] = useState('');
-  const today = new Date().toISOString().split('T')[0]!;
+  const today = localISODate();
   const [form, setForm] = useState<DispForm>({ disposal_date: today, disposal_method: 'scrap', disposal_amount: '0', reason: '' });
 
   const loadAsset = useCallback(async () => {

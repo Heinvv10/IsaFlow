@@ -13,6 +13,7 @@ import {
   type LineItem,
 } from '@/components/accounting/deliveryNotes/DeliveryNoteLineEditor';
 
+import { localISODate } from '@/lib/dateUtils';
 interface CustomerOption {
   id: string; name?: string; company_name?: string; companyName?: string;
 }
@@ -33,7 +34,7 @@ export default function NewDeliveryNotePage() {
 
   const [customerId, setCustomerId] = useState('');
   const [salesOrderId, setSalesOrderId] = useState('');
-  const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().split('T')[0]!);
+  const [deliveryDate, setDeliveryDate] = useState(localISODate());
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<LineItem[]>([emptyLine()]);

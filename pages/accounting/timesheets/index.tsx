@@ -10,6 +10,7 @@ import { Clock, Plus, ChevronLeft, ChevronRight, FileText, Loader2, X, Check } f
 import { apiFetch } from '@/lib/apiFetch';
 import { TimeEntryModal } from '@/components/accounting/time-tracking/TimeEntryModal';
 
+import { localISODate } from '@/lib/dateUtils';
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 interface TimeEntry {
   id: string; userId: string; projectName: string | null;
@@ -35,7 +36,7 @@ function getMondayOf(d: Date): Date {
 function addDays(d: Date, n: number): Date {
   const r = new Date(d); r.setDate(d.getDate() + n); return r;
 }
-function fmtISO(d: Date): string { return d.toISOString().split('T')[0] ?? ''; }
+function fmtISO(d: Date): string { return localISODate(d); }
 function fmtWeekRange(mon: Date): string {
   const sun = addDays(mon, 6);
   const o = (d: Date, y = false) => d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', ...(y ? { year: 'numeric' } : {}) });

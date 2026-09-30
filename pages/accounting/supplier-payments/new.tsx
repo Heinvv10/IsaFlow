@@ -12,6 +12,7 @@ import type { ExtractedDocument } from '@/modules/accounting/types/documentCaptu
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 
+import { localISODate } from '@/lib/dateUtils';
 interface Supplier { id: string; name: string }
 interface OutstandingInvoice { id: string; invoiceNumber: string; totalAmount: number; balance: number }
 interface Allocation { key: string; invoiceId: string; amount: number }
@@ -30,7 +31,7 @@ export default function NewSupplierPaymentPage() {
 
   const [form, setForm] = useState({
     supplierId: '',
-    paymentDate: new Date().toISOString().split('T')[0],
+    paymentDate: localISODate(),
     paymentMethod: 'eft',
     reference: '',
     description: '',

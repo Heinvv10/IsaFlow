@@ -21,6 +21,7 @@ import { PayScaleCard } from '@/components/payroll/PayScaleCard';
 import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
 import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCard';
 
+import { localISODate } from '@/lib/dateUtils';
 export default function EmployeeDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -35,7 +36,7 @@ export default function EmployeeDetailPage() {
 
   const [newComponentId, setNewComponentId] = useState('');
   const [newAmount, setNewAmount] = useState('');
-  const [newFrom, setNewFrom] = useState(new Date().toISOString().slice(0, 10));
+  const [newFrom, setNewFrom] = useState(localISODate());
   const [newIsRecurring, setNewIsRecurring] = useState(true);
   const [addingAssignment, setAddingAssignment] = useState(false);
 
@@ -121,7 +122,7 @@ export default function EmployeeDetailPage() {
   };
 
   const endAssignment = async (assignmentId: string) => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISODate();
     const res = await apiFetch(
       `/api/payroll/employees/${employeeId}/components?aid=${assignmentId}`,
       { method: 'DELETE', body: JSON.stringify({ effectiveTo: today }) },

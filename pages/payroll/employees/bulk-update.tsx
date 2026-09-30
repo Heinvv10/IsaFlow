@@ -10,6 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { Users, Loader2, AlertCircle, CheckCircle2, ChevronRight } from 'lucide-react';
 
+import { localISODate } from '@/lib/dateUtils';
 interface CostCentre {
   id: string;
   code: string;
@@ -54,7 +55,7 @@ export default function BulkUpdatePage() {
   const [updateDepartment, setUpdateDepartment] = useState('');
   const [updateCostCentreId, setUpdateCostCentreId] = useState<string>('__unchanged__');
   const [updateEmploymentType, setUpdateEmploymentType] = useState('');
-  const [effectiveFrom, setEffectiveFrom] = useState(new Date().toISOString().slice(0, 10));
+  const [effectiveFrom, setEffectiveFrom] = useState(localISODate());
   const [changeReason, setChangeReason] = useState('');
 
   const [preview, setPreview] = useState<Preview | null>(null);

@@ -16,6 +16,7 @@ import {
 } from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
 
+import { localISODate } from '@/lib/dateUtils';
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
 const XAxis = dynamic(() => import('recharts').then(m => m.XAxis), { ssr: false });
@@ -69,9 +70,9 @@ export default function FinancialAnalysisPage() {
     setLoading(true);
     try {
       const now = new Date();
-      const to = now.toISOString().split('T')[0];
+      const to = localISODate(now);
       const fromDate = new Date(now.getFullYear(), now.getMonth() - months, 1);
-      const from = fromDate.toISOString().split('T')[0];
+      const from = localISODate(fromDate);
       const [scRes, trRes] = await Promise.all([
         apiFetch(`/api/accounting/reports-kpi-scorecard?from=${from}&to=${to}`).then(r => r.json()),
         apiFetch(`/api/accounting/reports-ratio-trends?months=${months}`).then(r => r.json()),

@@ -21,6 +21,7 @@ import {
 } from '@/components/accounting/group/IntercompanyCreateModal';
 import { IntercompanyTable } from '@/components/accounting/group/IntercompanyTable';
 
+import { localISODate } from '@/lib/dateUtils';
 interface CompanyGroup {
   id: string;
   name: string;
@@ -34,14 +35,14 @@ function defaultRange() {
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
   const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   return {
-    start: start.toISOString().split('T')[0],
-    end: end.toISOString().split('T')[0],
+    start: localISODate(start),
+    end: localISODate(end),
   };
 }
 
 const BLANK_FORM: CreateForm = {
   sourceCompanyId: '', targetCompanyId: '', type: 'sale', amount: '',
-  currency: 'ZAR', date: new Date().toISOString().slice(0, 10),
+  currency: 'ZAR', date: localISODate(),
   description: '', journalEntryId: '',
 };
 

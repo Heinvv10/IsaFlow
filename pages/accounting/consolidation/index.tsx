@@ -15,6 +15,7 @@ import type {
   ConsolidatedTrialBalance,
 } from '@/modules/accounting/services/reports/consolidationTypes';
 
+import { localISODate } from '@/lib/dateUtils';
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function defaultRange() {
@@ -22,8 +23,8 @@ function defaultRange() {
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
   const end   = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   return {
-    start: start.toISOString().split('T')[0]!,
-    end:   end.toISOString().split('T')[0]!,
+    start: localISODate(start),
+    end:   localISODate(end),
   };
 }
 

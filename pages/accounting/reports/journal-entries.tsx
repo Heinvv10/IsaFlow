@@ -6,6 +6,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { BookOpen, Loader2, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
+import { localISODate } from '@/lib/dateUtils';
 interface JournalEntryRow {
   id: string;
   entryNumber: string;
@@ -93,7 +94,7 @@ function downloadCsv(entries: JournalEntryRow[]) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `journal-entries-${new Date().toISOString().split('T')[0]}.csv`;
+  a.download = `journal-entries-${localISODate()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -105,8 +106,8 @@ export default function JournalEntriesReport() {
   const [error, setError] = useState('');
 
   const today = new Date();
-  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0]!;
-  const todayStr = today.toISOString().split('T')[0]!;
+  const firstOfMonth = localISODate(new Date(today.getFullYear(), today.getMonth(), 1));
+  const todayStr = localISODate(today);
 
   const [status, setStatus] = useState('');
   const [source, setSource] = useState('');

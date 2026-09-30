@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
+import { localISODate } from '@/lib/dateUtils';
 interface TodoItem {
   id: string;
   label: string;
@@ -46,7 +47,7 @@ async function fetchTodoData(): Promise<TodoData | null> {
   if (cachedTodo && now - cacheTs < CACHE_TTL_MS) return cachedTodo;
   if (inFlight) return inFlight;
 
-  const sevenDays = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+  const sevenDays = localISODate(new Date(Date.now() + 7 * 86_400_000));
 
   inFlight = Promise.all([
     apiFetch(`/api/accounting/customer-invoices-list?status=overdue&limit=6`).then(r => r.json()),

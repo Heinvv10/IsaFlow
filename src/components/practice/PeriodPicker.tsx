@@ -4,6 +4,7 @@
  * mode='asof'  → emits { asOfDate }
  */
 import { useState } from 'react';
+import { localISODate, monthEndISO, monthStartISO, prevMonthRange } from '@/lib/dateUtils';
 
 export type PeriodPreset = 'this_month' | 'last_month' | 'this_quarter' | 'ytd' | 'last_year' | 'custom';
 export type AsofPreset = 'today' | 'month_end' | 'quarter_end' | 'custom';
@@ -16,20 +17,19 @@ export interface PeriodPickerProps {
   labelAsOf?: string;
 }
 
-// ---------- UTC date helpers ----------
-function iso(d: Date) { return d.toISOString().split('T')[0]!; }
+// ---------- local-calendar date helpers ----------
+function iso(d: Date) { return localISODate(d); }
 function today() { return iso(new Date()); }
-function fom(d: Date) { return iso(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))); }
-function lom(d: Date) { return iso(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0))); }
-function foq(d: Date) { const m = Math.floor(d.getUTCMonth() / 3) * 3; return iso(new Date(Date.UTC(d.getUTCFullYear(), m, 1))); }
-function loq(d: Date) { const m = Math.floor(d.getUTCMonth() / 3) * 3 + 3; return iso(new Date(Date.UTC(d.getUTCFullYear(), m, 0))); }
-function foy(d: Date) { return iso(new Date(Date.UTC(d.getUTCFullYear(), 0, 1))); }
+function fom(d: Date) { return monthStartISO(d); }
+function lom(d: Date) { return monthEndISO(d); }
+function foq(d: Date) { return iso(new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1)); }
+function loq(d: Date) { return iso(new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3 + 3, 0)); }
+function foy(d: Date) { return iso(new Date(d.getFullYear(), 0, 1)); }
 function lastMonthRange(now: Date): PeriodRange {
-  const firstThis = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const ll = new Date(firstThis.getTime() - 86400000);
-  return { dateFrom: iso(new Date(Date.UTC(ll.getUTCFullYear(), ll.getUTCMonth(), 1))), dateTo: iso(ll) };
+  const { start, end } = prevMonthRange(now);
+  return { dateFrom: start, dateTo: end };
 }
-function lastYearRange(now: Date): PeriodRange { const y = now.getUTCFullYear() - 1; return { dateFrom: `${y}-01-01`, dateTo: `${y}-12-31` }; }
+function lastYearRange(now: Date): PeriodRange { const y = now.getFullYear() - 1; return { dateFrom: `${y}-01-01`, dateTo: `${y}-12-31` }; }
 
 function resolveRange(preset: PeriodPreset): PeriodRange | null {
   const n = new Date();

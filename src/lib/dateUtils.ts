@@ -29,3 +29,22 @@ export function localISODate(d: Date = new Date()): string {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+
+/** First day of `d`'s LOCAL month as 'YYYY-MM-DD'. */
+export function monthStartISO(d: Date = new Date()): string {
+  return localISODate(new Date(d.getFullYear(), d.getMonth(), 1));
+}
+
+/** Last day of `d`'s LOCAL month as 'YYYY-MM-DD'. */
+export function monthEndISO(d: Date = new Date()): string {
+  return localISODate(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+}
+
+/**
+ * The whole LOCAL calendar month before `d`, e.g. 30 Sep 2026 gives
+ * 2026-08-01..2026-08-31. Default period for month-end reports (VAT201 etc.).
+ */
+export function prevMonthRange(d: Date = new Date()): { start: string; end: string } {
+  const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  return { start: monthStartISO(prev), end: monthEndISO(prev) };
+}

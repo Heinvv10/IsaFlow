@@ -15,6 +15,7 @@ import { BankAccountSelector, type BankAccountOption } from './BankAccountSelect
 import { BulkImportFileRow, type BulkImportRowState } from './BulkImportFileRow';
 import type { BulkPreviewResponse, BulkCommitResponse } from './bulkImportTypes';
 
+import { localISODate } from '@/lib/dateUtils';
 const PREVIEW_CONCURRENCY = 3;
 const COMMIT_CONCURRENCY = 2;
 
@@ -289,7 +290,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
         }
         try {
           const filePayload = await readFileForUpload(collectedFile);
-          const statementDate = row.dateRange?.to ?? new Date().toISOString().slice(0, 10);
+          const statementDate = row.dateRange?.to ?? localISODate();
           const res = await apiFetch('/api/accounting/bank-transactions-bulk-commit', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

@@ -13,6 +13,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 
+import { localISODate } from '@/lib/dateUtils';
 type TxType = 'spend' | 'receive';
 type AllocType = 'account' | 'supplier' | 'customer';
 type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
@@ -39,7 +40,7 @@ interface FormState {
   amount: string; allocationType: AllocType; contraAccountId: string; entityId: string; vatCode: VatCode;
 }
 
-const todayISO = () => new Date().toISOString().split('T')[0]!;
+const todayISO = () => localISODate();
 const VAT_OPTIONS: { value: VatCode; label: string }[] = [
   { value: 'none', label: 'No VAT' }, { value: 'standard', label: 'Standard 15%' },
   { value: 'zero_rated', label: 'Zero Rated' }, { value: 'exempt', label: 'Exempt' },

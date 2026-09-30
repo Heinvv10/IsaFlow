@@ -17,6 +17,7 @@ import { ManagementPandLRows, ManagementBalanceSheetRows, KVRow } from '@/compon
 import { ManagementKpiRow } from '@/components/accounting/ManagementKpiRow';
 import { ManagementSection } from '@/components/accounting/ManagementSection';
 
+import { localISODate } from '@/lib/dateUtils';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Kpis {
@@ -59,8 +60,8 @@ function getDefaultDates() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
   return {
-    periodStart: start.toISOString().split('T')[0] ?? '',
-    periodEnd: now.toISOString().split('T')[0] ?? '',
+    periodStart: localISODate(start),
+    periodEnd: localISODate(now),
   };
 }
 

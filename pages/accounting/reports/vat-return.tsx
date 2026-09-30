@@ -20,6 +20,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 
+import { prevMonthRange } from '@/lib/dateUtils';
 interface VAT201Transaction {
   journalEntryId: string;
   entryNumber: string;
@@ -47,13 +48,8 @@ interface VAT201Report {
 }
 
 function getDefaultDates() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const end = new Date(now.getFullYear(), now.getMonth(), 0);
-  return {
-    periodStart: start.toISOString().split('T')[0],
-    periodEnd: end.toISOString().split('T')[0],
-  };
+  const { start, end } = prevMonthRange();
+  return { periodStart: start, periodEnd: end };
 }
 
 function BoxRow({ box, section }: { box: VAT201Box; section: 'output' | 'input' }) {
