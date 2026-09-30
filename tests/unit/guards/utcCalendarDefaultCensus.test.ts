@@ -9,10 +9,12 @@
  * `monthStartISO` / `monthEndISO` / `prevMonthRange` from `@/lib/dateUtils`.
  *
  * Scope: pages/** (excluding pages/api), src/components/**, src/utils/**, src/hooks/**,
-src/contexts/** — enumerated from the filesystem so an untracked file cannot slip past.
-Detects: toISOString().split('T')[0] / .slice|substring(0, 10|7), the same on a
-parenthesised expression containing toISOString, and getUTC and setUTC calendar reads.
-Server-side code (src/lib/mcp/tools/*, services) is out of scope: K-235.
+ * src/contexts/** — enumerated from the filesystem so an untracked file cannot slip past.
+ * Detects: toISOString().split('T')[0] / .slice|substring(0, 10|7), the same on a
+ * parenthesised expression containing toISOString, and getUTC and setUTC calendar reads.
+ * Known limits (a ratchet, not a proof): parens inside string literals confuse the
+ * paren walk, and a variable holding a toISOString() result is not followed.
+ * Server-side code (src/lib/mcp/tools/*, services) is out of scope: K-235.
  * Every ALLOWED entry is a deliberate use, keyed by file with the reason.
  */
 import { describe, expect, it } from 'vitest';

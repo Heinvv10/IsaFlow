@@ -45,4 +45,10 @@ describe('local-calendar date helpers (TZ=Africa/Johannesburg)', () => {
     expect(addDaysISO('2026-01-01', -1)).toBe('2025-12-31');
     expect(addDaysISO('2026-09-30', 7)).toBe('2026-10-07');
   });
+  it('shiftYearISO and addDaysISO throw RangeError on malformed or impossible dates', () => {
+    for (const bad of ['', 'not-a-date', '2026-9-1', '2026-13-01', '2026-02-30', '2026-09-30T10:00:00Z']) {
+      expect(() => shiftYearISO(bad, -1), bad).toThrow(RangeError);
+      expect(() => addDaysISO(bad, 1), bad).toThrow(RangeError);
+    }
+  });
 });
