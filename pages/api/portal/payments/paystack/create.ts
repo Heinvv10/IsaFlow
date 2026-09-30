@@ -12,17 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { initializeTransaction } from '@/modules/billing/services/paystackClient';
-
-interface InvoiceRow {
-  id: string;
-  company_id: string;
-  invoice_number: string;
-  total: string;
-  amount_paid: string | null;
-  client_name: string;
-  client_email: string | null;
-  status: string;
-}
+import { resolveLinkCharge } from '@/modules/accounting/services/ar/portalLinkCharge';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -34,66 +24,39 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Missing portal token');
   }
 
-  const linkRows = await sql<{
-    invoice_id: string;
-    expires_at: Date | string;
-    status: string | null;
-  }>`
-    SELECT invoice_id, expires_at, status
-    FROM portal_payment_links
-    WHERE token = ${token}
-    LIMIT 1
-  `;
-  const link = linkRows[0];
-  if (!link) return apiResponse.notFound(res, 'Payment link');
-  if (link.status && link.status !== 'active') {
-    return apiResponse.badRequest(res, 'Payment link not active');
+  // R-167: the link's own amount, capped at what the invoice still owes (portalLinkCharge).
+  const resolved = await resolveLinkCharge(token);
+  if (!resolved.ok) {
+    switch (resolved.reason) {
+      case 'link_not_found': return apiResponse.notFound(res, 'Payment link');
+      case 'link_not_active': return apiResponse.badRequest(res, 'Payment link not active');
+      case 'link_expired': return apiResponse.badRequest(res, 'Payment link expired');
+      case 'invoice_gone': return apiResponse.notFound(res, 'Invoice');
+      case 'nothing_owed': return apiResponse.badRequest(res, 'Invoice already paid');
+    }
   }
-  if (link.expires_at && new Date(link.expires_at) < new Date()) {
-    return apiResponse.badRequest(res, 'Payment link expired');
-  }
-
-  const invRows = await sql<InvoiceRow>`
-    SELECT ci.id, ci.company_id, ci.invoice_number,
-           ci.total_amount AS total, ci.amount_paid,
-           COALESCE(c.name, 'Customer') AS client_name,
-           c.email AS client_email,
-           ci.status
-    FROM customer_invoices ci
-    LEFT JOIN clients c ON c.id = COALESCE(ci.client_id, ci.customer_id)
-    WHERE ci.id = ${link.invoice_id}
-    LIMIT 1
-  `;
-  const invoice = invRows[0];
-  if (!invoice) return apiResponse.notFound(res, 'Invoice');
-
-  const outstandingCents = Math.round(
-    (Number(invoice.total) - Number(invoice.amount_paid ?? 0)) * 100,
-  );
-  if (outstandingCents <= 0) {
-    return apiResponse.badRequest(res, 'Invoice already paid');
-  }
+  const charge = resolved.charge;
 
   // Paystack requires a payer email. We fall back to a synthetic per-token
   // address so payment still works even if the customer has no email on file.
   const payerEmail =
-    invoice.client_email && invoice.client_email.includes('@')
-      ? invoice.client_email
+    charge.clientEmail && charge.clientEmail.includes('@')
+      ? charge.clientEmail
       : `portal+${token}@noreply.isaflow.co.za`;
 
-  const reference = `inv_${invoice.id.replace(/-/g, '').slice(0, 12)}_${randomBytes(6).toString('hex')}`;
+  const reference = `inv_${charge.invoiceId.replace(/-/g, '').slice(0, 12)}_${randomBytes(6).toString('hex')}`;
   const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL}/portal/payments/paystack/return?ref=${encodeURIComponent(reference)}`;
 
   try {
     const init = await initializeTransaction({
       email: payerEmail,
-      amountCents: outstandingCents,
+      amountCents: charge.chargeCents,
       reference,
       callbackUrl,
       metadata: {
-        invoice_id: invoice.id,
-        invoice_number: invoice.invoice_number,
-        company_id: invoice.company_id,
+        invoice_id: charge.invoiceId,
+        invoice_number: charge.invoiceNumber,
+        company_id: charge.companyId,
         portal_token: token,
       },
     });
@@ -102,11 +65,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       INSERT INTO paystack_payment_requests (
         company_id, purpose, customer_invoice_id,
         paystack_reference, paystack_access_code, authorization_url,
-        amount_cents, currency, status, payer_name, payer_email
+        amount_cents, currency, status, payer_name, payer_email, portal_payment_link_id
       ) VALUES (
-        ${invoice.company_id}, 'customer_invoice', ${invoice.id},
+        ${charge.companyId}, 'customer_invoice', ${charge.invoiceId},
         ${init.reference}, ${init.accessCode}, ${init.authorizationUrl},
-        ${outstandingCents}, 'ZAR', 'pending', ${invoice.client_name}, ${payerEmail}
+        ${charge.chargeCents}, 'ZAR', 'pending', ${charge.clientName}, ${payerEmail}, ${charge.linkId}::UUID
       )
     `;
 
@@ -117,7 +80,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } catch (err) {
     log.error(
       'Failed to initialise Paystack transaction',
-      { invoiceId: invoice.id, err: err instanceof Error ? err.message : String(err) },
+      { invoiceId: charge.invoiceId, err: err instanceof Error ? err.message : String(err) },
       'PaystackPortal',
     );
     return apiResponse.internalError(res, 'Failed to initialise payment');
