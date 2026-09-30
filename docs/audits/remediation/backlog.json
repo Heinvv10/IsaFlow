@@ -10575,10 +10575,10 @@
       "fixCommit": "80cb8db7e;cf636dc3d;a276fde1e;75cee9ce8;56eaee622;73ef6351a;5de59ace9;e5d5e9fbc;372022459",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/572",
       "deployedSha": "efaad6ae1",
-      "historicalDataImpact": "Not assessed.",
+      "historicalDataImpact": "Prod census 2026-09-30 (read-only, Hein's OK): 1 approved bill with zero items and no journal: ISAFlow Demo TEST-2026-042 (R575, 2026-04-22, not from capture). 0 captured bills approved without a journal on any tenant.",
       "canonicalItem": null,
       "reportedSeverity": "high",
-      "processNotes": "2026-09-26: Found by the R-127 repro; R-127 reverts such a bill to draft only on its settlement path.\n\n2026-09-29: REPRODUCED on 3e4728e98 (fixture, through the route): an auto-approved capture ended approved with 0 items and no journal; AP subledger R402.50 vs GL R0; Post to GL then failed \"Entry is not balanced\". Fix (#572): capture/[id]/post plans the lines before the posting claim (captureBillLines.planCaptureBillLines): extracted items as read (a line keeps its own account; the resolved account codes only uncoded lines); with none, ONE line from net + VAT on the first of the capture event account, the supplier coding rule account, the company default_expense (Hein, 2026-09-29, confirmation gate); no total or no account -> 400, nothing written. Lines are inserted before raiseUnattendedApproval (the request digest, approval_document_digest() mig 708, hashes the items). An auto-approved bill with no provisional is posted via postSupplierInvoiceToGL; if its journal cannot post it reverts to draft (R-127 path). Blind review (with adversarial ledger pass): r1 2 LOW (latent per-line account overwrite; imprecise digest wording), fixed in new commits; r2 SHIP; master merges re-confirmed. Browser (dev, Brightsphere): 2-line bill + balanced JE; totals-only bill -> 1 line on default_expense + balanced JE; closed-period bill withdrawn to draft. Not deployed. Sibling NOT fixed: ai-invoice-pipeline leaves an auto-approved bill with no provisional approved with no journal (registered separately). Census SQL for prod: R-131/census.sql (read-only, for Hein).\n\n2026-09-30: DEPLOYED to prod as master efaad6ae1 at 03:55 SAST, approved by Hein (\"deploy after merge and on green\"). Prod was 3e4728e98. Deploy CI passed, \"Applied 0 migrations\", golden 13/13, integrity 16/16, RELEASE_SHA verified, and the fix code is present in the live bundles. Rollback: 3e4728e98 (code only).",
+      "processNotes": "2026-09-26: Found by the R-127 repro; R-127 reverts such a bill to draft only on its settlement path.\n\n2026-09-29: REPRODUCED on 3e4728e98 (fixture, through the route): an auto-approved capture ended approved with 0 items and no journal; AP subledger R402.50 vs GL R0; Post to GL then failed \"Entry is not balanced\". Fix (#572): capture/[id]/post plans the lines before the posting claim (captureBillLines.planCaptureBillLines): extracted items as read (a line keeps its own account; the resolved account codes only uncoded lines); with none, ONE line from net + VAT on the first of the capture event account, the supplier coding rule account, the company default_expense (Hein, 2026-09-29, confirmation gate); no total or no account -> 400, nothing written. Lines are inserted before raiseUnattendedApproval (the request digest, approval_document_digest() mig 708, hashes the items). An auto-approved bill with no provisional is posted via postSupplierInvoiceToGL; if its journal cannot post it reverts to draft (R-127 path). Blind review (with adversarial ledger pass): r1 2 LOW (latent per-line account overwrite; imprecise digest wording), fixed in new commits; r2 SHIP; master merges re-confirmed. Browser (dev, Brightsphere): 2-line bill + balanced JE; totals-only bill -> 1 line on default_expense + balanced JE; closed-period bill withdrawn to draft. Not deployed. Sibling NOT fixed: ai-invoice-pipeline leaves an auto-approved bill with no provisional approved with no journal (registered separately). Census SQL for prod: R-131/census.sql (read-only, for Hein).\n\n2026-09-30: DEPLOYED to prod as master efaad6ae1 at 03:55 SAST, approved by Hein (\"deploy after merge and on green\"). Prod was 3e4728e98. Deploy CI passed, \"Applied 0 migrations\", golden 13/13, integrity 16/16, RELEASE_SHA verified, and the fix code is present in the live bundles. Rollback: 3e4728e98 (code only).\n\nProd census 2026-09-30 (read-only, Hein's OK): 1 approved bill with zero items and no journal: ISAFlow Demo TEST-2026-042 (R575, 2026-04-22, not from capture). 0 captured bills approved without a journal on any tenant.",
       "branch": "fix/r131-capture-post-lines-20260929",
       "severity": "high",
       "title": "capture/[id]/post creates supplier invoices with no line items"
@@ -10694,10 +10694,10 @@
       "fixCommit": "8b528c3cc;a666f95af;6a1ea3c8d",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/570",
       "deployedSha": "efaad6ae1",
-      "historicalDataImpact": "Not assessed.",
+      "historicalDataImpact": "Prod census 2026-09-30 (read-only, Hein's OK): leave exists only in ISAFlow Demo (11 approved, 2 pending, 1 rejected); 1 approved request has no approver; 0 foreign or viewer approvers; 0 rejected/cancelled rows carrying an approver.",
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "processNotes": "2026-09-26: Found by the R-032 blind review.\n\n2026-09-29: REPRODUCED (fixture route test red on 3e4728e98; dev UI approval stored approved_by NULL because the page sends only the status). Fix (#570): PUT /api/payroll/leave/[id] ignores a body approvedBy and stores the session user on approval only. Mutations M1/M2 red. Blind review SHIP r1 (no findings), re-confirmed on the master merge. Browser (dev, Brightsphere): UI approval and a forged-body API approval both store reporting-qa. Not deployed. Leave has no audit trail, so the census (R-135/fix.md) cannot say who really approved historic rows; only prod request logs can.\n\n2026-09-30: DEPLOYED to prod as master efaad6ae1 at 03:55 SAST, approved by Hein (\"deploy after merge and on green\"). Prod was 3e4728e98. Deploy CI passed, \"Applied 0 migrations\", golden 13/13, integrity 16/16, RELEASE_SHA verified, and the fix code is present in the live bundles. Rollback: 3e4728e98 (code only).",
+      "processNotes": "2026-09-26: Found by the R-032 blind review.\n\n2026-09-29: REPRODUCED (fixture route test red on 3e4728e98; dev UI approval stored approved_by NULL because the page sends only the status). Fix (#570): PUT /api/payroll/leave/[id] ignores a body approvedBy and stores the session user on approval only. Mutations M1/M2 red. Blind review SHIP r1 (no findings), re-confirmed on the master merge. Browser (dev, Brightsphere): UI approval and a forged-body API approval both store reporting-qa. Not deployed. Leave has no audit trail, so the census (R-135/fix.md) cannot say who really approved historic rows; only prod request logs can.\n\n2026-09-30: DEPLOYED to prod as master efaad6ae1 at 03:55 SAST, approved by Hein (\"deploy after merge and on green\"). Prod was 3e4728e98. Deploy CI passed, \"Applied 0 migrations\", golden 13/13, integrity 16/16, RELEASE_SHA verified, and the fix code is present in the live bundles. Rollback: 3e4728e98 (code only).\n\nProd census 2026-09-30 (read-only, Hein's OK): leave exists only in ISAFlow Demo (11 approved, 2 pending, 1 rejected); 1 approved request has no approver; 0 foreign or viewer approvers; 0 rejected/cancelled rows carrying an approver.",
       "branch": "fix/r122-r135-r136-payroll-leave-20260929",
       "severity": "medium",
       "title": "Leave approve takes approved_by from the request body"
@@ -11647,14 +11647,14 @@
       "fixCommit": "a95804f2c;155982d53;cb5854374",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/571",
       "deployedSha": "efaad6ae1",
-      "historicalDataImpact": "Unknown; production not measured. Impact SQL belongs in the fix's fix.md.",
+      "historicalDataImpact": "Prod census 2026-09-30 (read-only, Hein's OK): 0 rows point at another company's practice client across contacts, jobs, entry templates, time entries and rate overrides.",
       "canonicalItem": null,
       "reportedSeverity": "",
       "branch": "fix/r073-client-contacts-fence-20260929",
       "title": "Practice client-contacts POST writes body.clientId (practice_clients) with no company fence",
       "severity": "medium",
       "source": "Found by the R-067 round-3 fixer; confirmed on origin/master by the orchestrating session: createClientContact (practiceClientService.ts:245-260) INSERTs body.clientId into practice_client_contacts with no check that the practice_clients row belongs to companyId.",
-      "processNotes": "R-067 round 3 (a14efbacc) census row: body.clientId in the practice client-contacts POST is written unchecked. Fix: fence practice_clients ownership before the first write, as R-067 does for customers. The inserted row carries the caller's company_id, and listClientContacts is company-scoped, so the observed effect is a contact row pointing at another company's practice client (an integrity breach); disclosure through a join on client_id has not been measured.\n\n2026-09-29: REPRODUCED on 3e4728e98 (fixture, real handlers as app_user): company A POSTing B's practice client id got 201 and a stored row; jobs/[id] PUT to B's client got 200. Fix (#571): practiceClientFence.assertPracticeClientInCompany (R-067 contract: before the first write, absent id passes, savepointed read, 22P02 -> 400, tenant only) in createClientContact, updateJob, createEntryTemplate, updateEntryTemplate; routes map to 400; PRACTICE_CLIENT_NOT_FOUND added to the MCP refusal allowlist. Census of every FK to practice_clients in fix.md. Disclosure measured: none via contacts (list is company-scoped) or job reads under withAuth; the practice daily-digest cron (no withAuth/RLS) would print another company's client name for a re-pointed job, but that cron is broken everywhere by companies.deleted_at (registered separately), so it is dormant. B deleting its client cascades A's contact. Mutations M1-M10 red. Blind review SHIP r1, no findings. Browser (dev, Brightsphere): own-client contact 201 and listed. Not deployed. Census SQL: R-073/fix.md.\n\n2026-09-30: DEPLOYED to prod as master efaad6ae1 at 03:55 SAST, approved by Hein (\"deploy after merge and on green\"). Prod was 3e4728e98. Deploy CI passed, \"Applied 0 migrations\", golden 13/13, integrity 16/16, RELEASE_SHA verified, and the fix code is present in the live bundles. Rollback: 3e4728e98 (code only)."
+      "processNotes": "R-067 round 3 (a14efbacc) census row: body.clientId in the practice client-contacts POST is written unchecked. Fix: fence practice_clients ownership before the first write, as R-067 does for customers. The inserted row carries the caller's company_id, and listClientContacts is company-scoped, so the observed effect is a contact row pointing at another company's practice client (an integrity breach); disclosure through a join on client_id has not been measured.\n\n2026-09-29: REPRODUCED on 3e4728e98 (fixture, real handlers as app_user): company A POSTing B's practice client id got 201 and a stored row; jobs/[id] PUT to B's client got 200. Fix (#571): practiceClientFence.assertPracticeClientInCompany (R-067 contract: before the first write, absent id passes, savepointed read, 22P02 -> 400, tenant only) in createClientContact, updateJob, createEntryTemplate, updateEntryTemplate; routes map to 400; PRACTICE_CLIENT_NOT_FOUND added to the MCP refusal allowlist. Census of every FK to practice_clients in fix.md. Disclosure measured: none via contacts (list is company-scoped) or job reads under withAuth; the practice daily-digest cron (no withAuth/RLS) would print another company's client name for a re-pointed job, but that cron is broken everywhere by companies.deleted_at (registered separately), so it is dormant. B deleting its client cascades A's contact. Mutations M1-M10 red. Blind review SHIP r1, no findings. Browser (dev, Brightsphere): own-client contact 201 and listed. Not deployed. Census SQL: R-073/fix.md.\n\n2026-09-30: DEPLOYED to prod as master efaad6ae1 at 03:55 SAST, approved by Hein (\"deploy after merge and on green\"). Prod was 3e4728e98. Deploy CI passed, \"Applied 0 migrations\", golden 13/13, integrity 16/16, RELEASE_SHA verified, and the fix code is present in the live bundles. Rollback: 3e4728e98 (code only).\n\nProd census 2026-09-30 (read-only, Hein's OK): 0 rows point at another company's practice client across contacts, jobs, entry templates, time entries and rate overrides."
     },
     {
       "id": "R-074",
@@ -13330,10 +13330,10 @@
       "fixCommit": null,
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/570",
       "deployedSha": null,
-      "historicalDataImpact": "None written; reads/inserts refused or empty.",
+      "historicalDataImpact": "Prod census 2026-09-30 (read-only, Hein's OK): prod has exactly the 397 policies (plb/plr/plt_company_iso on app.current_company_id), confirming the false positive.",
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "processNotes": "2026-09-24: registered from R-121. Fix shape: replace with the standard tenant_isolation (348), as 698 does for the overrides table.\n\n2026-09-29: NOT REPRODUCED. Migration 397_grants_and_rls_fixes.sql (512c4d456, 2026-04-19) already drops 396's three JWT-claim policies and recreates plt/plb/plr_company_iso on current_setting('app.current_company_id'), which withAuth sets after its membership check. Dev pg_policies show exactly the 397 policies (+ 348 tenant_isolation on payroll_leave_types); a read-only app_user transaction with withAuth GUCs returned all 14/5/40 Demo leave rows; the API and list page as reporting-qa show them. Brightsphere looked empty only because it has no leave data. No migration 717. #570 pins the behaviour with route tests (own visible, other company not; red if 396's claim policies are put back). Residual, not a defect: the 397 policies are TO public with no membership predicate, unlike 348's tenant_isolation; hardening optional. Stale comment: src/lib/auth/bearerPipeline.ts:137-140 still says 396 reads the company_id claim.",
+      "processNotes": "2026-09-24: registered from R-121. Fix shape: replace with the standard tenant_isolation (348), as 698 does for the overrides table.\n\n2026-09-29: NOT REPRODUCED. Migration 397_grants_and_rls_fixes.sql (512c4d456, 2026-04-19) already drops 396's three JWT-claim policies and recreates plt/plb/plr_company_iso on current_setting('app.current_company_id'), which withAuth sets after its membership check. Dev pg_policies show exactly the 397 policies (+ 348 tenant_isolation on payroll_leave_types); a read-only app_user transaction with withAuth GUCs returned all 14/5/40 Demo leave rows; the API and list page as reporting-qa show them. Brightsphere looked empty only because it has no leave data. No migration 717. #570 pins the behaviour with route tests (own visible, other company not; red if 396's claim policies are put back). Residual, not a defect: the 397 policies are TO public with no membership predicate, unlike 348's tenant_isolation; hardening optional. Stale comment: src/lib/auth/bearerPipeline.ts:137-140 still says 396 reads the company_id claim.\n\nProd census 2026-09-30 (read-only, Hein's OK): prod has exactly the 397 policies (plb/plr/plt_company_iso on app.current_company_id), confirming the false positive.",
       "branch": null,
       "severity": "medium",
       "title": "payroll_leave_* RLS policies (migration 396) read a company_id JWT claim that withAuth never sets, so the web app likely sees no leave data"
@@ -13365,10 +13365,10 @@
       "fixCommit": "434079c29;f4512b8a3",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/569",
       "deployedSha": "efaad6ae1",
-      "historicalDataImpact": "None written; the override screens fail to load or save.",
+      "historicalDataImpact": "Prod census 2026-09-30 (read-only, Hein's OK): auth.users does not exist on prod, so the override list and staff dropdown 500'd on prod until efaad6ae1 (deployed 2026-09-30 03:55). 4 overrides in 1 company.",
       "canonicalItem": null,
       "reportedSeverity": "medium",
-      "processNotes": "2026-09-24: registered from R-121. The R-121 prod query checks has_table_privilege('app_user','auth.users','SELECT').\n\n2026-09-29: REPRODUCED: on dev as reporting-qa the staff and rate-override GETs 500 \"relation auth.users does not exist\"; on the fixture with the stub grant revoked, R-121's route test 500s \"permission denied for table users\". Fix (#569), no migration and no grant: override reads use LEFT JOIN LATERAL approval_company_member_profile (715) bound to pcro.company_id; listCompanyStaff uses company_member_directory (716), so non-admins now see only themselves (the existing cu_select policy). The R-121 and K-039 suites no longer stub an auth.users grant. The new suite asserts app_user has no SELECT on auth.users first. Mutations M1-M4 red. Blind review SHIP r1, re-confirmed on the master merge. Browser (dev): staff dropdown loads with names. The dev override LIST still 500s on \"column pcro.user_id\" because isaflow_dev lacks R-121's 625b/626/699 (dev drift, not applied: outside the batch). Test-infra note: the r155/r112 fixtures carry a leftover auth.users stub that GRANTS app_user SELECT; a \"no grant\" test passes vacuously there unless it asserts its premise. K-039 has 2 fixture-only failures (staff_user_id NOT NULL). Not deployed. Prod check (read-only): R-123/fix.md.\n\n2026-09-30: DEPLOYED to prod as master efaad6ae1 at 03:55 SAST, approved by Hein (\"deploy after merge and on green\"). Prod was 3e4728e98. Deploy CI passed, \"Applied 0 migrations\", golden 13/13, integrity 16/16, RELEASE_SHA verified, and the fix code is present in the live bundles. Rollback: 3e4728e98 (code only).",
+      "processNotes": "2026-09-24: registered from R-121. The R-121 prod query checks has_table_privilege('app_user','auth.users','SELECT').\n\n2026-09-29: REPRODUCED: on dev as reporting-qa the staff and rate-override GETs 500 \"relation auth.users does not exist\"; on the fixture with the stub grant revoked, R-121's route test 500s \"permission denied for table users\". Fix (#569), no migration and no grant: override reads use LEFT JOIN LATERAL approval_company_member_profile (715) bound to pcro.company_id; listCompanyStaff uses company_member_directory (716), so non-admins now see only themselves (the existing cu_select policy). The R-121 and K-039 suites no longer stub an auth.users grant. The new suite asserts app_user has no SELECT on auth.users first. Mutations M1-M4 red. Blind review SHIP r1, re-confirmed on the master merge. Browser (dev): staff dropdown loads with names. The dev override LIST still 500s on \"column pcro.user_id\" because isaflow_dev lacks R-121's 625b/626/699 (dev drift, not applied: outside the batch). Test-infra note: the r155/r112 fixtures carry a leftover auth.users stub that GRANTS app_user SELECT; a \"no grant\" test passes vacuously there unless it asserts its premise. K-039 has 2 fixture-only failures (staff_user_id NOT NULL). Not deployed. Prod check (read-only): R-123/fix.md.\n\n2026-09-30: DEPLOYED to prod as master efaad6ae1 at 03:55 SAST, approved by Hein (\"deploy after merge and on green\"). Prod was 3e4728e98. Deploy CI passed, \"Applied 0 migrations\", golden 13/13, integrity 16/16, RELEASE_SHA verified, and the fix code is present in the live bundles. Rollback: 3e4728e98 (code only).\n\nProd census 2026-09-30 (read-only, Hein's OK): auth.users does not exist on prod, so the override list and staff dropdown 500'd on prod until efaad6ae1 (deployed 2026-09-30 03:55). 4 overrides in 1 company.",
       "branch": "fix/r123-rate-override-names-20260929",
       "severity": "medium",
       "title": "Rate-override service joins auth.users as app_user, which no migration grants"
@@ -14125,17 +14125,23 @@
         "R-131"
       ],
       "correctedTrigger": null,
-      "auditedSha": "3e4728e98",
-      "currentSha": "3e4728e98",
-      "status": "candidate",
+      "auditedSha": "7c49109f5",
+      "currentSha": "1faffc8b2",
+      "status": "fixed",
       "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
-      "fixCommit": null,
-      "pr": null,
+      "testNames": [
+        "tests/integration/r160-ai-pipeline-posts.int.test.ts",
+        "tests/integration/r035-pr2-unattended.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-160/fix.md",
+        "docs/audits/remediation/R-160/census.sql"
+      ],
+      "fixCommit": "637f068a8;22b3d8140;066e55201",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/579",
       "deployedSha": null,
       "canonicalItem": null,
-      "branch": null,
+      "branch": "fix/r160-ai-pipeline-posts-unattached-20260930",
       "area": "ap",
       "severity": "high",
       "title": "ai-invoice-pipeline leaves an auto-approved bill with no provisional approved with no journal (R-131 sibling)",
@@ -14146,7 +14152,7 @@
       "claim": "The AI invoice pipeline inserts an auto-approved supplier invoice and settles it only when it evidences a bank-first provisional; otherwise the bill stays approved with no journal, so the AP subledger exceeds the GL, as R-131 did for capture/[id]/post.",
       "severityRationale": "Same shape and impact as R-131 (high): AP subledger overstated against the GL. Reported by the R-131 fixer, not independently reproduced.",
       "historicalDataImpact": "Unknown; R-131/census.sql (approved bills with no journal) also catches these.",
-      "processNotes": "2026-09-29: Reported by the R-131 fixer; not fixed (out of scope). ai-invoice-pipeline.ts:266 calls attachEvidenceAndSettleApproved without postUnattached (the flag is opt-in; only capturePostFollowUps passes it). Suggested fix: pass postUnattached: true into attachEvidenceAndSettleApproved as capture/[id]/post now does, so an approved bill without a provisional is posted or reverted to draft. Reproduce first.",
+      "processNotes": "2026-09-29: Reported by the R-131 fixer; not fixed (out of scope). ai-invoice-pipeline.ts:266 calls attachEvidenceAndSettleApproved without postUnattached (the flag is opt-in; only capturePostFollowUps passes it). Suggested fix: pass postUnattached: true into attachEvidenceAndSettleApproved as capture/[id]/post now does, so an approved bill without a provisional is posted or reverted to draft. Reproduce first.\n\n2026-09-30: REPRODUCED on 7c49109f5 through the route (fixture): two auto-approved slips stayed approved with no journal (AP subledger 517.50 vs GL 0); one had 0 items (qty-0 lines skipped, bill inserted anyway); a total-0 document became an R0 bill. So the pipeline had BOTH R-131 defects. Fix (#579): passes postUnattached: true; the inline item loop is replaced by R-131's planCaptureBillLines/insertCaptureBillLines (reused), planned before the claim, lines inserted before raiseUnattendedApproval; account chain rule account then company default_expense (this route reads no capture event). Behaviour change: a line with qty <= 0 or a negative price (e.g. a discount line) is now a 400 naming the line, where it used to be dropped silently (same as capture/[id]/post since R-131). Mutations M1-M7 red; M8 (company filter on the document lock) stays green because RLS still hides the row (defence in depth). Blind review with an adversarial ledger pass: SHIP r1, no findings. Browser (dev, Brightsphere, route called from the signed-in page, no UI caller): 2027 bill approved with 2 lines and balanced JE-2027-00005; 2026 bill withdrawn to draft (closed period). Not deployed.",
       "reportedSeverity": "high"
     },
     {
@@ -14155,17 +14161,21 @@
         "R-073"
       ],
       "correctedTrigger": null,
-      "auditedSha": "3e4728e98",
-      "currentSha": "3e4728e98",
-      "status": "candidate",
+      "auditedSha": "7c49109f5",
+      "currentSha": "2262c2e80",
+      "status": "fixed",
       "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
-      "fixCommit": null,
-      "pr": null,
+      "testNames": [
+        "tests/integration/practice-client-group-fence.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-161/fix.md"
+      ],
+      "fixCommit": "15748a492;2ec01e28f;2e4b04873;227c43ceb",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/580",
       "deployedSha": null,
       "canonicalItem": null,
-      "branch": null,
+      "branch": "fix/r161-r163-practice-fences-20260930",
       "area": "accounting/practice",
       "severity": "medium",
       "title": "practice_clients.client_group_id is written from the body with no company fence (R-073 sibling)",
@@ -14176,7 +14186,7 @@
       "claim": "createPracticeClient / updatePracticeClient store body client_group_id without checking the practice_client_groups row belongs to the caller's company.",
       "severityRationale": "Same class as R-073 (cross-tenant parent id written unchecked); provisional.",
       "historicalDataImpact": "Unknown; census: practice_clients whose client_group_id belongs to another company.",
-      "processNotes": "2026-09-29: Found by the R-073 fixer; not measured, not fixed.",
+      "processNotes": "2026-09-29: Found by the R-073 fixer; not measured, not fixed.\n\n2026-09-30: REPRODUCED on 7c49109f5 (fixture, real handlers as app_user): company A created/updated a client under B's group (201/200); a malformed group id 500'd; an unknown id 500'd on the FK while B's real group 201'd (an existence oracle). No read exposes another company's group (measured). Fix (#580): practiceClientFence.assertClientGroupInCompany (R-073 contract, shared savepointed read) before the first write in create/updatePracticeClient; routes 400; CLIENT_GROUP_NOT_FOUND on the MCP refusal allowlist. Census from pg_constraint: client_group_id is the only FK to practice_client_groups. 11 mutations red (the savepoint mutation needed an in-transaction test; the company predicate only fails in a fence test outside RLS). Blind review SHIP r1 (no findings), re-confirmed on the master merge. Not deployed.",
       "reportedSeverity": "medium"
     },
     {
@@ -14185,8 +14195,147 @@
         "R-073"
       ],
       "correctedTrigger": null,
-      "auditedSha": "3e4728e98",
-      "currentSha": "3e4728e98",
+      "auditedSha": "7c49109f5",
+      "currentSha": "5ce149065",
+      "status": "fixed",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/r162-practice-daily-digest.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-162/fix.md"
+      ],
+      "fixCommit": "dd8de6691;479af2143;94aaf1232;6e44f9c21;fe9dda7c0",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/575",
+      "deployedSha": null,
+      "canonicalItem": null,
+      "branch": "fix/r162-practice-digest-cron-20260930",
+      "area": "accounting/practice",
+      "severity": "medium",
+      "title": "Practice daily-digest cron fails everywhere on companies.deleted_at, and fixing it wakes a cross-tenant client-name leak",
+      "affectedPaths": [
+        "pages/api/cron/practice/daily-reminders.ts"
+      ],
+      "sourceLabel": "R-073 fix (PR #571), 2026-09-29",
+      "claim": "runDailyDigest queries companies.deleted_at, which does not exist on the fixture or isaflow_dev, so the digest never sends. Its queryOverdueTasks joins practice_jobs.practice_client_id -> practice_clients with no company predicate and runs without withAuth/RLS, so once the cron works a job pointing at another company's client prints that client's legal_name in this company's email.",
+      "severityRationale": "Feature silently dead today; the latent leak is cross-tenant disclosure once the cron is fixed. R-073 closed the write that could plant such a job.",
+      "historicalDataImpact": "No digests sent (if prod matches dev). Prod not checked.",
+      "processNotes": "2026-09-29: Measured by the R-073 fixer on the fixture (leak shown with a re-pointed job). Fix both together: the column reference and a company predicate on the practice_clients join.\n\n2026-09-30: REPRODUCED on 7c49109f5: the cron 500s on companies.deleted_at; with only that patched, company A's digest showed \"SECRET CLIENT B\"/\"SECRET JOB B\". Fix (#575): active company = companyMembership.ts standing (status not suspended/deleted, suspended_at NULL); company predicates on the job and client joins; recipients in good standing per isActiveUserAccount; ::TEXT casts on user-id matches (a non-UUID dev user id aborted that user's digest). Hein, 2026-09-30: (1) fix both the dead cron and the leak; (2) the missing-timesheet nag goes ONLY to members with a non-draft practice time entry in that company in the last 30 days and none for yesterday; overdue-task mail to assignees only; (3) the cron stays UNSCHEDULED (no timer, crontab or cron.d entry calls it on prod; CRON_SECRET is set) - scheduling is a separate decision for Hein. Dev dry-run (mailer mocked, read-only): 17 recipients before the rule, 0 after. Mutations: 12 predicate guards + 5 rule guards red. Tests mock sendEmail at module scope and are assertDisposable-gated. Blind review SHIP r1, re-confirmed after three master merges. Not deployed. Follow-ups: the recurring-task and monthly-report crons use the same companies.deleted_at (registered separately); recipientsNotified counts failed sends as notified.",
+      "reportedSeverity": "medium"
+    },
+    {
+      "id": "R-163",
+      "sourceIds": [
+        "R-073"
+      ],
+      "correctedTrigger": null,
+      "auditedSha": "7c49109f5",
+      "currentSha": "2262c2e80",
+      "status": "fixed",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/practice-client-group-fence.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-161/fix.md"
+      ],
+      "fixCommit": "15748a492;2ec01e28f;2e4b04873;227c43ceb",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/580",
+      "deployedSha": null,
+      "canonicalItem": null,
+      "branch": "fix/r161-r163-practice-fences-20260930",
+      "area": "accounting/practice",
+      "severity": "low",
+      "title": "Rate-overrides route's local client fence is not savepointed: a malformed client id returns 500",
+      "affectedPaths": [
+        "pages/api/accounting/practice/clients/[id]/rate-overrides.ts"
+      ],
+      "sourceLabel": "R-073 fix (PR #571), 2026-09-29",
+      "claim": "assertClientBelongsToCompany in the rate-overrides route reads without a savepoint, so a malformed id (22P02) aborts the transaction and returns 500 instead of 400.",
+      "severityRationale": "Wrong status code on bad input; no data effect.",
+      "historicalDataImpact": "None.",
+      "processNotes": "2026-09-29: Noted by the R-073 fixer; could reuse practiceClientFence.assertPracticeClientInCompany.\n\n2026-09-30: REPRODUCED on 7c49109f5: rate-overrides answered a malformed client id with 500. Fix (#580): isUuidParam gives 400 for a malformed id, then assertPracticeClientInCompany (R-073 fence) replaces the unsavepointed local check; foreign/unknown client still 404, own unchanged. 11 mutations red (the savepoint mutation needed an in-transaction test; the company predicate only fails in a fence test outside RLS). Blind review SHIP r1 (no findings), re-confirmed on the master merge. Not deployed.",
+      "reportedSeverity": "low"
+    },
+    {
+      "id": "R-164",
+      "sourceIds": [
+        "R-123"
+      ],
+      "correctedTrigger": null,
+      "auditedSha": "7c49109f5",
+      "currentSha": "8c903c716",
+      "status": "fixed",
+      "dependencies": [],
+      "testNames": [
+        "tests/unit/components/clientRateOverridesLoadErrors.test.tsx"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-164/fix.md",
+        "docs/audits/remediation/R-164/before-no-rate-overrides-yet.png",
+        "docs/audits/remediation/R-164/after-error-shown.png"
+      ],
+      "fixCommit": "fafa94ff8;9e2dad81b;0933c5f4e;53c79a742;3714d7c76;250ed5ff7",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/578",
+      "deployedSha": null,
+      "canonicalItem": null,
+      "branch": "fix/r164-rate-overrides-load-errors-20260930",
+      "area": "accounting/practice",
+      "severity": "low",
+      "title": "ClientRateOverrides.tsx shows a failed load as \"No rate overrides yet\"",
+      "affectedPaths": [
+        "src/components/practice/ClientRateOverrides.tsx"
+      ],
+      "sourceLabel": "R-123 fix (PR #569), 2026-09-29",
+      "claim": "loadData ignores non-ok responses, so a 500 from the overrides or staff API renders as an empty list or empty dropdown. That is why R-123 was invisible in the UI.",
+      "severityRationale": "Hides server errors from users; no data effect.",
+      "historicalDataImpact": "None.",
+      "processNotes": "2026-09-29: Noted by the R-123 fixer (memory: ?? [] hides errors). Check res.ok and show an error state.\n\n2026-09-30: REPRODUCED on dev (Brightsphere, reporting-qa): the overrides API 500s (dev lacks R-121's 625b/626/699) and the screen said \"No rate overrides yet\". Master's loadData checked res.ok with no else; handleDelete checked nothing. Fix (#578): loadData and handleDelete use assertOk/apiErrorMessage; the empty-state copy is suppressed when the load failed. Sibling practice components checked: none share the flaw. act() component tests: 3 of 4 red on master (the 200 path was never broken); 4 mutations red. Blind review r1 1 LOW (fix.md misdescribed master's RED as a crash; it is a findByText timeout), fixed; r2 SHIP; master merges re-confirmed. Browser before/after screenshots. Not deployed.",
+      "reportedSeverity": "low"
+    },
+    {
+      "id": "R-165",
+      "sourceIds": [
+        "R-123"
+      ],
+      "correctedTrigger": null,
+      "auditedSha": "7c49109f5",
+      "currentSha": "133cc9c19",
+      "status": "fixed",
+      "dependencies": [],
+      "testNames": [
+        "tests/unit/mcp/w2/generalLedgerStream.integration.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-165/fix.md",
+        "docs/audits/remediation/R-165/mutations.log"
+      ],
+      "fixCommit": "6fa7c3d2e;6126f7e94;1ece0869d;8d2006731",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/581",
+      "deployedSha": null,
+      "canonicalItem": null,
+      "branch": "fix/r165-gl-stream-flake-20260930",
+      "area": "tests",
+      "severity": "low",
+      "title": "generalLedgerStream.integration.test.ts reads isaflow_dev and flakes under concurrent dev writes",
+      "affectedPaths": [
+        "tests/unit/mcp/w2/generalLedgerStream.integration.test.ts"
+      ],
+      "sourceLabel": "R-123 push, 2026-09-29",
+      "claim": "\"gives the same runningBalance at any page size\" failed once in a pre-push run (expected -698619.48 to be close to -698504.48, diff 115) and passed on retry; it reads the shared dev DB, which peers write to during the run.",
+      "severityRationale": "A flaky gate test blocks pushes; no product defect claimed.",
+      "historicalDataImpact": "None.",
+      "processNotes": "2026-09-29: Seen once by the R-123 fixer. Likely a concurrent write between the two page-size reads; pin both reads to one snapshot (REPEATABLE READ) or a disposable fixture.\n\n2026-09-30: Cause: withBusiestCompany opened plain BEGIN (READ COMMITTED), so a peer commit between two reads was seen by the later one only. Fix (#581, test-only): BEGIN ISOLATION LEVEL REPEATABLE READ; every read runs on the one ALS client in that snapshot. Deterministic regression test (a concurrent committed posted line mid-read) on a disposable fixture; plain BEGIN -> RED 3/3 (\"expected 762 to be 760\"), fix -> GREEN 10/10. INCIDENT: the first gated CI run executed the new write test against isaflow_dev (env -u DATABASE_URL does not isolate ANY vitest file: vite loadEnv re-reads .env.local); it committed one balanced posted journal (2 lines) and deleted it in its own finally. The orchestrator verified isaflow_dev clean read-only (no R-165 journal, no orphan lines, no audit_log rows). Guard now a positive allowlist (localhost/127.0.0.1 AND database exactly isaflow_schema_fixture) in one function used by the skip and by both write helpers; cleanup verifies zero rows remain. Blind review r1 FIX (2 M, 4 L incl. the denylist letting isaflow_staging through), all fixed; r2 SHIP; master merges re-confirmed.",
+      "reportedSeverity": "low"
+    },
+    {
+      "id": "R-168",
+      "sourceIds": [
+        "R-162"
+      ],
+      "correctedTrigger": null,
+      "auditedSha": "7c49109f5",
+      "currentSha": "7c49109f5",
       "status": "candidate",
       "dependencies": [],
       "testNames": [],
@@ -14198,25 +14347,56 @@
       "branch": null,
       "area": "accounting/practice",
       "severity": "medium",
-      "title": "Practice daily-digest cron fails everywhere on companies.deleted_at, and fixing it wakes a cross-tenant client-name leak",
+      "title": "Practice recurring-task and monthly-report crons fail on companies.deleted_at (R-162 siblings)",
       "affectedPaths": [
-        "pages/api/cron/practice/daily-reminders.ts"
+        "src/modules/accounting/services/practice/practiceRecurringTaskService.ts",
+        "src/modules/accounting/services/practice/practiceMonthlyReportService.ts"
       ],
-      "sourceLabel": "R-073 fix (PR #571), 2026-09-29",
-      "claim": "runDailyDigest queries companies.deleted_at, which does not exist on the fixture or isaflow_dev, so the digest never sends. Its queryOverdueTasks joins practice_jobs.practice_client_id -> practice_clients with no company predicate and runs without withAuth/RLS, so once the cron works a job pointing at another company's client prints that client's legal_name in this company's email.",
-      "severityRationale": "Feature silently dead today; the latent leak is cross-tenant disclosure once the cron is fixed. R-073 closed the write that could plant such a job.",
-      "historicalDataImpact": "No digests sent (if prod matches dev). Prod not checked.",
-      "processNotes": "2026-09-29: Measured by the R-073 fixer on the fixture (leak shown with a re-pointed job). Fix both together: the column reference and a company predicate on the practice_clients join.",
+      "sourceLabel": "R-162 fix (PR #575), 2026-09-30",
+      "claim": "Both services select companies WHERE deleted_at IS NULL; companies has no deleted_at column (soft delete sets status = 'deleted'), so both crons fail on their first query everywhere. Neither is scheduled on prod.",
+      "severityRationale": "Features silently dead; they run without withAuth/RLS, so every join needs a company predicate when revived (R-162 found a cross-tenant leak in its sibling).",
+      "historicalDataImpact": "None written (the crons never ran).",
+      "processNotes": "2026-09-30: Found by the R-162 fixer; not fixed. Fix as R-162 did: companyMembership.ts standing, company predicates on every join, recipients in good standing, and a Hein decision on scheduling.",
       "reportedSeverity": "medium"
     },
     {
-      "id": "R-163",
+      "id": "R-169",
       "sourceIds": [
-        "R-073"
+        "R-160"
       ],
       "correctedTrigger": null,
-      "auditedSha": "3e4728e98",
-      "currentSha": "3e4728e98",
+      "auditedSha": "7c49109f5",
+      "currentSha": "7c49109f5",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "branch": null,
+      "area": "ap",
+      "severity": "low",
+      "title": "ai-invoice-pipeline leaves the capture event extracted and records no GL account in supplier coding history",
+      "affectedPaths": [
+        "pages/api/accounting/ai-invoice-pipeline.ts"
+      ],
+      "sourceLabel": "R-160 fix (PR #579), 2026-09-30",
+      "claim": "After posting, the pipeline never marks the document's capture_events row posted, so the inbox shows it as extracted; and recordCoding stores glAccountId null for pipeline bills, so coding suggestions do not learn from them.",
+      "severityRationale": "Inbox noise and weaker suggestions; no ledger effect.",
+      "historicalDataImpact": "Stale inbox rows; none financial.",
+      "processNotes": "2026-09-30: Noted by the R-160 fixer; not fixed.",
+      "reportedSeverity": "low"
+    },
+    {
+      "id": "R-170",
+      "sourceIds": [
+        "R-161"
+      ],
+      "correctedTrigger": null,
+      "auditedSha": "7c49109f5",
+      "currentSha": "7c49109f5",
       "status": "candidate",
       "dependencies": [],
       "testNames": [],
@@ -14228,25 +14408,26 @@
       "branch": null,
       "area": "accounting/practice",
       "severity": "low",
-      "title": "Rate-overrides route's local client fence is not savepointed: a malformed client id returns 500",
+      "title": "Practice client routes return 500 for an empty-string group/customer id and for a malformed client id in the URL",
       "affectedPaths": [
-        "pages/api/accounting/practice/clients/[id]/rate-overrides.ts"
+        "src/modules/accounting/services/practice/practiceClientService.ts",
+        "pages/api/accounting/practice/clients/[id].ts"
       ],
-      "sourceLabel": "R-073 fix (PR #571), 2026-09-29",
-      "claim": "assertClientBelongsToCompany in the rate-overrides route reads without a savepoint, so a malformed id (22P02) aborts the transaction and returns 500 instead of 400.",
-      "severityRationale": "Wrong status code on bad input; no data effect.",
+      "sourceLabel": "R-161 fix (PR #580), 2026-09-30",
+      "claim": "'' as clientGroupId or linkCustomerId passes the fence as absent and then fails the ::UUID cast (500); updatePracticeClient with a malformed route id also 500s.",
+      "severityRationale": "Wrong status on bad input; no data effect.",
       "historicalDataImpact": "None.",
-      "processNotes": "2026-09-29: Noted by the R-073 fixer; could reuse practiceClientFence.assertPracticeClientInCompany.",
+      "processNotes": "2026-09-30: Noted by the R-161 fixer; not fixed. Normalise '' to null (or 400) before the fence; validate the route id with isUuidParam.",
       "reportedSeverity": "low"
     },
     {
-      "id": "R-164",
+      "id": "R-171",
       "sourceIds": [
-        "R-123"
+        "R-162"
       ],
       "correctedTrigger": null,
-      "auditedSha": "3e4728e98",
-      "currentSha": "3e4728e98",
+      "auditedSha": "7c49109f5",
+      "currentSha": "7c49109f5",
       "status": "candidate",
       "dependencies": [],
       "testNames": [],
@@ -14258,45 +14439,15 @@
       "branch": null,
       "area": "accounting/practice",
       "severity": "low",
-      "title": "ClientRateOverrides.tsx shows a failed load as \"No rate overrides yet\"",
+      "title": "Practice daily digest counts failed sends as notified",
       "affectedPaths": [
-        "src/components/practice/ClientRateOverrides.tsx"
+        "src/modules/accounting/services/practice/practiceNotificationService.ts"
       ],
-      "sourceLabel": "R-123 fix (PR #569), 2026-09-29",
-      "claim": "loadData ignores non-ok responses, so a 500 from the overrides or staff API renders as an empty list or empty dropdown. That is why R-123 was invisible in the UI.",
-      "severityRationale": "Hides server errors from users; no data effect.",
+      "sourceLabel": "R-162 fix (PR #575), 2026-09-30",
+      "claim": "runDailyDigest increments recipientsNotified whether or not sendEmail succeeded, so the cron response overstates delivery.",
+      "severityRationale": "Misleading operational metric; no data effect.",
       "historicalDataImpact": "None.",
-      "processNotes": "2026-09-29: Noted by the R-123 fixer (memory: ?? [] hides errors). Check res.ok and show an error state.",
-      "reportedSeverity": "low"
-    },
-    {
-      "id": "R-165",
-      "sourceIds": [
-        "R-123"
-      ],
-      "correctedTrigger": null,
-      "auditedSha": "3e4728e98",
-      "currentSha": "3e4728e98",
-      "status": "candidate",
-      "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
-      "canonicalItem": null,
-      "branch": null,
-      "area": "tests",
-      "severity": "low",
-      "title": "generalLedgerStream.integration.test.ts reads isaflow_dev and flakes under concurrent dev writes",
-      "affectedPaths": [
-        "tests/unit/mcp/w2/generalLedgerStream.integration.test.ts"
-      ],
-      "sourceLabel": "R-123 push, 2026-09-29",
-      "claim": "\"gives the same runningBalance at any page size\" failed once in a pre-push run (expected -698619.48 to be close to -698504.48, diff 115) and passed on retry; it reads the shared dev DB, which peers write to during the run.",
-      "severityRationale": "A flaky gate test blocks pushes; no product defect claimed.",
-      "historicalDataImpact": "None.",
-      "processNotes": "2026-09-29: Seen once by the R-123 fixer. Likely a concurrent write between the two page-size reads; pin both reads to one snapshot (REPEATABLE READ) or a disposable fixture.",
+      "processNotes": "2026-09-30: Noted by the R-162 fixer; pre-existing, not changed.",
       "reportedSeverity": "low"
     }
   ],
