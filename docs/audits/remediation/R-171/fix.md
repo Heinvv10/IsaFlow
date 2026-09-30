@@ -47,9 +47,9 @@ bad address) that didn't throw.
 
 | Where | Change |
 |---|---|
-| `DailyDigestResult` | Adds `recipientsFailed: number` (additive — `recipientsNotified`, `recipientsSkipped`, `errors` unchanged in name and shape) |
+| `DailyDigestResult` | Adds `recipientsFailed: number` (additive — `recipientsNotified`, `recipientsSkipped`, `errors` unchanged in name and shape). Doc comments on both fields now say exactly what each counts (see below). |
 | `runDailyDigest`, per-user send | `recipientsNotified++` only inside `if (emailResult.success)`; the `{ success: false }` branch does `recipientsFailed++` alongside the existing `errors.push` |
-| `runDailyDigest`, per-user catch (throw) | Also does `recipientsFailed++` alongside the existing `errors.push` — a thrown send is a failed send too, and was already correctly excluded from `recipientsNotified` |
+| `runDailyDigest`, per-user send `catch` (throw) | Also does `recipientsFailed++` alongside the existing `errors.push` — a thrown send is a failed send too, and was already correctly excluded from `recipientsNotified` |
 | `runDailyDigest`, "Daily digest complete" log | Includes `recipientsFailed` alongside the existing fields |
 
 The `log.info('Practice digest sent', …)` line moved inside the success branch too — it
@@ -60,13 +60,50 @@ unchanged; no route or consumer change needed. Nothing else reads `DailyDigestRe
 only the route and the two test files). `practiceMonthlyReportService.ts` already counts only
 successes and was NOT touched — that cron belongs to R-168.
 
+### Review round 1 (blind, 2 findings — both fixed in a follow-up commit)
+
+**LOW — a pre-send query error was counted as a failed SEND.** The per-user `try` wrapped
+`queryOverdueTasks`, `isTimesheetMissing` AND `sendEmail` together, so a query error before any
+send was ever attempted also did `recipientsFailed++` — the same misleading-count class this
+item exists to fix, just one layer up. Fixed by splitting the per-user loop into two `try` blocks:
+the first covers the two queries and `continue`s to the next user on error (pushes to `errors`,
+does NOT touch `recipientsFailed`/`recipientsNotified`); the second wraps only `sendEmail` and is
+the sole place either counter moves. `DailyDigestResult`'s field comments now say this explicitly:
+`recipientsFailed` counts a `sendEmail` call that resolved `{ success: false }` or threw — nothing
+upstream of the send. Test: `tests/unit/services/practice/practiceNotificationService.test.ts` —
+"a query error before any send lands in errors but is not a failed send (R-171 review LOW)"
+(`sqlMock.mockRejectedValueOnce` on the overdue-tasks query; asserts `sendEmail` was never called,
+`recipientsFailed` is `0`, and the query error is the sole `errors` entry).
+
+**HIGH — the integration test asserted exact GLOBAL counts, which races under default file
+parallelism.** `recipientsNotified`/`recipientsFailed` are totals over EVERY active company
+(`loadActiveCompanies` has no filter), and `tests/integration/**` runs with vitest's default file
+parallelism — proven to flake when r162's suite (which also emails through this cron) is present
+in the same DB at the same instant (`expected 6 to be 1`, then `expected 3 to be 1` on a retry —
+see the concurrency note below, which predates this fix and is now stale for the count assertion
+specifically, though the underlying cron-scans-everything fact it documents still holds and still
+governs the OTHER checks in this file). Fixed by deriving the EXPECTED counts from this same
+invocation's own `sendEmail` mock outcomes instead of a hardcoded number: the mock is now scripted
+to succeed for anyone it doesn't specifically fail/throw for (so it also "handles" any other
+company's qualifying recipient the same run processes), and every call pushes its classification
+(`'success' | 'fail' | 'throw'`) onto an `outcomes` array, cleared immediately before the one
+invocation under test. `expectedNotified`/`expectedFailed` are then `outcomes.filter(...)`.length,
+and the assertion is `data.recipientsNotified === expectedNotified` (not `=== 1`). This holds
+exactly regardless of how many OTHER companies/users the same cron run also touches, because every
+one of them is intercepted by this file's own `sendEmailMock` (the only `sendEmail` this module
+graph has) and classified the same way the counter itself must classify it. Proven: 6 back-to-back
+runs of `r171 + r162` together with vitest's DEFAULT parallelism (no `--no-file-parallelism`) all
+passed `24/24`. The mutation (reverting the notified/failed split) still turns the exact named
+integration test red (`expected 2 to be 1`) — this assertion is derived, not weakened.
+
 ## Tests
 
 `tests/integration/r171-practice-digest-counts.int.test.ts` (4 tests, real PG, through the route
-handler, fixture `isaflow-fixture-r171-goal` cloned from `isaflow-fixture-r159`):
+handler, fixture cloned from `isaflow-fixture-r159`):
 
 - runs to completion: 200
-- `recipientsNotified` counts only the successful send, not the soft failure or the throw (`1`/`2`)
+- `recipientsNotified`/`recipientsFailed` exactly match this run's own `sendEmail` outcomes
+  (derived, not hardcoded — see the HIGH fix above)
 - both the soft failure and the throw land in `errors` with `companyId`/`userId`
 - the successful send was actually captured (mocked, never really sent); the throwing recipient
   is never recorded as sent
@@ -83,28 +120,28 @@ bunx vitest run --config vitest.integration.config.ts tests/integration/r171-pra
 `tests/integration/r162-practice-daily-digest.int.test.ts` re-run against this branch: still
 `Tests 20 passed (20)`.
 
-**Concurrency note (important for anyone running the full local integration suite).** The digest
+**Concurrency: fixed for the count assertion, still true as a fact about the cron.** The digest
 cron has no company filter — `loadActiveCompanies` scans every active company — so
-`recipientsNotified`/`recipientsFailed` on the response are GLOBAL totals across the whole fixture,
-not scoped to this test's own company. Vitest runs test FILES in parallel by default
-(`vitest.integration.config.ts` sets no `fileParallelism: false`), and this file and R-162's both
-drive the same cron against the same real Postgres fixture. Proven directly: running the two files
-together with default parallelism failed intermittently (`expected 6 to be 1`, `expected 3 to be
-1` — the exact count depends on how much of the sibling suite's fixture data existed at the
-instant this test's own cron call ran), while three repeats with `--no-file-parallelism` passed
-`24/24` every time. Same class of hazard as
-`feedback_controls_integration_deadlocks_in_parallel.md` (memory). **Run this file alone, or with
-`--no-file-parallelism`, alongside r162 or any other suite that also emails through this cron.**
-R-162 itself never hit this because it only asserts company-scoped digest content
-(`digestTo`/`mine`), never the raw global counters — this test's whole point is the counters
-themselves, so it can't dodge the hazard the same way.
+`recipientsNotified`/`recipientsFailed` on the response are GLOBAL totals across the whole
+fixture, including whatever other suite's rows exist in the same real Postgres DB at the same
+instant under vitest's default file parallelism (`vitest.integration.config.ts` sets no
+`fileParallelism: false`). That's still true and is why the per-company/per-error checks in this
+file filter by `companyId`. What changed after review round 1: the COUNT assertion no longer
+depends on isolation to be correct (see the HIGH fix above) — **6 back-to-back runs of
+`r171 + r162` together, with vitest's DEFAULT parallelism (no `--no-file-parallelism`), all
+passed `24/24`**. `--no-file-parallelism` is no longer required for this file; it was only ever a
+workaround for the hardcoded-count version. Same underlying hazard class as
+`feedback_controls_integration_deadlocks_in_parallel.md` (memory) — the fix here is deriving the
+expectation from the same run's own evidence, not avoiding the hazard by serialising.
 
-Unit tests: `tests/unit/services/practice/practiceNotificationService.test.ts` — updated the
-existing per-user-failure case to assert `recipientsNotified: 0` / `recipientsFailed: 1` (was
-previously only checking `errors`), added a new case for a thrown send
-(`recipientsNotified: 0` / `recipientsFailed: 1`), and added `recipientsFailed: 0` to the
-"returns zeros when no companies exist" exact-equality case. `bunx vitest run
-tests/unit/services/practice/practiceNotificationService.test.ts` → `Tests 9 passed (9)`.
+Unit tests: `tests/unit/services/practice/practiceNotificationService.test.ts` (10 tests) —
+updated the existing per-user-failure case to assert `recipientsNotified: 0` / `recipientsFailed: 1`
+(was previously only checking `errors`), added a case for a thrown send
+(`recipientsNotified: 0` / `recipientsFailed: 1`), added `recipientsFailed: 0` to the
+"returns zeros when no companies exist" exact-equality case, and added the LOW fix's case (a
+pre-send query error: `sendEmail` never called, `recipientsFailed: 0`, one `errors` entry). `bunx
+vitest run tests/unit/services/practice/practiceNotificationService.test.ts` → `Tests 10 passed
+(10)` (246/246 across the whole `tests/unit/services/practice/` directory).
 
 ## Mutation table
 
@@ -113,9 +150,10 @@ from a backup copy.
 
 | Guard removed | Test that went RED | Assertion |
 |---|---|---|
-| `recipientsNotified++` moved back outside the `if (emailResult.success)` branch (the original bug) | integration: "recipientsNotified counts only the successful send, not the soft failure or the throw" | `expected 2 to be 1` |
+| `recipientsNotified++` moved back outside the `if (emailResult.success)` branch (the original bug) | integration: "recipientsNotified/recipientsFailed exactly match this run's own sendEmail outcomes" | `expected 2 to be 1` |
 | same mutation | unit: "continues processing on per-user email failure, and does not count it as notified" | `expected 1 to be +0` |
-| `result.recipientsFailed++` removed from the `catch` block (throw path) | unit: "a send that throws is counted as failed, not notified (R-171)" | `expected +0 to be 1` |
+| `result.recipientsFailed++` removed from the send `catch` block (throw path) | unit: "a send that throws is counted as failed, not notified (R-171)" | `expected +0 to be 1` |
+| pre-send `catch` (query error) restored to also do `result.recipientsFailed++` (undoing the LOW fix's split) | unit: "a query error before any send lands in errors but is not a failed send (R-171 review LOW)" | `expected 1 to be +0` |
 
 ## Dev verification (read-only, no email sent)
 
