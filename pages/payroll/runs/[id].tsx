@@ -7,8 +7,10 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
-import { formatCurrency } from '@/utils/formatters';
-import { CalendarDays, ArrowLeft, Loader2, AlertCircle, Calculator, CheckCircle2, Lock, Unlock, GitCompare, AlertTriangle } from 'lucide-react';
+import { CalendarDays, ArrowLeft, Loader2, AlertCircle, Calculator, CheckCircle2, Lock, Unlock, GitCompare, BookOpen, ShieldCheck } from 'lucide-react';
+import { PayrollApproveDialog, type ApproveResult } from '@/components/payroll/PayrollApproveDialog';
+import { PayrollRunWarnings, type RunLineWarning } from '@/components/payroll/PayrollRunWarnings';
+import { PayrollRunLinesTable, PayrollRunTotals } from '@/components/payroll/PayrollRunLinesTable';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -25,15 +27,7 @@ interface Line {
   sdl: number;
   eti: number;
   netPay: number;
-  validationResults?: LineWarning[];
-}
-
-interface LineWarning {
-  code: string;
-  severity: 'error' | 'warning' | 'info';
-  message: string;
-  field?: string;
-  deepLink?: string;
+  validationResults?: RunLineWarning[];
 }
 
 interface RunDetail {
@@ -48,6 +42,7 @@ interface RunDetail {
   totalEti: number;
   totalNet: number;
   employeeCount: number;
+  journalEntryId: string | null;
   lines: Line[];
 }
 
@@ -79,6 +74,8 @@ export default function PayrollRunDetailPage() {
   const [error, setError] = useState('');
   const [calculating, setCalculating] = useState(false);
   const [reopening, setReopening] = useState(false);
+  const [approveOpen, setApproveOpen] = useState(false);
+  const [approvedNow, setApprovedNow] = useState(false);
 
   const load = useCallback(async () => {
     if (!runId) return;
@@ -114,6 +111,13 @@ export default function PayrollRunDetailPage() {
     } finally {
       setCalculating(false);
     }
+  };
+
+  const onApproved = (result: ApproveResult) => {
+    setApproveOpen(false);
+    setApprovedNow(true);
+    setRun((prev) => (prev ? { ...prev, status: result.status, journalEntryId: result.journalEntryId } : prev));
+    void load();
   };
 
   const reopen = async () => {
@@ -168,20 +172,16 @@ export default function PayrollRunDetailPage() {
   }
   if (!run) return null;
 
-  // Every line's warnings, de-duplicated by message so a company-wide gap (all
-  // employees missing a date of birth) does not print eleven identical rows.
-  const warnings: LineWarning[] = Array.from(
-    new Map(
-      run.lines
-        .flatMap((l) => l.validationResults ?? [])
-        .map((w) => [w.message, w] as const),
-    ).values(),
-  );
+  const warningCount = run.lines.reduce((n, l) => n + (l.validationResults?.length ?? 0), 0);
 
   const period = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}`;
   const locked = isLocked(run.status);
   const canCalculate = !locked && (run.status === 'draft' || run.status === 'calculated');
   const canReopen = run.status === 'approved';
+  // approvePayrollRun's own states; an approved run without its journal was
+  // stranded before K-079 and re-approving it posts the journal.
+  const canApprove = run.status === 'calculated' || run.status === 'processed'
+    || (run.status === 'approved' && !run.journalEntryId);
 
   return (
     <AppLayout>
@@ -201,6 +201,13 @@ export default function PayrollRunDetailPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {run.journalEntryId && (
+                <Link href={`/accounting/journal-entries/${run.journalEntryId}`}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] text-sm font-medium"
+                  title="The GL journal this run posted at approval">
+                  <BookOpen className="h-4 w-4" /> View journal
+                </Link>
+              )}
               <Link href={`/payroll/runs/${runId}/variance`}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] text-sm font-medium"
                 title="Compare to the prior run — spot ≥20% swings before approving">
@@ -230,6 +237,13 @@ export default function PayrollRunDetailPage() {
                 {calculating ? <Loader2 className="h-4 w-4 animate-spin" /> : locked ? <Lock className="h-4 w-4" /> : <Calculator className="h-4 w-4" />}
                 {locked ? 'Locked' : run.status === 'draft' ? 'Calculate' : 'Recalculate'}
               </button>
+              {canApprove && (
+                <button onClick={() => setApproveOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium"
+                  title="Review the journal this run will post, then approve it">
+                  <ShieldCheck className="h-4 w-4" /> Review &amp; approve
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -238,47 +252,16 @@ export default function PayrollRunDetailPage() {
           {error && (
             <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
           )}
-
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-            {[
-              { label: 'Employees', value: String(run.employeeCount), mono: false, accent: false },
-              { label: 'Total Gross', value: formatCurrency(run.totalGross), mono: true, accent: false },
-              { label: 'Total PAYE', value: formatCurrency(run.totalPaye), mono: true, accent: false },
-              { label: 'Total UIF', value: formatCurrency(run.totalUif), mono: true, accent: false },
-              { label: 'Total SDL', value: formatCurrency(run.totalSdl), mono: true, accent: false },
-              { label: 'Total Net', value: formatCurrency(run.totalNet), mono: true, accent: true },
-            ].map(stat => (
-              <div key={stat.label} className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-3">
-                <p className="text-[10px] uppercase tracking-wide text-[var(--ff-text-tertiary)]">{stat.label}</p>
-                <p className={`mt-1 ${stat.mono ? 'font-mono' : ''} ${stat.accent ? 'text-teal-400' : 'text-[var(--ff-text-primary)]'} text-sm font-semibold`}>
-                  {stat.value}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {warnings.length > 0 && (
-            <section className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <AlertTriangle className="h-4 w-4 text-amber-400" />
-                <h2 className="text-sm font-semibold text-amber-300">
-                  {warnings.length} warning{warnings.length === 1 ? '' : 's'} on this run
-                </h2>
-              </div>
-              <ul className="space-y-1">
-                {warnings.map((w, i) => (
-                  <li key={`${w.code}-${i}`} className="text-xs text-[var(--ff-text-secondary)]">
-                    {w.deepLink
-                      ? <Link href={w.deepLink} className="hover:text-amber-300 underline decoration-dotted">{w.message}</Link>
-                      : w.message}
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-xs text-[var(--ff-text-tertiary)]">
-                These do not block the run — payroll can still be approved and paid.
-              </p>
-            </section>
+          {approvedNow && (
+            <div className="px-4 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm">
+              Payroll approved and journal posted. Next: declare it on the{' '}
+              <Link href="/accounting/sars/emp201" className="underline">EMP201</Link>.
+            </div>
           )}
+
+          <PayrollRunTotals run={run} lines={run.lines} />
+
+          <PayrollRunWarnings lines={run.lines} />
 
           <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] overflow-hidden">
             <div className="px-4 py-3 border-b border-[var(--ff-border-primary)] flex items-center justify-between">
@@ -294,40 +277,13 @@ export default function PayrollRunDetailPage() {
                 No lines yet — press <span className="text-teal-400 font-medium">Calculate</span> to generate payroll for this period.
               </div>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-[var(--ff-bg-secondary)] text-left">
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium">Emp #</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium">Name</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium text-right">Gross</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium text-right">PAYE</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium text-right">UIF (E)</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium text-right">UIF (R)</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium text-right">SDL</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium text-right">ETI</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium text-right">Net</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {run.lines.map(l => (
-                    <tr key={l.id} className="border-t border-[var(--ff-border-primary)]">
-                      <td className="py-2 px-4 font-mono text-xs text-[var(--ff-text-secondary)]">{l.employeeNumber}</td>
-                      <td className="py-2 px-4 text-[var(--ff-text-primary)]">{l.employeeName}</td>
-                      <td className="py-2 px-4 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(l.grossPay)}</td>
-                      <td className="py-2 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(l.paye)}</td>
-                      <td className="py-2 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(l.uifEmployee)}</td>
-                      <td className="py-2 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(l.uifEmployer)}</td>
-                      <td className="py-2 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(l.sdl)}</td>
-                      <td className="py-2 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(l.eti)}</td>
-                      <td className="py-2 px-4 text-right font-mono text-teal-400 font-medium">{formatCurrency(l.netPay)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto"><PayrollRunLinesTable lines={run.lines} /></div>
             )}
           </section>
         </div>
       </div>
+      <PayrollApproveDialog runId={runId} period={period} warningCount={warningCount}
+        open={approveOpen} onClose={() => setApproveOpen(false)} onApproved={onApproved} />
     </AppLayout>
   );
 }
