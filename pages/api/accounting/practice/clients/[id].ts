@@ -13,6 +13,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { ClientGroupNotInCompanyError } from '@/modules/accounting/services/practice/practiceClientFence';
+import { isUuidParam } from '@/lib/validation';
 import {
   getPracticeClient,
   updatePracticeClient,
@@ -22,6 +23,9 @@ import {
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const id = req.query.id as string;
+  // R-170: an unguarded id reached the ::UUID cast in the first read on every
+  // method here, none of it savepointed — a malformed id 500'd instead of 400.
+  if (!isUuidParam(id)) return apiResponse.badRequest(res, 'Invalid client ID');
 
   if (req.method === 'GET') {
     const client = await getPracticeClient(companyId, id);
