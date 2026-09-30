@@ -1,7 +1,10 @@
-# GREEN on e05ab2728, fixture clone at 716 (2026-09-30T02:47:16Z).
+# GREEN on 27729e49d (review round 2), fixture clone at 716 (2026-09-30T03:08:41Z).
 ## r159-auth-wrapper-throw-responds
  Test Files  1 passed (1)
-      Tests  34 passed (34)
+      Tests  44 passed (44)
+## r159-invitation-revoke-throw-responds
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
 ## r157-payment-link-throw-responds
  Test Files  1 passed (1)
       Tests  6 passed (6)
@@ -14,6 +17,6 @@
 ## k101-portal-routes-use-active-company
  Test Files  1 passed (1)
       Tests  24 passed (24)
-## unit (env -u DATABASE_URL): the changed/added suites
- Test Files  7 passed (7)
-      Tests  45 passed (45)
+## unit (env -u DATABASE_URL): the changed and wrapper suites
+ Test Files  10 passed (10)
+      Tests  65 passed (65)
