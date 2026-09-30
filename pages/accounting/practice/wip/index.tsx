@@ -10,7 +10,8 @@ import { Loader2, AlertCircle, ChevronDown, ChevronRight, FileText } from 'lucid
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { WipClientRow, GenerateWipInvoiceInput } from '@/modules/accounting/services/practice/practiceWipService';
 
-function todayIso() { return new Date().toISOString().slice(0, 10); }
+import { localISODate } from '@/lib/dateUtils';
+function todayIso() { return localISODate(); }
 function fmtMoney(n: number) { return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n); }
 function fmtDate(iso: string) { return iso ? new Date(iso).toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'; }
 

@@ -15,6 +15,7 @@ import {
 } from '@/components/accounting/recurring-transactions/RecurringModal';
 import type { RecurringTemplate } from '@/modules/accounting/services/core/recurringTransactionService';
 
+import { localISODate } from '@/lib/dateUtils';
 const BTN_PRIMARY = 'inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium';
 const BTN_GHOST = 'inline-flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] rounded-lg hover:bg-[var(--ff-bg-primary)] transition-colors';
 
@@ -22,7 +23,7 @@ type ExecResult = { entityType: string; entityId: string; posted: boolean } | 'e
 
 const DEFAULT_FORM: TemplateFormState = {
   name: '', entityType: 'journal_entry', frequency: 'monthly',
-  nextRunDate: new Date().toISOString().split('T')[0]!,
+  nextRunDate: localISODate(),
   isActive: true, autoPost: false, templateData: '{}',
 };
 
@@ -66,7 +67,7 @@ export default function RecurringTransactionsPage() {
     setEditId(t.id);
     setForm({
       name: t.name, entityType: t.entityType, frequency: t.frequency,
-      nextRunDate: t.nextRunDate ?? new Date().toISOString().split('T')[0]!,
+      nextRunDate: t.nextRunDate ?? localISODate(),
       isActive: t.isActive, autoPost: t.autoPost,
       templateData: JSON.stringify(t.templateData, null, 2),
     });

@@ -12,6 +12,7 @@ import { CreateYearModal } from '@/components/accounting/fiscal-periods/CreateYe
 import { BulkConfirmModal, type BulkAction } from '@/components/accounting/fiscal-periods/BulkConfirmModal';
 import { statusIcon, statusBadge } from '@/components/accounting/fiscal-periods/statusVisuals';
 
+import { localISODate } from '@/lib/dateUtils';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 export function FiscalPeriodsTab() {
@@ -208,7 +209,7 @@ export function FiscalPeriodsTab() {
               {periods.map(period => {
                 // String compare on YYYY-MM-DD avoids the UTC-midnight TZ skew
                 // that would mis-flag a today-starting period as "Future" before 02:00 SAST.
-                const isFuture = String(period.startDate).slice(0, 10) > new Date().toISOString().slice(0, 10);
+                const isFuture = String(period.startDate).slice(0, 10) > localISODate();
                 return (
                 <tr
                   key={period.id}

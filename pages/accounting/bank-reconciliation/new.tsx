@@ -11,6 +11,7 @@ import { ArrowLeft, Landmark, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { BankAccountSelector } from '@/components/accounting/bank/BankAccountSelector';
 
+import { localISODate } from '@/lib/dateUtils';
 export default function NewReconciliationPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -18,7 +19,7 @@ export default function NewReconciliationPage() {
 
   const [form, setForm] = useState({
     bankAccountId: '',
-    statementDate: new Date().toISOString().split('T')[0],
+    statementDate: localISODate(),
     statementBalance: 0,
   });
 

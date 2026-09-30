@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { apiFetch } from '@/lib/apiFetch';
 import { queryText, reportHref } from './reportReturnState';
 
+import { localISODate } from '@/lib/dateUtils';
 export function useBalanceSheetFilters() {
   const router = useRouter();
   const queryKey = reportHref('bs', router.query);
@@ -17,7 +18,7 @@ export function useBalanceSheetFilters() {
     let cancelled = false;
     const query = Object.fromEntries(new URL(queryKey, 'https://report.invalid').searchParams);
     const date = queryText(query, 'as_at_date');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISODate();
     setCostCentreId(queryText(query, 'cost_centre_id'));
     setBusinessUnitId(queryText(query, 'business_unit_id'));
     if (date) { setAsAtDate(date); setResolvedKey(queryKey); return; }

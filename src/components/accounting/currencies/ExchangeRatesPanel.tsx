@@ -10,6 +10,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { Currency, ExchangeRate } from '@/modules/accounting/services/core/currencyService';
 
+import { localISODate } from '@/lib/dateUtils';
 interface Props {
   currencies: Currency[];
   exchangeRates: ExchangeRate[];
@@ -31,7 +32,7 @@ interface ConvertForm {
 
 // 🟢 WORKING: Exchange rate management with set-rate form, history table, and quick converter
 export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Props) {
-  const today = new Date().toISOString().split('T')[0]!;
+  const today = localISODate();
 
   const defaultFrom = currencies.find(c => c.code !== 'ZAR')?.code || '';
   const defaultTo = currencies[0]?.code || 'ZAR';

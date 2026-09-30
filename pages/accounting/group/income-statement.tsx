@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { BarChart3, Loader2, AlertCircle, Download, Building2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
+import { localISODate } from '@/lib/dateUtils';
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
@@ -55,7 +56,7 @@ const fmt = (n: number) =>
 
 const today = new Date();
 const defaultPeriodStart = `${today.getFullYear()}-01-01`;
-const defaultPeriodEnd = today.toISOString().substring(0, 10);
+const defaultPeriodEnd = localISODate(today);
 
 const selectClass =
   'px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm';

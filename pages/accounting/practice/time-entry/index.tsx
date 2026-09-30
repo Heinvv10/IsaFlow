@@ -15,11 +15,12 @@ import { BulkRangeModal } from '@/components/practice/BulkRangeModal';
 import type { PracticeTimeEntry, PracticeTimeEntryInput } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
 import type { BulkFromTemplateResult } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 
+import { localISODate } from '@/lib/dateUtils';
 // ---------- helpers ----------
 
-function todayIso() { return new Date().toISOString().slice(0, 10); }
+function todayIso() { return localISODate(); }
 function offsetDate(iso: string, d: number): string {
-  const dt = new Date(iso); dt.setDate(dt.getDate() + d); return dt.toISOString().slice(0, 10);
+  const dt = new Date(`${iso}T00:00:00`); dt.setDate(dt.getDate() + d); return localISODate(dt);
 }
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-ZA', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });

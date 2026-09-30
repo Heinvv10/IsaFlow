@@ -9,6 +9,7 @@ import { ArrowLeft, FileText, Loader2, Receipt } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 
+import { localISODate } from '@/lib/dateUtils';
 interface Client { id: string; company_name: string }
 interface Supplier { id: number; name: string }
 
@@ -27,7 +28,7 @@ export default function NewCreditNotePage() {
     type: 'customer' as 'customer' | 'supplier',
     clientId: '',
     supplierId: '',
-    creditDate: new Date().toISOString().split('T')[0],
+    creditDate: localISODate(),
     reason: '',
     subtotal: 0,
     taxRate: 15,

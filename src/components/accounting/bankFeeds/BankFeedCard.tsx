@@ -16,14 +16,15 @@ import {
   type BankFeedConnection, type SyncLog,
 } from './bankFeedTypes';
 
+import { localISODate } from '@/lib/dateUtils';
 const ABSA_MAX_DAYS = 180;
 
 function isoDaysAgo(days: number): string {
   const d = new Date();
-  d.setUTCDate(d.getUTCDate() - days);
-  return d.toISOString().slice(0, 10);
+  d.setDate(d.getDate() - days);
+  return localISODate(d);
 }
-function todayIso(): string { return new Date().toISOString().slice(0, 10); }
+function todayIso(): string { return localISODate(); }
 
 interface SyncRange { fromDate: string; toDate: string }
 

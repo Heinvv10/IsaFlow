@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
+import { localISODate } from '@/lib/dateUtils';
 interface Txn {
   date: string;
   entryNumber: string;
@@ -34,7 +35,7 @@ const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', c
 function getDefaultDates() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  return { periodStart: start.toISOString().split('T')[0], periodEnd: now.toISOString().split('T')[0] };
+  return { periodStart: localISODate(start), periodEnd: localISODate(now) };
 }
 
 export default function AccountTransactionsPage() {

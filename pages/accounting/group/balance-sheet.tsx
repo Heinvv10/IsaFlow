@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { BarChart3, Loader2, AlertCircle, Download, Building2, CheckCircle2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
+import { localISODate } from '@/lib/dateUtils';
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
@@ -52,7 +53,7 @@ interface EntityGroup {
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
-const defaultAsAtDate = new Date().toISOString().substring(0, 10);
+const defaultAsAtDate = localISODate();
 
 const selectClass =
   'px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm';

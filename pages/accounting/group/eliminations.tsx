@@ -18,11 +18,12 @@ import {
 import { EliminationsTable } from '@/components/accounting/group/EliminationsTable';
 import { EliminationsCreateModal } from '@/components/accounting/group/EliminationsCreateModal';
 
+import { localISODate } from '@/lib/dateUtils';
 interface EntityGroup { id: string; name: string; }
 
 const today = new Date();
 const DEFAULT_PERIOD_START = `${today.getFullYear()}-01-01`;
-const DEFAULT_PERIOD_END = today.toISOString().substring(0, 10);
+const DEFAULT_PERIOD_END = localISODate(today);
 const BLANK_LINES: EliminationLine[] = [
   { groupAccountCode: '', debit: 0, credit: 0 },
   { groupAccountCode: '', debit: 0, credit: 0 },

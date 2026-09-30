@@ -10,6 +10,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { ArrowDownCircle, ArrowUpCircle, Banknote, Loader2, AlertCircle, TrendingUp } from 'lucide-react';
 
+import { localISODate } from '@/lib/dateUtils';
 interface CashMovementRow {
   account_id: string;
   account_name: string;
@@ -38,11 +39,11 @@ interface CashMovementData {
 
 function defaultFrom(): string {
   const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().substring(0, 10);
+  return localISODate(new Date(d.getFullYear(), d.getMonth(), 1));
 }
 
 function defaultTo(): string {
-  return new Date().toISOString().substring(0, 10);
+  return localISODate();
 }
 
 export default function CashMovementPage() {

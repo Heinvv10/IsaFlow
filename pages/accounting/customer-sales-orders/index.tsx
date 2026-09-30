@@ -9,6 +9,7 @@ import { StatusPill, PageHeader } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 
+import { localISODate } from '@/lib/dateUtils';
 interface SalesOrder {
   id: string; orderNumber: string; customerName: string;
   orderDate: string; deliveryDate: string | null;
@@ -33,7 +34,7 @@ const TABS = ['all', 'draft', 'confirmed', 'invoiced'] as const;
 interface ModalProps { customers: CustomerOption[]; onClose: () => void; onCreated: () => void }
 function CreateOrderModal({ customers, onClose, onCreated }: ModalProps) {
   const [form, setForm] = useState({
-    customer_id: '', order_date: new Date().toISOString().split('T')[0],
+    customer_id: '', order_date: localISODate(),
     delivery_date: '', reference: '', notes: '', internal_notes: '',
   });
   const [lines, setLines] = useState([{ description: '', quantity: 1, unit_price: 0, tax_rate: 15 }]);

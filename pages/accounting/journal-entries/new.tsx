@@ -11,6 +11,7 @@ import type { GLAccount } from '@/modules/accounting/types/gl.types';
 import { apiFetch } from '@/lib/apiFetch';
 import { DescriptionAutocomplete } from '@/components/accounting/DescriptionAutocomplete';
 
+import { localISODate } from '@/lib/dateUtils';
 interface LineInput {
   key: string;
   accountId: string;
@@ -37,7 +38,7 @@ const fmtR = (n: number) =>
 export default function NewJournalEntryPage() {
   const router = useRouter();
   const [accounts, setAccounts] = useState<GLAccount[]>([]);
-  const [entryDate, setEntryDate] = useState(new Date().toISOString().split('T')[0]!);
+  const [entryDate, setEntryDate] = useState(localISODate());
   const [description, setDescription] = useState('');
   const [lines, setLines] = useState<LineInput[]>([emptyLine(), emptyLine()]);
   const [isSubmitting, setIsSubmitting] = useState(false);

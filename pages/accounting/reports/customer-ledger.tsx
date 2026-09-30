@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
+import { localISODate } from '@/lib/dateUtils';
 interface Customer {
   id: string;
   name: string;
@@ -38,8 +39,8 @@ const fmt = (n: number) =>
 function getDefaultDates() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const dateFrom = start.toISOString().split('T')[0] ?? start.toISOString().slice(0, 10);
-  const dateTo = now.toISOString().split('T')[0] ?? now.toISOString().slice(0, 10);
+  const dateFrom = localISODate(start);
+  const dateTo = localISODate(now);
   return { dateFrom, dateTo };
 }
 

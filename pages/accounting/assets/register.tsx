@@ -10,6 +10,7 @@ import { FileText, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 
+import { localISODate } from '@/lib/dateUtils';
 interface Asset {
   id: string;
   asset_number: string;
@@ -40,7 +41,7 @@ export default function AssetRegisterPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [asOf, setAsOf] = useState(new Date().toISOString().split('T')[0]!);
+  const [asOf, setAsOf] = useState(localISODate());
 
   useEffect(() => {
     setLoading(true);

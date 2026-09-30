@@ -14,6 +14,7 @@ import { TimeEntriesTable } from '@/components/accounting/time-tracking/TimeEntr
 import { TimeSummaryTab } from '@/components/accounting/time-tracking/TimeSummaryTab';
 import { BulkActionsBar } from '@/components/accounting/time-tracking/BulkActionsBar';
 
+import { localISODate } from '@/lib/dateUtils';
 interface TimeEntry {
   id: string; userId: string; projectName: string | null; taskDescription: string;
   entryDate: string; hours: number; rate: number | null; amount: number | null;
@@ -30,7 +31,7 @@ interface TimeSummary {
 interface Customer { id: string; companyName: string }
 type TabId = 'my-time' | 'all-entries' | 'summary';
 
-const todayStr = () => new Date().toISOString().split('T')[0] ?? '';
+const todayStr = () => localISODate();
 const BLANK_FORM = { projectName: '', taskDescription: '', entryDate: todayStr(), hours: '', rate: '', billable: true, customerId: '', notes: '' };
 const TABS: { id: TabId; label: string }[] = [
   { id: 'my-time', label: 'My Time' },

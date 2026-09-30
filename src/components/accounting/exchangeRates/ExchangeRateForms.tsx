@@ -10,6 +10,7 @@ import { notify } from '@/utils/toast';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import { Loader2, Plus, ArrowRight } from 'lucide-react';
 
+import { localISODate } from '@/lib/dateUtils';
 export interface Currency {
   code: string;
   name: string;
@@ -22,7 +23,7 @@ interface ConvertResult {
   effectiveDate: string;
 }
 
-const today = new Date().toISOString().split('T')[0]!;
+const today = localISODate();
 
 const INPUT_CLS =
   'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-teal-500';

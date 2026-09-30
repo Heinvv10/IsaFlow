@@ -18,6 +18,7 @@ import {
   MapPin, Receipt, DollarSign,
 } from 'lucide-react';
 
+import { localISODate } from '@/lib/dateUtils';
 interface Line {
   id: string;
   lineDate: string;
@@ -80,7 +81,7 @@ export default function ExpenseClaimDetail() {
   const [postMode, setPostMode] = useState(false);
 
   // Receipt line fields
-  const [rcLineDate, setRcLineDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [rcLineDate, setRcLineDate] = useState(() => localISODate());
   const [rcMerchant, setRcMerchant] = useState('');
   const [rcDescription, setRcDescription] = useState('');
   const [rcAmount, setRcAmount] = useState('');
@@ -91,7 +92,7 @@ export default function ExpenseClaimDetail() {
   const [mlKm, setMlKm] = useState('');
   const [mlFrom, setMlFrom] = useState('');
   const [mlTo, setMlTo] = useState('');
-  const [mlDate, setMlDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [mlDate, setMlDate] = useState(() => localISODate());
 
   // Post fields
   const [postReimbAcct, setPostReimbAcct] = useState('');
