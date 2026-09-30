@@ -8,6 +8,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   withAuth,
+  withWriteAccess,
   type AuthenticatedNextApiRequest,
   type CompanyAuthedRequest,
 } from '@/lib/auth';
@@ -52,4 +53,5 @@ async function handler(
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+// A viewer must not recalculate a run (W3-01 review): the same roles as approve.
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

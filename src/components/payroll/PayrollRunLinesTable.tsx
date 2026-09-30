@@ -8,6 +8,7 @@
  * voluntary deductions (medical aid, pension, RA, loans) the calculator took.
  */
 import { formatCurrency } from '@/utils/formatters';
+import { splitRunTotals } from '@/modules/accounting/services/payroll/payrollRunTotalsSplit';
 
 export interface RunLineAmounts {
   id: string;
@@ -44,21 +45,26 @@ interface RunHeaderTotals {
   employeeCount: number;
   totalGross: number;
   totalPaye: number;
+  totalUif: number;
   totalSdl: number;
   totalNet: number;
 }
 
-/** The run's stat cards. UIF is split from the lines: the header holds only the combined total. */
-export function PayrollRunTotals({ run, lines }: { run: RunHeaderTotals; lines: RunLineAmounts[] }) {
-  const t = sumRunLines(lines);
+/**
+ * The run's stat cards — the header's totals, split by the same
+ * splitRunTotals the payroll journal books them with, so "Other deductions"
+ * is the 2175 credit and the UIF halves are the journal's.
+ */
+export function PayrollRunTotals({ run }: { run: RunHeaderTotals }) {
+  const split = splitRunTotals({ gross: run.totalGross, paye: run.totalPaye, uif: run.totalUif, net: run.totalNet });
   const stats = [
     { label: 'Employees', value: String(run.employeeCount), mono: false, accent: false },
     { label: 'Total Gross', value: formatCurrency(run.totalGross), mono: true, accent: false },
     { label: 'Total PAYE', value: formatCurrency(run.totalPaye), mono: true, accent: false },
-    { label: 'UIF (employee)', value: formatCurrency(t.uifEmployee), mono: true, accent: false },
-    { label: 'Other deductions', value: formatCurrency(t.other), mono: true, accent: false },
+    { label: 'UIF (employee)', value: formatCurrency(split.employeeUif), mono: true, accent: false },
+    { label: 'Other deductions', value: formatCurrency(split.otherDeductions), mono: true, accent: false },
     { label: 'Total Net', value: formatCurrency(run.totalNet), mono: true, accent: true },
-    { label: 'UIF (employer)', value: formatCurrency(t.uifEmployer), mono: true, accent: false },
+    { label: 'UIF (employer)', value: formatCurrency(split.employerUif), mono: true, accent: false },
     { label: 'Total SDL', value: formatCurrency(run.totalSdl), mono: true, accent: false },
   ];
   return (

@@ -10,17 +10,14 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunService';
 import { postPayrollRunJournal } from './payrollJournalPostingService';
-import { PayrollApprovalRefusedError } from './payrollApprovalRefusal';
-import {
-  buildPayrollJournalPlan,
-  type PayrollJournalNote,
-  type PayrollJournalPlan,
-} from './payrollJournalBuilder';
+import { PayrollApprovalConflictError, PayrollApprovalRefusedError } from './payrollApprovalRefusal';
+import type { PayrollJournalNote } from './payrollJournalBuilder';
+import { judgePayrollApproval, type PayrollApprovalGate } from './payrollApprovalGate';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
 
-export { PayrollApprovalRefusedError } from './payrollApprovalRefusal';
+export { PayrollApprovalConflictError, PayrollApprovalRefusedError } from './payrollApprovalRefusal';
 
 export interface ApprovePayrollRunResult extends PayrollRunSummary {
   journalEntryId: string;
@@ -29,40 +26,26 @@ export interface ApprovePayrollRunResult extends PayrollRunSummary {
 }
 
 /**
- * The first reason this run's journal cannot post, judged before approval:
- * every plan blocker except 'run_not_approved', which approval itself
- * resolves. None at all when the run already carries a journal: a run reopened
- * after approval keeps its journal_entry_id (reopenPayrollRun does not reverse
- * it), re-approving it posts nothing and returns that journal, so a posting
- * check (closed period, deactivated account) must not refuse it. Null when the
- * run is not in this company.
+ * The first reason approval would refuse this run — the approval gate's
+ * blocker (payrollApprovalGate.ts), exactly what approvePayrollRun refuses
+ * with. Null when the run is approvable or is not in this company.
  */
 export async function findApprovalBlocker(
   companyId: string,
   runId: string,
 ): Promise<PayrollJournalNote | null> {
-  const plan = await buildPayrollJournalPlan(companyId, runId);
-  return plan ? approvalBlocker(plan) : null;
+  return (await judgePayrollApproval(companyId, runId))?.blocker ?? null;
 }
 
 /**
- * What approving this run would post, for the confirmation a person reads
- * before approving: the journal plan itself (never re-derived by the caller)
- * and the blocker approval would refuse with, judged exactly as
- * `approvePayrollRun` judges it. Read-only. Null when the run is not in this
- * company.
+ * What approving this run would do, for the confirmation a person reads
+ * before approving: the journal plan (never re-derived by the caller), the
+ * journal it already carries when reopened, the blocker approval would
+ * refuse with, and the hash approval checks the preview against. Read-only.
+ * Null when the run is not in this company.
  */
-export async function previewPayrollApproval(
-  companyId: string,
-  runId: string,
-): Promise<{ plan: PayrollJournalPlan; blocker: PayrollJournalNote | null } | null> {
-  const plan = await buildPayrollJournalPlan(companyId, runId);
-  return plan ? { plan, blocker: approvalBlocker(plan) } : null;
-}
-
-function approvalBlocker(plan: PayrollJournalPlan): PayrollJournalNote | null {
-  if (plan.alreadyPostedJournalId) return null;
-  return plan.blockers.find((b) => b.code !== 'run_not_approved') ?? null;
+export async function previewPayrollApproval(companyId: string, runId: string): Promise<PayrollApprovalGate | null> {
+  return judgePayrollApproval(companyId, runId);
 }
 
 /**
@@ -75,37 +58,38 @@ function approvalBlocker(plan: PayrollJournalPlan): PayrollJournalNote | null {
  * left the run 'approved' with no journal. A failure after the write is thrown
  * as-is and must roll the request back. An 'approved' run with no journal
  * (stranded before this fix) is re-approvable and posts; a reopened run that
- * still carries its journal is re-approved onto that journal.
+ * still carries its journal is re-approved onto that journal, but only while
+ * its figures still match it (payrollApprovalGate).
+ *
+ * `expectedPlanHash` is the hash the caller previewed. When given and the run
+ * no longer hashes the same, approval is refused with
+ * PayrollApprovalConflictError (409) before anything is written. The header
+ * row is locked first, so nothing can recalculate it between that check and
+ * the post.
  */
 export async function approvePayrollRun(
   companyId: string,
   runId: string,
   userId: string,
-  opts?: { postingAgent?: string },
+  opts?: { postingAgent?: string; expectedPlanHash?: string },
 ): Promise<ApprovePayrollRunResult> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   log.info('Approving payroll run', { companyId, runId }, 'payrollApproval');
 
-  const runRows = (await sql`
-    SELECT * FROM payroll_run_headers
+  const locked = (await sql`
+    SELECT id FROM payroll_run_headers
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+    FOR UPDATE
   `) as Row[];
-  if (runRows.length === 0 || !runRows[0]) throw new PayrollApprovalRefusedError('Payroll run not found');
+  if (locked.length === 0) throw new PayrollApprovalRefusedError('Payroll run not found');
 
-  const currentStatus = String(runRows[0].status);
-  const APPROVABLE = ['draft', 'calculated', 'processed'];
-  const alreadyApprovedButUnposted = currentStatus === 'approved' && runRows[0].journal_entry_id == null;
-  if (!APPROVABLE.includes(currentStatus) && !alreadyApprovedButUnposted) {
-    throw new PayrollApprovalRefusedError(
-      `Cannot approve payroll run with status '${currentStatus}' ` +
-      `(expected one of: ${APPROVABLE.join(', ')})`
-    );
+  const gate = await judgePayrollApproval(companyId, runId);
+  if (!gate) throw new PayrollApprovalRefusedError('Payroll run not found');
+  if (gate.blocker) throw new PayrollApprovalRefusedError(gate.blocker.detail);
+  if (opts?.expectedPlanHash !== undefined && opts.expectedPlanHash !== gate.planHash) {
+    throw new PayrollApprovalConflictError('Payroll run changed while you were reviewing it');
   }
-
-  const plan = await buildPayrollJournalPlan(companyId, runId);
-  if (!plan) throw new PayrollApprovalRefusedError('Payroll run not found');
-  const blocker = approvalBlocker(plan);
-  if (blocker) throw new PayrollApprovalRefusedError(blocker.detail);
+  const plan = gate.plan;
 
   const updatedRows = (await sql`
     UPDATE payroll_run_headers
