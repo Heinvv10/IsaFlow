@@ -30,9 +30,17 @@ export interface DailyDigestResult {
 const APP_BASE_URL =
   process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
 
+/**
+ * A company its members can still sign into: the same standing withAuth checks
+ * (src/lib/auth/companyMembership.ts). companies has no deleted_at column —
+ * the admin soft delete writes status = 'deleted' (R-162).
+ */
 async function loadActiveCompanies(): Promise<string[]> {
   const rows = (await sql`
-    SELECT id FROM companies WHERE deleted_at IS NULL
+    SELECT id FROM companies
+    WHERE status IS DISTINCT FROM 'suspended'
+      AND status IS DISTINCT FROM 'deleted'
+      AND suspended_at IS NULL
   `) as DbRow[];
   return rows.map((r) => String(r.id));
 }
@@ -62,10 +70,13 @@ async function queryOverdueTasks(
            pc.legal_name AS client_name,
            GREATEST(0, (CURRENT_DATE - t.due_date)::INT) AS days_overdue
     FROM practice_tasks t
-    LEFT JOIN practice_jobs pj ON pj.id = t.job_id
-    LEFT JOIN practice_clients pc ON pc.id = pj.practice_client_id
+    -- No withAuth here: the pool role reads past RLS, and neither FK is
+    -- tenant-bound, so each join carries the task's company (R-162).
+    LEFT JOIN practice_jobs pj ON pj.id = t.job_id AND pj.company_id = t.company_id
+    LEFT JOIN practice_clients pc ON pc.id = pj.practice_client_id AND pc.company_id = t.company_id
     WHERE t.company_id = ${companyId}::UUID
-      AND t.assigned_to = ${userId}::UUID
+      -- users.id is VARCHAR and may not be a UUID: cast the uuid side (R-162)
+      AND t.assigned_to::TEXT = ${userId}
       AND t.status IN ('pending', 'in_progress')
       AND t.due_date < CURRENT_DATE
     ORDER BY t.due_date ASC
@@ -91,7 +102,7 @@ async function hasTimesheetForDate(
   const rows = (await sql`
     SELECT 1 FROM time_entries
     WHERE company_id = ${companyId}::UUID
-      AND user_id = ${userId}::UUID
+      AND user_id::TEXT = ${userId}
       AND entry_date = ${date}::DATE
       AND status <> 'draft'
       AND practice_client_id IS NOT NULL
