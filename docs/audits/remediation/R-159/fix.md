@@ -50,7 +50,7 @@ with Hein before merge.
 - The pool `connect()` is still outside the `try`, so a pool failure is rethrown as before
   (`withAuthPrintToken` pins it). No response has been swapped at that point.
 - `withExtensionToken` no longer logs its own `handler error` line, because `answerThrow`
-  logs the throw.
+  logs the throw. It passes the `connectionId` to `answerThrow`, so the log line still has it.
 
 ## Tests
 
@@ -73,8 +73,9 @@ with Hein before merge.
   answer is 500, `end` runs once and nothing is rethrown. The hook is asserted to have fired. A
   GET still gets 405.
 - `tests/unit/lib/auth/deferredEnd.test.ts`: the Sentry capture carries the company, route and
-  user, and is gated on `SENTRY_ENABLED`; a refused Login-as session gets 403; a throw before the
-  swap still gets one 500.
+  user, and is gated on `SENTRY_ENABLED`; a refused Login-as session gets 403; in production the
+  500 says only "An unexpected error occurred", with no details; a throw before the swap still
+  gets one 500.
 - `tests/unit/lib/auth/deferredEndCensus.test.ts` pins the contract on the tracked tree:
   - only `deferredEnd.ts` assigns `res.end`;
   - the callers of `deferEnd` are exactly the three wrappers;
@@ -85,10 +86,23 @@ Evidence:
 - `red.int.log`: 17 of the 22 original cases fail on origin/master `7c49109f5`, because every
   throw is rethrown and `end` is never called. The positive paths and the 405 pass;
 - `green.log`: the suites on the final head;
-- `mutations.log`: 38 of 38 mutants are RED. Every changed line was mutated in `deferredEnd.ts`,
+- `mutations.log`: 41 of 41 mutants are RED. Every changed line was mutated in `deferredEnd.ts`,
   the three wrappers (recording the deferral, the answer, the company and user, the replay, and
   both COMMIT-failure replays) and `api-error-handler.ts` (the delegation, the lock-timeout and
-  impersonation branches, and the error code).
+  impersonation branches, the error code and the production masking). The extension's
+  `connectionId` in the log line is included too (M39–M41, review round 1).
+
+## Review round 1
+
+The general reviewer returned SHIP with three LOWs, all fixed:
+
+- the module doc said a throw is never rethrown. A throw before the transaction, such as token
+  validation or the pool `connect()`, still propagates. Nothing is buffered at that point, so
+  it cannot hang. The doc now says so;
+- no test proved the production masking on the paths that now reach it. A unit case was added,
+  and mutant M39 is RED;
+- the extension's throw log had lost the `connectionId`. `ThrowContext.extra` now carries it,
+  the integration case asserts it, and M40 and M41 are RED.
 
 ## Migration / rollback
 

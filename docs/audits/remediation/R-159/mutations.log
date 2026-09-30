@@ -37,3 +37,7 @@ M35 withErrorHandler no longer answers [src/lib/api-error-handler.ts]: RED | uni
 M36 lock timeout not special-cased [src/lib/api-error-handler.ts]: RED | unit: 59 passed (59) | int: 4 ⎯⎯⎯⎯⎯⎯⎯
 M37 impersonation refusal not special-cased [src/lib/api-error-handler.ts]: RED | unit: 1 ⎯⎯⎯⎯⎯⎯⎯ | int: 40 passed (40)
 M38 wrong error code [src/lib/api-error-handler.ts]: RED | unit: 4 ⎯⎯⎯⎯⎯⎯⎯ | int: 9 ⎯⎯⎯⎯⎯⎯⎯
+# Review round 1: M39-M41 on 47686e182.
+M39 production masking dropped [src/lib/api-error-handler.ts]: RED | unit: 1 ⎯⎯⎯⎯⎯⎯⎯ | int: 40 passed (40)
+M40 extra log fields dropped [src/lib/auth/deferredEnd.ts]: RED | unit: 61 passed (61) | int: 1 ⎯⎯⎯⎯⎯⎯⎯
+M41 ext: connectionId not passed [src/lib/auth/withExtensionToken.ts]: RED | unit: 61 passed (61) | int: 1 ⎯⎯⎯⎯⎯⎯⎯
