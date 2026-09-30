@@ -239,7 +239,7 @@ beforeAll(async () => {
      VALUES($1,$5,'K072RB','K072R7 Bank','asset','bank','debit',true,true),
            ($2,$5,'1140','K072R7 VAT Input','asset','vat_input','debit',true,true),
            ($3,$5,'K072RDE','K072R7 Default expense','expense','default_expense','debit',true,true),
-           ($4,$5,'2100','K072R7 Accounts Payable','liability','accounts_payable','credit',true,true)`,
+           ($4,$5,'2100','K072R7 Accounts Payable','liability','payable','credit',true,true)`,
     [bank, vatInput, defaultExpense, payables, company],
   );
   await pool.query('INSERT INTO suppliers(id,company_id,name,is_active) VALUES($1,$2,$3,true)',
