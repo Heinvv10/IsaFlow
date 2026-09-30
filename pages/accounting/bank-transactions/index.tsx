@@ -44,8 +44,9 @@ export default function BankTransactionsPage() {
   const [bankAccounts, setBankAccounts] = useState<BankAcct[]>([]);
   const [selectedBank, setSelectedBank] = useState('');
   const [refDataLoaded, setRefDataLoaded] = useState(false);
+  const [suppliersFailed, setSuppliersFailed] = useState(false);
   const didApplyQueryParam = useRef(false);
-  const { refreshBankAccounts } = useBankTxRefData({ setBankAccounts, setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded });
+  const { refreshBankAccounts } = useBankTxRefData({ setBankAccounts, setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded, setSuppliersFailed });
 
   // Pre-select bank account from query param (e.g. ?account_id=...)
   useEffect(() => {
@@ -297,6 +298,10 @@ export default function BankTransactionsPage() {
           onToggleCC={() => { const v = !showCC; setShowCC(v); localStorage.setItem('isaflow_bank_showCC', String(v)); }}
           onToggleBU={() => { const v = !showBU; setShowBU(v); localStorage.setItem('isaflow_bank_showBU', String(v)); }}
         />
+
+        {suppliersFailed && (
+          <div role="alert" className="mx-6 mt-3 flex items-center gap-2 text-xs text-red-400"><AlertCircle className="h-4 w-4" />Suppliers failed to load — supplier allocation is unavailable until you reload.</div>
+        )}
 
         <BankTxBatchPanel
           showBatchEdit={showBatchEdit} selectedCount={selectedIds.size} batchType={batchType}

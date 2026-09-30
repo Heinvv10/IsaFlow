@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { ArrowLeft, Wallet, Loader2, Plus, Trash2, Info, Receipt } from 'lucide-react';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
-import { matchVendorSupplier } from '@/components/accounting/supplier-invoices/matchVendorSupplier';
+import { useVendorSupplierMatch } from '@/components/accounting/supplier-invoices/matchVendorSupplier';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
@@ -56,11 +56,14 @@ export default function NewSupplierPaymentPage() {
 
   const totalAmount = allocations.reduce((sum, a) => sum + (a.amount || 0), 0);
 
+  // An OCR match only fills an empty supplier; it never overwrites the user's pick.
+  const matchVendor = useVendorSupplierMatch(id => setForm(f => (f.supplierId ? f : { ...f, supplierId: id })));
+
   function handleExtracted(data: ExtractedDocument) {
     if (data.date) setForm(f => ({ ...f, paymentDate: data.date! }));
     if (data.referenceNumber) setForm(f => ({ ...f, reference: data.referenceNumber! }));
     if (data.vendorName) {
-      void matchVendorSupplier(data.vendorName).then(id => { if (id) setForm(f => ({ ...f, supplierId: id })); });
+      matchVendor(data.vendorName);
     }
     if (data.totalAmount && invoices.length > 0) {
       const exactMatch = invoices.find(inv => Math.abs(inv.balance - data.totalAmount!) < 0.02);
@@ -71,6 +74,7 @@ export default function NewSupplierPaymentPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!form.supplierId) { setError('Please select a supplier'); return; }
     setIsSubmitting(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/supplier-payments', {

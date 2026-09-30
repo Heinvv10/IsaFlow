@@ -121,7 +121,7 @@ export default function NewSupplierCreditNotePage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={lbl}>Supplier *</label>
-                    <SupplierSelect required value={form.supplierId} inputClassName={inp} onChange={id => setForm(f => ({ ...f, supplierId: id }))} />
+                    <SupplierSelect companyFirst required value={form.supplierId} inputClassName={inp} onChange={id => setForm(f => ({ ...f, supplierId: id }))} />
                   </div>
                   <div>
                     <label className={lbl}>Credit Note Date *</label>

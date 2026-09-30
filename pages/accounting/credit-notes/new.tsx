@@ -46,6 +46,7 @@ export default function NewCreditNotePage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (form.type === 'supplier' && !form.supplierId) { setError('Please select a supplier'); return; }
     setError(''); setIsSubmitting(true);
     try {
       const res = await apiFetch('/api/accounting/credit-notes', {
