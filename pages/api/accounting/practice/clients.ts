@@ -11,6 +11,7 @@ import { withWriteAccess } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { ClientGroupNotInCompanyError } from '@/modules/accounting/services/practice/practiceClientFence';
 import { log } from '@/lib/logger';
 import {
   listPracticeClients,
@@ -63,10 +64,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       status,
       linkCustomerId,
     }).catch((err: unknown) => {
-      if (err instanceof CustomerNotInCompanyError) return err;
+      if (err instanceof CustomerNotInCompanyError || err instanceof ClientGroupNotInCompanyError) return err;
       throw err;
     });
-    if (created instanceof CustomerNotInCompanyError) {
+    if (created instanceof CustomerNotInCompanyError || created instanceof ClientGroupNotInCompanyError) {
       return apiResponse.badRequest(res, created.message);
     }
     const client = created;
