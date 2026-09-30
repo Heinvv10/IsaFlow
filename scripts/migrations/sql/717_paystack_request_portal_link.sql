@@ -22,15 +22,12 @@ CREATE INDEX IF NOT EXISTS idx_paystack_pr_portal_link
 -- explicit-amount link (portal payment-link POST) charges its own amount, capped
 -- at the balance, and one payment spends it. `amount` on a standing link is only
 -- the balance when it was minted, so it must not be what it charges.
+--
+-- DEFAULT true, not a backfill: every link that exists today, and any link the
+-- previous code mints between this migration and the code switch (deploy.sh
+-- migrates before it rsyncs), keeps behaving exactly as before — live balance,
+-- never spent. A backfill from payment_url would miss both, and would also miss an
+-- older standing link an invoice no longer names. Only the payment-link POST
+-- writes false (portalService.createPaymentLink).
 ALTER TABLE portal_payment_links
-  ADD COLUMN IF NOT EXISTS charges_balance BOOLEAN NOT NULL DEFAULT false;
-
--- Existing standing links: every link an invoice's payment_url points at.
--- Idempotent — a re-run sets nothing new.
-UPDATE portal_payment_links l
-   SET charges_balance = true
-  FROM customer_invoices ci
- WHERE ci.id = l.invoice_id
-   AND ci.payment_url IS NOT NULL
-   AND ci.payment_url LIKE ('%/portal/pay/' || l.token)
-   AND NOT l.charges_balance;
+  ADD COLUMN IF NOT EXISTS charges_balance BOOLEAN NOT NULL DEFAULT true;
