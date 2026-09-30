@@ -101,13 +101,15 @@ describe('withExtensionToken finalize (mirrors withAuth)', () => {
     expect(h.events).not.toContain('CALLBACK');
   });
 
-  it('handler throws (unchanged path) -> ROLLBACK, rethrows', async () => {
+  it('handler throws -> ROLLBACK, then the wrapper itself answers 500 (R-159: it used to rethrow into its own buffer)', async () => {
     const handled = withExtensionToken(async () => {
       queue();
       throw new Error('body failed');
     });
-    await expect(handled(req(), res() as never)).rejects.toThrow('body failed');
+    const response = res();
+    await expect(handled(req(), response as never)).resolves.toBeUndefined();
     await settle();
-    expect(h.events).toEqual(['ROLLBACK']);
+    expect(h.events).toEqual(['ROLLBACK', 'END:500']);
+    expect(JSON.parse(response.body ?? '{}')).toMatchObject({ success: false, code: 'INTERNAL_SERVER_ERROR' });
   });
 });

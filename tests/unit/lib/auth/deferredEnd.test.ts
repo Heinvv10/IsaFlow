@@ -1,0 +1,55 @@
+/**
+ * R-159 — answerThrow reports a throw to Sentry with the tenant it happened in. The wrappers
+ * call it outside the Sentry isolation scope that carried the tenant tags, so the tags have to
+ * travel with the capture. The route, write and rollback behaviour is proven against Postgres in
+ * tests/integration/r159-auth-wrapper-throw-responds.int.test.ts.
+ */
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const h = vi.hoisted(() => ({ captureException: vi.fn() }));
+vi.mock('@sentry/nextjs', () => ({ captureException: h.captureException }));
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+
+import { answerThrow, deferEnd } from '@/lib/auth/deferredEnd';
+
+function res() {
+  const ends: unknown[][] = [];
+  const r = {
+    statusCode: 200, headersSent: false,
+    status(c: number) { this.statusCode = c; return this; },
+    setHeader() { return this; },
+    json(b: unknown) { return this.end(JSON.stringify(b)); },
+    end(...a: unknown[]) { ends.push(a); return this; },
+  };
+  return { r, ends };
+}
+const req = { url: '/api/invitations/revoke/abc?x=1' } as never;
+
+afterEach(() => { vi.unstubAllEnvs(); h.captureException.mockReset(); });
+
+describe('answerThrow', () => {
+  it('captures to Sentry with the company, route and user when Sentry is on', () => {
+    vi.stubEnv('SENTRY_ENABLED', 'true');
+    const { r } = res();
+    const err = new Error('boom');
+    answerThrow(req, r as never, deferEnd(r as never), err, { source: 'withAuth', companyId: 'co-1', userId: 'u-1' });
+    expect(h.captureException).toHaveBeenCalledTimes(1);
+    expect(h.captureException).toHaveBeenCalledWith(err, {
+      tags: { company_id: 'co-1', route: '/api/invitations/revoke/abc' },
+      user: { id: 'u-1' },
+    });
+  });
+
+  it('does not capture when Sentry is off', () => {
+    const { r } = res();
+    answerThrow(req, r as never, deferEnd(r as never), new Error('boom'), { source: 'withAuth' });
+    expect(h.captureException).not.toHaveBeenCalled();
+  });
+
+  it('with no deferral (a throw before the swap) it still answers 500 once', () => {
+    const { r, ends } = res();
+    answerThrow(req, r as never, null, new Error('boom'), { source: 'withAuth' });
+    expect(r.statusCode).toBe(500);
+    expect(ends).toHaveLength(1);
+  });
+});

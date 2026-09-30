@@ -24,6 +24,7 @@ import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { extractBearerToken } from './captureApiKeyAuth';
 import { verifyExtensionToken } from './extensionJwt';
+import { deferEnd, answerThrow, type DeferredEnd } from './deferredEnd';
 
 export interface ExtensionAuthedRequest extends NextApiRequest {
   extension: {
@@ -89,6 +90,7 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
     }
 
     const client = await pool().connect();
+    let deferred: DeferredEnd | null = null;
     try {
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE app_user');
@@ -138,16 +140,8 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
       // Defer the flush until the transaction is finalised — withAuth.ts's
       // pattern. Otherwise the extension reads a 200 for a batch whose COMMIT
       // then fails. res.json/res.send both funnel through res.end.
-      let bufferedEndArgs: unknown[] | null = null;
-      let handlerEnded = false;
-      const realEnd = res.end.bind(res) as (...a: unknown[]) => unknown;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (res as any).end = (...args: unknown[]) => {
-        if (handlerEnded) return res; // flush exactly once
-        handlerEnded = true;
-        bufferedEndArgs = args;
-        return res;
-      };
+      const flush = deferEnd(res);
+      deferred = flush;
 
       const ctx: RequestContext = {
         client, userId: claims.userId, companyId: claims.companyId, claims: { sub: claims.userId }, afterCommit: [],
@@ -167,26 +161,22 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
           message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
         }, 'extensionAuth');
         if (res.headersSent) {
-          realEnd(...(bufferedEndArgs ?? []));
+          flush.realEnd(...(flush.args ?? []));
         } else {
           const body = JSON.stringify({ success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED' });
           res.statusCode = 500;
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
           res.setHeader('Content-Length', Buffer.byteLength(body));
-          realEnd(body);
+          flush.realEnd(body);
         }
         return;
       }
-      if (handlerEnded) realEnd(...(bufferedEndArgs ?? []));
+      if (flush.ended) flush.realEnd(...(flush.args ?? []));
       if (!handlerFailed) drainAfterCommit(ctx);
     } catch (err) {
+      // R-159: answer the throw here; see withAuth.
       try { await client.query('ROLLBACK'); } catch { /* secondary */ }
-      log.error(
-        'withExtensionToken handler error',
-        { error: err instanceof Error ? err.message : String(err), connectionId: claims.connectionId },
-        'extensionAuth',
-      );
-      throw err;
+      answerThrow(req, res, deferred, err, { source: 'withExtensionToken', companyId: claims.companyId, userId: claims.userId });
     } finally {
       client.release();
     }

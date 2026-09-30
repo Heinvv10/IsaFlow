@@ -1,0 +1,34 @@
+# RED on origin/master 7c49109f5 + the new suite only; fixture clone at 716 (2026-09-30T02:38:03Z).
+     × a throw after a write: rolled back, 500 in withErrorHandler's shape, end() once, no rethrow 16ms
+     × a 200 already buffered, then a throw: the 200 is replaced by the 500, and the write rolled back 4ms
+     × headers already flushed, then a throw: the response is closed once, not hung 3ms
+     × a lock timeout is answered 503, as withErrorHandler answers it 3ms
+     × a throw after a write: rolled back, 500 in withErrorHandler's shape, end() once, no rethrow 12ms
+     × a 200 already buffered, then a throw: the 200 is replaced by the 500, and the write rolled back 3ms
+     × headers already flushed, then a throw: the response is closed once, not hung 7ms
+     × a lock timeout is answered 503, as withErrorHandler answers it 3ms
+     × a throw after a write: rolled back, 500 in withErrorHandler's shape, end() once, no rethrow 5ms
+     × a 200 already buffered, then a throw: the 200 is replaced by the 500, and the write rolled back 3ms
+     × headers already flushed, then a throw: the response is closed once, not hung 3ms
+     × a lock timeout is answered 503, as withErrorHandler answers it 9ms
+     × a throw after a write: rolled back, 500 in withErrorHandler's shape, end() once, no rethrow 10ms
+     × a 200 already buffered, then a throw: the 200 is replaced by the 500, and the write rolled back 3ms
+     × headers already flushed, then a throw: the response is closed once, not hung 2ms
+     × a lock timeout is answered 503, as withErrorHandler answers it 2ms
+     × a throw after the DELETE: the invitation survives, 500, end() once, no rethrow 17ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 17 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected Error: R-159 forced failure after the thr… to be null
+AssertionError: expected Error: R-159 forced failure after the lat… to be null
+AssertionError: expected Error: R-159 forced failure after the flu… to be null
+AssertionError: expected DocumentNumberLockTimeoutError: The invoi… { …(2) } to be null
+AssertionError: expected Error: R-159 forced failure after the thr… to be null
+AssertionError: expected Error: R-159 forced failure after the lat… to be null
+AssertionError: expected Error: R-159 forced failure after the flu… to be null
+AssertionError: expected Error: R-159 forced failure after the thr… to be null
+AssertionError: expected Error: R-159 forced failure after the lat… to be null
+AssertionError: expected Error: R-159 forced failure after the flu… to be null
+AssertionError: expected Error: R-159 forced failure after the thr… to be null
+AssertionError: expected Error: R-159 forced failure after the lat… to be null
+AssertionError: expected Error: R-159 forced failure after the flu… to be null
+AssertionError: expected Error: R-159 forced failure after the inv… to be null
+      Tests  17 failed | 5 passed (22)
