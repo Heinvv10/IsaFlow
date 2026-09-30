@@ -70,7 +70,7 @@ export function AccountLedgerTable({
             rows.map((r, i) => (
               <tr
                 key={`${r.journalEntryId}-${i}`}
-                className="border-b border-[var(--ff-border-light)]/50 hover:bg-[var(--ff-bg-primary)]/50"
+                className={`border-b border-[var(--ff-border-light)]/50 hover:bg-[var(--ff-bg-primary)]/50${r.derived ? ' italic' : ''}`}
               >
                 <td className="px-4 py-2 text-[var(--ff-text-tertiary)]">{fmtDate(r.entryDate)}</td>
                 <td className="px-4 py-2 font-mono text-[var(--ff-text-secondary)]">{r.entryNumber}</td>

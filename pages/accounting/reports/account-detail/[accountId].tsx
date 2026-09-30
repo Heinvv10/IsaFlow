@@ -182,6 +182,7 @@ export default function AccountDetailPage() {
               <AccountLedgerSummary
                 openingBalance={data.openingBalance}
                 periodNet={data.periodNet}
+                closedToRetainedEarnings={data.closedToRetainedEarnings}
                 periodClosingBalance={data.periodClosingBalance}
                 total={data.total}
               />

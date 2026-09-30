@@ -42,6 +42,8 @@ const journals: Array<[string, Array<[string, number, number]>]> = [
   ['2026-05-01', [[acct.bank, 40, 0], [acct.income, 0, 40]]],       // current FY revenue
   ['2026-09-10', [[acct.labour, 50, 0], [acct.bank, 0, 50]]],       // in period
 ];
+// Draft (unposted) lines on 5200 only: invisible to the TB and to postedOnly reads.
+const drafts: Array<[string, number]> = [['2025-07-01', 5], ['2026-05-05', 11]];
 
 async function withLedger(run: () => Promise<void>) {
   assertNotProductionDb('Temporary-table account-ledger fiscal-year regression');
@@ -78,6 +80,14 @@ async function withLedger(run: () => Promise<void>) {
           await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, ${je}::uuid, ${account}::uuid,
             ${debit}, ${credit}, NULL, NULL, NULL, NULL)`;
         }
+      }
+      for (const [date, debit] of drafts) {
+        n += 1;
+        const je = `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+        await sql`INSERT INTO gl_journal_entries VALUES (${je}::uuid, ${company}::uuid, 'draft', ${date}::date,
+          ${String(n)}, 'Draft', '', 'manual')`;
+        await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, ${je}::uuid, ${acct.labour}::uuid,
+          ${debit}, 0, NULL, NULL, NULL, NULL)`;
       }
       await run();
     });
@@ -142,6 +152,42 @@ describe('account ledger — fiscal-year basis (Postgres)', async () => {
 
       const atFyStart = await ledger('1100', '2026-03-01');
       expect(atFyStart.openingBalance).toBe(3793); // -7 + 5000 - 1000 + 100 - 300, all prior years
+    });
+  });
+
+  it.skipIf(!reachable)('postedOnly=false floors and closes the same way, counting drafts', async () => {
+    await withLedger(async () => {
+      const all = (from: string) => getAccountLedger({ companyId: company, accountCode: '5200', fromDate: from,
+        toDate: '2026-09-30', postedOnly: false });
+      // The 2025-07-01 draft belongs to the prior fiscal year: not in September's opening.
+      expect(await all('2026-09-01')).toMatchObject({ openingBalance: 211, periodNet: 50, periodClosingBalance: 261 });
+      const jan = await all('2026-01-01');
+      expect(jan).toMatchObject({ openingBalance: 1005, periodNet: 561, closedToRetainedEarnings: -1305, periodClosingBalance: 261 });
+      expect(jan.rows.find(r => r.derived)).toMatchObject({ entryDate: '2026-02-28', credit: 1305, runningBalance: 0 });
+    });
+  });
+
+  it.skipIf(!reachable)('every page carries the same rows and running balances as the unpaged read', async () => {
+    await withLedger(async () => {
+      for (const [code, from] of [['5200', '2024-01-01'], ['5200', '2026-01-01'], ['1100', '2025-01-01']] as const) {
+        const whole = await getAccountLedger({ companyId: company, accountCode: code, fromDate: from, toDate: '2026-09-30' });
+        expect(whole.rows.length).toBe(whole.total);
+        for (const limit of [1, 2, 3]) {
+          const paged = [];
+          for (let offset = 0; offset < whole.total; offset += limit) {
+            const page = await getAccountLedger({ companyId: company, accountCode: code, fromDate: from,
+              toDate: '2026-09-30', limit, offset });
+            expect(page.total).toBe(whole.total);
+            paged.push(...page.rows);
+          }
+          expect(paged).toEqual(whole.rows);
+        }
+      }
+      // Non-vacuity: the 5200 cross-FY reads really do carry close rows.
+      const crossed = await ledger('5200', '2024-01-01');
+      expect(crossed.rows.filter(r => r.derived).map(r => [r.entryDate, r.credit])).toEqual([
+        ['2025-02-28', 7], ['2026-02-28', 1300],
+      ]);
     });
   });
 });

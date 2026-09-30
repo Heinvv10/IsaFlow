@@ -1,6 +1,6 @@
 /**
  * AccountLedgerSummary
- * Three-column strip: Opening Balance | Period Net | Period Closing Balance.
+ * Three-column strip: Opening Balance | Movement for period | Closing Balance.
  * Uses server-returned period totals (not a client-side reduce over the paginated slice).
  */
 
@@ -9,9 +9,11 @@ const fmt = (n: number) =>
 
 interface Props {
   openingBalance: number;
-  /** Sum of (debits − credits) over the FULL date range from the server. */
+  /** Movement for the period (posted lines, FULL date range) — equals the statement line. */
   periodNet: number;
-  /** Opening + periodNet, computed server-side over the full range. */
+  /** Derived year-end closes inside the range (income-statement accounts only; else 0). */
+  closedToRetainedEarnings: number;
+  /** Opening + periodNet + closedToRetainedEarnings — the balance as at the range end. */
   periodClosingBalance: number;
   /** Total number of transactions (for the label). */
   total: number;
@@ -20,6 +22,7 @@ interface Props {
 export function AccountLedgerSummary({
   openingBalance,
   periodNet,
+  closedToRetainedEarnings,
   periodClosingBalance,
   total,
 }: Props) {
@@ -33,7 +36,7 @@ export function AccountLedgerSummary({
       </div>
       <div className="px-6 py-3">
         <p className="text-xs text-[var(--ff-text-tertiary)]">
-          Transactions ({total.toLocaleString()}) — period net
+          Movement for period ({total.toLocaleString()} rows)
         </p>
         <p className="font-mono font-medium text-[var(--ff-text-primary)]">
           {fmt(periodNet)}
@@ -45,6 +48,11 @@ export function AccountLedgerSummary({
         <p className="font-mono font-medium text-[var(--ff-text-primary)]">
           {fmt(periodClosingBalance)}
         </p>
+        {closedToRetainedEarnings !== 0 && (
+          <p className="text-xs text-[var(--ff-text-tertiary)]">
+            after {fmt(closedToRetainedEarnings)} closed to retained earnings at year end (derived)
+          </p>
+        )}
       </div>
     </div>
   );

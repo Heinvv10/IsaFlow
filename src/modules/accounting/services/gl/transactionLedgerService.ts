@@ -12,16 +12,6 @@ import { getSystemAccount } from './systemAccountResolver';
 
 type Row = DbRow;
 
-interface TransactionRow {
-  date: string;
-  entryNumber: string;
-  description: string;
-  debit: number;
-  credit: number;
-  balance: number;
-  source: string;
-}
-
 // ── Bank Transactions ───────────────────────────────────────────────────────
 
 export interface BankTransactionRow {
@@ -121,109 +111,10 @@ export async function getBankTransactions(
 }
 
 // ── Account Transactions ────────────────────────────────────────────────────
-
-export interface AccountTransactionsReport {
-  accountCode: string;
-  accountName: string;
-  accountType: string;
-  periodStart: string;
-  periodEnd: string;
-  openingBalance: number;
-  closingBalance: number;
-  transactions: TransactionRow[];
-}
-
-export async function getAccountTransactions(
-  companyId: string,
-  accountCode: string,
-  periodStart: string,
-  periodEnd: string,
-  costCentreId?: string,
-  businessUnitId?: string,
-): Promise<AccountTransactionsReport> {
-  const cc = costCentreId ?? null;
-  const bu = businessUnitId ?? null;
-  try {
-    const acctRows = (await sql`
-      SELECT account_name, account_type, normal_balance
-      FROM gl_accounts WHERE account_code = ${accountCode} AND company_id = ${companyId}::UUID LIMIT 1
-    `) as Row[];
-    if (!acctRows[0]) throw new Error(`Account ${accountCode} not found`);
-
-    const normalBal = String(acctRows[0].normal_balance);
-
-    const obRows = (await sql`
-      SELECT
-        COALESCE(SUM(jl.debit), 0) AS total_debit,
-        COALESCE(SUM(jl.credit), 0) AS total_credit
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE je.status = 'posted'
-        AND je.company_id = ${companyId}::UUID
-        AND jl.company_id = ${companyId}::UUID
-        AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-          OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
-        AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
-        AND je.entry_date < ${periodStart}
-        AND ga.account_code = ${accountCode}
-    `) as Row[];
-
-    const obDebit = Number(obRows[0]?.total_debit || 0);
-    const obCredit = Number(obRows[0]?.total_credit || 0);
-    const openingBalance = normalBal === 'debit' ? obDebit - obCredit : obCredit - obDebit;
-
-    const txnRows = (await sql`
-      SELECT
-        je.entry_date, je.entry_number, je.description, je.source,
-        jl.debit, jl.credit
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE je.status = 'posted'
-        AND je.company_id = ${companyId}::UUID
-        AND jl.company_id = ${companyId}::UUID
-        AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-          OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
-        AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
-        AND je.entry_date >= ${periodStart}
-        AND je.entry_date <= ${periodEnd}
-        AND ga.account_code = ${accountCode}
-      ORDER BY je.entry_date, je.created_at
-    `) as Row[];
-
-    let running = openingBalance;
-    const transactions: TransactionRow[] = txnRows.map((r: Row) => {
-      const d = Number(r.debit || 0);
-      const c = Number(r.credit || 0);
-      running += normalBal === 'debit' ? d - c : c - d;
-      const rawDate = fmtDate(r.entry_date);
-      return {
-        date: rawDate,
-        entryNumber: String(r.entry_number),
-        description: String(r.description || ''),
-        debit: d,
-        credit: c,
-        balance: running,
-        source: String(r.source || 'manual'),
-      };
-    });
-
-    return {
-      accountCode,
-      accountName: String(acctRows[0].account_name),
-      accountType: String(acctRows[0].account_type),
-      periodStart,
-      periodEnd,
-      openingBalance,
-      closingBalance: running,
-      transactions,
-    };
-  } catch (err) {
-    log.error('Failed to generate account transactions', { error: err }, 'accounting');
-    throw err;
-  }
-}
+// Moved to accountTransactionsService.ts (300-line cap); re-exported so no
+// caller's import path changes.
+export type { AccountTransactionsReport } from './accountTransactionsService';
+export { getAccountTransactions } from './accountTransactionsService';
 
 // ── Audit Trail ─────────────────────────────────────────────────────────────
 //
