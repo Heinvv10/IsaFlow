@@ -77,8 +77,12 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     // K-101: the active company withAuth verified, not the user's default one.
     const companyId = (req as CompanyAuthedRequest).companyId;
 
+    // R-166: the balance is compared in numeric, not in float, so a cent over it is refused.
     const invoice = (await sql`
-      SELECT COALESCE(client_id, customer_id) AS customer_id FROM customer_invoices
+      SELECT COALESCE(client_id, customer_id) AS customer_id,
+             (total_amount - COALESCE(amount_paid, 0))::text AS balance,
+             ${amountNum}::numeric > total_amount - COALESCE(amount_paid, 0) AS over_balance
+      FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
         AND status != 'cancelled'
     `) as Row[];
@@ -86,6 +90,11 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     // A link pays THIS invoice, so it is for this invoice's customer only.
     if (clientId.toLowerCase() !== String(invoice[0]!.customer_id).toLowerCase()) {
       return apiResponse.badRequest(res, "clientId is not this invoice's customer");
+    }
+    // R-166: a link may ask for part of what is owed, never more. A paid invoice owes nothing.
+    if (invoice[0]!.over_balance !== false) {
+      return apiResponse.badRequest(res,
+        `amount is more than the invoice's outstanding balance of ${String(invoice[0]!.balance)}`);
     }
 
     // R-067: clientId comes from the request body, and the unauthenticated GET

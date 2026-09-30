@@ -225,6 +225,9 @@ it('payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99, finer t
     expect(state.statusCode, JSON.stringify({ amount, body: state.body })).toBe(400);
   }
   expect(await linkCount(id)).toBe(0);
+  // R-166 caps a link at the balance, so the column's maximum needs an invoice that owes it.
+  await pool.query(
+    'UPDATE customer_invoices SET subtotal = 9999999999984.99, total_amount = 9999999999999.99 WHERE id = $1', [id]);
   for (const amount of [0.01, 12.34, 9999999999999.99]) {
     const state = await call(paymentLinkRoute, OTHER, { invoiceId: id, clientId: customerOf[OTHER], amount });
     expect(state.statusCode, JSON.stringify({ amount, body: state.body })).toBe(200);
