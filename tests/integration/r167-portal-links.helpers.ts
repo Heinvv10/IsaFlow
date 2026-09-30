@@ -15,19 +15,21 @@ export const CO = randomUUID();
 export const USER = randomUUID();
 export const CUSTOMER = randomUUID();
 /** One address per run: verify rate-limits per IP, and its counter outlives a run. */
-export const IP = `10.${[0, 0, 0].map(() => Math.floor(Math.random() * 250) + 1).join('.')}`;
+const IP = `10.${[0, 0, 0].map(() => Math.floor(Math.random() * 250) + 1).join('.')}`;
 
 export type Res = { statusCode: number; body: { data?: Record<string, unknown>; error?: { message?: string } } };
 type Route = (req: never, res: never) => unknown;
 const route = async (path: string) => (await import(path)).default as Route;
 
-export async function call(handler: Route, req: Record<string, unknown>): Promise<Res> {
+export async function call(handler: Route, req: Record<string, unknown>, ip = IP): Promise<Res> {
   const out = response();
-  await handler({ headers: {}, cookies: {}, socket: { remoteAddress: IP }, ...req } as never, out.res as never);
+  await handler({ headers: {}, cookies: {}, socket: { remoteAddress: ip }, ...req } as never, out.res as never);
   return out.state as unknown as Res;
 }
-export const create = async (token: string) => call(await route('../../pages/api/portal/payments/paystack/create'),
-  { method: 'POST', url: '/api/portal/payments/paystack/create', body: { token } });
+/** A client address no request in this run has used (the limiter caches per address in-process). */
+export const freshIp = () => `10.${[0, 0, 0].map(() => Math.floor(Math.random() * 250) + 1).join('.')}`;
+export const create = async (token: string, ip = IP) => call(await route('../../pages/api/portal/payments/paystack/create'),
+  { method: 'POST', url: '/api/portal/payments/paystack/create', body: { token } }, ip);
 export const getLink = async (token: string) => call(await route('../../pages/api/portal/payment-link'),
   { method: 'GET', url: `/api/portal/payment-link?token=${token}`, query: { token } });
 export const verify = async (ref: string) => call(await route('../../pages/api/portal/payments/paystack/verify'),
