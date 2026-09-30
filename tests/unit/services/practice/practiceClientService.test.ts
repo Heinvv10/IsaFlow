@@ -1,16 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { sqlMock, fenceMock } = vi.hoisted(() => {
+const { sqlMock, fenceMock, groupFenceMock } = vi.hoisted(() => {
   const sqlMock = vi.fn();
   const fenceMock = vi.fn();
-  return { sqlMock, fenceMock };
+  const groupFenceMock = vi.fn();
+  return { sqlMock, fenceMock, groupFenceMock };
 });
 
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
-// The R-073 tenant fence runs its own savepointed read; it is exercised against
-// real PG in tests/integration/practice-client-ownership-fence.int.test.ts.
+// The R-073 / R-161 tenant fences run their own savepointed reads; they are
+// exercised against real PG in tests/integration/practice-client-ownership-fence.int.test.ts
+// and tests/integration/practice-client-group-fence.int.test.ts.
 vi.mock('@/modules/accounting/services/practice/practiceClientFence', () => ({
   assertPracticeClientInCompany: fenceMock,
+  assertClientGroupInCompany: groupFenceMock,
 }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -106,6 +109,15 @@ describe('createPracticeClient', () => {
       })
     ).rejects.toThrow('duplicate');
   });
+
+  it('writes nothing when the group fence refuses the group', async () => {
+    groupFenceMock.mockRejectedValueOnce(new Error('not this company'));
+    await expect(createPracticeClient(COMPANY, {
+      legalName: 'Marneweck Holdings (Pty) Ltd', billingModel: 'hourly', status: 'active', clientGroupId: GROUP_ID,
+    })).rejects.toThrow('not this company');
+    expect(groupFenceMock).toHaveBeenCalledWith(COMPANY, GROUP_ID);
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('updatePracticeClient', () => {
@@ -119,6 +131,14 @@ describe('updatePracticeClient', () => {
   it('throws when client not found', async () => {
     sqlMock.mockResolvedValueOnce([]);
     await expect(updatePracticeClient(COMPANY, CLIENT_ID, {})).rejects.toThrow('not found');
+  });
+
+  it('writes nothing when the group fence refuses the group', async () => {
+    sqlMock.mockResolvedValueOnce([clientRow]);
+    groupFenceMock.mockRejectedValueOnce(new Error('not this company'));
+    await expect(updatePracticeClient(COMPANY, CLIENT_ID, { clientGroupId: GROUP_ID })).rejects.toThrow('not this company');
+    expect(groupFenceMock).toHaveBeenCalledWith(COMPANY, GROUP_ID);
+    expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 });
 
