@@ -266,6 +266,25 @@ describe('capture and the AI pipeline (B1, B2)', () => {
     expect(await billState(pool, billId)).toMatchObject({ status: 'approved', journals: 1 });
   });
 
+  it('ai-invoice-pipeline: the request it raises, once approved, lets the bill approve and post', async () => {
+    const { c } = await fixture();
+    const { doc } = await extractedDoc(c);
+    const req = request({ 'sb-access-token': await token(u.a), active_company_id: c }, 'POST');
+    (req.socket as { remoteAddress: string }).remoteAddress = clientIp;
+    req.url = '/api/accounting/ai-invoice-pipeline';
+    req.body = { documentId: doc };
+    const res = response();
+    await pipelineRoute(req as never, res.res as never);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    const billId = await billFor(c, doc);
+    const [pending] = (await pool.query(
+      "SELECT id FROM approval_requests WHERE document_id = $1 AND status = 'pending'", [billId])).rows;
+    expect((await r.decide(pool, u.b, c, String(pending.id))).state.statusCode).toBe(200);
+    const approved = await r.approveBill(u.a, c, billId);
+    expect(approved.state.statusCode, JSON.stringify(approved.state.body)).toBe(200);
+    expect(await billState(pool, billId)).toMatchObject({ status: 'approved', journals: 1 });
+  });
+
   it('ai-invoice-pipeline inserts a draft and raises the request', async () => {
     const { c } = await fixture();
     const { doc, supplier } = await extractedDoc(c);
