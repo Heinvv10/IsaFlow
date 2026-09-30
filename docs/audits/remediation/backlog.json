@@ -14316,6 +14316,7 @@
       "evidencePaths": [
         "docs/audits/remediation/R-166/fix.md",
         "docs/audits/remediation/R-166/red.int.log",
+        "docs/audits/remediation/R-166/red.r1.int.log",
         "docs/audits/remediation/R-166/green.log",
         "docs/audits/remediation/R-166/mutations.log"
       ],
@@ -14332,10 +14333,46 @@
       ],
       "sourceLabel": "R-155 prod census and Hein's decision, 2026-09-30",
       "claim": "POST /api/portal/payment-link capped the amount only at the column maximum (R-158), so an owner/admin/manager could create a payable link for more than total_amount - amount_paid, or for any amount on a paid invoice.",
-      "severityRationale": "Owner/admin/manager only (withCsrf + withWriteAccess); the harm is a customer paying more than they owe, which then needs a refund.",
-      "historicalDataImpact": "Existing links are not changed. The R-155 prod census found 3 active links, all in ISAFlow Demo; one is on the fully paid INV-00553. Expiring it is a prod write and waits for Hein.",
-      "processNotes": "2026-09-30: Hein decided to cap a link at the outstanding balance (part payments allowed). Fixed: POST refuses amount > total_amount - COALESCE(amount_paid, 0) with 400, compared in numeric, before any write. RED 4/4 on origin/master (R-166/red.int.log); mutants N1-N7 RED.",
+      "severityRationale": "Owner/admin/manager only (withCsrf + withWriteAccess). The link amount is what the pay page shows as Amount Due; the charge itself is the invoice balance at pay time (R-167), so a link could mislead but not overcharge.",
+      "historicalDataImpact": "Existing links are not changed. The R-155 prod census found 3 active links, all in ISAFlow Demo; one is on the fully paid INV-00553. It still displays, but paystack/create refuses to charge a paid invoice, so expiring it is a tidy-up; a prod write, so it waits for Hein.",
+      "processNotes": "2026-09-30: Hein decided to cap a link at the outstanding balance (part payments allowed). Fixed: POST refuses amount > total_amount - COALESCE(amount_paid, 0) with 400, compared in numeric, before any write. RED 4/4 on origin/master (R-166/red.int.log); mutants N1-N7 RED. Review round 1 (both reviewers FIX): NaN balance refused, negative amount_paid clamped to 0, deleted_at IS NULL added (pre-existing), R-158 max pinned by its message in k101, comment reason corrected, INV-00553 wording corrected. The adversarial MEDIUM (the link amount never controls the charge) is registered as R-167 for Hein. Mutants N1-N10 RED, N11 equivalent.",
       "reportedSeverity": "low"
+    },
+    {
+      "id": "R-167",
+      "sourceIds": [
+        "R-166"
+      ],
+      "correctedTrigger": null,
+      "auditedSha": "7c49109f5",
+      "currentSha": "7c49109f5",
+      "status": "candidate",
+      "dependencies": [
+        "R-166"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "docs/audits/remediation/R-166/fix.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "branch": null,
+      "area": "accounting/ar portal",
+      "severity": "medium",
+      "title": "A portal payment link's amount is display-only: Paystack charges the invoice's full balance and no link is ever marked paid",
+      "affectedPaths": [
+        "pages/api/portal/payments/paystack/create.ts",
+        "pages/portal/pay/[token].tsx",
+        "src/modules/accounting/services/ar/portalService.ts"
+      ],
+      "sourceLabel": "R-166 adversarial review round 1, 2026-09-30",
+      "claim": "paystack/create reads only invoice_id, expires_at and status from portal_payment_links and charges Math.round((total - amount_paid) * 100) cents, the whole outstanding balance. The pay page shows the link's own amount as 'Amount Due'. So a part-payment link (e.g. R40.50 on a R115 invoice) shows R40.50 and charges R115. markPaymentLinkPaid has no caller, so a link stays 'active' after it is paid.",
+      "severityRationale": "The customer is shown one amount and charged another; the charge never exceeds the balance, so no overpayment. Hein's R-166 decision to allow part payments has no effect until this is fixed.",
+      "historicalDataImpact": "Unknown: a prod census of completed paystack_payment_requests joined to their links' amounts would show whether any customer paid more than the link displayed.",
+      "processNotes": "2026-09-30: Found by the R-166 adversarial reviewer (reasoned from the code; confirmed by reading paystack/create.ts). Options for Hein: charge LEAST(link.amount, balance) in paystack/create (settlement already records amount_cents via recordGatewayInvoiceReceipt), and mark the link paid on completion; or show the balance on the pay page and drop part-payment links. Changes what customers are charged, so it needs Hein's decision.",
+      "reportedSeverity": "medium"
     }
   ],
   "sourceInventory": [
