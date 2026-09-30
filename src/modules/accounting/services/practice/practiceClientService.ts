@@ -1,7 +1,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
-import { assertPracticeClientInCompany } from './practiceClientFence';
+import { assertClientGroupInCompany, assertPracticeClientInCompany } from './practiceClientFence';
 import type { DbRow } from '@/types/db';
 
 export interface PracticeClient {
@@ -146,6 +146,8 @@ export async function createPracticeClient(
   // generateWipInvoice mints for this client (practiceWipService reads it back
   // as already-trusted), so the fence has to be here, where it enters.
   await assertCustomerInCompany(companyId, input.linkCustomerId);
+  // R-161: clientGroupId comes from the body; the FK does not check the tenant.
+  await assertClientGroupInCompany(companyId, input.clientGroupId);
 
   const dupes = (await sql`
     SELECT id FROM practice_clients
@@ -182,6 +184,7 @@ export async function updatePracticeClient(
   `) as DbRow[];
   if (!existing.length) throw new Error('not found');
   await assertCustomerInCompany(companyId, input.linkCustomerId);
+  await assertClientGroupInCompany(companyId, input.clientGroupId);
 
   const rows = (await sql`
     UPDATE practice_clients SET
