@@ -1,0 +1,40 @@
+Reproduction: withBusiestCompany's transaction on plain `BEGIN` (READ COMMITTED),
+against the disposable fixture isaflow-fixture-r165-goal (127.0.0.1:55485), 3
+consecutive runs of just the new regression test:
+
+$ DATABASE_URL="postgres://postgres:***@127.0.0.1:55485/isaflow_schema_fixture" \
+  DATABASE_SSL=disable bunx vitest run \
+  tests/unit/mcp/w2/generalLedgerStream.integration.test.ts -t "R-165 regression"
+
+Run 1/3:
+ FAIL  tests/unit/mcp/w2/generalLedgerStream.integration.test.ts > general-ledger line stream — real database > is not disturbed by a peer session committing a posted line mid-read (R-165 regression)
+AssertionError: expected 762 to be 760 // Object.is equality
+- Expected
++ Received
+- 760
++ 762
+ ❯ tests/unit/mcp/w2/generalLedgerStream.integration.test.ts:171:35
+     expect(whole.lineCount).toBe(before.lineCount);
+ ❯ withBusiestCompany tests/unit/mcp/w2/generalLedgerStream.integration.test.ts:61:5
+
+Run 2/3: identical failure, same assertion, same values (762 vs 760).
+Run 3/3: identical failure, same assertion, same values (762 vs 760).
+
+Mechanism: 760 seeded posted lines. The regression test reads a page
+(`before`, taken before the concurrent write), then a SEPARATE pg.Pool
+connection commits one balanced posted entry (2 lines) for the same
+company, then the test reads the whole period (`whole`). Under plain BEGIN
+(READ COMMITTED), each statement in the open transaction gets its own
+snapshot, so `whole` — a LATER statement — sees the peer's commit
+(760 + 2 = 762) while `before` — an EARLIER statement — does not. This is
+the same shape as the originally reported flake: a 115 diff between two
+reads taken moments apart, caused by a peer's write landing between them.
+
+Restored the fix (BEGIN ISOLATION LEVEL REPEATABLE READ) from a saved copy
+of the file (not `git checkout`) after this check; see ci.log for the full
+suite green afterward.
+
+Round 2 (after the M2/L3 refactor moved `withBusiestCompany` into
+generalLedgerStream.helpers.ts): re-ran the identical 3-run cycle against
+the same fixture, mutating that file's BEGIN line instead. Same failure,
+same assertion, same values (762 vs 760) — see mutations.log.
