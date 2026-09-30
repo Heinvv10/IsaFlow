@@ -156,7 +156,9 @@ describe('create charges the link amount, capped at the balance', () => {
 
 describe('the link itself must be payable', () => {
   it('an unknown token is 404', async () => {
-    expect((await create('0'.repeat(64))).statusCode).toBe(404);
+    const r = await create('0'.repeat(64));
+    expect(r.statusCode).toBe(404);
+    expect(r.body.error?.message).toMatch(/^Payment link/);
     expect(h.charged).toEqual([]);
   });
 
