@@ -41,7 +41,7 @@ interface PaystackResponse<T> {
 
 async function paystackFetch<T>(
   path: string,
-  init: { method: 'GET' | 'POST'; body?: unknown } = { method: 'GET' },
+  init: { method: 'GET' | 'POST'; body?: unknown; timeoutMs?: number } = { method: 'GET' },
 ): Promise<T> {
   const secret = requireEnv('PAYSTACK_SECRET_KEY');
   const res = await fetch(`${PAYSTACK_BASE_URL}${path}`, {
@@ -52,6 +52,7 @@ async function paystackFetch<T>(
       Accept: 'application/json',
     },
     body: init.body ? JSON.stringify(init.body) : undefined,
+    ...(init.timeoutMs !== undefined && { signal: AbortSignal.timeout(init.timeoutMs) }),
   });
 
   const text = await res.text();
@@ -104,6 +105,8 @@ export interface InitializeTransactionInput {
    * Paystack dashboard. Useful for forcing eft / bank-only.
    */
   channels?: Array<'card' | 'bank' | 'ussd' | 'qr' | 'mobile_money' | 'bank_transfer' | 'eft'>;
+  /** Abort the request after this long. Unset = no bound (the other callers' behaviour). */
+  timeoutMs?: number;
 }
 
 export interface InitializeTransactionResult {
@@ -132,6 +135,7 @@ export async function initializeTransaction(
       metadata: input.metadata,
       channels: input.channels,
     },
+    timeoutMs: input.timeoutMs,
   });
   return {
     authorizationUrl: data.authorization_url,

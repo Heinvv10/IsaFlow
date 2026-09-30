@@ -13,6 +13,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'fs';
+import { createHash } from 'crypto';
 import { SignJWT } from 'jose';
 import { assertDisposable, request } from './mfa-impersonation-postgres.helpers';
 import {
@@ -23,10 +24,17 @@ import { clearSystemAccountCache } from '@/modules/accounting/services/gl/system
 
 assertDisposable();
 
-const h = vi.hoisted(() => ({ charged: [] as number[] }));
+const h = vi.hoisted(() => ({
+  charged: [] as number[],
+  timeouts: [] as (number | undefined)[],
+  /** Runs inside the gateway call, before it answers; a test can hold it open or make it fail. */
+  during: null as null | (() => Promise<void>),
+}));
 vi.mock('@/modules/billing/services/paystackClient', () => ({
-  initializeTransaction: async (input: { amountCents: number; reference: string }) => {
+  initializeTransaction: async (input: { amountCents: number; reference: string; timeoutMs?: number }) => {
     h.charged.push(input.amountCents);
+    h.timeouts.push(input.timeoutMs);
+    if (h.during) await h.during();
     return { reference: input.reference, accessCode: 'ac_r167', authorizationUrl: `https://checkout.test/${input.reference}` };
   },
   verifyTransaction: vi.fn(),
@@ -39,7 +47,7 @@ beforeAll(async () => {
   await seedCompany();
   clearSystemAccountCache();
 });
-beforeEach(() => { h.charged.length = 0; });
+beforeEach(() => { h.charged.length = 0; h.timeouts.length = 0; h.during = null; });
 afterAll(async () => { vi.unstubAllEnvs(); await cleanupCompany(); });
 
 describe("the invoice's standing link charges the live balance and is never spent", () => {
@@ -132,3 +140,83 @@ describe('one checkout per click', () => {
     expect(h.charged).toHaveLength(2);
   });
 });
+
+describe('create holds nothing across the gateway call', () => {
+  it('a click waits for the link lock another checkout holds, then starts exactly one', async () => {
+    const { token } = await invoiceWithLink(0, 40.5);
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM portal_payment_links WHERE token = $1 FOR UPDATE', [token]);
+      const pending = create(token);
+      await new Promise((done) => setTimeout(done, 300));
+      expect(h.charged).toEqual([]); // blocked on the lock
+      await holder.query('COMMIT');
+      expect((await pending).statusCode).toBe(200);
+    } finally {
+      holder.release();
+    }
+    expect((await create(token)).statusCode).toBe(200);
+    expect(h.charged).toEqual([4050]);
+  });
+
+  it('while the gateway is answering, the link is not locked and the checkout is already recorded', async () => {
+    const { invoiceId, token } = await invoiceWithLink(0, 40.5);
+    const seen: { locked: boolean; rows: number }[] = [];
+    h.during = async () => {
+      const probe = await pool.connect();
+      try {
+        await probe.query('BEGIN');
+        const locked = await probe.query('SELECT 1 FROM portal_payment_links WHERE token = $1 FOR UPDATE NOWAIT', [token])
+          .then(() => false, () => true);
+        await probe.query('ROLLBACK');
+        seen.push({ locked, rows: (await requests(invoiceId)).length });
+      } finally {
+        probe.release();
+      }
+    };
+    expect((await create(token)).statusCode).toBe(200);
+    expect(seen).toEqual([{ locked: false, rows: 1 }]);
+    expect(h.timeouts).toEqual([10_000]);
+  });
+
+  it('a checkout still being set up answers 409 instead of starting another', async () => {
+    const { invoiceId, linkId, token } = await invoiceWithLink(0, 40.5);
+    await pool.query(`INSERT INTO paystack_payment_requests (company_id, purpose, customer_invoice_id, paystack_reference,
+      amount_cents, status, portal_payment_link_id) VALUES ($1, 'customer_invoice', $2, $3, 4050, 'pending', $4)`,
+      [CO, invoiceId, `r167_starting_${linkId.slice(0, 8)}`, linkId]);
+    const r = await create(token);
+    expect(r.statusCode).toBe(409);
+    expect(h.charged).toEqual([]);
+    await pool.query("UPDATE paystack_payment_requests SET created_at = NOW() - INTERVAL '61 seconds' WHERE customer_invoice_id = $1", [invoiceId]);
+    expect((await create(token)).statusCode).toBe(200); // abandoned while starting: a fresh one
+    expect(h.charged).toEqual([4050]);
+  });
+
+  it('a gateway failure marks the recorded checkout failed, and the next click starts afresh', async () => {
+    const { invoiceId, token } = await invoiceWithLink(0, 40.5);
+    h.during = async () => { throw new Error('gateway timed out'); };
+    expect((await create(token)).statusCode).toBe(500);
+    expect((await pool.query('SELECT status, authorization_url FROM paystack_payment_requests WHERE customer_invoice_id = $1', [invoiceId])).rows)
+      .toEqual([{ status: 'failed', authorization_url: null }]);
+    h.during = null;
+    expect((await create(token)).statusCode).toBe(200);
+    expect(h.charged).toEqual([4050, 4050]);
+  });
+
+  it('a link that has used its 20 checkouts for the window is refused 429 before anything else', async () => {
+    const { invoiceId, token } = await invoiceWithLink(0, 40.5);
+    // The limiter's shared counter for this link, already at its maximum of 20.
+    const key = `paystack-create-link:${createHash('sha256').update(token).digest('hex').slice(0, 32)}`;
+    await pool.query(`INSERT INTO rate_limit_counters (key, count, window_start) VALUES ($1, 20, NOW())
+      ON CONFLICT (key) DO UPDATE SET count = 20, window_start = NOW()`, [key]);
+    try {
+      expect((await create(token)).statusCode).toBe(429);
+      expect(h.charged).toEqual([]);
+      expect(await requests(invoiceId)).toEqual([]);
+    } finally {
+      await pool.query('DELETE FROM rate_limit_counters WHERE key = $1', [key]);
+    }
+  });
+});
+
