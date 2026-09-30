@@ -89,26 +89,66 @@ export async function lockPaymentLink(token: string): Promise<void> {
 
 /** How long a started checkout is handed out again instead of starting a second one. */
 export const CHECKOUT_REUSE_MINUTES = 30;
+/** A checkout recorded but not yet given its URL is "starting" for this long, then abandoned. */
+export const CHECKOUT_STARTING_SECONDS = 60;
+
+export type ExistingCheckout =
+  | { kind: 'reuse'; checkoutUrl: string; reference: string }
+  | { kind: 'starting' }
+  | { kind: 'none' };
 
 /**
- * A checkout already started from this link for the same amount, recently: returned instead of a
- * new one, so a customer who clicks Pay twice gets one charge rather than two. A different amount
- * (the balance moved) or an older one starts afresh.
+ * The latest pending checkout from this link for the same amount, in the reuse window. A double
+ * click or a back-and-retry gets it again instead of a second charge. One recorded in the last
+ * minute that has no URL yet is still being started, so the caller must wait, not start another.
+ * A different amount (the balance moved), an older one, or one abandoned while starting: none.
  */
-export async function findReusableCheckout(
-  charge: LinkCharge,
-): Promise<{ checkoutUrl: string; reference: string } | null> {
+export async function existingCheckout(charge: LinkCharge): Promise<ExistingCheckout> {
   const rows = (await sql`
-    SELECT authorization_url, paystack_reference
+    SELECT authorization_url, paystack_reference,
+           created_at > NOW() - make_interval(secs => ${CHECKOUT_STARTING_SECONDS}) AS young
     FROM paystack_payment_requests
     WHERE company_id = ${charge.companyId}::UUID AND portal_payment_link_id = ${charge.linkId}::UUID
-      AND status = 'pending' AND amount_cents = ${charge.chargeCents} AND authorization_url IS NOT NULL
+      AND status = 'pending' AND amount_cents = ${charge.chargeCents}
       AND created_at > NOW() - make_interval(mins => ${CHECKOUT_REUSE_MINUTES})
     ORDER BY created_at DESC
     LIMIT 1
-  `) as { authorization_url: string; paystack_reference: string }[];
+  `) as { authorization_url: string | null; paystack_reference: string; young: boolean }[];
   const row = rows[0];
-  return row ? { checkoutUrl: row.authorization_url, reference: row.paystack_reference } : null;
+  if (!row) return { kind: 'none' };
+  if (row.authorization_url) return { kind: 'reuse', checkoutUrl: row.authorization_url, reference: row.paystack_reference };
+  return row.young ? { kind: 'starting' } : { kind: 'none' };
+}
+
+/** Record a checkout before the gateway is called, so a second click finds it (see create). */
+export async function recordStartingCheckout(charge: LinkCharge, reference: string, payerEmail: string): Promise<void> {
+  await sql`
+    INSERT INTO paystack_payment_requests (
+      company_id, purpose, customer_invoice_id, paystack_reference,
+      amount_cents, currency, status, payer_name, payer_email, portal_payment_link_id
+    ) VALUES (
+      ${charge.companyId}::UUID, 'customer_invoice', ${charge.invoiceId}::UUID, ${reference},
+      ${charge.chargeCents}, 'ZAR', 'pending', ${charge.clientName}, ${payerEmail}, ${charge.linkId}::UUID
+    )
+  `;
+}
+
+/** The gateway accepted the checkout: store where the customer pays it. */
+export async function checkoutStarted(companyId: string, reference: string, accessCode: string, url: string): Promise<void> {
+  await sql`
+    UPDATE paystack_payment_requests
+    SET paystack_access_code = ${accessCode}, authorization_url = ${url}, updated_at = NOW()
+    WHERE company_id = ${companyId}::UUID AND paystack_reference = ${reference} AND status = 'pending'
+  `;
+}
+
+/** The gateway refused or timed out: the recorded checkout can never be paid. */
+export async function checkoutFailed(companyId: string, reference: string, reason: string): Promise<void> {
+  await sql`
+    UPDATE paystack_payment_requests
+    SET status = 'failed', failure_reason = ${reason}, updated_at = NOW()
+    WHERE company_id = ${companyId}::UUID AND paystack_reference = ${reference} AND status = 'pending'
+  `;
 }
 
 /**
