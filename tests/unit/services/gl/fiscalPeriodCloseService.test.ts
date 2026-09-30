@@ -166,6 +166,18 @@ describe('closePeriodWithReadiness', () => {
       .rejects.toBeInstanceOf(PeriodCloseBlockedError);
   });
 
+  it('blocks on a check that names its own "Could not compute" cause (AR / AP tie)', async () => {
+    // The sub-ledger tie catches a failed reconciliation itself and says why,
+    // after the same prefix. It must refuse the close exactly as the fixed
+    // reason does.
+    vi.mocked(getCloseReadiness).mockResolvedValue(readiness([
+      item('ar_ties', 'warn', 'Could not compute — the AR sub-ledger reconciliation as at 2025-07-31 failed to run.'),
+    ]));
+
+    await expect(closePeriodWithReadiness(COMPANY, PERIOD, USER, {}))
+      .rejects.toBeInstanceOf(PeriodCloseBlockedError);
+  });
+
   it('returns the full checklist either way, so a caller sees what it passed', async () => {
     const items = [item('tb_balanced', 'pass'), item('vat_reviewed', 'warn')];
     vi.mocked(getCloseReadiness).mockResolvedValue(readiness(items));

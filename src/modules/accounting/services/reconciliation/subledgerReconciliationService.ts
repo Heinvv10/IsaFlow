@@ -251,7 +251,7 @@ export async function reconcileSubledger(
 
     const built = [
       ...buildAgedBridgeItems({ snapshot, agedTotal }),
-      ...buildControlBridgeItems({ snapshot, cash, unposted, creditNotes }),
+      ...buildControlBridgeItems({ snapshot, cash, unposted, creditNotes, asAtDate }),
     ];
     // A control-bridge item that nets to exactly zero explains nothing and
     // reads to an agent as a finding that resolves itself. Its rows are real,
