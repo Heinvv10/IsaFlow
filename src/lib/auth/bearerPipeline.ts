@@ -22,6 +22,7 @@ import { validatePat } from './personalAccessTokens';
 import { validateOauthAccessToken, type OauthAccessContext } from './oauth';
 import type { CompanyAuthedRequest } from './withAuth';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
+import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } from './deferredEnd';
 
 /**
  * Auto rate-limit table — must stay in sync with the equivalent table in
@@ -130,6 +131,7 @@ export async function runBearerRequest(
 
   const startedAt = Date.now();
   const client = await getAuthPool().connect();
+  let deferred: DeferredEnd | null = null;
   try {
     await client.query('BEGIN');
     await client.query('SET LOCAL ROLE app_user');
@@ -230,16 +232,8 @@ export async function runBearerRequest(
     // Next's res.json funnels through res.end, so buffering the single final
     // end() captures every response; we COMMIT/ROLLBACK on the resolved status,
     // then replay (or replace a 2xx with an honest 500 on a failed COMMIT).
-    let bufferedEndArgs: unknown[] | null = null;
-    let handlerEnded = false;
-    const realEnd = res.end.bind(res) as (...a: unknown[]) => unknown;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (res as any).end = (...args: unknown[]) => {
-      if (handlerEnded) return res; // flush exactly once
-      handlerEnded = true;
-      bufferedEndArgs = args;
-      return res;
-    };
+    const flush = deferEnd(res);
+    deferred = flush;
 
     const txCtx: RequestContext = { client, userId: ctx.userId, companyId: ctx.companyId, claims, afterCommit: [] };
     const runHandler = async () => runOwnedContext(txCtx, async () => { await handler(authedReq, res); });
@@ -273,7 +267,7 @@ export async function runBearerRequest(
         Sentry.captureException(finalizeErr);
       }
       if (res.headersSent) {
-        realEnd(...(bufferedEndArgs ?? []));
+        abortResponse(res); // the status is on the wire; a clean close would read as success
       } else {
         // Replace the buffered 2xx with an honest 500 — the write did NOT land.
         const body = JSON.stringify({
@@ -282,17 +276,20 @@ export async function runBearerRequest(
         res.statusCode = 500;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Content-Length', Buffer.byteLength(body));
-        realEnd(body);
+        flush.realEnd(body);
       }
       return; // finally still runs (release + slow-request log)
     }
 
     // Transaction durable — replay the buffered flush, then start after-commit work (R-075).
-    if (handlerEnded) realEnd(...(bufferedEndArgs ?? []));
+    // replayEnd never throws: past COMMIT, the catch below must not ROLLBACK or answer 500.
+    replayEnd(res, flush, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId });
     if (!handlerFailed) drainAfterCommit(txCtx);
   } catch (err) {
-    try { await client.query('ROLLBACK'); } catch { /* secondary */ }
-    throw err;
+    // R-159: answer the throw here; see withAuth.
+    let rolledBack = true;
+    try { await client.query('ROLLBACK'); } catch { rolledBack = false; }
+    answerThrow(req, res, deferred, err, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId, rolledBack });
   } finally {
     client.release();
     const ms = Date.now() - startedAt;
