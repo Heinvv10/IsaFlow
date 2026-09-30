@@ -165,7 +165,10 @@ describe.each(wrappers)('%s', (label, wrap, req) => {
     const r = await call(wrap('throw', name), req());
     const source = label.startsWith('withBearer') ? 'bearerPipeline' : label;
     expect(logged).toHaveBeenCalledWith(`${source}: handler threw, transaction rolled back`,
-      expect.objectContaining({ companyId: CO, userId: USER, message: `R-159 forced failure after the ${name} INSERT` }), 'Auth');
+      expect.objectContaining({
+        companyId: CO, userId: USER, message: `R-159 forced failure after the ${name} INSERT`,
+        ...(label === 'withExtensionToken' && { connectionId: CONN }),
+      }), 'Auth');
     logged.mockRestore();
     expect(await customers(name)).toBe(0);
     expect(r.threw).toBeNull();

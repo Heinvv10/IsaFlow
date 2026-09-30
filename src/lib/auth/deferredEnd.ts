@@ -45,6 +45,8 @@ export interface ThrowContext {
   source: string;
   companyId?: string;
   userId?: string;
+  /** Wrapper-specific fields for the log line, e.g. the extension's connectionId. */
+  extra?: Record<string, unknown>;
 }
 
 /**
@@ -63,6 +65,7 @@ export function answerThrow(
     route,
     companyId: ctx.companyId,
     userId: ctx.userId,
+    ...ctx.extra,
     message: err instanceof Error ? err.message : String(err),
   }, 'Auth');
   if (process.env.SENTRY_ENABLED === 'true') {

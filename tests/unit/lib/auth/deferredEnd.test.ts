@@ -55,6 +55,15 @@ describe('answerThrow', () => {
     expect(JSON.parse(String(ends[0]![0]))).toMatchObject({ success: false });
   });
 
+  it('in production the 500 masks the error text and carries no details', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const { r, ends } = res();
+    answerThrow(req, r as never, deferEnd(r as never), new Error('relation "secret_table" does not exist'), { source: 'withAuth' });
+    expect(r.statusCode).toBe(500);
+    const body = JSON.parse(String(ends[0]![0]));
+    expect(body).toEqual({ success: false, data: null, message: 'An unexpected error occurred', code: 'INTERNAL_SERVER_ERROR' });
+  });
+
   it('with no deferral (a throw before the swap) it still answers 500 once', () => {
     const { r, ends } = res();
     answerThrow(req, r as never, null, new Error('boom'), { source: 'withAuth' });

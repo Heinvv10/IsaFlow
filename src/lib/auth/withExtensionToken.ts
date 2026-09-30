@@ -176,7 +176,10 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
     } catch (err) {
       // R-159: answer the throw here; see withAuth.
       try { await client.query('ROLLBACK'); } catch { /* secondary */ }
-      answerThrow(req, res, deferred, err, { source: 'withExtensionToken', companyId: claims.companyId, userId: claims.userId });
+      answerThrow(req, res, deferred, err, {
+        source: 'withExtensionToken', companyId: claims.companyId, userId: claims.userId,
+        extra: { connectionId: claims.connectionId },
+      });
     } finally {
       client.release();
     }
