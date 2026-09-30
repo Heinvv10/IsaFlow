@@ -58,18 +58,29 @@ export async function matchVendorSupplier(vendorName: string): Promise<string | 
 }
 
 /**
- * OCR scans resolve asynchronously and may finish out of order, or after the user
- * has picked a supplier. Only the newest scan may apply, and `apply` decides
- * whether the form still wants it (it should ignore the id when a supplier is set).
+ * OCR scans resolve asynchronously and may finish out of order. Only the newest
+ * scan may apply. A scan may fill an empty supplier or replace one an earlier scan
+ * set, but never one the user picked: call `notePick` from the picker's onChange.
  */
-export function useVendorSupplierMatch(apply: (supplierId: string) => void): (vendorName: string) => void {
+export function useVendorSupplierMatch(
+  current: string,
+  apply: (supplierId: string) => void,
+): { scan: (vendorName: string) => void; notePick: () => void } {
   const seq = useRef(0);
+  const ocrId = useRef('');
+  const currentRef = useRef(current);
   const applyRef = useRef(apply);
-  useEffect(() => { applyRef.current = apply; });
-  return useCallback((vendorName: string) => {
+  useEffect(() => { currentRef.current = current; applyRef.current = apply; });
+  const scan = useCallback((vendorName: string) => {
     const mine = ++seq.current;
     void matchVendorSupplier(vendorName).then((id) => {
-      if (id && mine === seq.current) applyRef.current(id);
+      if (!id || mine !== seq.current) return;
+      const held = currentRef.current;
+      if (held && held !== ocrId.current) return; // the user's own pick
+      ocrId.current = id;
+      applyRef.current(id);
     });
   }, []);
+  const notePick = useCallback(() => { ocrId.current = ''; }, []);
+  return { scan, notePick };
 }

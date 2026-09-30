@@ -85,6 +85,19 @@ const submit = (c: HTMLElement) => fireEvent.submit(c.querySelector('form')!);
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 50)); });
 
 describe('supplier-invoices/new', () => {
+  it('a rescan replaces an earlier scan\'s supplier, but not one the user picked afterwards', async () => {
+    const { container } = render(<NewSupplierInvoice />);
+    fireEvent.click(screen.getByText('scan-alpha'));
+    await waitFor(() => expect(supplierId(container)).toBe('sa'), { timeout: 2000 });
+    fireEvent.click(screen.getByText('scan-beta'));
+    await waitFor(() => expect(supplierId(container)).toBe('sb'), { timeout: 2000 });
+    fireEvent.click(screen.getByLabelText(/clear supplier/i));
+    await pick(container);
+    expect(supplierId(container)).toBe('s26');
+    fireEvent.click(screen.getByText('scan-alpha'));
+    await settle(); await settle();
+    expect(supplierId(container)).toBe('s26');
+  });
   it('does not POST without a supplier', async () => {
     const { container } = render(<NewSupplierInvoice />);
     await settle();
@@ -117,6 +130,19 @@ describe('supplier-invoices/new', () => {
 });
 
 describe('supplier-payments/new', () => {
+  it('a rescan replaces an earlier scan\'s supplier, but not one the user picked afterwards', async () => {
+    const { container } = render(<NewSupplierPayment />);
+    fireEvent.click(screen.getByText('scan-alpha'));
+    await waitFor(() => expect(supplierId(container)).toBe('sa'), { timeout: 2000 });
+    fireEvent.click(screen.getByText('scan-beta'));
+    await waitFor(() => expect(supplierId(container)).toBe('sb'), { timeout: 2000 });
+    fireEvent.click(screen.getByLabelText(/clear supplier/i));
+    await pick(container);
+    expect(supplierId(container)).toBe('s26');
+    fireEvent.click(screen.getByText('scan-alpha'));
+    await settle(); await settle();
+    expect(supplierId(container)).toBe('s26');
+  });
   it('does not POST without a supplier', async () => {
     const { container } = render(<NewSupplierPayment />);
     await settle();

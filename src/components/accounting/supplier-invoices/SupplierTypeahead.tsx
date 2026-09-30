@@ -24,6 +24,8 @@ interface Props {
   invalidMessage?: string;
   /** Label suppliers by company_name when set (falls back to name). */
   companyFirst?: boolean;
+  testId?: string;
+  ariaLabel?: string;
 }
 
 const FILTER_INPUT = 'w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40';
@@ -31,7 +33,7 @@ const FILTER_INPUT = 'w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 
 export function SupplierTypeahead({
   selectedId, selectedLabel, onSelect, onClear,
   placeholder = 'Filter by supplier…', wrapperClassName = 'w-64', inputClassName = FILTER_INPUT, name = 'supplier',
-  required, invalidMessage, companyFirst,
+  required, invalidMessage, companyFirst, testId, ariaLabel,
 }: Props) {
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<SupplierOption[]>([]);
@@ -43,7 +45,8 @@ export function SupplierTypeahead({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    const message = invalidMessage ?? (required && !selectedId ? 'Select a supplier from the list' : '');
+    // Only a required picker may block submit; an optional one never does.
+    const message = !required ? '' : (invalidMessage ?? (!selectedId ? 'Select a supplier from the list' : ''));
     inputRef.current?.setCustomValidity(message);
   }, [required, selectedId, invalidMessage]);
 
@@ -84,6 +87,8 @@ export function SupplierTypeahead({
     <div ref={boxRef} className={`relative ${wrapperClassName}`}>
       <input
         ref={inputRef}
+        data-testid={testId}
+        aria-label={ariaLabel}
         type="text"
         name={name}
         value={selectedLabel || query}

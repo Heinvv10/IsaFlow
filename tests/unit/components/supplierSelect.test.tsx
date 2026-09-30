@@ -64,7 +64,7 @@ describe('SupplierSelect', () => {
     await waitFor(() => expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('Supplier 40'), { timeout: 2000 });
   });
 
-  it('flags an id that cannot be resolved and clears it instead of submitting it blind', async () => {
+  it('clears and flags an id the server says does not exist (404)', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
     const onPick = vi.fn();
     render(<Harness initial="gone" onPick={onPick} required />);
@@ -73,10 +73,50 @@ describe('SupplierSelect', () => {
     expect((screen.getByRole('textbox') as HTMLInputElement).checkValidity()).toBe(false);
   });
 
-  it('flags an id whose lookup throws', async () => {
-    vi.mocked(apiFetch).mockRejectedValue(new Error('network'));
-    render(<Harness initial="id-3" required />);
-    expect(await screen.findByRole('alert', {}, { timeout: 2000 })).toBeTruthy();
+  it('clears an id when the lookup is ok but returns no row', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: true, data: {} }), { status: 200 }));
+    const onPick = vi.fn();
+    render(<Harness initial="gone" onPick={onPick} />);
+    expect((await screen.findByRole('alert', {}, { timeout: 2000 })).textContent).toMatch(/not found/i);
+    expect(onPick).toHaveBeenLastCalledWith('');
+  });
+
+  it.each([
+    ['a 500', () => Promise.resolve(new Response('{}', { status: 500 }))],
+    ['a network error', () => Promise.reject(new Error('network'))],
+  ])('keeps the saved id on %s and offers a retry that recovers', async (_label, fail) => {
+    let broken = true;
+    vi.mocked(apiFetch).mockImplementation(async (url) => (broken ? fail() : fakeRoute(String(url))));
+    const onPick = vi.fn();
+    render(<Harness initial="id-3" onPick={onPick} required />);
+    expect((await screen.findByRole('alert', {}, { timeout: 2000 })).textContent).toMatch(/couldn.t load supplier/i);
+    expect(onPick).not.toHaveBeenCalled(); // the saved supplier was not wiped
+    expect((screen.getByRole('textbox') as HTMLInputElement).checkValidity()).toBe(true);
+    broken = false;
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    await waitFor(() => expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('Supplier 03'), { timeout: 2000 });
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('after a not-found id, picking a supplier makes a required picker valid again', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
+    render(<Harness initial="gone" required />);
+    await screen.findByRole('alert', {}, { timeout: 2000 });
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    expect(input.checkValidity()).toBe(false);
+    fireEvent.focus(input);
+    fireEvent.click(await screen.findByRole('button', { name: 'Supplier 02' }, { timeout: 2000 }));
+    expect((screen.getByRole('textbox') as HTMLInputElement).checkValidity()).toBe(true);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('an optional picker is never invalid, and its not-found notice can be cleared', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
+    render(<Harness initial="gone" />);
+    await screen.findByRole('alert', {}, { timeout: 2000 });
+    expect((screen.getByRole('textbox') as HTMLInputElement).checkValidity()).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /clear/i }));
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('required blocks native validity until a supplier is picked, typed text alone is not enough', async () => {

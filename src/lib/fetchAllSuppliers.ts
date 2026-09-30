@@ -20,6 +20,11 @@ export interface AllSuppliers {
 
 const PAGE_SIZE = 200; // the route's hard cap
 const MAX_PAGES = 50;
+/** Most suppliers this loader will return; beyond it `truncated` is true. */
+export const SUPPLIER_LIST_CAP = PAGE_SIZE * MAX_PAGES;
+
+export const truncatedSuppliersNotice = () =>
+  `Showing the first ${SUPPLIER_LIST_CAP.toLocaleString('en-ZA')} suppliers — search is limited to these.`;
 
 export async function fetchAllSuppliers(): Promise<AllSuppliers> {
   const byId = new Map<string, SupplierRow>();

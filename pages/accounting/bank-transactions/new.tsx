@@ -10,7 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeft, Loader2, Receipt, Banknote } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
-import { fetchAllSuppliers } from '@/lib/fetchAllSuppliers';
+import { fetchAllSuppliers, truncatedSuppliersNotice } from '@/lib/fetchAllSuppliers';
 import { log } from '@/lib/logger';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
@@ -66,6 +66,7 @@ export default function NewBankTransactionPage() {
   const [glAccounts, setGlAccounts] = useState<SelectOption[]>([]);
   const [suppliers, setSuppliers] = useState<SelectOption[]>([]);
   const [suppliersFailed, setSuppliersFailed] = useState(false);
+  const [suppliersTruncated, setSuppliersTruncated] = useState(false);
   const [customers, setCustomers] = useState<SelectOption[]>([]);
   const [isLoadingRef, setIsLoadingRef] = useState(true);
 
@@ -85,9 +86,10 @@ export default function NewBankTransactionPage() {
           .filter(a => !isBankSubtype(a.accountSubtype))
           .map(a => ({ id: a.id, code: a.accountCode ?? a.code ?? undefined, name: a.accountName ?? a.name ?? '' })));
       }),
-      fetchAllSuppliers().then(({ suppliers: list }) => {
+      fetchAllSuppliers().then(({ suppliers: list, truncated }) => {
         if (!mounted) return;
         setSuppliers(list.map(s => ({ id: String(s.id), name: s.name ?? '', code: s.code ?? undefined })));
+        if (truncated) setSuppliersTruncated(true);
       }).catch(err => {
         log.warn('Failed to load suppliers for new bank transaction', { error: err }, 'accounting-ui');
         if (mounted) setSuppliersFailed(true);
@@ -276,6 +278,9 @@ export default function NewBankTransactionPage() {
                           className={inp} autoComplete="off" />
                         {form.allocationType === 'supplier' && suppliersFailed && (
                           <p role="alert" className="mt-1 text-xs text-red-500">Suppliers failed to load — reload the page to allocate to a supplier.</p>
+                        )}
+                        {form.allocationType === 'supplier' && suppliersTruncated && (
+                          <p role="status" className="mt-1 text-xs text-amber-500">{truncatedSuppliersNotice()}</p>
                         )}
                         {entitySearch.length > 0 && !isSelected && (
                           <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl max-h-52 overflow-y-auto">
