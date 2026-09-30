@@ -4,13 +4,16 @@
  * POST /api/accounting/default-accounts - Save default account mappings
  * Sage equivalent: Accounts > Default Accounts
  *
- * The 8 managed roles are READ from the system-account flags themselves (the
+ * The 9 managed roles are READ from the system-account flags themselves (the
  * holder systemAccountResolver hands out), never from app_settings, which is
  * empty for most companies. A save moves only the roles whose account it
- * changes, and refuses — rolling back everything — any save that would leave a
- * role the company held with no account (every auto-posting path needing it
- * would throw MissingSystemAccountError). The 4 unmanaged rows are stored in
- * app_settings only; nothing reads them (SET-02, open question).
+ * changes, and refuses — rolling back everything — any save after which a role
+ * does not resolve to exactly the account the save intended: a role it moved
+ * must land on the chosen account, and every other role the company held must
+ * keep its holder (an empty role makes auto-posting throw
+ * MissingSystemAccountError; a drifted one posts to the wrong account). The 3
+ * unmanaged rows are stored in app_settings only; nothing reads them (SET-02,
+ * open question).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -20,6 +23,8 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql, withTransaction, type TxSql } from '@/lib/neon';
+import { TransactionRefusal } from '@/lib/transactionRefusal';
+import { runAfterCommit } from '@/lib/afterCommit';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { SYSTEM_ACCOUNT_KEYS, type SystemAccountKey } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { getSystemRoleCoverage } from '@/modules/accounting/services/gl/systemRoleCoverage';
@@ -40,7 +45,13 @@ const KEY_TO_SYSTEM_SUBTYPE: Record<string, SystemAccountKey> = {
   accounts_payable:    'payable',
   primary_bank:        'bank',
   retained_earnings:   'retained_earnings',
+  opening_balance_equity: 'opening_balance_equity',
 };
+
+/** The role a UI key manages — own keys only, so `constructor` is ignored like any unknown key. */
+function managedSubtype(uiKey: string): SystemAccountKey | undefined {
+  return Object.hasOwn(KEY_TO_SYSTEM_SUBTYPE, uiKey) ? KEY_TO_SYSTEM_SUBTYPE[uiKey] : undefined;
+}
 
 // Expected account_type for each subtype — guards against assigning an
 // asset account as "revenue" or similar cross-category mistakes.
@@ -53,12 +64,13 @@ const SUBTYPE_EXPECTED_TYPE: Record<string, string> = {
   payable:          'liability',
   bank:             'asset',
   retained_earnings:'equity',
+  opening_balance_equity: 'equity',
 };
 
 type Row = Record<string, unknown>;
 
-/** A save that must not happen. Thrown inside the save transaction so it rolls back. */
-class DefaultAccountsRefusal extends Error {}
+/** A save that must not happen (a 400). Thrown inside the save transaction so it rolls back. */
+class DefaultAccountsRefusal extends TransactionRefusal {}
 
 /** Role → the account id systemAccountResolver would hand out (same winner rule). */
 async function roleHolders(companyId: string, q: TxSql = sql): Promise<Map<SystemAccountKey, string>> {
@@ -74,7 +86,10 @@ async function roleHolders(companyId: string, q: TxSql = sql): Promise<Map<Syste
  * locked-VAT reclassification, or a save that empties any role held before.
  */
 async function saveMappings(tx: TxSql, companyId: string, mappings: Record<string, unknown>): Promise<void> {
-  // Serialise concurrent saves for this company on the role rows.
+  // Serialise concurrent saves for this company — also when no row carries a
+  // role yet, where the FOR UPDATE below locks nothing — and against other
+  // writers of the role rows.
+  await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`default-accounts:${companyId}`}::TEXT, 0))`;
   await tx`
     SELECT 1 FROM gl_accounts
     WHERE company_id = ${companyId}::UUID AND account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[])
@@ -84,11 +99,17 @@ async function saveMappings(tx: TxSql, companyId: string, mappings: Record<strin
 
   const changes: AccountAttributeChange[] = [];
   const moves: { subtype: SystemAccountKey; accountId: string }[] = [];
+  const chosenFor = new Map<string, string>();
   for (const [uiKey, raw] of Object.entries(mappings)) {
-    const subtype = KEY_TO_SYSTEM_SUBTYPE[uiKey];
+    const subtype = managedSubtype(uiKey);
     if (!subtype) continue;
     const accountId = typeof raw === 'string' && raw !== '' ? raw : null;
     const current = before.get(subtype) ?? null;
+    const other = accountId ? chosenFor.get(accountId) : undefined;
+    if (accountId && other) {
+      throw new DefaultAccountsRefusal(`One account cannot hold two roles: '${other}' and '${uiKey}' name the same account`);
+    }
+    if (accountId) chosenFor.set(accountId, uiKey);
     if (accountId === current) continue;
     if (!accountId) {
       throw new DefaultAccountsRefusal(
@@ -124,7 +145,7 @@ async function saveMappings(tx: TxSql, companyId: string, mappings: Record<strin
   // locked (filed) VAT period into a different box is refused, naming the
   // account and the period.
   try {
-    await assertAccountChangesKeepVatLocks(companyId, changes);
+    await assertAccountChangesKeepVatLocks(companyId, changes, tx);
   } catch (err) {
     if (err instanceof VatPeriodLockedError) throw new DefaultAccountsRefusal(err.message);
     throw err;
@@ -151,12 +172,23 @@ async function saveMappings(tx: TxSql, companyId: string, mappings: Record<strin
   }
 
   // Re-pointing an account rewrites its subtype, which can take it away from
-  // another role (e.g. the admin_expense holder chosen as cost of sales).
+  // another role (the admin_expense holder chosen as cost of sales empties
+  // admin_expense; the winner of a contested vat_input chosen as bank hands
+  // vat_input to the losing claimant). Every role held before or moved now
+  // must resolve to exactly the account intended.
   const after = await roleHolders(companyId, tx);
-  const emptied = [...before.keys()].filter((key) => !after.has(key));
+  const intended = new Map<SystemAccountKey, string>(before);
+  for (const { subtype, accountId } of moves) intended.set(subtype, accountId);
+  const emptied = [...intended.keys()].filter((key) => !after.has(key));
   if (emptied.length > 0) {
     throw new DefaultAccountsRefusal(
       `This change would leave ${emptied.join(', ')} with no system account; posting that needs it would fail. Nothing was saved.`,
+    );
+  }
+  const drifted = [...intended.keys()].filter((key) => after.get(key) !== intended.get(key));
+  if (drifted.length > 0) {
+    throw new DefaultAccountsRefusal(
+      `This change would move ${drifted.join(', ')} to an account you did not choose; posting would use it. Nothing was saved.`,
     );
   }
 }
@@ -170,8 +202,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const [row] = await sql`
         SELECT value FROM app_settings WHERE key = ${SETTINGS_KEY} AND company_id = ${companyId}
       `;
-      if (row?.value) {
-        mappings = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+      const raw: unknown = row?.value;
+      const stored: unknown = typeof raw === 'string' && raw !== '' ? JSON.parse(raw) : raw;
+      // Only a plain object is a mapping; a stored array or scalar is ignored.
+      if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+        mappings = { ...(stored as Record<string, string>) };
       }
       // The managed roles show what posting actually uses, not what was saved.
       const holders = await roleHolders(companyId);
@@ -190,7 +225,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     const { mappings } = req.body;
 
-    if (!mappings || typeof mappings !== 'object') {
+    if (!mappings || typeof mappings !== 'object' || Array.isArray(mappings)) {
       return apiResponse.validationError(res, { mappings: 'Object of key-value mappings required' });
     }
 
@@ -201,7 +236,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       log.error('Failed to save default accounts', { error: err instanceof Error ? err.message : String(err), module: 'accounting' });
       return apiResponse.databaseError(res, err, 'Failed to save default accounts');
     }
-    clearSystemAccountCache(companyId);
+    // After COMMIT: cleared earlier, a concurrent read in the gap re-caches the
+    // old holder for up to the cache TTL and posts to it.
+    runAfterCommit('default-accounts: clear system account cache', async () => clearSystemAccountCache(companyId));
     log.info('Default accounts saved and system flags synced', { keys: Object.keys(mappings), module: 'accounting' });
     return apiResponse.success(res, { saved: true });
   }
