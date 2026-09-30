@@ -20,8 +20,9 @@
  * ageing a bill the provisional has already paid, and paying it would pay twice;
  * a draft is outside the AP population until a person approves it.
  *
- * `postUnattached` (capture/[id]/post, R-131): an auto-approved invoice that
- * evidences NO provisional is posted the same way — without it that bill sat
+ * `postUnattached` (capture/[id]/post, R-131; ai-invoice-pipeline, R-160): an
+ * auto-approved invoice that evidences NO provisional is posted the same way —
+ * without it that bill sat
  * 'approved' with no journal, owing in the AP subledger and absent from the GL —
  * and is withdrawn to draft the same way when its journal cannot post.
  */
@@ -40,7 +41,7 @@ export interface AttachAndSettleInput {
   supplierId: string;
   totalAmount: number;
   invoiceDate: string;
-  /** Also post an auto-approved invoice that evidences no provisional (R-131). */
+  /** Also post an auto-approved invoice that evidences no provisional (R-131, R-160). */
   postUnattached?: boolean;
 }
 

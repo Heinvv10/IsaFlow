@@ -1,6 +1,6 @@
 /**
- * The line items `capture/[id]/post` writes with the supplier invoice it creates
- * (R-131).
+ * The line items `capture/[id]/post` (R-131) and `ai-invoice-pipeline` (R-160)
+ * write with the supplier invoice they create.
  *
  * That route inserted the invoice and no `supplier_invoice_items`. Every posting
  * path builds the journal's expense side from the items (`buildExpenseLines`), so
@@ -15,8 +15,10 @@
  * approval already posts every uncoded line to. No total, or none of the three,
  * is a refusal — never a bill with no lines. Extracted lines carry the event's
  * or the rule's account when there is one, and otherwise stay uncoded as every
- * other bill's lines do. `planCaptureBillLines` only reads, so the route runs it
- * before its posting claim, where a 4xx still commits nothing.
+ * other bill's lines do. `planCaptureBillLines` only reads, so each route runs it
+ * before its posting claim, where a 4xx still commits nothing. The pipeline
+ * skipped a line it could not use and inserted the bill anyway — with no lines
+ * when it skipped them all, and a R0 bill for a document with no total.
  */
 import { sql } from '@/lib/neon';
 import type { SupplierRule } from './supplierRulesService';
