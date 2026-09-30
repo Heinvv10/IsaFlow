@@ -66,8 +66,11 @@ function setupReportData() {
   getWipMock.mockResolvedValue([
     { practiceClientId: 'c1', legalName: 'Acme Corp', total: 5000, bucket0to7: 1000, bucket8to14: 1000, bucket15to30: 1000, bucket31plus: 2000 },
   ]);
+  // Recipients must be members in good standing (R-168): both addresses used below are.
   listUsersMock.mockResolvedValue([
     { id: 'u1', email: 'staff@firm.co.za', firstName: 'John', lastName: 'Doe', displayName: 'John Doe', companyRole: 'member' },
+    { id: 'u2', email: EMAIL, firstName: 'Jane', lastName: null, displayName: 'Jane', companyRole: 'owner' },
+    { id: 'u3', email: 'Director@Firm.co.za', firstName: 'Bob', lastName: null, displayName: 'Bob', companyRole: 'admin' },
   ]);
 }
 
@@ -124,6 +127,18 @@ describe('runMonthlyReports', () => {
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]!.error).toContain('SMTP timeout');
     expect(result.errors[0]!.email).toBe(EMAIL);
+  });
+
+  it('skips and counts a recipient who is not a member of the company', async () => {
+    sqlMock.mockResolvedValueOnce([{ id: COMPANY_ID, name: 'My Firm' }]);
+    listRecipientsMock.mockResolvedValueOnce([makeRecipient(), makeRecipient({ id: 'r2', email: 'outsider@elsewhere.co.za' })]);
+    setupReportData();
+
+    const result = await runMonthlyReports('2026-03');
+    expect(result.recipientsEmailed).toBe(1);
+    expect(result.recipientsSkipped).toBe(1);
+    expect(sendEmailMock).toHaveBeenCalledTimes(1);
+    expect(sendEmailMock.mock.calls[0][0].to).toBe(EMAIL);
   });
 
   it('uses explicit reportMonth to set correct period dates', async () => {
