@@ -13,8 +13,6 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 
-type Row = Record<string, unknown>;
-
 /**
  * `includeInactive` defaults to FALSE, deliberately.
  *
@@ -40,7 +38,7 @@ export interface BankAccountsStatusOptions {
 export async function getBankAccountsStatus(
   companyId: string,
   options: BankAccountsStatusOptions = {},
-): Promise<Row[]> {
+) {
   // Only a literal `true` opts in: a stray truthy value must not widen a picker.
   const includeInactive = options.includeInactive === true;
   const rows = await sql`
@@ -131,7 +129,7 @@ export async function getBankAccountsStatus(
     ORDER BY ga.account_code
   `;
 
-  return rows.map((r): Row => ({
+  return rows.map((r) => ({
     id: r.id,
     accountCode: r.account_code,
     accountName: r.account_name,

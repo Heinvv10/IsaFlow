@@ -48,6 +48,9 @@ import type { getIncomeStatement } from '@/modules/accounting/services/reports/f
 import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
 import type { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
 import type { mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
+import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
+import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
+import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -82,6 +85,16 @@ import type { mergeCustomers } from '@/modules/accounting/services/ar/customerMe
 interface StaticRoutes {
   '/api/accounting/currencies': Currency[];
   '/api/accounting/customer-merge': Awaited<ReturnType<typeof mergeCustomers>>;
+  // W1-02. GET lists accounts, PUT returns `{ updated }` — disjoint on Array.isArray.
+  '/api/accounting/bank-accounts': Awaited<ReturnType<typeof getBankAccountsStatus>> | { updated: true };
+  // GET and POST (regenerate) both return `{ inbox }`.
+  '/api/accounting/capture/inbox-address': { inbox: Awaited<ReturnType<typeof getOrCreateEmailInbox>> | { id: string; address: string } };
+  // W1-02. GET list = array, GET `?id=` = one document, POST upload = `{ document, extracted }`.
+  // Narrow with Array.isArray / `'document' in r`; the single document has no `document` key.
+  '/api/accounting/document-capture':
+    | CapturedDocument[]
+    | CapturedDocument
+    | { document: CapturedDocument; extracted: ExtractedDocument };
   '/api/accounting/migration/session': { session: MigrationSession | null };
   '/api/accounting/reports-vat-return': Awaited<ReturnType<typeof getVATReturn>>;
   '/api/accounting/vat-allocation-mismatches': Awaited<ReturnType<typeof findVatAllocationMismatches>>;
