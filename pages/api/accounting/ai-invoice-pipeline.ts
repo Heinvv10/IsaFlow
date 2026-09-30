@@ -31,6 +31,8 @@ import {
   claimCapturedDocumentForPosting,
   lockCapturedDocumentForUpdate,
   lockPostableCaptureEventIds,
+  markCaptureEventsDuplicate,
+  markCaptureEventsPosted,
   refusalForPosting,
 } from '@/modules/accounting/services/capture/captureRowLock';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
@@ -161,6 +163,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       SET status = 'matched', matched_invoice_id = ${dupHit.supplierInvoiceId}::uuid
       WHERE id = ${documentId}::uuid AND company_id = ${companyId}
     `;
+    // R-169 round 2: `capture/[id]/post`'s own duplicate_blocked branch stamps its event
+    // 'failed'/'duplicate' before its 409 — this route wrote only captured_documents.
+    await markCaptureEventsDuplicate(companyId, postableEventIds);
     log.info('AI Invoice Pipeline: duplicate detected', {
       documentId,
       supplierInvoiceId: dupHit.supplierInvoiceId,
@@ -230,13 +235,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   `;
 
   // Mark the tied capture event(s) posted (R-169), as `capturePostFollowUps` does for its event id.
-  if (postableEventIds.length > 0) {
-    await sql`
-      UPDATE capture_events
-      SET status = 'posted', posted_by = ${userId}, posted_at = NOW(), updated_at = NOW()
-      WHERE id = ANY(${postableEventIds}::uuid[]) AND company_id = ${companyId}
-    `;
-  }
+  await markCaptureEventsPosted(companyId, postableEventIds, userId);
 
   // Record coding for the learning loop: the rule's account (R-169), same as
   // `capturePostFollowUps` records for `capture/[id]/post` — never the

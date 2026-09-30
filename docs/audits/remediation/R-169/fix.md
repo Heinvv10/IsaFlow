@@ -78,8 +78,24 @@ exists). That is the reproduction, run in place of a duplicate no-op script.
   postings arrive with null glAccountId" comment — it stays null only when there is genuinely no
   rule to reuse; it no longer claims to be always null, since it now isn't.
 
-File-size note: `ai-invoice-pipeline.ts` sits at exactly 300 lines (the repo cap) after this
-change; comments were kept terse to fit.
+### Round 2 (blind review, MEDIUM)
+
+The `dupHit` branch answered 409 having written only `captured_documents` (`status = 'matched'`);
+`capture/[id]/post`'s own `duplicate_blocked` branch stamps its event `status = 'failed', error =
+'duplicate', updated_at = NOW()` before its 409 — the pipeline did not, so the tied event lied
+about the document still being `extracted` on the resend-a-duplicate path, the same symptom this
+PR exists to fix.
+
+- **`captureRowLock.ts`**: the inline posted-UPDATE was extracted into `markCaptureEventsPosted`
+  (same statement, unchanged), and a new `markCaptureEventsDuplicate` added — the exact
+  `capture/[id]/post` WHERE clause and column set (`status = 'failed', error = 'duplicate'`),
+  scoped to the given event ids and company. Both are no-ops on an empty array. Extracting the
+  first kept `ai-invoice-pipeline.ts` under the 300-line cap once the second call was added.
+- **`ai-invoice-pipeline.ts`**: `dupHit` branch now also calls `markCaptureEventsDuplicate(companyId,
+  postableEventIds)`, right after the `captured_documents` update, before the 409.
+
+File-size note: `ai-invoice-pipeline.ts` is 299 lines, `captureRowLock.ts` is 293 — both under the
+300-line cap.
 
 ## Gates that still hold
 
@@ -116,6 +132,9 @@ or columns, so nothing here depends on migration 717 — same shape as
 | only the tied event is marked — an unrelated event in the same company, and another company's event, stay untouched | document + company scoping of the lock query |
 | the coding history carries the supplier rule's account, not the pipeline's own guess | `gl_account_id` = the rule's account; `vat_code` falls through to the vendor VAT number (the rule has none of its own) |
 | no rule: the coding history stays uncoded on the GL account, but carries the vendor VAT number, and no rule is seeded | the existing intentional-null path is unchanged |
+| a duplicate submission leaves the tied event failed/duplicate with a 409 | `status='failed'`, `error='duplicate'` on the dupHit path (round 2) |
+| a discarded event stays discarded on the duplicate path too | `isCaptureEventPostable` filter holds on this path as well |
+| a duplicate hit marks only the tied event — an unrelated event and another company's event stay untouched | document + company scoping holds on this path as well |
 
 Run together with the R-160/R-131/R-127/R-035-PR2/K-072/R-058/R-107/R-088/R-032-L5 suites listed
 as this fix's precedents (28 files, `--no-file-parallelism`): **267 passed, 0 failed.**
@@ -133,6 +152,7 @@ from a `cp` backup (`cmp` checked equal after restore).
 | M4 | `company_id` predicate dropped from the final `UPDATE capture_events` (kept only `id = ANY(...)`) | — | **stays green**: the ids in the array were already scoped to this company by the earlier lock query (`WHERE captured_document_id = $1 AND company_id = $2`), a second, independent layer, same shape as R-131's M7/R-160's M8 |
 | M5 | `recordCoding`'s `glAccountId` reverted to a literal `null` | the coding history carries the supplier rule's account… | `expected { gl_account_id: null, … } to match object { …, gl_account_id: '<ruleGl>', … }` |
 | M6 | `vatCode` reverted to `codingRule?.defaultVatCode ?? null` (fallback to `extracted.vendorVatNumber` removed) | the coding history carries…; no rule: the coding history stays uncoded… | `expected { vat_code: null } to match { vat_code: '4123456789' }` (both) |
+| M7 | `markCaptureEventsDuplicate(...)` call deleted from the `dupHit` branch (round 2) | a duplicate submission leaves the tied event failed/duplicate…; a duplicate hit marks only the tied event… | `expected 'extracted' to be 'failed'` (both) |
 
 ## Browser proof (dev, Brightsphere, reporting-qa@isaflow.dev)
 

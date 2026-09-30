@@ -34,13 +34,13 @@ interface LineItem { description: string; quantity: number; unitPrice: number; t
 
 /** An extracted, unclaimed slip the pipeline auto-approves (clean, low value). */
 async function seedDocument(opts: {
-  total: number; vat: number | null; lineItems?: LineItem[]; companyId?: string;
+  total: number; vat: number | null; lineItems?: LineItem[]; companyId?: string; referenceNumber?: string;
 }): Promise<string> {
   const id = crypto.randomUUID();
   const net = opts.vat === null ? opts.total : Math.round((opts.total - opts.vat) * 100) / 100;
   const extracted = {
     documentType: 'invoice', vendorName: 'R127 Supplies CC', vendorVatNumber: '4123456789', date: today,
-    referenceNumber: `R169-${id.slice(0, 8)}`, currency: 'ZAR', subtotal: net, vatAmount: opts.vat, vatRate: 15,
+    referenceNumber: opts.referenceNumber ?? `R169-${id.slice(0, 8)}`, currency: 'ZAR', subtotal: net, vatAmount: opts.vat, vatRate: 15,
     totalAmount: opts.total, lineItems: opts.lineItems ?? [],
     rawText: `TAX INVOICE\nSub Total ${net}\nVAT ${opts.vat}\nTotal ${opts.total}`,
     confidence: 0.9, warnings: [], extractionMethod: 'vlm',
@@ -187,5 +187,57 @@ describe('R-169: ai-invoice-pipeline marks its capture event posted and records 
     const rule = await pool.query(
       'SELECT id FROM supplier_coding_rules WHERE company_id=$1 AND supplier_id=$2', [company, supplier]);
     expect(rule.rows).toHaveLength(0);
+  });
+
+  // R-169 round 2 (review): `capture/[id]/post`'s own duplicate_blocked branch stamps its event
+  // 'failed'/'duplicate' before its 409; the pipeline's dupHit branch did not.
+  it('a duplicate submission leaves the tied event failed/duplicate with a 409', async () => {
+    const ref = `R169-DUP-${crypto.randomUUID().slice(0, 8)}`;
+    const firstDocumentId = await seedDocument({ total: 350, vat: 45.50, referenceNumber: ref });
+    const firstRes = await runPipeline(firstDocumentId);
+    expect(firstRes.statusCode, JSON.stringify(firstRes.body)).toBe(200);
+
+    const dupDocumentId = await seedDocument({ total: 350, vat: 45.50, referenceNumber: ref });
+    const eventId = await seedEvent(dupDocumentId);
+    const res = await runPipeline(dupDocumentId);
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(409);
+    const event = await eventState(eventId);
+    expect(event.status).toBe('failed');
+    const errRow = await pool.query('SELECT error FROM capture_events WHERE id=$1', [eventId]);
+    expect(errRow.rows[0].error).toBe('duplicate');
+  });
+
+  it('a discarded event stays discarded on the duplicate path too', async () => {
+    const ref = `R169-DUP-${crypto.randomUUID().slice(0, 8)}`;
+    const firstDocumentId = await seedDocument({ total: 618, vat: 80.60, referenceNumber: ref });
+    await runPipeline(firstDocumentId);
+
+    const dupDocumentId = await seedDocument({ total: 618, vat: 80.60, referenceNumber: ref });
+    const eventId = await seedEvent(dupDocumentId, company, 'discarded');
+    const res = await runPipeline(dupDocumentId);
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(409);
+    expect((await eventState(eventId)).status).toBe('discarded');
+  });
+
+  it("a duplicate hit marks only the tied event — an unrelated event and another company's event stay untouched", async () => {
+    const ref = `R169-DUP-${crypto.randomUUID().slice(0, 8)}`;
+    const firstDocumentId = await seedDocument({ total: 890, vat: 116.10, referenceNumber: ref });
+    await runPipeline(firstDocumentId);
+
+    const dupDocumentId = await seedDocument({ total: 890, vat: 116.10, referenceNumber: ref });
+    const eventId = await seedEvent(dupDocumentId);
+
+    const otherDocumentId = await seedDocument({ total: 103.50, vat: 13.50 });
+    const unrelatedEventId = await seedEvent(otherDocumentId);
+
+    const crossTenantDocId = await seedDocument({ total: 103.50, vat: 13.50, companyId: otherCompany });
+    const crossTenantEventId = await seedEvent(crossTenantDocId, otherCompany);
+
+    const res = await runPipeline(dupDocumentId);
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(409);
+
+    expect((await eventState(eventId)).status).toBe('failed');
+    expect((await eventState(unrelatedEventId)).status).toBe('extracted');
+    expect((await eventState(crossTenantEventId)).status).toBe('extracted');
   });
 });
