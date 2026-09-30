@@ -14513,11 +14513,13 @@
         "R-166"
       ],
       "testNames": [
-        "tests/integration/r167-link-charges-link-amount.int.test.ts"
+        "tests/integration/r167-link-charges-link-amount.int.test.ts",
+        "tests/integration/r167-standing-links-and-checkout.int.test.ts"
       ],
       "evidencePaths": [
         "docs/audits/remediation/R-167/fix.md",
         "docs/audits/remediation/R-167/red.int.log",
+        "docs/audits/remediation/R-167/red.r1.int.log",
         "docs/audits/remediation/R-167/green.log",
         "docs/audits/remediation/R-167/mutations.log"
       ],
@@ -14534,13 +14536,15 @@
         "pages/api/portal/payment-link.ts",
         "src/modules/accounting/services/ar/portalLinkCharge.ts",
         "src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts",
-        "scripts/migrations/sql/717_paystack_request_portal_link.sql"
+        "scripts/migrations/sql/717_paystack_request_portal_link.sql",
+        "src/modules/accounting/services/core/paymentGatewayPortalService.ts",
+        "pages/api/accounting/customer-invoices/[id]/pay-now.ts"
       ],
       "sourceLabel": "R-166 adversarial review round 1, 2026-09-30",
       "claim": "paystack/create reads only invoice_id, expires_at and status from portal_payment_links and charges Math.round((total - amount_paid) * 100) cents, the whole outstanding balance. The pay page shows the link's own amount as 'Amount Due'. So a part-payment link (e.g. R40.50 on a R115 invoice) shows R40.50 and charges R115. markPaymentLinkPaid has no caller, so a link stays 'active' after it is paid. The charge is also unclamped: a legacy row with a negative amount_paid is charged more than the invoice total (-50 on R115 charges R165); a NaN amount_paid yields NaN cents, and since NaN <= 0 is false the 'Invoice already paid' guard is skipped and NaN reaches initializeTransaction; and its invoice lookup has no company_id, status or deleted_at predicate, so an existing link on a since-cancelled or soft-deleted invoice is still chargeable.",
       "severityRationale": "The customer is shown one amount and charged another. On ordinary rows the charge is the outstanding balance; on legacy negative or NaN amount_paid rows it can exceed the invoice total or reach the gateway as NaN, and cancelled or soft-deleted invoices remain chargeable through an old link.",
       "historicalDataImpact": "Unknown. Prod census (read-only, for Hein): completed paystack_payment_requests with purpose 'customer_invoice' where amount_cents > 100 * total_amount of the invoice, or whose link amount differs from amount_cents; plus active links on invoices that are cancelled, soft-deleted, or have amount_paid < 0 or NaN.",
-      "processNotes": "2026-09-30: Found by the R-166 adversarial reviewer (reasoned from the code; confirmed by reading paystack/create.ts). Options for Hein: charge LEAST(link.amount, balance) in paystack/create (settlement already records amount_cents via recordGatewayInvoiceReceipt), and mark the link paid on completion; or show the balance on the pay page and drop part-payment links. Changes what customers are charged, so it needs Hein's decision. 2026-09-30: Hein decided: charge the link amount (LEAST of link amount and clamped balance), refuse NaN/cancelled/deleted, mark the link paid. Own PR. Fixed on the branch: resolveLinkCharge (min(link amount, total - GREATEST(amount_paid,0)) in numeric; NaN/cancelled/deleted/nothing owed refused before the gateway), migration 717 (paystack_payment_requests.portal_payment_link_id), settlement spends the link via recordGatewayInvoiceReceipt, the public GET offers only the chargeable amount. RED 11/13 on origin/master 66e776d81; GREEN 16/16; mutants 23/23 RED.",
+      "processNotes": "2026-09-30: Found by the R-166 adversarial reviewer (reasoned from the code; confirmed by reading paystack/create.ts). Options for Hein: charge LEAST(link.amount, balance) in paystack/create (settlement already records amount_cents via recordGatewayInvoiceReceipt), and mark the link paid on completion; or show the balance on the pay page and drop part-payment links. Changes what customers are charged, so it needs Hein's decision. 2026-09-30: Hein decided: charge the link amount (LEAST of link amount and clamped balance), refuse NaN/cancelled/deleted, mark the link paid. Own PR. Fixed on the branch: resolveLinkCharge (min(link amount, total - GREATEST(amount_paid,0)) in numeric; NaN/cancelled/deleted/nothing owed refused before the gateway), migration 717 (paystack_payment_requests.portal_payment_link_id), settlement spends the link via recordGatewayInvoiceReceipt, the public GET offers only the chargeable amount. RED 11/13 on origin/master 66e776d81; GREEN 16/16; mutants 23/23 RED. Review round 1 (adversarial FIX, 2 MEDIUM + 4 LOW): Hein chose two kinds of link (the invoice's standing payment_url link charges the live balance and is never spent — portal_payment_links.charges_balance in 717, backfilled; explicit links charge their amount and are spent); create is transactional with the link locked and reuses a pending checkout for the same link and amount within 30 minutes; exact 'active' status; NaN link amount refused; GET says 'no outstanding balance'. Mutants 37/37 RED. Follow-ups noted: pay-now's own charge has no NaN/negative clamp; settlement never compares amount_cents to the event amount.",
       "reportedSeverity": "medium"
     }
   ],

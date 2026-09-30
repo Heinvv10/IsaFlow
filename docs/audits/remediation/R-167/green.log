@@ -1,4 +1,4 @@
-# GREEN on 38d2b75c9, fixture clone at 717 (2026-09-30T09:53:41Z); the fence suite on an isaflow_test clone of it. 64-hex tokens redacted.
+# GREEN on c49318655 (review round 1), fixture clone at 717 (2026-09-30T20:55:58Z); the fence suite on an isaflow_test clone of it. 64-hex tokens redacted.
 ## k-033-subscription-period-advances-before-settlement.int.test.ts
  Test Files  1 passed (1)
       Tests  20 passed (20)
@@ -74,13 +74,22 @@
 ## r158-payment-link-creation-guards.int.test.ts
  Test Files  1 passed (1)
       Tests  20 passed (20)
+## r159-auth-wrapper-throw-responds.int.test.ts
+ Test Files  1 passed (1)
+      Tests  47 passed | 1 skipped (48)
+## r159-invitation-revoke-throw-responds.int.test.ts
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
 ## r166-payment-link-amount-cap.int.test.ts
  Test Files  1 passed (1)
       Tests  7 passed (7)
-## r167-link-charges-link-amount.int.test.ts (re-run after the per-run client IP fix)
+## r167-link-charges-link-amount.int.test.ts
  Test Files  1 passed (1)
-      Tests  16 passed (16)
+      Tests  20 passed (20)
+## r167-standing-links-and-checkout.int.test.ts
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
 ## customer-ownership-fence-routes (isaflow_test clone)
  Test Files  1 passed (1)
       Tests  32 passed (32)
-## k-035-webhook-redelivery-discarded: 4 failed | 2 passed on this head AND on clean origin/master 66e776d81 (pre-existing; the mandate branch, untouched here)
+## k-035-webhook-redelivery-discarded: 4 failed | 2 passed here AND on clean origin/master 66e776d81 (pre-existing; the mandate branch, untouched)
