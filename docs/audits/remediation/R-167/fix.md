@@ -62,6 +62,10 @@ Hein decided on 2026-09-30:
   3. **The result.** On success the recorded checkout gets its access code and URL. On failure or
      timeout it is marked `failed`, and a later click starts afresh.
 
+  If phase 2 or 3 never finishes (the process dies), the checkout keeps no URL. It stops blocking
+  after 60 seconds, and the next click on that link marks it `failed` ("abandoned while
+  starting") under the lock (review round 3).
+
   Settlement already posts that `amount_cents` through `recordGatewayInvoiceReceipt`, which
   allocates `min(amount, outstanding)` and banks any excess as an unapplied receipt.
 - **`recordGatewayInvoiceReceipt`:** calls `spendPaymentLinkOfRequest` first. The webhook and the
@@ -86,8 +90,18 @@ Hein decided on 2026-09-30:
 
 - **Links created before this change** are all standing, so they behave exactly as before: they
   charge the live balance and are never spent. That includes any explicit-amount link created
-  before the deploy. The R-155 prod census found 3 active links, all in ISAFlow Demo. A request
-  created before 717 has no link to spend.
+  before the deploy, which is a decision, not an oversight (review round 3, LOW 1). Marking
+  links `false` whenever no `payment_url` names them would reopen the two round-2 gaps. The pay
+  page now shows the full balance before the customer pays, so what they see is what they are
+  charged. The R-155 prod census found 3 active links, all in ISAFlow Demo. A request created
+  before 717 has no link to spend.
+- **Anyone holding a link's token can use up its per-link limit** (20 starts in 15 minutes) and
+  block that link for the rest of the window (review round 3, LOW 3). Accepted: the token is
+  the credential to pay, so a holder could already pay. The per-IP limit also applies.
+- **Standing links still expire after 30 days**, from the column default in migration 235.
+  `pay-now` keeps handing out an expired `payment_url` (review round 2, LOW 4). This was already
+  true before this change. Recorded as a follow-up: mint standing links with no expiry, or
+  re-mint when the stored link is not payable.
 - **Checkouts started more than 30 minutes apart, or for different amounts, are both valid.**
   If both are paid, both settle, and any excess is banked as an unapplied, refundable receipt.
   A click inside the window gets the same checkout, so a double click or a back-and-retry is
@@ -212,7 +226,7 @@ The adversarial reviewer returned FIX: 2 MEDIUM and 4 LOW.
 The general reviewer's first verdict, on round 0 (`cabe94705`), was SHIP with four LOWs. Three
 were already fixed by round 1: the spend's `completed` condition is now tested, a NaN link amount
 is refused, and the invoice's `payment_url` link is now a standing link that is never spent. The
-fourth is fixed in round 1 too. Three settlement tests never asserted that the webhook delivery
+fourth was fixed in `8e3e1ac2c`, just after round 1. Three settlement tests never asserted that the webhook delivery
 succeeded, so a failing delivery would have left the link untouched and passed. They now assert a
 200 and the banked receipt.
 
@@ -232,6 +246,15 @@ The adversarial reviewer returned FIX: 1 HIGH, introduced in round 1, and LOWs.
   names would have missed the backfill.
 
 The last two LOWs are both fixed by `DEFAULT true` in place of the backfill.
+
+## Review round 3
+
+Both reviewers returned SHIP on `7ec334794`. The adversarial reviewer added three LOWs:
+
+- the older part-payment links; decided above;
+- rows abandoned while starting that stayed `pending` forever; now marked `failed`, and M50
+  covers it;
+- the per-link limit as a denial for a token holder; accepted above.
 
 ## Migration / rollback
 
