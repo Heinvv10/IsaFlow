@@ -204,8 +204,10 @@ export async function recordCoding(
   if (rule === null) {
     // No rule yet. Seed one automatically when the posting carries a real
     // coding signal (non-null GL account) — this is the human-correction path
-    // that trains the rule. AI-pipeline postings arrive with null glAccountId
-    // and intentionally don't seed a rule with no coding content.
+    // that trains the rule. A pipeline posting with no rule to reuse (R-169)
+    // arrives with null glAccountId too, and intentionally doesn't seed one
+    // from its own guess — only once a rule already exists does it pass that
+    // rule's account through, same as `capture/[id]/post`.
     if (entry.glAccountId !== null) {
       await sql`
         INSERT INTO supplier_coding_rules (
