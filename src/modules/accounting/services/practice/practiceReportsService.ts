@@ -141,7 +141,7 @@ export async function getClientProfitability(
              SUM(CASE WHEN te.status = 'billed' THEN COALESCE(te.line_total, 0) ELSE 0 END)::NUMERIC AS revenue,
              SUM(te.hours)::NUMERIC AS hours
       FROM time_entries te
-      JOIN practice_clients pc ON pc.id = te.practice_client_id
+      JOIN practice_clients pc ON pc.id = te.practice_client_id AND pc.company_id = te.company_id
       WHERE te.company_id = ${companyId}::UUID
         AND te.entry_date BETWEEN ${dateFrom}::DATE AND ${dateTo}::DATE
         AND (${clientId}::UUID IS NULL OR te.practice_client_id = ${clientId}::UUID)
@@ -214,7 +214,7 @@ export async function getWipAging(
            SUM(CASE WHEN ${asOfDate}::DATE - te.approved_at::DATE > 30
                     THEN te.line_total ELSE 0 END)::NUMERIC AS bucket_31_plus
     FROM time_entries te
-    JOIN practice_clients pc ON pc.id = te.practice_client_id
+    JOIN practice_clients pc ON pc.id = te.practice_client_id AND pc.company_id = te.company_id
     WHERE te.company_id = ${companyId}::UUID
       AND ${wipInForceAsOf(companyId, asOfDate, todayString())}
       AND te.billable = true
