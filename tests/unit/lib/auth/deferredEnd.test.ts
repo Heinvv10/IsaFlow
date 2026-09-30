@@ -41,6 +41,15 @@ describe('answerThrow', () => {
     });
   });
 
+  it('a Sentry capture that throws does not stop the answer', () => {
+    vi.stubEnv('SENTRY_ENABLED', 'true');
+    h.captureException.mockImplementationOnce(() => { throw new Error('sentry down'); });
+    const { r, ends } = res();
+    expect(() => answerThrow(req, r as never, deferEnd(r as never), new Error('boom'), { source: 'withAuth' })).not.toThrow();
+    expect(r.statusCode).toBe(500);
+    expect(ends).toHaveLength(1);
+  });
+
   it('does not capture when Sentry is off', () => {
     const { r } = res();
     answerThrow(req, r as never, deferEnd(r as never), new Error('boom'), { source: 'withAuth' });
@@ -62,6 +71,18 @@ describe('answerThrow', () => {
     expect(r.statusCode).toBe(500);
     const body = JSON.parse(String(ends[0]![0]));
     expect(body).toEqual({ success: false, data: null, message: 'An unexpected error occurred', code: 'INTERNAL_SERVER_ERROR' });
+  });
+
+  it('an error whose message cannot be read is still answered 500 once, and nothing escapes', () => {
+    const { r, ends } = res();
+    const deferred = deferEnd(r as never);
+    const err = new Error('x');
+    Object.defineProperty(err, 'message', { get() { throw new Error('getter'); } });
+    expect(() => answerThrow(req, r as never, deferred, err, { source: 'withAuth' })).not.toThrow();
+    expect(() => answerThrow(req, r as never, null, Object.create(null), { source: 'withAuth' })).not.toThrow();
+    expect(r.statusCode).toBe(500);
+    expect(ends).toHaveLength(2);
+    expect(JSON.parse(String(ends[0]![0]))).toMatchObject({ success: false, code: 'INTERNAL_SERVER_ERROR' });
   });
 
   it('with no deferral (a throw before the swap) it still answers 500 once', () => {

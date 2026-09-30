@@ -5,7 +5,8 @@
  * Each wrapper swaps res.end for a buffer so the response flushes only after COMMIT/ROLLBACK.
  * On a throw they rolled back and rethrew without putting the real end back, so any 500 sent
  * further out landed in the dead buffer and the client hung until its socket timed out.
- * invitations/revoke/[id].ts has no withErrorHandler at all, so every throw in it hung.
+ * invitations/revoke/[id].ts has no withErrorHandler at all, so every throw in it hung; its
+ * route-level cases are in r159-invitation-revoke-throw-responds.int.test.ts.
  *
  * Each case writes under app_user (RLS on) and then throws. It asserts: the write is rolled
  * back, nothing is rethrown, the status and body are withErrorHandler's, and the response's
@@ -16,23 +17,9 @@ import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { SignJWT } from 'jose';
 import { assertDisposable, request } from './mfa-impersonation-postgres.helpers';
+import { call, type TestResponse } from './r159-auth-wrapper.helpers';
 
-const h = vi.hoisted(() => ({ revokeHookFired: 0 }));
-vi.mock('@/lib/neon', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@/lib/neon')>();
-  const real = original.sql;
-  const hooked = (strings: TemplateStringsArray, ...values: unknown[]) => {
-    const query = real(strings, ...values);
-    if (!strings.join('$').includes('DELETE FROM company_invitations')) return query;
-    return Promise.resolve(query).then(() => {
-      h.revokeHookFired += 1;
-      throw new Error('R-159 forced failure after the invitation DELETE');
-    });
-  };
-  const sql = Object.assign(hooked, real);
-  return { ...original, sql, default: sql };
-});
-
+const h = vi.hoisted(() => ({ drained: 0 }));
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { withAuth } from '@/lib/auth/withAuth';
@@ -42,6 +29,8 @@ import { withExtensionToken } from '@/lib/auth/withExtensionToken';
 import { signExtensionToken } from '@/lib/auth/extensionJwt';
 import { createPat } from '@/lib/auth/personalAccessTokens';
 import { DocumentNumberLockTimeoutError } from '@/modules/accounting/services/core/companySettingsService';
+import { withErrorHandler } from '@/lib/api-error-handler';
+import { runAfterCommit } from '@/lib/afterCommit';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
@@ -54,12 +43,19 @@ let pat = '';
 let extToken = '';
 
 type Mode = 'throw' | 'respond-then-throw' | 'flush-then-throw' | 'lock-timeout' | 'ok' | 'ok-twice'
-  | 'commit-fails' | 'flush-then-commit-fails';
+  | 'commit-fails' | 'flush-then-commit-fails' | 'end-rejects-body' | 'handled-flush-then-throw';
 
 /** A write under the wrapper's transaction, then the given failure. */
-function handler(name: string, mode: Mode) {
-  return async (_req: unknown, res: ReturnType<typeof response>['res']) => {
+function handler(name: string, mode: Mode): (req: unknown, res: TestResponse) => Promise<unknown> {
+  // withErrorHandler inside the wrapper, as on 640 routes, with the headers flushed before the throw.
+  if (mode === 'handled-flush-then-throw') return withErrorHandler(handler(name, 'flush-then-throw')) as never;
+  return async (_req: unknown, res: TestResponse) => {
     await sql`INSERT INTO customers (id, company_id, name) VALUES (${randomUUID()}::uuid, ${CO}::uuid, ${name})`;
+    if (mode === 'end-rejects-body') {
+      // Node's end() refuses an object; the wrapper only finds out when it replays after COMMIT.
+      runAfterCommit('r159 probe', async () => { h.drained += 1; });
+      return res.status(201).end({ id: 1 });
+    }
     if (mode === 'commit-fails' || mode === 'flush-then-commit-fails') {
       // A deferred FK that is violated only at COMMIT, so the handler's own answer is a 200.
       await sql`CREATE TEMP TABLE r159_deferred (id int PRIMARY KEY,
@@ -75,39 +71,6 @@ function handler(name: string, mode: Mode) {
     if (mode === 'lock-timeout') throw new DocumentNumberLockTimeoutError('invoice');
     throw new Error(`R-159 forced failure after the ${name} INSERT`);
   };
-}
-
-/**
- * A response whose own end() is counted. json sets a header and funnels through end, as Next's
- * does, and setHeader after the status line is sent throws, as Node's does.
- */
-function response() {
-  const ends: unknown[][] = [];
-  const res = {
-    statusCode: 200, headersSent: false, body: undefined as unknown, headers: {} as Record<string, unknown>,
-    status(code: number) { this.statusCode = code; return this; },
-    setHeader(n: string, v: unknown) {
-      if (this.headersSent) throw new Error('ERR_HTTP_HEADERS_SENT');
-      this.headers[n.toLowerCase()] = v; return this;
-    },
-    getHeader(n: string) { return this.headers[n.toLowerCase()]; },
-    writeHead(code: number) { this.statusCode = code; this.headersSent = true; return this; },
-    write() { this.headersSent = true; return true; },
-    json(b: unknown) { this.setHeader('Content-Type', 'application/json'); return this.end(JSON.stringify(b)); },
-    end(...a: unknown[]) {
-      ends.push(a);
-      if (typeof a[0] === 'string' && !this.headersSent) this.body = JSON.parse(a[0]);
-      return this;
-    },
-  };
-  return { res, ends };
-}
-
-async function call(wrapped: (req: never, res: never) => unknown, req: unknown) {
-  const { res, ends } = response();
-  let threw: unknown = null;
-  try { await wrapped(req as never, res as never); } catch (err) { threw = err; }
-  return { status: res.statusCode, body: res.body as Record<string, unknown> | undefined, ends: ends.length, endArgs: ends, threw };
 }
 
 const customers = async (name: string) =>
@@ -147,7 +110,7 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM personal_access_tokens WHERE company_id = $1', [CO]);
-    for (const t of ['company_invitations', 'customers', 'bank_feed_connections', 'gl_accounts', 'company_users']) {
+    for (const t of ['customers', 'bank_feed_connections', 'gl_accounts', 'company_users']) {
       await pool.query(`DELETE FROM ${t} WHERE company_id = $1`, [CO]);
     }
     await pool.query('DELETE FROM companies WHERE id = $1', [CO]);
@@ -167,6 +130,7 @@ describe.each(wrappers)('%s', (label, wrap, req) => {
     expect(logged).toHaveBeenCalledWith(`${source}: handler threw, transaction rolled back`,
       expect.objectContaining({
         companyId: CO, userId: USER, message: `R-159 forced failure after the ${name} INSERT`,
+        stack: expect.stringContaining(`R-159 forced failure after the ${name} INSERT`),
         ...(label === 'withExtensionToken' && { connectionId: CONN }),
       }), 'Auth');
     logged.mockRestore();
@@ -187,12 +151,39 @@ describe.each(wrappers)('%s', (label, wrap, req) => {
     expect(r.ends).toBe(1);
   });
 
-  it('headers already flushed, then a throw: the response is closed once, not hung', async () => {
+  it('headers already flushed, then a throw: rolled back, and the response aborted, not closed as a 200', async () => {
     const name = `flushed-${randomUUID()}`;
     const r = await call(wrap('flush-then-throw', name), req());
     expect(await customers(name)).toBe(0);
     expect(r.threw).toBeNull();
-    expect(r.ends).toBe(1);
+    expect(r.destroyed).toBe(true);
+    expect(r.ends).toBe(0);
+  });
+
+  it('withErrorHandler inside, headers flushed, then a throw: rolled back (not COMMITted) and aborted', async () => {
+    const name = `handled-flushed-${randomUUID()}`;
+    const r = await call(wrap('handled-flush-then-throw', name), req());
+    expect(await customers(name)).toBe(0);
+    expect(r.threw).toBeNull();
+    expect(r.destroyed).toBe(true);
+    expect(r.ends).toBe(0);
+  });
+
+  it('a replay that fails after COMMIT: the write stays, no rollback is claimed, after-commit work runs', async () => {
+    const name = `replay-${randomUUID()}`;
+    const drained = h.drained;
+    const logged = vi.spyOn(log, 'error');
+    const r = await call(wrap('end-rejects-body', name), req());
+    const messages = logged.mock.calls.map((c) => String(c[0]));
+    logged.mockRestore();
+    await new Promise((done) => setTimeout(done, 20));
+    expect(await customers(name)).toBe(1);
+    expect(r.threw).toBeNull();
+    expect(r.status).toBe(201);
+    expect(r.destroyed).toBe(true);
+    expect(messages.some((m) => m.includes('rolled back'))).toBe(false);
+    expect(messages.some((m) => m.includes('response replay failed after the transaction was finalised'))).toBe(true);
+    expect(h.drained).toBe(drained + 1);
   });
 
   it('a lock timeout is answered 503, as withErrorHandler answers it', async () => {
@@ -224,12 +215,13 @@ describe.each(wrappers)('%s', (label, wrap, req) => {
     expect(r.ends).toBe(1);
   });
 
-  it('a failed COMMIT after the headers were flushed still closes the response with its buffered end (unchanged)', async () => {
+  it('a failed COMMIT after the headers were flushed aborts the response instead of completing it', async () => {
     const name = `commit-flushed-${randomUUID()}`;
     const r = await call(wrap('flush-then-commit-fails', name), req());
     expect(await customers(name)).toBe(0);
     expect(r.threw).toBeNull();
-    expect(r.endArgs).toEqual([['rest']]);
+    expect(r.destroyed).toBe(true);
+    expect(r.ends).toBe(0);
   });
 
   it('positive path unchanged: a second end() is dropped, the first is what the client gets', async () => {
@@ -238,38 +230,5 @@ describe.each(wrappers)('%s', (label, wrap, req) => {
     expect(await customers(name)).toBe(1);
     expect(r.body).toEqual({ success: true, data: name });
     expect(r.ends).toBe(1);
-  });
-});
-
-describe('invitations/revoke/[id] (withAuth, no withErrorHandler)', () => {
-  const invite = async () => {
-    const id = randomUUID();
-    await pool.query(
-      `INSERT INTO company_invitations (id, company_id, email, role, invited_by, token, expires_at, gotrue_user_id)
-       VALUES ($1, $2, $3, 'viewer', $4, $5, NOW() + INTERVAL '1 day', $6)`,
-      [id, CO, `r159-invitee-${id}@isaflow.test`, USER, `r159-${id}`, randomUUID()]);
-    return id;
-  };
-
-  it('a throw after the DELETE: the invitation survives, 500, end() once, no rethrow', async () => {
-    const id = await invite();
-    const before = h.revokeHookFired;
-    const route = (await import('../../pages/api/invitations/revoke/[id]')).default;
-    const r = await call(route as never, { ...cookieReq(), query: { id } });
-    expect(h.revokeHookFired).toBe(before + 1);
-    expect(Number((await pool.query('SELECT count(*) AS n FROM company_invitations WHERE id = $1', [id])).rows[0].n)).toBe(1);
-    expect(r.threw).toBeNull();
-    expect(r.status).toBe(500);
-    expect(r.body).toMatchObject({ success: false, data: null, code: 'INTERNAL_SERVER_ERROR' });
-    expect(r.ends).toBe(1);
-  });
-
-  it('refusals are unchanged: a GET is 405 and deletes nothing', async () => {
-    const id = await invite();
-    const route = (await import('../../pages/api/invitations/revoke/[id]')).default;
-    const r = await call(route as never, { ...cookieReq(), method: 'GET', query: { id } });
-    expect(r.status).toBe(405);
-    expect(r.ends).toBe(1);
-    expect(Number((await pool.query('SELECT count(*) AS n FROM company_invitations WHERE id = $1', [id])).rows[0].n)).toBe(1);
   });
 });

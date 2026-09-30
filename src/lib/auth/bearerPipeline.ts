@@ -22,7 +22,7 @@ import { validatePat } from './personalAccessTokens';
 import { validateOauthAccessToken, type OauthAccessContext } from './oauth';
 import type { CompanyAuthedRequest } from './withAuth';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
-import { deferEnd, answerThrow, type DeferredEnd } from './deferredEnd';
+import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } from './deferredEnd';
 
 /**
  * Auto rate-limit table — must stay in sync with the equivalent table in
@@ -267,7 +267,7 @@ export async function runBearerRequest(
         Sentry.captureException(finalizeErr);
       }
       if (res.headersSent) {
-        flush.realEnd(...(flush.args ?? []));
+        abortResponse(res); // the status is on the wire; a clean close would read as success
       } else {
         // Replace the buffered 2xx with an honest 500 — the write did NOT land.
         const body = JSON.stringify({
@@ -282,7 +282,8 @@ export async function runBearerRequest(
     }
 
     // Transaction durable — replay the buffered flush, then start after-commit work (R-075).
-    if (flush.ended) flush.realEnd(...(flush.args ?? []));
+    // replayEnd never throws: past COMMIT, the catch below must not ROLLBACK or answer 500.
+    replayEnd(res, flush, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId });
     if (!handlerFailed) drainAfterCommit(txCtx);
   } catch (err) {
     // R-159: answer the throw here; see withAuth.

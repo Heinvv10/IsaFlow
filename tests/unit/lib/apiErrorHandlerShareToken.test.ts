@@ -43,6 +43,7 @@ function makeReqRes(url: string, query: Record<string, unknown> = {}) {
     status: vi.fn().mockReturnThis(),
     json: vi.fn(),
     end: vi.fn(),
+    destroy: vi.fn(),
   } as unknown as NextApiResponse;
   return { req, res };
 }
@@ -122,6 +123,9 @@ describe('withErrorHandler — share token redaction', () => {
     await handler(req, res);
 
     expect(apiLoggerWarn).toHaveBeenCalledTimes(1);
+    // R-159: the response is aborted and marked failed, so an enclosing auth wrapper rolls back.
+    expect((res as unknown as { destroy: ReturnType<typeof vi.fn> }).destroy).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(500);
     const serialized = JSON.stringify(apiLoggerWarn.mock.calls[0]);
     expect(serialized).not.toContain(TOKEN);
     expect(serialized).toContain('[token]');

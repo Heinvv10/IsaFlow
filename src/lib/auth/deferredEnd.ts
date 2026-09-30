@@ -10,7 +10,8 @@
  * R-159: a handler that THROWS never returns to the replay. The wrappers used to roll back and
  * rethrow with res.end still swapped, so every later answer (an outer withErrorHandler, Next's
  * own 500) landed in the buffer and the client hung. answerThrow puts the real end back and
- * answers the throw itself, exactly as withErrorHandler would.
+ * answers the throw itself, exactly as withErrorHandler would. replayEnd sends the buffer after
+ * the transaction is final and never throws, so nothing past COMMIT reaches the wrapper's catch.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import * as Sentry from '@sentry/nextjs';
@@ -49,6 +50,42 @@ export interface ThrowContext {
   extra?: Record<string, unknown>;
 }
 
+/** An error's text for a log line; an error whose message cannot be read must not escape. */
+function describe(err: unknown): { message: string; stack?: string } {
+  try {
+    return err instanceof Error ? { message: err.message, stack: err.stack } : { message: String(err) };
+  } catch {
+    return { message: '[unprintable error]' };
+  }
+}
+
+/**
+ * Ends a response whose status line is already on the wire and whose transaction did not
+ * commit. Closing it cleanly would hand the client a complete-looking 2xx for a rolled-back
+ * write, so the connection is aborted instead.
+ */
+export function abortResponse(res: NextApiResponse): void {
+  res.destroy();
+}
+
+/**
+ * Sends the buffered end once the transaction is final. It never throws: the transaction may
+ * already have COMMITted, so a failure here (Node refuses `end({ id })`, for one) must not
+ * reach the wrapper's catch, which would ROLLBACK a committed write and tell the client it
+ * failed. It is logged and the response aborted.
+ */
+export function replayEnd(res: NextApiResponse, deferred: DeferredEnd, ctx: ThrowContext): void {
+  if (!deferred.ended) return;
+  try {
+    deferred.realEnd(...(deferred.args ?? []));
+  } catch (err) {
+    log.error(`${ctx.source}: response replay failed after the transaction was finalised`, {
+      companyId: ctx.companyId, userId: ctx.userId, ...ctx.extra, ...describe(err),
+    }, 'Auth');
+    abortResponse(res);
+  }
+}
+
 /**
  * Answers a throw that escaped the handler, after the caller has rolled back. `deferred` is
  * null when the throw came before the swap. Never rethrows: the response is the only answer.
@@ -60,27 +97,41 @@ export function answerThrow(
   err: unknown,
   ctx: ThrowContext,
 ): void {
+  // The real end goes back first, so nothing below can leave the client on the dead buffer.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (deferred) (res as any).end = deferred.realEnd;
   const route = sanitizeRoute(req.url);
   log.error(`${ctx.source}: handler threw, transaction rolled back`, {
     route,
     companyId: ctx.companyId,
     userId: ctx.userId,
     ...ctx.extra,
-    message: err instanceof Error ? err.message : String(err),
+    ...describe(err),
   }, 'Auth');
   if (process.env.SENTRY_ENABLED === 'true') {
-    Sentry.captureException(err, {
-      tags: { ...(ctx.companyId && { company_id: ctx.companyId }), ...(route && { route }) },
-      ...(ctx.userId && { user: { id: ctx.userId } }),
-    });
+    try {
+      Sentry.captureException(err, {
+        tags: { ...(ctx.companyId && { company_id: ctx.companyId }), ...(route && { route }) },
+        ...(ctx.userId && { user: { id: ctx.userId } }),
+      });
+    } catch (sentryErr) {
+      log.warn(`${ctx.source}: Sentry capture failed`, describe(sentryErr), 'Auth');
+    }
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  if (deferred) (res as any).end = deferred.realEnd;
   if (res.headersSent) {
-    // A streaming route already sent its status line; it cannot become a 500. Close the
-    // response with whatever the handler buffered, so the socket is not left open.
-    res.end(...((deferred?.args ?? []) as []));
+    // A streaming route already sent its status line; it cannot become a 500.
+    abortResponse(res);
     return;
   }
-  respondToUnhandledError(res, err);
+  try {
+    respondToUnhandledError(res, err);
+  } catch (respondErr) {
+    // The responder read something off the error that threw. Answer with a fixed body.
+    log.error(`${ctx.source}: error response failed`, describe(respondErr), 'Auth');
+    if (res.headersSent) { abortResponse(res); return; }
+    const body = JSON.stringify({ success: false, data: null, message: 'An unexpected error occurred', code: 'INTERNAL_SERVER_ERROR' });
+    res.statusCode = 500;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end(body);
+  }
 }
