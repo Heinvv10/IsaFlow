@@ -14089,6 +14089,8 @@
         "src/lib/auth/withAuth.ts",
         "src/lib/auth/bearerPipeline.ts",
         "src/lib/auth/withExtensionToken.ts",
+        "src/lib/auth/deferredEnd.ts",
+        "src/lib/api-error-handler.ts",
         "pages/api/invitations/revoke/[id].ts"
       ],
       "sourceLabel": "R-155..R-158 review rounds 4-5, 2026-09-29",
@@ -14098,11 +14100,19 @@
       "correctedTrigger": null,
       "severityRationale": "The write is rolled back (no data harm); the client hangs instead of getting a 500. Only on an unexpected throw.",
       "auditedSha": "6d1f4a488",
-      "currentSha": "6d1f4a488",
-      "status": "candidate",
+      "currentSha": "7c49109f5",
+      "status": "in-progress",
       "dependencies": [],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/r159-auth-wrapper-throw-responds.int.test.ts",
+        "tests/unit/lib/auth/deferredEnd.test.ts",
+        "tests/unit/lib/auth/deferredEndCensus.test.ts"
+      ],
       "evidencePaths": [
+        "docs/audits/remediation/R-159/fix.md",
+        "docs/audits/remediation/R-159/red.int.log",
+        "docs/audits/remediation/R-159/green.log",
+        "docs/audits/remediation/R-159/mutations.log",
         "docs/audits/remediation/R-155/fix.md",
         "docs/audits/remediation/R-155/red.r4.int.log"
       ],
@@ -14111,13 +14121,13 @@
       "deployedSha": null,
       "historicalDataImpact": "None: the transaction rolls back.",
       "canonicalItem": null,
-      "branch": null,
+      "branch": "fix/r159-wrapper-throw-responds-20260930",
       "id": "R-159",
       "severity": "low",
       "reportedSeverity": "low",
       "title": "A route whose auth wrapper buffers res.end hangs the client when the handler throws, unless withErrorHandler sits inside the wrapper",
       "claim": "withAuth (and bearerPipeline, withExtensionToken) replace res.end with a buffer and replay it only when the handler returns normally; on a throw they ROLLBACK and rethrow without replaying, so any 500 written after that (by an outer withErrorHandler or by Next) never reaches the client and the request hangs until the socket times out. Known instance: pages/api/invitations/revoke/[id].ts is withAuth(withCsrf(handler)) with no withErrorHandler. payment-link POST had it and was fixed under R-157. Routes behind bearerPipeline / withExtensionToken were not censused.",
-      "processNotes": "2026-09-29: Reported by the blind reviewers of PR #567 (R-157 round 4: executed for payment-link, reasoned for invitations/revoke). Not fixed. Options: add withErrorHandler inside the wrapper on each such route, or have the wrappers replay a 500 on a throw (one fix for every route). Census first: every export wrapping withAuth / withBearerOrCookieAuth / withExtensionToken without an inner withErrorHandler."
+      "processNotes": "2026-09-29: Reported by the blind reviewers of PR #567 (R-157 round 4: executed for payment-link, reasoned for invitations/revoke). Not fixed. Options: add withErrorHandler inside the wrapper on each such route, or have the wrappers replay a 500 on a throw (one fix for every route). Census first: every export wrapping withAuth / withBearerOrCookieAuth / withExtensionToken without an inner withErrorHandler. 2026-09-30: Census (AST, every pages/api route): 640 of 642 compose withErrorHandler inside the wrapper; invitations/revoke/[id] has none; capture/upload has both an outer and an inner one. No route relies on the rethrow. Fixed in the wrappers (Hein's choice): on a throw each rolls back, restores the real res.end and answers with withErrorHandler's responder; no rethrow (pending Hein's confirmation before merge). RED 17/22 on origin/master (R-159/red.int.log)."
     },
     {
       "id": "R-160",

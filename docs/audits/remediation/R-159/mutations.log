@@ -1,0 +1,39 @@
+# 38 mutants. M1-M36 on 4c0adf911 (M37 SURVIVED there; the Login-as 403 unit case was added in the next commit), M37-M38 on e05ab2728. Each mutant: the unit set + r159 and r157 int suites on the fixture clone at 716. RED = at least one failure.
+M1 double-end guard removed [src/lib/auth/deferredEnd.ts]: RED | unit: 59 passed (59) | int: 4 ⎯⎯⎯⎯⎯⎯⎯
+M2 buffered args not kept [src/lib/auth/deferredEnd.ts]: RED | unit: 59 passed (59) | int: 12 ⎯⎯⎯⎯⎯⎯⎯
+M3 ended never set [src/lib/auth/deferredEnd.ts]: RED | unit: 5 ⎯⎯⎯⎯⎯⎯⎯ | int: 11 ⎯⎯⎯⎯⎯⎯⎯
+M4 real end not restored [src/lib/auth/deferredEnd.ts]: RED | unit: 3 ⎯⎯⎯⎯⎯⎯⎯ | int: 17 ⎯⎯⎯⎯⎯⎯⎯
+M5 headersSent branch skipped [src/lib/auth/deferredEnd.ts]: RED | unit: 59 passed (59) | int: 4 ⎯⎯⎯⎯⎯⎯⎯
+M6 flushed response not closed [src/lib/auth/deferredEnd.ts]: RED | unit: 59 passed (59) | int: 4 ⎯⎯⎯⎯⎯⎯⎯
+M7 no answer after restore [src/lib/auth/deferredEnd.ts]: RED | unit: 6 ⎯⎯⎯⎯⎯⎯⎯ | int: 13 ⎯⎯⎯⎯⎯⎯⎯
+M8 no log [src/lib/auth/deferredEnd.ts]: RED | unit: 59 passed (59) | int: 4 ⎯⎯⎯⎯⎯⎯⎯
+M9 no Sentry capture [src/lib/auth/deferredEnd.ts]: RED | unit: 1 ⎯⎯⎯⎯⎯⎯⎯ | int: 40 passed (40)
+M10 Sentry company tag dropped [src/lib/auth/deferredEnd.ts]: RED | unit: 1 ⎯⎯⎯⎯⎯⎯⎯ | int: 40 passed (40)
+M11 Sentry user dropped [src/lib/auth/deferredEnd.ts]: RED | unit: 1 ⎯⎯⎯⎯⎯⎯⎯ | int: 40 passed (40)
+M12 Sentry gate ignored [src/lib/auth/deferredEnd.ts]: RED | unit: 3 ⎯⎯⎯⎯⎯⎯⎯ | int: 40 passed (40)
+M13 Sentry route tag dropped [src/lib/auth/deferredEnd.ts]: RED | unit: 1 ⎯⎯⎯⎯⎯⎯⎯ | int: 40 passed (40)
+M14 withAuth: deferred not recorded [src/lib/auth/withAuth.ts]: RED | unit: 1 ⎯⎯⎯⎯⎯⎯⎯ | int: 5 ⎯⎯⎯⎯⎯⎯⎯
+M15 withAuth: rethrow restored [src/lib/auth/withAuth.ts]: RED | unit: 2 ⎯⎯⎯⎯⎯⎯⎯ | int: 5 ⎯⎯⎯⎯⎯⎯⎯
+M16 withAuth: wrong companyId [src/lib/auth/withAuth.ts]: RED | unit: 59 passed (59) | int: 1 ⎯⎯⎯⎯⎯⎯⎯
+M17 withAuth: userId dropped [src/lib/auth/withAuth.ts]: RED | unit: 59 passed (59) | int: 1 ⎯⎯⎯⎯⎯⎯⎯
+M18 withAuth: success not replayed [src/lib/auth/withAuth.ts]: RED | unit: 3 ⎯⎯⎯⎯⎯⎯⎯ | int: 5 ⎯⎯⎯⎯⎯⎯⎯
+M19 withAuth: COMMIT_FAILED not sent [src/lib/auth/withAuth.ts]: RED | unit: 1 ⎯⎯⎯⎯⎯⎯⎯ | int: 1 ⎯⎯⎯⎯⎯⎯⎯
+M20 withAuth: flushed COMMIT failure not closed [src/lib/auth/withAuth.ts]: RED | unit: 59 passed (59) | int: 1 ⎯⎯⎯⎯⎯⎯⎯
+M21 bearer: deferred not recorded [src/lib/auth/bearerPipeline.ts]: RED | unit: 59 passed (59) | int: 8 ⎯⎯⎯⎯⎯⎯⎯
+M22 bearer: rethrow restored [src/lib/auth/bearerPipeline.ts]: RED | unit: 3 ⎯⎯⎯⎯⎯⎯⎯ | int: 8 ⎯⎯⎯⎯⎯⎯⎯
+M23 bearer: wrong companyId [src/lib/auth/bearerPipeline.ts]: RED | unit: 59 passed (59) | int: 2 ⎯⎯⎯⎯⎯⎯⎯
+M24 bearer: userId dropped [src/lib/auth/bearerPipeline.ts]: RED | unit: 59 passed (59) | int: 2 ⎯⎯⎯⎯⎯⎯⎯
+M25 bearer: success not replayed [src/lib/auth/bearerPipeline.ts]: RED | unit: 59 passed (59) | int: 4 ⎯⎯⎯⎯⎯⎯⎯
+M26 bearer: COMMIT_FAILED not sent [src/lib/auth/bearerPipeline.ts]: RED | unit: 1 ⎯⎯⎯⎯⎯⎯⎯ | int: 2 ⎯⎯⎯⎯⎯⎯⎯
+M27 bearer: flushed COMMIT failure not closed [src/lib/auth/bearerPipeline.ts]: RED | unit: 59 passed (59) | int: 2 ⎯⎯⎯⎯⎯⎯⎯
+M28 ext: deferred not recorded [src/lib/auth/withExtensionToken.ts]: RED | unit: 2 ⎯⎯⎯⎯⎯⎯⎯ | int: 4 ⎯⎯⎯⎯⎯⎯⎯
+M29 ext: rethrow restored [src/lib/auth/withExtensionToken.ts]: RED | unit: 2 ⎯⎯⎯⎯⎯⎯⎯ | int: 4 ⎯⎯⎯⎯⎯⎯⎯
+M30 ext: wrong companyId [src/lib/auth/withExtensionToken.ts]: RED | unit: 59 passed (59) | int: 1 ⎯⎯⎯⎯⎯⎯⎯
+M31 ext: userId dropped [src/lib/auth/withExtensionToken.ts]: RED | unit: 59 passed (59) | int: 1 ⎯⎯⎯⎯⎯⎯⎯
+M32 ext: success not replayed [src/lib/auth/withExtensionToken.ts]: RED | unit: 2 ⎯⎯⎯⎯⎯⎯⎯ | int: 2 ⎯⎯⎯⎯⎯⎯⎯
+M33 ext: COMMIT_FAILED not sent [src/lib/auth/withExtensionToken.ts]: RED | unit: 2 ⎯⎯⎯⎯⎯⎯⎯ | int: 1 ⎯⎯⎯⎯⎯⎯⎯
+M34 ext: flushed COMMIT failure not closed [src/lib/auth/withExtensionToken.ts]: RED | unit: 59 passed (59) | int: 1 ⎯⎯⎯⎯⎯⎯⎯
+M35 withErrorHandler no longer answers [src/lib/api-error-handler.ts]: RED | unit: 59 passed (59) | int: 3 ⎯⎯⎯⎯⎯⎯⎯
+M36 lock timeout not special-cased [src/lib/api-error-handler.ts]: RED | unit: 59 passed (59) | int: 4 ⎯⎯⎯⎯⎯⎯⎯
+M37 impersonation refusal not special-cased [src/lib/api-error-handler.ts]: RED | unit: 1 ⎯⎯⎯⎯⎯⎯⎯ | int: 40 passed (40)
+M38 wrong error code [src/lib/api-error-handler.ts]: RED | unit: 4 ⎯⎯⎯⎯⎯⎯⎯ | int: 9 ⎯⎯⎯⎯⎯⎯⎯
