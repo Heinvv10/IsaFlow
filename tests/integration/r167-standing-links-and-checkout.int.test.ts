@@ -61,7 +61,8 @@ describe("the invoice's standing link charges the live balance and is never spen
     expect((await create(token)).statusCode).toBe(200);
     const [req] = await requests(invoiceId);
     await pool.query('UPDATE customer_invoices SET amount_paid = 100 WHERE id = $1', [invoiceId]); // e.g. an EFT lands
-    await deliver(req!.ref, 11500);
+    expect((await deliver(req!.ref, 11500)).statusCode).toBe(200);
+    expect((await pool.query('SELECT 1 FROM customer_payments WHERE bank_reference = $1', [req!.ref])).rowCount).toBe(1);
     expect((await linkRow(linkId)).status).toBe('active');
     await pool.query('UPDATE customer_invoices SET amount_paid = 90 WHERE id = $1', [invoiceId]); // a receipt reversed
     h.charged.length = 0;
