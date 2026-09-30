@@ -191,7 +191,10 @@ describe('general_ledger (getGeneralLedgerLines) — payload guard', () => {
       opening_balance: '0', opening_all: '[]',
       universe_count: '20',
     };
-    mockSql.mockResolvedValueOnce([row]);
+    mockSql
+      .mockResolvedValueOnce([{ financial_year_start: 3 }]) // fiscalYearBasis.getFiscalYearStartMonth
+      .mockResolvedValueOnce([{ retained: '0' }])           // trialBalanceBasis retained earnings b/f
+      .mockResolvedValueOnce([row]);
 
     const page = await getGeneralLedgerLines({
       companyId: COMPANY, periodStart: '2026-01-01', periodEnd: '2026-01-31', limit: 200,

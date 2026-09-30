@@ -15,6 +15,9 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
+import { DEFAULT_FY_START_MONTH, fiscalYearStart, resolveFiscalYearStartMonth } from './fiscalYearBasis';
+import { broughtForwardLine, getRetainedEarningsBroughtForward } from './trialBalanceBasis';
+import { withYearEndCloses } from './generalLedgerReportYearEnd';
 
 type Row = Record<string, unknown>;
 
@@ -26,6 +29,8 @@ export interface GeneralLedgerTransaction {
   credit: number;
   balance: number;
   source: string;
+  /** A year-end close row: derived, not posted. */
+  derived?: boolean;
 }
 
 export interface GeneralLedgerAccountReport {
@@ -37,6 +42,8 @@ export interface GeneralLedgerAccountReport {
   totalDebit: number;
   totalCredit: number;
   transactions: GeneralLedgerTransaction[];
+  /** The Retained Earnings b/f row (trialBalanceBasis RE-BF): computed, no account behind it. */
+  derived?: boolean;
 }
 
 interface AccountMeta {
@@ -65,10 +72,12 @@ export async function getGeneralLedgerReport(
 ): Promise<GeneralLedgerAccountReport[]> {
   try {
     const acctRows = (await sql`
-      SELECT account_code, account_name, account_type, normal_balance
-      FROM gl_accounts
-      WHERE company_id = ${companyId}::UUID
-      ORDER BY account_code
+      SELECT ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
+             c.financial_year_start
+      FROM gl_accounts ga
+      LEFT JOIN companies c ON c.id = ga.company_id
+      WHERE ga.company_id = ${companyId}::UUID
+      ORDER BY ga.account_code
     `) as Row[];
 
     const accounts = new Map<string, AccountMeta>();
@@ -82,7 +91,16 @@ export async function getGeneralLedgerReport(
     }
     if (accounts.size === 0) return [];
 
-    // Opening balances: everything posted before the window, per account.
+    // Income-statement accounts restart at the fiscal-year start (trialBalanceBasis):
+    // their opening is floored at the start of the fiscal year containing periodStart.
+    // READ PATH: March fallback taken visibly, as the trial balance does.
+    const fyStartMonth = resolveFiscalYearStartMonth(
+      acctRows[0]?.financial_year_start, companyId, { fallback: DEFAULT_FY_START_MONTH },
+    );
+    const fyStart = fiscalYearStart(periodStart, fyStartMonth);
+
+    // Opening balances: everything posted before the window, per account
+    // (income-statement accounts: only since fyStart).
     const obRows = (await sql`
       SELECT ga.account_code,
              COALESCE(SUM(jl.debit), 0)  AS total_debit,
@@ -95,6 +113,7 @@ export async function getGeneralLedgerReport(
         AND jl.company_id = ${companyId}::UUID
         AND ga.company_id = ${companyId}::UUID
         AND je.entry_date < ${periodStart}
+        AND (ga.account_type NOT IN ('revenue', 'expense') OR je.entry_date >= ${fyStart})
       GROUP BY ga.account_code
     `) as Row[];
 
@@ -175,9 +194,15 @@ export async function getGeneralLedgerReport(
       if (ob !== 0) ensure(code);
     }
 
-    return Array.from(byAccount.values()).sort((a, b) =>
-      a.accountCode.localeCompare(b.accountCode)
-    );
+    // The profit earned before fyStart left the income-statement openings above;
+    // it re-enters as a derived Retained Earnings b/f row (the TB's RE-BF), so the
+    // ledger's openings still net to zero. Closes inside the range land there too.
+    const retainedBf = await getRetainedEarningsBroughtForward(companyId, fyStart);
+    const reports = withYearEndCloses(Array.from(byAccount.values()), {
+      accounts, periodStart, periodEnd, fyStartMonth,
+      retainedEarnings: { ...broughtForwardLine(fyStart), openingBalance: retainedBf },
+    });
+    return reports.sort((a, b) => a.accountCode.localeCompare(b.accountCode));
   } catch (err) {
     log.error('Failed to generate general ledger report', { error: err }, 'accounting');
     throw err;
