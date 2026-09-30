@@ -51,4 +51,15 @@ describe('local-calendar date helpers (TZ=Africa/Johannesburg)', () => {
       expect(() => addDaysISO(bad, 1), bad).toThrow(RangeError);
     }
   });
+  it('rejects years below 1000 explicitly (not by the 19xx Date quirk)', () => {
+    for (const bad of ['0000-01-01', '0099-06-15', '0999-12-31']) {
+      expect(() => addDaysISO(bad, 1), bad).toThrow(/year/i);
+      expect(() => shiftYearISO(bad, 1), bad).toThrow(/year/i);
+    }
+  });
+  it('shiftYearISO throws when the target year falls below 1000', () => {
+    expect(() => shiftYearISO('1000-06-15', -1)).toThrow(RangeError);
+    expect(() => shiftYearISO('2026-06-15', -1100)).toThrow(RangeError);
+    expect(shiftYearISO('1001-06-15', -1)).toBe('1000-06-15');
+  });
 });
