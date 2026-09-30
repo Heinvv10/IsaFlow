@@ -20,28 +20,26 @@ import {
   type CreateRateOverrideInput,
   type UpdateRateOverrideInput,
 } from '@/modules/accounting/services/practice/practiceClientRateOverrideService';
-import { sql } from '@/lib/neon';
-
-async function assertClientBelongsToCompany(
-  companyId: string,
-  clientId: string
-): Promise<boolean> {
-  const rows = await sql`
-    SELECT id FROM practice_clients
-    WHERE id = ${clientId} AND company_id = ${companyId}
-    LIMIT 1
-  `;
-  return rows.length > 0;
-}
+import {
+  assertPracticeClientInCompany,
+  PracticeClientNotInCompanyError,
+} from '@/modules/accounting/services/practice/practiceClientFence';
+import { isUuidParam } from '@/lib/validation';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const clientId = req.query.id as string;
 
   if (!clientId) return apiResponse.badRequest(res, 'Client ID required');
+  // R-163: a malformed id is a 400; the fence would fold it into "not found".
+  if (!isUuidParam(clientId)) return apiResponse.badRequest(res, 'Invalid client ID');
 
-  const clientExists = await assertClientBelongsToCompany(companyId, clientId);
-  if (!clientExists) return apiResponse.notFound(res, 'Client');
+  try {
+    await assertPracticeClientInCompany(companyId, clientId);
+  } catch (err) {
+    if (err instanceof PracticeClientNotInCompanyError) return apiResponse.notFound(res, 'Client');
+    throw err;
+  }
 
   if (req.method === 'GET') {
     const overrides = await listClientRateOverrides(companyId, clientId);

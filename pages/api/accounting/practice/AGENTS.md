@@ -57,6 +57,8 @@ Clients, staff rates, time entries, WIP, jobs/tasks, billing, reports. All servi
 - Client creation fires `seedDefaultCategories` — failure is non-fatal (warn-log, doesn't roll back)
 - `billingModel` and `status` required when creating a client
 - `client-contacts` POST, `jobs/[id]` PUT and `entry-templates` POST / `[id]` PUT answer 400 when the body names a practice client that is not this company's (R-073, `PracticeClientNotInCompanyError`), before any write. The job PUT keeps its generic `Update failed` message.
+- `clients` POST and `clients/[id]` PUT answer 400 when `clientGroupId` is not this company's group or is malformed (R-161, `ClientGroupNotInCompanyError`), before any write. An absent group is unchanged.
+- `clients/[id]/rate-overrides` answers a malformed client id with 400 (`isUuidParam`) and another company's or an unknown client with 404, through `assertPracticeClientInCompany` (R-163). Its old local check had no savepoint, so a malformed id was a 500.
 - `rate-resolve` precedence: client-specific staff rate → default staff rate → category default
 - `wip/invoice` answers a `WipInvoiceRefusal` with 400 **and its own message**. That covers: no `link_customer_id` or a link to another company's customer, nothing eligible, a `taxRate` outside 0–100 or with more than 2 decimals, a negative, NULL or inconsistent entry, and a concurrent billing. A `201` result carries `skippedEntryCount`. A body that fails the schema is a 400 naming the field. Lock contention is 503; any other error is 500 (R-120).
 
@@ -64,6 +66,7 @@ Clients, staff rates, time entries, WIP, jobs/tasks, billing, reports. All servi
 - `src/modules/accounting/services/practice/*` — clients, contacts, jobs, tasks, time-entries, rates, wip, invoice, reports, cron
 
 ## Recent changes
+- 2026-09-30: R-161 — client group ownership fence on the clients POST / `[id]` PUT; R-163 — rate-overrides route uses the R-073 fence, malformed id → 400
 - 2026-09-29 (R-123): `clients/[id]/rate-overrides` and `clients/[id]/staff` no longer 500 where app_user cannot read `auth.users`: staff names come from migrations 715/716 (company-bound SECURITY DEFINER). The staff list follows `cu_select` — owner/admin see every member, a manager only themselves.
 - 2026-09-29: R-073 — practice client ownership fence on the contact, job-update and entry-template writes
 - 2026-04-22: 4 Bugsink-surfaced regressions
