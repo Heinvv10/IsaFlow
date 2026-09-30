@@ -34,24 +34,30 @@ const callsNamed = (name: string) => (n: ts.Node) =>
 
 /**
  * Anything that replaces a property named `end`, whatever the receiver is called:
- * `x.end =`, `(x as any).end =`, `x['end'] =`, `Object.defineProperty(x, 'end', …)` and
- * `Object.assign(x, { end })`. A receiver-name filter would miss `apiRes.end =` or an alias.
- * This fails closed. A file that sets a non-response `end` (a date range, say) goes in
+ * `x.end =`, `(x as any).end =`, `x['end'] =`, `Object.defineProperty(x, 'end', …)`,
+ * `Object.defineProperties(x, { end })`, `Object.assign(x, { end })` (plain, quoted or `['end']`
+ * key) and `Reflect.set(x, 'end', …)`. A receiver-name filter would miss `apiRes.end =` or an
+ * alias. This fails closed. A file that sets a non-response `end` (a date range, say) goes in
  * NOT_A_RESPONSE, with the reason.
+ *
+ * Named limit: a key held in a variable (`x[k] = f`, `Object.defineProperty(x, k, …)`) is not
+ * resolvable from the syntax tree and is not caught. Review is the guard for that form.
  */
 const NOT_A_RESPONSE: Record<string, string> = {};
-const isObjectCall = (n: ts.CallExpression, method: string) => ts.isPropertyAccessExpression(n.expression)
-  && ts.isIdentifier(n.expression.expression) && n.expression.expression.text === 'Object'
+const isCallOn = (n: ts.CallExpression, owner: string, method: string) => ts.isPropertyAccessExpression(n.expression)
+  && ts.isIdentifier(n.expression.expression) && n.expression.expression.text === owner
   && n.expression.name.text === method;
-const hasEndProperty = (o: ts.Expression) => ts.isObjectLiteralExpression(o) && o.properties.some((p) =>
-  p.name !== undefined && (ts.isIdentifier(p.name) || ts.isStringLiteralLike(p.name)) && p.name.text === 'end');
+const isEndKey = (name: ts.PropertyName | undefined) => name !== undefined
+  && ((ts.isIdentifier(name) || ts.isStringLiteralLike(name)) ? name.text === 'end'
+    : ts.isComputedPropertyName(name) && ts.isStringLiteralLike(name.expression) && name.expression.text === 'end');
+const hasEndProperty = (o: ts.Expression | undefined) => o !== undefined && ts.isObjectLiteralExpression(o)
+  && o.properties.some((p) => isEndKey(p.name));
+const isEndLiteral = (a: ts.Expression | undefined) => a !== undefined && ts.isStringLiteralLike(a) && a.text === 'end';
 const assignsEnd = (n: ts.Node) => {
   if (ts.isCallExpression(n)) {
-    if (isObjectCall(n, 'defineProperty')) {
-      const key = n.arguments[1];
-      return key !== undefined && ts.isStringLiteralLike(key) && key.text === 'end';
-    }
-    if (isObjectCall(n, 'assign')) return n.arguments.slice(1).some(hasEndProperty);
+    if (isCallOn(n, 'Object', 'defineProperty') || isCallOn(n, 'Reflect', 'set')) return isEndLiteral(n.arguments[1]);
+    if (isCallOn(n, 'Object', 'defineProperties')) return hasEndProperty(n.arguments[1]);
+    if (isCallOn(n, 'Object', 'assign')) return n.arguments.slice(1).some(hasEndProperty);
     return false;
   }
   if (!ts.isBinaryExpression(n) || n.operatorToken.kind !== ts.SyntaxKind.EqualsToken) return false;
@@ -71,12 +77,14 @@ describe('R-159: a deferred res.end is always answered on a throw', () => {
   it.each([
     'apiRes.end = f;', 'r.end = f;', '(httpRes as any).end = f;', "nextRes['end'] = f;",
     'const target = res; target.end = f;', "Object.defineProperty(res, 'end', { value: f });",
-    'Object.assign(res, { end: f });', "Object.assign(out, { 'end': f });",
+    'Object.assign(res, { end: f });', "Object.assign(out, { 'end': f });", "Object.assign(res, { ['end']: f });",
+    'Object.defineProperties(res, { end: { value: f } });', "Reflect.set(res, 'end', f);",
   ])('the matcher flags %s', (snippet) => {
     expect(flags(snippet)).toBe(true);
   });
 
-  it.each(['const end = 1;', 'res.end(body);', 'range.start = 1;', 'Object.assign(res, { status: 1 });'])(
+  it.each(['const end = 1;', 'res.end(body);', 'range.start = 1;', 'Object.assign(res, { status: 1 });',
+    "Reflect.set(res, 'status', 1);", "Foo.assign(res, { end: f });"])(
     'the matcher leaves %s alone', (snippet) => {
       expect(flags(snippet)).toBe(false);
     });
