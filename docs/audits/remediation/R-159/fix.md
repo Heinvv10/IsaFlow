@@ -53,7 +53,10 @@ with Hein before merge.
   replaying the buffered end.
 - `withErrorHandler`, when a handler throws after flushing its headers, cannot send a 500. It
   now sets `statusCode = 500` anyway, so an enclosing wrapper rolls back instead of COMMITting,
-  and aborts the response it could no longer end. Before, the wrapper committed the partial
+  and aborts the response it could no longer end. It does this only while the response has not
+  ended (`!res.writableEnded`, always true under the three wrappers, whose `end` is buffered).
+  A response the handler already ended through the real `end`, on a route outside them, is left
+  alone: destroying it could cut a large body off mid-flush (review round 3). Before, the wrapper committed the partial
   write and the response hung. This was the case on the 640 routes with `withErrorHandler`
   inside, though no such route flushes before it ends today (review round 2).
 - `respondToUnhandledError` is `withErrorHandler`'s response code, moved unchanged into an
@@ -114,7 +117,7 @@ Evidence:
 - `red.int.log`: 17 of the 22 original cases fail on origin/master `7c49109f5`, because every
   throw is rethrown and `end` is never called. The positive paths and the 405 pass;
 - `green.log`: the suites on the final head;
-- `mutations.log`: 56 of 56 mutants are RED on the review-round-2 code. Every changed line was
+- `mutations.log`: 57 of 57 mutants are RED (M55–M57 re-run on the round-3 guard). Every changed line was
   mutated in `deferredEnd.ts` (the buffer, the restore, the abort, the answer and its fallback,
   the log and stack, Sentry and its guard, and `replayEnd`), in each of the three wrappers (the
   deferral, the answer and its tenant, the guarded replay and its tenant, and both COMMIT-failure
@@ -154,6 +157,20 @@ does any of these today. Each one was proved with a probe, and all are fixed:
 
 The integration suite was split to stay under 300 lines: the revoke cases and the `sql` hook
 have their own file, and the test response is in a shared helper.
+
+## Review round 3
+
+Both reviewers confirmed every round-1 and round-2 finding fixed, and both raised the same new
+one (MEDIUM from the general reviewer, LOW from the adversarial one): `withErrorHandler`'s
+headers-already-sent branch destroyed a response that had already ended, which on a route
+outside the wrappers can truncate a large body and logs 500 for a 200. It is now guarded by
+`!res.writableEnded`, with a unit case (ended response: no destroy, status unchanged) and
+mutant M57. The integration test response now tracks `writableEnded` as Node's does.
+
+Residual, accepted (adversarial reviewer): if `replayEnd` fails after COMMIT, the client sees a
+reset connection for a write that did commit, and may retry. It no longer rolls back or reports
+a failure, and only a handler bug (`end` given a body that is not a string or Buffer) can cause
+it; no route does that today.
 
 ## Migration / rollback
 
