@@ -206,6 +206,19 @@ instead of returning it to the pool: pg-pool evicts only on an error argument or
 client, so a ROLLBACK that failed on a live connection, such as a client-side `query_timeout`,
 hands the connection back as it is.
 
+## Deployed
+
+- #577 was merged as `ca5f32867`. It was deployed to prod at 11:24 SAST on 2026-09-30, during business hours, on Hein's explicit "Deploy now". The deploy also shipped the peer session's #575 and #578–#582, which Hein confirmed.
+- The deploy applied 0 migrations. Golden paths passed 13/13 and integrity was green.
+- `RELEASE_SHA` is `ca5f32867`.
+- In the live `.next` server chunks:
+  - "request threw inside its transaction";
+  - "response replay failed after the transaction was finalised".
+- Live checks:
+  - health answers 200;
+  - an unauthenticated `POST /api/invitations/revoke/<id>` answers 401.
+- The rollback target is `efaad6ae1`. The change is code only.
+
 ## Migration / rollback
 
 There is no migration. To roll back, revert the PR.
