@@ -1,4 +1,4 @@
-# GREEN on c267862e2 (review round 1), fixture clone at 716 (2026-09-30T02:58:17Z); the fence suite on an isaflow_test clone of it. 64-hex tokens redacted.
+# GREEN on 8e67281df (the /review round; the head's later commits are docs only), fixture clone at 716 (2026-09-30T03:40:23Z); the fence suite on an isaflow_test clone of it. 64-hex tokens redacted.
 ## r166-payment-link-amount-cap
  Test Files  1 passed (1)
       Tests  7 passed (7)

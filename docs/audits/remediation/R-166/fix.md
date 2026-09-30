@@ -43,7 +43,9 @@ requested amount is over that balance.
   do. A soft-deleted invoice gets 404. This was true before R-166 too; it was found on the same
   query in review.
 - After the customer check, an amount over the balance gets 400 with the message "amount is
-  more than the invoice's outstanding balance of <balance>". The refusal comes before
+  more than the invoice's outstanding balance of <balance>". An invoice that owes nothing (paid,
+  overpaid, or a NaN balance) gets "the invoice has no outstanding balance" instead of a
+  negative or NaN figure. The refusal comes before
   `assertCustomerInCompany` and before the INSERT, so nothing is written. The order matters
   because `withAuth` COMMITs a 4xx. The balance appears only once the client has matched this
   company's invoice.
@@ -85,7 +87,8 @@ Evidence:
 - `green.log`: the new suite, k101, r155-157, r157-throw, r158, k122, k122b, the three r095
   suites, and customer-ownership-fence-routes. The fence suite refuses any database not named
   `isaflow_dev` or `isaflow_test`, so it runs on an `isaflow_test` copy of the same fixture clone.
-- `mutations.log`: 10 of 11 mutants are RED, and N11 is equivalent. The round-1 mutants cover
+- `mutations.log`: 13 of 14 mutants are RED on the /review-round code, and N11 is equivalent.
+  N12–N14 cover the no-balance message. The round-1 mutants cover
   the clamp and NULL handling, `>` changed to `>=`, `amount_paid` ignored, the NaN arm, the
   message, the refusal removed or moved after the INSERT, the negative clamp, `deleted_at`, and
   R-158's maximum. N11 swaps `!== false` for `=== true`. That changes nothing, because
@@ -107,11 +110,25 @@ Both reviewers returned FIX. Every finding is fixed above, apart from the MEDIUM
 - The earlier fix.md mentioned a generated `balance` column. No migration here defines it, so
   the mention was dropped.
 
+## /review (fresh blind Opus agent)
+
+APPROVED with four LOWs. Posted to the PR.
+
+- The test header gave the round-0 formula and said INV-00553's link "could be paid". It is
+  updated.
+- The refusal message showed a negative or NaN balance. It now says "the invoice has no
+  outstanding balance", and the paid, overpaid and NaN cases assert it.
+- The evidence logs did not name the head. `green.log` and `mutations.log` were re-run on the
+  /review-round code.
+- **Pre-existing, not changed:** the lookup filters only `status != 'cancelled'`, so a draft or
+  pending-approval invoice can get a link. `pay-now` behaves the same. Refusing them is a product
+  decision, so it is left to Hein.
+
 ## Prod follow-up (not done; needs Hein)
 
 The link on INV-00553 (ISAFlow Demo) is still `active` and still displays. A payment attempt is
-refused ("Invoice already paid"), so expiring the link is a tidy-up, not urgent. It is a prod
-write, so it waits for Hein's yes.
+refused ("Invoice already paid"). Hein decided on 2026-09-30 to leave it as it is, so nothing
+was written on prod.
 
 ## Migration / rollback
 
