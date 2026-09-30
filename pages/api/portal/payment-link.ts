@@ -85,7 +85,8 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     const invoice = (await sql`
       SELECT COALESCE(ci.client_id, ci.customer_id) AS customer_id,
              b.balance::text AS balance,
-             (b.balance = 'NaN' OR ${amountNum}::numeric > b.balance) AS over_balance
+             (b.balance = 'NaN' OR ${amountNum}::numeric > b.balance) AS over_balance,
+             (b.balance > 0 AND b.balance <> 'NaN') AS owes
       FROM customer_invoices ci
       CROSS JOIN LATERAL (
         SELECT ci.total_amount - GREATEST(ci.amount_paid, 0) AS balance
@@ -100,8 +101,9 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     }
     // R-166: a link may ask for part of what is owed, never more. A paid invoice owes nothing.
     if (invoice[0]!.over_balance !== false) {
-      return apiResponse.badRequest(res,
-        `amount is more than the invoice's outstanding balance of ${String(invoice[0]!.balance)}`);
+      return apiResponse.badRequest(res, invoice[0]!.owes === true
+        ? `amount is more than the invoice's outstanding balance of ${String(invoice[0]!.balance)}`
+        : "the invoice has no outstanding balance");
     }
 
     // R-067: clientId comes from the request body, and the unauthenticated GET
