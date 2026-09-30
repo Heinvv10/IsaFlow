@@ -14,6 +14,7 @@ import {
 import { log } from '@/lib/logger';
 import { WaterfallChart } from '@/components/shared/WaterfallChart';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
+import { localISODate } from '@/lib/dateUtils';
 
 type TabType = 'profit' | 'cashflow';
 
@@ -27,9 +28,9 @@ export default function WaterfallPage() {
     setLoading(true);
     try {
       const now = new Date();
-      const to = now.toISOString().split('T')[0];
+      const to = localISODate(now);
       const fromDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-      const from = fromDate.toISOString().split('T')[0];
+      const from = localISODate(fromDate);
       const res = await apiFetch(`/api/accounting/reports-waterfall?type=${tab}&from=${from}&to=${to}`);
       const json = await res.json();
       if (json.data?.steps) setSteps(json.data.steps);

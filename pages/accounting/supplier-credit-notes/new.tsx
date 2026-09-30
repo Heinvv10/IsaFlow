@@ -9,6 +9,7 @@ import { ArrowLeft, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
+import { localISODate } from '@/lib/dateUtils';
 
 interface LineItem { description: string; quantity: number; unitPrice: number; vatType: string }
 
@@ -31,7 +32,7 @@ export default function NewSupplierCreditNotePage() {
   const [error, setError] = useState('');
   const [form, setForm] = useState({
     supplierId: '',
-    creditDate: new Date().toISOString().split('T')[0],
+    creditDate: localISODate(),
     reference: '',
     description: '',
     notes: '',

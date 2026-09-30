@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowUpDown, Plus, Loader2, Check } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 const fmtQty = (n: number) => new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 4 }).format(n);
 
@@ -22,7 +23,7 @@ export default function ItemAdjustmentsPage() {
   const [msg, setMsg] = useState('');
   const [form, setForm] = useState({
     itemId: '', adjustmentType: 'increase' as 'increase' | 'decrease',
-    quantity: '', reason: '', date: new Date().toISOString().split('T')[0],
+    quantity: '', reason: '', date: localISODate(),
   });
 
   const load = useCallback(async () => {
@@ -49,7 +50,7 @@ export default function ItemAdjustmentsPage() {
     });
     if (res.ok) {
       setMsg('Adjustment saved'); setShowForm(false);
-      setForm({ itemId: '', adjustmentType: 'increase', quantity: '', reason: '', date: new Date().toISOString().split('T')[0] });
+      setForm({ itemId: '', adjustmentType: 'increase', quantity: '', reason: '', date: localISODate() });
       await load();
     } else {
       const json = await res.json();
