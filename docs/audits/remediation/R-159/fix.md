@@ -117,7 +117,7 @@ Evidence:
 - `red.int.log`: 17 of the 22 original cases fail on origin/master `7c49109f5`, because every
   throw is rethrown and `end` is never called. The positive paths and the 405 pass;
 - `green.log`: the suites on the final head;
-- `mutations.log`: 63 of 63 mutants are RED. M55–M57 were re-run on the round-3 guard; the /review round re-ran every mutant whose line changed and added M58–M63. Every changed line was
+- `mutations.log`: 64 of 64 mutants are RED. M55–M57 were re-run on the round-3 guard; the /review round re-ran every mutant whose line changed and added M58–M63. Every changed line was
   mutated in `deferredEnd.ts` (the buffer, the restore, the abort, the answer and its fallback,
   the log and stack, Sentry and its guard, and `replayEnd`), in each of the three wrappers (the
   deferral, the answer and its tenant, the guarded replay and its tenant, and both COMMIT-failure
@@ -183,11 +183,15 @@ APPROVED with six LOWs. Posted to the PR; all six are fixed:
   its ROLLBACK instead of an empty catch (M58–M61);
 - `answerThrow` aborted a response with its headers sent even if it had already ended. It now
   leaves an ended response alone, as `withErrorHandler` does (M62, with unit cases for both);
-- the census flagged any `x.end =` assignment. It now counts only receivers that read as a
-  response (`res`, `response`), and its failure message says what it found (M63);
+- the census flagged any `x.end =` assignment. That is kept: a receiver-name filter, tried
+  first, missed `apiRes.end =` (re-confirmation LOW). The census still fails closed, and a
+  non-response `end` goes in its `NOT_A_RESPONSE` list with a reason; the list is empty today.
+  Its failure message now says so. M63 breaks the matcher, M64 plants an `apiRes.end =` swap in
+  a tracked file, and both are RED;
 - no integration case covered a throw from the wrapper's own step before the swap. A case now
-  makes the rate limiter throw under withAuth and both Bearer wrappers: 500 once, nothing
-  rethrown, nothing written. `withExtensionToken` has no step there that a test can make throw;
+  makes the rate limiter throw under withAuth and both Bearer wrappers: 500 once and nothing
+  rethrown. It also asserts that the limiter's hook fired; the earlier no-row assertion could
+  not fail, because the handler never runs. `withExtensionToken` has no step there that a test can make throw;
 - the module doc's caller contract now states the `writableEnded` condition.
 
 ## Migration / rollback
