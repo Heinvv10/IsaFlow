@@ -219,9 +219,11 @@ export async function getClientStatement(
 // ── Payment Links ────────────────────────────────────────────────────────────
 
 export async function createPaymentLink(invoiceId: string, clientId: string, amount: number): Promise<string> {
+  // R-167: an explicit-amount link charges its amount (capped at the balance) and is spent by one
+  // payment; the column defaults to the invoice's standing kind.
   const rows = (await sql`
-    INSERT INTO portal_payment_links (invoice_id, client_id, amount)
-    VALUES (${invoiceId}::UUID, ${clientId}::UUID, ${amount})
+    INSERT INTO portal_payment_links (invoice_id, client_id, amount, charges_balance)
+    VALUES (${invoiceId}::UUID, ${clientId}::UUID, ${amount}, false)
     RETURNING token
   `) as DbRow[];
   return String(rows[0]!.token);

@@ -15,7 +15,7 @@ export const CO = randomUUID();
 export const USER = randomUUID();
 export const CUSTOMER = randomUUID();
 /** One address per run: verify rate-limits per IP, and its counter outlives a run. */
-const IP = `10.${[0, 0, 0].map(() => Math.floor(Math.random() * 250) + 1).join('.')}`;
+export const IP = `10.${[0, 0, 0].map(() => Math.floor(Math.random() * 250) + 1).join('.')}`;
 
 export type Res = { statusCode: number; body: { data?: Record<string, unknown>; error?: { message?: string } } };
 type Route = (req: never, res: never) => unknown;

@@ -12,14 +12,14 @@
  * window is now handed out again instead.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'fs';
 import { createHash } from 'crypto';
 import { SignJWT } from 'jose';
 import { assertDisposable, request } from './mfa-impersonation-postgres.helpers';
 import {
-  CO, SECRET, USER, addLink, call, cleanupCompany, create, deliver, getLink, invoiceWithLink, linkRow, pool, requests, seedCompany,
+  CO, CUSTOMER, IP, SECRET, USER, call, cleanupCompany, create, deliver, getLink, invoiceWithLink, linkRow, pool, requests, seedCompany,
 } from './r167-portal-links.helpers';
 import { enableOnlinePayment } from '@/modules/accounting/services/core/paymentGatewayPortalService';
+import { createPaymentLink } from '@/modules/accounting/services/ar/portalService';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -98,16 +98,15 @@ describe("the invoice's standing link charges the live balance and is never spen
     expect(minted.rows).toEqual([{ charges_balance: true }]);
   });
 
-  it('migration 717 marks the link an invoice payment_url names as standing, and nothing else', async () => {
-    const named = await invoiceWithLink(0, 115);
-    const other = await invoiceWithLink(0, 20);
-    const explicitOnNamed = await addLink(named.invoiceId, 10); // same invoice, not the one payment_url names
-    await pool.query("UPDATE customer_invoices SET payment_url = 'https://app.r167.test/portal/pay/' || $2 WHERE id = $1",
-      [named.invoiceId, named.token]);
-    await pool.query(readFileSync('scripts/migrations/sql/717_paystack_request_portal_link.sql', 'utf8'));
-    expect((await linkRow(named.linkId)).charges_balance).toBe(true);
-    expect((await linkRow(other.linkId)).charges_balance).toBe(false);
-    expect((await linkRow(explicitOnNamed.linkId)).charges_balance).toBe(false);
+  it('only an explicit-amount link is spendable: a link written without the flag (every link from before 717, or minted by the old code mid-deploy) is standing', async () => {
+    const legacy = await invoiceWithLink(0, 1);
+    const { rows } = await pool.query<{ charges_balance: boolean }>(
+      `INSERT INTO portal_payment_links (invoice_id, client_id, amount) VALUES ($1, $2, 1) RETURNING charges_balance`,
+      [legacy.invoiceId, CUSTOMER]);
+    expect(rows).toEqual([{ charges_balance: true }]);
+    const token = await createPaymentLink(legacy.invoiceId, CUSTOMER, 10);
+    expect((await pool.query('SELECT charges_balance FROM portal_payment_links WHERE token = $1', [token])).rows)
+      .toEqual([{ charges_balance: false }]);
   });
 });
 
@@ -202,6 +201,21 @@ describe('create holds nothing across the gateway call', () => {
     h.during = null;
     expect((await create(token)).statusCode).toBe(200);
     expect(h.charged).toEqual([4050, 4050]);
+  });
+
+  it('an address that has used its 60 checkout starts for the window is refused 429', async () => {
+    const { invoiceId, token } = await invoiceWithLink(0, 40.5);
+    const key = `paystack-create:${IP}`;
+    const before = (await pool.query<{ count: number }>('SELECT count FROM rate_limit_counters WHERE key = $1', [key])).rows[0];
+    await pool.query(`INSERT INTO rate_limit_counters (key, count, window_start) VALUES ($1, 60, NOW())
+      ON CONFLICT (key) DO UPDATE SET count = 60`, [key]);
+    try {
+      expect((await create(token)).statusCode).toBe(429);
+      expect(h.charged).toEqual([]);
+      expect(await requests(invoiceId)).toEqual([]);
+    } finally {
+      await pool.query('UPDATE rate_limit_counters SET count = $2 WHERE key = $1', [key, before?.count ?? 0]);
+    }
   });
 
   it('a link that has used its 20 checkouts for the window is refused 429 before anything else', async () => {
