@@ -38,7 +38,8 @@ import { withInviteToken } from '@/lib/auth/withInviteToken';
 
 const res = () => ({
   statusCode: 200, headersSent: false, body: '' as string | undefined,
-  status(c: number) { this.statusCode = c; return this; }, json() { return this; }, setHeader() { return this; },
+  status(c: number) { this.statusCode = c; return this; }, setHeader() { return this; },
+  json(b: unknown) { return this.end(JSON.stringify(b)); }, // funnels through end, as Next's does
   end(chunk?: string) { this.body = chunk; return this; },
 });
 const queue = () => runAfterCommit('probe', async () => { h.events.push('CALLBACK'); });
@@ -56,8 +57,10 @@ const owners: Array<[string, (fail: boolean) => Promise<unknown>]> = [
     await withExtensionToken(async () => {
       queue(); if (fail) throw new Error('body failed');
     })({ headers: { authorization: 'Bearer ext_x' }, query: {} } as never, r as never);
-    // Like withAuth, a failed COMMIT is answered 500 COMMIT_FAILED rather than thrown (A-5).
+    // Like withAuth, a failed COMMIT is answered 500 COMMIT_FAILED rather than thrown (A-5),
+    // and a body that throws is answered 500 INTERNAL_SERVER_ERROR rather than rethrown (R-159).
     if (r.statusCode === 500 && r.body?.includes('COMMIT_FAILED')) throw new Error('commit failed');
+    if (r.statusCode === 500 && r.body?.includes('INTERNAL_SERVER_ERROR')) throw new Error('body failed');
   }],
   ['withInviteToken', (fail) => withInviteToken(async () => {
     queue(); if (fail) throw new Error('body failed');

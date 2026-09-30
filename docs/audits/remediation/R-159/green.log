@@ -1,0 +1,22 @@
+# GREEN on 87bb23097 (/review round), fixture clone at 716 (2026-09-30T03:45:11Z).
+## r159-auth-wrapper-throw-responds
+ Test Files  1 passed (1)
+      Tests  47 passed | 1 skipped (48)
+## r159-invitation-revoke-throw-responds
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+## r157-payment-link-throw-responds
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+## company-standing
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+## r155-157-portal-mint-guards
+ Test Files  1 passed (1)
+      Tests  30 passed (30)
+## k101-portal-routes-use-active-company
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+## unit (env -u DATABASE_URL): the changed and wrapper suites
+ Test Files  10 passed (10)
+      Tests  68 passed (68)

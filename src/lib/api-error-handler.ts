@@ -149,41 +149,19 @@ export function withErrorHandler(
         // Check if headers were already sent
         if (res.headersSent) {
           apiLogger.warn({ method: req.method, url: safeUrl }, 'Headers already sent, cannot send error response');
+          // R-159: the status line is on the wire, so it cannot become a 500. If the response
+          // was never ended (always so under withAuth / Bearer / extension, whose end is
+          // buffered), mark the failure so the wrapper rolls back instead of COMMITting, and
+          // abort it rather than leave it open. A response the handler already ended is left
+          // alone: destroying it could cut its body off mid-flush.
+          if (!res.writableEnded) {
+            res.statusCode = 500;
+            res.destroy();
+          }
           return;
         }
 
-        // Contention on a document number, a claimed document or a time-entry
-        // row is transient and the caller should retry — it is not a bug, and
-        // the generic 500 below masks its message in production, so the user
-        // could not tell the two apart. 503 (not 4xx) because 55P03 leaves the
-        // transaction aborted and withAuth must ROLLBACK; see apiDocumentLock.
-        if (respondIfLockTimeout(res, error)) {
-          return;
-        }
-        // R-032 L5: a Login-as session refused by an approving service — raised
-        // before that service reads or writes anything.
-        if (respondIfImpersonationForbidden(res, error)) {
-          return;
-        }
-
-        // Send error response — mask internal details in production
-        const errorMessage =
-          process.env.NODE_ENV === 'production'
-            ? 'An unexpected error occurred'
-            : error instanceof Error ? error.message : 'An unexpected error occurred';
-
-        res.status(500).json({
-          success: false,
-          data: null,
-          message: errorMessage,
-          code: 'INTERNAL_SERVER_ERROR',
-          ...(process.env.NODE_ENV === 'development' && {
-            details: error instanceof Error ? {
-              message: error.message,
-              stack: error.stack,
-            } as Record<string, unknown> : { error: String(error) },
-          }),
-        });
+        respondToUnhandledError(res, error);
       } finally {
         // Standard-shape request-completion log line. Reads userId/companyId
         // off req if withAuth populated them; otherwise null.
@@ -208,6 +186,46 @@ export function withErrorHandler(
       await runScoped();
     }
   };
+}
+
+/**
+ * withErrorHandler's answer to an error it caught: a lock timeout is 503, a refused Login-as
+ * session is 403, anything else is 500 with the message masked in production. Exported so the
+ * auth wrappers answer a throw that escapes their handler the same way (R-159).
+ */
+export function respondToUnhandledError(res: NextApiResponse, error: unknown): void {
+  // Contention on a document number, a claimed document or a time-entry
+  // row is transient and the caller should retry — it is not a bug, and
+  // the generic 500 below masks its message in production, so the user
+  // could not tell the two apart. 503 (not 4xx) because 55P03 leaves the
+  // transaction aborted and withAuth must ROLLBACK; see apiDocumentLock.
+  if (respondIfLockTimeout(res, error)) {
+    return;
+  }
+  // R-032 L5: a Login-as session refused by an approving service — raised
+  // before that service reads or writes anything.
+  if (respondIfImpersonationForbidden(res, error)) {
+    return;
+  }
+
+  // Send error response — mask internal details in production
+  const errorMessage =
+    process.env.NODE_ENV === 'production'
+      ? 'An unexpected error occurred'
+      : error instanceof Error ? error.message : 'An unexpected error occurred';
+
+  res.status(500).json({
+    success: false,
+    data: null,
+    message: errorMessage,
+    code: 'INTERNAL_SERVER_ERROR',
+    ...(process.env.NODE_ENV === 'development' && {
+      details: error instanceof Error ? {
+        message: error.message,
+        stack: error.stack,
+      } as Record<string, unknown> : { error: String(error) },
+    }),
+  });
 }
 
 /**

@@ -5,8 +5,8 @@
  * Branches under test (src/lib/auth/withBearerOrCookieAuth.ts):
  *  - AUTO_RATE_LIMIT mirror: reports-* route + exhausted bucket → 429 + ROLLBACK
  *  - membership query 22P02 (invalid uuid cast — forged/stale PAT) → 403
- *  - membership query real DB error → propagates (500 path), ROLLBACK + release
- *  - handler throw → ROLLBACK (never COMMIT) + release, error propagates
+ *  - membership query real DB error → ROLLBACK + release, answered 500 (R-159: not rethrown)
+ *  - handler throw → ROLLBACK (never COMMIT) + release, answered 500 (R-159: not rethrown)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { pgTypesMock } from '../helpers/pgTypesMock';
@@ -174,13 +174,16 @@ describe('membership query error classification', () => {
     expect(issuedStatements()).toContain('ROLLBACK');
   });
 
-  it('real DB error (timeout etc.) propagates as a 500-path rethrow, with ROLLBACK + release', async () => {
+  it('real DB error (timeout etc.) is answered 500, not 403, with ROLLBACK + release', async () => {
     membershipImpl = async () => { throw new Error('connection timeout'); };
     const handler = vi.fn();
     const res = makeRes();
     await expect(
       withBearerOrCookieAuth(handler)(makeReq('/api/mcp') as never, res),
-    ).rejects.toThrow('connection timeout');
+    ).resolves.toBeUndefined();
+
+    expect(res.statusCode).toBe(500);
+    expect((res as { body?: unknown }).body).toMatchObject({ success: false, code: 'INTERNAL_SERVER_ERROR' });
 
     expect(handler).not.toHaveBeenCalled();
     expect(issuedStatements()).toContain('ROLLBACK');
@@ -190,12 +193,15 @@ describe('membership query error classification', () => {
 });
 
 describe('handler failure', () => {
-  it('handler throw → ROLLBACK (never COMMIT), client released, error propagates', async () => {
+  it('handler throw → ROLLBACK (never COMMIT), client released, answered 500 (R-159)', async () => {
     const handler = vi.fn(async () => { throw new Error('handler exploded'); });
     const res = makeRes();
     await expect(
       withBearerOrCookieAuth(handler)(makeReq('/api/mcp') as never, res),
-    ).rejects.toThrow('handler exploded');
+    ).resolves.toBeUndefined();
+
+    expect(res.statusCode).toBe(500);
+    expect((res as { body?: unknown }).body).toMatchObject({ success: false, code: 'INTERNAL_SERVER_ERROR' });
 
     expect(issuedStatements()).toContain('ROLLBACK');
     expect(issuedStatements()).not.toContain('COMMIT');
