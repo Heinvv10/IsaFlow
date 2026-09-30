@@ -12,9 +12,17 @@ Hein decided on 2026-09-30 to cap a link at the outstanding balance and to allow
 
 What the customer is actually charged is a separate defect, registered as R-167 and not fixed
 here. `pages/api/portal/payments/paystack/create.ts` never reads `portal_payment_links.amount`.
-It charges the invoice's full outstanding balance at pay time, and nothing marks a link paid. So
-a link cannot overcharge: a paid invoice is refused with "Invoice already paid". But a
-part-payment link shows its own amount and charges the whole balance.
+It charges `total_amount - amount_paid` at pay time, with no clamp, and nothing marks a link
+paid. A part-payment link therefore shows its own amount and charges the whole balance. The
+charge can also exceed what the invoice is owed:
+
+- on a legacy row with a negative `amount_paid` (-50 on a R115 invoice charges R165);
+- a NaN `amount_paid` sends a NaN amount to the gateway, because `NaN <= 0` is false, so the
+  "Invoice already paid" guard is skipped;
+- its invoice lookup has no company, status or `deleted_at` filter, so an existing link on a
+  since-cancelled or soft-deleted invoice can still be charged.
+
+R-166 caps what a new link may ask for; it does not change what paying a link charges.
 
 ## Fix
 
