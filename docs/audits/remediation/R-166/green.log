@@ -1,0 +1,34 @@
+# GREEN on 8e67281df (the /review round; the head's later commits are docs only), fixture clone at 716 (2026-09-30T03:40:23Z); the fence suite on an isaflow_test clone of it. 64-hex tokens redacted.
+## r166-payment-link-amount-cap
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+## k101-portal-routes-use-active-company
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+## r155-157-portal-mint-guards
+ Test Files  1 passed (1)
+      Tests  30 passed (30)
+## r157-payment-link-throw-responds
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+## r158-payment-link-creation-guards
+ Test Files  1 passed (1)
+      Tests  20 passed (20)
+## k122-dunning-portal-link-404
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+## k122b-portal-token-race
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## r095-portal-round4
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+## r095-portal-session-scoping
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+## r095-portal-statement-matches-inapp
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+## customer-ownership-fence-routes (isaflow_test clone)
+ Test Files  1 passed (1)
+      Tests  32 passed (32)

@@ -223,8 +223,16 @@ it('payment-link refuses an amount outside 0.01 .. 9 999 999 999 999.99, finer t
   for (const amount of [0.001, 1e-7, '0.004', 1e15, '1e20', '0x10', ' 7 ', '-5', '', '0.00', 100.005, 0.014]) {
     const state = await call(paymentLinkRoute, OTHER, { invoiceId: id, clientId: customerOf[OTHER], amount });
     expect(state.statusCode, JSON.stringify({ amount, body: state.body })).toBe(400);
+    // 1e15 and '0.00' pass the text check. They must be refused by the R-158 range itself, not by
+    // R-166's balance cap, which would refuse 1e15 on this R115 invoice anyway.
+    if (amount === 1e15 || amount === '0.00') {
+      expect((state.body as { error?: { message?: string } }).error?.message).toMatch(/^amount must be between 0\.01 and/);
+    }
   }
   expect(await linkCount(id)).toBe(0);
+  // R-166 caps a link at the balance, so the column's maximum needs an invoice that owes it.
+  await pool.query(
+    'UPDATE customer_invoices SET subtotal = 9999999999984.99, total_amount = 9999999999999.99 WHERE id = $1', [id]);
   for (const amount of [0.01, 12.34, 9999999999999.99]) {
     const state = await call(paymentLinkRoute, OTHER, { invoiceId: id, clientId: customerOf[OTHER], amount });
     expect(state.statusCode, JSON.stringify({ amount, body: state.body })).toBe(200);
