@@ -21,6 +21,7 @@ import {
 export interface DailyDigestResult {
   companiesProcessed: number;
   recipientsNotified: number;
+  recipientsFailed: number;
   recipientsSkipped: number;
   errors: Array<{ companyId: string; userId: string; error: string }>;
 }
@@ -123,6 +124,7 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
   const result: DailyDigestResult = {
     companiesProcessed: 0,
     recipientsNotified: 0,
+    recipientsFailed: 0,
     recipientsSkipped: 0,
     errors: [],
   };
@@ -177,25 +179,27 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
           _log: { companyId, emailType: 'practice_digest', sentBy: null },
         });
 
-        if (!emailResult.success) {
+        if (emailResult.success) {
+          result.recipientsNotified++;
+          log.info('Practice digest sent', {
+            companyId,
+            userId: user.id,
+            overdue: overdueTasks.length,
+            missingTimesheet: missingTimesheetDate !== null,
+          }, 'practiceNotificationService');
+        } else {
+          result.recipientsFailed++;
           result.errors.push({
             companyId,
             userId: user.id,
             error: emailResult.error ?? 'Email send failed',
           });
         }
-
-        result.recipientsNotified++;
-        log.info('Practice digest sent', {
-          companyId,
-          userId: user.id,
-          overdue: overdueTasks.length,
-          missingTimesheet: missingTimesheetDate !== null,
-        }, 'practiceNotificationService');
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         log.error('Failed to process user digest', { companyId, userId: user.id, error: msg }, 'practiceNotificationService');
         result.errors.push({ companyId, userId: user.id, error: msg });
+        result.recipientsFailed++;
       }
     }
   }
@@ -203,6 +207,7 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
   log.info('Daily digest complete', {
     companiesProcessed: result.companiesProcessed,
     recipientsNotified: result.recipientsNotified,
+    recipientsFailed: result.recipientsFailed,
     recipientsSkipped: result.recipientsSkipped,
     errors: result.errors.length,
   }, 'practiceNotificationService');
