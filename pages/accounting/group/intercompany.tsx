@@ -20,8 +20,8 @@ import {
   type CreateForm,
 } from '@/components/accounting/group/IntercompanyCreateModal';
 import { IntercompanyTable } from '@/components/accounting/group/IntercompanyTable';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface CompanyGroup {
   id: string;
   name: string;

@@ -9,8 +9,8 @@ import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { Currency, ExchangeRate } from '@/modules/accounting/services/core/currencyService';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface Props {
   currencies: Currency[];
   exchangeRates: ExchangeRate[];

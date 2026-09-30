@@ -8,8 +8,8 @@ import Link from 'next/link';
 import { ArrowLeft, FileText, Loader2, Receipt } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface Client { id: string; company_name: string }
 interface Supplier { id: number; name: string }
 

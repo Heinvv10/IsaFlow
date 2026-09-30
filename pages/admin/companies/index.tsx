@@ -13,8 +13,8 @@ import {
   Search, AlertCircle, Loader2, ChevronLeft, ChevronRight,
   ChevronsUpDown, Plus, UserCog, ShieldOff, ShieldCheck, X, Download,
 } from 'lucide-react';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface Company {
   id: string;
   name: string;

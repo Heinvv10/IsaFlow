@@ -9,8 +9,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { WipClientRow, GenerateWipInvoiceInput } from '@/modules/accounting/services/practice/practiceWipService';
-
 import { localISODate } from '@/lib/dateUtils';
+
 function todayIso() { return localISODate(); }
 function fmtMoney(n: number) { return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n); }
 function fmtDate(iso: string) { return iso ? new Date(iso).toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'; }

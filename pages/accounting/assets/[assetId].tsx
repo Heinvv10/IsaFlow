@@ -12,8 +12,8 @@ import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { toDepreciationMethod } from '@/modules/accounting/services/items/farDepreciationService';
 import { buildDepreciationSchedule } from '@/modules/accounting/services/items/depreciationSchedule';
-
 import { localISODate } from '@/lib/dateUtils';
+
 // ---- Types ----
 
 interface Asset {
@@ -35,7 +35,7 @@ const fmtC = (v: number | null | undefined) =>
 
 const fmtD = (v: string | Date | null | undefined): string => {
   if (!v) return '—';
-  return (v instanceof Date ? v.toISOString() : v).split('T')[0] ?? '—';
+  return (v instanceof Date ? localISODate(v) : v).split('T')[0] ?? '—';
 };
 
 function currentYear(a: Asset): number {

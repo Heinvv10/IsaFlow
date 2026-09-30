@@ -13,8 +13,8 @@ import { TimeFilters, SummaryDateFilter } from '@/components/accounting/time-tra
 import { TimeEntriesTable } from '@/components/accounting/time-tracking/TimeEntriesTable';
 import { TimeSummaryTab } from '@/components/accounting/time-tracking/TimeSummaryTab';
 import { BulkActionsBar } from '@/components/accounting/time-tracking/BulkActionsBar';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface TimeEntry {
   id: string; userId: string; projectName: string | null; taskDescription: string;
   entryDate: string; hours: number; rate: number | null; amount: number | null;

@@ -15,8 +15,8 @@ import {
   type InventoryWarning,
 } from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
-
 import { localISODate } from '@/lib/dateUtils';
+
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
 const XAxis = dynamic(() => import('recharts').then(m => m.XAxis), { ssr: false });

@@ -8,8 +8,8 @@ import { Loader2, CheckCircle, XCircle, Undo2 } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 import type { DisputeRow } from '@/components/accounting/disputes/types';
-
 import { localISODate } from '@/lib/dateUtils';
+
 type ResolveMode = 'resolve_with_credit' | 'resolve_no_credit' | 'rejected';
 
 export function ResolveModal({

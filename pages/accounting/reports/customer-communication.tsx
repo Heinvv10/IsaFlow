@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Mail, Loader2, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-
 import { localISODate, monthStartISO } from '@/lib/dateUtils';
+
 interface CommRecord {
   id: string;
   customerId: string | null;

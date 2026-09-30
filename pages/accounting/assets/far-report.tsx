@@ -7,8 +7,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface FarAsset {
   assetNumber: string;
   assetName: string;

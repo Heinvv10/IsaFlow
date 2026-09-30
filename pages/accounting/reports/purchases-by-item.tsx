@@ -7,8 +7,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ShoppingCart, Loader2, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-
 import { localISODate } from '@/lib/dateUtils';
+
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
 interface Row { id: string; itemCode: string; name: string; category: string; poCount: number; qtyOrdered: number; totalCost: number; avgCost: number; }

@@ -1,3 +1,4 @@
+import { localISODate } from '@/lib/dateUtils';
 /**
  * Centralized Date Formatting Utility
  *
@@ -15,6 +16,7 @@
  *   formatDateISO()           → "2026-02-25"
  *   formatDateTimeISO()       → "2026-02-25 14:30"
  */
+
 
 const LOCALE = 'en-ZA';
 
@@ -113,9 +115,10 @@ export function formatDisplayTime(date: DateInput, fallback = 'N/A'): string {
  * "2026-02-25" — ISO date for APIs, exports, form values
  */
 export function formatDateISO(date: DateInput): string {
+  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
   const d = toDate(date);
   if (!d) return '';
-  return d.toISOString().split('T')[0] ?? '';
+  return localISODate(d);
 }
 
 /**
@@ -124,7 +127,7 @@ export function formatDateISO(date: DateInput): string {
 export function formatDateTimeISO(date: DateInput): string {
   const d = toDate(date);
   if (!d) return '';
-  const datePart = d.toISOString().split('T')[0];
+  const datePart = localISODate(d);
   const timePart = d.toTimeString().slice(0, 5);
   return `${datePart} ${timePart}`;
 }

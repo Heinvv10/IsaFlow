@@ -48,3 +48,20 @@ export function prevMonthRange(d: Date = new Date()): { start: string; end: stri
   const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
   return { start: monthStartISO(prev), end: monthEndISO(prev) };
 }
+
+/** 'YYYY-MM-DD' plus `n` calendar days (negative allowed). Pure calendar arithmetic. */
+export function addDaysISO(iso: string, n: number): string {
+  const dt = new Date(`${iso}T00:00:00`);
+  dt.setDate(dt.getDate() + n);
+  return localISODate(dt);
+}
+
+/**
+ * 'YYYY-MM-DD' shifted by whole years, clamping the day to the target month
+ * (2028-02-29 minus 1 year is 2027-02-28, not 2027-03-01).
+ */
+export function shiftYearISO(iso: string, years: number): string {
+  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+  const last = new Date(y + years, m, 0).getDate();
+  return localISODate(new Date(y + years, m - 1, Math.min(d, last)));
+}

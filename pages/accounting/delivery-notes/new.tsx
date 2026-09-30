@@ -12,8 +12,8 @@ import {
   emptyLine,
   type LineItem,
 } from '@/components/accounting/deliveryNotes/DeliveryNoteLineEditor';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface CustomerOption {
   id: string; name?: string; company_name?: string; companyName?: string;
 }

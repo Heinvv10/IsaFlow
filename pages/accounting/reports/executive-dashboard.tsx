@@ -21,8 +21,8 @@ import { CashPositionChart } from '@/components/accounting/charts/CashPositionCh
 import { log } from '@/lib/logger';
 import { DensityToggle } from '@/components/accounting/reportControls/DensityToggle';
 import { useDensity } from '@/components/accounting/reportControls/useDensity';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface ExecutiveKPIs {
   revenue: number;
   netProfit: number;

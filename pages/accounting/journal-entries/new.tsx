@@ -10,8 +10,8 @@ import { ArrowLeft, Plus, Trash2, Loader2, AlertCircle, CheckCircle2, BookOpen, 
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
 import { apiFetch } from '@/lib/apiFetch';
 import { DescriptionAutocomplete } from '@/components/accounting/DescriptionAutocomplete';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface LineInput {
   key: string;
   accountId: string;

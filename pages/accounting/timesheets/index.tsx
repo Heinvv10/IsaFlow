@@ -9,8 +9,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Clock, Plus, ChevronLeft, ChevronRight, FileText, Loader2, X, Check } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { TimeEntryModal } from '@/components/accounting/time-tracking/TimeEntryModal';
-
 import { localISODate } from '@/lib/dateUtils';
+
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 interface TimeEntry {
   id: string; userId: string; projectName: string | null;

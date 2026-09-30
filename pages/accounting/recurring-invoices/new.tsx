@@ -9,8 +9,8 @@ import { ArrowLeft, RefreshCw, Loader2, AlertCircle, Receipt } from 'lucide-reac
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { LineItemsSection, type LineItem } from '@/components/accounting/recurringInvoices/LineItemsSection';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface Customer { id: string; name?: string; company_name?: string }
 
 const FREQ_OPTIONS = [

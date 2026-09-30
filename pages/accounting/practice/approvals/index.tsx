@@ -12,8 +12,8 @@ import type { PracticeClient } from '@/modules/accounting/services/practice/prac
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import { PeriodPicker } from '@/components/practice/PeriodPicker';
 import type { PeriodRange } from '@/components/practice/PeriodPicker';
-
 import { localISODate, monthStartISO } from '@/lib/dateUtils';
+
 // ---------- helpers ----------
 
 function fmtDate(iso: string) {

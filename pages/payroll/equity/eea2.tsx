@@ -7,8 +7,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle } from 'lucide-react';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface Cell { race: string; gender: string; count: number }
 interface Level {
   levelId: string | null;

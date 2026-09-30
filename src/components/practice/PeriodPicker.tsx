@@ -31,7 +31,7 @@ function lastMonthRange(now: Date): PeriodRange {
 }
 function lastYearRange(now: Date): PeriodRange { const y = now.getFullYear() - 1; return { dateFrom: `${y}-01-01`, dateTo: `${y}-12-31` }; }
 
-function resolveRange(preset: PeriodPreset): PeriodRange | null {
+export function resolveRange(preset: PeriodPreset): PeriodRange | null {
   const n = new Date();
   switch (preset) {
     case 'this_month':   return { dateFrom: fom(n), dateTo: today() };
@@ -43,7 +43,7 @@ function resolveRange(preset: PeriodPreset): PeriodRange | null {
   }
 }
 
-function resolveAsof(preset: AsofPreset): string | null {
+export function resolveAsof(preset: AsofPreset): string | null {
   const n = new Date();
   switch (preset) {
     case 'today':        return today();

@@ -14,8 +14,8 @@ import {
 import { log } from '@/lib/logger';
 import { WaterfallChart } from '@/components/shared/WaterfallChart';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-
 import { localISODate } from '@/lib/dateUtils';
+
 type TabType = 'profit' | 'cashflow';
 
 export default function WaterfallPage() {
