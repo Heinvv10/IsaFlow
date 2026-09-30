@@ -114,19 +114,19 @@ export async function existingCheckout(charge: LinkCharge): Promise<ExistingChec
       AND created_at <= NOW() - make_interval(secs => ${CHECKOUT_STARTING_SECONDS})
   `;
   const rows = (await sql`
-    SELECT authorization_url, paystack_reference,
-           created_at > NOW() - make_interval(secs => ${CHECKOUT_STARTING_SECONDS}) AS young
+    SELECT authorization_url, paystack_reference
     FROM paystack_payment_requests
     WHERE company_id = ${charge.companyId}::UUID AND portal_payment_link_id = ${charge.linkId}::UUID
       AND status = 'pending' AND amount_cents = ${charge.chargeCents}
       AND created_at > NOW() - make_interval(mins => ${CHECKOUT_REUSE_MINUTES})
     ORDER BY created_at DESC
     LIMIT 1
-  `) as { authorization_url: string | null; paystack_reference: string; young: boolean }[];
+  `) as { authorization_url: string | null; paystack_reference: string }[];
   const row = rows[0];
   if (!row) return { kind: 'none' };
   if (row.authorization_url) return { kind: 'reuse', checkoutUrl: row.authorization_url, reference: row.paystack_reference };
-  return row.young ? { kind: 'starting' } : { kind: 'none' }; // an old URL-less row was just failed
+  // Any URL-less row still pending is inside the starting window: older ones were failed above.
+  return { kind: 'starting' };
 }
 
 /** Record a checkout before the gateway is called, so a second click finds it (see create). */

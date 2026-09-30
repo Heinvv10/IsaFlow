@@ -120,6 +120,17 @@ describe('one checkout per click', () => {
     expect(await requests(invoiceId)).toHaveLength(1);
   });
 
+  it('a started checkout minutes old is still handed out, not swept as abandoned', async () => {
+    const { invoiceId, token } = await invoiceWithLink(0, 40.5);
+    const first = await create(token);
+    await pool.query("UPDATE paystack_payment_requests SET created_at = NOW() - INTERVAL '5 minutes' WHERE customer_invoice_id = $1", [invoiceId]);
+    const second = await create(token);
+    expect(second.body.data).toEqual(first.body.data);
+    expect(h.charged).toEqual([4050]);
+    expect((await pool.query('SELECT status FROM paystack_payment_requests WHERE customer_invoice_id = $1', [invoiceId])).rows)
+      .toEqual([{ status: 'pending' }]);
+  });
+
   it('a new checkout once the old one is past the reuse window, or the amount changed', async () => {
     const { invoiceId, token } = await invoiceWithLink(0, 115, '', true);
     expect((await create(token)).statusCode).toBe(200);
