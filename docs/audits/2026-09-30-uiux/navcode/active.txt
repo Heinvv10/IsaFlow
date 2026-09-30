@@ -1,0 +1,83 @@
+NAV ENTRY -> ACTIVE MODULE MISMATCHES
+/accounting/delivery-notes                           listed:sales                active:dashboard  top:dashboard
+/accounting/disputes                                 listed:sales                active:dashboard  top:dashboard
+/accounting/capture/inbox                            listed:purchases            active:dashboard  top:dashboard
+/accounting/capture/settings                         listed:purchases            active:dashboard  top:dashboard
+/accounting/fraud/signals                            listed:purchases            active:dashboard  top:dashboard
+/accounting/expenses                                 listed:purchases            active:dashboard  top:dashboard
+/accounting/expenses/new                             listed:purchases            active:dashboard  top:dashboard
+/accounting/stock-levels                             listed:inventory            active:dashboard  top:dashboard
+/accounting/loans                                    listed:accounting           active:dashboard  top:dashboard
+/accounting/loans/new                                listed:accounting           active:dashboard  top:dashboard
+/accounting/loans/rate-curves                        listed:accounting           active:dashboard  top:dashboard
+/accounting/loans/period-close                       listed:accounting           active:dashboard  top:dashboard
+/accounting/audit-packs                              listed:reports              active:dashboard  top:dashboard
+/accounting/company-settings?tab=vat                 listed:tax                  active:settings   top:settings
+/accounting/cashbook                                 listed:banking              active:dashboard  top:dashboard
+/accounting/bank/queries                             listed:banking              active:dashboard  top:dashboard
+/accounting/bank/provisional                         listed:banking              active:dashboard  top:dashboard
+/accounting/bank/statements                          listed:banking              active:dashboard  top:dashboard
+/accounting/netcash                                  listed:banking              active:dashboard  top:dashboard
+/accounting/company-settings?tab=netcash             listed:banking              active:settings   top:settings
+/accounting/company-settings?tab=general             listed:banking              active:settings   top:settings
+/developer/personal-tokens                           listed:settings             active:dashboard  top:dashboard
+/developer/oauth-apps                                listed:settings             active:dashboard  top:dashboard
+/accounting/settings/connected-apps                  listed:settings             active:dashboard  top:dashboard
+/accounting/settings/integrations-mcp                listed:settings             active:dashboard  top:dashboard
+
+ROUTES FALLING THROUGH TO dashboard (top tab = Dashboard, no secondary nav): 43
+/accounting/adjustments
+/accounting/ap/supplier-statements
+/accounting/ap/supplier-statements/[id]
+/accounting/audit-packs
+/accounting/bank/provisional
+/accounting/bank/queries
+/accounting/bank/statements
+/accounting/bank/statements/import-pdf
+/accounting/capture
+/accounting/capture/inbox
+/accounting/capture/settings
+/accounting/capture/settings/mirror
+/accounting/cashbook
+/accounting/cash-flow-forecast
+/accounting/delivery-notes
+/accounting/delivery-notes/[id]
+/accounting/delivery-notes/new
+/accounting/disputes
+/accounting/expenses
+/accounting/expenses/[id]
+/accounting/expenses/new
+/accounting/fraud/signals
+/accounting/library
+/accounting/loans
+/accounting/loans/[id]
+/accounting/loans/new
+/accounting/loans/period-close
+/accounting/loans/rate-curves
+/accounting/month-end-workbench
+/accounting/netcash
+/accounting/portfolio-workbench
+/accounting/products
+/accounting/products/new
+/accounting/products/[productId]
+/accounting/sales-reps
+/accounting/settings/billing/compare
+/accounting/settings/billing/flows
+/accounting/settings/billing/flows/return
+/accounting/settings/connected-apps
+/accounting/settings/integrations-mcp
+/accounting/stock-levels
+/developer/oauth-apps
+/developer/personal-tokens
+MULTI-LISTED: entry clicked from a module other than the resolved one
+/accounting/opening-balances                  listed:sales,purchases,accounting     resolves:accounting
+/accounting/trial-balance                     listed:accounting,reports             resolves:accounting
+/accounting/audit-log                         listed:accounting,reports             resolves:accounting
+/accounting/reports/vat-return                listed:reports,tax                    resolves:tax
+/payroll/year-end                             listed:tax,payroll                    resolves:tax
+/payroll/emp501                               listed:tax,payroll                    resolves:tax
+/payroll/irp5                                 listed:tax,payroll                    resolves:tax
+/payroll/uif                                  listed:tax,payroll                    resolves:tax
+/payroll/tax-directives                       listed:tax,payroll                    resolves:tax
+/accounting/timesheets                        listed:practice,settings              resolves:settings
+/accounting/bank-reconciliation/import        listed:banking,settings               resolves:banking
