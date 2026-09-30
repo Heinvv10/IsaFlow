@@ -19,19 +19,18 @@ const ASSET_STATUSES: readonly string[] = ['available', 'assigned', 'in_maintena
 
 /**
  * `status` is a single value, a comma list (`available,assigned`) or a repeated
- * param (string[]). Returns the validated list, null for "no filter" (absent or
- * `all`), or an error message for anything outside the asset status enum.
+ * param (string[]). Returns the validated list, null for "no filter" (absent, blank
+ * or `all`), or an error message for anything outside the asset status enum.
  */
 function parseStatusFilter(raw: unknown): { statuses: string[] | null; error?: string } {
-  if (raw === undefined) return { statuses: null };
+  if (raw === undefined || (typeof raw === 'string' && raw.trim() === '')) return { statuses: null };
   if (typeof raw !== 'string' && !(Array.isArray(raw) && raw.every(v => typeof v === 'string'))) {
     return { statuses: null, error: 'status must be a string' };
   }
   const parts = (Array.isArray(raw) ? raw : [raw]).flatMap(v => (v as string).split(',')).map(v => v.trim());
   if (parts.length === 1 && parts[0] === 'all') return { statuses: null };
-  const bad = parts.filter(v => !ASSET_STATUSES.includes(v));
-  if (bad.length > 0) {
-    return { statuses: null, error: `Invalid status "${bad.join(',')}". Must be one of: ${ASSET_STATUSES.join(', ')}` };
+  if (parts.some(v => !ASSET_STATUSES.includes(v))) {
+    return { statuses: null, error: `Invalid status. Must be one of: ${ASSET_STATUSES.join(', ')}` };
   }
   return { statuses: parts };
 }
