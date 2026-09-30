@@ -8,6 +8,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { SlidersHorizontal, Plus, Check, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
 interface Adjustment {
   id: string; adjustmentNumber: string; entityType: string; entityId: string;
@@ -50,10 +51,8 @@ export default function AdjustmentsPage() {
     });
   }, [load]);
   useEffect(() => {
-    const url = entityType === 'supplier'
-      ? '/api/accounting/suppliers-list'
-      : '/api/accounting/customers';
-    apiFetch(url).then(r => r.json()).then(res => {
+    if (entityType === 'supplier') return; // suppliers are searched by SupplierSelect
+    apiFetch('/api/accounting/customers').then(r => r.json()).then(res => {
       const d = res.data || res;
       setEntities(
         Array.isArray(d)
@@ -61,7 +60,7 @@ export default function AdjustmentsPage() {
           : d.clients || d.customers || d.suppliers || d.items || [],
       );
     }).catch(() => {
-      setError(entityType === 'supplier' ? 'Failed to load suppliers' : 'Failed to load customers');
+      setError('Failed to load customers');
     });
   }, [entityType]);
 
@@ -118,10 +117,14 @@ export default function AdjustmentsPage() {
             <form onSubmit={handleSubmit} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 space-y-4">
               <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">New {entityType === 'supplier' ? 'Supplier' : 'Customer'} Adjustment</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <select value={form.entityId} onChange={e => setForm(f => ({ ...f, entityId: e.target.value }))} className="ff-select" required>
-                  <option value="">Select {entityType === 'supplier' ? 'Supplier' : 'Client'} *</option>
-                  {entities.map(e => <option key={e.id} value={e.id}>{e.company_name}</option>)}
-                </select>
+                {entityType === 'supplier' ? (
+                  <SupplierSelect required value={form.entityId} onChange={id => setForm(f => ({ ...f, entityId: id }))} />
+                ) : (
+                  <select value={form.entityId} onChange={e => setForm(f => ({ ...f, entityId: e.target.value }))} className="ff-select" required>
+                    <option value="">Select Client *</option>
+                    {entities.map(e => <option key={e.id} value={e.id}>{e.company_name}</option>)}
+                  </select>
+                )}
                 <select value={form.adjustmentType} onChange={e => setForm(f => ({ ...f, adjustmentType: e.target.value }))} className="ff-select">
                   <option value="debit">Debit (Increase Balance)</option>
                   <option value="credit">Credit (Decrease Balance)</option>

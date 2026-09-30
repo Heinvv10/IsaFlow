@@ -6,6 +6,7 @@
 
 import { useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
+import { fetchAllSuppliers } from '@/lib/fetchAllSuppliers';
 import { log } from '@/lib/logger';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import type { SelectOption } from '@/components/accounting/BankTxTable';
@@ -59,14 +60,14 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
     Promise.allSettled([
       apiFetch('/api/accounting/bank-accounts'),
       apiFetch('/api/accounting/chart-of-accounts'),
-      apiFetch('/api/accounting/suppliers-list?status=active'),
+      fetchAllSuppliers(),
       apiFetch('/api/accounting/customers'),
       apiFetch('/api/accounting/cost-centres?cc_type=cc1&active=true'),
       apiFetch('/api/accounting/cost-centres?cc_type=cc2&active=true'),
       apiFetch('/api/accounting/cost-centres?active=true'),
     ]).then(async ([bankRes, coaRes, suppRes, clientRes, cc1Res, cc2Res, deptRes]) => {
-      const [bankJson, coaJson, suppJson, clientJson, cc1Json, cc2Json, deptJson] = await Promise.all([
-        json(bankRes), json(coaRes), json(suppRes), json(clientRes), json(cc1Res), json(cc2Res), json(deptRes),
+      const [bankJson, coaJson, clientJson, cc1Json, cc2Json, deptJson] = await Promise.all([
+        json(bankRes), json(coaRes), json(clientRes), json(cc1Res), json(cc2Res), json(deptRes),
       ]);
 
       const bankRaw = bankJson?.data ?? bankJson;
@@ -81,8 +82,7 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
         .map(a => ({ id: a.id, code: a.accountCode || a.code, name: a.accountName || a.name, defaultVatCode: a.defaultVatCode, vatInputDenied: a.vatInputDenied }))
       );
 
-      const suppD = suppJson?.data ?? suppJson;
-      const suppList: { id: number | string; name: string; code?: string }[] = Array.isArray(suppD) ? suppD : (suppD?.suppliers ?? []);
+      const suppList = suppRes.status === 'fulfilled' ? suppRes.value : [];
       setSuppliers(suppList.map(s => ({ id: String(s.id), name: s.name, code: s.code })));
 
       const clientList = Array.isArray(clientJson?.data) ? clientJson.data : [];

@@ -9,11 +9,10 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Layers, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
-// suppliers-list answers snake_case rows (company_name is often empty — `name` is
-// the required one); supplier-invoices answers camelCase. Reading the other
-// shape left the supplier option blank and the invoice list empty.
-interface Supplier { id: string; name: string; company_name?: string | null }
+// supplier-invoices answers camelCase rows. Reading snake_case left the invoice
+// list empty.
 interface Invoice { id: string; invoiceNumber: string; totalAmount: number; amountPaid: number; supplierId: string; reserved?: number }
 
 /** What the server will still accept: outstanding less what unprocessed payments already reserve. */
@@ -27,7 +26,6 @@ const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dar
 
 export default function NewBatchPaymentPage() {
   const router = useRouter();
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [lines, setLines] = useState<BatchLine[]>([{ key: crypto.randomUUID(), supplierId: '', invoiceId: '', amount: 0 }]);
   const [method, setMethod] = useState('eft');
@@ -37,10 +35,6 @@ export default function NewBatchPaymentPage() {
   const [reservationsUnavailable, setReservationsUnavailable] = useState(false);
 
   useEffect(() => {
-    apiFetch('/api/accounting/suppliers-list', { credentials: 'include' }).then(r => r.json()).then(res => {
-      const d = res.data || res;
-      setSuppliers(Array.isArray(d) ? d : d.suppliers || []);
-    }).catch(() => {/* non-critical */});
     apiFetch('/api/accounting/supplier-invoices?status=approved&status=partially_paid', { credentials: 'include' }).then(r => r.json()).then(res => {
       const d = res.data || res;
       const list: Invoice[] = (Array.isArray(d) ? d : d.invoices || d.items || [])
@@ -174,12 +168,8 @@ export default function NewBatchPaymentPage() {
                       return (
                         <tr key={line.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-3 py-2">
-                            <select name="supplierId" value={line.supplierId}
-                              onChange={e => setLines(p => p.map(l => l.key === line.key ? { ...l, supplierId: e.target.value, invoiceId: '' } : l))}
-                              className={inp}>
-                              <option value="">Select Supplier</option>
-                              {suppliers.map(s => <option key={s.id} value={s.id}>{s.company_name || s.name}</option>)}
-                            </select>
+                            <SupplierSelect value={line.supplierId} inputClassName={inp} placeholder="Select Supplier"
+                              onChange={id => setLines(p => p.map(l => l.key === line.key ? { ...l, supplierId: id, invoiceId: '' } : l))} />
                           </td>
                           <td className="px-3 py-2">
                             <select name="invoiceId" value={line.invoiceId}

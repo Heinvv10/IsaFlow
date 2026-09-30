@@ -1,15 +1,15 @@
 /**
  * New Supplier Credit Note Page
  */
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
-interface Supplier { id: string | number; name: string; company_name?: string | null }
 interface LineItem { description: string; quantity: number; unitPrice: number; vatType: string }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
@@ -26,7 +26,6 @@ const emptyLine = (): LineItem => ({ description: '', quantity: 1, unitPrice: 0,
 
 export default function NewSupplierCreditNotePage() {
   const router = useRouter();
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitAction, setSubmitAction] = useState<'draft' | 'post'>('draft');
   const [error, setError] = useState('');
@@ -38,16 +37,6 @@ export default function NewSupplierCreditNotePage() {
     notes: '',
   });
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyLine()]);
-
-  useEffect(() => {
-    apiFetch('/api/accounting/suppliers-list')
-      .then(r => r.json())
-      .then((res: { data?: Supplier[] | { suppliers?: Supplier[] } } | Supplier[]) => {
-        const data = (res as { data?: unknown }).data ?? res;
-        setSuppliers(Array.isArray(data) ? (data as Supplier[]) : ((data as { suppliers?: Supplier[] }).suppliers ?? []));
-      })
-      .catch(() => {/* non-fatal */});
-  }, []);
 
   const subtotal = lineItems.reduce((s, li) => s + li.quantity * li.unitPrice, 0);
   const vatAmount = lineItems.reduce((s, li) => {
@@ -132,12 +121,7 @@ export default function NewSupplierCreditNotePage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={lbl}>Supplier *</label>
-                    <select name="supplierId" value={form.supplierId} onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))} className={inp} required>
-                      <option value="">Select supplier…</option>
-                      {suppliers.map(s => (
-                        <option key={String(s.id)} value={String(s.id)}>{s.company_name ?? s.name}</option>
-                      ))}
-                    </select>
+                    <SupplierSelect required value={form.supplierId} inputClassName={inp} onChange={id => setForm(f => ({ ...f, supplierId: id }))} />
                   </div>
                   <div>
                     <label className={lbl}>Credit Note Date *</label>

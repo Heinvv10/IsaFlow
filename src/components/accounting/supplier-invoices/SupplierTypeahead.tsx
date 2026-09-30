@@ -13,9 +13,19 @@ interface Props {
   selectedLabel: string;
   onSelect: (id: string, label: string) => void;
   onClear: () => void;
+  /** Defaults keep the list-page filter look; SupplierSelect overrides them. */
+  placeholder?: string;
+  wrapperClassName?: string;
+  inputClassName?: string;
+  name?: string;
 }
 
-export function SupplierTypeahead({ selectedId, selectedLabel, onSelect, onClear }: Props) {
+const FILTER_INPUT = 'w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40';
+
+export function SupplierTypeahead({
+  selectedId, selectedLabel, onSelect, onClear,
+  placeholder = 'Filter by supplier…', wrapperClassName = 'w-64', inputClassName = FILTER_INPUT, name = 'supplier',
+}: Props) {
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<SupplierOption[]>([]);
   const [open, setOpen] = useState(false);
@@ -54,10 +64,10 @@ export function SupplierTypeahead({ selectedId, selectedLabel, onSelect, onClear
   }, []);
 
   return (
-    <div ref={boxRef} className="relative w-64">
+    <div ref={boxRef} className={`relative ${wrapperClassName}`}>
       <input
         type="text"
-        name="supplier"
+        name={name}
         value={selectedLabel || query}
         onChange={(e) => {
           if (selectedId) onClear();
@@ -65,8 +75,8 @@ export function SupplierTypeahead({ selectedId, selectedLabel, onSelect, onClear
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
-        placeholder="Filter by supplier…"
-        className="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+        placeholder={placeholder}
+        className={inputClassName}
       />
       {selectedId && (
         <button

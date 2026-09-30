@@ -10,6 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeft, Loader2, Receipt, Banknote } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
+import { fetchAllSuppliers } from '@/lib/fetchAllSuppliers';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 
@@ -81,11 +82,8 @@ export default function NewBankTransactionPage() {
           .filter(a => !isBankSubtype(a.accountSubtype))
           .map(a => ({ id: a.id, code: a.accountCode ?? a.code ?? undefined, name: a.accountName ?? a.name ?? '' })));
       }),
-      apiFetch('/api/accounting/suppliers-list?status=active').then(r => r.json()).then(json => {
+      fetchAllSuppliers().then(list => {
         if (!mounted) return;
-         
-        const d = json.data ?? json;
-        const list = Array.isArray(d) ? d as EntityOption[] : asArray<EntityOption>((d as { suppliers?: unknown }).suppliers);
         setSuppliers(list.map(s => ({ id: String(s.id), name: s.name ?? '', code: s.code ?? undefined })));
       }),
       apiFetch('/api/accounting/customers').then(r => r.json()).then(json => {
