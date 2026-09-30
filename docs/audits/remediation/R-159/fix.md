@@ -33,13 +33,29 @@ Hein chose to fix this in the wrappers (2026-09-30). The no-rethrow detail is to
 with Hein before merge.
 
 - `src/lib/auth/deferredEnd.ts` holds the swap (`deferEnd`), which used to be copied into each
-  wrapper, and `answerThrow`. On a throw, after the ROLLBACK, `answerThrow`:
-  - logs the throw with the route, company and user, and reports it to Sentry with the same
-    tags. The capture runs outside the wrapper's isolation scope, so the tags go with it;
-  - puts the real `res.end` back;
-  - if the headers were already sent, closes the response with what the handler buffered;
-  - otherwise answers through `respondToUnhandledError`;
+  wrapper, plus `answerThrow`, `replayEnd` and `abortResponse`. On a throw, after the ROLLBACK,
+  `answerThrow`:
+  - puts the real `res.end` back first;
+  - logs the throw with the route, company, user, message and stack, and reports it to Sentry
+    with the same tags. The capture runs outside the wrapper's isolation scope, so the tags go
+    with it. An error whose message cannot be read, or a Sentry capture that throws, cannot stop
+    the answer;
+  - if the headers were already sent, aborts the response (`res.destroy()`). Closing it would
+    hand the client a complete-looking 2xx for a write that was rolled back;
+  - otherwise answers through `respondToUnhandledError`, with a fixed 500 body if that throws;
   - never rethrows.
+- `replayEnd` sends the buffered `end` once the transaction is final, and never throws. If the
+  real `end` refuses the buffered body (Node rejects `end({ id })`), it logs and aborts. Without
+  it, that throw reached the wrapper's catch after COMMIT, which rolled back a committed
+  transaction, told the client 500 (inviting a duplicate retry) and skipped the after-commit
+  work (review round 2).
+- A failed COMMIT after the headers were flushed now aborts the response too, instead of
+  replaying the buffered end.
+- `withErrorHandler`, when a handler throws after flushing its headers, cannot send a 500. It
+  now sets `statusCode = 500` anyway, so an enclosing wrapper rolls back instead of COMMITting,
+  and aborts the response it could no longer end. Before, the wrapper committed the partial
+  write and the response hung. This was the case on the 640 routes with `withErrorHandler`
+  inside, though no such route flushes before it ends today (review round 2).
 - `respondToUnhandledError` is `withErrorHandler`'s response code, moved unchanged into an
   exported function that `withErrorHandler` now calls. A throw that escapes a wrapper gets the
   same answer `withErrorHandler` gives: 503 for a lock timeout, 403 for a refused Login-as
@@ -54,7 +70,7 @@ with Hein before merge.
 
 ## Tests
 
-- `tests/integration/r159-auth-wrapper-throw-responds.int.test.ts`, 34 cases. Each runs through
+- `tests/integration/r159-auth-wrapper-throw-responds.int.test.ts`, 44 cases (11 per wrapper). Each runs through
   the real wrappers as `app_user` with RLS and real credentials (cookie JWT, PAT, extension
   JWT), on a fixture clone. For each of `withAuth`, `withBearerOrCookieAuth`, `withBearerAuth`
   and `withExtensionToken`, a handler writes a customer row and then:
@@ -62,20 +78,32 @@ with Hein before merge.
     `withErrorHandler`'s body, the response's own `end` runs once, and the log line carries the
     company and user;
   - answers 200, then throws: the 200 is replaced by the 500;
-  - flushes its headers, then throws: the response is closed once and the row is rolled back;
+  - flushes its headers, then throws: the row is rolled back and the response aborted, not
+    ended;
+  - the same with `withErrorHandler` inside the wrapper: rolled back, not committed, and aborted;
+  - responds with a body Node's `end` refuses (`res.status(201).end({ id: 1 })`): the row stays
+    committed, the response is aborted, no rollback is logged, the replay-failure log carries
+    the tenant, and the after-commit work runs;
   - throws a lock timeout: the answer is 503;
-  - fails at COMMIT (a deferred FK): 500 `COMMIT_FAILED`, or the buffered end after flushed
-    headers. This behaviour is unchanged; the cases pin the renamed lines;
+  - fails at COMMIT (a deferred FK): 500 `COMMIT_FAILED`, or an aborted response after flushed
+    headers;
   - answers normally, including twice: 200, the row is committed, and the first body is sent
-    once.
+    once; never answers: the row is committed and nothing is replayed.
 
-  `invitations/revoke/[id]` gets a throw forced after its DELETE: the invitation survives, the
+  The test response is a stand-in that behaves like Node's: `setHeader` after the headers are
+  sent throws, and `end` refuses a body that is not a string or Buffer
+  (`r159-auth-wrapper.helpers.ts`).
+
+  `tests/integration/r159-invitation-revoke-throw-responds.int.test.ts`: `invitations/revoke/[id]` gets a throw forced after its DELETE: the invitation survives, the
   answer is 500, `end` runs once and nothing is rethrown. The hook is asserted to have fired. A
   GET still gets 405.
 - `tests/unit/lib/auth/deferredEnd.test.ts`: the Sentry capture carries the company, route and
   user, and is gated on `SENTRY_ENABLED`; a refused Login-as session gets 403; in production the
-  500 says only "An unexpected error occurred", with no details; a throw before the swap still
-  gets one 500.
+  500 says only "An unexpected error occurred", with no details; an error whose message getter
+  throws, a thrown value that cannot be printed, and a Sentry capture that throws are each
+  still answered with one 500; a throw before the swap still gets one 500.
+- `tests/unit/lib/apiErrorHandlerShareToken.test.ts`: `withErrorHandler`'s headers-already-sent
+  branch now also sets 500 and aborts.
 - `tests/unit/lib/auth/deferredEndCensus.test.ts` pins the contract on the tracked tree:
   - only `deferredEnd.ts` assigns `res.end`;
   - the callers of `deferEnd` are exactly the three wrappers;
@@ -86,11 +114,13 @@ Evidence:
 - `red.int.log`: 17 of the 22 original cases fail on origin/master `7c49109f5`, because every
   throw is rethrown and `end` is never called. The positive paths and the 405 pass;
 - `green.log`: the suites on the final head;
-- `mutations.log`: 41 of 41 mutants are RED. Every changed line was mutated in `deferredEnd.ts`,
-  the three wrappers (recording the deferral, the answer, the company and user, the replay, and
-  both COMMIT-failure replays) and `api-error-handler.ts` (the delegation, the lock-timeout and
-  impersonation branches, the error code and the production masking). The extension's
-  `connectionId` in the log line is included too (M39–M41, review round 1).
+- `mutations.log`: 56 of 56 mutants are RED on the review-round-2 code. Every changed line was
+  mutated in `deferredEnd.ts` (the buffer, the restore, the abort, the answer and its fallback,
+  the log and stack, Sentry and its guard, and `replayEnd`), in each of the three wrappers (the
+  deferral, the answer and its tenant, the guarded replay and its tenant, and both COMMIT-failure
+  paths), and in `api-error-handler.ts` (the delegation, the lock-timeout and impersonation
+  branches, the error code, the production masking, and the flushed-failure mark and abort).
+  Rounds 0–1 (M1–M41) are kept below it.
 
 ## Review round 1
 
@@ -103,6 +133,27 @@ The general reviewer returned SHIP with three LOWs, all fixed:
   and mutant M39 is RED;
 - the extension's throw log had lost the `connectionId`. `ThrowContext.extra` now carries it,
   the integration case asserts it, and M40 and M41 are RED.
+
+## Review round 2 (adversarial)
+
+The adversarial reviewer returned FIX with 2 MEDIUM and 4 LOW findings, all latent: no route
+does any of these today. Each one was proved with a probe, and all are fixed:
+
+- **MEDIUM:** a replay that throws after COMMIT reached the catch. Fixed with `replayEnd`
+  (above).
+- **MEDIUM:** a handler under `withErrorHandler` that throws after flushing its headers was
+  committed and left hanging. Fixed in `withErrorHandler` (above). The module doc's caller
+  contract now says so.
+- **LOW:** a throw after flushed headers closed the response as a complete 2xx. It is now
+  aborted, and so is a failed COMMIT after flushed headers.
+- **LOW:** `answerThrow` logged before it restored the real end, and an unreadable error could
+  make it rethrow. The real end is now restored first, and the error is read defensively.
+- **LOW:** the throw log had no stack, now that Next no longer prints one. It is added.
+- **LOW:** the module doc contradicted the census about adding a wrapper, and did not list the
+  other transaction owners. Both are corrected.
+
+The integration suite was split to stay under 300 lines: the revoke cases and the `sql` hook
+have their own file, and the test response is in a shared helper.
 
 ## Migration / rollback
 
