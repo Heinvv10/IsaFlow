@@ -154,6 +154,22 @@ describe('create charges the link amount, capped at the balance', () => {
   });
 });
 
+describe('the link itself must be payable', () => {
+  it('an unknown token is 404', async () => {
+    expect((await create('0'.repeat(64))).statusCode).toBe(404);
+    expect(h.charged).toEqual([]);
+  });
+
+  it('an expired link is refused', async () => {
+    const { linkId, token } = await invoiceWithLink(0, 10);
+    await pool.query("UPDATE portal_payment_links SET expires_at = NOW() - INTERVAL '1 minute' WHERE id = $1", [linkId]);
+    const r = await create(token);
+    expect(r.statusCode).toBe(400);
+    expect(r.body.error?.message).toBe('Payment link expired');
+    expect(h.charged).toEqual([]);
+  });
+});
+
 describe('a completed payment spends the link it came from', () => {
   it('the webhook marks the link paid, once, and banks what was charged', async () => {
     const { invoiceId, linkId, token } = await invoiceWithLink(0, 40.5);
@@ -168,6 +184,18 @@ describe('a completed payment spends the link it came from', () => {
     const paid = await pool.query('SELECT total_amount::text AS t FROM customer_payments WHERE bank_reference = $1', [req!.ref]);
     expect(paid.rows).toEqual([{ t: '40.50' }]);
     expect((await getLink(token)).statusCode).toBe(404);
+    const again = await create(token);
+    expect(again.statusCode).toBe(400);
+    expect(again.body.error?.message).toBe('Payment link not active');
+  });
+
+  it('a link cancelled after checkout started is not turned into a paid one', async () => {
+    const { invoiceId, linkId, token } = await invoiceWithLink(0, 20);
+    expect((await create(token)).statusCode).toBe(200);
+    await pool.query("UPDATE portal_payment_links SET status = 'cancelled' WHERE id = $1", [linkId]);
+    const [req] = await requests(invoiceId);
+    await deliver(req!.ref, 2000);
+    expect((await linkRow(linkId)).status).toBe('cancelled');
   });
 
   it('the verify route marks the link paid when it settles first', async () => {
