@@ -43,7 +43,7 @@ let pat = '';
 let extToken = '';
 
 type Mode = 'throw' | 'respond-then-throw' | 'flush-then-throw' | 'lock-timeout' | 'ok' | 'ok-twice'
-  | 'commit-fails' | 'flush-then-commit-fails' | 'end-rejects-body' | 'handled-flush-then-throw';
+  | 'commit-fails' | 'flush-then-commit-fails' | 'end-rejects-body' | 'handled-flush-then-throw' | 'silent';
 
 /** A write under the wrapper's transaction, then the given failure. */
 function handler(name: string, mode: Mode): (req: unknown, res: TestResponse) => Promise<unknown> {
@@ -51,6 +51,7 @@ function handler(name: string, mode: Mode): (req: unknown, res: TestResponse) =>
   if (mode === 'handled-flush-then-throw') return withErrorHandler(handler(name, 'flush-then-throw')) as never;
   return async (_req: unknown, res: TestResponse) => {
     await sql`INSERT INTO customers (id, company_id, name) VALUES (${randomUUID()}::uuid, ${CO}::uuid, ${name})`;
+    if (mode === 'silent') return undefined; // never responds: there is nothing to replay
     if (mode === 'end-rejects-body') {
       // Node's end() refuses an object; the wrapper only finds out when it replays after COMMIT.
       runAfterCommit('r159 probe', async () => { h.drained += 1; });
@@ -175,7 +176,12 @@ describe.each(wrappers)('%s', (label, wrap, req) => {
     const logged = vi.spyOn(log, 'error');
     const r = await call(wrap('end-rejects-body', name), req());
     const messages = logged.mock.calls.map((c) => String(c[0]));
+    const replayLog = logged.mock.calls.find((c) => String(c[0]).includes('response replay failed'));
     logged.mockRestore();
+    expect(replayLog?.[1]).toMatchObject({
+      companyId: CO, userId: USER, message: 'ERR_INVALID_ARG_TYPE',
+      ...(label === 'withExtensionToken' && { connectionId: CONN }),
+    });
     await new Promise((done) => setTimeout(done, 20));
     expect(await customers(name)).toBe(1);
     expect(r.threw).toBeNull();
@@ -222,6 +228,15 @@ describe.each(wrappers)('%s', (label, wrap, req) => {
     expect(r.threw).toBeNull();
     expect(r.destroyed).toBe(true);
     expect(r.ends).toBe(0);
+  });
+
+  it('a handler that never responds: the write commits and nothing is replayed (unchanged)', async () => {
+    const name = `silent-${randomUUID()}`;
+    const r = await call(wrap('silent', name), req());
+    expect(await customers(name)).toBe(1);
+    expect(r.threw).toBeNull();
+    expect(r.ends).toBe(0);
+    expect(r.destroyed).toBe(false);
   });
 
   it('positive path unchanged: a second end() is dropped, the first is what the client gets', async () => {

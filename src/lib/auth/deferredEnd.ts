@@ -128,7 +128,6 @@ export function answerThrow(
   } catch (respondErr) {
     // The responder read something off the error that threw. Answer with a fixed body.
     log.error(`${ctx.source}: error response failed`, describe(respondErr), 'Auth');
-    if (res.headersSent) { abortResponse(res); return; }
     const body = JSON.stringify({ success: false, data: null, message: 'An unexpected error occurred', code: 'INTERNAL_SERVER_ERROR' });
     res.statusCode = 500;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
