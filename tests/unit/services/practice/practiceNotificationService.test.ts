@@ -232,6 +232,24 @@ describe('runDailyDigest', () => {
     expect(result.errors[0]!.error).toContain('SMTP crash');
   });
 
+  it('a query error before any send lands in errors but is not a failed send (R-171 review LOW)', async () => {
+    // Tuesday — yesterday = Monday (weekday)
+    const restore = stubDateNow('2026-04-21T10:00:00Z');
+    sqlMock.mockResolvedValueOnce([{ id: COMPANY_ID }]);
+    listUsersMock.mockResolvedValueOnce([makeUser()]);
+    // overdue-tasks query throws before sendEmail is ever reached
+    sqlMock.mockRejectedValueOnce(new Error('connection terminated'));
+
+    const result = await runDailyDigest();
+    restore();
+
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(result.recipientsFailed).toBe(0);
+    expect(result.recipientsNotified).toBe(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]!.error).toContain('connection terminated');
+  });
+
   it('returns zeros when no companies exist', async () => {
     sqlMock.mockResolvedValueOnce([]);
 

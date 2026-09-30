@@ -11,20 +11,24 @@
 // on a disposable fixture, as the pool role — same harness as R-162
 // (tests/integration/r162-practice-daily-digest.int.test.ts). sendEmail is
 // mocked at module scope and never actually sends; it is scripted per
-// recipient to succeed, return a soft failure, or throw.
+// recipient to succeed, return a soft failure, or throw, and succeeds for
+// everyone else (any other company the cron also emails in this same run).
 //
 // The digest scans every active company (`loadActiveCompanies` has no
 // company filter), so `recipientsNotified`/`recipientsFailed` on the response
 // are GLOBAL totals across the whole fixture — including whatever ambient
-// companies the schema dump carries. This file must run alone, or with
-// `--no-file-parallelism`, alongside any other suite that also drives this
-// cron (e.g. r162) or otherwise inserts active companies with users that
-// qualify for a digest: vitest runs test FILES in parallel by default, and
-// two such suites hitting the same real Postgres fixture race on the exact
-// counters this test asserts (same class of hazard as
-// feedback_controls_integration_deadlocks_in_parallel.md). The company- and
-// error-scoped checks below are exact regardless, since they filter by this
-// test's own company id.
+// companies the schema dump carries, and any other suite's rows present at
+// the same instant under vitest's default file parallelism (e.g. r162 also
+// drives this cron). A hardcoded expected total flaked here for exactly that
+// reason (review round 1: `expected 6 to be 1`, then `expected 3 to be 1` on
+// a retry). Fixed by deriving the expectation from THIS run's own mock
+// ledger instead of a fixed number: every recipient the cron emails in this
+// process goes through this file's `sendEmailMock` (the only sendEmail this
+// module graph has), so classifying each recorded outcome ourselves gives
+// the exact count regardless of how many other companies/users were also
+// processed. `outcomes` is cleared right before the call so nothing earlier
+// pollutes it. The company- and error-scoped checks are exact regardless,
+// since they filter by this test's own company id.
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -35,16 +39,23 @@ const EMAIL_SUCCESS = 'r171-success@isaflow.test';
 const EMAIL_FAIL = 'r171-fail@isaflow.test';
 const EMAIL_THROW = 'r171-throw@isaflow.test';
 
+type Outcome = 'success' | 'fail' | 'throw';
+const outcomes = vi.hoisted(() => [] as Outcome[]);
 const sent = vi.hoisted(() => [] as Array<{ to: string; companyId: string }>);
 vi.mock('@/modules/accounting/services/core/emailService', () => ({
   sendEmail: vi.fn(async (o: { to: string; subject: string; html: string; _log: { companyId: string } }) => {
     if (o.to === 'r171-throw@isaflow.test') {
+      outcomes.push('throw');
       throw new Error('r171 simulated SMTP crash');
     }
     sent.push({ to: o.to, companyId: o._log.companyId });
     if (o.to === 'r171-fail@isaflow.test') {
+      outcomes.push('fail');
       return { success: false, error: 'r171 simulated SMTP timeout' };
     }
+    // Succeeds for our own success user AND for anyone else the cron emails
+    // in this run (another company's qualifying recipient) — see header.
+    outcomes.push('success');
     return { success: true };
   }),
 }));
@@ -78,6 +89,8 @@ describeIfDb('R-171 — practice daily digest: recipientsNotified counts only su
   let pool: Pool;
   let status = 0;
   let body: unknown;
+  let expectedNotified = NaN;
+  let expectedFailed = NaN;
 
   beforeAll(async () => {
     assertDisposable();
@@ -108,6 +121,7 @@ describeIfDb('R-171 — practice daily digest: recipientsNotified counts only su
     // whatever day CI runs on — matches R-162's pin.
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-09-30T05:00:00Z'));
+    outcomes.length = 0; // clear before the one invocation this test scores
     try {
       await dailyReminders(req as never, out.res as never);
     } finally {
@@ -115,6 +129,8 @@ describeIfDb('R-171 — practice daily digest: recipientsNotified counts only su
     }
     status = out.state.statusCode;
     body = out.state.body;
+    expectedNotified = outcomes.filter((o) => o === 'success').length;
+    expectedFailed = outcomes.filter((o) => o === 'fail' || o === 'throw').length;
   }, 300_000);
 
   afterAll(async () => {
@@ -133,10 +149,14 @@ describeIfDb('R-171 — practice daily digest: recipientsNotified counts only su
     expect(status, JSON.stringify(body)).toBe(200);
   });
 
-  it('recipientsNotified counts only the successful send, not the soft failure or the throw', () => {
+  it('recipientsNotified/recipientsFailed exactly match this run\'s own sendEmail outcomes', () => {
     const data = (body as DigestBody).data;
-    expect(data.recipientsNotified).toBe(1);
-    expect(data.recipientsFailed).toBe(2);
+    // Sanity: our 3 users must actually be in the ledger (proves the derived
+    // expectation isn't vacuously 0/0 — see the "at least our 3" check below).
+    expect(expectedNotified).toBeGreaterThanOrEqual(1);
+    expect(expectedFailed).toBeGreaterThanOrEqual(2);
+    expect(data.recipientsNotified).toBe(expectedNotified);
+    expect(data.recipientsFailed).toBe(expectedFailed);
   });
 
   it('both the soft failure and the throw land in errors with company and user', () => {
