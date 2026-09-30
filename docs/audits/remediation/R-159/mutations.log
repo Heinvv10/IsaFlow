@@ -1,3 +1,8 @@
+# Round 4: M64-M67 on 8c7b4853e (census catches defineProperty/assign; fixture cases).
+M64 planted apiRes swap in a tracked file [src/lib/auth/withRole.ts]: RED | unit: 1 failed | 78 passed (79) | int: 55 passed | 1 skipped (56)
+M65 census misses defineProperty [tests/unit/lib/auth/deferredEndCensus.test.ts]: RED | unit: 1 failed | 78 passed (79) | int: 55 passed | 1 skipped (56)
+M66 census misses Object.assign [tests/unit/lib/auth/deferredEndCensus.test.ts]: RED | unit: 2 failed | 77 passed (79) | int: 55 passed | 1 skipped (56)
+M67 census matches any element access [tests/unit/lib/auth/deferredEndCensus.test.ts]: RED | unit: 1 failed | 78 passed (79) | int: 55 passed | 1 skipped (56)
 # /review re-confirmation round: M63 (rewritten) and M64 on 11e6a44cb (census back to fail-closed).
 M63 census matcher broken [tests/unit/lib/auth/deferredEndCensus.test.ts]: RED | unit: 1 failed | 66 passed (67) | int: 55 passed | 1 skipped (56)
 M64 planted apiRes swap in a tracked file [src/lib/auth/withRole.ts]: RED | unit: 1 failed | 66 passed (67) | int: 55 passed | 1 skipped (56)

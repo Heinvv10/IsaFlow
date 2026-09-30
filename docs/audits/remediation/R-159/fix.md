@@ -117,7 +117,7 @@ Evidence:
 - `red.int.log`: 17 of the 22 original cases fail on origin/master `7c49109f5`, because every
   throw is rethrown and `end` is never called. The positive paths and the 405 pass;
 - `green.log`: the suites on the final head;
-- `mutations.log`: 64 of 64 mutants are RED. M55–M57 were re-run on the round-3 guard; the /review round re-ran every mutant whose line changed and added M58–M63. Every changed line was
+- `mutations.log`: 67 of 67 mutants are RED. M55–M57 were re-run on the round-3 guard; the /review round re-ran every mutant whose line changed and added M58–M63. Every changed line was
   mutated in `deferredEnd.ts` (the buffer, the restore, the abort, the answer and its fallback,
   the log and stack, Sentry and its guard, and `replayEnd`), in each of the three wrappers (the
   deferral, the answer and its tenant, the guarded replay and its tenant, and both COMMIT-failure
@@ -186,13 +186,24 @@ APPROVED with six LOWs. Posted to the PR; all six are fixed:
 - the census flagged any `x.end =` assignment. That is kept: a receiver-name filter, tried
   first, missed `apiRes.end =` (re-confirmation LOW). The census still fails closed, and a
   non-response `end` goes in its `NOT_A_RESPONSE` list with a reason; the list is empty today.
-  Its failure message now says so. M63 breaks the matcher, M64 plants an `apiRes.end =` swap in
-  a tracked file, and both are RED;
+  Its failure message now says so. After round 4 (adversarial) it also catches
+  `Object.defineProperty(x, 'end', …)` and `Object.assign(x, { end })`. Fixture cases pin the
+  matcher on `apiRes.end =`, an aliased receiver, a cast, element access and both `Object` forms,
+  and it ignores `res.end(body)`. M63–M67 are RED, including M64, which plants an
+  `apiRes.end =` swap in a tracked file;
 - no integration case covered a throw from the wrapper's own step before the swap. A case now
   makes the rate limiter throw under withAuth and both Bearer wrappers: 500 once and nothing
   rethrown. It also asserts that the limiter's hook fired; the earlier no-row assertion could
   not fail, because the handler never runs. `withExtensionToken` has no step there that a test can make throw;
 - the module doc's caller contract now states the `writableEnded` condition.
+
+## Follow-up (not in this PR)
+
+The adversarial reviewer raised this as optional; it existed before this PR. Each wrapper now
+knows when its ROLLBACK failed. `client.release(true)` would then evict that connection
+instead of returning it to the pool: pg-pool evicts only on an error argument or a broken
+client, so a ROLLBACK that failed on a live connection, such as a client-side `query_timeout`,
+hands the connection back as it is.
 
 ## Migration / rollback
 
