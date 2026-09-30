@@ -142,12 +142,18 @@ export async function createPracticeClient(
   companyId: string,
   input: PracticeClientInput,
 ): Promise<PracticeClient> {
+  // R-170: '' means "none" on create, same as omitting the field — normalise
+  // before the fence (which already treats a falsy id as absent) and before
+  // the ::UUID cast below, which is not savepointed and 500s on ''.
+  const clientGroupId = input.clientGroupId ? input.clientGroupId : null;
+  const linkCustomerId = input.linkCustomerId ? input.linkCustomerId : null;
+
   // R-067: link_customer_id becomes the customer_id of every WIP invoice
   // generateWipInvoice mints for this client (practiceWipService reads it back
   // as already-trusted), so the fence has to be here, where it enters.
-  await assertCustomerInCompany(companyId, input.linkCustomerId);
+  await assertCustomerInCompany(companyId, linkCustomerId);
   // R-161: clientGroupId comes from the body; the FK does not check the tenant.
-  await assertClientGroupInCompany(companyId, input.clientGroupId);
+  await assertClientGroupInCompany(companyId, clientGroupId);
 
   const dupes = (await sql`
     SELECT id FROM practice_clients
@@ -163,9 +169,9 @@ export async function createPracticeClient(
     ) VALUES (
       ${companyId}::UUID, ${input.legalName},
       ${input.tradingName ?? null}, ${input.registrationNo ?? null}, ${input.taxNo ?? null},
-      ${input.clientGroupId ?? null}::UUID, ${input.assignedPartnerId ?? null}::UUID,
+      ${clientGroupId}::UUID, ${input.assignedPartnerId ?? null}::UUID,
       ${input.assignedManagerId ?? null}::UUID,
-      ${input.billingModel}, ${input.status}, ${input.linkCustomerId ?? null}::UUID
+      ${input.billingModel}, ${input.status}, ${linkCustomerId}::UUID
     ) RETURNING *
   `) as DbRow[];
 
@@ -183,8 +189,18 @@ export async function updatePracticeClient(
     SELECT id FROM practice_clients WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!existing.length) throw new Error('not found');
-  await assertCustomerInCompany(companyId, input.linkCustomerId);
-  await assertClientGroupInCompany(companyId, input.clientGroupId);
+
+  // R-170: distinguish "field absent from the body" (leave unchanged, the
+  // COALESCE default below) from `''`/null ("clear" — the CASE below writes
+  // NULL) from a real id (set it, after the tenant fence). '' is not nullish,
+  // so it survived `?? null` and reached the ::UUID cast, which 500'd.
+  const groupIdProvided = 'clientGroupId' in input;
+  const clientGroupId = input.clientGroupId ? input.clientGroupId : null;
+  const customerIdProvided = 'linkCustomerId' in input;
+  const linkCustomerId = input.linkCustomerId ? input.linkCustomerId : null;
+
+  await assertCustomerInCompany(companyId, linkCustomerId);
+  await assertClientGroupInCompany(companyId, clientGroupId);
 
   const rows = (await sql`
     UPDATE practice_clients SET
@@ -192,12 +208,12 @@ export async function updatePracticeClient(
       trading_name        = COALESCE(${input.tradingName ?? null}, trading_name),
       registration_no     = COALESCE(${input.registrationNo ?? null}, registration_no),
       tax_no              = COALESCE(${input.taxNo ?? null}, tax_no),
-      client_group_id     = COALESCE(${input.clientGroupId ?? null}::UUID, client_group_id),
+      client_group_id     = CASE WHEN ${groupIdProvided}::boolean THEN ${clientGroupId}::UUID ELSE client_group_id END,
       assigned_partner_id = COALESCE(${input.assignedPartnerId ?? null}::UUID, assigned_partner_id),
       assigned_manager_id = COALESCE(${input.assignedManagerId ?? null}::UUID, assigned_manager_id),
       billing_model       = COALESCE(${input.billingModel ?? null}, billing_model),
       status              = COALESCE(${input.status ?? null}, status),
-      link_customer_id    = COALESCE(${input.linkCustomerId ?? null}::UUID, link_customer_id),
+      link_customer_id    = CASE WHEN ${customerIdProvided}::boolean THEN ${linkCustomerId}::UUID ELSE link_customer_id END,
       updated_at          = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
     RETURNING *
