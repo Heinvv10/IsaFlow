@@ -14100,8 +14100,8 @@
       "correctedTrigger": null,
       "severityRationale": "The write is rolled back (no data harm); the client hangs instead of getting a 500. Only on an unexpected throw.",
       "auditedSha": "6d1f4a488",
-      "currentSha": "7c49109f5",
-      "status": "in-progress",
+      "currentSha": "ca5f32867",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r159-auth-wrapper-throw-responds.int.test.ts",
@@ -14117,9 +14117,9 @@
         "docs/audits/remediation/R-155/fix.md",
         "docs/audits/remediation/R-155/red.r4.int.log"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "4c0adf911..011fa7985",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/577",
+      "deployedSha": "ca5f32867",
       "historicalDataImpact": "None: the transaction rolls back.",
       "canonicalItem": null,
       "branch": "fix/r159-wrapper-throw-responds-20260930",
@@ -14128,7 +14128,7 @@
       "reportedSeverity": "low",
       "title": "A route whose auth wrapper buffers res.end hangs the client when the handler throws, unless withErrorHandler sits inside the wrapper",
       "claim": "withAuth (and bearerPipeline, withExtensionToken) replace res.end with a buffer and replay it only when the handler returns normally; on a throw they ROLLBACK and rethrow without replaying, so any 500 written after that (by an outer withErrorHandler or by Next) never reaches the client and the request hangs until the socket times out. Known instance: pages/api/invitations/revoke/[id].ts is withAuth(withCsrf(handler)) with no withErrorHandler. payment-link POST had it and was fixed under R-157. Routes behind bearerPipeline / withExtensionToken were not censused.",
-      "processNotes": "2026-09-29: Reported by the blind reviewers of PR #567 (R-157 round 4: executed for payment-link, reasoned for invitations/revoke). Not fixed. Options: add withErrorHandler inside the wrapper on each such route, or have the wrappers replay a 500 on a throw (one fix for every route). Census first: every export wrapping withAuth / withBearerOrCookieAuth / withExtensionToken without an inner withErrorHandler. 2026-09-30: Census (AST, every pages/api route): 640 of 642 compose withErrorHandler inside the wrapper; invitations/revoke/[id] has none; capture/upload has both an outer and an inner one. No route relies on the rethrow. Fixed in the wrappers (Hein's choice): on a throw each rolls back, restores the real res.end and answers with withErrorHandler's responder; no rethrow (confirmed by Hein 2026-09-30). RED 17/22 on origin/master (R-159/red.int.log). Review round 1 (general SHIP, 3 LOW) and round 2 (adversarial FIX, 2 MEDIUM + 4 LOW, all latent) fixed: replayEnd keeps a post-COMMIT replay failure out of the catch; withErrorHandler marks a flushed failure 500 and aborts it; flushed failures abort instead of completing; answerThrow restores end first and survives unreadable errors. Mutants: 56/56 RED on the round-2 code. Round 3 (both SHIP): withErrorHandler's flushed-failure mark+abort limited to responses not yet ended. /review (fresh blind agent, APPROVED, 6 LOW) fixed: accurate throw log with the ROLLBACK outcome, ended responses never aborted by answerThrow, pre-swap throw integration case; the census stays fail-closed on any .end assignment (a receiver filter missed apiRes.end). Rounds 4-5: census also catches Object.defineProperty/defineProperties/assign (incl. computed key) and Reflect.set of end, with fixture cases; a key held in a variable is the named limit. Mutants: 71/71 RED. Follow-up noted: evict a connection whose ROLLBACK failed (client.release(true))."
+      "processNotes": "2026-09-29: Reported by the blind reviewers of PR #567 (R-157 round 4: executed for payment-link, reasoned for invitations/revoke). Not fixed. Options: add withErrorHandler inside the wrapper on each such route, or have the wrappers replay a 500 on a throw (one fix for every route). Census first: every export wrapping withAuth / withBearerOrCookieAuth / withExtensionToken without an inner withErrorHandler. 2026-09-30: Census (AST, every pages/api route): 640 of 642 compose withErrorHandler inside the wrapper; invitations/revoke/[id] has none; capture/upload has both an outer and an inner one. No route relies on the rethrow. Fixed in the wrappers (Hein's choice): on a throw each rolls back, restores the real res.end and answers with withErrorHandler's responder; no rethrow (confirmed by Hein 2026-09-30). RED 17/22 on origin/master (R-159/red.int.log). Review round 1 (general SHIP, 3 LOW) and round 2 (adversarial FIX, 2 MEDIUM + 4 LOW, all latent) fixed: replayEnd keeps a post-COMMIT replay failure out of the catch; withErrorHandler marks a flushed failure 500 and aborts it; flushed failures abort instead of completing; answerThrow restores end first and survives unreadable errors. Mutants: 56/56 RED on the round-2 code. Round 3 (both SHIP): withErrorHandler's flushed-failure mark+abort limited to responses not yet ended. /review (fresh blind agent, APPROVED, 6 LOW) fixed: accurate throw log with the ROLLBACK outcome, ended responses never aborted by answerThrow, pre-swap throw integration case; the census stays fail-closed on any .end assignment (a receiver filter missed apiRes.end). Rounds 4-5: census also catches Object.defineProperty/defineProperties/assign (incl. computed key) and Reflect.set of end, with fixture cases; a key held in a variable is the named limit. Mutants: 71/71 RED. Follow-up noted: evict a connection whose ROLLBACK failed (client.release(true)). Merged as #577 (ca5f32867). 2026-09-30: merged and deployed to prod ca5f32867 at 11:24 SAST on Hein's explicit business-hours 'Deploy now' (the deploy also shipped peer PRs #575, #578-#582, confirmed by Hein). Applied 0 migrations, golden paths 13/13, integrity green, RELEASE_SHA verified, fix strings in the live .next server chunks; health 200. Live: unauthenticated POST /api/invitations/revoke/<id> answers 401."
     },
     {
       "id": "R-160",
@@ -14469,8 +14469,8 @@
       ],
       "correctedTrigger": null,
       "auditedSha": "7c49109f5",
-      "currentSha": "7c49109f5",
-      "status": "in-progress",
+      "currentSha": "ca5f32867",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r166-payment-link-amount-cap.int.test.ts"
@@ -14482,9 +14482,9 @@
         "docs/audits/remediation/R-166/green.log",
         "docs/audits/remediation/R-166/mutations.log"
       ],
-      "fixCommit": null,
-      "pr": null,
-      "deployedSha": null,
+      "fixCommit": "d2f9ab8ce..b0d507573",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/576",
+      "deployedSha": "ca5f32867",
       "canonicalItem": null,
       "branch": "fix/r166-payment-link-amount-cap-20260930",
       "area": "accounting/ar portal",
@@ -14497,7 +14497,7 @@
       "claim": "POST /api/portal/payment-link capped the amount only at the column maximum (R-158), so an owner/admin/manager could create a payable link for more than total_amount - amount_paid, or for any amount on a paid invoice.",
       "severityRationale": "Owner/admin/manager only (withCsrf + withWriteAccess). The link amount is what the pay page shows as Amount Due. The charge itself is computed at pay time by paystack/create (R-167) and is not changed here; on legacy negative or NaN amount_paid rows that charge can exceed the invoice total.",
       "historicalDataImpact": "Existing links are not changed. The R-155 prod census found 3 active links, all in ISAFlow Demo; one is on the fully paid INV-00553. It still displays, but paystack/create refuses to charge a paid invoice; Hein decided (2026-09-30) to leave it, so nothing was written on prod.",
-      "processNotes": "2026-09-30: Hein decided to cap a link at the outstanding balance (part payments allowed). Fixed: POST refuses an amount over total_amount - GREATEST(amount_paid, 0) (NULL or negative paid counts as 0), or any amount when that balance is NaN, with 400, compared in numeric, before any write. RED 4/4 on origin/master (R-166/red.int.log); mutants N1-N7 RED. Review round 1 (both reviewers FIX): NaN balance refused, negative amount_paid clamped to 0, deleted_at IS NULL added (pre-existing), R-158 max pinned by its message in k101, comment reason corrected, INV-00553 wording corrected. The adversarial MEDIUM (the link amount never controls the charge) is registered as R-167 for Hein. Mutants N1-N10 RED, N11 equivalent. Review round 2 (both reviewers: code ready, docs FIX): the 'cannot overcharge' claim corrected here, in fix.md and in R-167. /review (fresh blind agent): APPROVED, 4 LOW; fixed (no-balance message, stale test header, logs re-run on the head); drafts/pending_approval still get links (pre-existing, Hein's call). Mutants 13/14 RED, N11 equivalent.",
+      "processNotes": "2026-09-30: Hein decided to cap a link at the outstanding balance (part payments allowed). Fixed: POST refuses an amount over total_amount - GREATEST(amount_paid, 0) (NULL or negative paid counts as 0), or any amount when that balance is NaN, with 400, compared in numeric, before any write. RED 4/4 on origin/master (R-166/red.int.log); mutants N1-N7 RED. Review round 1 (both reviewers FIX): NaN balance refused, negative amount_paid clamped to 0, deleted_at IS NULL added (pre-existing), R-158 max pinned by its message in k101, comment reason corrected, INV-00553 wording corrected. The adversarial MEDIUM (the link amount never controls the charge) is registered as R-167 for Hein. Mutants N1-N10 RED, N11 equivalent. Review round 2 (both reviewers: code ready, docs FIX): the 'cannot overcharge' claim corrected here, in fix.md and in R-167. /review (fresh blind agent): APPROVED, 4 LOW; fixed (no-balance message, stale test header, logs re-run on the head); drafts/pending_approval still get links (pre-existing, Hein's call). Mutants 13/14 RED, N11 equivalent. Merged as #576 (8209cfe3a). 2026-09-30: merged and deployed to prod ca5f32867 at 11:24 SAST on Hein's explicit business-hours 'Deploy now' (the deploy also shipped peer PRs #575, #578-#582, confirmed by Hein). Applied 0 migrations, golden paths 13/13, integrity green, RELEASE_SHA verified, fix strings in the live .next server chunks; health 200. Live: unauthenticated POST /api/portal/payment-link answers 401; 'the invoice has no outstanding balance' is in pages/api/portal/payment-link.js.",
       "reportedSeverity": "low"
     },
     {
