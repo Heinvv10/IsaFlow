@@ -76,8 +76,8 @@ describe('runDailyDigest', () => {
     listUsersMock.mockResolvedValueOnce([makeUser()]);
     // overdue tasks: empty
     sqlMock.mockResolvedValueOnce([]);
-    // timesheet check: submitted (row found)
-    sqlMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+    // timesheet check: practice user, submitted yesterday
+    sqlMock.mockResolvedValueOnce([{ submitted: true }]);
 
     const result = await runDailyDigest();
     restore();
@@ -97,8 +97,8 @@ describe('runDailyDigest', () => {
     listUsersMock.mockResolvedValueOnce([makeUser()]);
     // overdue tasks: one row
     sqlMock.mockResolvedValueOnce([makeOverdueTask()]);
-    // timesheet check: submitted
-    sqlMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+    // timesheet check: practice user, submitted yesterday
+    sqlMock.mockResolvedValueOnce([{ submitted: true }]);
 
     const result = await runDailyDigest();
     restore();
@@ -120,8 +120,8 @@ describe('runDailyDigest', () => {
     listUsersMock.mockResolvedValueOnce([makeUser()]);
     // overdue tasks: empty
     sqlMock.mockResolvedValueOnce([]);
-    // timesheet check: not found
-    sqlMock.mockResolvedValueOnce([]);
+    // timesheet check: practice user (entries in the last 30 days), none yesterday
+    sqlMock.mockResolvedValueOnce([{ submitted: false }]);
 
     const result = await runDailyDigest();
     restore();
@@ -142,8 +142,8 @@ describe('runDailyDigest', () => {
     listUsersMock.mockResolvedValueOnce([makeUser()]);
     // overdue tasks: two rows
     sqlMock.mockResolvedValueOnce([makeOverdueTask(), makeOverdueTask({ id: 'task-2', title: 'Submit VAT' })]);
-    // timesheet check: not found
-    sqlMock.mockResolvedValueOnce([]);
+    // timesheet check: practice user (entries in the last 30 days), none yesterday
+    sqlMock.mockResolvedValueOnce([{ submitted: false }]);
 
     const result = await runDailyDigest();
     restore();
@@ -154,6 +154,23 @@ describe('runDailyDigest', () => {
     expect(call.subject).toContain('2 overdue');
     expect(call.subject).toContain('timesheet missing');
     expect(call._log.emailType).toBe('practice_digest');
+  });
+
+  it('does not nag a user with no practice time entries in the last 30 days', async () => {
+    // Tuesday — yesterday = Monday (weekday)
+    const restore = stubDateNow('2026-04-21T10:00:00Z');
+    sqlMock.mockResolvedValueOnce([{ id: COMPANY_ID }]);
+    listUsersMock.mockResolvedValueOnce([makeUser()]);
+    // overdue tasks: empty
+    sqlMock.mockResolvedValueOnce([]);
+    // timesheet check: bool_or over no rows is NULL (not a practice time user)
+    sqlMock.mockResolvedValueOnce([{ submitted: null }]);
+
+    const result = await runDailyDigest();
+    restore();
+
+    expect(result.recipientsSkipped).toBe(1);
+    expect(sendEmailMock).not.toHaveBeenCalled();
   });
 
   it('weekend skip: when yesterday was Sunday, missingTimesheetDate is null even if no entry', async () => {
@@ -181,8 +198,8 @@ describe('runDailyDigest', () => {
     listUsersMock.mockResolvedValueOnce([makeUser()]);
     // overdue tasks: one row
     sqlMock.mockResolvedValueOnce([makeOverdueTask()]);
-    // timesheet check: submitted
-    sqlMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+    // timesheet check: practice user, submitted yesterday
+    sqlMock.mockResolvedValueOnce([{ submitted: true }]);
     // email fails
     sendEmailMock.mockResolvedValueOnce({ success: false, error: 'SMTP timeout' });
 

@@ -58,7 +58,7 @@ The time-entries query was already company-scoped. The route (CRON_SECRET check)
 
 ## Tests
 
-`tests/integration/r162-practice-daily-digest.int.test.ts` (13 tests, real PG, through the route handler):
+`tests/integration/r162-practice-daily-digest.int.test.ts` (20 tests, real PG, through the route handler):
 
 - runs to completion: 200, and no per-company or per-user error for the fixture companies
 - company A's digest lists A's overdue tasks with A's own client and job names
@@ -69,6 +69,13 @@ The time-entries query was already company-scoped. The route (CRON_SECRET check)
 - a member of A and B gets one digest per company, each listing only that company's tasks
 - skips a deleted company / a company with status suspended / a company with suspended_at set
 - skips an inactive user / a user with suspended_at set / a user whose status is not active
+- a practice member with no entry yesterday gets the timesheet nag
+- a practice member who logged yesterday gets no nag
+- a member who never logged practice time gets no nag
+- a practice member whose last entry is older than 30 days gets no nag
+- a draft practice entry does not make a practice member
+- a time entry with no practice client does not make a practice member
+- an overdue-task assignee who tracks no practice time gets the tasks and no nag
 
 Every user the digest must NOT reach has an overdue task, so each refusal is decided by the
 predicate under test, not by having nothing to say. `Date` is pinned to a Wednesday, so the
@@ -77,8 +84,14 @@ suite asserts it is a mock before running. The SMTP env vars are also deleted.
 
 Run:
 `ISAFLOW_DISPOSABLE_AUTH_TEST=1 DATABASE_URL=…/isaflow_schema_fixture PLATFORM_ADMIN_DATABASE_URL=… GOTRUE_URL=http://127.0.0.1:1/auth/v1 DATABASE_SSL=disable vitest run --config vitest.integration.config.ts tests/integration/r162-practice-daily-digest.int.test.ts`
-→ `Tests 13 passed (13)`. `tests/integration/r152-company-member-list.int.test.ts` (the other
-`listCompanyUsersForSystem` suite) passed 13/13, and `tests/unit/services/practice/` passed 241/241.
+→ `Tests 20 passed (20)`. `tests/integration/r152-company-member-list.int.test.ts` (the other
+`listCompanyUsersForSystem` suite) passed 13/13, and `tests/unit/services/practice/` passed 242/242.
+The unit mocks now return the rule's `submitted` column, and one unit case was added: a NULL
+`submitted` sends nothing.
+
+Against the previous head `dd8de6691`, which had no rule, 5 of the new tests fail: never-logged,
+older than 30 days, draft only, no practice client (`expected [ {…} ] to deeply equal []`), and
+the assignee's subject (`timesheet missing` instead of `timesheet ok`).
 
 ## Mutation table
 
@@ -98,6 +111,11 @@ Each guard was removed in the working file, the suite was run, and the file was 
 | user `status` NULL or `active` | skips a user whose status is not active | `expected [ {…} ] to deeply equal []` |
 | `t.assigned_to::TEXT` → `= $user::UUID` | runs to completion … no per-user error | `expected [ {…(3)} ] to deeply equal []` |
 | `user_id::TEXT` → `= $user::UUID` | runs to completion … no per-user error | `expected [ {…(3)} ] to deeply equal []` |
+| rule: `entry_date >= yesterday - 29` | a practice member whose last entry is older than 30 days gets no nag | `expected [ {…} ] to deeply equal []` |
+| rule: `submitted === false` → `!== true` (NULL nags) | never logged / older than 30 days / draft only / no practice client / assignee subject | 5 failed |
+| rule: `status <> 'draft'` | a draft practice entry does not make a practice member | `expected [ {…} ] to deeply equal []` |
+| rule: `practice_client_id IS NOT NULL` | a time entry with no practice client does not make a practice member | `expected [ {…} ] to deeply equal []` |
+| rule: `entry_date = yesterday` → `yesterday - 1` | a practice member who logged yesterday gets no nag | `expected [ {…} ] to deeply equal []` |
 
 ## Dev verification (no email sent, no dev writes)
 
@@ -112,8 +130,16 @@ every subject "Practice digest — 0 overdue, timesheet missing"
 ```
 
 The first run, before the `::TEXT` cast fix, had one error: user `phase2-wa-user-1` →
-`invalid input syntax for type uuid`. Census query 2 below, run read-only on dev, gives the same
-17 recipients in 9 companies. 6 of them are in companies with no practice clients.
+`invalid input syntax for type uuid`. Before the recipient rule: 17 recipients, all timesheet-only
+(16 before the cast fix, which let `phase2-wa-user-1` through). 6 of them were in companies with no
+practice clients. With the rule, it ran read-only again on 2026-09-30:
+
+```
+companiesProcessed 5621, recipientsNotified 0, recipientsSkipped 17, errors []
+```
+
+Dev has no non-draft practice time entry in the last 30 days and no overdue task, so nobody
+qualifies.
 
 ## Who receives it (brief item 3)
 
@@ -122,11 +148,17 @@ The first run, before the `::TEXT` cast fix, had one error: user `phase2-wa-user
 - **No notification preference or opt-out exists.** Nothing in `scripts/migrations/sql` stores one.
   `user_preferences` is a UI key/value store, and nothing reads a digest key from it. There is no
   practice feature flag either.
-- **Open product decision:** the missing-timesheet section goes to every member in good standing
-  of every active company, every weekday, unless they logged a non-draft practice time entry
-  yesterday. That includes companies that never used practice. On dev, all 17 would-be emails are
-  timesheet-only nags. This PR does not narrow it. The orchestrator was asked. A narrower option:
-  nag only users with a practice time entry in that company in the last 30 days.
+- **Recipient rule (decision: Hein, 2026-09-30).** On master, the missing-timesheet nag went to
+  every member in good standing of every active company, every weekday. That included companies
+  that never used practice. Now:
+  - The overdue-task section goes only to assignees of overdue tasks, as before.
+  - The missing-timesheet nag goes only to members who have a non-draft time entry with
+    `practice_client_id IS NOT NULL` in that company dated from 30 days ago on
+    (`entry_date >= yesterday - 29`), and none on yesterday.
+
+  `isTimesheetMissing` does it in one query: `bool_or(entry_date = yesterday)` over the window is
+  NULL when there is no practice entry (no nag), false when yesterday is missing (nag), and true
+  when yesterday is logged (no nag).
 - `recipientsNotified` counts a failed send as notified too (pre-existing; not changed here).
 
 ## Auth and scheduling (brief item 4)
@@ -142,17 +174,18 @@ The first run, before the `::TEXT` cast fix, had one error: user `phase2-wa-user
   - The prod journal (retained since 2026-09-26) has zero "practice daily digest" triggers.
     Every "Cron triggered" line belongs to the timers above.
 
-  So a deploy alone sends nothing. Emails start only when someone adds a timer, for example
-  modelled on `isaflow-dunning-send.{service,timer}`.
-- Siblings with the same dead predicate, not changed here: `practiceRecurringTaskService`
+  So a deploy alone sends nothing. **The cron stays unscheduled.** Adding a timer is a separate
+  decision for Hein (Hein, 2026-09-30). A timer could be modelled on
+  `isaflow-dunning-send.{service,timer}`.
+- Follow-ups. Siblings with the same dead predicate, left untouched on purpose: `practiceRecurringTaskService`
   (`/api/cron/practice/recurring-tasks`) and `practiceMonthlyReportService`
   (`/api/cron/practice/monthly-reports`) still select `companies.deleted_at`. Both are unscheduled.
 
 ## Census SQL for production (READ-ONLY; for Hein, never run by the session)
 
 Run as an owner or superuser, the role the cron uses; RLS would hide rows from app_user.
-It was checked on the fixture and, read-only, on isaflow_dev: dev has no `deleted_at`, 5591 active
-companies, 17 recipients in 9 companies, all timesheet-only, 0 cross-tenant links and 1 non-UUID
+It was checked on the fixture and, read-only, on isaflow_dev: dev has no `deleted_at`, 5621 active
+companies, 0 recipients under the rule (17 before it), 0 cross-tenant links and 1 non-UUID
 member id.
 
 ```sql
@@ -181,6 +214,10 @@ WITH active_co AS (
                   WHERE t.company_id = m.company_id AND t.assigned_to::text = m.user_id
                     AND t.status IN ('pending', 'in_progress') AND t.due_date < CURRENT_DATE) AS has_overdue,
          EXTRACT(ISODOW FROM CURRENT_DATE - 1) BETWEEN 1 AND 5
+         AND EXISTS (SELECT 1 FROM time_entries te      -- a practice time user (Hein, 2026-09-30)
+                      WHERE te.company_id = m.company_id AND te.user_id::text = m.user_id
+                        AND te.entry_date >= CURRENT_DATE - 30 AND te.status <> 'draft'
+                        AND te.practice_client_id IS NOT NULL)
          AND NOT EXISTS (SELECT 1 FROM time_entries te
                           WHERE te.company_id = m.company_id AND te.user_id::text = m.user_id
                             AND te.entry_date = CURRENT_DATE - 1 AND te.status <> 'draft'
