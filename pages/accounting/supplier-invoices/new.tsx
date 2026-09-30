@@ -105,8 +105,8 @@ export default function NewSupplierInvoicePage() {
   const totalTax = lines.reduce((sum, l) => sum + (l.quantity * l.unitPrice * l.taxRate / 100), 0);
   const total = subtotal + totalTax;
 
-  // An OCR match only fills an empty supplier; it never overwrites the user's pick.
-  const matchVendor = useVendorSupplierMatch(id => setForm(f => (f.supplierId ? f : { ...f, supplierId: id })));
+  // A scan may fill an empty supplier or replace an earlier scan's; never the user's pick.
+  const { scan: matchVendor, notePick } = useVendorSupplierMatch(form.supplierId, id => setForm(f => ({ ...f, supplierId: id })));
 
   function handleExtracted(data: ExtractedDocument) {
     const updates: Partial<typeof form> = {};
@@ -214,10 +214,10 @@ export default function NewSupplierInvoicePage() {
                   <div>
                     <label className={lbl}>Supplier *</label>
                     <SupplierSelect required value={form.supplierId} inputClassName={inp}
-                      onChange={id => setForm(f => ({
+                      onChange={id => { notePick(); setForm(f => ({
                         ...f, supplierId: id,
                         purchaseOrderId: '', grnId: '', copyLinesFromPo: false,
-                      }))} />
+                      })); }} />
                   </div>
                   <div><label className={lbl}>Invoice Date *</label><input type="date" required value={form.invoiceDate} onChange={e => setForm(f => ({ ...f, invoiceDate: e.target.value }))} className={inp} /></div>
                   <div><label className={lbl}>Due Date</label><input type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} className={inp} /></div>

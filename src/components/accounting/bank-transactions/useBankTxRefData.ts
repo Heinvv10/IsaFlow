@@ -32,14 +32,14 @@ type Setters = {
   setBuOptions: (v: SelectOption[]) => void;
   setSelectedBank: (fn: (prev: string) => string) => void;
   setRefDataLoaded?: (v: boolean) => void;
-  /** Set true when the supplier list could not be loaded, so the page can say so. */
-  setSuppliersFailed?: (v: boolean) => void;
+  /** Reports the supplier list state so the page can say so: loaded, failed, or cut at the cap. */
+  setSuppliersStatus?: (v: 'ok' | 'failed' | 'truncated') => void;
 };
 
 export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () => void } {
   const {
     setBankAccounts, setGlAccounts, setSuppliers, setCustomers,
-    setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded, setSuppliersFailed,
+    setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded, setSuppliersStatus,
   } = setters;
 
   const refreshBankAccounts = useCallback(() => {
@@ -53,13 +53,13 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
   // failing supplier walk must not hold back bank accounts and the chart.
   useEffect(() => {
     let live = true;
-    fetchAllSuppliers().then(({ suppliers }) => {
+    fetchAllSuppliers().then(({ suppliers, truncated }) => {
       if (!live) return;
       setSuppliers(suppliers.map(s => ({ id: String(s.id), name: s.name, code: s.code })));
-      setSuppliersFailed?.(false);
+      setSuppliersStatus?.(truncated ? 'truncated' : 'ok');
     }).catch((err) => {
       log.warn('Failed to load suppliers for bank transactions', { error: err }, 'accounting-ui');
-      if (live) setSuppliersFailed?.(true);
+      if (live) setSuppliersStatus?.('failed');
     });
     return () => { live = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps

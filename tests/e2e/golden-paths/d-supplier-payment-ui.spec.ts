@@ -38,7 +38,7 @@ test('supplier payment created through the /new form allocates to the invoice', 
     await page.goto('/accounting/supplier-payments/new');
     // The supplier picker is a server-searched combobox (SupplierSelect): type
     // the name, click the hit, and confirm the form holds the fixture's id.
-    const picker = page.getByPlaceholder('Search supplier…');
+    const picker = page.getByTestId('supplier-select-input');
     await picker.fill('0GP-Golden-Supplier');
     await page.getByRole('button', { name: '0GP-Golden-Supplier', exact: true }).click();
     await expect(page.locator('input[name="supplierId"]')).toHaveValue(supplierId);

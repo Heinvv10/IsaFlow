@@ -57,8 +57,8 @@ export default function NewSupplierPaymentPage() {
 
   const totalAmount = allocations.reduce((sum, a) => sum + (a.amount || 0), 0);
 
-  // An OCR match only fills an empty supplier; it never overwrites the user's pick.
-  const matchVendor = useVendorSupplierMatch(id => setForm(f => (f.supplierId ? f : { ...f, supplierId: id })));
+  // A scan may fill an empty supplier or replace an earlier scan's; never the user's pick.
+  const { scan: matchVendor, notePick } = useVendorSupplierMatch(form.supplierId, id => setForm(f => ({ ...f, supplierId: id })));
 
   function handleExtracted(data: ExtractedDocument) {
     if (data.date) setForm(f => ({ ...f, paymentDate: data.date! }));
@@ -137,7 +137,7 @@ export default function NewSupplierPaymentPage() {
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className={lbl}>Supplier *</label>
-                    <SupplierSelect required value={form.supplierId} inputClassName={inp} onChange={id => setForm(f => ({ ...f, supplierId: id }))} />
+                    <SupplierSelect required value={form.supplierId} inputClassName={inp} onChange={id => { notePick(); setForm(f => ({ ...f, supplierId: id })); }} />
                   </div>
                   <div>
                     <label className={lbl}>Payment Date *</label>

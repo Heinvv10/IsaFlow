@@ -19,6 +19,7 @@ import { BankTxModals } from '@/components/accounting/bank-transactions/BankTxMo
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
 import { Loader2, AlertCircle } from 'lucide-react';
+import { truncatedSuppliersNotice } from '@/lib/fetchAllSuppliers';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
 import { actionableIds } from '@/components/accounting/bank-transactions/pendingFeedRow';
@@ -44,9 +45,9 @@ export default function BankTransactionsPage() {
   const [bankAccounts, setBankAccounts] = useState<BankAcct[]>([]);
   const [selectedBank, setSelectedBank] = useState('');
   const [refDataLoaded, setRefDataLoaded] = useState(false);
-  const [suppliersFailed, setSuppliersFailed] = useState(false);
+  const [suppliersStatus, setSuppliersStatus] = useState<'ok' | 'failed' | 'truncated'>('ok');
   const didApplyQueryParam = useRef(false);
-  const { refreshBankAccounts } = useBankTxRefData({ setBankAccounts, setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded, setSuppliersFailed });
+  const { refreshBankAccounts } = useBankTxRefData({ setBankAccounts, setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded, setSuppliersStatus });
 
   // Pre-select bank account from query param (e.g. ?account_id=...)
   useEffect(() => {
@@ -299,8 +300,11 @@ export default function BankTransactionsPage() {
           onToggleBU={() => { const v = !showBU; setShowBU(v); localStorage.setItem('isaflow_bank_showBU', String(v)); }}
         />
 
-        {suppliersFailed && (
+        {suppliersStatus === 'failed' && (
           <div role="alert" className="mx-6 mt-3 flex items-center gap-2 text-xs text-red-400"><AlertCircle className="h-4 w-4" />Suppliers failed to load — supplier allocation is unavailable until you reload.</div>
+        )}
+        {suppliersStatus === 'truncated' && (
+          <div role="status" className="mx-6 mt-3 flex items-center gap-2 text-xs text-amber-500"><AlertCircle className="h-4 w-4" />{truncatedSuppliersNotice()}</div>
         )}
 
         <BankTxBatchPanel
