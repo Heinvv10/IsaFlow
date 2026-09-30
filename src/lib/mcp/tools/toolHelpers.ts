@@ -171,6 +171,8 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // R-088). Eight fixed messages naming no id, amount or table, raised before any write;
   // the claim is scoped by company_id. No MCP tool creates expense claims today.
   'CLAIM_SOURCE_DOCUMENT_REFUSED',
+  // R-161 client group fence: names only the id the caller passed; raised before any write.
+  'CLIENT_GROUP_NOT_FOUND',
   'CREDIT_NOTE_LOCK_TIMEOUT',
   'CUSTOMER_INVOICE_LOCK_TIMEOUT',
   'CUSTOMER_NOT_FOUND',
