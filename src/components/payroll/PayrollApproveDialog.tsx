@@ -6,8 +6,10 @@
  * the journal it already posted and will re-lock onto. No amount is derived
  * here. A blocker disables approval with its reason.
  *
- * The POST carries the planHash previewed; a run changed since answers 409 and
- * the preview is refetched. A 4xx is a refusal (nothing written). Anything
+ * The POST carries the planHash previewed; a run changed since answers 409.
+ * Any 4xx is a refusal (nothing written), and the preview is refetched after
+ * every one, so the dialog never keeps showing a plan the server just
+ * rejected. Anything
  * else — a dropped connection, a proxy 5xx — may have committed, so the page
  * reloads the run instead of guessing.
  */
@@ -67,11 +69,9 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
       });
       onApproved(result, !preview.posted);
     } catch (err) {
-      if (err instanceof ApiRequestError && err.status === 409) {
-        setApproveError(`${err.message}. The preview has been refreshed — review it again.`);
+      if (err instanceof ApiRequestError && err.status < 500) {
+        setApproveError(err.status === 409 ? `${err.message}. The preview has been refreshed — review it again.` : err.message);
         setReloadKey((k) => k + 1);
-      } else if (err instanceof ApiRequestError && err.status < 500) {
-        setApproveError(err.message);
       } else {
         setApproveError(UNCERTAIN);
         onUncertain();

@@ -1,9 +1,11 @@
 /**
  * POST /api/payroll/runs/[id]/approve
  * Approve a payroll run and post its GL journal entry.
- * Body (optional): { expectedPlanHash } — the planHash the caller previewed
- * (GET …/journal-plan). A run that no longer hashes the same is refused 409
- * before anything is written.
+ * Body: { expectedPlanHash } — REQUIRED (BRK-596 R2-4): the planHash the
+ * caller previewed (GET …/journal-plan). Without it an HTTP caller would
+ * approve whatever the run holds now, not what anyone reviewed. A run that no
+ * longer hashes the same is refused 409 before anything is written. (MCP calls
+ * the service directly, behind its own dry run, so the service keeps it optional.)
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -37,8 +39,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 
   const expectedPlanHash = (req.body as { expectedPlanHash?: unknown } | undefined)?.expectedPlanHash;
-  if (expectedPlanHash !== undefined && typeof expectedPlanHash !== 'string') {
-    return apiResponse.badRequest(res, 'expectedPlanHash must be a string');
+  if (typeof expectedPlanHash !== 'string' || expectedPlanHash === '') {
+    return apiResponse.badRequest(res, 'expectedPlanHash is required: preview the run (GET journal-plan) and send its planHash');
   }
 
   try {

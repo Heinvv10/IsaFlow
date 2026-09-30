@@ -9,6 +9,12 @@
  * route asking with A's company id. A user of A alone would get 404 from RLS
  * even with that scoping removed, which would prove nothing about the route.
  *
+ * The runs are draft headers exactly as POST /api/payroll/runs writes them
+ * (createPayrollRun: company, period, every total at its default). Round 2
+ * dropped a 'paid' run here: no code path ever writes 'paid' (nor 'cancelled')
+ * to payroll_run_headers, so the status gate's parity is proven on a state the
+ * product does reach, in brk596-approve-preview.int.test.ts REPRO 2.
+ *
  * Disposable DB only (assertDisposable): a localhost isaflow_schema_fixture.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -27,7 +33,6 @@ const MANAGER = randomUUID(); // member of A and B
 const VIEWER = randomUUID(); // viewer in A
 const RUN_A = randomUUID();
 const RUN_B = randomUUID();
-const RUN_PAID = randomUUID();
 const tokens: Record<string, string> = {};
 
 const sign = (sub: string) => new SignJWT({ sub, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
@@ -52,15 +57,14 @@ beforeAll(async () => {
        ($1, $3, 'manager', true), ($2, $3, 'manager', false), ($1, $4, 'viewer', true)`,
     [CO_A, CO_B, MANAGER, VIEWER]);
   await pool.query(
-    `INSERT INTO payroll_run_headers (id, company_id, period_month, period_year, status, total_gross, total_net, employee_count)
-     VALUES ($1, $2, 9, 2026, 'calculated', 1000, 900, 1), ($3, $4, 9, 2026, 'calculated', 5000, 4000, 1),
-            ($5, $2, 8, 2026, 'paid', 1000, 900, 1)`,
-    [RUN_A, CO_A, RUN_B, CO_B, RUN_PAID]);
+    `INSERT INTO payroll_run_headers (id, company_id, period_month, period_year)
+     VALUES ($1, $2, 9, 2026), ($3, $4, 9, 2026)`,
+    [RUN_A, CO_A, RUN_B, CO_B]);
 });
 
 afterAll(async () => {
   try {
-    await pool.query('DELETE FROM payroll_run_headers WHERE id IN ($1, $2, $3)', [RUN_A, RUN_B, RUN_PAID]);
+    await pool.query('DELETE FROM payroll_run_headers WHERE id IN ($1, $2)', [RUN_A, RUN_B]);
     await pool.query('DELETE FROM company_users WHERE company_id IN ($1, $2)', [CO_A, CO_B]);
     await pool.query('DELETE FROM companies WHERE id IN ($1, $2)', [CO_A, CO_B]);
     await pool.query('DELETE FROM users WHERE id IN ($1, $2)', [MANAGER, VIEWER]);
@@ -73,22 +77,13 @@ describe('GET /api/payroll/runs/[id]/journal-plan — real withAuth chain', () =
   it("200 with the plan for the caller's own run", async () => {
     const r = await get(MANAGER, RUN_A);
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ data: { plan: { runId: RUN_A, status: 'calculated' } } });
+    expect(r.body).toMatchObject({ data: { plan: { runId: RUN_A, status: 'draft' } } });
   });
 
   it("404 for another company's run, even to a member of both (A active)", async () => {
     const r = await get(MANAGER, RUN_B);
     expect(r.status).toBe(404);
-    expect(JSON.stringify(r.body)).not.toContain('5000');
-  });
-
-  it('a paid run: the preview reports the refusal approval would throw', async () => {
-    const r = await get(MANAGER, RUN_PAID);
-    expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ data: { blocker: {
-      code: 'status_not_approvable',
-      detail: "Cannot approve payroll run with status 'paid' (expected one of: draft, calculated, processed)",
-    } } });
+    expect(JSON.stringify(r.body)).not.toContain('"plan"');
   });
 
   it('404 for an id that is no run at all', async () => {

@@ -113,9 +113,15 @@ export async function calculatePayrollRun(
 ): Promise<PayrollRunSummary> {
   log.info('Calculating payroll run', { runId, companyId }, 'payrollRunService');
 
+  // Locked for the whole calculation (W3-01, BRK-596 R2-2): an approve that
+  // arrives meanwhile waits, then judges the new figures; one that got here
+  // first makes this read 'approved' and refuse. Unlocked, an approve that
+  // committed between this status check and the header UPDATE below was
+  // silently undone — back to 'calculated', new totals, old journal.
   const runRows = (await sql`
     SELECT * FROM payroll_run_headers
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+    FOR UPDATE
   `) as Row[];
   if (runRows.length === 0 || !runRows[0]) throw new Error('Payroll run not found');
 
@@ -286,10 +292,14 @@ export async function calculatePayrollRun(
       employee_count = ${employees.length},
       updated_at     = NOW()
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+      AND status NOT IN ('approved', 'paid', 'cancelled')
     RETURNING *
   `) as Row[];
 
-  if (!updated[0]) throw new Error('UPDATE returned no row');
+  // Belt and braces behind the lock above. A plain Error, not a refusal: the
+  // lines were already rewritten in this transaction, so it must be a 500 and
+  // roll back (withAuth COMMITs a 4xx).
+  if (!updated[0]) throw new Error('Payroll run was locked while it was being calculated — nothing was saved');
 
   log.info(
     'Payroll run calculated',

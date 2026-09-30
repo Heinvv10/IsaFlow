@@ -19,6 +19,7 @@ import type { DbRow } from '@/lib/neon';
 import { getMappingLookup } from './costCentreGlMappingService';
 import {
   buildLabourDebitLines,
+  placeLabourRounding,
   type RunLabourLine,
   type AllocationShare,
 } from './payrollJournalSplitBuilder';
@@ -135,6 +136,7 @@ export async function buildLabourLines(
       FROM payroll_run_lines prl
       JOIN payroll_employees e ON e.id = prl.employee_id
      WHERE prl.run_id = ${runId}::uuid
+     ORDER BY prl.employee_id
   `) as Row[];
   if (lineRows.length === 0) return fallback;
 
@@ -144,6 +146,7 @@ export async function buildLabourLines(
       JOIN payroll_run_lines prl ON prl.employee_id = a.employee_id
      WHERE prl.run_id = ${runId}::uuid
        AND a.company_id = ${companyId}::uuid
+     ORDER BY a.employee_id, a.cost_centre_id
   `) as Row[];
 
   const mappings = await getMappingLookup(companyId);
@@ -159,16 +162,10 @@ export async function buildLabourLines(
     employeeCostCentre[employeeId] = r.cost_centre_id == null ? null : String(r.cost_centre_id);
     runLines.push({ employeeId, labourAmount: round2(grossShare * costBeforeEti - etiShare * etiUsed) });
   }
-  // Tie only ROUNDING — at most half a cent per line. A bigger gap means the
-  // run lines disagree with the header; absorbing it would move real cost onto
-  // one cost centre silently, so it is left for the plan's exact balance check
-  // to refuse as 'unbalanced'.
-  const residual = round2(labourDebit - runLines.reduce((s, l) => s + l.labourAmount, 0));
-  const roundingCents = Math.ceil(runLines.length / 2);
-  if (residual !== 0 && Math.abs(Math.round(residual * 100)) <= roundingCents) {
-    const largest = runLines.reduce((a, b) => (b.labourAmount > a.labourAmount ? b : a));
-    largest.labourAmount = round2(largest.labourAmount + residual);
-  }
+  // Both reads are ORDER BY'd (the allocation split puts its own residual on
+  // the LAST share), and the rounding tie is broken by employee — so the split,
+  // the posted journal and the plan hash never depend on heap order (R2-5).
+  const tied = placeLabourRounding(runLines, labourDebit);
 
   const employeeAllocations: Record<string, AllocationShare[]> = {};
   for (const r of allocRows) {
@@ -181,7 +178,7 @@ export async function buildLabourLines(
   }
 
   return buildLabourDebitLines({
-    runLines, employeeCostCentre, employeeAllocations, mappings, defaultAccountId,
+    runLines: tied, employeeCostCentre, employeeAllocations, mappings, defaultAccountId,
   }).map((l) => ({
     glAccountId: l.glAccountId,
     debit: l.debit,
