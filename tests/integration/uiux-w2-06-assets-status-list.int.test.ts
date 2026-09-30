@@ -21,10 +21,12 @@ const other = randomUUID();
 const userId = randomUUID();
 let token = '';
 
-async function seedAsset(company: string, n: string, status: string) {
+const CAT = `${tag}-cat`;
+
+async function seedAsset(company: string, n: string, status: string, category: string | null = null) {
   await sql`
-    INSERT INTO assets (company_id, asset_number, name, purchase_date, purchase_price, useful_life_years, status)
-    VALUES (${company}::UUID, ${`${tag}-${n}`}, ${`Asset ${n}`}, '2026-01-01', 1000, 5, ${status})`;
+    INSERT INTO assets (company_id, asset_number, name, purchase_date, purchase_price, useful_life_years, status, category)
+    VALUES (${company}::UUID, ${`${tag}-${n}`}, ${`Asset ${n}`}, '2026-01-01', 1000, 5, ${status}, ${category})`;
 }
 
 async function get(query: Record<string, string | string[]>) {
@@ -49,6 +51,8 @@ describe('assets list accepts a comma-separated status filter (LED-02)', () => {
     await seedAsset(mine, 'a', 'available');
     await seedAsset(mine, 'b', 'assigned');
     await seedAsset(mine, 'c', 'disposed');
+    await seedAsset(mine, 'k1', 'available', CAT);
+    await seedAsset(mine, 'k2', 'disposed', CAT);
     await seedAsset(other, 'x', 'available');
     token = await new SignJWT({ sub: userId, aal: 'aal2' })
       .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
@@ -65,19 +69,20 @@ describe('assets list accepts a comma-separated status filter (LED-02)', () => {
   it('returns every asset in a comma list, and only those', async () => {
     const s = await get({ status: 'available,assigned' });
     expect(s.statusCode).toBe(200);
-    expect(numbers(s)).toEqual(['a', 'b']);
+    expect(numbers(s)).toEqual(['a', 'b', 'k1']);
   });
 
   it('a single status still filters exactly', async () => {
-    expect(numbers(await get({ status: 'disposed' }))).toEqual(['c']);
+    expect(numbers(await get({ status: 'disposed' }))).toEqual(['c', 'k2']);
   });
 
-  it('a comma list combines with a category filter', async () => {
-    expect(numbers(await get({ status: 'available,assigned', category: 'no-such-category' }))).toEqual([]);
+  it('a comma list combines with a category filter: only the matching-status row of that category', async () => {
+    expect(numbers(await get({ status: 'available,assigned', category: CAT }))).toEqual(['k1']);
+    expect(numbers(await get({ category: CAT }))).toEqual(['k1', 'k2']);
   });
 
   it('a repeated param (string[]) is treated as the same list', async () => {
-    expect(numbers(await get({ status: ['available', 'assigned'] }))).toEqual(['a', 'b']);
+    expect(numbers(await get({ status: ['available', 'assigned'] }))).toEqual(['a', 'b', 'k1']);
   });
 
   it('an unknown status in the list is a 400, not an empty list', async () => {
@@ -89,8 +94,36 @@ describe('assets list accepts a comma-separated status filter (LED-02)', () => {
     expect((await get({ status: 'available,' })).statusCode).toBe(400);
   });
 
+  it.each(['', '   '])('a blank status (%j) means no filter, as before', async (blank) => {
+    const s = await get({ status: blank });
+    expect(s.statusCode).toBe(200);
+    expect(numbers(s)).toEqual(['a', 'b', 'c', 'k1', 'k2']);
+  });
+
+  it('status=all means no filter', async () => {
+    expect(numbers(await get({ status: 'all' }))).toEqual(['a', 'b', 'c', 'k1', 'k2']);
+  });
+
+  it('all inside a list is a 400 (by design: all is only valid on its own)', async () => {
+    expect((await get({ status: 'all,available' })).statusCode).toBe(400);
+  });
+
+  it('whitespace around list elements is trimmed', async () => {
+    expect(numbers(await get({ status: ' available , assigned ' }))).toEqual(['a', 'b', 'k1']);
+  });
+
+  it('search still ignores status (pinned pre-existing behaviour)', async () => {
+    expect(numbers(await get({ status: 'assigned', search: `${tag}-c` }))).toEqual(['c']);
+  });
+
+  it('the 400 does not echo the raw value', async () => {
+    const s = await get({ status: '<script>x'.repeat(50) });
+    expect(s.statusCode).toBe(400);
+    expect(JSON.stringify(s.body)).not.toContain('<script>');
+  });
+
   it("never returns another company's assets", async () => {
     const s = await get({ status: 'available,assigned,in_maintenance,disposed,written_off' });
-    expect(numbers(s)).toEqual(['a', 'b', 'c']);
+    expect(numbers(s)).toEqual(['a', 'b', 'c', 'k1', 'k2']);
   });
 });
