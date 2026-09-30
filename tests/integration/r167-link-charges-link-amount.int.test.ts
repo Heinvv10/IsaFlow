@@ -24,6 +24,10 @@ import { clearSystemAccountCache } from '@/modules/accounting/services/gl/system
 
 assertDisposable();
 
+/** The receipt a settled reference banked (one row, or none if the delivery failed). */
+const banked = async (ref: string) =>
+  (await pool.query('SELECT total_amount::text AS t FROM customer_payments WHERE bank_reference = $1', [ref])).rows;
+
 const h = vi.hoisted(() => ({ charged: [] as number[], verifyTransaction: vi.fn() }));
 vi.mock('@/modules/billing/services/paystackClient', () => ({
   initializeTransaction: async (input: { amountCents: number; reference: string }) => {
@@ -111,8 +115,7 @@ describe('a completed payment spends the link it came from', () => {
     expect(await linkRow(linkId)).toMatchObject({ status: 'paid', payment_reference: req!.ref });
     expect((await linkRow(linkId)).paid_at).not.toBeNull();
     expect((await linkRow(other.linkId)).status).toBe('active');
-    const paid = await pool.query('SELECT total_amount::text AS t FROM customer_payments WHERE bank_reference = $1', [req!.ref]);
-    expect(paid.rows).toEqual([{ t: '40.50' }]);
+    expect(await banked(req!.ref)).toEqual([{ t: '40.50' }]);
     expect((await getLink(token)).statusCode).toBe(404);
     const again = await create(token);
     expect(again.statusCode).toBe(400);
@@ -133,7 +136,8 @@ describe('a completed payment spends the link it came from', () => {
     expect((await create(token)).statusCode).toBe(200);
     await pool.query("UPDATE portal_payment_links SET status = 'cancelled' WHERE id = $1", [linkId]);
     const [req] = await requests(invoiceId);
-    await deliver(req!.ref, 2000);
+    expect((await deliver(req!.ref, 2000)).statusCode).toBe(200);
+    expect(await banked(req!.ref)).toEqual([{ t: '20.00' }]);
     expect((await linkRow(linkId)).status).toBe('cancelled');
   });
 
@@ -142,7 +146,8 @@ describe('a completed payment spends the link it came from', () => {
     const ref = `r167_legacy_${randomUUID().slice(0, 8)}`;
     await pool.query(`INSERT INTO paystack_payment_requests (company_id, purpose, customer_invoice_id, paystack_reference,
       amount_cents, status) VALUES ($1, 'customer_invoice', $2, $3, 2000, 'pending')`, [CO, invoiceId, ref]);
-    await deliver(ref, 2000);
+    expect((await deliver(ref, 2000)).statusCode).toBe(200);
+    expect(await banked(ref)).toEqual([{ t: '20.00' }]);
     expect((await linkRow(linkId)).status).toBe('active');
   });
 

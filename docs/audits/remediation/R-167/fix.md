@@ -170,6 +170,13 @@ The adversarial reviewer returned FIX: 2 MEDIUM and 4 LOW.
 - **LOW, tests:** the spend's company and status conditions, and a NULL `amount_paid`, are now
   covered.
 
+The general reviewer's first verdict, on round 0 (`cabe94705`), was SHIP with four LOWs. Three
+were already fixed by round 1: the spend's `completed` condition is now tested, a NaN link amount
+is refused, and the invoice's `payment_url` link is now a standing link that is never spent. The
+fourth is fixed in round 1 too. Three settlement tests never asserted that the webhook delivery
+succeeded, so a failing delivery would have left the link untouched and passed. They now assert a
+200 and the banked receipt.
+
 ## Migration / rollback
 
 - **Migration 717 is additive** and uses `IF NOT EXISTS`. It adds two columns and one
