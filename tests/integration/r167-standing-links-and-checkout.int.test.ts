@@ -16,7 +16,7 @@ import { readFileSync } from 'fs';
 import { SignJWT } from 'jose';
 import { assertDisposable, request } from './mfa-impersonation-postgres.helpers';
 import {
-  CO, SECRET, USER, call, cleanupCompany, create, deliver, getLink, invoiceWithLink, linkRow, pool, requests, seedCompany,
+  CO, SECRET, USER, addLink, call, cleanupCompany, create, deliver, getLink, invoiceWithLink, linkRow, pool, requests, seedCompany,
 } from './r167-portal-links.helpers';
 import { enableOnlinePayment } from '@/modules/accounting/services/core/paymentGatewayPortalService';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
@@ -92,11 +92,13 @@ describe("the invoice's standing link charges the live balance and is never spen
   it('migration 717 marks the link an invoice payment_url names as standing, and nothing else', async () => {
     const named = await invoiceWithLink(0, 115);
     const other = await invoiceWithLink(0, 20);
+    const explicitOnNamed = await addLink(named.invoiceId, 10); // same invoice, not the one payment_url names
     await pool.query("UPDATE customer_invoices SET payment_url = 'https://app.r167.test/portal/pay/' || $2 WHERE id = $1",
       [named.invoiceId, named.token]);
     await pool.query(readFileSync('scripts/migrations/sql/717_paystack_request_portal_link.sql', 'utf8'));
     expect((await linkRow(named.linkId)).charges_balance).toBe(true);
     expect((await linkRow(other.linkId)).charges_balance).toBe(false);
+    expect((await linkRow(explicitOnNamed.linkId)).charges_balance).toBe(false);
   });
 });
 
