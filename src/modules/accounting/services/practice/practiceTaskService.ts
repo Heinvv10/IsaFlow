@@ -53,7 +53,7 @@ function addMonths(s: string, months: number): string {
   const last = new Date(Date.UTC(yr, mo + 1, 0)).getUTCDate();
   return new Date(Date.UTC(yr, mo, Math.min(d!, last))).toISOString().split('T')[0]!;
 }
-function computeNextDueDate(s: string, rule: NonNullable<PracticeTask['recurringRule']>): string {
+export function computeNextDueDate(s: string, rule: NonNullable<PracticeTask['recurringRule']>): string {
   switch (rule) {
     case 'weekly':    return addDays(s, 7);
     case 'monthly':   return addMonths(s, 1);
