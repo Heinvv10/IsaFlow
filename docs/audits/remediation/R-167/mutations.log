@@ -1,3 +1,11 @@
+# Review round 3: on 37d2b39ca. Q50-Q52 (the abandoned-start sweep) are new. Q39 was re-pointed at the simplified branch; Q40 is gone with the dead 'young' check. Q21 and Q47 were re-run. Q52 SURVIVED until the older-started-checkout case was added. Each run: both r167 suites + paystackClient unit test.
+Q21 no reuse at all: RED | 3 failed | 32 passed (35)
+Q47 starting not 409: RED | 1 failed | 34 passed (35)
+Q50 abandoned starts never failed: RED | 1 failed | 34 passed (35)
+Q51 sweep fails live starts: RED | 1 failed | 34 passed (35)
+Q52 sweep fails checkouts that have a URL: RED | 1 failed | 34 passed (35)
+Q39 no starting state: RED | 1 failed | 34 passed (35)
+
 # Review round 2: 47 mutants on 72fdc005d (Q38/Q43 re-run after the lock case switched to FOR NO KEY UPDATE; Q38 SURVIVED before it). Each: both r167 suites + paystackClient unit test; fixture clone at 717. Two earlier runs were discarded (a fixed IP, then a fixed unknown token, hit rate limits and failed a case regardless of the mutant); a baseline run after this one is green (34/34, 16/16).
 Q1 cancelled invoices charged: RED | 2 failed | 32 passed (34)
 Q2 deleted invoices charged: RED | 1 failed | 33 passed (34)
