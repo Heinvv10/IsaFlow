@@ -13,6 +13,7 @@ import {
 import { apiFetch } from '@/lib/apiFetch';
 import { BundleEditor } from '@/components/accounting/items/BundleEditor';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
+import { localISODate } from '@/lib/dateUtils';
 
 interface Item {
   id: string;
@@ -116,10 +117,7 @@ export default function ItemDetailPage() {
     : item.item_type === 'service' ? 'Service'
     : item.item_type;
 
-  const createdStr =
-    typeof item.created_at === 'string'
-      ? item.created_at.split('T')[0]
-      : new Date(item.created_at).toISOString().split('T')[0];
+  const createdStr = localISODate(new Date(item.created_at));
 
   const fields: { label: string; value: string | number | null | undefined; highlight?: boolean }[] = [
     { label: 'Code', value: item.code, highlight: true },

@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, ChevronLeft, ChevronRight, ScrollText, Download } from 'lucide-react';
+import { localISODate } from '@/lib/dateUtils';
 
 interface UnifiedAuditEntry {
   id: string;
@@ -39,8 +40,8 @@ function getDefaultDates() {
   const now   = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
   return {
-    from: start.toISOString().split('T')[0] as string,
-    to:   now.toISOString().split('T')[0]   as string,
+    from: localISODate(start),
+    to:   localISODate(now),
   };
 }
 
@@ -118,7 +119,7 @@ function exportCsv(rows: UnifiedAuditEntry[]) {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = `audit-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `audit-${localISODate()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { Package, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { localISODate } from '@/lib/dateUtils';
 
 interface Pkg {
   id: string;
@@ -16,7 +17,7 @@ interface Props {
 export function ApplyPackageCard({ employeeId }: Props) {
   const [packages, setPackages] = useState<Pkg[]>([]);
   const [selected, setSelected] = useState('');
-  const [effectiveFrom, setEffectiveFrom] = useState(new Date().toISOString().slice(0, 10));
+  const [effectiveFrom, setEffectiveFrom] = useState(localISODate());
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');

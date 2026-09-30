@@ -8,11 +8,9 @@ import { CalendarRange, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { fetchEntryTemplates, type EntryTemplate } from './practiceApi';
 import type { BulkFromTemplateInput, BulkFromTemplateResult } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
+import { addDaysISO, localISODate } from '@/lib/dateUtils';
 
-function todayIso() { return new Date().toISOString().slice(0, 10); }
-function offsetDate(iso: string, d: number): string {
-  const dt = new Date(iso); dt.setDate(dt.getDate() + d); return dt.toISOString().slice(0, 10);
-}
+function todayIso() { return localISODate(); }
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -34,7 +32,7 @@ export function BulkRangeModal({ onClose, onDone }: BulkRangeModalProps) {
   const [templates, setTemplates] = useState<EntryTemplate[]>([]);
   const [templateId, setTemplateId] = useState('');
   const [dateFrom, setDateFrom] = useState(today);
-  const [dateTo, setDateTo] = useState(offsetDate(today, 7));
+  const [dateTo, setDateTo] = useState(addDaysISO(today, 7));
   const [weekdays, setWeekdays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [hoursOverride, setHoursOverride] = useState('');
   const [taskOverride, setTaskOverride] = useState('');

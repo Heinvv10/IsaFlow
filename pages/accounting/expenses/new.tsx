@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { ChevronLeft, Loader2 } from 'lucide-react';
+import { localISODate } from '@/lib/dateUtils';
 
 interface Employee { id: string; first_name: string; last_name: string; email: string }
 
@@ -16,7 +17,7 @@ export default function NewExpenseClaim() {
   const router = useRouter();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeeId, setEmployeeId] = useState('');
-  const [claimDate, setClaimDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [claimDate, setClaimDate] = useState(() => localISODate());
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
