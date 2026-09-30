@@ -72,9 +72,7 @@ export default function DocumentCaptureDetailPage() {
     setError('');
 
     try {
-      const data = await apiJson(`/api/accounting/document-capture?id=${encodeURIComponent(String(docId))}`);
-      if (Array.isArray(data) || 'document' in data) throw new Error('Unexpected document response');
-      const found = data;
+      const found = await apiJson(`/api/accounting/document-capture?id=${encodeURIComponent(String(docId))}`);
 
       setDoc(found);
 

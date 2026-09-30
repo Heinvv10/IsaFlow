@@ -155,3 +155,15 @@ export async function p17() {
   // line starts compiling and the expect-error itself fails the build.
   return r.token;
 }
+
+// 18. W1-02: `?id=` on the document-capture list route is its OWN key. The
+//     by-id read is one document with no narrowing, and the bare list URL stays
+//     the list — so neither inherits the other's shape.
+export async function p18() {
+  const one = await apiJson(`/api/accounting/document-capture?id=${'x'}`);
+  const name: string | null = one.vendorName;   // must compile, no `in` narrowing
+  const list = await apiJson('/api/accounting/document-capture');
+  // @ts-expect-error the bare list URL is an array/upload union, never a single document
+  const bad = list.vendorName;
+  return [name, bad] as const;
+}
