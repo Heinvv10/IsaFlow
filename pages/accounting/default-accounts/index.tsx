@@ -47,6 +47,10 @@ const DEFAULT_MAPPINGS: Omit<DefaultAccountMapping, 'accountId'>[] = [
 export default function DefaultAccountsPage() {
   const [glAccounts, setGlAccounts] = useState<GLAccount[]>([]);
   const [mappings, setMappings] = useState<Record<string, string>>({});
+  // What the server showed for each row: a save sends only the rows that differ,
+  // with these as `loaded`, so a row another user moved since is refused (409)
+  // instead of being put back.
+  const [loaded, setLoaded] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -62,7 +66,9 @@ export default function DefaultAccountsPage() {
       const mapJson = await mapRes.json();
       const acctData = acctJson.data ?? acctJson;
       setGlAccounts(Array.isArray(acctData) ? acctData : (acctData.accounts ?? []));
-      setMappings((mapJson.data || mapJson).mappings || {});
+      const shown = (mapJson.data || mapJson).mappings || {};
+      setMappings(shown);
+      setLoaded(shown);
     } catch {
       setMessage({ type: 'error', text: 'Failed to load configuration' });
     } finally {
@@ -73,19 +79,28 @@ export default function DefaultAccountsPage() {
   useEffect(() => { void loadData(); }, [loadData]);
 
   const handleSave = async () => {
+    const changed = Object.keys(mappings).filter((k) => (mappings[k] || '') !== (loaded[k] || ''));
+    if (changed.length === 0) {
+      setMessage({ type: 'success', text: 'No changes to save' });
+      return;
+    }
+    const pick = (from: Record<string, string>) => Object.fromEntries(changed.map((k) => [k, from[k] || '']));
     setIsSaving(true);
     setMessage({ type: '', text: '' });
     try {
       const res = await apiFetch('/api/accounting/default-accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mappings }),
+        body: JSON.stringify({ mappings: pick(mappings), loaded: pick(loaded) }),
       });
       if (res.ok) {
+        await loadData();
         setMessage({ type: 'success', text: 'Default accounts saved' });
       } else {
         const json = await res.json();
-        setMessage({ type: 'error', text: json.message || 'Failed to save' });
+        const text = json.error?.message || json.message || 'Failed to save';
+        if (res.status === 409) await loadData();
+        setMessage({ type: 'error', text });
       }
     } catch {
       setMessage({ type: 'error', text: 'Save request failed' });
@@ -152,6 +167,7 @@ export default function DefaultAccountsPage() {
                           <p className="text-xs text-[var(--ff-text-tertiary)]">{mapping.description}</p>
                         </div>
                         <select
+                          aria-label={mapping.label}
                           value={mappings[mapping.key] || ''}
                           onChange={(e) => setMappings(prev => ({ ...prev, [mapping.key]: e.target.value }))}
                           className="w-80 px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"

@@ -16,6 +16,7 @@ import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
 import { subtypeErrorFor } from '../gl/accountSubtypeRules';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { assertAccountChangesKeepVatLocks } from '../gl/vatLockLineClassification';
+import { lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 import { accountAttributes, attributeChanges } from './migrationCoaVatLock';
 import { importRowSubtype } from './migrationCoaSubtype';
 
@@ -117,6 +118,9 @@ export async function importChartOfAccounts(
   // withAlsTransaction joins the request transaction (or opens one for a
   // non-request caller), so the savepoint always has something to roll back.
   const refusal = await withAlsTransaction({ userId: als.getStore()?.userId ?? 'system', companyId }, async () => {
+    // The role map below rewrites system-account flags: serialise with the
+    // Default Accounts save, which takes the same lock.
+    await lockSystemRoleWrites(companyId);
     try {
       await withSavepoint('coa_import_vat_lock', async () => {
         const before = await accountAttributes(companyId);

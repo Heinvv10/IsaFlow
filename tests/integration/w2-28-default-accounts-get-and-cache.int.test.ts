@@ -102,7 +102,7 @@ describeIfDb('W2-28 — GET survives a malformed stored mapping; the cache clear
       })()) as never);
     const req = request({ 'sb-access-token': token, active_company_id: A }, 'POST') as never as
       { body: unknown; url: string };
-    req.body = { mappings: { accounts_receivable: NEW_AR } };
+    req.body = { mappings: { accounts_receivable: NEW_AR }, loaded: { accounts_receivable: OLD_AR } };
     req.url = '/api/accounting/default-accounts';
     const out = response();
     await defaultAccounts(req as never, out.res as never);

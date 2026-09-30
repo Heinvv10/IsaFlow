@@ -69,6 +69,12 @@ describeIfDb('W2-28 — Default Accounts reflects and preserves system account f
     return out.state as { statusCode: number; body: { data?: { mappings?: Record<string, string> } } };
   }
 
+  /** A POST body as the page sends it: the changed keys plus the holders it loaded for them. */
+  const withLoaded = async (mappings: Record<string, string>) => {
+    const shown = (await call(defaultAccounts, 'GET')).body.data?.mappings ?? {};
+    return { mappings, loaded: Object.fromEntries(Object.keys(mappings).map((k) => [k, shown[k] ?? ''])) };
+  };
+
     /** Accounts of company A flagged for `subtype`. */
   const holdersOf = async (subtype: string): Promise<string[]> =>
     (await pool.query(
@@ -188,7 +194,7 @@ describeIfDb('W2-28 — Default Accounts reflects and preserves system account f
   });
 
   it('POST changing one role moves only that flag', async () => {
-    const state = await call(defaultAccounts, 'POST', { mappings: { accounts_receivable: ALT_AR } });
+    const state = await call(defaultAccounts, 'POST', await withLoaded({ accounts_receivable: ALT_AR }));
     expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
     const flags = await flagsOfA();
     expect(flags.get(ALT_AR)).toMatchObject({ account_subtype: 'receivable', is_system_account: true });
@@ -203,7 +209,7 @@ describeIfDb('W2-28 — Default Accounts reflects and preserves system account f
 
   it('POST that clears a held role is refused 400 and writes nothing', async () => {
     const before = await flagsOfA();
-    const state = await call(defaultAccounts, 'POST', { mappings: { accounts_receivable: '', petty_cash: ALT_AR } });
+    const state = await call(defaultAccounts, 'POST', await withLoaded({ accounts_receivable: '', petty_cash: ALT_AR }));
     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
     expect(JSON.stringify(state.body)).toMatch(/receivable/i);
     expect(await flagsOfA()).toEqual(before);
@@ -212,7 +218,7 @@ describeIfDb('W2-28 — Default Accounts reflects and preserves system account f
 
   it('POST that takes an account from another role (admin_expense) is refused 400 and writes nothing', async () => {
     const before = await flagsOfA();
-    const state = await call(defaultAccounts, 'POST', { mappings: { cost_of_sales: ADMIN_EXP } });
+    const state = await call(defaultAccounts, 'POST', await withLoaded({ cost_of_sales: ADMIN_EXP }));
     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
     expect(JSON.stringify(state.body)).toMatch(/admin_expense/);
     expect(await flagsOfA()).toEqual(before);
@@ -221,7 +227,7 @@ describeIfDb('W2-28 — Default Accounts reflects and preserves system account f
 
   it('POST naming a deactivated account is refused 400 and writes nothing', async () => {
     const before = await flagsOfA();
-    const state = await call(defaultAccounts, 'POST', { mappings: { accounts_receivable: INACTIVE_AR } });
+    const state = await call(defaultAccounts, 'POST', await withLoaded({ accounts_receivable: INACTIVE_AR }));
     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
     expect(JSON.stringify(state.body)).toMatch(/1126.*inactive/);
     expect(await flagsOfA()).toEqual(before);
@@ -229,7 +235,7 @@ describeIfDb('W2-28 — Default Accounts reflects and preserves system account f
 
   it('POST naming an account of the wrong type is refused 400 and writes nothing', async () => {
     const before = await flagsOfA();
-    const state = await call(defaultAccounts, 'POST', { mappings: { accounts_receivable: SPARE_EXP } });
+    const state = await call(defaultAccounts, 'POST', await withLoaded({ accounts_receivable: SPARE_EXP }));
     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
     expect(JSON.stringify(state.body)).toMatch(/must be of type 'asset'/);
     expect(await flagsOfA()).toEqual(before);
@@ -237,10 +243,10 @@ describeIfDb('W2-28 — Default Accounts reflects and preserves system account f
 
   it('a viewer\'s POST is refused 403 and writes nothing; a manager\'s POST is allowed', async () => {
     const before = await flagsOfA();
-    const viewer = await call(defaultAccounts, 'POST', { mappings: { accounts_receivable: ALT_AR } }, tokens.viewer);
+    const viewer = await call(defaultAccounts, 'POST', await withLoaded({ accounts_receivable: ALT_AR }), tokens.viewer);
     expect(viewer.statusCode, JSON.stringify(viewer.body)).toBe(403);
     expect(await flagsOfA()).toEqual(before);
-    const manager = await call(defaultAccounts, 'POST', { mappings: { accounts_receivable: ALT_AR } }, tokens.manager);
+    const manager = await call(defaultAccounts, 'POST', await withLoaded({ accounts_receivable: ALT_AR }), tokens.manager);
     expect(manager.statusCode, JSON.stringify(manager.body)).toBe(200);
     expect(await holdersOf('receivable')).toEqual([ALT_AR]);
   });
@@ -254,25 +260,24 @@ describeIfDb('W2-28 — Default Accounts reflects and preserves system account f
     const loaded = await call(defaultAccounts, 'GET');
     // Newer type-fitting row wins (preferSystemAccount), not the lowest code.
     expect(loaded.body.data?.mappings?.accounts_receivable).toBe(CONTEST_AR);
-    const state = await call(defaultAccounts, 'POST', { mappings: { accounts_receivable: ALT_AR } });
+    const state = await call(defaultAccounts, 'POST', await withLoaded({ accounts_receivable: ALT_AR }));
     expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
     expect(await holdersOf('receivable')).toEqual([ALT_AR]);
   });
 
-  it('swapping two roles in one save (receivable <-> bank) leaves exactly one holder each', async () => {
-    const state = await call(defaultAccounts, 'POST', {
-      mappings: { accounts_receivable: ids.primary_bank, primary_bank: ids.accounts_receivable },
-    });
-    expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
-    expect(await holdersOf('receivable')).toEqual([ids.primary_bank]);
-    expect(await holdersOf('bank')).toEqual([ids.accounts_receivable]);
+  it('swapping two roles in one save (receivable <-> bank) is refused: an account may not be reclassified by assignment', async () => {
+    const before = await flagsOfA();
+    const state = await call(defaultAccounts, 'POST',
+      await withLoaded({ accounts_receivable: ids.primary_bank!, primary_bank: ids.accounts_receivable! }));
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+    expect(JSON.stringify(state.body)).toMatch(/1110 is classified 'bank'/);
+    expect(await flagsOfA()).toEqual(before);
   });
 
   it('one account named for two roles is refused 400 and writes nothing', async () => {
     const before = await flagsOfA();
-    const state = await call(defaultAccounts, 'POST', {
-      mappings: { accounts_receivable: ALT_AR, primary_bank: ALT_AR },
-    });
+    const state = await call(defaultAccounts, 'POST',
+      await withLoaded({ accounts_receivable: ALT_AR, primary_bank: ALT_AR }));
     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
     expect(JSON.stringify(state.body)).toMatch(/cannot hold two roles/);
     expect(await flagsOfA()).toEqual(before);
@@ -287,7 +292,7 @@ describeIfDb('W2-28 — Default Accounts reflects and preserves system account f
 
   it('POST naming company B\'s account is refused 400 and writes nothing (tenant control)', async () => {
     const before = await flagsOfA();
-    const state = await call(defaultAccounts, 'POST', { mappings: { accounts_receivable: B_AR } });
+    const state = await call(defaultAccounts, 'POST', await withLoaded({ accounts_receivable: B_AR }));
     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
     expect(await flagsOfA()).toEqual(before);
   });

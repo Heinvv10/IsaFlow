@@ -107,7 +107,7 @@ describeIfDb('PR #593 breaker', () => {
   });
 
   it('REPRO 3: Opening Balance Equity row saves 200 and GET shows it, but the resolver uses another account', async () => {
-    const state = await call('POST', { mappings: { opening_balance_equity: OBE_OTHER } });
+    const state = await call('POST', { mappings: { opening_balance_equity: OBE_OTHER }, loaded: { opening_balance_equity: OBE } });
     expect(state.statusCode).toBe(200);
     const get = await call('GET');
     const shown = (get.body.data?.mappings as Record<string, string>).opening_balance_equity;
