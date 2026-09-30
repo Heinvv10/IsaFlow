@@ -19,14 +19,14 @@ import { SignJWT } from 'jose';
 import { assertDisposable, request } from './mfa-impersonation-postgres.helpers';
 import { call, type TestResponse } from './r159-auth-wrapper.helpers';
 
-const h = vi.hoisted(() => ({ drained: 0, rateLimitThrows: false }));
+const h = vi.hoisted(() => ({ drained: 0, rateLimitThrows: false, rateLimitThrew: 0 }));
 // A throw from the wrapper's own step before the swap (the per-company rate limiter).
 vi.mock('@/lib/rateLimit', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/rateLimit')>();
   return {
     ...original,
     checkRateLimit: async (...a: Parameters<typeof original.checkRateLimit>) => {
-      if (h.rateLimitThrows) throw new Error('R-159 rate limiter unavailable');
+      if (h.rateLimitThrows) { h.rateLimitThrew += 1; throw new Error('R-159 rate limiter unavailable'); }
       return original.checkRateLimit(...a);
     },
   };
@@ -245,10 +245,11 @@ describe.each(wrappers)('%s', (label, wrap, req) => {
   it.skipIf(label === 'withExtensionToken')(
     'a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow', async () => {
       const name = `pre-swap-${randomUUID()}`;
+      const threwBefore = h.rateLimitThrew;
       h.rateLimitThrows = true;
       try {
         const r = await call(wrap('ok', name), { ...(req() as object), url: '/api/accounting/reports-r159' });
-        expect(await customers(name)).toBe(0);
+        expect(h.rateLimitThrew).toBe(threwBefore + 1); // the wrapper's own step threw, before the swap
         expect(r.threw).toBeNull();
         expect(r.status).toBe(500);
         expect(r.body).toMatchObject({ success: false, data: null, code: 'INTERNAL_SERVER_ERROR' });
