@@ -46,6 +46,9 @@ export async function listCompanyUsers(companyId: string): Promise<CompanyUserSu
  * System jobs only (the practice crons: no withAuth, no principal). They run
  * on the pool's own role, which reads past RLS; company_member_directory
  * would refuse them (no auth.uid()). Never call this from a request path.
+ * Lists only accounts in good standing, the allow-list withAuth enforces
+ * (isActiveUserAccount, src/lib/auth/userAccountStatus.ts): a suspended
+ * member is not emailed (R-162).
  */
 export async function listCompanyUsersForSystem(companyId: string): Promise<CompanyUserSummary[]> {
   log.info('listCompanyUsersForSystem', { companyId }, 'practice-users');
@@ -55,6 +58,8 @@ export async function listCompanyUsersForSystem(companyId: string): Promise<Comp
     JOIN company_users cu ON cu.user_id::TEXT = u.id
     WHERE cu.company_id = ${companyId}::UUID
       AND u.is_active = true
+      AND u.suspended_at IS NULL
+      AND (u.status IS NULL OR LOWER(u.status) = 'active')
     ORDER BY COALESCE(NULLIF(TRIM(u.first_name || ' ' || u.last_name), ''), u.email) ASC
   `;
   return rows.map(mapUser);
