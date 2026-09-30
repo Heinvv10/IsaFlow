@@ -81,11 +81,28 @@ render, mocked `apiFetch` only):
 3. `renders overrides and staff normally on 200`
 4. `shows an error when deleting an override 500s, instead of silently reloading`
 
-RED on master (pre-fix): tests 1, 2 and 4 failed — 1 and 2 rendered "No rate overrides yet" /
-never found the server message (test 1's crash trace confirmed the guard's absence causes an
-`overrides.map` TypeError, since a failed load never produced an array); 4 never found "delete
-failed" and the row that should still be there. Test 3 (the 200 case) passed on master too — it
-was never broken, and stayed green through the fix.
+RED on master (pre-fix, `ClientRateOverrides.tsx` as of this branch's base commit): tests 1, 2 and
+4 failed. On master, `if (overridesRes.ok) {...}` has no `else`, so a 500 leaves `overrides` at
+its initial `[]` — nothing throws, nothing renders `overrides.map`. Test 1 times out inside
+`findByText('db down')`:
+
+```
+❯ waitForWrapper node_modules/@testing-library/dom/dist/wait-for.js:163:27
+❯ tests/unit/components/clientRateOverridesLoadErrors.test.tsx:42:23
+    42|   expect(await screen.findByText('db down')).toBeInTheDocument();
+      |                       ^
+```
+
+— the DOM it dumps on timeout shows "No rate overrides yet" rendered instead, never the server
+message. Test 2 fails the same way (`findByText('staff lookup failed')` times out). Test 4 never
+finds "delete failed" or the row that should still be there, because `handleDelete` had no
+`res.ok`/`assertOk` check at all. Test 3 (the 200 case) passed on master too — it was never
+broken, and stayed green through the fix.
+
+The `overrides.map` `TypeError` mentioned in the mutation table below is real, but only appears
+under mutation M1 against the **fixed** code (removing `assertOk` while the `.json()` parse and
+`setOverrides` calls that follow it stay in place) — it does not occur on master, where the
+`if (...ok)` guard already prevents the parse from running on a failed response.
 
 ## Mutation table
 
