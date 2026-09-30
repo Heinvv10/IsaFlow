@@ -13,6 +13,12 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { RunningBalance, toMoney } from '@/lib/money/decimalSum';
+import {
+  DEFAULT_FY_START_MONTH,
+  fiscalYearStart,
+  getFiscalYearStartMonth,
+} from '../gl/fiscalYearBasis';
+import { INCOME_STATEMENT_TYPES } from '../gl/trialBalanceBasis';
 
 type Row = DbRow;
 
@@ -79,7 +85,15 @@ export async function getAccountLedger(
     };
 
     // 2. Opening balance: sum of all movements BEFORE fromDate.
+    //    Income-statement accounts restart each fiscal year (trialBalanceBasis),
+    //    so their opening is floored at the start of the fiscal year containing
+    //    fromDate — otherwise the drill-down cannot tie to the TB row (LED-01).
+    //    READ PATH: the March fallback is taken here, visibly, as the TB does.
     //    company_id is the FIRST condition in both table scopes.
+    const isIncomeStatement = (INCOME_STATEMENT_TYPES as readonly string[]).includes(meta.accountType);
+    const openingFloor = isIncomeStatement
+      ? fiscalYearStart(fromDate, await getFiscalYearStartMonth(companyId, { fallback: DEFAULT_FY_START_MONTH }))
+      : null;
     const obRows = postedOnly
       ? (await sql`
           SELECT
@@ -94,6 +108,7 @@ export async function getAccountLedger(
               OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date    < ${fromDate}
+            AND (${openingFloor}::date IS NULL OR je.entry_date >= ${openingFloor}::date)
             AND je.status        = 'posted'
         `) as Row[]
       : (await sql`
@@ -109,6 +124,7 @@ export async function getAccountLedger(
               OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date    < ${fromDate}
+            AND (${openingFloor}::date IS NULL OR je.entry_date >= ${openingFloor}::date)
         `) as Row[];
 
     const obDebit = Number(obRows[0]?.total_debit ?? 0);
