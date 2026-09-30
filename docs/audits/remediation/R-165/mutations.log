@@ -1,0 +1,24 @@
+Mutation M1: BEGIN ISOLATION LEVEL REPEATABLE READ -> BEGIN
+
+Applied by copying the fixed test file aside, sed-reverting the one BEGIN
+line, running the suite, then copying the saved fixed file back over the
+working file (never `git checkout`, per CLAUDE.md — this is a shared
+worktree convention, not a correctness requirement here, but followed
+anyway).
+
+  cp tests/unit/mcp/w2/generalLedgerStream.integration.test.ts <scratch>/fixed.copy
+  sed -i "s/BEGIN ISOLATION LEVEL REPEATABLE READ/BEGIN/" \
+    tests/unit/mcp/w2/generalLedgerStream.integration.test.ts
+
+Result: RED, 3/3 runs (see red.log) —
+  is not disturbed by a peer session committing a posted line mid-read (R-165 regression)
+  AssertionError: expected 762 to be 760
+  at expect(whole.lineCount).toBe(before.lineCount)
+
+Restore:
+  cp <scratch>/fixed.copy tests/unit/mcp/w2/generalLedgerStream.integration.test.ts
+
+Result after restore: GREEN, full suite 10/10 (see ci.log).
+
+No other guard was introduced by this change — the fix is the isolation
+level on one BEGIN statement, and M1 is the only mutation that applies.
