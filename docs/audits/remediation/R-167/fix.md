@@ -192,7 +192,7 @@ Evidence:
   - r158, r166, k101, r155-157, r157 and the r159 suites;
   - the k122 suites and the three r095 portal suites;
   - customer-ownership-fence-routes, on an `isaflow_test` copy of the fixture.
-- `mutations.log`: 47 of 47 round-2 mutants are RED. Each run used both suites plus the
+- `mutations.log`: every mutant is RED. That is 47 in round 2; in round 3, Q50–Q52 are added, Q39 is re-pointed and Q40 is removed with the dead code, 49 in all. Each run used both suites plus the
   `paystackClient` unit test. They cover:
   - every filter and each arm of the charge, both link kinds, and the clamp;
   - every refusal and its HTTP mapping, including the 409;
