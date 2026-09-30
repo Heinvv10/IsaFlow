@@ -146,7 +146,9 @@ describe('create holds nothing across the gateway call', () => {
     const holder = await pool.connect();
     try {
       await holder.query('BEGIN');
-      await holder.query('SELECT 1 FROM portal_payment_links WHERE token = $1 FOR UPDATE', [token]);
+      // FOR NO KEY UPDATE conflicts with create's FOR UPDATE but not with the KEY SHARE lock the
+      // checkout INSERT's foreign key takes, so only create's own lock can make it wait here.
+      await holder.query('SELECT 1 FROM portal_payment_links WHERE token = $1 FOR NO KEY UPDATE', [token]);
       const pending = create(token);
       await new Promise((done) => setTimeout(done, 300));
       expect(h.charged).toEqual([]); // blocked on the lock
