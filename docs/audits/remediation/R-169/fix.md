@@ -95,8 +95,17 @@ change; comments were kept terse to fit.
 ## Tests (real PG, through the route, app_user with withAuth GUCs)
 
 `tests/integration/r169-pipeline-capture-event-coding.int.test.ts`, fixture `isaflow-fixture-r169-goal`
-(cloned from `isaflow-fixture-r159`, already at migration 717 — no migration needed for this fix,
-confirmed: the branch's own migrations top out at 716).
+(cloned from the live `isaflow-fixture-r159` container). No migration needed for this fix — the
+branch's own migrations top out at 716.
+
+**Fixture schema contamination, disclosed:** the clone's `schema_migrations` tops out at
+`717_paystack_request_portal_link.sql` — R-167's own migration (`paystack_payment_requests
+.portal_payment_link_id`), from the still-unmerged branch `fix/r167-link-charges-link-amount-20260930`
+(commit `bfee49e57`), not from master or this branch. `isaflow-fixture-r159` is a live container
+another session owns and may write to over time; cloning it picks up whatever schema state it is
+in at that moment, not a frozen R-159 snapshot. None of this fix's tests touch `paystack_*` tables
+or columns, so nothing here depends on migration 717 — same shape as
+`feedback_shared_fixture_db_schema_contamination` in memory.
 
 | Test | Proves |
 |---|---|
@@ -128,31 +137,52 @@ from a `cp` backup (`cmp` checked equal after restore).
 ## Browser proof (dev, Brightsphere, reporting-qa@isaflow.dev)
 
 The pipeline has no button in the app — same as R-160 found; only this route and the e2e smoke
-tests reference it. A `captured_documents` + `capture_events` row was seeded directly (real
-extraction JSON, Venture Workspace, dated 2027-03-10 — Brightsphere's 2026 periods are closed on
-dev) rather than through a real upload + VLM OCR pass, since the extraction step itself is
-unrelated to this fix and this keeps the run reproducible; the pipeline and the inbox both read
-purely from `captured_documents`/`capture_events`, so this is the same code path a real upload
-would exercise. The dev server ran from this worktree on :3282; the session was minted for
-reporting-qa via GoTrue `admin/generate_link` → `email_otp` → `/verify`, and the route was called
-from the signed-in page with `fetch` plus the `isaflow_csrf` header, exactly as R-160 did, from a
-headless Playwright script with its own browser context (not the shared Chrome profile / MCP
-browser).
+tests reference it. **Deviation from the brief, disclosed:** the seed document/event were not
+created through normal app use — they were inserted with a direct `psql` connection to
+`isaflow_dev` as the `postgres` superuser (the `DATABASE_URL` in `.env.local`), bypassing
+`withAuth`/RLS entirely, rather than through a real upload + VLM OCR pass. Everything AFTER that
+seed — the pipeline call, the invoice, its journal, the coding history row — was written by the
+real route, authenticated as reporting-qa, exactly as intended. The dev server ran from this
+worktree on :3282; the session was minted for reporting-qa via GoTrue `admin/generate_link` →
+`email_otp` → `/verify`, and the route was called from the signed-in page with `fetch` plus the
+`isaflow_csrf` header, exactly as R-160 did, from a headless Playwright script with its own
+browser context (not the shared Chrome profile / MCP browser).
 
 - `browser-inbox-before-extracted.png`: `/accounting/capture/inbox`, the seeded row
   (`billing@ventureworkspace.example`, 2026/09/30 12:44) at the top, status **Extracted**.
 - `browser-inbox-after-posted.png`: same page, reloaded after the pipeline answered 200
   (`auto_approve`, invoice `VW-R169-2703` approved) — the row is **gone** from the default
   (pending-only) view; the three pre-existing R-160/R-131 rows are unaffected.
-- DB confirmation after the run: `capture_events.status = 'posted'`, `posted_by` = the
-  reporting-qa user id, `posted_at` set; `supplier_coding_history` for the new invoice carries
-  `gl_account_id: null` (Venture Workspace has no coding rule on dev), `vat_code = '4240294944'`
-  (Venture Workspace's own VAT number, from `extracted.vendorVatNumber` — the intentional-null
-  path and the VAT fallback both exercised in the same run).
 
-Dev writes: one seeded document/event and one pipeline run through the real route, as
-reporting-qa, in Brightsphere — one approved bill (`VW-R169-2703`), left in place, same as
-R-160/R-131 left their dev writes. No migrations.
+### Dev writes (Brightsphere, `d27bac33-cdc0-4e58-bf6b-709c1597d41c`) — nothing deleted
+
+**Seeded directly (as `postgres`, not through the app):**
+
+| Table | id | Notes |
+|---|---|---|
+| `captured_documents` | `420715d5-8b73-4f58-9965-c5ef4695a9e3` | `status='pending'`, `extracted_data` a realistic JSON blob (Venture Workspace, ref `VW-R169-2703`, total 736.00, VAT 96.00, no line items), `file_name='r169-proof.pdf'` |
+| `capture_events` | `bbd8e09b-2f5e-44df-bd96-8fa38060a148` | `channel='email'`, `status='extracted'` (its initial value), `captured_document_id` → the row above, `sender='billing@ventureworkspace.example'` |
+
+**Written by the pipeline run (through the real route, as reporting-qa, `posted_by` = the
+reporting-qa GoTrue user id `233f3bd5-9f54-45bb-9b88-a9389ce0c8f3`):**
+
+| Table | id | Notes |
+|---|---|---|
+| `capture_events` (update) | `bbd8e09b-2f5e-44df-bd96-8fa38060a148` | `status → 'posted'`, `posted_by`, `posted_at` set — this fix's own change |
+| `captured_documents` (update) | `420715d5-8b73-4f58-9965-c5ef4695a9e3` | `status → 'matched'`, `posted_at` set, `matched_invoice_id` → the invoice below |
+| `supplier_invoices` | `3f2f972f-9057-4d60-a1dc-4ff64448bae0` | `invoice_number='VW-R169-2703'`, `status='approved'`, `total_amount=736.00`, `posting_agent='ai:ai-invoice-pipeline:v1'`, `gl_journal_entry_id` → the journal below |
+| `supplier_invoice_items` | `33b17c47-81a4-4228-99fa-b57b9fe97ff5` | one line, `'As per invoice'`, 640.00 + 96.00 VAT |
+| `gl_journal_entries` | `c896e853-9583-453c-9fe1-f224cc2b3d04` | `entry_number='JE-2027-00006'`, `source='auto_supplier_invoice'`, `status='posted'`, dated 2027-03-10 |
+| `gl_journal_lines` | 3 rows (`39a74d1c…`, `59e3aefe…`, `ca9cde05…`) | DR 640.00 expense, DR 96.00 VAT input, CR 736.00 accounts payable — balanced |
+| `supplier_coding_history` | `ebfad287-bffb-4368-a70d-cec102465202` | `gl_account_id: null` (Venture Workspace has no coding rule on dev), `vat_code='4240294944'` (Venture Workspace's own VAT number, via `extracted.vendorVatNumber` — the intentional-null path and the VAT fallback both exercised in the same run), `posted_by='ai:ai-invoice-pipeline:v1'` |
+
+`performThreeWayMatch` and `resolvePendingAlertForInvoice` also ran (best-effort, part of the
+route) but wrote nothing: no linked PO, and no pending expectation alert existed for this
+supplier — confirmed `SELECT count(*) FROM expected_invoice_alerts WHERE resolved_invoice_id =
+'3f2f972f-…'` = 0.
+
+Everything above is left in place, same as R-160/R-131 left their dev writes — one approved bill,
+one posted journal, one coding-history row. No migrations.
 
 ## Historical data
 
