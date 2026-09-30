@@ -45,6 +45,21 @@ export async function findApprovalBlocker(
   return plan ? approvalBlocker(plan) : null;
 }
 
+/**
+ * What approving this run would post, for the confirmation a person reads
+ * before approving: the journal plan itself (never re-derived by the caller)
+ * and the blocker approval would refuse with, judged exactly as
+ * `approvePayrollRun` judges it. Read-only. Null when the run is not in this
+ * company.
+ */
+export async function previewPayrollApproval(
+  companyId: string,
+  runId: string,
+): Promise<{ plan: PayrollJournalPlan; blocker: PayrollJournalNote | null } | null> {
+  const plan = await buildPayrollJournalPlan(companyId, runId);
+  return plan ? { plan, blocker: approvalBlocker(plan) } : null;
+}
+
 function approvalBlocker(plan: PayrollJournalPlan): PayrollJournalNote | null {
   if (plan.alreadyPostedJournalId) return null;
   return plan.blockers.find((b) => b.code !== 'run_not_approved') ?? null;

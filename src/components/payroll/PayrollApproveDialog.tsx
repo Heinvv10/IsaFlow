@@ -1,0 +1,127 @@
+/**
+ * PayrollApproveDialog — "Review & approve" confirmation for a pay run (PAY-01).
+ *
+ * Shows the journal approval will post, exactly as the plan builder the poster
+ * consumes produced it (GET …/journal-plan) — no amount is derived here. A
+ * blocker disables approval with its reason. The POST goes through apiJson, so
+ * a refusal (apiFetch RESOLVES on 4xx) is thrown and shown, never mistaken for
+ * success.
+ */
+import { useEffect, useState } from 'react';
+import { Loader2, CheckCircle2, AlertTriangle, AlertCircle } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
+import { apiJson, apiErrorMessage } from '@/lib/apiFetch';
+import type { ResponseFor } from '@/lib/apiRoutes';
+import { formatCurrency } from '@/utils/formatters';
+
+type Preview = ResponseFor<'/api/payroll/runs/{}/journal-plan'>;
+export type ApproveResult = ResponseFor<'/api/payroll/runs/{}/approve'>;
+
+interface Props {
+  runId: string;
+  period: string;
+  warningCount: number;
+  open: boolean;
+  onClose: () => void;
+  onApproved: (result: ApproveResult) => void;
+}
+
+const money = (n: number) => (n === 0 ? '' : formatCurrency(n));
+
+export function PayrollApproveDialog({ runId, period, warningCount, open, onClose, onApproved }: Props) {
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [approveError, setApproveError] = useState('');
+  const [approving, setApproving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setPreview(null);
+    setLoadError('');
+    setApproveError('');
+    apiJson(`/api/payroll/runs/${runId}/journal-plan`)
+      .then((p) => { if (!cancelled) setPreview(p); })
+      .catch((err: unknown) => { if (!cancelled) setLoadError(apiErrorMessage(err, 'Could not load the journal this run would post')); });
+    return () => { cancelled = true; };
+  }, [open, runId]);
+
+  const approve = async () => {
+    setApproving(true);
+    setApproveError('');
+    try {
+      const result = await apiJson(`/api/payroll/runs/${runId}/approve`, { method: 'POST' });
+      onApproved(result);
+    } catch (err) {
+      setApproveError(apiErrorMessage(err, 'Approval failed'));
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const plan = preview?.plan;
+  const blocker = preview?.blocker ?? null;
+  const canApprove = !!plan && !blocker && !approving;
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Approve payroll — ${period}`} size="lg">
+      <Modal.Body className="space-y-4 text-sm">
+        {!plan && !loadError && (
+          <div className="flex items-center gap-2 text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading the journal…</div>
+        )}
+        {loadError && <p className="text-red-500">{loadError}</p>}
+        {plan && (
+          <>
+            <p className="text-gray-600 dark:text-gray-300">
+              {plan.alreadyPostedJournalId
+                ? 'This run already carries the journal it posted before it was reopened. Approving locks it again and posts nothing new.'
+                : <>Approving locks this run and posts journal <span className="font-mono">{plan.reference}</span> dated {plan.entryDate} for {plan.employeeCount} employee{plan.employeeCount === 1 ? '' : 's'}:</>}
+            </p>
+            <table className="w-full">
+              <thead>
+                <tr className="text-left text-xs text-gray-500">
+                  <th className="py-1">Account</th><th className="py-1 text-right">Debit</th><th className="py-1 text-right">Credit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {plan.lines.map((l, i) => (
+                  <tr key={`${l.accountCode}-${i}`} className="border-t border-gray-200 dark:border-white/10">
+                    <td className="py-1"><span className="font-mono mr-2">{l.accountCode}</span>{l.accountName}</td>
+                    <td className="py-1 text-right font-mono">{money(l.debit)}</td>
+                    <td className="py-1 text-right font-mono">{money(l.credit)}</td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-gray-300 dark:border-white/20 font-semibold">
+                  <td className="py-1">Total</td>
+                  <td className="py-1 text-right font-mono">{formatCurrency(plan.totalDebit)}</td>
+                  <td className="py-1 text-right font-mono">{formatCurrency(plan.totalCredit)}</td>
+                </tr>
+              </tbody>
+            </table>
+            {plan.advisories.map((a) => (
+              <p key={a.code} className="flex gap-2 text-amber-600 dark:text-amber-400"><AlertTriangle className="h-4 w-4 shrink-0" />{a.detail}</p>
+            ))}
+            {warningCount > 0 && (
+              <p className="flex gap-2 text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                {warningCount} warning{warningCount === 1 ? '' : 's'} on this run (listed on the page). They do not block approval.
+              </p>
+            )}
+            {blocker && (
+              <p className="flex gap-2 text-red-500"><AlertCircle className="h-4 w-4 shrink-0" />{blocker.detail}</p>
+            )}
+          </>
+        )}
+        {approveError && <p role="alert" className="flex gap-2 text-red-500"><AlertCircle className="h-4 w-4 shrink-0" />{approveError}</p>}
+      </Modal.Body>
+      <Modal.Footer>
+        <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 dark:border-white/20 text-sm">Cancel</button>
+        <button type="button" onClick={approve} disabled={!canApprove}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium">
+          {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          Approve and post journal
+        </button>
+      </Modal.Footer>
+    </Modal>
+  );
+}

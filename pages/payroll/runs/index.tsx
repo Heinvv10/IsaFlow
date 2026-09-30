@@ -18,6 +18,7 @@ interface RunRow {
   totalPaye: number;
   totalNet: number;
   employeeCount: number;
+  journalEntryId: string | null;
 }
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -108,6 +109,7 @@ export default function PayrollRunsListPage() {
                     <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium text-right">Gross</th>
                     <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium text-right">PAYE</th>
                     <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium text-right">Net</th>
+                    <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Journal</th>
                     <th className="py-3 px-4"></th>
                   </tr>
                 </thead>
@@ -120,6 +122,14 @@ export default function PayrollRunsListPage() {
                       <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(r.totalGross)}</td>
                       <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(r.totalPaye)}</td>
                       <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)] font-medium">{formatCurrency(r.totalNet)}</td>
+                      <td className="py-3 px-4 text-xs">
+                        {r.journalEntryId ? (
+                          <Link href={`/accounting/journal-entries/${r.journalEntryId}`} className="text-teal-400 hover:text-teal-300 font-medium"
+                            title={`GL journal posted when the ${periodLabel(r)} run was approved`}>
+                            View journal
+                          </Link>
+                        ) : <span className="text-[var(--ff-text-tertiary)]">—</span>}
+                      </td>
                       <td className="py-3 px-4 text-right">
                         <Link href={`/payroll/runs/${r.id}`} className="text-teal-400 hover:text-teal-300 text-xs font-medium">
                           View
