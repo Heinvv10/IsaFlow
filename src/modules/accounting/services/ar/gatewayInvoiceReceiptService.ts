@@ -25,6 +25,7 @@ import { log } from '@/lib/logger';
 import { confirmCustomerPayment } from './customerPaymentAllocationService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { postGatewayFee } from './gatewayFeeService';
+import { spendPaymentLinkOfRequest } from './portalLinkCharge';
 
 /** posting_agent stamp: unattended, so never `human:<userId>`. */
 export const GATEWAY_RECEIPT_AGENT = 'system:paystack-receipt:v1';
@@ -72,6 +73,9 @@ export async function recordGatewayInvoiceReceipt(
   receipt: GatewayInvoiceReceipt,
 ): Promise<{ paymentId: string; journalEntryId?: string } | null> {
   const { companyId, invoiceId, amountRand, reference } = receipt;
+  // R-167: a settled charge spends the portal link it came from, whichever of the webhook and
+  // the verify route gets here first (both run this in their settlement transaction).
+  await spendPaymentLinkOfRequest(companyId, reference);
 
   const already = await sql<{
     id: string;
