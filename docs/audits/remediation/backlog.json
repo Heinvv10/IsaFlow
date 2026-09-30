@@ -14298,6 +14298,44 @@
       "historicalDataImpact": "None.",
       "processNotes": "2026-09-29: Seen once by the R-123 fixer. Likely a concurrent write between the two page-size reads; pin both reads to one snapshot (REPEATABLE READ) or a disposable fixture.",
       "reportedSeverity": "low"
+    },
+    {
+      "id": "R-166",
+      "sourceIds": [
+        "R-158",
+        "K-101"
+      ],
+      "correctedTrigger": null,
+      "auditedSha": "7c49109f5",
+      "currentSha": "7c49109f5",
+      "status": "in-progress",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/r166-payment-link-amount-cap.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-166/fix.md",
+        "docs/audits/remediation/R-166/red.int.log",
+        "docs/audits/remediation/R-166/green.log",
+        "docs/audits/remediation/R-166/mutations.log"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "branch": "fix/r166-payment-link-amount-cap-20260930",
+      "area": "accounting/ar portal",
+      "severity": "low",
+      "title": "A payment link could be created for more than the invoice's outstanding balance, including on a fully paid invoice",
+      "affectedPaths": [
+        "pages/api/portal/payment-link.ts"
+      ],
+      "sourceLabel": "R-155 prod census and Hein's decision, 2026-09-30",
+      "claim": "POST /api/portal/payment-link capped the amount only at the column maximum (R-158), so an owner/admin/manager could create a payable link for more than total_amount - amount_paid, or for any amount on a paid invoice.",
+      "severityRationale": "Owner/admin/manager only (withCsrf + withWriteAccess); the harm is a customer paying more than they owe, which then needs a refund.",
+      "historicalDataImpact": "Existing links are not changed. The R-155 prod census found 3 active links, all in ISAFlow Demo; one is on the fully paid INV-00553. Expiring it is a prod write and waits for Hein.",
+      "processNotes": "2026-09-30: Hein decided to cap a link at the outstanding balance (part payments allowed). Fixed: POST refuses amount > total_amount - COALESCE(amount_paid, 0) with 400, compared in numeric, before any write. RED 4/4 on origin/master (R-166/red.int.log); mutants N1-N7 RED.",
+      "reportedSeverity": "low"
     }
   ],
   "sourceInventory": [

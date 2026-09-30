@@ -1,0 +1,8 @@
+# 7 mutants of pages/api/portal/payment-link.ts on d2f9ab8ce; each run: r166-payment-link-amount-cap on the fixture clone at 716. RED = at least one failure. (A ::numeric -> no-cast mutant is equivalent: pg infers numeric from the comparison, so it was not counted.)
+N1 COALESCE dropped from the cap: RED | 1 failed | 3 passed (4)
+N2 > becomes >=: RED | 3 failed | 1 passed (4)
+N3 refusal removed: RED | 4 failed (4)
+N4 cap ignores amount_paid: RED | 2 failed | 2 passed (4)
+N5 COALESCE dropped from the balance text: RED | 1 failed | 3 passed (4)
+N6 balance missing from the message: RED | 3 failed | 1 passed (4)
+N7 refusal after the write: RED | 4 failed (4)
