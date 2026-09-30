@@ -1,0 +1,11 @@
+# RED on origin/master 7c49109f5 + the new suite only; fixture clone at 716 (2026-09-30T02:49:03Z). 64-hex tokens redacted.
+   × an unpaid invoice: the full balance and a part payment are allowed, a cent over is refused 33ms
+   × a part-paid invoice is capped at what is still owed 32ms
+   × a fully paid or overpaid invoice gets no link at all 16ms
+   × a NULL amount_paid counts as nothing paid 20ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: {"amount":115.01,"body":{"success":true,"data":{"token":"<token>","url":"/portal/pay/<token>"},"meta":{"timestamp":"2026-09-30T02:49:04.598Z"}}}: expected 200 to be 400 // Object.is equality
+AssertionError: expected 200 to be 400 // Object.is equality
+AssertionError: {"paid":115,"body":{"success":true,"data":{"token":"<token>","url":"/portal/pay/<token>"},"meta":{"timestamp":"2026-09-30T02:49:04.652Z"}}}: expected 200 to be 400 // Object.is equality
+AssertionError: expected 200 to be 400 // Object.is equality
+      Tests  4 failed (4)
