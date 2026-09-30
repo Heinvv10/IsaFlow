@@ -37,18 +37,30 @@ Hein decided on 2026-09-30:
     `LEAST` alone would silently drop it.
   - A cancelled or soft-deleted invoice gives `invoice_gone`, and a charge of zero or less gives
     `nothing_owed`. Only a link whose status is exactly `active` is chargeable.
-  - `lockPaymentLink`, `findReusableCheckout` and `CHECKOUT_REUSE_MINUTES` (30) serve create's
-    one-checkout rule.
+  - `lockPaymentLink`, `existingCheckout`, `recordStartingCheckout`, `checkoutStarted` and
+    `checkoutFailed` serve create's one-checkout rule. `CHECKOUT_REUSE_MINUTES` is 30 and
+    `CHECKOUT_STARTING_SECONDS` is 60.
   - `spendPaymentLinkOfRequest(companyId, reference)` marks an explicit link `paid`, sets
     `paid_at` and stores the reference. It acts only on a `completed` request of that company,
     only while the link is `active`, and never on a standing link.
-- **`paystack/create`:**
-  - runs in one `withPublicRouteTransaction`, with the link row locked;
-  - resolves the charge, then hands out a pending checkout started from the same link, for the
-    same amount, in the last 30 minutes, instead of starting a second one;
-  - otherwise starts one, stores `amount_cents` = the charge, and records
-    `portal_payment_link_id`;
-  - answers only after COMMIT.
+- **`paystack/create`** is rate-limited per client IP (60 per 15 minutes) and per link (20 per 15
+  minutes, keyed by a hash of the token) before any DB work. Then it runs in three phases, so no
+  connection or lock is held while Paystack answers (review round 2):
+  1. **A short `withPublicRouteTransaction`, with the link row locked.** It resolves the charge
+     and then does one of three things:
+     - hands out a pending checkout from the same link, for the same amount, started in the last
+       30 minutes;
+     - answers 409 if one recorded in the last minute has no URL yet, because it is still
+       starting;
+     - otherwise records the checkout (a pre-generated reference, `amount_cents` equal to the
+       charge, `portal_payment_link_id`) with no URL.
+
+     Then it COMMITs.
+  2. **The gateway call.** `initializeTransaction` runs outside any transaction, bounded at 10
+     seconds. It takes a new, optional `timeoutMs`; other callers leave it unset and are
+     unchanged.
+  3. **The result.** On success the recorded checkout gets its access code and URL. On failure or
+     timeout it is marked `failed`, and a later click starts afresh.
 
   Settlement already posts that `amount_cents` through `recordGatewayInvoiceReceipt`, which
   allocates `min(amount, outstanding)` and banks any excess as an unapplied receipt.
@@ -62,15 +74,20 @@ Hein decided on 2026-09-30:
   - on a cancelled or deleted invoice, answers 404.
 - **Migration 717:**
   - adds `paystack_payment_requests.portal_payment_link_id UUID`, which is nullable, references
-    `portal_payment_links(id)` with `ON DELETE SET NULL`, and has a partial index. There is no
-    backfill: requests from before 717 carry no link;
-  - adds `portal_payment_links.charges_balance BOOLEAN NOT NULL DEFAULT false`;
-  - backfills `true` on every link an invoice's `payment_url` names. The backfill is idempotent.
+    `portal_payment_links(id)` with `ON DELETE SET NULL`, and has a partial index. Requests from
+    before 717 carry no link;
+  - adds `portal_payment_links.charges_balance BOOLEAN NOT NULL DEFAULT true`. The default is
+    what keeps existing links safe, not a backfill (review round 2). Every link that exists today
+    stays standing, and so does any link the previous code mints between the migration and the
+    code switch (`deploy.sh` migrates before it rsyncs). So does an older standing link an
+    invoice no longer names. Only `portalService.createPaymentLink` (the POST) writes `false`.
 
 ## Not changed
 
-- **Explicit links created before this change** stay payable until they expire or are paid
-  under the new code. A request created before 717 has no link to spend.
+- **Links created before this change** are all standing, so they behave exactly as before: they
+  charge the live balance and are never spent. That includes any explicit-amount link created
+  before the deploy. The R-155 prod census found 3 active links, all in ISAFlow Demo. A request
+  created before 717 has no link to spend.
 - **Checkouts started more than 30 minutes apart, or for different amounts, are both valid.**
   If both are paid, both settle, and any excess is banked as an unapplied, refundable receipt.
   A click inside the window gets the same checkout, so a double click or a back-and-retry is
@@ -80,7 +97,11 @@ Hein decided on 2026-09-30:
 - **`k-035-webhook-redelivery-discarded`** fails 4 of 6. It fails identically on clean
   origin/master `66e776d81` against the same fixture. It covers the mandate (`authorization`)
   branch, which this change does not touch.
-- **Pre-existing, outside this change** (review round 1, recorded as follow-ups):
+- **Pre-existing, outside this change** (reviews, recorded as follow-ups):
+  - `checkRateLimit`'s in-process cache counts calls below half the limit locally and never
+    writes them to the shared counter. One process therefore admits several times the configured
+    limit: about 70 calls for a limit of 20. This affects every caller, including `verify`.
+    Found while testing the new limits; the test seeds the shared counter instead;
   - `pay-now`'s own charge still computes `total - amount_paid` in JS, with no NaN or negative
     clamp;
   - settlement books `amount_cents` without comparing it to the event's amount and currency.
@@ -116,7 +137,7 @@ rate-limits per IP and that counter persists between runs.
 - **The GET** shows 30 for a R40.50 link with R30 left. It says "This invoice has no
   outstanding balance" on a paid invoice, and answers 404 on a cancelled one.
 
-`r167-standing-links-and-checkout.int.test.ts` covers the other two rules, 8 cases:
+`r167-standing-links-and-checkout.int.test.ts` covers the other rules, 14 cases:
 
 - **A standing link:**
   - charges the live balance: 3000 when minted at 115 with R30 owed, and 15000 after the
@@ -124,17 +145,31 @@ rate-limits per IP and that counter persists between runs.
   - stays active after a payment, and charges the rest after a receipt is reversed;
   - is minted with `charges_balance` by both `enableOnlinePayment` and `pay-now` (through the
     real authenticated route);
-  - is what migration 717's backfill marks. Other links, including an explicit link on the same
-    invoice, are left alone.
+  - is what a link written without the flag becomes, while `createPaymentLink` writes an
+    explicit one.
 - **One checkout per click:**
   - a second click gets the same checkout and is charged once;
   - a new checkout starts after 30 minutes, or when the amount changed;
   - a completed checkout is never handed out again.
+- **Nothing held across the gateway call:**
+  - a click waits for a `FOR NO KEY UPDATE` another connection holds on the link, then starts
+    exactly one checkout. That lock conflicts only with create's own `FOR UPDATE`, not with the
+    foreign-key lock the INSERT takes;
+  - while the gateway is answering, the link can be locked `NOWAIT`, the checkout is already
+    recorded, and the call carries the 10-second bound;
+  - a checkout still starting gets 409, and one abandoned while starting is replaced;
+  - a gateway failure marks the checkout `failed`, and the next click starts afresh;
+  - an address or a link past its limit gets 429 before anything is written. The test seeds the
+    limiter's shared counter.
+
+`tests/unit/services/billing/paystackClient.test.ts` adds two cases. With `timeoutMs`,
+`initializeTransaction` aborts a gateway that never answers. Without it, no signal is sent.
 
 Evidence:
 
 - `red.int.log`: 11 of 13 original cases fail on origin/master `66e776d81` with 717 applied.
-- `red.r1.int.log`: the round-1 cases against the round-0 source `cabe94705`. 3 of 20 and 4 of 8
+- `red.r1.int.log`: the round-1 cases against the round-0 source `cabe94705`, run before the
+  round-2 cases existed. 3 of 20 and 4 of 8
   fail. The others pin boundaries the round-0 code happened to meet, such as always starting a
   new checkout; the mutants below prove them.
 - `green.log`:
@@ -143,16 +178,20 @@ Evidence:
   - r158, r166, k101, r155-157, r157 and the r159 suites;
   - the k122 suites and the three r095 portal suites;
   - customer-ownership-fence-routes, on an `isaflow_test` copy of the fixture.
-- `mutations.log`: 37 of 37 round-1 mutants are RED. They cover:
-  - every filter and each arm of the charge;
-  - both link kinds, and the clamp;
-  - every refusal and its HTTP mapping;
-  - the spend's four conditions;
-  - the reuse's amount, status and window, and reuse itself;
-  - the stored link and amounts;
-  - both GET branches;
-  - both writers' `charges_balance`;
-  - the backfill's value and scope.
+- `mutations.log`: 47 of 47 round-2 mutants are RED. Each run used both suites plus the
+  `paystackClient` unit test. They cover:
+  - every filter and each arm of the charge, both link kinds, and the clamp;
+  - every refusal and its HTTP mapping, including the 409;
+  - the spend's four conditions, and the reuse's amount, status and window;
+  - the link lock, the starting state and its expiry;
+  - the three checkout phases, the gateway timeout and its client plumbing;
+  - both rate limits;
+  - the stored link and amounts, both GET branches, and all three writers' `charges_balance`.
+
+  Two earlier runs were discarded. In the first, the fixed test IP hit verify's per-IP limit. In
+  the second, the unknown-token case's fixed token hit the new per-link limit. Both made failures
+  unrelated to the mutant. Each is fixed with a fresh value per run, and a baseline run after the
+  final mutation run is green.
 
 ## Review round 1
 
@@ -177,8 +216,25 @@ fourth is fixed in round 1 too. Three settlement tests never asserted that the w
 succeeded, so a failing delivery would have left the link untouched and passed. They now assert a
 200 and the banked receipt.
 
+## Review round 2 (adversarial)
+
+The adversarial reviewer returned FIX: 1 HIGH, introduced in round 1, and LOWs.
+
+- **HIGH, a connection and the link lock held across the gateway call.** Round 1 ran the Paystack
+  call inside the link-locked transaction, and that call had no timeout. A burst of clicks on
+  one link, or a slow gateway, could hold every pooled connection that other tenants share. The
+  three-phase create above holds nothing across the call, bounds it at 10 seconds, and
+  rate-limits it.
+- **LOW, no test proved the lock.** Now one does, and Q38 (lock removed) is RED.
+- **LOW, links minted during the deploy window.** A link the old code mints between migration and
+  rsync would have defaulted to explicit.
+- **LOW, older standing links not backfilled.** An older standing link the invoice no longer
+  names would have missed the backfill.
+
+The last two LOWs are both fixed by `DEFAULT true` in place of the backfill.
+
 ## Migration / rollback
 
-- **Migration 717 is additive** and uses `IF NOT EXISTS`. It adds two columns and one
-  idempotent backfill. `deploy.sh` applies it before the rsync.
+- **Migration 717 is additive** and uses `IF NOT EXISTS`. It adds two columns with fast
+  defaults, so no table is rewritten. `deploy.sh` applies it before the rsync.
 - **To roll back,** revert the PR. The columns can stay, because nothing else reads them.
