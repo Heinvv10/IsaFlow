@@ -12,7 +12,10 @@ import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { initializeTransaction } from '@/modules/billing/services/paystackClient';
-import { resolveLinkCharge } from '@/modules/accounting/services/ar/portalLinkCharge';
+import { withPublicRouteTransaction } from '@/lib/publicRouteTx';
+import {
+  findReusableCheckout, lockPaymentLink, resolveLinkCharge, type LinkChargeRefusal,
+} from '@/modules/accounting/services/ar/portalLinkCharge';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -24,18 +27,34 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Missing portal token');
   }
 
-  // R-167: the link's own amount, capped at what the invoice still owes (portalLinkCharge).
-  const resolved = await resolveLinkCharge(token);
-  if (!resolved.ok) {
-    switch (resolved.reason) {
-      case 'link_not_found': return apiResponse.notFound(res, 'Payment link');
-      case 'link_not_active': return apiResponse.badRequest(res, 'Payment link not active');
-      case 'link_expired': return apiResponse.badRequest(res, 'Payment link expired');
-      case 'invoice_gone': return apiResponse.notFound(res, 'Invoice');
-      case 'nothing_owed': return apiResponse.badRequest(res, 'Invoice already paid');
-    }
+  // R-167: one transaction, with the link row locked, so two clicks on Pay cannot start two
+  // checkouts; the response is sent only after it COMMITs.
+  const outcome = await withPublicRouteTransaction('paystack-create', () => startCheckout(token));
+  switch (outcome.kind) {
+    case 'link_not_found': return apiResponse.notFound(res, 'Payment link');
+    case 'link_not_active': return apiResponse.badRequest(res, 'Payment link not active');
+    case 'link_expired': return apiResponse.badRequest(res, 'Payment link expired');
+    case 'invoice_gone': return apiResponse.notFound(res, 'Invoice');
+    case 'nothing_owed': return apiResponse.badRequest(res, 'Invoice already paid');
+    case 'init_failed': return apiResponse.internalError(res, 'Failed to initialise payment');
+    case 'checkout': return apiResponse.success(res, { checkoutUrl: outcome.checkoutUrl, reference: outcome.reference });
   }
+}
+
+type Outcome =
+  | { kind: LinkChargeRefusal | 'init_failed' }
+  | { kind: 'checkout'; checkoutUrl: string; reference: string };
+
+async function startCheckout(token: string): Promise<Outcome> {
+  await lockPaymentLink(token);
+  // What the link may charge: its own amount capped at the balance, or the live balance for the
+  // invoice's standing link (portalLinkCharge).
+  const resolved = await resolveLinkCharge(token);
+  if (!resolved.ok) return { kind: resolved.reason };
   const charge = resolved.charge;
+
+  const reusable = await findReusableCheckout(charge);
+  if (reusable) return { kind: 'checkout', ...reusable };
 
   // Paystack requires a payer email. We fall back to a synthetic per-token
   // address so payment still works even if the customer has no email on file.
@@ -47,8 +66,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const reference = `inv_${charge.invoiceId.replace(/-/g, '').slice(0, 12)}_${randomBytes(6).toString('hex')}`;
   const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL}/portal/payments/paystack/return?ref=${encodeURIComponent(reference)}`;
 
+  let init: Awaited<ReturnType<typeof initializeTransaction>>;
   try {
-    const init = await initializeTransaction({
+    init = await initializeTransaction({
       email: payerEmail,
       amountCents: charge.chargeCents,
       reference,
@@ -60,31 +80,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         portal_token: token,
       },
     });
-
-    await sql`
-      INSERT INTO paystack_payment_requests (
-        company_id, purpose, customer_invoice_id,
-        paystack_reference, paystack_access_code, authorization_url,
-        amount_cents, currency, status, payer_name, payer_email, portal_payment_link_id
-      ) VALUES (
-        ${charge.companyId}, 'customer_invoice', ${charge.invoiceId},
-        ${init.reference}, ${init.accessCode}, ${init.authorizationUrl},
-        ${charge.chargeCents}, 'ZAR', 'pending', ${charge.clientName}, ${payerEmail}, ${charge.linkId}::UUID
-      )
-    `;
-
-    return apiResponse.success(res, {
-      checkoutUrl: init.authorizationUrl,
-      reference: init.reference,
-    });
   } catch (err) {
     log.error(
       'Failed to initialise Paystack transaction',
       { invoiceId: charge.invoiceId, err: err instanceof Error ? err.message : String(err) },
       'PaystackPortal',
     );
-    return apiResponse.internalError(res, 'Failed to initialise payment');
+    return { kind: 'init_failed' };
   }
+
+  await sql`
+    INSERT INTO paystack_payment_requests (
+      company_id, purpose, customer_invoice_id,
+      paystack_reference, paystack_access_code, authorization_url,
+      amount_cents, currency, status, payer_name, payer_email, portal_payment_link_id
+    ) VALUES (
+      ${charge.companyId}, 'customer_invoice', ${charge.invoiceId},
+      ${init.reference}, ${init.accessCode}, ${init.authorizationUrl},
+      ${charge.chargeCents}, 'ZAR', 'pending', ${charge.clientName}, ${payerEmail}, ${charge.linkId}::UUID
+    )
+  `;
+  return { kind: 'checkout', checkoutUrl: init.authorizationUrl, reference: init.reference };
 }
 
 export default withErrorHandler(handler);
