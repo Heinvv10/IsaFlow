@@ -6,7 +6,7 @@
 export function response() {
   const ends: unknown[][] = [];
   const res = {
-    statusCode: 200, headersSent: false, destroyed: false, body: undefined as unknown, headers: {} as Record<string, unknown>,
+    statusCode: 200, headersSent: false, writableEnded: false, destroyed: false, body: undefined as unknown, headers: {} as Record<string, unknown>,
     destroy() { this.destroyed = true; return this; },
     status(code: number) { this.statusCode = code; return this; },
     setHeader(n: string, v: unknown) {
@@ -22,6 +22,7 @@ export function response() {
         throw new TypeError('ERR_INVALID_ARG_TYPE'); // as Node's does, before writing anything
       }
       ends.push(a);
+      this.writableEnded = true;
       if (typeof a[0] === 'string' && !this.headersSent) this.body = JSON.parse(a[0]);
       return this;
     },

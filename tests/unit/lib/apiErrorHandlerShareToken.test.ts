@@ -114,6 +114,14 @@ describe('withErrorHandler — share token redaction', () => {
     expect(serialized).toContain('[token]');
   });
 
+  it('a response the handler already ended is left alone when it throws afterwards (R-159)', async () => {
+    const { req, res } = makeReqRes('/api/portal/invoice/x/pdf');
+    Object.assign(res, { headersSent: true, writableEnded: true, statusCode: 200 });
+    await withErrorHandler(async () => { throw new Error('after the send'); })(req, res);
+    expect((res as unknown as { destroy: ReturnType<typeof vi.fn> }).destroy).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+  });
+
   it('redacts the token out of the "headers already sent" warning', async () => {
     const { req, res } = makeReqRes(`/share/${TOKEN}`);
     (res as unknown as { headersSent: boolean }).headersSent = true;
