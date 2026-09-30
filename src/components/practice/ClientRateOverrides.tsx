@@ -1,7 +1,7 @@
 // ClientRateOverrides — per-staff billing rate overrides for a practice client.
 import { useState, useEffect, useCallback } from 'react';
 import { DollarSign, Plus, Trash2, Loader2, AlertCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface RateOverride {
@@ -61,16 +61,14 @@ export function ClientRateOverrides({ clientId }: Props) {
         apiFetch(`${baseUrl}/rate-overrides`),
         apiFetch(`${baseUrl}/staff`),
       ]);
-      if (overridesRes.ok) {
-        const json = await overridesRes.json() as { data?: RateOverride[] } | RateOverride[];
-        setOverrides(('data' in json ? json.data : json) as RateOverride[] ?? []);
-      }
-      if (staffRes.ok) {
-        const json = await staffRes.json() as { data?: StaffMember[] } | StaffMember[];
-        setStaff(('data' in json ? json.data : json) as StaffMember[] ?? []);
-      }
-    } catch {
-      setError('Failed to load rate overrides');
+      await assertOk(overridesRes, 'Failed to load rate overrides');
+      await assertOk(staffRes, 'Failed to load staff');
+      const overridesJson = await overridesRes.json() as { data?: RateOverride[] } | RateOverride[];
+      setOverrides(('data' in overridesJson ? overridesJson.data : overridesJson) as RateOverride[] ?? []);
+      const staffJson = await staffRes.json() as { data?: StaffMember[] } | StaffMember[];
+      setStaff(('data' in staffJson ? staffJson.data : staffJson) as StaffMember[] ?? []);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to load rate overrides'));
     } finally {
       setLoading(false);
     }
@@ -114,10 +112,11 @@ export function ClientRateOverrides({ clientId }: Props) {
   const handleDelete = async (id: string) => {
     setDeletingId(id);
     try {
-      await apiFetch(`${baseUrl}/rate-overrides?overrideId=${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`${baseUrl}/rate-overrides?overrideId=${id}`, { method: 'DELETE' });
+      await assertOk(res, 'Failed to delete override');
       await loadData();
-    } catch {
-      setError('Failed to delete override');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to delete override'));
     } finally {
       setDeletingId(null);
     }
@@ -233,7 +232,7 @@ export function ClientRateOverrides({ clientId }: Props) {
         </div>
       )}
 
-      {overrides.length === 0 ? (
+      {overrides.length === 0 && error ? null : overrides.length === 0 ? (
         <div className="text-center py-12">
           <DollarSign className="h-8 w-8 text-[var(--ff-text-tertiary)] mx-auto mb-2" />
           <p className="text-sm text-[var(--ff-text-secondary)]">No rate overrides yet</p>
