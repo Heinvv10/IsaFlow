@@ -49,8 +49,19 @@ export function prevMonthRange(d: Date = new Date()): { start: string; end: stri
   return { start: monthStartISO(prev), end: monthEndISO(prev) };
 }
 
-/** 'YYYY-MM-DD' plus `n` calendar days (negative allowed). Pure calendar arithmetic. */
+/** Split a strict 'YYYY-MM-DD' into numbers; RangeError if malformed or not a real date. */
+function parseISOParts(iso: string): [number, number, number] {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const parts = m ? ([Number(m[1]), Number(m[2]), Number(m[3])] as [number, number, number]) : null;
+  if (!parts || localISODate(new Date(parts[0], parts[1] - 1, parts[2])) !== iso) {
+    throw new RangeError(`Invalid YYYY-MM-DD date: ${iso}`);
+  }
+  return parts;
+}
+
+/** 'YYYY-MM-DD' plus `n` calendar days (negative allowed). Pure calendar arithmetic. Throws RangeError on bad input. */
 export function addDaysISO(iso: string, n: number): string {
+  parseISOParts(iso);
   const dt = new Date(`${iso}T00:00:00`);
   dt.setDate(dt.getDate() + n);
   return localISODate(dt);
@@ -58,10 +69,10 @@ export function addDaysISO(iso: string, n: number): string {
 
 /**
  * 'YYYY-MM-DD' shifted by whole years, clamping the day to the target month
- * (2028-02-29 minus 1 year is 2027-02-28, not 2027-03-01).
+ * (2028-02-29 minus 1 year is 2027-02-28, not 2027-03-01). Throws RangeError on bad input.
  */
 export function shiftYearISO(iso: string, years: number): string {
-  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+  const [y, m, d] = parseISOParts(iso);
   const last = new Date(y + years, m, 0).getDate();
   return localISODate(new Date(y + years, m - 1, Math.min(d, last)));
 }
