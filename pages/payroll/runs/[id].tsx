@@ -2,13 +2,16 @@
  * Payroll Run Detail — Phase 2.
  * Route: /payroll/runs/[id]
  */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { CalendarDays, ArrowLeft, Loader2, AlertCircle, Calculator, CheckCircle2, Lock, Unlock, GitCompare, BookOpen, ShieldCheck } from 'lucide-react';
 import { PayrollApproveDialog, type ApproveResult } from '@/components/payroll/PayrollApproveDialog';
+import { useCompany } from '@/contexts/CompanyContext';
+import { PayrollRunStatusBadge as StatusBadge, isLocked } from '@/components/payroll/PayrollRunStatusBadge';
+import { canWrite } from '@/lib/auth/writeRoles';
 import { PayrollRunWarnings, type RunLineWarning } from '@/components/payroll/PayrollRunWarnings';
 import { PayrollRunLinesTable, PayrollRunTotals } from '@/components/payroll/PayrollRunLinesTable';
 
@@ -46,24 +49,6 @@ interface RunDetail {
   lines: Line[];
 }
 
-const LOCKED_STATUSES = new Set(['approved', 'paid', 'cancelled']);
-const isLocked = (status: string) => LOCKED_STATUSES.has(status);
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    draft: 'bg-yellow-500/10 text-yellow-400',
-    calculated: 'bg-blue-500/10 text-blue-400',
-    approved: 'bg-teal-500/10 text-teal-400',
-    paid: 'bg-emerald-500/10 text-emerald-400',
-    cancelled: 'bg-red-500/10 text-red-400',
-  };
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] ?? 'bg-gray-500/10 text-gray-400'}`}>
-      {isLocked(status) && <Lock className="h-3 w-3" />} {status}
-    </span>
-  );
-}
-
 export default function PayrollRunDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -75,9 +60,15 @@ export default function PayrollRunDetailPage() {
   const [calculating, setCalculating] = useState(false);
   const [reopening, setReopening] = useState(false);
   const [approveOpen, setApproveOpen] = useState(false);
-  const [approvedNow, setApprovedNow] = useState(false);
+  // What the last approval did: posted a new journal, or re-locked onto the one the run carried.
+  const [approvedNow, setApprovedNow] = useState<'posted' | 'relocked' | null>(null);
+  const { companyRole } = useCompany(); // the active company's role — who may approve
+  const hasRun = useRef(false);
 
-  const load = useCallback(async () => {
+  // `keepNotice`: the reload that follows an approval keeps its notice; any
+  // other load clears it. The page is never blanked while it reloads a run it
+  // already shows, and a failed reload of one says so without contradicting it.
+  const load = useCallback(async (keepNotice = false) => {
     if (!runId) return;
     setIsLoading(true);
     setError('');
@@ -86,14 +77,23 @@ export default function PayrollRunDetailPage() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setRun((json.data ?? json) as RunDetail);
+      hasRun.current = true;
+      if (!keepNotice) setApprovedNow(null);
     } catch {
-      setError('Failed to load run');
+      setError(hasRun.current
+        ? 'Could not refresh this run — reload the page to see its latest state.'
+        : 'Failed to load run');
     } finally {
       setIsLoading(false);
     }
   }, [runId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    // Another run: never show this one's figures under the new run's URL.
+    hasRun.current = false;
+    setRun(null);
+    void load();
+  }, [load]);
 
   const calculate = async () => {
     if (!runId) return;
@@ -113,11 +113,11 @@ export default function PayrollRunDetailPage() {
     }
   };
 
-  const onApproved = (result: ApproveResult) => {
+  const onApproved = (result: ApproveResult, newJournal: boolean) => {
     setApproveOpen(false);
-    setApprovedNow(true);
+    setApprovedNow(newJournal ? 'posted' : 'relocked');
     setRun((prev) => (prev ? { ...prev, status: result.status, journalEntryId: result.journalEntryId } : prev));
-    void load();
+    void load(true);
   };
 
   const reopen = async () => {
@@ -150,7 +150,7 @@ export default function PayrollRunDetailPage() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading && !run) {
     return (
       <AppLayout>
         <div className="min-h-screen flex items-center justify-center bg-[var(--ff-bg-primary)]">
@@ -180,8 +180,8 @@ export default function PayrollRunDetailPage() {
   const canReopen = run.status === 'approved';
   // approvePayrollRun's own states; an approved run without its journal was
   // stranded before K-079 and re-approving it posts the journal.
-  const canApprove = run.status === 'calculated' || run.status === 'processed'
-    || (run.status === 'approved' && !run.journalEntryId);
+  const canApprove = canWrite(companyRole) && (run.status === 'calculated' || run.status === 'processed'
+    || (run.status === 'approved' && !run.journalEntryId));
 
   return (
     <AppLayout>
@@ -254,12 +254,13 @@ export default function PayrollRunDetailPage() {
           )}
           {approvedNow && (
             <div className="px-4 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm">
-              Payroll approved and journal posted. Next: declare it on the{' '}
+              {approvedNow === 'posted' ? 'Payroll approved and journal posted.' : 'Payroll approved — no new journal posted.'}
+              {' '}Next: declare it on the{' '}
               <Link href="/accounting/sars/emp201" className="underline">EMP201</Link>.
             </div>
           )}
 
-          <PayrollRunTotals run={run} lines={run.lines} />
+          <PayrollRunTotals run={run} />
 
           <PayrollRunWarnings lines={run.lines} />
 
@@ -283,7 +284,7 @@ export default function PayrollRunDetailPage() {
         </div>
       </div>
       <PayrollApproveDialog runId={runId} period={period} warningCount={warningCount}
-        open={approveOpen} onClose={() => setApproveOpen(false)} onApproved={onApproved} />
+        open={approveOpen} onClose={() => setApproveOpen(false)} onApproved={onApproved} onUncertain={() => void load()} />
     </AppLayout>
   );
 }

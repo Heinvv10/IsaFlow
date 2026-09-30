@@ -40,6 +40,7 @@ import {
   resolveAccounts,
   resolveAccountsById,
 } from './payrollJournalParts';
+import { splitRunTotals } from './payrollRunTotalsSplit';
 
 type Row = DbRow;
 
@@ -128,12 +129,10 @@ export async function buildPayrollJournalPlan(
   const eti = Number(hdr.total_eti) || 0;
   const net = Number(hdr.total_net) || 0;
 
-  const employeeUif = round2(uif / 2);
-  // The two halves sum to uif exactly, so an odd cent cannot unbalance the journal.
-  const employerUif = round2(uif - employeeUif);
+  // The two UIF halves sum to uif exactly, so an odd cent cannot unbalance the journal.
+  const { employerUif, otherDeductions } = splitRunTotals({ gross, paye, uif, net });
   const etiUsed = round2(Math.max(0, Math.min(eti, paye)));
   const labourDebit = round2(gross + employerUif + sdl - etiUsed);
-  const otherDeductions = round2(gross - paye - employeeUif - net);
 
   const accounts = await resolveAccounts(companyId);
   const blockers: PayrollJournalNote[] = [];
