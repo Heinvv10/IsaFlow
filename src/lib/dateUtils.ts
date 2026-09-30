@@ -53,6 +53,7 @@ export function prevMonthRange(d: Date = new Date()): { start: string; end: stri
 function parseISOParts(iso: string): [number, number, number] {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   const parts = m ? ([Number(m[1]), Number(m[2]), Number(m[3])] as [number, number, number]) : null;
+  if (parts && parts[0] < 1000) throw new RangeError(`Unsupported year (before 1000) in date: ${iso}`);
   if (!parts || localISODate(new Date(parts[0], parts[1] - 1, parts[2])) !== iso) {
     throw new RangeError(`Invalid YYYY-MM-DD date: ${iso}`);
   }
@@ -73,6 +74,7 @@ export function addDaysISO(iso: string, n: number): string {
  */
 export function shiftYearISO(iso: string, years: number): string {
   const [y, m, d] = parseISOParts(iso);
+  if (y + years < 1000) throw new RangeError(`Unsupported year (before 1000) shifting ${iso} by ${years} years`);
   const last = new Date(y + years, m, 0).getDate();
   return localISODate(new Date(y + years, m - 1, Math.min(d, last)));
 }
