@@ -190,7 +190,7 @@ describe('runDailyDigest', () => {
     expect(sendEmailMock).not.toHaveBeenCalled();
   });
 
-  it('continues processing on per-user email failure', async () => {
+  it('continues processing on per-user email failure, and does not count it as notified', async () => {
     // Tuesday — yesterday = Monday (weekday)
     const restore = stubDateNow('2026-04-21T10:00:00Z');
     // companies
@@ -209,6 +209,45 @@ describe('runDailyDigest', () => {
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]!.error).toContain('SMTP timeout');
     expect(result.companiesProcessed).toBe(1);
+    // R-171: a failed send is not "notified".
+    expect(result.recipientsNotified).toBe(0);
+    expect(result.recipientsFailed).toBe(1);
+  });
+
+  it('a send that throws is counted as failed, not notified (R-171)', async () => {
+    // Tuesday — yesterday = Monday (weekday)
+    const restore = stubDateNow('2026-04-21T10:00:00Z');
+    sqlMock.mockResolvedValueOnce([{ id: COMPANY_ID }]);
+    listUsersMock.mockResolvedValueOnce([makeUser()]);
+    sqlMock.mockResolvedValueOnce([makeOverdueTask()]);
+    sqlMock.mockResolvedValueOnce([{ submitted: true }]);
+    sendEmailMock.mockRejectedValueOnce(new Error('SMTP crash'));
+
+    const result = await runDailyDigest();
+    restore();
+
+    expect(result.recipientsNotified).toBe(0);
+    expect(result.recipientsFailed).toBe(1);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]!.error).toContain('SMTP crash');
+  });
+
+  it('a query error before any send lands in errors but is not a failed send (R-171 review LOW)', async () => {
+    // Tuesday — yesterday = Monday (weekday)
+    const restore = stubDateNow('2026-04-21T10:00:00Z');
+    sqlMock.mockResolvedValueOnce([{ id: COMPANY_ID }]);
+    listUsersMock.mockResolvedValueOnce([makeUser()]);
+    // overdue-tasks query throws before sendEmail is ever reached
+    sqlMock.mockRejectedValueOnce(new Error('connection terminated'));
+
+    const result = await runDailyDigest();
+    restore();
+
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(result.recipientsFailed).toBe(0);
+    expect(result.recipientsNotified).toBe(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]!.error).toContain('connection terminated');
   });
 
   it('returns zeros when no companies exist', async () => {
@@ -219,6 +258,7 @@ describe('runDailyDigest', () => {
     expect(result).toEqual({
       companiesProcessed: 0,
       recipientsNotified: 0,
+      recipientsFailed: 0,
       recipientsSkipped: 0,
       errors: [],
     });

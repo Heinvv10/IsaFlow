@@ -20,7 +20,15 @@ import {
 
 export interface DailyDigestResult {
   companiesProcessed: number;
+  /** A recipient whose sendEmail call resolved `{ success: true }`. */
   recipientsNotified: number;
+  /**
+   * A recipient whose sendEmail call resolved `{ success: false }` or threw
+   * (R-171). Does NOT include a recipient who was never sent to at all
+   * because a query ahead of the send (overdue tasks, timesheet check)
+   * failed — that recipient's failure lands only in `errors` (review LOW).
+   */
+  recipientsFailed: number;
   recipientsSkipped: number;
   errors: Array<{ companyId: string; userId: string; error: string }>;
 }
@@ -123,6 +131,7 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
   const result: DailyDigestResult = {
     companiesProcessed: 0,
     recipientsNotified: 0,
+    recipientsFailed: 0,
     recipientsSkipped: 0,
     errors: [],
   };
@@ -145,31 +154,42 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
     }
 
     for (const user of users) {
+      let overdueTasks: DigestTask[];
+      let missingTimesheetDate: string | null = null;
       try {
-        const overdueTasks = await queryOverdueTasks(companyId, user.id);
+        overdueTasks = await queryOverdueTasks(companyId, user.id);
 
-        let missingTimesheetDate: string | null = null;
         if (yesterdayIsWeekday) {
           if (await isTimesheetMissing(companyId, user.id, yesterday)) {
             missingTimesheetDate = yesterday;
           }
         }
+      } catch (err) {
+        // A query failure never reached sendEmail, so it isn't a failed SEND
+        // (R-171 review LOW) — it still surfaces in errors, just not in
+        // recipientsFailed, which counts only send outcomes.
+        const msg = err instanceof Error ? err.message : String(err);
+        log.error('Failed to process user digest', { companyId, userId: user.id, error: msg }, 'practiceNotificationService');
+        result.errors.push({ companyId, userId: user.id, error: msg });
+        continue;
+      }
 
-        if (overdueTasks.length === 0 && missingTimesheetDate === null) {
-          result.recipientsSkipped++;
-          continue;
-        }
+      if (overdueTasks.length === 0 && missingTimesheetDate === null) {
+        result.recipientsSkipped++;
+        continue;
+      }
 
-        const payload: DigestPayload = {
-          recipientName: user.displayName,
-          overdueTasks,
-          missingTimesheetDate,
-          appBaseUrl: APP_BASE_URL,
-        };
+      const payload: DigestPayload = {
+        recipientName: user.displayName,
+        overdueTasks,
+        missingTimesheetDate,
+        appBaseUrl: APP_BASE_URL,
+      };
 
-        const subject = renderPracticeDigestSubject(payload);
-        const html = renderPracticeDigestHtml(payload);
+      const subject = renderPracticeDigestSubject(payload);
+      const html = renderPracticeDigestHtml(payload);
 
+      try {
         const emailResult = await sendEmail({
           to: user.email,
           subject,
@@ -177,25 +197,27 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
           _log: { companyId, emailType: 'practice_digest', sentBy: null },
         });
 
-        if (!emailResult.success) {
+        if (emailResult.success) {
+          result.recipientsNotified++;
+          log.info('Practice digest sent', {
+            companyId,
+            userId: user.id,
+            overdue: overdueTasks.length,
+            missingTimesheet: missingTimesheetDate !== null,
+          }, 'practiceNotificationService');
+        } else {
+          result.recipientsFailed++;
           result.errors.push({
             companyId,
             userId: user.id,
             error: emailResult.error ?? 'Email send failed',
           });
         }
-
-        result.recipientsNotified++;
-        log.info('Practice digest sent', {
-          companyId,
-          userId: user.id,
-          overdue: overdueTasks.length,
-          missingTimesheet: missingTimesheetDate !== null,
-        }, 'practiceNotificationService');
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        log.error('Failed to process user digest', { companyId, userId: user.id, error: msg }, 'practiceNotificationService');
+        log.error('Failed to send practice digest', { companyId, userId: user.id, error: msg }, 'practiceNotificationService');
         result.errors.push({ companyId, userId: user.id, error: msg });
+        result.recipientsFailed++;
       }
     }
   }
@@ -203,6 +225,7 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
   log.info('Daily digest complete', {
     companiesProcessed: result.companiesProcessed,
     recipientsNotified: result.recipientsNotified,
+    recipientsFailed: result.recipientsFailed,
     recipientsSkipped: result.recipientsSkipped,
     errors: result.errors.length,
   }, 'practiceNotificationService');
