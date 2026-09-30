@@ -33,18 +33,18 @@ const callsNamed = (name: string) => (n: ts.Node) =>
   ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === name;
 
 /**
- * An assignment to a response's `end` (`res.end =`, `(res as any).end =`, `response['end'] =`).
- * The receiver must read as a response (`res` or `response`), so a date range's `range.end = …`
- * is not a swap.
+ * Any assignment to a property named `end` (`x.end =`, `(x as any).end =`, `x['end'] =`), whatever
+ * the receiver is called: a receiver-name filter misses `apiRes.end =` or `out.end =`. This fails
+ * closed. A file that assigns a non-response `end` (a date range, say) goes in NOT_A_RESPONSE,
+ * with the reason.
  */
-const RESPONSE_RECEIVER = /\b(res|response)\b/i;
+const NOT_A_RESPONSE: Record<string, string> = {};
 const assignsEnd = (n: ts.Node) => {
   if (!ts.isBinaryExpression(n) || n.operatorToken.kind !== ts.SyntaxKind.EqualsToken) return false;
   const left = n.left;
-  const named = ts.isPropertyAccessExpression(left) ? left.name.text === 'end'
-    : ts.isElementAccessExpression(left)
-      && ts.isStringLiteralLike(left.argumentExpression) && left.argumentExpression.text === 'end';
-  return named && RESPONSE_RECEIVER.test(left.expression.getText());
+  if (ts.isPropertyAccessExpression(left)) return left.name.text === 'end';
+  return ts.isElementAccessExpression(left)
+    && ts.isStringLiteralLike(left.argumentExpression) && left.argumentExpression.text === 'end';
 };
 
 describe('R-159: a deferred res.end is always answered on a throw', () => {
@@ -54,8 +54,10 @@ describe('R-159: a deferred res.end is always answered on a throw', () => {
   });
 
   it('only deferredEnd.ts swaps res.end', () => {
-    const swapping = sources.filter((f) => /\bend\b/.test(readFileSync(f, 'utf8')) && find(parse(f), assignsEnd).length > 0);
-    expect(swapping, 'files that assign a response\'s end; route it through deferEnd instead').toEqual(['src/lib/auth/deferredEnd.ts']);
+    const swapping = sources.filter((f) => !(f in NOT_A_RESPONSE)
+      && /\bend\b/.test(readFileSync(f, 'utf8')) && find(parse(f), assignsEnd).length > 0);
+    expect(swapping, 'files assigning `.end =`: a response must go through deferEnd; anything else '
+      + 'goes in NOT_A_RESPONSE with a reason').toEqual(['src/lib/auth/deferredEnd.ts']);
   });
 
   it('the callers of deferEnd are exactly the three request-transaction wrappers', () => {
