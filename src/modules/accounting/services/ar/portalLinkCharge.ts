@@ -44,8 +44,8 @@ export async function resolveLinkCharge(
            COALESCE(l.expires_at < NOW(), false) AS expired,
            ci.id AS invoice_id, ci.company_id, ci.invoice_number,
            COALESCE(c.name, 'Customer') AS client_name, c.email AS client_email,
-           CASE WHEN b.balance > 0 AND b.balance <> 'NaN'
-                THEN ROUND(LEAST(l.amount, b.balance) * 100)::bigint END::text AS charge_cents
+           -- NaN sorts above every number, so LEAST would ignore it; it charges nothing instead.
+           CASE WHEN b.balance <> 'NaN' THEN ROUND(LEAST(l.amount, b.balance) * 100)::bigint END::text AS charge_cents
     FROM portal_payment_links l
     LEFT JOIN customer_invoices ci
       ON ci.id = l.invoice_id AND ci.status <> 'cancelled' AND ci.deleted_at IS NULL
