@@ -130,6 +130,18 @@ The link on INV-00553 (ISAFlow Demo) is still `active` and still displays. A pay
 refused ("Invoice already paid"). Hein decided on 2026-09-30 to leave it as it is, so nothing
 was written on prod.
 
+## Deployed
+
+- #576 was merged as `8209cfe3a` and went out in the deploy of `ca5f32867` at 11:24 SAST on 2026-09-30. Hein approved that business-hours deploy explicitly.
+- The deploy applied 0 migrations. Golden paths passed 13/13 and integrity was green.
+- `RELEASE_SHA` is `ca5f32867`.
+- "the invoice has no outstanding balance" is in the live `pages/api/portal/payment-link.js`.
+- Live checks:
+  - health answers 200;
+  - an unauthenticated `POST /api/portal/payment-link` answers 401.
+- The INV-00553 link was left untouched, per Hein. Nothing was written on prod.
+- The rollback target is `efaad6ae1`. The change is code only.
+
 ## Migration / rollback
 
 There is no migration. To roll back, revert the PR.
