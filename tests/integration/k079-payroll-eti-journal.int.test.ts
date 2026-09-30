@@ -17,6 +17,7 @@ import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import reopen from '../../pages/api/payroll/runs/[id]/reopen';
+import { previewPayrollApproval } from '@/modules/accounting/services/payroll/payrollApprovalService';
 
 const fault = vi.hoisted(() => ({ armed: false, fired: false }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', async (importOriginal) => {
@@ -66,7 +67,9 @@ async function call(route: typeof approve, action: string, runId: string, compan
   await route(req as never, result.res);
   return result.state;
 }
-const callApprove = (runId: string, company = companyA) => call(approve, 'approve', runId, company);
+// W3-01 round 2: the route requires the hash of the plan the caller reviewed.
+const callApprove = async (runId: string, company = companyA) =>
+  call(approve, 'approve', runId, company, { expectedPlanHash: (await previewPayrollApproval(company, runId))?.planHash ?? 'no-such-run' });
 const approvedJournal = (res: { body: unknown }) =>
   (res.body as { data: { journalEntryId: string } }).data.journalEntryId;
 

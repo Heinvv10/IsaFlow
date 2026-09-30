@@ -84,6 +84,14 @@ describe('payroll run page — approve (PAY-01)', () => {
     expect(screen.queryByText(/approved and journal posted/i)).toBeNull();
   });
 
+  it('any other refusal (400) is shown and the preview is refetched, so a rejected plan never lingers', async () => {
+    serve(() => fail(400, "Cannot approve payroll run with status 'approved' (expected one of: draft, calculated, processed)"));
+    const dialog = await openAndConfirm();
+    expect(await within(dialog).findByText(/Cannot approve payroll run with status 'approved'/)).toBeTruthy();
+    await waitFor(() => expect(calls(PLAN_URL)).toHaveLength(2));
+    expect(screen.queryByText(/payroll approved/i)).toBeNull();
+  });
+
   it('a transport failure reloads the run and says the outcome is unknown', async () => {
     serve(() => { throw new TypeError('Failed to fetch'); });
     const dialog = await openAndConfirm();

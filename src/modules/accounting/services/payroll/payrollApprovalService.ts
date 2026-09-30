@@ -61,11 +61,18 @@ export async function previewPayrollApproval(companyId: string, runId: string): 
  * still carries its journal is re-approved onto that journal, but only while
  * its figures still match it (payrollApprovalGate).
  *
- * `expectedPlanHash` is the hash the caller previewed. When given and the run
- * no longer hashes the same, approval is refused with
- * PayrollApprovalConflictError (409) before anything is written. The header
- * row is locked first, so nothing can recalculate it between that check and
- * the post.
+ * `expectedPlanHash` is the hash the caller previewed (mandatory on the HTTP
+ * route; optional here for MCP, which runs its own dry run). When given and
+ * the run no longer hashes the same, approval is refused with
+ * PayrollApprovalConflictError (409) before anything is written.
+ *
+ * The header row is locked FOR UPDATE first. calculatePayrollRun takes the
+ * same lock before its status check, so the two serialise on the row: a
+ * calculate already in flight finishes (and commits) before this gate reads
+ * the run — the new figures then fail a stale hash — and a calculate arriving
+ * after this approval commits reads 'approved' and refuses. calculate's own
+ * header UPDATE is also predicated on an unlocked status.
+ * Tests: tests/integration/w3-01-calculate-approve-race.int.test.ts.
  */
 export async function approvePayrollRun(
   companyId: string,

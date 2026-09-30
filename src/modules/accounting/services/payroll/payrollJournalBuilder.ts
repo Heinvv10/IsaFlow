@@ -254,6 +254,7 @@ export async function buildPayrollJournalPlan(
     SELECT status FROM fiscal_periods
     WHERE company_id = ${companyId}::uuid
       AND start_date <= ${entryDate}::date AND end_date >= ${entryDate}::date
+    ORDER BY start_date, id
   `) as Row[];
   const closed = periodRows.find((p) => String(p.status) !== 'open');
   if (closed) {
