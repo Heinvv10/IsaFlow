@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeft, Loader2, Receipt, Banknote } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiJson } from '@/lib/apiFetch';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 
@@ -68,9 +68,9 @@ export default function NewBankTransactionPage() {
   useEffect(() => {
     let mounted = true;
     const promises = [
-      apiFetch('/api/accounting/bank-accounts').then(r => r.json()).then(json => {
+      apiJson('/api/accounting/bank-accounts').then(data => {
         if (!mounted) return;
-        const list: BankAcct[] = Array.isArray(json.data ?? json) ? (json.data ?? json) : [];
+        const list: BankAcct[] = Array.isArray(data) ? data : [];
         setBankAccounts(list);
         if (list.length > 0) setForm(prev => ({ ...prev, bankAccountId: list[0]!.id }));
       }),

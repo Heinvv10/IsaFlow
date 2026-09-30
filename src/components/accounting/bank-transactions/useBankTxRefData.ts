@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import type { SelectOption } from '@/components/accounting/BankTxTable';
@@ -40,8 +40,8 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
   } = setters;
 
   const refreshBankAccounts = useCallback(() => {
-    apiFetch('/api/accounting/bank-accounts').then(r => r.json()).then(bankJson => {
-      const bankList: BankAcct[] = Array.isArray(bankJson.data || bankJson) ? (bankJson.data || bankJson) : [];
+    apiJson('/api/accounting/bank-accounts').then(data => {
+      const bankList: BankAcct[] = Array.isArray(data) ? data : [];
       setBankAccounts(bankList);
     }).catch(() => { /* non-critical */ });
   }, [setBankAccounts]);

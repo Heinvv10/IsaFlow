@@ -35,10 +35,47 @@ export interface BankAccountsStatusOptions {
   includeInactive?: boolean;
 }
 
+/**
+ * The wire shape of one row. Declared, not inferred: `sql` rows are `any`, so an
+ * inferred mapper return would leave `id`/`accountName`/`isActive` as `any` and
+ * a renamed field would not be a compile error for the apiJson callers.
+ */
+export interface BankAccountStatusRow {
+  id: string;
+  accountCode: string;
+  accountName: string;
+  description: string | null;
+  bankAccountNumber: string | null;
+  bankName: string | null;
+  bankBranchName: string | null;
+  bankBranchCode: string | null;
+  bankAccountType: string;
+  bankIsDefault: boolean;
+  bankDefaultPaymentMethod: string;
+  bankOpeningBalance: number;
+  bankOpeningBalanceDate: string | null | undefined;
+  isActive: boolean;
+  groupId: string | null;
+  groupName: string | null;
+  groupCode: string | null;
+  txnCount: number;
+  totalDebits: number;
+  totalCredits: number;
+  balance: number;
+  reconciledBalance: number;
+  unreconciledBalance: number;
+  unreconciledCount: number;
+  allocatedCount: number;
+  suggestedCount: number;
+  unallocatedCount: number;
+  firstDate: string | null;
+  lastDate: string | null;
+}
+
 export async function getBankAccountsStatus(
   companyId: string,
   options: BankAccountsStatusOptions = {},
-) {
+): Promise<BankAccountStatusRow[]> {
   // Only a literal `true` opts in: a stray truthy value must not widen a picker.
   const includeInactive = options.includeInactive === true;
   const rows = await sql`
@@ -129,7 +166,7 @@ export async function getBankAccountsStatus(
     ORDER BY ga.account_code
   `;
 
-  return rows.map((r) => ({
+  return rows.map((r): BankAccountStatusRow => ({
     id: r.id,
     accountCode: r.account_code,
     accountName: r.account_name,

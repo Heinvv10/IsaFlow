@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiJson } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, Mail, Copy, Check, ChevronRight, RefreshCw, X } from 'lucide-react';
 import {
   CaptureInboxPanel, StatusBadge, CHANNEL_ICONS, fmtDate, fmtZAR,
@@ -52,11 +52,8 @@ export default function CaptureInboxPage() {
 
   const loadInboxAddress = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/accounting/capture/inbox-address');
-      if (res.ok) {
-        const json = await res.json() as { data?: { inbox?: InboxAddress } };
-        setInboxAddr(json.data?.inbox ?? null);
-      }
+      const { inbox } = await apiJson('/api/accounting/capture/inbox-address');
+      setInboxAddr(inbox);
     } catch { /* non-critical */ }
   }, []);
 

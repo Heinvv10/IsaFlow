@@ -89,12 +89,9 @@ interface StaticRoutes {
   '/api/accounting/bank-accounts': Awaited<ReturnType<typeof getBankAccountsStatus>> | { updated: true };
   // GET and POST (regenerate) both return `{ inbox }`.
   '/api/accounting/capture/inbox-address': { inbox: Awaited<ReturnType<typeof getOrCreateEmailInbox>> | { id: string; address: string } };
-  // W1-02. GET list = array, GET `?id=` = one document, POST upload = `{ document, extracted }`.
-  // Narrow with Array.isArray / `'document' in r`; the single document has no `document` key.
-  '/api/accounting/document-capture':
-    | CapturedDocument[]
-    | CapturedDocument
-    | { document: CapturedDocument; extracted: ExtractedDocument };
+  // W1-02. GET list = array, POST upload = `{ document, extracted }`. The
+  // by-id read has its own query key below (`QueryRoutes`).
+  '/api/accounting/document-capture': CapturedDocument[] | { document: CapturedDocument; extracted: ExtractedDocument };
   '/api/accounting/migration/session': { session: MigrationSession | null };
   '/api/accounting/reports-vat-return': Awaited<ReturnType<typeof getVATReturn>>;
   '/api/accounting/vat-allocation-mismatches': Awaited<ReturnType<typeof findVatAllocationMismatches>>;
@@ -151,7 +148,17 @@ interface DynamicRoutes {
   '/api/accounting/annotations/{}/resolve': { resolved: true };
 }
 
-export type ApiRouteMap = StaticRoutes & DynamicRoutes;
+/**
+ * Routes whose payload is selected by a query parameter. Write the variable
+ * value as `{}`. Matching is on the FULL url and takes precedence over the
+ * path-only tables above, because `?id=` on a list route returns a different
+ * payload from the list — the situation the path-only matcher cannot express.
+ */
+interface QueryRoutes {
+  '/api/accounting/document-capture?id={}': CapturedDocument;
+}
+
+export type ApiRouteMap = StaticRoutes & DynamicRoutes & QueryRoutes;
 
 export type KnownRoute = keyof ApiRouteMap;
 
@@ -179,13 +186,23 @@ type MatchDynamic<P extends string> = {
     : never;
 }[keyof DynamicRoutes];
 
+type MatchQuery<U extends string> = {
+  [K in keyof QueryRoutes]: K extends `${infer Pre}{}${infer Post}`
+    ? U extends `${Pre}${infer Bound}${Post}`
+      ? [Segment<Bound>] extends [never]
+        ? never
+        : K
+      : never
+    : never;
+}[keyof QueryRoutes];
+
 /**
  * Resolve a concrete request URL to its registered route key, or `never` when
  * the route is not registered (which `ResponseFor` maps to `unknown`).
  */
-export type RouteFor<U extends string> =
-  | MatchStatic<Path<U>>
-  | MatchDynamic<Path<U>>;
+export type RouteFor<U extends string> = [MatchQuery<U>] extends [never]
+  ? MatchStatic<Path<U>> | MatchDynamic<Path<U>>
+  : MatchQuery<U>;
 
 /**
  * The unwrapped `data` payload for a given request URL — or `unknown` when the
