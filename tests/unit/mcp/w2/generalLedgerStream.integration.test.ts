@@ -21,10 +21,21 @@
  *  - `runningBalance` is NULL when a line-level filter is in force, because a
  *    running total over a subset of an account's lines is not a balance the
  *    account ever had. Reporting one would be a fabricated figure.
+ *
+ * R-165: this suite runs its reads inside ONE transaction (`withBusiestCompany`
+ * below), but on READ COMMITTED — the default — that only means one CLIENT,
+ * not one snapshot: each statement in the transaction sees whatever is
+ * committed as of ITS start, so a peer session's commit landing between two
+ * of our reads is visible to the later one and invisible to the earlier one.
+ * `BEGIN ISOLATION LEVEL REPEATABLE READ` fixes the snapshot at the
+ * transaction's first statement, so every read in it — 500-row page or
+ * 100,000-row whole — sees the identical database no matter what peers do
+ * concurrently. See the regression test below for the mechanism.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { als } from '@/lib/als';
 import { isDbReachable } from '../../helpers/dbReachable';
+import { commitConcurrentPostedLine, deleteConcurrentPostedLine } from './generalLedgerStream.concurrentWrite.helpers';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
@@ -43,7 +54,10 @@ const PERIOD_END = '2026-12-31';
 async function withBusiestCompany(run: (companyId: string) => Promise<void>) {
   const client = await getPoolForTests().connect();
   try {
-    await client.query('BEGIN');
+    // REPEATABLE READ, not the default READ COMMITTED: every statement below
+    // must see the SAME snapshot, or a peer's concurrent commit between two
+    // of our reads makes them disagree (R-165).
+    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
     await als.run(
       { client, userId: 'test', companyId: 'bootstrap', claims: {} } as unknown as AlsCtx,
       async () => {
@@ -92,6 +106,19 @@ async function drain(
 describe('general-ledger line stream — real database', async () => {
   const reachable = await isDbReachable();
 
+  // Every OTHER test in this file only reads, so it is safe against
+  // isaflow_dev. The R-165 regression test below WRITES a posted journal
+  // entry (see generalLedgerStream.concurrentWrite.helpers.ts) — `bun run ci`
+  // runs this suite through `env -u DATABASE_URL`, which does NOT actually
+  // unset it (vite's loadEnv re-reads .env.local → isaflow_dev regardless).
+  // Refuse to write there or at prod; the test simply skips when the
+  // resolved DB is not a disposable one, and its mechanism is already
+  // captured in docs/audits/remediation/R-165/{red,mutations}.log.
+  const dbName = (() => {
+    try { return new URL(process.env.DATABASE_URL ?? '').pathname.replace(/^\//, ''); } catch { return ''; }
+  })();
+  const canWriteHere = reachable && dbName !== '' && dbName !== 'isaflow_dev' && dbName !== 'isaflow';
+
   it.skipIf(!reachable)('pages to exhaustion returning every line exactly once', async () => {
     await withBusiestCompany(async (companyId) => {
       const base = { companyId, periodStart: PERIOD_START, periodEnd: PERIOD_END, limit: 137 };
@@ -130,6 +157,42 @@ describe('general-ledger line stream — real database', async () => {
       }
     });
   }, 60000);
+
+  it.skipIf(!canWriteHere)(
+    'is not disturbed by a peer session committing a posted line mid-read (R-165 regression)',
+    async () => {
+      try {
+        await withBusiestCompany(async (companyId) => {
+          const base = { companyId, periodStart: PERIOD_START, periodEnd: PERIOD_END, limit: 500 };
+          const before = await getGeneralLedgerLines({ ...base, after: null });
+
+          // A peer session posts a new BALANCED entry (2 lines: a debit and
+          // its matching credit) for the SAME company on its OWN connection —
+          // the exact shape of the flake: another agent's run committing to
+          // isaflow_dev while ours is mid-flight.
+          const committedCount = await commitConcurrentPostedLine(companyId, 115, PERIOD_START);
+
+          // Non-vacuity, checked on the WRITER's own connection: the peer's
+          // write really landed, or a mistakenly-scoped fix could pass below
+          // for the wrong reason (nothing to be blind to).
+          expect(committedCount).toBe(before.lineCount + 2);
+
+          const whole = await getGeneralLedgerLines({ ...base, limit: 100000, after: null });
+
+          // The transaction under test must be BLIND to the peer's commit: same
+          // line count, same runningBalance on every line it already read.
+          expect(whole.lineCount).toBe(before.lineCount);
+          const byId = new Map(whole.lines.map((l) => [l.lineId, l.runningBalance]));
+          for (const line of before.lines) {
+            expect(line.runningBalance).toBeCloseTo(byId.get(line.lineId) as number, 2);
+          }
+        });
+      } finally {
+        await deleteConcurrentPostedLine();
+      }
+    },
+    60000,
+  );
 
   it.skipIf(!reachable)('closes each account: opening + movement = the last runningBalance', async () => {
     await withBusiestCompany(async (companyId) => {
