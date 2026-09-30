@@ -189,6 +189,35 @@ export async function lockPostableCaptureEventIds(
   return rows.filter((row) => isCaptureEventPostable(row.status)).map((row) => String(row.id));
 }
 
+/** Stamp every given capture_events id posted — `ai-invoice-pipeline`'s counterpart to what
+ * `capturePostFollowUps` does for its one event id. No-op when `eventIds` is empty. */
+export async function markCaptureEventsPosted(
+  companyId: string,
+  eventIds: string[],
+  postedBy: string,
+): Promise<void> {
+  if (eventIds.length === 0) return;
+  await sql`
+    UPDATE capture_events
+    SET status = 'posted', posted_by = ${postedBy}, posted_at = NOW(), updated_at = NOW()
+    WHERE id = ANY(${eventIds}::uuid[]) AND company_id = ${companyId}
+  `;
+}
+
+/** Stamp every given capture_events id 'failed'/'duplicate' — the same shape `capture/[id]/post`
+ * stamps on `duplicate_blocked` (R-169 r2). No-op when `eventIds` is empty. */
+export async function markCaptureEventsDuplicate(
+  companyId: string,
+  eventIds: string[],
+): Promise<void> {
+  if (eventIds.length === 0) return;
+  await sql`
+    UPDATE capture_events
+    SET status = 'failed', error = 'duplicate', updated_at = NOW()
+    WHERE id = ANY(${eventIds}::uuid[]) AND company_id = ${companyId}
+  `;
+}
+
 // The claim itself lives in `capturePostingClaim.ts`; re-exported so every
 // posting route keeps importing the lock and the claim from one module.
 export {
