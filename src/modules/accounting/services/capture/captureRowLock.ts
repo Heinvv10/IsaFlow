@@ -59,6 +59,7 @@
 import { als, assertTxUsable } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { isCaptureEventPostable } from './captureEventLock';
 
 /** `lock_not_available` (the 5s `lock_timeout` elapsed) and `deadlock_detected`. */
 const RETRYABLE_LOCK_ERRORS = new Set(['55P03', '40P01']);
@@ -140,6 +141,81 @@ export async function lockCaptureEventForUpdate(
     SELECT id FROM capture_events
     WHERE id = ${eventId}::uuid AND company_id = ${companyId}
     FOR UPDATE`) as DbRow[]);
+}
+
+/**
+ * Lock every capture_events row tied to a document — for `ai-invoice-pipeline`,
+ * the one posting route that reaches a document directly and carries no event
+ * id of its own; every other poster gets its event id from the URL and locks
+ * it through `lockCaptureEventForUpdate` / `lockCaptureEventForPosting`.
+ *
+ * Locked here, alongside the document (document-then-event, the module's own
+ * order), BEFORE the first ledger write — so the `status = 'posted'` update a
+ * successful pipeline run issues at the very end (R-169), mirroring what
+ * `capturePostFollowUps` does for the one event id it already knows, never
+ * waits on a NEW lock: this transaction already holds the row, and a
+ * concurrent `discard` blocks behind it instead of racing it.
+ *
+ * Returns only the ids still open for posting (`isCaptureEventPostable`). A
+ * document reached with no capture_events row at all — an upload straight
+ * through `/accounting/capture`, never through email/WhatsApp/mirror — returns
+ * an empty array, and the caller's later UPDATE is then a no-op, never a new
+ * state.
+ */
+export async function lockPostableCaptureEventIds(
+  companyId: string,
+  documentId: string,
+): Promise<string[]> {
+  const client = als.getStore()?.client;
+  if (!client) {
+    throw new Error(
+      `Locking capture events for document ${documentId} requires a request transaction (withAuth / als.run). `
+      + 'Outside one, FOR UPDATE is released immediately and locks nothing.',
+    );
+  }
+  assertTxUsable();
+  await client.query("SET LOCAL lock_timeout = '5s'");
+  let rows: DbRow[];
+  try {
+    rows = (await sql`
+      SELECT id, status FROM capture_events
+      WHERE captured_document_id = ${documentId}::uuid AND company_id = ${companyId}
+      FOR UPDATE`) as DbRow[];
+    await client.query('SET LOCAL lock_timeout = DEFAULT');
+  } catch (err) {
+    if (isRetryableLockError(err)) throw new CaptureRowLockTimeoutError(documentId);
+    throw err;
+  }
+  return rows.filter((row) => isCaptureEventPostable(row.status)).map((row) => String(row.id));
+}
+
+/** Stamp every given capture_events id posted — `ai-invoice-pipeline`'s counterpart to what
+ * `capturePostFollowUps` does for its one event id. No-op when `eventIds` is empty. */
+export async function markCaptureEventsPosted(
+  companyId: string,
+  eventIds: string[],
+  postedBy: string,
+): Promise<void> {
+  if (eventIds.length === 0) return;
+  await sql`
+    UPDATE capture_events
+    SET status = 'posted', posted_by = ${postedBy}, posted_at = NOW(), updated_at = NOW()
+    WHERE id = ANY(${eventIds}::uuid[]) AND company_id = ${companyId}
+  `;
+}
+
+/** Stamp every given capture_events id 'failed'/'duplicate' — the same shape `capture/[id]/post`
+ * stamps on `duplicate_blocked` (R-169 r2). No-op when `eventIds` is empty. */
+export async function markCaptureEventsDuplicate(
+  companyId: string,
+  eventIds: string[],
+): Promise<void> {
+  if (eventIds.length === 0) return;
+  await sql`
+    UPDATE capture_events
+    SET status = 'failed', error = 'duplicate', updated_at = NOW()
+    WHERE id = ANY(${eventIds}::uuid[]) AND company_id = ${companyId}
+  `;
 }
 
 // The claim itself lives in `capturePostingClaim.ts`; re-exported so every
