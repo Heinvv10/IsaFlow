@@ -29,8 +29,8 @@ They now expect the 500 answer.
 
 ## Fix
 
-Hein chose to fix this in the wrappers (2026-09-30). The no-rethrow detail is to be confirmed
-with Hein before merge.
+Hein chose to fix this in the wrappers (2026-09-30), and confirmed the no-rethrow design the
+same day.
 
 - `src/lib/auth/deferredEnd.ts` holds the swap (`deferEnd`), which used to be copied into each
   wrapper, plus `answerThrow`, `replayEnd` and `abortResponse`. On a throw, after the ROLLBACK,
@@ -117,7 +117,7 @@ Evidence:
 - `red.int.log`: 17 of the 22 original cases fail on origin/master `7c49109f5`, because every
   throw is rethrown and `end` is never called. The positive paths and the 405 pass;
 - `green.log`: the suites on the final head;
-- `mutations.log`: 57 of 57 mutants are RED (M55–M57 re-run on the round-3 guard). Every changed line was
+- `mutations.log`: 63 of 63 mutants are RED. M55–M57 were re-run on the round-3 guard; the /review round re-ran every mutant whose line changed and added M58–M63. Every changed line was
   mutated in `deferredEnd.ts` (the buffer, the restore, the abort, the answer and its fallback,
   the log and stack, Sentry and its guard, and `replayEnd`), in each of the three wrappers (the
   deferral, the answer and its tenant, the guarded replay and its tenant, and both COMMIT-failure
@@ -171,6 +171,24 @@ Residual, accepted (adversarial reviewer): if `replayEnd` fails after COMMIT, th
 reset connection for a write that did commit, and may retry. It no longer rolls back or reports
 a failure, and only a handler bug (`end` given a body that is not a string or Buffer) can cause
 it; no route does that today.
+
+## /review (fresh blind Opus agent)
+
+APPROVED with six LOWs. Posted to the PR; all six are fixed:
+
+- the register note was stale (the confirmation, the mutant count, round 3). It is updated;
+- the throw log said "handler threw, transaction rolled back", but the wrapper's own steps
+  (BEGIN, the rate limiter) reach it too, and a failed ROLLBACK was swallowed. It now says
+  "request threw inside its transaction" and logs `rolledBack`, which each wrapper records from
+  its ROLLBACK instead of an empty catch (M58–M61);
+- `answerThrow` aborted a response with its headers sent even if it had already ended. It now
+  leaves an ended response alone, as `withErrorHandler` does (M62, with unit cases for both);
+- the census flagged any `x.end =` assignment. It now counts only receivers that read as a
+  response (`res`, `response`), and its failure message says what it found (M63);
+- no integration case covered a throw from the wrapper's own step before the swap. A case now
+  makes the rate limiter throw under withAuth and both Bearer wrappers: 500 once, nothing
+  rethrown, nothing written. `withExtensionToken` has no step there that a test can make throw;
+- the module doc's caller contract now states the `writableEnded` condition.
 
 ## Migration / rollback
 
