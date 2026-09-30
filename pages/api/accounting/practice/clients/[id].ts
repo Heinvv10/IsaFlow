@@ -12,6 +12,7 @@ import { withWriteAccess } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { ClientGroupNotInCompanyError } from '@/modules/accounting/services/practice/practiceClientFence';
 import {
   getPracticeClient,
   updatePracticeClient,
@@ -33,7 +34,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const client = await updatePracticeClient(companyId, id, req.body);
       return apiResponse.success(res, client);
     } catch (err) {
-      if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      if (err instanceof CustomerNotInCompanyError || err instanceof ClientGroupNotInCompanyError) {
+        return apiResponse.badRequest(res, err.message);
+      }
       throw err;
     }
   }
