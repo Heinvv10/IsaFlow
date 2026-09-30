@@ -1,10 +1,10 @@
 /**
  * R-166 — a payment link may not ask for more than the invoice still owes.
  *
- * POST /api/portal/payment-link accepted any amount up to the column's maximum, so a link on a
- * fully paid invoice (INV-00553 on prod) or one larger than the balance could be paid. It now
- * refuses amount > total_amount - COALESCE(amount_paid, 0) with 400, before any write. A part
- * payment, up to the balance, is still allowed.
+ * POST /api/portal/payment-link accepted any amount up to the column's maximum, so a link could
+ * be created on a fully paid invoice (INV-00553 on prod) or for more than the balance. It now
+ * refuses an amount over total_amount - GREATEST(amount_paid, 0), or any amount when that balance
+ * is NaN, with 400, before any write. A part payment, up to the balance, is still allowed.
  *
  * Runs through the real route: withAuth as app_user with RLS, withCsrf, withWriteAccess.
  */
@@ -103,6 +103,7 @@ it('a fully paid or overpaid invoice gets no link at all', async () => {
     const id = await invoice(paid);
     const r = await post(id, 0.01);
     expect(r.statusCode, JSON.stringify({ paid, body: r.body })).toBe(400);
+    expect(r.body.error?.message).toBe('the invoice has no outstanding balance');
     expect(await links(id)).toEqual([]);
   }
 });
@@ -123,6 +124,7 @@ it('a NaN balance is refused, not treated as unlimited', async () => {
   await pool.query("UPDATE customer_invoices SET amount_paid = 'NaN' WHERE id = $1", [id]);
   const r = await post(id, 0.01);
   expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
+  expect(r.body.error?.message).toBe('the invoice has no outstanding balance');
   expect(await links(id)).toEqual([]);
 });
 
