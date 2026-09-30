@@ -55,7 +55,7 @@ import {
   type GeneralLedgerQuery,
   type StreamTotals,
 } from './generalLedgerStreamTypes';
-
+import { streamFiscalBasis, withRetainedBf } from './generalLedgerStreamYearEnd';
 export type {
   GeneralLedgerCursor,
   GeneralLedgerLine,
@@ -95,6 +95,7 @@ export async function getGeneralLedgerLines(
   const term = search === undefined || search === '' ? null : `%${search}%`;
 
   try {
+    const basis = await streamFiscalBasis(companyId, periodStart, !anyFilter);
     const rows = (await sql`
       WITH matched AS (
         SELECT jl.id AS line_id, jl.journal_entry_id, ga.id AS account_id,
@@ -169,6 +170,7 @@ export async function getGeneralLedgerLines(
                            AND ga.company_id = ${companyId}::UUID
         WHERE jl.company_id = ${companyId}::UUID
           AND je.entry_date < ${periodStart}::DATE
+          AND (ga.account_type NOT IN ('revenue', 'expense') OR je.entry_date >= ${basis.fyStart}::DATE)
           AND ga.account_code IN (SELECT account_code FROM matched)
         GROUP BY ga.account_code
       ),
@@ -268,7 +270,7 @@ export async function getGeneralLedgerLines(
         ? null
         : Math.abs(totals.totalDebit - totals.totalCredit) < BALANCE_TOLERANCE,
       runningBalanceSuppressed: lineLevelFilter,
-      openingBalances: totals.openingBalances,
+      openingBalances: withRetainedBf(totals.openingBalances, basis),
       postedThrough: totals.postedThrough,
     };
   } catch (err) {
