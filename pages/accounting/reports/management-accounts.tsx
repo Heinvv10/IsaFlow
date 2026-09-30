@@ -16,8 +16,8 @@ import { formatMoney } from '@/lib/format/money';
 import { ManagementPandLRows, ManagementBalanceSheetRows, KVRow } from '@/components/accounting/ManagementPandLRows';
 import { ManagementKpiRow } from '@/components/accounting/ManagementKpiRow';
 import { ManagementSection } from '@/components/accounting/ManagementSection';
-
 import { localISODate } from '@/lib/dateUtils';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Kpis {

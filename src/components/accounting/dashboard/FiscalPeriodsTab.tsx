@@ -11,8 +11,8 @@ import { CloseReadinessChecklist } from '@/components/accounting/fiscal-periods/
 import { CreateYearModal } from '@/components/accounting/fiscal-periods/CreateYearModal';
 import { BulkConfirmModal, type BulkAction } from '@/components/accounting/fiscal-periods/BulkConfirmModal';
 import { statusIcon, statusBadge } from '@/components/accounting/fiscal-periods/statusVisuals';
-
 import { localISODate } from '@/lib/dateUtils';
+
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 export function FiscalPeriodsTab() {

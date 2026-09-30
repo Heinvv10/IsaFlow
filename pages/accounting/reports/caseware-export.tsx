@@ -10,8 +10,8 @@ import {
   ArrowLeft, Database, Loader2, AlertCircle, Download, Wand2, Save,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface AccountMapping {
   glAccountId: string;
   accountCode: string;

@@ -20,8 +20,8 @@ import { EmployeeHistoryCard } from '@/components/payroll/EmployeeHistoryCard';
 import { PayScaleCard } from '@/components/payroll/PayScaleCard';
 import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
 import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCard';
-
 import { localISODate } from '@/lib/dateUtils';
+
 export default function EmployeeDetailPage() {
   const router = useRouter();
   const { id } = router.query;

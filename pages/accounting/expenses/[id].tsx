@@ -17,8 +17,8 @@ import {
   ChevronLeft, Loader2, AlertCircle, Send, Check, X, FileCheck,
   MapPin, Receipt, DollarSign,
 } from 'lucide-react';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface Line {
   id: string;
   lineDate: string;

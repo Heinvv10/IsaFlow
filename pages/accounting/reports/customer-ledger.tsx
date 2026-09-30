@@ -8,8 +8,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface Customer {
   id: string;
   name: string;

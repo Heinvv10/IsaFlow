@@ -8,8 +8,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Banknote, Save, Loader2 } from 'lucide-react';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface Employee {
   id: string;
   employeeNumber: string;

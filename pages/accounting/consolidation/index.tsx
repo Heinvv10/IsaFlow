@@ -14,8 +14,8 @@ import type {
   GroupCompany,
   ConsolidatedTrialBalance,
 } from '@/modules/accounting/services/reports/consolidationTypes';
-
 import { localISODate } from '@/lib/dateUtils';
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function defaultRange() {

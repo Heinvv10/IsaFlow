@@ -10,8 +10,8 @@ import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { apiFetch } from '@/lib/apiFetch';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface VATAdjustment {
   id: string; adjustmentNumber: string; adjustmentDate: string; vatPeriod?: string;
   adjustmentType: string; amount: number; reason: string; status: string;

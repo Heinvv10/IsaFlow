@@ -6,8 +6,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { GraduationCap, Loader2, AlertCircle, Plus, X } from 'lucide-react';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface Employee { id: string; employeeNumber: string; firstName: string; lastName: string }
 interface Event {
   id: string;

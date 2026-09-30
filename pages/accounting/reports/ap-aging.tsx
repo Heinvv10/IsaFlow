@@ -9,8 +9,8 @@ import Link from 'next/link';
 import { ArrowLeft, Building2, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatOverdueDaysCompact } from '@/lib/format/aging';
-
 import { localISODate } from '@/lib/dateUtils';
+
 type Bucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
 
 interface APAgingRow {

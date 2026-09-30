@@ -9,8 +9,8 @@ import { Package, ArrowLeft, Loader2, Database } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { apiFetch } from '@/lib/apiFetch';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface Category {
   id: string;
   name: string;

@@ -10,8 +10,8 @@ import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { BarChart3, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface BudgetLine {
   account_code: string;
   account_name: string;

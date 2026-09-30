@@ -9,8 +9,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { ArrowDownCircle, ArrowUpCircle, Banknote, Loader2, AlertCircle, TrendingUp } from 'lucide-react';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface CashMovementRow {
   account_id: string;
   account_name: string;

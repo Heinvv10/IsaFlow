@@ -9,8 +9,8 @@ import { FileText, Plus, Loader2, AlertCircle, Download } from 'lucide-react';
 import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
-
 import { localISODate } from '@/lib/dateUtils';
+
 const TABS = ['all', 'draft', 'approved', 'partially_applied', 'applied', 'cancelled'] as const;
 type Tab = typeof TABS[number];
 

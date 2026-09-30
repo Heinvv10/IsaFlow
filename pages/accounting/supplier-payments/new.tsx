@@ -11,8 +11,8 @@ import { fuzzyMatchSupplier } from '@/modules/accounting/utils/fuzzyMatch';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
-
 import { localISODate } from '@/lib/dateUtils';
+
 interface Supplier { id: string; name: string }
 interface OutstandingInvoice { id: string; invoiceNumber: string; totalAmount: number; balance: number }
 interface Allocation { key: string; invoiceId: string; amount: number }

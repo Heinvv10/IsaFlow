@@ -19,8 +19,8 @@ import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
-
 import { prevMonthRange } from '@/lib/dateUtils';
+
 interface VAT201Transaction {
   journalEntryId: string;
   entryNumber: string;

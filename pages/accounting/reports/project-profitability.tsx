@@ -10,8 +10,8 @@ import { ArrowLeft, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
 import type { ProjectProfitabilityReport } from '@/modules/accounting/types/gl.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
-
 import { localISODate } from '@/lib/dateUtils';
+
 function getDefaultDates() {
   const now = new Date();
   const start = new Date(now.getFullYear(), 0, 1);

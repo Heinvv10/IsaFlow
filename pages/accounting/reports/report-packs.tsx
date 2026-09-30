@@ -20,8 +20,8 @@ import { PackPrintPage } from '@/components/accounting/packs/PackPrintPage';
 import { SectionCard, type PackSection } from '@/components/accounting/packs/PackSectionCard';
 import { PackShareButton, PackCommentary } from '@/components/accounting/packs/PackOwnerTools';
 import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
-
 import { localISODate } from '@/lib/dateUtils';
+
 type PackType = 'board' | 'management' | 'monthly';
 
 interface ReportPack { type: PackType; companyName: string; period: string; generatedAt: string; sections: PackSection[] }

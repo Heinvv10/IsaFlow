@@ -9,8 +9,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Banknote, Loader2, AlertCircle, Download } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate, prevMonthRange } from '@/lib/dateUtils';
 
-import { localISODate } from '@/lib/dateUtils';
 interface CashFlowSection {
   section: string;
   items: { label: string; amount: number }[];
@@ -32,12 +32,7 @@ export default function CashFlowPage() {
   const [report, setReport] = useState<CashFlowReport | null>(null);
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [costCentreFilter, setCostCentreFilter] = useState('');
-  const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 1);
-    d.setDate(1);
-    return localISODate(d);
-  });
+  const [startDate, setStartDate] = useState(() => prevMonthRange().start);
   const [endDate, setEndDate] = useState(localISODate());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');

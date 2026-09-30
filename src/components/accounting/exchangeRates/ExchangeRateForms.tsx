@@ -9,8 +9,8 @@ import { apiFetch } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import { Loader2, Plus, ArrowRight } from 'lucide-react';
-
 import { localISODate } from '@/lib/dateUtils';
+
 export interface Currency {
   code: string;
   name: string;
@@ -22,8 +22,6 @@ interface ConvertResult {
   rate: number;
   effectiveDate: string;
 }
-
-const today = localISODate();
 
 const INPUT_CLS =
   'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-teal-500';
@@ -42,7 +40,7 @@ export function AddRateForm({ currencies, onAdded }: AddRateFormProps) {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('ZAR');
   const [rate, setRate] = useState('');
-  const [date, setDate] = useState(today);
+  const [date, setDate] = useState(() => localISODate());
   const [saving, setSaving] = useState(false);
 
   const handleAdd = useCallback(async () => {
@@ -136,7 +134,7 @@ export function ConverterWidget({ currencies }: ConverterWidgetProps) {
   const [amount, setAmount] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('ZAR');
-  const [date, setDate] = useState(today);
+  const [date, setDate] = useState(() => localISODate());
   const [result, setResult] = useState<ConvertResult | null>(null);
   const [converting, setConverting] = useState(false);
 
