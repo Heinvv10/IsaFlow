@@ -252,8 +252,8 @@ The last two LOWs are both fixed by `DEFAULT true` in place of the backfill.
 Both reviewers returned SHIP on `7ec334794`. The adversarial reviewer added three LOWs:
 
 - the older part-payment links; decided above;
-- rows abandoned while starting that stayed `pending` forever; now marked `failed`, and M50
-  covers it;
+- rows abandoned while starting that stayed `pending` forever; now marked `failed`, and Q50–Q52
+  cover it;
 - the per-link limit as a denial for a token holder; accepted above.
 
 ## Migration / rollback
