@@ -33,25 +33,53 @@ const callsNamed = (name: string) => (n: ts.Node) =>
   ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === name;
 
 /**
- * Any assignment to a property named `end` (`x.end =`, `(x as any).end =`, `x['end'] =`), whatever
- * the receiver is called: a receiver-name filter misses `apiRes.end =` or `out.end =`. This fails
- * closed. A file that assigns a non-response `end` (a date range, say) goes in NOT_A_RESPONSE,
- * with the reason.
+ * Anything that replaces a property named `end`, whatever the receiver is called:
+ * `x.end =`, `(x as any).end =`, `x['end'] =`, `Object.defineProperty(x, 'end', …)` and
+ * `Object.assign(x, { end })`. A receiver-name filter would miss `apiRes.end =` or an alias.
+ * This fails closed. A file that sets a non-response `end` (a date range, say) goes in
+ * NOT_A_RESPONSE, with the reason.
  */
 const NOT_A_RESPONSE: Record<string, string> = {};
+const isObjectCall = (n: ts.CallExpression, method: string) => ts.isPropertyAccessExpression(n.expression)
+  && ts.isIdentifier(n.expression.expression) && n.expression.expression.text === 'Object'
+  && n.expression.name.text === method;
+const hasEndProperty = (o: ts.Expression) => ts.isObjectLiteralExpression(o) && o.properties.some((p) =>
+  p.name !== undefined && (ts.isIdentifier(p.name) || ts.isStringLiteralLike(p.name)) && p.name.text === 'end');
 const assignsEnd = (n: ts.Node) => {
+  if (ts.isCallExpression(n)) {
+    if (isObjectCall(n, 'defineProperty')) {
+      const key = n.arguments[1];
+      return key !== undefined && ts.isStringLiteralLike(key) && key.text === 'end';
+    }
+    if (isObjectCall(n, 'assign')) return n.arguments.slice(1).some(hasEndProperty);
+    return false;
+  }
   if (!ts.isBinaryExpression(n) || n.operatorToken.kind !== ts.SyntaxKind.EqualsToken) return false;
   const left = n.left;
   if (ts.isPropertyAccessExpression(left)) return left.name.text === 'end';
   return ts.isElementAccessExpression(left)
     && ts.isStringLiteralLike(left.argumentExpression) && left.argumentExpression.text === 'end';
 };
+const flags = (snippet: string) => find(ts.createSourceFile('s.ts', snippet, ts.ScriptTarget.Latest, true), assignsEnd).length > 0;
 
 describe('R-159: a deferred res.end is always answered on a throw', () => {
   it('the tracked tree was read', () => {
     expect(sources.length).toBeGreaterThan(500);
     expect(sources).toEqual(expect.arrayContaining([...WRAPPERS, 'src/lib/auth/deferredEnd.ts']));
   });
+
+  it.each([
+    'apiRes.end = f;', 'r.end = f;', '(httpRes as any).end = f;', "nextRes['end'] = f;",
+    'const target = res; target.end = f;', "Object.defineProperty(res, 'end', { value: f });",
+    'Object.assign(res, { end: f });', "Object.assign(out, { 'end': f });",
+  ])('the matcher flags %s', (snippet) => {
+    expect(flags(snippet)).toBe(true);
+  });
+
+  it.each(['const end = 1;', 'res.end(body);', 'range.start = 1;', 'Object.assign(res, { status: 1 });'])(
+    'the matcher leaves %s alone', (snippet) => {
+      expect(flags(snippet)).toBe(false);
+    });
 
   it('only deferredEnd.ts swaps res.end', () => {
     const swapping = sources.filter((f) => !(f in NOT_A_RESPONSE)
