@@ -8,13 +8,13 @@ import { notify } from '@/utils/toast';
 import { formatCurrency } from '@/utils/formatters';
 import { StatusPill, PageHeader } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
+import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
 interface SupplierReturn {
   id: string; return_number: string; supplier_name: string;
   original_invoice_number?: string; amount: number;
   status: string; return_date: string; reason: string;
 }
-interface Supplier { id: string; name: string }
 interface Form { supplierId: string; originalInvoiceNumber: string; amount: string; reason: string }
 
 const EMPTY: Form = { supplierId: '', originalInvoiceNumber: '', amount: '', reason: '' };
@@ -30,7 +30,6 @@ export default function SupplierReturnsPage() {
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState<Form>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
   const loadReturns = useCallback(async () => {
     setIsLoading(true); setError('');
@@ -44,12 +43,6 @@ export default function SupplierReturnsPage() {
 
   useEffect(() => { void loadReturns(); }, [loadReturns]);
 
-  useEffect(() => {
-    apiFetch('/api/accounting/suppliers-list').then(r => r.json()).then(json => {
-      const data = json.data || json;
-      setSuppliers((data.suppliers || []).map((s: Record<string, unknown>) => ({ id: s.id as string, name: (s.company_name || s.name) as string })));
-    }).catch(() => { /* non-critical */ });
-  }, []);
 
   function setField(field: keyof Form, value: string) { setForm(f => ({ ...f, [field]: value })); }
 
@@ -144,10 +137,7 @@ export default function SupplierReturnsPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={lbl}>Supplier *</label>
-                    <select className={inp} value={form.supplierId} onChange={e => setField('supplierId', e.target.value)} required>
-                      <option value="">Select supplier…</option>
-                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    <SupplierSelect required value={form.supplierId} inputClassName={inp} onChange={id => setField('supplierId', id)} />
                   </div>
                   <div>
                     <label className={lbl}>Original Invoice #</label>

@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
+import { fetchAllSuppliers } from '@/lib/fetchAllSuppliers';
 import { log } from '@/lib/logger';
 
 export interface RefAccount {
@@ -108,11 +109,7 @@ export function useBankRuleRefData(): BankRuleRefData {
     }, pushErr);
 
     void loadWithLog('suppliers', async () => {
-      const res = await apiFetch('/api/accounting/suppliers-list?status=active', { credentials: 'include' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      const d = json.data ?? json;
-      const list: { id: number | string; name: string }[] = Array.isArray(d) ? d : (d.suppliers ?? []);
+      const list = await fetchAllSuppliers();
       setSuppliers(list.map(s => ({ id: String(s.id), name: s.name })));
     }, pushErr);
 

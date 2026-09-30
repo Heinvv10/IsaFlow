@@ -8,11 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-
-interface Supplier {
-  id: string;
-  name: string;
-}
+import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
 interface LedgerRow {
   type: string;
@@ -83,29 +79,12 @@ function exportCsv(data: LedgerData, dateFrom: string, dateTo: string) {
 export default function SupplierLedgerPage() {
   const defaults = getDefaultDates();
 
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [suppliersLoaded, setSuppliersLoaded] = useState(false);
   const [supplierId, setSupplierId] = useState('');
   const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
   const [dateTo, setDateTo] = useState(defaults.dateTo);
   const [ledger, setLedger] = useState<LedgerData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-
-  const loadSuppliers = useCallback(async () => {
-    if (suppliersLoaded) return;
-    try {
-      const res = await apiFetch('/api/accounting/suppliers-list', { credentials: 'include' });
-      const json = await res.json();
-      if (res.ok) {
-        const d = json.data ?? json;
-        setSuppliers((Array.isArray(d) ? d : (d.suppliers ?? [])) as Supplier[]);
-        setSuppliersLoaded(true);
-      }
-    } catch {
-      // non-fatal
-    }
-  }, [suppliersLoaded]);
 
   const runReport = useCallback(async () => {
     if (!supplierId) {
@@ -174,19 +153,7 @@ export default function SupplierLedgerPage() {
           <div className="flex flex-wrap items-end gap-4">
             <div className="flex-1 min-w-[200px]">
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Supplier</label>
-              <select
-                value={supplierId}
-                onChange={(e) => setSupplierId(e.target.value)}
-                onFocus={loadSuppliers}
-                className="ff-input text-sm w-full"
-              >
-                <option value="">-- Select supplier --</option>
-                {suppliers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+              <SupplierSelect value={supplierId} onChange={setSupplierId} inputClassName="ff-input text-sm w-full" />
             </div>
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">From</label>
