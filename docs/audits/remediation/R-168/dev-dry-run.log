@@ -1,0 +1,25 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r168
+
+{
+  "monthly": {
+    "companiesProcessed": 5791,
+    "recipientsEmailed": 0,
+    "recipientsSkipped": 0,
+    "errors": []
+  },
+  "mailerCalls": 0,
+  "sweep": {
+    "companiesProcessed": 5791,
+    "tasksConsidered": 0,
+    "tasksGenerated": 0,
+    "tasksSkipped": 0,
+    "errors": []
+  }
+}
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  12:01:05
+   Duration  2.04s (transform 249ms, setup 0ms, import 320ms, tests 1.61s, environment 0ms)
+
