@@ -7,7 +7,7 @@
 Request authentication and the per-request transaction. `withAuth` (cookie session), `runBearerRequest` in `bearerPipeline.ts` (PAT / OAuth; behind `withBearerOrCookieAuth` and `withBearerAuth`) and `withExtensionToken` (bank-feed extension) each authenticate, open one transaction as `app_user` with the RLS GUCs, run the handler inside it, then COMMIT or ROLLBACK and release. They are the three that also defer the response flush. `withInviteToken`, `withPlatformAdmin` and `publicRouteTx` (`src/lib`) own transactions too, but flush as the handler writes.
 
 ## Caller contract
-- Compose a route as `withAuth(withErrorHandler(handler))`: `withErrorHandler` goes INSIDE the wrapper, so a caught error is answered 500 and the wrapper sees the status and rolls back. If the handler had already flushed its headers, `withErrorHandler` cannot send a 500: it sets `statusCode = 500` anyway (so the wrapper rolls back) and aborts the response.
+- Compose a route as `withAuth(withErrorHandler(handler))`: `withErrorHandler` goes INSIDE the wrapper, so a caught error is answered 500 and the wrapper sees the status and rolls back. If the handler had already flushed its headers, `withErrorHandler` cannot send a 500. While the response has not ended (always so under the three wrappers, whose `end` is buffered) it sets `statusCode = 500` anyway, so the wrapper rolls back, and aborts the response. A response that already ended through the real `end` is left alone.
 - A status of 500 or more rolls back; anything lower COMMITs, so a 4xx sent after a write commits that write. Throw (or answer 500) after a write, never 4xx.
 - Background work goes through `runAfterCommit`; the wrapper starts it only after COMMIT.
 

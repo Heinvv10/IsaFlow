@@ -287,8 +287,9 @@ export async function runBearerRequest(
     if (!handlerFailed) drainAfterCommit(txCtx);
   } catch (err) {
     // R-159: answer the throw here; see withAuth.
-    try { await client.query('ROLLBACK'); } catch { /* secondary */ }
-    answerThrow(req, res, deferred, err, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId });
+    let rolledBack = true;
+    try { await client.query('ROLLBACK'); } catch { rolledBack = false; }
+    answerThrow(req, res, deferred, err, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId, rolledBack });
   } finally {
     client.release();
     const ms = Date.now() - startedAt;

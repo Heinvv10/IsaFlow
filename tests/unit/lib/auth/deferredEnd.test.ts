@@ -90,6 +90,24 @@ describe('answerThrow', () => {
     expect(ends).toHaveLength(1);
   });
 
+  it('a response that already ended through the real end is neither aborted nor ended again', () => {
+    const destroy = vi.fn();
+    const { r, ends } = res();
+    Object.assign(r, { headersSent: true, writableEnded: true, destroy });
+    answerThrow(req, r as never, null, new Error('after the send'), { source: 'withAuth' });
+    expect(destroy).not.toHaveBeenCalled();
+    expect(ends).toHaveLength(0);
+  });
+
+  it('headers sent but not ended: the response is aborted, not ended', () => {
+    const destroy = vi.fn();
+    const { r, ends } = res();
+    Object.assign(r, { headersSent: true, writableEnded: false, destroy });
+    answerThrow(req, r as never, null, new Error('mid-stream'), { source: 'withAuth' });
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(ends).toHaveLength(0);
+  });
+
   it('with no deferral (a throw before the swap) it still answers 500 once', () => {
     const { r, ends } = res();
     answerThrow(req, r as never, null, new Error('boom'), { source: 'withAuth' });

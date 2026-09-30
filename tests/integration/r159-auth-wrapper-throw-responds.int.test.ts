@@ -19,7 +19,18 @@ import { SignJWT } from 'jose';
 import { assertDisposable, request } from './mfa-impersonation-postgres.helpers';
 import { call, type TestResponse } from './r159-auth-wrapper.helpers';
 
-const h = vi.hoisted(() => ({ drained: 0 }));
+const h = vi.hoisted(() => ({ drained: 0, rateLimitThrows: false }));
+// A throw from the wrapper's own step before the swap (the per-company rate limiter).
+vi.mock('@/lib/rateLimit', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/lib/rateLimit')>();
+  return {
+    ...original,
+    checkRateLimit: async (...a: Parameters<typeof original.checkRateLimit>) => {
+      if (h.rateLimitThrows) throw new Error('R-159 rate limiter unavailable');
+      return original.checkRateLimit(...a);
+    },
+  };
+});
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { withAuth } from '@/lib/auth/withAuth';
@@ -128,8 +139,9 @@ describe.each(wrappers)('%s', (label, wrap, req) => {
     const logged = vi.spyOn(log, 'error');
     const r = await call(wrap('throw', name), req());
     const source = label.startsWith('withBearer') ? 'bearerPipeline' : label;
-    expect(logged).toHaveBeenCalledWith(`${source}: handler threw, transaction rolled back`,
+    expect(logged).toHaveBeenCalledWith(`${source}: request threw inside its transaction`,
       expect.objectContaining({
+        rolledBack: true,
         companyId: CO, userId: USER, message: `R-159 forced failure after the ${name} INSERT`,
         stack: expect.stringContaining(`R-159 forced failure after the ${name} INSERT`),
         ...(label === 'withExtensionToken' && { connectionId: CONN }),
@@ -187,7 +199,7 @@ describe.each(wrappers)('%s', (label, wrap, req) => {
     expect(r.threw).toBeNull();
     expect(r.status).toBe(201);
     expect(r.destroyed).toBe(true);
-    expect(messages.some((m) => m.includes('rolled back'))).toBe(false);
+    expect(messages.some((m) => m.includes('request threw inside its transaction'))).toBe(false);
     expect(messages.some((m) => m.includes('response replay failed after the transaction was finalised'))).toBe(true);
     expect(h.drained).toBe(drained + 1);
   });
@@ -229,6 +241,22 @@ describe.each(wrappers)('%s', (label, wrap, req) => {
     expect(r.destroyed).toBe(true);
     expect(r.ends).toBe(0);
   });
+
+  it.skipIf(label === 'withExtensionToken')(
+    'a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow', async () => {
+      const name = `pre-swap-${randomUUID()}`;
+      h.rateLimitThrows = true;
+      try {
+        const r = await call(wrap('ok', name), { ...(req() as object), url: '/api/accounting/reports-r159' });
+        expect(await customers(name)).toBe(0);
+        expect(r.threw).toBeNull();
+        expect(r.status).toBe(500);
+        expect(r.body).toMatchObject({ success: false, data: null, code: 'INTERNAL_SERVER_ERROR' });
+        expect(r.ends).toBe(1);
+      } finally {
+        h.rateLimitThrows = false;
+      }
+    });
 
   it('a handler that never responds: the write commits and nothing is replayed (unchanged)', async () => {
     const name = `silent-${randomUUID()}`;

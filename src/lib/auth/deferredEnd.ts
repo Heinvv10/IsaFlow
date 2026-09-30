@@ -48,6 +48,8 @@ export interface ThrowContext {
   userId?: string;
   /** Wrapper-specific fields for the log line, e.g. the extension's connectionId. */
   extra?: Record<string, unknown>;
+  /** answerThrow only: whether the caller's ROLLBACK succeeded. */
+  rolledBack?: boolean;
 }
 
 /** An error's text for a log line; an error whose message cannot be read must not escape. */
@@ -87,8 +89,9 @@ export function replayEnd(res: NextApiResponse, deferred: DeferredEnd, ctx: Thro
 }
 
 /**
- * Answers a throw that escaped the handler, after the caller has rolled back. `deferred` is
- * null when the throw came before the swap. Never rethrows: the response is the only answer.
+ * Answers a throw inside the request transaction (from the handler, or from the wrapper's own
+ * steps such as BEGIN or the rate limiter), after the caller has tried to roll back. `deferred`
+ * is null when the throw came before the swap. Never rethrows: the response is the only answer.
  */
 export function answerThrow(
   req: NextApiRequest,
@@ -101,8 +104,9 @@ export function answerThrow(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if (deferred) (res as any).end = deferred.realEnd;
   const route = sanitizeRoute(req.url);
-  log.error(`${ctx.source}: handler threw, transaction rolled back`, {
+  log.error(`${ctx.source}: request threw inside its transaction`, {
     route,
+    rolledBack: ctx.rolledBack,
     companyId: ctx.companyId,
     userId: ctx.userId,
     ...ctx.extra,
@@ -119,8 +123,9 @@ export function answerThrow(
     }
   }
   if (res.headersSent) {
-    // A streaming route already sent its status line; it cannot become a 500.
-    abortResponse(res);
+    // A streaming route already sent its status line; it cannot become a 500. Abort it unless
+    // it already ended through the real end, which must not be cut off mid-flush.
+    if (!res.writableEnded) abortResponse(res);
     return;
   }
   try {
