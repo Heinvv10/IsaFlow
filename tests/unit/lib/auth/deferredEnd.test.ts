@@ -11,6 +11,7 @@ vi.mock('@sentry/nextjs', () => ({ captureException: h.captureException }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import { answerThrow, deferEnd } from '@/lib/auth/deferredEnd';
+import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
 
 function res() {
   const ends: unknown[][] = [];
@@ -44,6 +45,14 @@ describe('answerThrow', () => {
     const { r } = res();
     answerThrow(req, r as never, deferEnd(r as never), new Error('boom'), { source: 'withAuth' });
     expect(h.captureException).not.toHaveBeenCalled();
+  });
+
+  it('a refused Login-as session is answered 403 through the real end, as withErrorHandler answers it', () => {
+    const { r, ends } = res();
+    answerThrow(req, r as never, deferEnd(r as never), new ImpersonationForbiddenError(), { source: 'withAuth' });
+    expect(r.statusCode).toBe(403);
+    expect(ends).toHaveLength(1);
+    expect(JSON.parse(String(ends[0]![0]))).toMatchObject({ success: false });
   });
 
   it('with no deferral (a throw before the swap) it still answers 500 once', () => {
