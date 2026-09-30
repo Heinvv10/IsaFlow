@@ -59,7 +59,9 @@ export async function autoLinkImportedBatchTransfers(
         JOIN bank_transactions et
           ON  et.company_id = ${companyId}::UUID
           AND et.bank_account_id != n.bank_account_id
-          AND et.status = 'allocated'
+          -- 'reconciled' too: completing a reconciliation moves an allocated
+          -- transfer leg on, and the counterparty's later import must still link.
+          AND et.status IN ('allocated', 'reconciled')
           AND et.allocation_type = 'transfer'
           AND et.transfer_journal_entry_id IS NOT NULL
           AND ABS(et.amount + n.amount) < 0.01

@@ -109,6 +109,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/bankImportService.ts': 'exempt: writer (Task 3) — import-time auto-post sweep candidate selection',
   'src/modules/accounting/services/bank/bankMatchDbQueries.ts': "exempt: writer (Task 3) plan-phase reads; matched_journal_line_id exclusion cannot carry it on a non-posted row (trigger 675)",
   'src/modules/accounting/services/bank/bankReconciliationCancelService.ts': "exempt: non-posted rows cannot carry reconciliation_id (trigger 675)",
+  'src/modules/accounting/services/bank/bankReconciliationClaim.ts': 'filtered',
   'src/modules/accounting/services/bank/bankReconciliationService.ts': 'filtered',
   'src/modules/accounting/services/bank/bankRulesMatchingHelpers.ts': 'exempt: writer (Task 3)',
   'src/modules/accounting/services/bank/bankRulesMatchingService.ts': 'filtered',
