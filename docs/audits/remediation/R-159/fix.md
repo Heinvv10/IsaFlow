@@ -117,7 +117,7 @@ Evidence:
 - `red.int.log`: 17 of the 22 original cases fail on origin/master `7c49109f5`, because every
   throw is rethrown and `end` is never called. The positive paths and the 405 pass;
 - `green.log`: the suites on the final head;
-- `mutations.log`: 67 of 67 mutants are RED. M55–M57 were re-run on the round-3 guard; the /review round re-ran every mutant whose line changed and added M58–M63. Every changed line was
+- `mutations.log`: 71 of 71 mutants are RED. M55–M57 were re-run on the round-3 guard; the /review round re-ran every mutant whose line changed and added M58–M63. Every changed line was
   mutated in `deferredEnd.ts` (the buffer, the restore, the abort, the answer and its fallback,
   the log and stack, Sentry and its guard, and `replayEnd`), in each of the three wrappers (the
   deferral, the answer and its tenant, the guarded replay and its tenant, and both COMMIT-failure
@@ -186,11 +186,12 @@ APPROVED with six LOWs. Posted to the PR; all six are fixed:
 - the census flagged any `x.end =` assignment. That is kept: a receiver-name filter, tried
   first, missed `apiRes.end =` (re-confirmation LOW). The census still fails closed, and a
   non-response `end` goes in its `NOT_A_RESPONSE` list with a reason; the list is empty today.
-  Its failure message now says so. After round 4 (adversarial) it also catches
-  `Object.defineProperty(x, 'end', …)` and `Object.assign(x, { end })`. Fixture cases pin the
-  matcher on `apiRes.end =`, an aliased receiver, a cast, element access and both `Object` forms,
-  and it ignores `res.end(body)`. M63–M67 are RED, including M64, which plants an
-  `apiRes.end =` swap in a tracked file;
+  Its failure message now says so. Rounds 4 and 5 widened what counts as a swap. It also catches
+  `Object.defineProperty(x, 'end', …)`, `Object.defineProperties(x, { end })`,
+  `Object.assign(x, { end })` (with a plain, quoted or computed `['end']` key) and
+  `Reflect.set(x, 'end', …)`. A key held in a variable is the named limit: the syntax tree
+  cannot resolve it, and the census comment says so. Fixture cases pin the matcher both ways.
+  M63–M71 are RED, including M64, which plants an `apiRes.end =` swap in a tracked file;
 - no integration case covered a throw from the wrapper's own step before the swap. A case now
   makes the rate limiter throw under withAuth and both Bearer wrappers: 500 once and nothing
   rethrown. It also asserts that the limiter's hook fired; the earlier no-row assertion could

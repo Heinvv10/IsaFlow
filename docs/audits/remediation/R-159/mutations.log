@@ -1,3 +1,12 @@
+# Round 5: M64-M71 on 753993b29 (census matcher rewritten; every matcher branch mutated).
+M64 planted apiRes swap in a tracked file [src/lib/auth/withRole.ts]: RED | unit: 1 failed | 83 passed (84) | int: 55 passed | 1 skipped (56)
+M67 census matches any element access [tests/unit/lib/auth/deferredEndCensus.test.ts]: RED | unit: 1 failed | 83 passed (84) | int: 55 passed | 1 skipped (56)
+M65 census misses defineProperty and Reflect.set [tests/unit/lib/auth/deferredEndCensus.test.ts]: RED | unit: 2 failed | 82 passed (84) | int: 55 passed | 1 skipped (56)
+M66 census misses Object.assign [tests/unit/lib/auth/deferredEndCensus.test.ts]: RED | unit: 3 failed | 81 passed (84) | int: 55 passed | 1 skipped (56)
+M68 census misses defineProperties [tests/unit/lib/auth/deferredEndCensus.test.ts]: RED | unit: 1 failed | 83 passed (84) | int: 55 passed | 1 skipped (56)
+M69 census misses a computed end key [tests/unit/lib/auth/deferredEndCensus.test.ts]: RED | unit: 1 failed | 83 passed (84) | int: 55 passed | 1 skipped (56)
+M70 census flags any Reflect.set key [tests/unit/lib/auth/deferredEndCensus.test.ts]: RED | unit: 1 failed | 83 passed (84) | int: 55 passed | 1 skipped (56)
+M71 census owner not checked [tests/unit/lib/auth/deferredEndCensus.test.ts]: RED | unit: 1 failed | 83 passed (84) | int: 55 passed | 1 skipped (56)
 # Round 4: M64-M67 on 8c7b4853e (census catches defineProperty/assign; fixture cases).
 M64 planted apiRes swap in a tracked file [src/lib/auth/withRole.ts]: RED | unit: 1 failed | 78 passed (79) | int: 55 passed | 1 skipped (56)
 M65 census misses defineProperty [tests/unit/lib/auth/deferredEndCensus.test.ts]: RED | unit: 1 failed | 78 passed (79) | int: 55 passed | 1 skipped (56)
