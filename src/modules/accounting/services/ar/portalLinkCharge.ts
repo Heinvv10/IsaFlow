@@ -102,8 +102,17 @@ export type ExistingCheckout =
  * click or a back-and-retry gets it again instead of a second charge. One recorded in the last
  * minute that has no URL yet is still being started, so the caller must wait, not start another.
  * A different amount (the balance moved), an older one, or one abandoned while starting: none.
+ * Checkouts abandoned while starting (no URL after the starting window: the gateway call or the
+ * URL write never finished) are marked failed here, under the link lock, so none stays `pending`.
  */
 export async function existingCheckout(charge: LinkCharge): Promise<ExistingCheckout> {
+  await sql`
+    UPDATE paystack_payment_requests
+    SET status = 'failed', failure_reason = 'abandoned while starting', updated_at = NOW()
+    WHERE company_id = ${charge.companyId}::UUID AND portal_payment_link_id = ${charge.linkId}::UUID
+      AND status = 'pending' AND authorization_url IS NULL
+      AND created_at <= NOW() - make_interval(secs => ${CHECKOUT_STARTING_SECONDS})
+  `;
   const rows = (await sql`
     SELECT authorization_url, paystack_reference,
            created_at > NOW() - make_interval(secs => ${CHECKOUT_STARTING_SECONDS}) AS young
@@ -117,7 +126,7 @@ export async function existingCheckout(charge: LinkCharge): Promise<ExistingChec
   const row = rows[0];
   if (!row) return { kind: 'none' };
   if (row.authorization_url) return { kind: 'reuse', checkoutUrl: row.authorization_url, reference: row.paystack_reference };
-  return row.young ? { kind: 'starting' } : { kind: 'none' };
+  return row.young ? { kind: 'starting' } : { kind: 'none' }; // an old URL-less row was just failed
 }
 
 /** Record a checkout before the gateway is called, so a second click finds it (see create). */

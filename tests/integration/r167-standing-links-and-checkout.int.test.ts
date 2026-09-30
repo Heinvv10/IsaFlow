@@ -192,6 +192,9 @@ describe('create holds nothing across the gateway call', () => {
     await pool.query("UPDATE paystack_payment_requests SET created_at = NOW() - INTERVAL '61 seconds' WHERE customer_invoice_id = $1", [invoiceId]);
     expect((await create(token)).statusCode).toBe(200); // abandoned while starting: a fresh one
     expect(h.charged).toEqual([4050]);
+    expect((await pool.query(
+      "SELECT status, failure_reason FROM paystack_payment_requests WHERE paystack_reference = $1", [`r167_starting_${linkId.slice(0, 8)}`])).rows)
+      .toEqual([{ status: 'failed', failure_reason: 'abandoned while starting' }]);
   });
 
   it('a gateway failure marks the recorded checkout failed, and the next click starts afresh', async () => {
