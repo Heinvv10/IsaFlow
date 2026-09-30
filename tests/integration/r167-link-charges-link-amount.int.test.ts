@@ -45,9 +45,11 @@ const BANK = randomUUID();
 const AR = randomUUID();
 
 type Res = { statusCode: number; body: { data?: Record<string, unknown>; error?: { message?: string } } };
+/** One address per run: verify rate-limits per IP, and its counter outlives a run. */
+const IP = `10.${[0, 0, 0].map(() => Math.floor(Math.random() * 250) + 1).join('.')}`;
 const call = async (route: (req: never, res: never) => unknown, req: Record<string, unknown>): Promise<Res> => {
   const out = response();
-  await route({ headers: {}, cookies: {}, socket: { remoteAddress: '127.0.1.67' }, ...req } as never, out.res as never);
+  await route({ headers: {}, cookies: {}, socket: { remoteAddress: IP }, ...req } as never, out.res as never);
   return out.state as unknown as Res;
 };
 const create = (token: string) => call(createRoute, { method: 'POST', url: '/api/portal/payments/paystack/create', body: { token } });
