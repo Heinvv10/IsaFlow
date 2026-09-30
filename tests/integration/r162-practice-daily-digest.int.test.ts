@@ -46,7 +46,12 @@ const U = {
   both: randomUUID(),
   // users.id is VARCHAR; dev carries non-UUID ids, and a ::UUID cast of one aborted that user's digest.
   textId: `r162-text-id-${randomUUID()}`,
+  // Timesheet nag (Hein, 2026-09-30): only members with a non-draft practice entry in the last 30 days.
+  practiceMissed: randomUUID(), practiceLogged: randomUUID(), practiceStale: randomUUID(),
+  practiceDraftOnly: randomUUID(), nonPracticeEntry: randomUUID(), nonPractice: randomUUID(),
 };
+const NAG_USERS = [U.practiceMissed, U.practiceLogged, U.practiceStale, U.practiceDraftOnly,
+  U.nonPracticeEntry, U.nonPractice];
 const email = (id: string) => `r162-${id}@isaflow.test`;
 
 const CLIENT_A = randomUUID();
@@ -83,6 +88,7 @@ describeIfDb('R-162 — practice daily digest: runs, and never shows another com
       [U.aStatus, A, true, 'suspended', false], [U.deleted, DELETED, true, 'active', false],
       [U.suspended, SUSPENDED, true, 'active', false], [U.suspendedAt, SUSPENDED_AT, true, 'active', false],
       [U.both, A, true, 'active', false], [U.textId, A, true, 'active', false],
+      ...NAG_USERS.map((id): [string, string, boolean, string, boolean] => [id, A, true, 'active', false]),
     ];
     for (const [id, company, active, st, susp] of users) {
       await pool.query(
@@ -101,6 +107,16 @@ describeIfDb('R-162 — practice daily digest: runs, and never shows another com
       `INSERT INTO practice_jobs (id, company_id, practice_client_id, title) VALUES
          ($1, $2, $3, 'R162 Job A'), ($4, $2, $5, 'R162 Job A on B client'), ($6, $7, $5, 'R162 SECRET JOB B')`,
       [JOB_A, A, CLIENT_A, JOB_A_ON_B_CLIENT, CLIENT_B, JOB_B, B]);
+    // "Today" is pinned to 2026-09-30 below, so yesterday is 2026-09-29.
+    const entry = (user: string, date: string, status: string, client: string | null) => pool.query(
+      `INSERT INTO time_entries (company_id, user_id, task_description, entry_date, hours, status, practice_client_id)
+       VALUES ($1, $2, 'R162 entry', $3, 1, $4, $5)`, [A, user, date, status, client]);
+    await entry(U.practiceMissed, '2026-09-20', 'submitted', CLIENT_A);
+    await entry(U.practiceLogged, '2026-09-20', 'approved', CLIENT_A);
+    await entry(U.practiceLogged, '2026-09-29', 'submitted', CLIENT_A);
+    await entry(U.practiceStale, '2026-08-20', 'approved', CLIENT_A);
+    await entry(U.practiceDraftOnly, '2026-09-20', 'draft', CLIENT_A);
+    await entry(U.nonPracticeEntry, '2026-09-20', 'submitted', null);
     const task = (company: string, job: string | null, user: string, title: string) => pool.query(
       `INSERT INTO practice_tasks (company_id, job_id, assigned_to, title, status, due_date)
        VALUES ($1, $2, $3, $4, 'pending', CURRENT_DATE - 5)`, [company, job, user, title]);
@@ -133,7 +149,7 @@ describeIfDb('R-162 — practice daily digest: runs, and never shows another com
   afterAll(async () => {
     if (!pool) return;
     try {
-      for (const t of ['practice_tasks', 'practice_jobs', 'practice_clients', 'company_users']) {
+      for (const t of ['time_entries', 'practice_tasks', 'practice_jobs', 'practice_clients', 'company_users']) {
         await pool.query(`DELETE FROM ${t} WHERE company_id = ANY($1::uuid[])`, [COMPANIES]);
       }
       await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [COMPANIES]);
@@ -182,6 +198,7 @@ describeIfDb('R-162 — practice daily digest: runs, and never shows another com
       [email(U.a)]: [A], [email(U.b)]: [B], [email(U.aInactive)]: [A], [email(U.aSuspendedAt)]: [A],
       [email(U.aStatus)]: [A], [email(U.deleted)]: [DELETED], [email(U.suspended)]: [SUSPENDED],
       [email(U.suspendedAt)]: [SUSPENDED_AT], [email(U.both)]: [A, B], [email(U.textId)]: [A],
+      ...Object.fromEntries(NAG_USERS.map((id) => [email(id), [A]])),
     };
     expect(mine().length).toBeGreaterThan(0);
     for (const m of mine()) expect(memberOf[m.to], m.to).toContain(m.companyId);
@@ -202,4 +219,20 @@ describeIfDb('R-162 — practice daily digest: runs, and never shows another com
   it('skips an inactive user', () => expect(digestTo(U.aInactive)).toEqual([]));
   it('skips a user with suspended_at set', () => expect(digestTo(U.aSuspendedAt)).toEqual([]));
   it('skips a user whose status is not active', () => expect(digestTo(U.aStatus)).toEqual([]));
+
+  it('a practice member with no entry yesterday gets the timesheet nag', () => {
+    const [digest, ...extra] = digestTo(U.practiceMissed);
+    expect(extra).toEqual([]);
+    expect(digest?.subject).toBe('Practice digest — 0 overdue, timesheet missing');
+  });
+  it('a practice member who logged yesterday gets no nag', () => expect(digestTo(U.practiceLogged)).toEqual([]));
+  it('a member who never logged practice time gets no nag', () => expect(digestTo(U.nonPractice)).toEqual([]));
+  it('a practice member whose last entry is older than 30 days gets no nag',
+    () => expect(digestTo(U.practiceStale)).toEqual([]));
+  it('a draft practice entry does not make a practice member', () => expect(digestTo(U.practiceDraftOnly)).toEqual([]));
+  it('a time entry with no practice client does not make a practice member',
+    () => expect(digestTo(U.nonPracticeEntry)).toEqual([]));
+  it('an overdue-task assignee who tracks no practice time gets the tasks and no nag', () => {
+    expect(digestTo(U.a)[0]?.subject).toBe('Practice digest — 3 overdue, timesheet ok');
+  });
 });

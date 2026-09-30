@@ -94,21 +94,27 @@ async function queryOverdueTasks(
   }));
 }
 
-async function hasTimesheetForDate(
+/**
+ * True when `date` has no timesheet from someone who tracks practice time.
+ * Only a user with a non-draft practice entry in this company dated from 30
+ * days ago on is nagged (Hein, 2026-09-30): none means they don't track
+ * practice time here, and bool_or over no rows is NULL.
+ */
+async function isTimesheetMissing(
   companyId: string,
   userId: string,
   date: string,
 ): Promise<boolean> {
   const rows = (await sql`
-    SELECT 1 FROM time_entries
+    SELECT bool_or(entry_date = ${date}::DATE) AS submitted
+    FROM time_entries
     WHERE company_id = ${companyId}::UUID
       AND user_id::TEXT = ${userId}
-      AND entry_date = ${date}::DATE
+      AND entry_date >= ${date}::DATE - 29
       AND status <> 'draft'
       AND practice_client_id IS NOT NULL
-    LIMIT 1
   `) as DbRow[];
-  return rows.length > 0;
+  return rows[0]?.submitted === false;
 }
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
@@ -144,8 +150,7 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
 
         let missingTimesheetDate: string | null = null;
         if (yesterdayIsWeekday) {
-          const submitted = await hasTimesheetForDate(companyId, user.id, yesterday);
-          if (!submitted) {
+          if (await isTimesheetMissing(companyId, user.id, yesterday)) {
             missingTimesheetDate = yesterday;
           }
         }
