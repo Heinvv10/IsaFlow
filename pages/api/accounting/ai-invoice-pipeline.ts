@@ -30,6 +30,7 @@ import {
   CaptureRowLockTimeoutError,
   claimCapturedDocumentForPosting,
   lockCapturedDocumentForUpdate,
+  lockPostableCaptureEventIds,
   refusalForPosting,
 } from '@/modules/accounting/services/capture/captureRowLock';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
@@ -83,6 +84,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   if (!doc) return apiResponse.notFound(res, 'Captured document', documentId);
+
+  // R-169: no event id of its own, so lock whatever event(s) are tied to the
+  // document here. None (a straight upload) is an empty array, not a refusal.
+  let postableEventIds: string[];
+  try {
+    postableEventIds = await lockPostableCaptureEventIds(companyId, documentId);
+  } catch (err) {
+    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
+    throw err;
+  }
 
   const readRefusal = refusalForPosting(doc);
   if (readRefusal) {
@@ -167,8 +178,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const approval = await unattendedBillStatus(companyId, approvalRoute === 'auto_approve', invoiceInput.totalAmount);
   // R-160: R-131's lines or a refusal, before the claim so a 4xx commits nothing. No capture event account: this
   // route reads no event, and an event gets one only when posted as an expense, which claims the document first.
-  const linePlan = await planCaptureBillLines(companyId, invoiceInput, extracted.lineItems?.length ?? 0, null,
-    await getRule(companyId, supplierMatch.supplierId));
+  const codingRule = await getRule(companyId, supplierMatch.supplierId);
+  const linePlan = await planCaptureBillLines(companyId, invoiceInput, extracted.lineItems?.length ?? 0, null, codingRule);
   if ('refusal' in linePlan) return apiResponse.badRequest(res, linePlan.refusal);
 
   // Claim the document BEFORE the first ledger write, and AFTER the
@@ -218,14 +229,25 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     WHERE id = ${documentId}::uuid AND company_id = ${companyId}
   `;
 
-  // Record coding for supplier learning loop (gl/vat/cc null — human review will code)
+  // Mark the tied capture event(s) posted (R-169), as `capturePostFollowUps` does for its event id.
+  if (postableEventIds.length > 0) {
+    await sql`
+      UPDATE capture_events
+      SET status = 'posted', posted_by = ${userId}, posted_at = NOW(), updated_at = NOW()
+      WHERE id = ANY(${postableEventIds}::uuid[]) AND company_id = ${companyId}
+    `;
+  }
+
+  // Record coding for the learning loop: the rule's account (R-169), same as
+  // `capturePostFollowUps` records for `capture/[id]/post` — never the
+  // pipeline's own guess, so an unruled supplier still seeds nothing here.
   await recordCoding(companyId, {
     supplierId: supplierMatch.supplierId,
     supplierInvoiceId: invoice.id,
-    glAccountId: null,
-    vatCode: null,
-    costCentreId: null,
-    projectId: null,
+    glAccountId: codingRule?.defaultGlAccountId ?? null,
+    vatCode: codingRule?.defaultVatCode ?? extracted.vendorVatNumber ?? null,
+    costCentreId: codingRule?.defaultCostCentreId ?? null,
+    projectId: codingRule?.defaultProjectId ?? null,
     postedBy: 'ai:ai-invoice-pipeline:v1',
   });
 
