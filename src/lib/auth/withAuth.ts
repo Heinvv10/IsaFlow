@@ -266,8 +266,9 @@ export function withAuth(handler: Handler): NextApiHandler {
     } catch (err) {
       // R-159: answer the throw here. Rethrowing left res.end swapped, so any later 500 was
       // buffered and never sent; routes without an inner withErrorHandler hung the client.
-      try { await client.query('ROLLBACK'); } catch { /* secondary */ }
-      answerThrow(req, res, deferred, err, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub });
+      let rolledBack = true;
+      try { await client.query('ROLLBACK'); } catch { rolledBack = false; }
+      answerThrow(req, res, deferred, err, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub, rolledBack });
     } finally {
       client.release();
       const ms = Date.now() - startedAt;
