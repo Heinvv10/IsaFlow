@@ -13,7 +13,7 @@
  * webhook is delivered signed; verifyTransaction is stubbed for the return-page route.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
   CO, SECRET, addLink, cleanupCompany, create, deliver, getLink, invoiceWithLink, linkRow, pool, requests,
@@ -85,7 +85,7 @@ describe('create charges the link amount, capped at the balance', () => {
 
 describe('the link itself must be payable', () => {
   it('an unknown token is 404', async () => {
-    const r = await create('0'.repeat(64));
+    const r = await create(randomBytes(32).toString('hex')); // fresh per run: the per-link limit counts every run
     expect(r.statusCode).toBe(404);
     expect(r.body.error?.message).toMatch(/^Payment link/);
     expect(h.charged).toEqual([]);
