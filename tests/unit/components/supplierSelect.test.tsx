@@ -3,7 +3,7 @@
 // resolve a preselected id that is not in the first page.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useState } from 'react';
+import { StrictMode, useState } from 'react';
 
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
 
@@ -28,9 +28,9 @@ function fakeRoute(url: string): Response {
 
 afterEach(() => { vi.mocked(apiFetch).mockReset(); });
 
-function Harness({ initial = '', onPick }: { initial?: string; onPick?: (id: string) => void }) {
+function Harness({ initial = '', onPick, required }: { initial?: string; onPick?: (id: string) => void; required?: boolean }) {
   const [id, setId] = useState(initial);
-  return <SupplierSelect name="supplierId" value={id} onChange={(v) => { setId(v); onPick?.(v); }} />;
+  return <SupplierSelect name="supplierId" required={required} value={id} onChange={(v) => { setId(v); onPick?.(v); }} />;
 }
 
 describe('SupplierSelect', () => {
@@ -56,5 +56,46 @@ describe('SupplierSelect', () => {
     vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
     render(<Harness initial="id-40" />);
     await waitFor(() => expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('Supplier 40'), { timeout: 2000 });
+  });
+
+  it('resolves a preselected supplier under React.StrictMode (effects run twice)', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
+    render(<StrictMode><Harness initial="id-40" /></StrictMode>);
+    await waitFor(() => expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('Supplier 40'), { timeout: 2000 });
+  });
+
+  it('flags an id that cannot be resolved and clears it instead of submitting it blind', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
+    const onPick = vi.fn();
+    render(<Harness initial="gone" onPick={onPick} required />);
+    expect((await screen.findByRole('alert', {}, { timeout: 2000 })).textContent).toMatch(/not found/i);
+    expect(onPick).toHaveBeenLastCalledWith('');
+    expect((screen.getByRole('textbox') as HTMLInputElement).checkValidity()).toBe(false);
+  });
+
+  it('flags an id whose lookup throws', async () => {
+    vi.mocked(apiFetch).mockRejectedValue(new Error('network'));
+    render(<Harness initial="id-3" required />);
+    expect(await screen.findByRole('alert', {}, { timeout: 2000 })).toBeTruthy();
+  });
+
+  it('required blocks native validity until a supplier is picked, typed text alone is not enough', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
+    render(<Harness required />);
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    expect(input.checkValidity()).toBe(false);
+    fireEvent.change(input, { target: { value: 'Supplier 2' } });
+    expect(input.checkValidity()).toBe(false);
+    fireEvent.click(await screen.findByRole('button', { name: 'Supplier 26' }, { timeout: 2000 }));
+    expect((screen.getByRole('textbox') as HTMLInputElement).checkValidity()).toBe(true);
+  });
+
+  it('does not fetch on mount, only when the user focuses or types', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
+    render(<><Harness /><Harness /><Harness /></>);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(apiFetch).not.toHaveBeenCalled();
+    fireEvent.focus(screen.getAllByRole('textbox')[0]!);
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1), { timeout: 2000 });
   });
 });

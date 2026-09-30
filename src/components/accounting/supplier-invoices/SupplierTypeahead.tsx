@@ -18,6 +18,12 @@ interface Props {
   wrapperClassName?: string;
   inputClassName?: string;
   name?: string;
+  /** Blocks native form submit until a supplier is chosen (typed text alone does not count). */
+  required?: boolean;
+  /** Overrides the validity message, e.g. an id that could not be resolved. */
+  invalidMessage?: string;
+  /** Label suppliers by company_name when set (falls back to name). */
+  companyFirst?: boolean;
 }
 
 const FILTER_INPUT = 'w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40';
@@ -25,13 +31,24 @@ const FILTER_INPUT = 'w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 
 export function SupplierTypeahead({
   selectedId, selectedLabel, onSelect, onClear,
   placeholder = 'Filter by supplier…', wrapperClassName = 'w-64', inputClassName = FILTER_INPUT, name = 'supplier',
+  required, invalidMessage, companyFirst,
 }: Props) {
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<SupplierOption[]>([]);
   const [open, setOpen] = useState(false);
+  // Nothing is fetched until the user focuses or types: a page with a picker per
+  // row must not fire one request per row on mount.
+  const [active, setActive] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    const message = invalidMessage ?? (required && !selectedId ? 'Select a supplier from the list' : '');
+    inputRef.current?.setCustomValidity(message);
+  }, [required, selectedId, invalidMessage]);
+
+  useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     const t = setTimeout(async () => {
       const q = query.trim();
@@ -41,9 +58,9 @@ export function SupplierTypeahead({
           : '/api/accounting/suppliers-list?limit=25';
         const res = await apiFetch(url);
         const json = await res.json();
-        const data = (json.data || json) as { suppliers?: { id: string; name: string }[] };
+        const data = (json.data || json) as { suppliers?: { id: string; name: string; company_name?: string | null }[] };
         if (!cancelled) {
-          setOptions((data.suppliers || []).map((s) => ({ id: s.id, name: s.name })));
+          setOptions((data.suppliers || []).map((s) => ({ id: s.id, name: (companyFirst && s.company_name) || s.name })));
         }
       } catch (err) {
         if (!cancelled) {
@@ -53,7 +70,7 @@ export function SupplierTypeahead({
       }
     }, 200);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [query]);
+  }, [query, active, companyFirst]);
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -66,15 +83,17 @@ export function SupplierTypeahead({
   return (
     <div ref={boxRef} className={`relative ${wrapperClassName}`}>
       <input
+        ref={inputRef}
         type="text"
         name={name}
         value={selectedLabel || query}
         onChange={(e) => {
           if (selectedId) onClear();
           setQuery(e.target.value);
+          setActive(true);
           setOpen(true);
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => { setActive(true); setOpen(true); }}
         placeholder={placeholder}
         className={inputClassName}
       />

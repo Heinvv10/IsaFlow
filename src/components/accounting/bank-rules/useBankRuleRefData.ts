@@ -109,7 +109,7 @@ export function useBankRuleRefData(): BankRuleRefData {
     }, pushErr);
 
     void loadWithLog('suppliers', async () => {
-      const list = await fetchAllSuppliers();
+      const { suppliers: list } = await fetchAllSuppliers();
       setSuppliers(list.map(s => ({ id: String(s.id), name: s.name })));
     }, pushErr);
 

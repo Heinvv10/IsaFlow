@@ -32,12 +32,14 @@ type Setters = {
   setBuOptions: (v: SelectOption[]) => void;
   setSelectedBank: (fn: (prev: string) => string) => void;
   setRefDataLoaded?: (v: boolean) => void;
+  /** Set true when the supplier list could not be loaded, so the page can say so. */
+  setSuppliersFailed?: (v: boolean) => void;
 };
 
 export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () => void } {
   const {
     setBankAccounts, setGlAccounts, setSuppliers, setCustomers,
-    setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded,
+    setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded, setSuppliersFailed,
   } = setters;
 
   const refreshBankAccounts = useCallback(() => {
@@ -46,6 +48,22 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
       setBankAccounts(bankList);
     }).catch(() => { /* non-critical */ });
   }, [setBankAccounts]);
+
+  // Suppliers page through the whole list, so they load on their own: a slow or
+  // failing supplier walk must not hold back bank accounts and the chart.
+  useEffect(() => {
+    let live = true;
+    fetchAllSuppliers().then(({ suppliers }) => {
+      if (!live) return;
+      setSuppliers(suppliers.map(s => ({ id: String(s.id), name: s.name, code: s.code })));
+      setSuppliersFailed?.(false);
+    }).catch((err) => {
+      log.warn('Failed to load suppliers for bank transactions', { error: err }, 'accounting-ui');
+      if (live) setSuppliersFailed?.(true);
+    });
+    return () => { live = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     // allSettled, not all: a 500 on a single ref-data endpoint (e.g.
@@ -60,12 +78,11 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
     Promise.allSettled([
       apiFetch('/api/accounting/bank-accounts'),
       apiFetch('/api/accounting/chart-of-accounts'),
-      fetchAllSuppliers(),
       apiFetch('/api/accounting/customers'),
       apiFetch('/api/accounting/cost-centres?cc_type=cc1&active=true'),
       apiFetch('/api/accounting/cost-centres?cc_type=cc2&active=true'),
       apiFetch('/api/accounting/cost-centres?active=true'),
-    ]).then(async ([bankRes, coaRes, suppRes, clientRes, cc1Res, cc2Res, deptRes]) => {
+    ]).then(async ([bankRes, coaRes, clientRes, cc1Res, cc2Res, deptRes]) => {
       const [bankJson, coaJson, clientJson, cc1Json, cc2Json, deptJson] = await Promise.all([
         json(bankRes), json(coaRes), json(clientRes), json(cc1Res), json(cc2Res), json(deptRes),
       ]);
@@ -81,9 +98,6 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
         .filter(a => !isBankSubtype(a.accountSubtype))
         .map(a => ({ id: a.id, code: a.accountCode || a.code, name: a.accountName || a.name, defaultVatCode: a.defaultVatCode, vatInputDenied: a.vatInputDenied }))
       );
-
-      const suppList = suppRes.status === 'fulfilled' ? suppRes.value : [];
-      setSuppliers(suppList.map(s => ({ id: String(s.id), name: s.name, code: s.code })));
 
       const clientList = Array.isArray(clientJson?.data) ? clientJson.data : [];
       setCustomers(clientList.map((c: { id: string; name: string }) => ({ id: c.id, name: c.name || '' })));

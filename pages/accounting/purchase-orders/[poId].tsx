@@ -169,6 +169,7 @@ export default function PurchaseOrderDetailPage() {
 
   const handleSave = async () => {
     if (!form || !poId) return;
+    if (!form.supplier_id) { setSaveError('Please select a supplier'); return; }
     setSaving(true);
     setSaveError('');
     try {

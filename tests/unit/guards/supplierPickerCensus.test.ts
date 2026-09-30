@@ -1,6 +1,9 @@
 /**
- * PUR-01 census (a source-text RATCHET, not a behaviour test — the behaviour
- * proof is tests/unit/components/supplierSelect.test.tsx).
+ * PUR-01 census — a source-text RATCHET ONLY. It proves nothing about behaviour:
+ * it can only notice a new bare caller. The real proof is behavioural:
+ * tests/unit/components/supplierSelect.test.tsx (supplier #26 reachable, required
+ * enforced, StrictMode, unknown id) and supplierFormPayloads.test.tsx (each form
+ * refuses to POST without a supplier and sends the picked id).
  *
  * /api/accounting/suppliers-list answers 25 rows unless told otherwise, so a
  * caller that fetches it bare and renders the result as a picker silently

@@ -64,8 +64,12 @@ export default function AdjustmentsPage() {
     });
   }, [entityType]);
 
+  // A customer id must never ride along into a supplier adjustment (or the reverse).
+  useEffect(() => { setForm(f => ({ ...f, entityId: '' })); }, [entityType]);
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!form.entityId) { setError(`Please select a ${entityType === 'supplier' ? 'supplier' : 'client'}`); return; }
     setError(''); setBusy('new');
     try {
       const res = await apiFetch('/api/accounting/adjustments', {

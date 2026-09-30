@@ -168,7 +168,7 @@ export default function NewBatchPaymentPage() {
                       return (
                         <tr key={line.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-3 py-2">
-                            <SupplierSelect value={line.supplierId} inputClassName={inp} placeholder="Select Supplier"
+                            <SupplierSelect companyFirst value={line.supplierId} inputClassName={inp} placeholder="Select Supplier"
                               onChange={id => setLines(p => p.map(l => l.key === line.key ? { ...l, supplierId: id, invoiceId: '' } : l))} />
                           </td>
                           <td className="px-3 py-2">

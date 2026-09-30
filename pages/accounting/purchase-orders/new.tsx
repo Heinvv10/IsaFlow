@@ -50,7 +50,9 @@ export default function NewPurchaseOrderPage() {
   const tax = items.reduce((s, i) => s + lineTotal(i) * Number(i.taxRate || 0) / 100, 0);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>, andNew = false) => {
-    e.preventDefault(); setError(''); setSaving(true); setSaveAndNew(andNew);
+    e.preventDefault();
+    if (!form.supplierId) { setError('Please select a supplier'); return; }
+    setError(''); setSaving(true); setSaveAndNew(andNew);
     try {
       const res = await apiFetch('/api/accounting/purchase-orders', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },

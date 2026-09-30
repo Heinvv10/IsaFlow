@@ -1,28 +1,50 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { fetchAllSuppliers } from '@/lib/fetchAllSuppliers';
 
-const ALL = Array.from({ length: 450 }, (_, i) => ({ id: `s${i}`, name: `S${i}` }));
+const rowsOf = (from: number, n: number) => Array.from({ length: n }, (_, i) => ({ id: `s${from + i}`, name: `S${from + i}` }));
+const ok = (suppliers: unknown[], total?: number) =>
+  new Response(JSON.stringify({ success: true, data: { suppliers, total } }), { status: 200 });
+const pageOf = (url: unknown) => Number(new URL(String(url), 'http://x').searchParams.get('page'));
 
-afterEach(() => { vi.mocked(apiFetch).mockReset(); });
+afterEach(() => { vi.mocked(apiFetch).mockReset(); vi.mocked(log.warn).mockReset(); });
 
 describe('fetchAllSuppliers', () => {
   it('pages past the 200-row cap and returns every supplier', async () => {
-    vi.mocked(apiFetch).mockImplementation(async (url) => {
-      const u = new URL(String(url), 'http://x');
-      const limit = Number(u.searchParams.get('limit'));
-      const page = Number(u.searchParams.get('page'));
-      const rows = ALL.slice((page - 1) * limit, page * limit);
-      return new Response(JSON.stringify({ success: true, data: { suppliers: rows, total: ALL.length } }), { status: 200 });
-    });
-    expect((await fetchAllSuppliers()).length).toBe(450);
+    const ALL = rowsOf(0, 450);
+    vi.mocked(apiFetch).mockImplementation(async (url) => ok(ALL.slice((pageOf(url) - 1) * 200, pageOf(url) * 200), ALL.length));
+    const r = await fetchAllSuppliers();
+    expect(r.suppliers.length).toBe(450);
+    expect(r.truncated).toBe(false);
+  });
+
+  it('de-duplicates a row that appears on two pages', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      pageOf(url) === 1 ? ok(rowsOf(0, 200)) : ok(rowsOf(199, 5)));
+    const r = await fetchAllSuppliers();
+    expect(r.suppliers.length).toBe(204);
+  });
+
+  it('flags and logs truncation when the page cap stops the walk', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => ok(rowsOf((pageOf(url) - 1) * 200, 200), 1_000_000));
+    const r = await fetchAllSuppliers();
+    expect(r.truncated).toBe(true);
+    expect(r.suppliers.length).toBe(50 * 200);
+    expect(log.warn).toHaveBeenCalled();
   });
 
   it('throws when the route fails instead of returning a silently short list', async () => {
     vi.mocked(apiFetch).mockResolvedValue(new Response('{}', { status: 500 }));
     await expect(fetchAllSuppliers()).rejects.toThrow('HTTP 500');
+  });
+
+  it('throws when the body is not JSON', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(new Response('<html>', { status: 200 }));
+    await expect(fetchAllSuppliers()).rejects.toThrow();
   });
 });
