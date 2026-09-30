@@ -10,6 +10,7 @@ import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 interface Client { id: string; name: string }
 interface OutstandingInvoice {
@@ -33,7 +34,7 @@ export default function NewCustomerPaymentPage() {
 
   const [form, setForm] = useState({
     clientId: '',
-    paymentDate: new Date().toISOString().split('T')[0],
+    paymentDate: localISODate(),
     paymentMethod: 'eft',
     bankReference: '',
     description: '',

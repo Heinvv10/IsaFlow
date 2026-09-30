@@ -66,17 +66,18 @@ const localIso = (d: Date) =>
 /** South African fiscal year start (1 March), which is what every company here uses. */
 const FY_START_MONTH = 3;
 
-const today = new Date();
-const fyYear = today.getMonth() + 1 >= FY_START_MONTH ? today.getFullYear() : today.getFullYear() - 1;
-const defaultPeriodStart = `${fyYear}-${String(FY_START_MONTH).padStart(2, '0')}-01`;
-const defaultPeriodEnd = localIso(today);
+function defaultPeriodStart(): string {
+  const today = new Date();
+  const fyYear = today.getMonth() + 1 >= FY_START_MONTH ? today.getFullYear() : today.getFullYear() - 1;
+  return `${fyYear}-${String(FY_START_MONTH).padStart(2, '0')}-01`;
+}
 const cls = 'px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm';
 
 export default function ConsolidatedTrialBalancePage() {
   const [groups, setGroups] = useState<EntityGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [periodStart, setPeriodStart] = useState(defaultPeriodStart);
-  const [periodEnd, setPeriodEnd] = useState(defaultPeriodEnd);
+  const [periodEnd, setPeriodEnd] = useState(() => localIso(new Date()));
   const [data, setData] = useState<ConsolidatedTBResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');

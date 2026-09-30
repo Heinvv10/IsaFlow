@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
+import { localISODate } from '@/lib/dateUtils';
 
 interface FarAsset {
   assetNumber: string;
@@ -52,7 +53,7 @@ interface FarReport {
 
 const zar = new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmt = (n: number) => zar.format(n);
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localISODate();
 
 export default function FarReportPage() {
   const [report, setReport] = useState<FarReport | null>(null);

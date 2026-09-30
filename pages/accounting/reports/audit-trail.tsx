@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Shield, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 interface AuditRow {
   entryDate: string;
@@ -48,7 +49,7 @@ const STATUS_BADGE: Record<string, string> = {
 function getDefaultDates() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  return { periodStart: start.toISOString().split('T')[0], periodEnd: now.toISOString().split('T')[0] };
+  return { periodStart: localISODate(start), periodEnd: localISODate(now) };
 }
 
 export default function AuditTrailPage() {

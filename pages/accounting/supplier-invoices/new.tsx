@@ -19,6 +19,7 @@ import { BillLineItemsTable } from '@/components/accounting/suppliers/BillLineIt
 import type { BillLineItem, GLAccount } from '@/components/accounting/suppliers/BillLineItemsTable';
 import { InvoiceNumberField } from '@/components/accounting/suppliers/InvoiceNumberField';
 import { SupplierInvoiceSummaryCard } from '@/components/accounting/suppliers/SupplierInvoiceSummaryCard';
+import { localISODate } from '@/lib/dateUtils';
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
@@ -35,7 +36,7 @@ export default function NewSupplierInvoicePage() {
     invoiceNumber: '',
     useSequence: true,
     supplierId: '',
-    invoiceDate: new Date().toISOString().split('T')[0],
+    invoiceDate: localISODate(),
     dueDate: '',
     paymentTerms: 'net30',
     reference: '',
