@@ -22,102 +22,45 @@
  *    running total over a subset of an account's lines is not a balance the
  *    account ever had. Reporting one would be a fabricated figure.
  *
- * R-165: this suite runs its reads inside ONE transaction (`withBusiestCompany`
- * below), but on READ COMMITTED — the default — that only means one CLIENT,
- * not one snapshot: each statement in the transaction sees whatever is
- * committed as of ITS start, so a peer session's commit landing between two
- * of our reads is visible to the later one and invisible to the earlier one.
- * `BEGIN ISOLATION LEVEL REPEATABLE READ` fixes the snapshot at the
- * transaction's first statement, so every read in it — 500-row page or
- * 100,000-row whole — sees the identical database no matter what peers do
- * concurrently. See the regression test below for the mechanism.
+ * R-165: every read below shares ONE transaction via `withBusiestCompany`
+ * (generalLedgerStream.helpers.ts), pinned to REPEATABLE READ so a peer's
+ * concurrent commit can never make two of our reads disagree — see that
+ * file's doc comment for the mechanism, and the regression test below.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { als } from '@/lib/als';
 import { isDbReachable } from '../../helpers/dbReachable';
-import { commitConcurrentPostedLine, deleteConcurrentPostedLine } from './generalLedgerStream.concurrentWrite.helpers';
+import {
+  PERIOD_START,
+  PERIOD_END,
+  withBusiestCompany,
+  drain,
+  isDisposableFixtureTarget,
+  commitConcurrentPostedLine,
+  deleteConcurrentPostedLine,
+} from './generalLedgerStream.helpers';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
-import { getPoolForTests, sql } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import {
   getGeneralLedgerLines,
   type GeneralLedgerLine,
-  type GeneralLedgerQuery,
 } from '@/modules/accounting/services/gl/generalLedgerStreamService';
-
-type AlsCtx = Parameters<typeof als.run>[0];
-
-const PERIOD_START = '2020-01-01';
-const PERIOD_END = '2026-12-31';
-
-async function withBusiestCompany(run: (companyId: string) => Promise<void>) {
-  const client = await getPoolForTests().connect();
-  try {
-    // REPEATABLE READ, not the default READ COMMITTED: every statement below
-    // must see the SAME snapshot, or a peer's concurrent commit between two
-    // of our reads makes them disagree (R-165).
-    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
-    await als.run(
-      { client, userId: 'test', companyId: 'bootstrap', claims: {} } as unknown as AlsCtx,
-      async () => {
-        // The company with the most posted lines. Picking by uuid would sample
-        // a company with an empty ledger and pass without paging anything.
-        const rows = (await sql`
-          SELECT jl.company_id AS id, COUNT(*) AS n
-          FROM gl_journal_lines jl
-          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
-          GROUP BY jl.company_id
-          ORDER BY COUNT(*) DESC
-          LIMIT 1
-        `) as Array<{ id: string }>;
-        const companyId = rows[0]?.id;
-        if (!companyId) throw new Error('no company with posted journal lines in isaflow_dev');
-        await run(companyId);
-      },
-    );
-  } finally {
-    await client.query('ROLLBACK').catch(() => undefined);
-    client.release();
-  }
-}
-
-/** Pages to exhaustion, refusing to loop forever on a cursor that does not advance. */
-async function drain(
-  base: Omit<GeneralLedgerQuery, 'after'>,
-  maxPages = 400,
-): Promise<{ lines: GeneralLedgerLine[]; pages: number; lineCount: number }> {
-  const lines: GeneralLedgerLine[] = [];
-  let after: GeneralLedgerQuery['after'] = null;
-  let pages = 0;
-  let lineCount = 0;
-  for (;;) {
-    const page = await getGeneralLedgerLines({ ...base, after });
-    lines.push(...page.lines);
-    lineCount = page.lineCount;
-    pages += 1;
-    if (page.next === null) break;
-    if (pages >= maxPages) throw new Error(`cursor did not terminate after ${maxPages} pages`);
-    after = page.next;
-  }
-  return { lines, pages, lineCount };
-}
 
 describe('general-ledger line stream — real database', async () => {
   const reachable = await isDbReachable();
 
   // Every OTHER test in this file only reads, so it is safe against
   // isaflow_dev. The R-165 regression test below WRITES a posted journal
-  // entry (see generalLedgerStream.concurrentWrite.helpers.ts) — `bun run ci`
-  // runs this suite through `env -u DATABASE_URL`, which does NOT actually
-  // unset it (vite's loadEnv re-reads .env.local → isaflow_dev regardless).
-  // Refuse to write there or at prod; the test simply skips when the
-  // resolved DB is not a disposable one, and its mechanism is already
-  // captured in docs/audits/remediation/R-165/{red,mutations}.log.
-  const dbName = (() => {
-    try { return new URL(process.env.DATABASE_URL ?? '').pathname.replace(/^\//, ''); } catch { return ''; }
-  })();
-  const canWriteHere = reachable && dbName !== '' && dbName !== 'isaflow_dev' && dbName !== 'isaflow';
+  // entry (see generalLedgerStream.helpers.ts) — `bun run ci` runs this
+  // suite through `env -u DATABASE_URL`, which does NOT actually unset it
+  // (vite's loadEnv re-reads .env.local → isaflow_dev regardless). Refuse to
+  // write there, at prod, or at isaflow_staging (a full prod copy on the
+  // same cluster) — `isDisposableFixtureTarget` is an ALLOWLIST, not a
+  // denylist of the names known so far, so an unnamed shared database also
+  // fails closed. The test simply skips when it doesn't hold; its mechanism
+  // is already captured in docs/audits/remediation/R-165/{red,mutations}.log.
+  const canWriteHere = reachable && isDisposableFixtureTarget();
 
   it.skipIf(!reachable)('pages to exhaustion returning every line exactly once', async () => {
     await withBusiestCompany(async (companyId) => {
@@ -166,15 +109,12 @@ describe('general-ledger line stream — real database', async () => {
           const base = { companyId, periodStart: PERIOD_START, periodEnd: PERIOD_END, limit: 500 };
           const before = await getGeneralLedgerLines({ ...base, after: null });
 
-          // A peer session posts a new BALANCED entry (2 lines: a debit and
-          // its matching credit) for the SAME company on its OWN connection —
-          // the exact shape of the flake: another agent's run committing to
-          // isaflow_dev while ours is mid-flight.
+          // A peer posts a new BALANCED entry (2 lines) for the SAME company
+          // on its OWN connection — the exact shape of the flake.
           const committedCount = await commitConcurrentPostedLine(companyId, 115, PERIOD_START);
 
-          // Non-vacuity, checked on the WRITER's own connection: the peer's
-          // write really landed, or a mistakenly-scoped fix could pass below
-          // for the wrong reason (nothing to be blind to).
+          // Non-vacuity, checked on the WRITER's own connection: the write
+          // really landed, or a mis-scoped fix could pass below vacuously.
           expect(committedCount).toBe(before.lineCount + 2);
 
           const whole = await getGeneralLedgerLines({ ...base, limit: 100000, after: null });
