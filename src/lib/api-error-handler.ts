@@ -149,6 +149,12 @@ export function withErrorHandler(
         // Check if headers were already sent
         if (res.headersSent) {
           apiLogger.warn({ method: req.method, url: safeUrl }, 'Headers already sent, cannot send error response');
+          // R-159: the status line is on the wire, so it cannot become a 500. Mark the failure
+          // anyway, so an enclosing withAuth / Bearer / extension wrapper (which decides on
+          // statusCode >= 500) rolls back instead of COMMITting, and abort the response rather
+          // than leave it open: it was never ended.
+          res.statusCode = 500;
+          res.destroy();
           return;
         }
 

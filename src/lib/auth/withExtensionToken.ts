@@ -24,7 +24,7 @@ import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { extractBearerToken } from './captureApiKeyAuth';
 import { verifyExtensionToken } from './extensionJwt';
-import { deferEnd, answerThrow, type DeferredEnd } from './deferredEnd';
+import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } from './deferredEnd';
 
 export interface ExtensionAuthedRequest extends NextApiRequest {
   extension: {
@@ -161,7 +161,7 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
           message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
         }, 'extensionAuth');
         if (res.headersSent) {
-          flush.realEnd(...(flush.args ?? []));
+          abortResponse(res); // the status is on the wire; a clean close would read as success
         } else {
           const body = JSON.stringify({ success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED' });
           res.statusCode = 500;
@@ -171,7 +171,11 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
         }
         return;
       }
-      if (flush.ended) flush.realEnd(...(flush.args ?? []));
+      // replayEnd never throws: past COMMIT, the catch below must not ROLLBACK or answer 500.
+      replayEnd(res, flush, {
+        source: 'withExtensionToken', companyId: claims.companyId, userId: claims.userId,
+        extra: { connectionId: claims.connectionId },
+      });
       if (!handlerFailed) drainAfterCommit(ctx);
     } catch (err) {
       // R-159: answer the throw here; see withAuth.

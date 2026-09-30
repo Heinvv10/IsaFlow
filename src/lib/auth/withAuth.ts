@@ -13,7 +13,7 @@ import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
-import { deferEnd, answerThrow, type DeferredEnd } from './deferredEnd';
+import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } from './deferredEnd';
 
 // Re-exported so every existing `import { withRole } from '@/lib/auth/withAuth'`
 // keeps working; the implementation moved to withRole.ts (300-line ceiling).
@@ -236,10 +236,10 @@ export function withAuth(handler: Handler): NextApiHandler {
         if (res.headersSent) {
           // A streaming/redirect route already flushed headers before COMMIT
           // (e.g. an xlsx export that pipes via res.write, or res.redirect's
-          // writeHead) — the status can't be rewritten, so just complete the
-          // response. Always replay so the socket is closed, never hung, even
-          // if the handler wrote bytes without calling end (bufferedEndArgs null).
-          flush.realEnd(...(flush.args ?? []));
+          // writeHead) — the status can't be rewritten. Abort rather than
+          // complete it: a clean close reads as a 2xx for a write that did not
+          // land (R-159). Never hung either way.
+          abortResponse(res);
         } else {
           const body = JSON.stringify({
             success: false,
@@ -258,7 +258,8 @@ export function withAuth(handler: Handler): NextApiHandler {
       // Transaction durable — now replay the buffered flush. If the handler
       // never responded there is nothing to replay (Next surfaces its own
       // "resolved without sending a response" path, unchanged from before).
-      if (flush.ended) flush.realEnd(...(flush.args ?? []));
+      // replayEnd never throws: past COMMIT, the catch below must not ROLLBACK or answer 500.
+      replayEnd(res, flush, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub });
       // Only now may background work start: its rows are visible, and it gets its
       // own connection instead of this one (R-075). Never after a ROLLBACK.
       if (!handlerFailed) drainAfterCommit(ctx);
