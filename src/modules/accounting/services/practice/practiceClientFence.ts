@@ -14,6 +14,9 @@
  *   aborting the request transaction; any other error propagates;
  * - it asks only about the tenant, not `status`: an update may keep pointing at
  *   the company's own archived client.
+ *
+ * `assertClientGroupInCompany` (R-161) is the same fence for
+ * `practice_clients.client_group_id` → `practice_client_groups`.
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
@@ -28,6 +31,15 @@ export class PracticeClientNotInCompanyError extends Error {
   }
 }
 
+/** Refusal raised when a client group id is not this company's. Routes answer 400. */
+export class ClientGroupNotInCompanyError extends Error {
+  readonly code = 'CLIENT_GROUP_NOT_FOUND';
+  constructor(groupId: string) {
+    super(`Client group ${groupId} was not found for this company`);
+    this.name = 'ClientGroupNotInCompanyError';
+  }
+}
+
 /** Sequenced: Postgres shadows a re-declared savepoint name. */
 let fenceSeq = 0;
 
@@ -36,15 +48,28 @@ export async function assertPracticeClientInCompany(
   clientId: string | null | undefined,
 ): Promise<void> {
   if (!clientId) return;
-  const owned = await withSavepoint(`pc_own_${++fenceSeq}`, async () => {
-    const rows = (await sql`
-      SELECT 1 FROM practice_clients WHERE id = ${clientId}::uuid AND company_id = ${companyId}::uuid LIMIT 1
-    `) as DbRow[];
-    return rows.length > 0;
-  }).catch((err: unknown) => {
-    // 22P02 invalid_text_representation — the id is not even a UUID.
-    if ((err as { code?: string }).code === '22P02') return false;
-    throw err;
-  });
+  const owned = await savepointedExists(async () => (await sql`
+    SELECT 1 FROM practice_clients WHERE id = ${clientId}::uuid AND company_id = ${companyId}::uuid LIMIT 1
+  `) as DbRow[]);
   if (!owned) throw new PracticeClientNotInCompanyError(clientId);
+}
+
+export async function assertClientGroupInCompany(
+  companyId: string,
+  groupId: string | null | undefined,
+): Promise<void> {
+  if (!groupId) return;
+  const owned = await savepointedExists(async () => (await sql`
+    SELECT 1 FROM practice_client_groups WHERE id = ${groupId}::uuid AND company_id = ${companyId}::uuid LIMIT 1
+  `) as DbRow[]);
+  if (!owned) throw new ClientGroupNotInCompanyError(groupId);
+}
+
+async function savepointedExists(read: () => Promise<DbRow[]>): Promise<boolean> {
+  return withSavepoint(`pc_own_${++fenceSeq}`, async () => (await read()).length > 0)
+    .catch((err: unknown) => {
+      // 22P02 invalid_text_representation — the id is not even a UUID.
+      if ((err as { code?: string }).code === '22P02') return false;
+      throw err;
+    });
 }
