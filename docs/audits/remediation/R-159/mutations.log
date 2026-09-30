@@ -1,8 +1,7 @@
-# Review round 2: 56 mutants on 27729e49d (M14, M18-M20 re-run after the unreadable-error cases were split; M19 SURVIVED before that). Each mutant: the unit set + r159 (both files) and r157 int suites on the fixture clone at 716. RED = at least one failure.
-# /review round: 16 mutants on 87bb23097 (every mutant whose line changed, plus M58-M63).
 # /review re-confirmation round: M63 (rewritten) and M64 on 11e6a44cb (census back to fail-closed).
 M63 census matcher broken [tests/unit/lib/auth/deferredEndCensus.test.ts]: RED | unit: 1 failed | 66 passed (67) | int: 55 passed | 1 skipped (56)
 M64 planted apiRes swap in a tracked file [src/lib/auth/withRole.ts]: RED | unit: 1 failed | 66 passed (67) | int: 55 passed | 1 skipped (56)
+# /review round: 16 mutants on 87bb23097 (every mutant whose line changed, plus M58-M63).
 M5 flushed throw not aborted [src/lib/auth/deferredEnd.ts]: RED | unit: 2 failed | 65 passed (67) | int: 4 failed | 51 passed | 1 skipped (56)
 M26 A: rethrow restored [src/lib/auth/withAuth.ts]: RED | unit: 2 failed | 65 passed (67) | int: 6 failed | 49 passed | 1 skipped (56)
 M27 A: throw companyId dropped [src/lib/auth/withAuth.ts]: RED | unit: 67 passed (67) | int: 2 failed | 53 passed | 1 skipped (56)
@@ -22,6 +21,7 @@ M62 ended response aborted anyway [src/lib/auth/deferredEnd.ts]: RED | unit: 1 f
 M55 E: flushed failure not marked 500 [src/lib/api-error-handler.ts]: RED | unit: 1 failed | 64 passed (65) | int: 4 failed | 48 passed (52)
 M56 E: flushed failure not aborted [src/lib/api-error-handler.ts]: RED | unit: 1 failed | 64 passed (65) | int: 4 failed | 48 passed (52)
 M57 E: ended response destroyed anyway [src/lib/api-error-handler.ts]: RED | unit: 1 failed | 64 passed (65) | int: 52 passed (52)
+# Review round 2: 56 mutants on 27729e49d (M14, M18-M20 re-run after the unreadable-error cases were split; M19 SURVIVED before that). Each mutant: the unit set + r159 (both files) and r157 int suites on the fixture clone at 716. RED = at least one failure.
 M1 double-end guard removed [src/lib/auth/deferredEnd.ts]: RED | unit: 63 passed (63) | int: 4 failed | 48 passed (52)
 M2 buffered args not kept [src/lib/auth/deferredEnd.ts]: RED | unit: 63 passed (63) | int: 12 failed | 40 passed (52)
 M3 ended never set [src/lib/auth/deferredEnd.ts]: RED | unit: 5 failed | 58 passed (63) | int: 15 failed | 37 passed (52)
