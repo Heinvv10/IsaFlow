@@ -1,0 +1,40 @@
+# /review round: 14 mutants of pages/api/portal/payment-link.ts on 8e67281df; each run: r166-payment-link-amount-cap + k101-portal-routes-use-active-company on the fixture clone at 716. RED = at least one failure.
+N1 clamp and NULL handling removed: RED | 2 failed | 29 passed (31)
+N2 > becomes >=: RED | 10 failed | 21 passed (31)
+N3 refusal removed: RED | 6 failed | 25 passed (31)
+N4 cap ignores amount_paid: RED | 3 failed | 28 passed (31)
+N5 NaN arm removed: RED | 1 failed | 30 passed (31)
+N6 balance missing from the message: RED | 4 failed | 27 passed (31)
+N7 refusal after the write: RED | 6 failed | 25 passed (31)
+N8 negative amount_paid not clamped: RED | 1 failed | 30 passed (31)
+N9 deleted_at filter removed: RED | 1 failed | 30 passed (31)
+N10 R-158 max arm removed: RED | 1 failed | 30 passed (31)
+N11 fails open on a NULL comparison: SURVIVED | 31 passed (31)
+N12 owes ignores NaN: RED | 1 failed | 30 passed (31)
+N13 owes counts a zero balance: RED | 1 failed | 30 passed (31)
+N14 no-balance message never used: RED | 2 failed | 29 passed (31)
+# N11 is EQUIVALENT, not a gap: over_balance cannot be NULL (total_amount is NOT NULL, GREATEST ignores a NULL amount_paid, NaN has its own arm), so '!== false' and '=== true' agree on every reachable row. '!== false' is kept as a guard.
+
+# Earlier rounds (superseded code):
+# Review round 1: 11 mutants of pages/api/portal/payment-link.ts on e3000be61; each run: r166-payment-link-amount-cap + k101-portal-routes-use-active-company on the fixture clone at 716. RED = at least one failure.
+N1 clamp and NULL handling removed: RED | 2 failed | 29 passed (31)
+N2 > becomes >=: RED | 10 failed | 21 passed (31)
+N3 refusal removed: RED | 6 failed | 25 passed (31)
+N4 cap ignores amount_paid: RED | 3 failed | 28 passed (31)
+N5 NaN arm removed: RED | 1 failed | 30 passed (31)
+N6 balance missing from the message: RED | 4 failed | 27 passed (31)
+N7 refusal after the write: RED | 6 failed | 25 passed (31)
+N8 negative amount_paid not clamped: RED | 1 failed | 30 passed (31)
+N9 deleted_at filter removed: RED | 1 failed | 30 passed (31)
+N10 R-158 max arm removed: RED | 1 failed | 30 passed (31)
+N11 fails open on a NULL comparison: SURVIVED | 31 passed (31)
+# N11 is EQUIVALENT, not a gap: over_balance cannot be NULL (total_amount is NOT NULL, GREATEST ignores a NULL amount_paid, NaN has its own arm), so '!== false' and '=== true' agree on every reachable row. '!== false' is kept as a guard.
+
+# Round 0 (on d2f9ab8ce, superseded by the rewrite above):
+N1 COALESCE dropped from the cap: RED | 1 failed | 3 passed (4)
+N2 > becomes >=: RED | 3 failed | 1 passed (4)
+N3 refusal removed: RED | 4 failed (4)
+N4 cap ignores amount_paid: RED | 2 failed | 2 passed (4)
+N5 COALESCE dropped from the balance text: RED | 1 failed | 3 passed (4)
+N6 balance missing from the message: RED | 3 failed | 1 passed (4)
+N7 refusal after the write: RED | 4 failed (4)
