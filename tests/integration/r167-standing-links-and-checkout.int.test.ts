@@ -16,7 +16,7 @@ import { createHash } from 'crypto';
 import { SignJWT } from 'jose';
 import { assertDisposable, request } from './mfa-impersonation-postgres.helpers';
 import {
-  CO, CUSTOMER, IP, SECRET, USER, call, cleanupCompany, create, deliver, getLink, invoiceWithLink, linkRow, pool, requests, seedCompany,
+  CO, CUSTOMER, SECRET, USER, call, cleanupCompany, create, deliver, freshIp, getLink, invoiceWithLink, linkRow, pool, requests, seedCompany,
 } from './r167-portal-links.helpers';
 import { enableOnlinePayment } from '@/modules/accounting/services/core/paymentGatewayPortalService';
 import { createPaymentLink } from '@/modules/accounting/services/ar/portalService';
@@ -205,16 +205,16 @@ describe('create holds nothing across the gateway call', () => {
 
   it('an address that has used its 60 checkout starts for the window is refused 429', async () => {
     const { invoiceId, token } = await invoiceWithLink(0, 40.5);
-    const key = `paystack-create:${IP}`;
-    const before = (await pool.query<{ count: number }>('SELECT count FROM rate_limit_counters WHERE key = $1', [key])).rows[0];
+    const ip = freshIp();
+    const key = `paystack-create:${ip}`;
     await pool.query(`INSERT INTO rate_limit_counters (key, count, window_start) VALUES ($1, 60, NOW())
-      ON CONFLICT (key) DO UPDATE SET count = 60`, [key]);
+      ON CONFLICT (key) DO UPDATE SET count = 60, window_start = NOW()`, [key]);
     try {
-      expect((await create(token)).statusCode).toBe(429);
+      expect((await create(token, ip)).statusCode).toBe(429);
       expect(h.charged).toEqual([]);
       expect(await requests(invoiceId)).toEqual([]);
     } finally {
-      await pool.query('UPDATE rate_limit_counters SET count = $2 WHERE key = $1', [key, before?.count ?? 0]);
+      await pool.query('DELETE FROM rate_limit_counters WHERE key = $1', [key]);
     }
   });
 
