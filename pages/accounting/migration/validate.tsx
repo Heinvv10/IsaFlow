@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, CheckCircle2, AlertCircle, AlertTriangle, Loader2, ShieldCheck, PartyPopper } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiJson } from '@/lib/apiFetch';
 
 interface ValidationCheck {
   id: string;
@@ -29,15 +29,14 @@ export default function ValidatePage() {
 
   const loadSession = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/accounting/migration/session');
-      const json = await res.json();
-      if (!res.ok || !json.data) {
-        setError('No active migration session found');
+      const { session } = await apiJson('/api/accounting/migration/session');
+      if (!session) {
+        setError('No active migration session found — start one from the Migration Hub');
         return;
       }
-      setSessionId(json.data.id);
-      if (json.data.status === 'completed') setCompleted(true);
-      return json.data.id as string;
+      setSessionId(session.id);
+      if (session.status === 'completed') setCompleted(true);
+      return session.id;
     } catch {
       setError('Failed to load session');
     }
