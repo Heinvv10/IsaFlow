@@ -78,9 +78,10 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     const companyId = (req as CompanyAuthedRequest).companyId;
 
     // R-166: the balance is compared in numeric, not in float, so the exact balance is never
-    // refused (0.30 - 0.10 is 0.19999999999999998 in float). A NULL or negative amount_paid counts
-    // as 0 (GREATEST ignores NULL), so it cannot raise the cap above the total, and a NaN balance (numeric NaN sorts above
-    // every number, so `amount > NaN` is false) is refused outright.
+    // refused (0.30 - 0.10 is 0.19999999999999998 in float). A NULL or negative amount_paid
+    // counts as 0 (GREATEST ignores NULL), so it cannot raise the cap above the total. A NaN
+    // balance is refused outright: numeric NaN sorts above every number, so `amount > NaN` is
+    // false.
     const invoice = (await sql`
       SELECT COALESCE(ci.client_id, ci.customer_id) AS customer_id,
              b.balance::text AS balance,
