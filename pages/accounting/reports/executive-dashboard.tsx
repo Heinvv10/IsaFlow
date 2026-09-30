@@ -21,6 +21,7 @@ import { CashPositionChart } from '@/components/accounting/charts/CashPositionCh
 import { log } from '@/lib/logger';
 import { DensityToggle } from '@/components/accounting/reportControls/DensityToggle';
 import { useDensity } from '@/components/accounting/reportControls/useDensity';
+import { localISODate } from '@/lib/dateUtils';
 
 interface ExecutiveKPIs {
   revenue: number;
@@ -61,8 +62,8 @@ export default function ExecutiveDashboardPage() {
   const [error, setError] = useState('');
   const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
   const [inventory, setInventory] = useState<InventoryWarning | null>(null);
-  const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]!);
-  const [to, setTo] = useState(() => new Date().toISOString().split('T')[0]!);
+  const [from, setFrom] = useState(() => localISODate(new Date(new Date().getFullYear(), 0, 1)));
+  const [to, setTo] = useState(() => localISODate());
   // Density changes what is SHOWN and never what a figure IS: the owner view
   // hides the four ratio tiles and the scorecard, and computes nothing
   // differently.

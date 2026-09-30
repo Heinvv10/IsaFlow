@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Mail, Loader2, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate, monthStartISO } from '@/lib/dateUtils';
 
 interface CommRecord {
   id: string;
@@ -69,9 +70,8 @@ export default function CustomerCommunicationReport() {
   const [error, setError] = useState('');
 
   const today = new Date();
-  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
-    .toISOString().split('T')[0]!;
-  const todayStr = today.toISOString().split('T')[0]!;
+  const firstOfMonth = monthStartISO(today);
+  const todayStr = localISODate(today);
 
   const [customerSearch, setCustomerSearch] = useState('');
   const [dateFrom, setDateFrom] = useState(firstOfMonth);

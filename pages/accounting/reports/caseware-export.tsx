@@ -10,6 +10,7 @@ import {
   ArrowLeft, Database, Loader2, AlertCircle, Download, Wand2, Save,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 interface AccountMapping {
   glAccountId: string;
@@ -25,8 +26,8 @@ function getDefaultDates() {
   const now = new Date();
   const start = new Date(now.getFullYear(), 0, 1);
   return {
-    periodStart: start.toISOString().split('T')[0] ?? '',
-    periodEnd: now.toISOString().split('T')[0] ?? '',
+    periodStart: localISODate(start),
+    periodEnd: localISODate(now),
   };
 }
 

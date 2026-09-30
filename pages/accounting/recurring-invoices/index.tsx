@@ -8,6 +8,7 @@ import { RefreshCw, Plus, Pause, Play, XCircle, Zap, Loader2, Pencil, Download, 
 import { StatusPill } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { localISODate } from '@/lib/dateUtils';
 
 interface RecurringInvoice {
   id: string; templateName: string; clientId: string; clientName?: string;
@@ -20,7 +21,7 @@ const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', c
 
 const isOverdue = (d: string | undefined): boolean => {
   if (!d) return false;
-  return d.split('T')[0]! <= new Date().toISOString().split('T')[0]!;
+  return d.split('T')[0]! <= localISODate();
 };
 
 const TABS = ['all', 'active', 'paused', 'completed', 'cancelled'] as const;
@@ -107,7 +108,7 @@ export default function RecurringInvoicesPage() {
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `recurring-invoices-${new Date().toISOString().split('T')[0]}.csv`; a.click();
+    a.download = `recurring-invoices-${localISODate()}.csv`; a.click();
   };
 
   return (

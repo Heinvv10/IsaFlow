@@ -22,6 +22,7 @@ import { ComparatorNotices } from '@/components/accounting/reportControls/Compar
 
 import { useBalanceSheetFilters } from '@/components/reports/useBalanceSheetFilters';
 import { reportHref } from '@/components/reports/reportReturnState';
+import { shiftYearISO } from '@/lib/dateUtils';
 
 interface CostCentre { id: string; code: string; name: string }
 interface BusinessUnit { id: string; code: string; name: string }
@@ -90,8 +91,7 @@ export default function BalanceSheetPage() {
       if (costCentreId) params.set('cost_centre_id', costCentreId);
       if (businessUnitId) params.set('business_unit_id', businessUnitId);
       if (showComparative) {
-        const d = new Date(asAtDate); d.setFullYear(d.getFullYear() - 1);
-        params.set('compare_date', d.toISOString().slice(0, 10));
+        params.set('compare_date', shiftYearISO(asAtDate, -1));
       }
       const res = await apiFetch(`/api/accounting/reports-balance-sheet?${params}`);
       const json = await res.json();

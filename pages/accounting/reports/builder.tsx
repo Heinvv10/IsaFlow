@@ -12,6 +12,7 @@ import { Play, Save, Download, ChevronLeft, BookOpen } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { localISODate } from '@/lib/dateUtils';
 
 interface FieldDef {
   field: string;
@@ -192,7 +193,7 @@ export default function ReportBuilderPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${reportName.replace(/[^a-z0-9_-]/gi, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+      a.download = `${reportName.replace(/[^a-z0-9_-]/gi, '_')}_${localISODate()}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     }).catch(() => showToast('Export failed'));
