@@ -1,7 +1,7 @@
-# GREEN on 5941db023 (review round 3), fixture clone at 716 (2026-09-30T03:16:19Z).
+# GREEN on 87bb23097 (/review round), fixture clone at 716 (2026-09-30T03:45:11Z).
 ## r159-auth-wrapper-throw-responds
  Test Files  1 passed (1)
-      Tests  44 passed (44)
+      Tests  47 passed | 1 skipped (48)
 ## r159-invitation-revoke-throw-responds
  Test Files  1 passed (1)
       Tests  2 passed (2)
@@ -19,4 +19,4 @@
       Tests  24 passed (24)
 ## unit (env -u DATABASE_URL): the changed and wrapper suites
  Test Files  10 passed (10)
-      Tests  66 passed (66)
+      Tests  68 passed (68)
