@@ -77,14 +77,20 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     // K-101: the active company withAuth verified, not the user's default one.
     const companyId = (req as CompanyAuthedRequest).companyId;
 
-    // R-166: the balance is compared in numeric, not in float, so a cent over it is refused.
+    // R-166: the balance is compared in numeric, not in float, so the exact balance is never
+    // refused (0.30 - 0.10 is 0.19999999999999998 in float). A NULL or negative amount_paid counts
+    // as 0 (GREATEST ignores NULL), so it cannot raise the cap above the total, and a NaN balance (numeric NaN sorts above
+    // every number, so `amount > NaN` is false) is refused outright.
     const invoice = (await sql`
-      SELECT COALESCE(client_id, customer_id) AS customer_id,
-             (total_amount - COALESCE(amount_paid, 0))::text AS balance,
-             ${amountNum}::numeric > total_amount - COALESCE(amount_paid, 0) AS over_balance
-      FROM customer_invoices
-      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
-        AND status != 'cancelled'
+      SELECT COALESCE(ci.client_id, ci.customer_id) AS customer_id,
+             b.balance::text AS balance,
+             (b.balance = 'NaN' OR ${amountNum}::numeric > b.balance) AS over_balance
+      FROM customer_invoices ci
+      CROSS JOIN LATERAL (
+        SELECT ci.total_amount - GREATEST(ci.amount_paid, 0) AS balance
+      ) b
+      WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
+        AND ci.status != 'cancelled' AND ci.deleted_at IS NULL
     `) as Row[];
     if (invoice.length === 0) return apiResponse.notFound(res, 'Invoice not found');
     // A link pays THIS invoice, so it is for this invoice's customer only.

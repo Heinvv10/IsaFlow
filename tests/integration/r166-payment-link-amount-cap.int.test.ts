@@ -107,6 +107,32 @@ it('a fully paid or overpaid invoice gets no link at all', async () => {
   }
 });
 
+it('a negative amount_paid counts as nothing paid, so the cap never exceeds the total', async () => {
+  const id = await invoice(-50);
+  const over = await post(id, 115.01);
+  expect(over.statusCode).toBe(400);
+  expect(over.body.error?.message).toMatch(/outstanding balance of 115\.00$/);
+  expect((await post(id, 165)).statusCode).toBe(400);
+  expect(await links(id)).toEqual([]);
+  expect((await post(id, 115)).statusCode).toBe(200);
+  expect(await links(id)).toEqual(['115.00']);
+});
+
+it('a NaN balance is refused, not treated as unlimited', async () => {
+  const id = await invoice(0);
+  await pool.query("UPDATE customer_invoices SET amount_paid = 'NaN' WHERE id = $1", [id]);
+  const r = await post(id, 0.01);
+  expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
+  expect(await links(id)).toEqual([]);
+});
+
+it('a soft-deleted invoice gets no link (404), like pay-now and payment-gateway', async () => {
+  const id = await invoice(0);
+  await pool.query('UPDATE customer_invoices SET deleted_at = NOW() WHERE id = $1', [id]);
+  expect((await post(id, 10)).statusCode).toBe(404);
+  expect(await links(id)).toEqual([]);
+});
+
 it('a NULL amount_paid counts as nothing paid', async () => {
   const id = await invoice(null);
   const over = await post(id, 115.01);
