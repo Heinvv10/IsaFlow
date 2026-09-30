@@ -23,7 +23,8 @@ import {
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { refusesUnattendedApproval } from '@/modules/accounting/services/core/unattendedPostingGate';
 import { computeFingerprint, findDuplicate } from '@/modules/accounting/services/capture/captureDeduplicationService';
-import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
+import { getRule, recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
+import { insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
 import {
   CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE, CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CaptureRowLockTimeoutError,
@@ -164,6 +165,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const fingerprint = computeFingerprint(supplierVatNumber, invoiceInput.invoiceNumber, invoiceInput.totalAmount);
   // R-035 (B2): under an enforced approval rule an auto-approval becomes a draft plus a request.
   const approval = await unattendedBillStatus(companyId, approvalRoute === 'auto_approve', invoiceInput.totalAmount);
+  // R-160: R-131's lines or a refusal, before the claim so a 4xx commits nothing. No capture event account: this
+  // route reads no event, and an event gets one only when posted as an expense, which claims the document first.
+  const linePlan = await planCaptureBillLines(companyId, invoiceInput, extracted.lineItems?.length ?? 0, null,
+    await getRule(companyId, supplierMatch.supplierId));
+  if ('refusal' in linePlan) return apiResponse.badRequest(res, linePlan.refusal);
 
   // Claim the document BEFORE the first ledger write, and AFTER the
   // duplicate-blocked branch above — that branch answers 409 having already
@@ -202,37 +208,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (!invoice) return apiResponse.internalError(res, null, 'Failed to create invoice');
 
-  // Insert line items — unitPrice is VAT-exclusive (subtotal = sum of line totals;
-  // vatAmount = subtotal * taxRate/100 per vlmInvoiceService validateAmounts).
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-  for (const item of invoiceInput.items) {
-    if (item.quantity <= 0 || item.unitPrice < 0) {
-      log.warn('AI Invoice Pipeline: skipping invalid line item', { item, invoiceId: invoice.id }, 'ai-pipeline');
-      continue;
-    }
-    const lineTotal = round2(item.quantity * item.unitPrice);
-    const taxAmount = round2(lineTotal * item.taxRate / 100);
-    // No `company_id`: the column has never existed on this table. Tenancy
-    // rides on `supplier_invoice_id`, whose invoice is company-scoped — exactly
-    // the column list `supplierInvoiceService` writes.
-    //
-    // While it was in the list every call to this route raised 42703 on the
-    // FIRST line item, and `buildInvoiceFromExtraction` synthesises an "As per
-    // invoice" line when the document has none, so there was always one: the
-    // route 500'd, `withAuth` rolled the request back and no invoice was ever
-    // created. That is why the double-claim this branch fences was latent rather
-    // than live — one repaired line away from posting, which is what it is now.
-    await sql`
-      INSERT INTO supplier_invoice_items (
-        supplier_invoice_id, description, quantity, unit_price,
-        tax_rate, tax_amount, line_total
-      ) VALUES (
-        ${invoice.id}::uuid, ${item.description}, ${item.quantity},
-        ${item.unitPrice}, ${item.taxRate}, ${taxAmount}, ${lineTotal}
-      )
-    `;
-  }
-
+  await insertCaptureBillLines(invoice.id as string, linePlan.lines);
   const approvalRequest = approval.gated // after the lines: the request binds to their digest
     ? await raiseUnattendedApproval(companyId, 'supplier_invoice', invoice.id as string, userId) : null;
   // Link document to invoice
@@ -261,11 +237,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     log.error('3-way match failed post-pipeline — continuing', { invoiceId: invoice.id, error: matchErr }, 'ai-pipeline');
   }
 
-  // Attach evidence to a matching provisional JE and, when this invoice was
-  // auto-approved, settle it against that provisional (R-127). Best-effort: never throws.
+  // Attach evidence to a matching provisional JE; an auto-approved invoice is then
+  // settled against it (R-127), or posted on its own when it evidences none (R-160),
+  // and withdrawn to draft when its journal cannot post. Throws only if that revert fails.
   const provisionalAttach = await attachEvidenceAndSettleApproved({
     companyId, userId, documentId, invoiceId: invoice.id as string, invoiceStatus: String(invoice.status),
     supplierId: supplierMatch.supplierId, totalAmount: invoiceInput.totalAmount, invoiceDate: invoiceInput.invoiceDate,
+    postUnattached: true,
   });
 
   // Best-effort alert resolution — non-blocking
