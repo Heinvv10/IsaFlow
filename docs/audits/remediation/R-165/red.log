@@ -33,3 +33,8 @@ reads taken moments apart, caused by a peer's write landing between them.
 Restored the fix (BEGIN ISOLATION LEVEL REPEATABLE READ) from a saved copy
 of the file (not `git checkout`) after this check; see ci.log for the full
 suite green afterward.
+
+Round 2 (after the M2/L3 refactor moved `withBusiestCompany` into
+generalLedgerStream.helpers.ts): re-ran the identical 3-run cycle against
+the same fixture, mutating that file's BEGIN line instead. Same failure,
+same assertion, same values (762 vs 760) — see mutations.log.
