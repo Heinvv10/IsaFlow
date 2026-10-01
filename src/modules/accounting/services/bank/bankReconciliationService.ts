@@ -11,6 +11,10 @@ import type { BankReconciliation } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
 import { isBankSubtype } from '../gl/accountSubtypes';
+import {
+  claimTransactionsForReconciliation, countsAsMatched, countsAsUnmatched,
+  type ReconciliationClaim,
+} from './bankReconciliationClaim';
 
 
 // ── Reconciliation CRUD ───────────────────────────────────────────────────────
@@ -25,8 +29,7 @@ export async function getReconciliations(
             ga.parent_account_id AS group_id,
             pa.account_name AS group_name,
             pa.account_subtype AS parent_subtype,
-            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched' AND feed_state = 'posted') AS matched_count,
-            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported' AND feed_state = 'posted') AS unmatched_count
+            ${sessionCounts(companyId)}
           FROM bank_reconciliations br
           LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id AND ga.company_id = ${companyId}
           LEFT JOIN gl_accounts pa ON pa.id = ga.parent_account_id AND pa.company_id = ga.company_id
@@ -37,8 +40,7 @@ export async function getReconciliations(
             ga.parent_account_id AS group_id,
             pa.account_name AS group_name,
             pa.account_subtype AS parent_subtype,
-            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched' AND feed_state = 'posted') AS matched_count,
-            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported' AND feed_state = 'posted') AS unmatched_count
+            ${sessionCounts(companyId)}
           FROM bank_reconciliations br
           LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id AND ga.company_id = ${companyId}
           LEFT JOIN gl_accounts pa ON pa.id = ga.parent_account_id AND pa.company_id = ga.company_id
@@ -57,8 +59,7 @@ export async function getReconciliationById(
   try {
     const rows = (await sql`
       SELECT br.*, ga.account_name AS bank_account_name,
-        (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched' AND feed_state = 'posted') AS matched_count,
-        (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported' AND feed_state = 'posted') AS unmatched_count
+        ${sessionCounts(companyId)}
       FROM bank_reconciliations br
       LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id
       WHERE br.id = ${id}::UUID AND br.company_id = ${companyId}`) as DbRow[];
@@ -72,7 +73,7 @@ export async function getReconciliationById(
 export async function startReconciliation(
   companyId: string, bankAccountId: string, statementDate: string,
   statementBalance: number, userId: string
-): Promise<BankReconciliation> {
+): Promise<BankReconciliation & ReconciliationClaim> {
   try {
     const balRows = (await bankGlBalanceAsAt(
       companyId, sql`${bankAccountId}::UUID`, sql`${statementDate}`)) as DbRow[];
@@ -81,7 +82,7 @@ export async function startReconciliation(
     // INSERT and the subsequent bank_transactions UPDATE must be atomic.
     // If the UPDATE fails after the INSERT, transactions would be orphaned
     // with no reconciliation_id and would be silently skipped in future runs.
-    const recon = await withTransaction(async (tx) => {
+    const { recon, claim } = await withTransaction(async (tx) => {
       const rows = (await tx`
         INSERT INTO bank_reconciliations (
           company_id, bank_account_id, statement_date, statement_balance, gl_balance,
@@ -90,18 +91,17 @@ export async function startReconciliation(
           ${companyId}, ${bankAccountId}::UUID, ${statementDate}, ${statementBalance},
           ${glBalance}, ${glBalance}, ${userId}::UUID
         ) RETURNING *`) as DbRow[];
-      // BL-82: guard by company_id to prevent cross-tenant UPDATE
-      await tx`
-        UPDATE bank_transactions SET reconciliation_id = ${rows[0]!.id}::UUID
-        WHERE bank_account_id = ${bankAccountId}::UUID
-          AND company_id = ${companyId}::UUID
-          AND status = 'imported' AND feed_state = 'posted' AND reconciliation_id IS NULL`;
-      return rows[0]!;
+      // BL-82: company-scoped. Claims unallocated lines AND allocated lines,
+      // which are matched to their own journal line — bankReconciliationClaim.
+      const claimed = await claimTransactionsForReconciliation(
+        tx, companyId, String(rows[0]!.id), bankAccountId, statementDate);
+      return { recon: rows[0]!, claim: claimed };
     });
     log.info('Started bank reconciliation', {
-      id: String(recon.id), bankAccountId, statementBalance, glBalance,
+      id: String(recon.id), bankAccountId, statementBalance, glBalance, ...claim,
     }, 'accounting');
-    return mapReconRow(recon);
+    return { ...mapReconRow({ ...recon, matched_count: claim.selfMatched,
+      unmatched_count: claim.claimedUnallocated }), ...claim };
   } catch (err) {
     log.error('Failed to start reconciliation', { error: err }, 'accounting');
     throw err;
@@ -112,6 +112,10 @@ export async function completeReconciliation(
   companyId: string, id: string, userId: string
 ): Promise<BankReconciliation> {
   try {
+    // Sign off against the ledger as it stands NOW, not the start snapshot: a
+    // line reversed or a journal back-dated mid-session moves the GL, and the
+    // snapshot would let a stale R0.00 through.
+    await updateReconciledBalance(companyId, id);
     const recon = await getReconciliationById(companyId, id);
     if (!recon) throw new Error(`Reconciliation ${id} not found`);
     if (recon.status === 'completed') throw new Error('Reconciliation already completed');
@@ -122,11 +126,15 @@ export async function completeReconciliation(
     // after transactions are marked 'reconciled', they become stuck in a
     // terminal state with no completed reconciliation to reference them.
     const completedRow = await withTransaction(async (tx) => {
-      // BL-83: defense-in-depth company_id guard on bank_transactions UPDATE
+      // BL-83: company_id guard. Reconciles exactly what the session counts as
+      // matched — matched lines and self-matched allocated lines.
       await tx`
-        UPDATE bank_transactions SET status = 'reconciled'
-        WHERE reconciliation_id = ${id}::UUID AND status = 'matched'
-          AND company_id = ${companyId}::UUID`;
+        UPDATE bank_transactions bt SET status = 'reconciled', updated_at = NOW()
+        FROM bank_reconciliations br
+        WHERE bt.reconciliation_id = ${id}::UUID AND bt.company_id = ${companyId}::UUID
+          AND br.id = bt.reconciliation_id AND br.company_id = ${companyId}::UUID
+          AND bt.feed_state = 'posted'
+          AND ${countsAsMatched(companyId, sql`br.statement_date`)}`;
       const rows = (await tx`
         UPDATE bank_reconciliations
         SET status = 'completed', completed_by = ${userId}::UUID, completed_at = NOW()
@@ -183,6 +191,17 @@ export async function createAdjustmentEntry(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** matched_count / unmatched_count for the row aliased `br` — the claim module's definition. */
+function sessionCounts(companyId: string): ReturnType<typeof sql> {
+  const inSession = sql`bt.reconciliation_id = br.id AND bt.company_id = ${companyId}::UUID
+    AND bt.feed_state = 'posted'`;
+  return sql`
+    (SELECT COUNT(*) FROM bank_transactions bt WHERE ${inSession}
+      AND ${countsAsMatched(companyId, sql`br.statement_date`)}) AS matched_count,
+    (SELECT COUNT(*) FROM bank_transactions bt WHERE ${inSession}
+      AND ${countsAsUnmatched(companyId, sql`br.statement_date`)}) AS unmatched_count`;
+}
+
 export async function updateReconciledBalance(companyId: string, reconciliationId: string): Promise<void> {
   // Single atomic UPDATE — avoids race condition from read-then-write pattern.
   // Both the outer UPDATE and inner SELECT are scoped by company_id to prevent
@@ -201,6 +220,7 @@ export async function updateReconciledBalance(companyId: string, reconciliationI
     )
     WHERE br.id = ${reconciliationId}::UUID
       AND br.company_id = ${companyId}::UUID
+      AND br.status = 'in_progress' -- a completed one is an audit artefact
   `;
 }
 
@@ -269,6 +289,8 @@ export {
 } from './bankTransactionQueryService';
 export type { BankTxFilters } from './bankTransactionQueryService';
 export { autoMatchTransactions } from './bankAutoMatchService';
+export { previewReconciliationClaim } from './bankReconciliationClaim';
+export type { ReconciliationClaim } from './bankReconciliationClaim';
 export {
   allocateTransaction, splitAllocateTransaction, reverseReconciledTransaction,
 } from './bankAllocationService';
