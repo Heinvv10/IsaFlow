@@ -4,11 +4,12 @@
  * pg-pool re-emits a pooled or removed client's 'error' on the pool (index.js makeIdleListener).
  * With no listener that is an uncaught exception, which takes a server process down. So every
  * pool constructed in a tracked file in src/, pages/ and scripts/ must be assigned to a name that
- * the same file calls `.on('error', …)` on, or the file is pinned below with the reason. A
- * listener on a client, or on another pool, does not count.
+ * the same function (or, at module level, the module) calls `.on('error', …)` on, or the file is
+ * pinned below with the reason. A listener on a client, on another pool, or on a same-named pool
+ * in another function does not count.
  *
- * Limits: names are matched within one file, not one scope, so two pools sharing a name in one
- * file share a listener; a pool returned or passed without a name counts as unlistened. It reads
+ * Limits: a name reassigned within one function is matched by its text; a pool returned or
+ * passed without a name counts as unlistened. It reads
  * `git ls-files`, so an untracked file is not seen until it is added.
  */
 import { describe, expect, it } from 'vitest';
@@ -35,18 +36,24 @@ const sources = execFileSync('git', ['ls-files', 'src', 'pages', 'scripts'], { e
 function count(text: string): { pools: number; unlistened: number } {
   const names: Array<string | null> = [];
   const listened = new Set<string>();
+  /** A name, qualified by the function (or module) it is used in. */
+  const scoped = (n: ts.Node, name: string) => {
+    let fn: ts.Node = n;
+    while (!(ts.isSourceFile(fn) || ts.isFunctionLike(fn))) fn = fn.parent;
+    return `${fn.pos}:${name}`;
+  };
   const visit = (n: ts.Node) => {
     if (ts.isNewExpression(n)) {
       const callee = n.expression;
       if ((ts.isIdentifier(callee) && callee.text === 'Pool') || (ts.isPropertyAccessExpression(callee) && callee.name.text === 'Pool')) {
         const p = n.parent;
-        names.push(ts.isVariableDeclaration(p) && p.initializer === n ? p.name.getText()
-          : ts.isBinaryExpression(p) && p.right === n ? p.left.getText() : null);
+        names.push(ts.isVariableDeclaration(p) && p.initializer === n ? scoped(n, p.name.getText())
+          : ts.isBinaryExpression(p) && p.right === n ? scoped(n, p.left.getText()) : null);
       }
     }
     if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'on'
       && n.arguments[0] !== undefined && ts.isStringLiteralLike(n.arguments[0]) && n.arguments[0].text === 'error') {
-      listened.add(n.expression.expression.getText());
+      listened.add(scoped(n, n.expression.expression.getText()));
     }
     ts.forEachChild(n, visit);
   };
@@ -70,6 +77,9 @@ describe('R-176: every long-lived pool listens for errors', () => {
     ["const p = new pg.Pool({}); const c = new pg.Client({}); c.on('error', log);", { pools: 1, unlistened: 1 }],
     ["const p = new pg.Pool({}); const c = await p.connect(); c.on('error', log);", { pools: 1, unlistened: 1 }],
     ["function make() { return new pg.Pool({}); } other.on('error', log);", { pools: 1, unlistened: 1 }],
+    // two functions each building a pool called `pool`: one listener does not cover the other
+    ["function a() { const pool = new pg.Pool({}); pool.on('error', log); } function b() { const pool = new pg.Pool({}); }", { pools: 2, unlistened: 1 }],
+    ["function a() { let pool; pool = new pg.Pool({}); pool.on('error', log); }", { pools: 1, unlistened: 0 }],
   ])('counts %s', (snippet, expected) => { expect(count(snippet)).toEqual(expected); });
 
   it('a file that constructs a pool listens for its errors, or is pinned with the reason', () => {
