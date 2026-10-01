@@ -10,6 +10,7 @@ import type { GLAccount, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { isBankSubtype } from './accountSubtypes';
 import { assertParentUsable } from './accountParentRules';
+import { boundedRowWait, ChartRefusal, clearSystemAccountCacheAfterCommit, guardActiveChange, lockBeforeChartWrite, refuseSystemAccountDelete } from './systemRoleReactivation';
 
 export interface CreateAccountInput {
   accountCode: string;
@@ -180,7 +181,7 @@ export async function suggestNextAccountCode(
       LIMIT 1
     ` as { account_code: string }[];
     if (parentRows.length === 0) {
-      throw new Error('Parent account not found');
+      throw new ChartRefusal('Parent account not found');
     }
     const parentCode = parentRows[0]!.account_code;
 
@@ -240,13 +241,13 @@ export async function createAccount(companyId: string, input: CreateAccountInput
     // value, with nothing anywhere reporting a problem.
     const subtypeError = subtypeErrorFor({ accountType: input.accountType }, input.accountSubtype)
       ?? missingSubtypeError(input.accountType, input.accountSubtype);
-    if (subtypeError) throw new Error(subtypeError);
+    if (subtypeError) throw new ChartRefusal(subtypeError);
 
     const existing = await sql`
       SELECT id FROM gl_accounts WHERE account_code = ${input.accountCode} AND company_id = ${companyId}
     `;
     if ((existing as unknown[]).length > 0) {
-      throw new Error(`Account code ${input.accountCode} already exists`);
+      throw new ChartRefusal(`Account code ${input.accountCode} already exists`);
     }
 
     let level = 1;
@@ -264,7 +265,7 @@ export async function createAccount(companyId: string, input: CreateAccountInput
       level = childLevel;
     }
 
-    const rows = await sql`
+    const rows = await boundedRowWait(() => sql`
       INSERT INTO gl_accounts (
         company_id, account_code, account_name, account_type, account_subtype,
         parent_account_id, description, normal_balance, level,
@@ -276,7 +277,7 @@ export async function createAccount(companyId: string, input: CreateAccountInput
         ${input.defaultVatCode || null}, ${input.vatInputDenied ?? false}
       )
       RETURNING *
-    `;
+    `);
     return mapRow((rows as { [key: string]: unknown }[])[0]);
   } catch (err) {
     log.error('Failed to create account', { error: err }, 'accounting');
@@ -298,14 +299,15 @@ export async function renameAccountCode(
   newCode: string,
 ): Promise<GLAccount> {
   const trimmed = newCode.trim();
-  if (!trimmed) throw new Error('newCode is required');
+  if (!trimmed) throw new ChartRefusal('newCode is required');
+  await lockBeforeChartWrite(companyId);
 
   const acct = await sql`
     SELECT id, account_code FROM gl_accounts
     WHERE id = ${id} AND company_id = ${companyId}
     LIMIT 1
   ` as { id: string; account_code: string }[];
-  if (acct.length === 0) throw new Error('Account not found');
+  if (acct.length === 0) throw new ChartRefusal('Account not found');
   if (acct[0]!.account_code === trimmed) {
     // No-op — return the existing row.
     return (await getAccountById(companyId, id))!;
@@ -328,27 +330,29 @@ export async function renameAccountCode(
     LIMIT 1
   ` as unknown[];
   if (clash.length > 0) {
-    throw new Error(`Account code ${trimmed} already exists`);
+    throw new ChartRefusal(`Account code ${trimmed} already exists`);
   }
 
-  const rows = await sql`
+  const rows = await boundedRowWait(() => sql`
     UPDATE gl_accounts SET account_code = ${trimmed}
     WHERE id = ${id} AND company_id = ${companyId}
     RETURNING *
-  ` as { [key: string]: unknown }[];
+  `) as { [key: string]: unknown }[];
+  clearSystemAccountCacheAfterCommit(companyId); // the resolver caches the holder's code
   return mapRow(rows[0]);
 }
 
 export async function updateAccount(companyId: string, id: string, input: UpdateAccountInput): Promise<GLAccount> {
   try {
+    const finish = await guardActiveChange(companyId, id, input);
     const account = await sql`SELECT * FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}` as {
       is_system_account: boolean;
       account_name: string;
     }[];
-    if (account.length === 0) throw new Error(`Account ${id} not found`);
+    if (account.length === 0) throw new ChartRefusal(`Account ${id} not found`);
 
     if (account[0]!.is_system_account && input.isActive === false) {
-      throw new Error('Cannot deactivate a system account');
+      throw new ChartRefusal('Cannot deactivate a system account');
     }
 
     // Money in the account blocks deactivation, the same rule deleteAccount
@@ -364,14 +368,14 @@ export async function updateAccount(companyId: string, id: string, input: Update
     if (input.isActive === false) {
       const balance = await getPostedAccountBalance(companyId, id);
       if (holdsMoney(balance)) {
-        throw new Error(
+        throw new ChartRefusal(
           `Cannot deactivate "${account[0]!.account_name}" — GL balance is R ${formatAccountBalance(balance)}. ` +
             `Transfer the balance to another account or reconcile it to zero first.`,
         );
       }
     }
 
-    const rows = await sql`
+    const rows = await boundedRowWait(() => sql`
       UPDATE gl_accounts SET
         account_name = COALESCE(${input.accountName || null}, account_name),
         description = COALESCE(${input.description ?? null}, description),
@@ -381,8 +385,8 @@ export async function updateAccount(companyId: string, id: string, input: Update
         vat_input_denied = COALESCE(${input.vatInputDenied ?? null}, vat_input_denied)
       WHERE id = ${id} AND company_id = ${companyId}
       RETURNING *
-    `;
-    return mapRow((rows as { [key: string]: unknown }[])[0]);
+    `);
+    return await finish(mapRow((rows as { [key: string]: unknown }[])[0]));
   } catch (err) {
     log.error('Failed to update account', { id, error: err }, 'accounting');
     throw err;
@@ -391,6 +395,7 @@ export async function updateAccount(companyId: string, id: string, input: Update
 
 export async function deleteAccount(companyId: string, id: string): Promise<void> {
   try {
+    const finish = await refuseSystemAccountDelete(companyId, id);
     // 1. Child accounts always block deletion, regardless of type.
     // company_id scope: without it this count is a cross-tenant existence
     // oracle AND runs before the ownership check below (audit W6).
@@ -399,7 +404,7 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
       WHERE parent_account_id = ${id} AND is_active = true AND company_id = ${companyId}
     ` as { cnt: string }[];
     if (Number(children[0]!.cnt) > 0) {
-      throw new Error('Cannot delete account with active child accounts');
+      throw new ChartRefusal('Cannot delete account with active child accounts');
     }
 
     // 2. Load the account so we can report a friendly name and decide
@@ -412,7 +417,7 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
     ` as { account_subtype: string | null; account_name: string }[];
 
     if (accountRows.length === 0) {
-      throw new Error('Account not found');
+      throw new ChartRefusal('Account not found');
     }
 
     const accountName = accountRows[0]!.account_name;
@@ -430,7 +435,7 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
     const balance = await getPostedAccountBalance(companyId, id);
 
     if (holdsMoney(balance)) {
-      throw new Error(
+      throw new ChartRefusal(
         `Cannot delete "${accountName}" — GL balance is R ${formatAccountBalance(balance)}. ` +
           `Transfer the balance to another account or reconcile it to zero first.`,
       );
@@ -449,7 +454,7 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
       const pendingCount = Number(pendingRows[0]!.cnt);
 
       if (pendingCount > 0) {
-        throw new Error(
+        throw new ChartRefusal(
           `Cannot delete bank account "${accountName}" — ${pendingCount} ` +
             `unreconciled bank transaction${pendingCount === 1 ? '' : 's'} still attached. ` +
             `Reconcile or exclude ${pendingCount === 1 ? 'it' : 'them'} first.`,
@@ -457,8 +462,9 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
       }
     }
 
-    const deactivateResult = await sql`UPDATE gl_accounts SET is_active = false WHERE id = ${id} AND company_id = ${companyId} RETURNING id` as unknown[];
-    if (deactivateResult.length === 0) throw new Error(`GL account not found: ${id}`);
+    const deactivateResult = await boundedRowWait(() => sql`UPDATE gl_accounts SET is_active = false WHERE id = ${id} AND company_id = ${companyId} RETURNING id`) as unknown[];
+    if (deactivateResult.length === 0) throw new ChartRefusal(`GL account not found: ${id}`);
+    await finish(undefined);
   } catch (err) {
     log.error('Failed to delete account', { id, error: err }, 'accounting');
     throw err;

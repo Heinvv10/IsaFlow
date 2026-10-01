@@ -32,12 +32,22 @@ vi.mock('@/modules/accounting/services/bank/bankOpeningBalanceService', () => ({
 vi.mock('@/modules/accounting/services/gl/openingBalanceEquityService', () => ({
   ensureOpeningBalanceEquityAccount: vi.fn(),
 }));
+// The role-write lock and the bounded wait issue real SQL. Stubbed, or this "unit" file opens a database
+// connection: it passed only where one was reachable (a developer's .env.local) and failed in CI, which
+// has none. Their behaviour against Postgres is proven in tests/integration/w2-28-system-role-round1*.int.test.ts;
+// here they are spies, so the ORDER the tool calls them in can be asserted.
+vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/gl/systemRoleWriteLock')>()),
+  lockSystemRoleWrites: vi.fn(async () => undefined),
+  boundedRowWait: vi.fn(<T,>(take: () => PromiseLike<T>) => take()),
+}));
 
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { accountsBelongToCompany, getAccountById } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { setBankOpeningBalanceMeta } from '@/modules/accounting/services/bank/bankOpeningBalanceService';
 import { ensureOpeningBalanceEquityAccount } from '@/modules/accounting/services/gl/openingBalanceEquityService';
+import { boundedRowWait, lockSystemRoleWrites, SystemRoleLockTimeoutError } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import { setOpeningBalanceTool } from '@/lib/mcp/tools/writeOpeningBalance';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
@@ -119,6 +129,31 @@ describe('set_opening_balance', () => {
     // post never created.
     vi.mocked(postJournalEntry).mockRejectedValueOnce(new Error('period closed'));
     await expect(setOpeningBalanceTool.handler(ARGS, ctx())).rejects.toThrow('period closed');
+    expect(setBankOpeningBalanceMeta.write).not.toHaveBeenCalled();
+  });
+
+  it('takes the role-write lock BEFORE it creates or posts the journal, and posts inside the bounded wait', async () => {
+    // Taken after the posting, the lock inverted an account merge's order (role lock, then rows): 40P01.
+    // And everything from the journal to the metadata runs under the 5s bound, because the lock is held.
+    let insideBound = false;
+    const seenInside: boolean[] = [];
+    vi.mocked(boundedRowWait).mockImplementationOnce(async (take) => { insideBound = true; try { return await take(); } finally { insideBound = false; } });
+    for (const fn of [createJournalEntry, postJournalEntry, setBankOpeningBalanceMeta.write]) {
+      vi.mocked(fn as (...a: unknown[]) => unknown).mockImplementationOnce(async () => { seenInside.push(insideBound); return { id: JE }; });
+    }
+    parseOk(await setOpeningBalanceTool.handler(ARGS, ctx()));
+    const order = (fn: unknown) => vi.mocked(fn as () => unknown).mock.invocationCallOrder[0]!;
+    expect(lockSystemRoleWrites).toHaveBeenCalledWith(COMPANY);
+    expect(order(lockSystemRoleWrites)).toBeLessThan(order(createJournalEntry));
+    expect(order(createJournalEntry)).toBeLessThan(order(postJournalEntry));
+    expect(order(postJournalEntry)).toBeLessThan(order(setBankOpeningBalanceMeta.write));
+    expect(seenInside).toEqual([true, true, true]);
+  });
+
+  it('a role-lock timeout is thrown before anything is posted (the registry keeps its retry wording)', async () => {
+    vi.mocked(lockSystemRoleWrites).mockRejectedValueOnce(new SystemRoleLockTimeoutError());
+    await expect(setOpeningBalanceTool.handler(ARGS, ctx())).rejects.toMatchObject({ code: 'SYSTEM_ROLE_LOCK_TIMEOUT' });
+    expect(createJournalEntry).not.toHaveBeenCalled();
     expect(setBankOpeningBalanceMeta.write).not.toHaveBeenCalled();
   });
 

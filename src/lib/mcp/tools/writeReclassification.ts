@@ -20,6 +20,7 @@ import type { McpTool } from '../types';
 import { MUTATION_ARG_SCHEMA } from '@/lib/mcp/contracts';
 import { postReclassBatch } from '@/modules/accounting/services/gl/reclassification/post';
 import { MAX_RECLASS_LINES } from '@/modules/accounting/services/gl/reclassification/plan';
+import { boundedRowWait } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import { mcpPostingOpts } from '../mcpActor';
 import {
   RECLASS_ARG_SCHEMA,
@@ -116,7 +117,10 @@ export const postReclassificationBatchTool: McpTool = {
     // ── Everything below WRITES. No try/catch: a throw must reach the
     // registry's savepoint, which is the only thing that unwinds the journals
     // already posted. Catching here would commit a half-moved account.
-    const result = await postReclassBatch(ctx.companyId, ctx.userId, {
+    // Bounded: the plan may have taken the company's role-write lock (a level 1-2
+    // balance-sheet target), which is then held to the end of the request — so no
+    // lock the posting waits for may wait longer than 5s (the retryable refusal).
+    const result = await boundedRowWait(() => postReclassBatch(ctx.companyId, ctx.userId, {
       tool: RECLASS_TOOL,
       sourceAccountId: planned.source.id,
       targetAccountId: planned.target.id,
@@ -127,7 +131,7 @@ export const postReclassificationBatchTool: McpTool = {
       // of corrections posts as human:<userId> and drops out of
       // list_agent_postings.
       actor: mcpPostingOpts(ctx, RECLASS_TOOL),
-    });
+    }));
 
     return ok({
       batch_id: result.batchId,

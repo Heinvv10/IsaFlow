@@ -153,17 +153,17 @@ describe('merge_gl_accounts', () => {
     expect(lockOrder).toBeLessThan(previewOrder);
   });
 
-  it('turns a lock timeout into a refusal that says retry, not a generic failure', async () => {
+  it('THROWS a lock timeout: the registry rolls its aborted savepoint back and keeps the retry wording', async () => {
     const timeout = Object.assign(new Error('GL account X is being changed by another request — retry in a moment.'),
       { code: 'GL_ACCOUNT_LOCK_TIMEOUT' });
     vi.mocked(lockGlAccountsForUpdate).mockRejectedValue(timeout);
 
-    const r = await mergeGlAccountsTool.handler(ARGS, ctx());
-    // Write-free by construction: the lock is the first thing the live path
-    // does. Left to propagate, the registry would render it GENERIC_FAILURE and
-    // the agent would never learn it can simply retry.
-    expect(r.isError).toBe(true);
-    expect(r.content[0]!.text).toContain('retry');
+    // A lock timeout is 55P03 and has aborted the registry's savepoint. This
+    // tool used to RETURN it as a tool error; the savepoint's RELEASE then
+    // failed (25P02) and the agent got the generic failure. Thrown, the
+    // registry keeps the message of an allow-listed code — proven end to end
+    // in tests/integration/w2-28-system-role-mcp-rollback.int.test.ts.
+    await expect(mergeGlAccountsTool.handler(ARGS, ctx())).rejects.toMatchObject({ code: 'GL_ACCOUNT_LOCK_TIMEOUT' });
     expect(mergeAccounts).not.toHaveBeenCalled();
     expect(previewAccountMerge).not.toHaveBeenCalled();
   });

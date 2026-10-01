@@ -10,6 +10,7 @@
 import { Plus, Loader2 } from 'lucide-react';
 import type { GLAccount, GLAccountType } from '@/modules/accounting/types/gl.types';
 import { subtypeOptionsFor } from './accountSubtypeOptions';
+import { mayBeParent } from './systemAccountNote';
 
 export interface AddAccountFormState {
   accountCode: string;
@@ -67,7 +68,7 @@ export function AddAccountForm({
           <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Parent Account</label>
           <select value={addForm.parentAccountId} onChange={e => onChange(f => ({ ...f, parentAccountId: e.target.value }))} className="ff-select w-full text-sm">
             <option value="">None (top-level)</option>
-            {parentOptions.map(a => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
+            {parentOptions.filter(mayBeParent).map(a => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
           </select>
         </div>
         <div>

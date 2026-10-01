@@ -1,0 +1,97 @@
+# GREEN on 9da291234, fixture clone at 718 (2026-10-01T12:14:49Z). 64-hex tokens redacted.
+## k-036-paystack-invoice-payment-not-in-gl.int.test.ts
+ Test Files  1 passed (1)
+      Tests  21 passed (21)
+## k095-flow-purchase-fails-open-without-paystack.int.test.ts
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+## k095-flow-purchase-fallback-gate.int.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## k095-mandate-activation-guards.int.test.ts
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+## k095-r4-fallback-attribution.int.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## k095-r5-verify-webhook-race.int.test.ts
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+## k095-r6-unlinked-failed-fallback.int.test.ts
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+## k096-mandate-link-persisted.int.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## k096-mandate-verify-activates-all-pending.int.test.ts
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+## k096-mandate-verify-scoping.int.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## k096-webhook-mandate-scoping.int.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## k101-portal-routes-use-active-company.int.test.ts
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+## k122b-portal-token-race.int.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## k122c-dunning-cron-savepoint-isolation.int.test.ts
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+## k122d-dunning-send-durability.int.test.ts
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+## k122-dunning-portal-link-404.int.test.ts
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+## k122e-dispute-resolve-atomicity.int.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## k122f-email-log-savepoint.int.test.ts
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+## r082-documentpopulation-twin-parity.int.test.ts
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+## r082-statements-exclude-drafts.int.test.ts
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+## r095-portal-round4.int.test.ts
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+## r095-portal-session-scoping.int.test.ts
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+## r095-portal-statement-matches-inapp.int.test.ts
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+## r155-157-portal-mint-guards.int.test.ts
+ Test Files  1 passed (1)
+      Tests  30 passed (30)
+## r157-payment-link-throw-responds.int.test.ts
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+## r158-payment-link-creation-guards.int.test.ts
+ Test Files  1 passed (1)
+      Tests  20 passed (20)
+## r166-payment-link-amount-cap.int.test.ts
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+## r167-link-charges-link-amount.int.test.ts
+ Test Files  1 passed (1)
+      Tests  28 passed (28)
+## r167-standing-links-and-checkout.int.test.ts
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+## r177-pay-now-standing-link.int.test.ts
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+## r178-r180-portal-link-rules.int.test.ts
+ Test Files  1 passed (1)
+      Tests  17 passed (17)
+## unit: every file under tests/unit/accounting plus tests/unit/services/billing/paystackClient.test.ts
+ Test Files  13 passed (13)
+      Tests  162 passed (162)

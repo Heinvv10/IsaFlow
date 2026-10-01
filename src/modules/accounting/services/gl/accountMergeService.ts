@@ -24,7 +24,7 @@
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { clearSystemAccountCache } from './systemAccountResolver';
+import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
 import {
   AccountMergeError, MAX_TREE_DEPTH, assertMergeable, loadMergeAccount,
 } from './accountMergeGuards';
@@ -34,6 +34,8 @@ import {
   DOCUMENT_ROW_TABLES, countsOf, repointDocumentRows, type DocumentRowCounts,
 } from './accountMergeDocumentRows';
 import { lockGlAccountsForUpdate } from './glAccountLock';
+import { assertRolesKept, snapshotRoles } from './systemRoleInvariant';
+import { boundedRowWait } from './systemRoleWriteLock';
 import { openBillLinesRefusal } from './accountMergeBillLines';
 import { hasChildAccounts } from './isReportVisibleLeaf';
 import type { PostingActorOpts } from './journalEntryMeta';
@@ -97,7 +99,8 @@ export async function mergeAccounts(
   companyId: string, sourceId: string, targetId: string,
   userId?: string, actor?: PostingActorOpts,
 ): Promise<MergeAccountsResult> {
-  return withSavepoint('account_merge', () => mergeAccountsInner(companyId, sourceId, targetId, userId, actor));
+  // Bounded: every statement of the merge waits at most 5s for any lock while it holds the role lock.
+  return withSavepoint('account_merge', () => boundedRowWait(() => mergeAccountsInner(companyId, sourceId, targetId, userId, actor)));
 }
 
 async function mergeAccountsInner(
@@ -124,7 +127,7 @@ async function mergeAccountsInner(
   // reclassification does not lock the account, and takes its own FOR UPDATE in
   // `admitReclassification` for exactly that reason.
   await lockGlAccountsForUpdate(companyId, [sourceId, targetId]);
-
+  const roles = await snapshotRoles(companyId);
   const source = await loadMergeAccount(companyId, sourceId);
   const target = await loadMergeAccount(companyId, targetId);
   // The same generic text a genuine miss gets: a distinct "belongs to another
@@ -255,7 +258,8 @@ async function mergeAccountsInner(
      WHERE id = ${sourceId}::UUID AND company_id = ${companyId}::UUID
   `;
 
-  clearSystemAccountCache(companyId);
+  await assertRolesKept(companyId, roles); // e.g. the source's children would make a role holder a header
+  clearSystemAccountCacheAfterCommit(companyId);
 
   // The record is what makes this recoverable. Merging back does NOT undo a
   // merge — a reverse merge carries the target's original lines with it — so

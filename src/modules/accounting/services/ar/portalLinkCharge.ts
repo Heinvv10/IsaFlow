@@ -10,13 +10,20 @@
  * The balance is `total_amount - GREATEST(amount_paid, 0)` in numeric, so a NULL or negative
  * amount_paid counts as nothing paid and never lifts a charge above the total. A NaN balance or
  * NaN link amount, a cancelled or soft-deleted invoice, or a charge of zero or less charges
- * nothing. Only a link whose status is exactly `active` is chargeable.
+ * nothing. Only a link whose status is exactly `active` is chargeable, and an invoice that is a
+ * draft or awaiting approval is not payable through any link until it is approved (R-180).
+ *
+ * Expiry (R-179): a link expires at `expires_at`, except the standing link its invoice's
+ * `payment_url` names. That one is emailed with the invoice and stays payable while the invoice
+ * owes. Decided here, at read time, so no stored expiry has to be rewritten.
  *
  * The token is the only credential here (public routes), so every lookup starts from it.
  */
 import { sql } from '@/lib/neon';
+import { documentInPopulation } from '@/modules/accounting/services/shared/documentPopulation';
 
-export type LinkChargeRefusal = 'link_not_found' | 'link_not_active' | 'link_expired' | 'invoice_gone' | 'nothing_owed';
+export type LinkChargeRefusal =
+  | 'link_not_found' | 'link_not_active' | 'link_expired' | 'invoice_gone' | 'invoice_unapproved' | 'nothing_owed';
 
 export interface LinkCharge {
   linkId: string;
@@ -34,6 +41,7 @@ interface Row {
   link_status: string | null;
   expired: boolean;
   invoice_id: string | null;
+  invoice_status: string | null;
   company_id: string | null;
   invoice_number: string | null;
   client_name: string | null;
@@ -46,8 +54,9 @@ export async function resolveLinkCharge(
 ): Promise<{ ok: true; charge: LinkCharge } | { ok: false; reason: LinkChargeRefusal }> {
   const rows = (await sql`
     SELECT l.id AS link_id, l.status AS link_status,
-           COALESCE(l.expires_at < NOW(), false) AS expired,
-           ci.id AS invoice_id, ci.company_id, ci.invoice_number,
+           (COALESCE(l.expires_at < NOW(), false)
+             AND NOT COALESCE(l.charges_balance AND right(ci.payment_url, 12 + length(l.token)) = '/portal/pay/' || l.token, false)) AS expired,
+           ci.id AS invoice_id, ci.status AS invoice_status, ci.company_id, ci.invoice_number,
            COALESCE(c.name, 'Customer') AS client_name, c.email AS client_email,
            -- NaN sorts above every number, so LEAST would drop it silently; it charges nothing.
            CASE WHEN b.balance <> 'NaN' AND (l.charges_balance OR l.amount <> 'NaN')
@@ -68,6 +77,7 @@ export async function resolveLinkCharge(
   if (row.link_status !== 'active') return { ok: false, reason: 'link_not_active' };
   if (row.expired) return { ok: false, reason: 'link_expired' };
   if (!row.invoice_id || !row.company_id) return { ok: false, reason: 'invoice_gone' };
+  if (!documentInPopulation(row.invoice_status)) return { ok: false, reason: 'invoice_unapproved' };
   const chargeCents = row.charge_cents === null ? 0 : Number(row.charge_cents);
   if (!(chargeCents > 0)) return { ok: false, reason: 'nothing_owed' };
   return {

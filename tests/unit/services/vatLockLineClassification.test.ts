@@ -22,7 +22,8 @@ vi.mock('@/lib/neon', () => ({
 }));
 
 import {
-  decideLockedReclass, findLockedReclassification, lineReclassifies, type LockedJournalShape,
+  assertAccountChangesKeepVatLocks, decideLockedReclass, findLockedReclassification, lineReclassifies,
+  type LockedJournalShape,
 } from '@/modules/accounting/services/gl/vatLockLineClassification';
 
 const CO = '11111111-1111-4111-8111-111111111111';
@@ -132,3 +133,13 @@ describe('findLockedReclassification — the query', () => {
   });
 });
 
+describe('assertAccountChangesKeepVatLocks — runs on the caller\'s transaction', () => {
+  it('sends the shared advisory lock and the check query through `q`, never the pool `sql`', async () => {
+    const onTx: string[] = [];
+    const q = async (strings: TemplateStringsArray) => { onTx.push(strings.join('?')); return []; };
+    await assertAccountChangesKeepVatLocks(CO, [change(ASSET_NULL, BANK)], q);
+    expect(onTx.some((t) => /pg_advisory_xact_lock_shared/.test(t))).toBe(true);
+    expect(onTx.some((t) => /FROM gl_journal_lines l/.test(t))).toBe(true);
+    expect(h.calls.filter((c) => /pg_advisory_xact_lock_shared|FROM gl_journal_lines l/.test(c.text))).toHaveLength(0);
+  });
+});
