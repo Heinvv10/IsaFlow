@@ -16,6 +16,7 @@ import { formatPackKv } from '@/components/accounting/packs/PackSectionView';
 import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 import { log } from '@/lib/logger';
 import { ratioLines } from '@/modules/accounting/services/reports/ratioPresentation';
+import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { ProfitWaterfall } from '@/components/accounting/charts/ProfitWaterfall';
 import { MissingPackFieldError, packToCashFlowUnavailable, packToWaterfallSteps } from '@/modules/accounting/services/packs/packSectionData';
 import { marginKvItem } from '@/modules/accounting/services/packs/packDocument';
@@ -116,13 +117,19 @@ function reasonsOrNone(
  *  saved payload whose steps are absent or are not steps shows a notice and a
  *  warning rather than throwing into the page. */
 function BridgeChart({ d }: { d: Record<string, unknown> }) {
+  // The payload is read inside the try; the JSX is built outside it, so an
+  // error from rendering is not mistaken for an unusable payload.
+  let steps: WaterfallStep[] | null = null;
   try {
-    return <ProfitWaterfall steps={packToWaterfallSteps(d)} title="Profit bridge" />;
+    steps = packToWaterfallSteps(d);
   } catch (err) {
     if (!(err instanceof MissingPackFieldError)) throw err;
     log.warn('SectionCard: the saved profit bridge is unusable', { field: err.field, reason: err.reason }, 'packs');
+  }
+  if (steps === null) {
     return <p className="text-sm text-[var(--ff-text-tertiary)] italic">This saved pack carries no usable profit bridge.</p>;
   }
+  return <ProfitWaterfall steps={steps} title="Profit bridge" />;
 }
 
 /** [field, label]. The `unavailable` map is keyed by the FIELD name, as

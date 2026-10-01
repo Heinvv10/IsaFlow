@@ -27,6 +27,7 @@ describe('playwrightTransport — a print page that reports it cannot render', (
     const { markPrintError } = await import('@/components/accounting/packs/usePrintMode');
     expect(PRINT_ERROR_ATTRIBUTE_PREFIX).toBe('data-print-error');
     vi.stubGlobal('document', { documentElement: { setAttribute: vi.fn() } });
+    vi.stubGlobal('reportError', vi.fn());
     markPrintError('fonts', 'x');
     const set = (document.documentElement.setAttribute as ReturnType<typeof vi.fn>).mock.calls[0]!;
     vi.unstubAllGlobals();
