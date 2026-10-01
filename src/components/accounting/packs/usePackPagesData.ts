@@ -33,7 +33,7 @@
 import { useEffect, useState } from 'react';
 import { ApiRequestError, apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { markPrintError } from './usePrintMode';
+import { clearPrintError, markPrintError } from './usePrintMode';
 import { packPagesApiPath } from '@/modules/accounting/services/packs/packSections';
 import { adoptPackPagesDocument } from '@/modules/accounting/services/packs/pages/packDocumentWire';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
@@ -58,6 +58,7 @@ export function usePackPagesData(packType: PackType, from: string, to: string): 
         // refusal is a fact about the payload, not about this render.
         const adopted = adoptPackPagesDocument(raw);
         if (cancelled) return;
+        clearPrintError('pages:');
         setDocument(adopted);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

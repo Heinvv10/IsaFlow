@@ -25,6 +25,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   Reflect.deleteProperty(document, 'fonts');
   document.documentElement.removeAttribute('data-print-error');
+  document.getElementById('pack-footer-face')?.remove();
   logError.mockClear();
 });
 
@@ -59,5 +60,27 @@ describe('usePrintReady when a font load rejects', () => {
       );
     });
     expect(container.querySelector('[data-print-ready="true"]')).toBeNull();
+  });
+
+  it('clears its own error when a later load succeeds, and leaves another producer\'s alone', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('footer face unreachable'); }));
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { load: vi.fn(async () => []), check: () => true, ready: Promise.resolve(null) },
+    });
+    const first = render(<Probe />);
+    await waitFor(() => expect(document.documentElement.getAttribute('data-print-error')).toMatch(/^fonts:/));
+    first.unmount();
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) }) as unknown as Response));
+    const second = render(<Probe />);
+    await waitFor(() => expect(second.container.querySelector('[data-print-ready="true"]')).not.toBeNull());
+    expect(document.documentElement.getAttribute('data-print-error')).toBeNull();
+    second.unmount();
+
+    document.documentElement.setAttribute('data-print-error', 'pages: HTTP 422');
+    const third = render(<Probe />);
+    await waitFor(() => expect(third.container.querySelector('[data-print-ready="true"]')).not.toBeNull());
+    expect(document.documentElement.getAttribute('data-print-error')).toBe('pages: HTTP 422');
   });
 });

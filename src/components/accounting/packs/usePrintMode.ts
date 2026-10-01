@@ -211,6 +211,14 @@ export function markPrintError(reason: string): void {
   document.documentElement.setAttribute('data-print-error', reason);
 }
 
+/** Withdraw an error a LATER success has superseded — a retried fetch, a font
+ *  that arrived. Only the producer's own prefix: the pages fetch recovering
+ *  must not erase a font failure, or the reverse. */
+export function clearPrintError(prefix: string): void {
+  const root = document.documentElement;
+  if (root.getAttribute('data-print-error')?.startsWith(prefix)) root.removeAttribute('data-print-error');
+}
+
 /**
  * True once the fonts have loaded. Stays false forever when one never does —
  * see `packFontsLoaded`.
@@ -222,7 +230,10 @@ function useFontsReady(): boolean {
     if (typeof document === 'undefined') return;
     let live = true;
     void packFontsLoaded(document).then((loaded) => {
-      if (live && loaded) setReady(true);
+      if (live && loaded) {
+        clearPrintError('fonts:');
+        setReady(true);
+      }
       if (live && !loaded) reportFontFailure('a declared face is not available after loading');
     }, (err: unknown) => {
       // `loadFooterFace` and `fonts.load` reject BY DESIGN. Without this the
