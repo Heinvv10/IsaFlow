@@ -38,10 +38,10 @@ const NOT_CAPTURED = (what: string) => `${what} is not captured in this report, 
 const NONE_RECORDED = (what: string) => `No ${what} recorded in the period, so this ratio cannot be stated.`;
 
 describe.each([
-  ['interestCoverage', 'interestExpense', 'Interest expense', 'interest expense'],
-  ['ebitdaToNetInterest', 'interestExpense', 'Interest expense', 'interest expense'],
-  ['pbtToNetInterest', 'interestExpense', 'Interest expense', 'interest expense'],
-  ['netProfitToNetInterest', 'interestExpense', 'Interest expense', 'interest expense'],
+  ['interestCoverage', 'interestExpense', 'Interest expense', 'interest expense under a finance-cost classification'],
+  ['ebitdaToNetInterest', 'interestExpense', 'Interest expense', 'interest expense under a finance-cost classification'],
+  ['pbtToNetInterest', 'interestExpense', 'Interest expense', 'interest expense under a finance-cost classification'],
+  ['netProfitToNetInterest', 'interestExpense', 'Interest expense', 'interest expense under a finance-cost classification'],
   ['revenuePerEmployee', 'employeeCount', 'The employee count', 'employees'],
   ['pbitPerEmployee', 'employeeCount', 'The employee count', 'employees'],
   ['ebitdaPerEmployee', 'employeeCount', 'The employee count', 'employees'],

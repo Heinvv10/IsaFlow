@@ -142,8 +142,10 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   // "None recorded" would be untrue of a company whose salaries sit in a
   // general operating-expense account: what was looked for is the payroll band.
   const noEmployeeCost = unusable(data.employeeCosts, 'Employee cost', 'employee cost under a payroll classification', notRead);
+  // Likewise interest: a company that books it to an operating-expense account
+  // has interest, just none under a finance-cost classification.
   const noInterest = interestExp < 0 ? INTEREST_IS_NET_CREDIT
-    : unusable(data.interestExpense, 'Interest expense', 'interest expense', notRead);
+    : unusable(data.interestExpense, 'Interest expense', 'interest expense under a finance-cost classification', notRead);
   // Cover on NET interest: no base where nothing was paid, and none either
   // where more was earned than paid — which is not "no interest recorded".
   const noNetInterest = noInterest ?? (netInterest > 0 ? null : NET_INTEREST_IS_INCOME);

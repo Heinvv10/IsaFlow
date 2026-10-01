@@ -76,7 +76,7 @@ describe('a nil input is not always the same statement', () => {
   it('nil interest is no cover at all: there is nothing to cover', () => {
     const ratios = calculateExtendedRatios({ ...DEMO, interestExpense: 0 });
     expect(ratios.interestCoverage).toBeNull();
-    expect(ratios.notMeaningful.interestCoverage).toBe('No interest expense recorded in the period, so this ratio cannot be stated.');
+    expect(ratios.notMeaningful.interestCoverage).toBe('No interest expense under a finance-cost classification recorded in the period, so this ratio cannot be stated.');
   });
 
   it('a net CREDIT to interest expense says so, not "none recorded"', () => {

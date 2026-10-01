@@ -118,7 +118,7 @@ describe('Financial Analysis: the scorecard and the ratio list', () => {
   it('both say none was recorded — the same sentence — where the ledger has no interest', async () => {
     ledger = ledger.filter((r) => !r.account_subtype.startsWith('interest'));
     const { scorecard, ratios } = await both();
-    const reason = 'No interest expense recorded in the period, so this ratio cannot be stated.';
+    const reason = 'No interest expense under a finance-cost classification recorded in the period, so this ratio cannot be stated.';
     expect(ratios.interestCoverage).toBeNull();
     expect(ratios.notMeaningful.interestCoverage).toBe(reason);
     expect(scorecard.find((r) => r.ratioKey === 'interestCoverage')).toMatchObject({ value: null, reason });
@@ -131,7 +131,7 @@ describe('Financial Analysis: the scorecard and the ratio list', () => {
     expect(ratios.interestCoverage).toBeNull();
     const row = scorecard.find((r) => r.ratioKey === 'interestCoverage')!;
     expect(row.value).toBeNull();
-    expect(row.reason).toBe('No interest expense recorded in the period, so this ratio cannot be stated.');
+    expect(row.reason).toBe('No interest expense under a finance-cost classification recorded in the period, so this ratio cannot be stated.');
     expect(JSON.stringify(row)).not.toMatch(/on_target|"status":"green"/);
   });
 

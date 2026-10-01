@@ -143,7 +143,7 @@ describe('the management pack\'s ratios', () => {
     serve(12, [{ account_type: 'expense', account_subtype: 'bank_charges', debit: '8000.00', credit: '0' }]);
     const ratios = await packRatios();
     expect(ratios.interestCoverage).toBeNull();
-    expect(ratios.notMeaningful.interestCoverage).toBe('No interest expense recorded in the period, so this ratio cannot be stated.');
+    expect(ratios.notMeaningful.interestCoverage).toBe('No interest expense under a finance-cost classification recorded in the period, so this ratio cannot be stated.');
   });
 
   it('say the direct material margin is not captured: the classification has no such line', async () => {
@@ -162,7 +162,7 @@ describe('the management pack\'s ratios', () => {
     serve(0, []);
     const ratios = await packRatios();
     expect(ratios.interestCoverage).toBeNull();
-    expect(ratios.notMeaningful.interestCoverage).toBe('No interest expense recorded in the period, so this ratio cannot be stated.');
+    expect(ratios.notMeaningful.interestCoverage).toBe('No interest expense under a finance-cost classification recorded in the period, so this ratio cannot be stated.');
     expect(ratios.notMeaningful.revenuePerEmployee).toBe('No employees recorded in the period, so this ratio cannot be stated.');
     expect(ratios.notMeaningful.employeeCostToRevenue).toBe('No employee cost under a payroll classification recorded in the period, so this ratio cannot be stated.');
     expect(ratios.effectiveTaxRate).toBe(0);
