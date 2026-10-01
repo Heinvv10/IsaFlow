@@ -6,6 +6,7 @@
 
 import { useEffect, useCallback } from 'react';
 import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { fetchAllSuppliers } from '@/lib/fetchAllSuppliers';
 import { log } from '@/lib/logger';
 import { notify } from '@/utils/toast';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
@@ -32,12 +33,14 @@ type Setters = {
   setBuOptions: (v: SelectOption[]) => void;
   setSelectedBank: (fn: (prev: string) => string) => void;
   setRefDataLoaded?: (v: boolean) => void;
+  /** Reports the supplier list state so the page can say so: loaded, failed, or cut at the cap. */
+  setSuppliersStatus?: (v: 'ok' | 'failed' | 'truncated') => void;
 };
 
 export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () => void } {
   const {
     setBankAccounts, setGlAccounts, setSuppliers, setCustomers,
-    setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded,
+    setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded, setSuppliersStatus,
   } = setters;
 
   const refreshBankAccounts = useCallback(() => {
@@ -49,6 +52,22 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
       notify.error('Could not refresh bank accounts — the balances shown may be out of date');
     });
   }, [setBankAccounts]);
+
+  // Suppliers page through the whole list, so they load on their own: a slow or
+  // failing supplier walk must not hold back bank accounts and the chart.
+  useEffect(() => {
+    let live = true;
+    fetchAllSuppliers().then(({ suppliers, truncated }) => {
+      if (!live) return;
+      setSuppliers(suppliers.map(s => ({ id: String(s.id), name: s.name, code: s.code })));
+      setSuppliersStatus?.(truncated ? 'truncated' : 'ok');
+    }).catch((err) => {
+      log.warn('Failed to load suppliers for bank transactions', { error: err }, 'accounting-ui');
+      if (live) setSuppliersStatus?.('failed');
+    });
+    return () => { live = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     // allSettled, not all: a 500 on a single ref-data endpoint (e.g.
@@ -63,14 +82,13 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
     Promise.allSettled([
       apiFetch('/api/accounting/bank-accounts'),
       apiFetch('/api/accounting/chart-of-accounts'),
-      apiFetch('/api/accounting/suppliers-list?status=active'),
       apiFetch('/api/accounting/customers'),
       apiFetch('/api/accounting/cost-centres?cc_type=cc1&active=true'),
       apiFetch('/api/accounting/cost-centres?cc_type=cc2&active=true'),
       apiFetch('/api/accounting/cost-centres?active=true'),
-    ]).then(async ([bankRes, coaRes, suppRes, clientRes, cc1Res, cc2Res, deptRes]) => {
-      const [bankJson, coaJson, suppJson, clientJson, cc1Json, cc2Json, deptJson] = await Promise.all([
-        json(bankRes), json(coaRes), json(suppRes), json(clientRes), json(cc1Res), json(cc2Res), json(deptRes),
+    ]).then(async ([bankRes, coaRes, clientRes, cc1Res, cc2Res, deptRes]) => {
+      const [bankJson, coaJson, clientJson, cc1Json, cc2Json, deptJson] = await Promise.all([
+        json(bankRes), json(coaRes), json(clientRes), json(cc1Res), json(cc2Res), json(deptRes),
       ]);
 
       const bankRaw = bankJson?.data ?? bankJson;
@@ -84,10 +102,6 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
         .filter(a => !isBankSubtype(a.accountSubtype))
         .map(a => ({ id: a.id, code: a.accountCode || a.code, name: a.accountName || a.name, defaultVatCode: a.defaultVatCode, vatInputDenied: a.vatInputDenied }))
       );
-
-      const suppD = suppJson?.data ?? suppJson;
-      const suppList: { id: number | string; name: string; code?: string }[] = Array.isArray(suppD) ? suppD : (suppD?.suppliers ?? []);
-      setSuppliers(suppList.map(s => ({ id: String(s.id), name: s.name, code: s.code })));
 
       const clientList = Array.isArray(clientJson?.data) ? clientJson.data : [];
       setCustomers(clientList.map((c: { id: string; name: string }) => ({ id: c.id, name: c.name || '' })));

@@ -20,6 +20,7 @@ interface Props {
   batchSearch: string;
   glAccounts: SelectOption[];
   suppliers: SelectOption[];
+  suppliersLoading?: boolean;
   customers: SelectOption[];
   transferTargets: SelectOption[];
   rulePrompt: RulePrompt | null;
@@ -33,7 +34,7 @@ interface Props {
 
 export function BankTxBatchPanel({
   showBatchEdit, selectedCount, batchType, batchSearch,
-  glAccounts, suppliers, customers, transferTargets,
+  glAccounts, suppliers, suppliersLoading, customers, transferTargets,
   rulePrompt,
   onBatchTypeChange, onBatchSearchChange, onApplyBatchEdit, onCancelBatchEdit,
   onCreateRule, onDismissRulePrompt,
@@ -85,7 +86,7 @@ export function BankTxBatchPanel({
                 </button>
               ))}
               {batchOptions.length === 0 && (
-                <div className="px-3 py-2 text-xs text-[var(--ff-text-tertiary)]">No results found</div>
+                <div className="px-3 py-2 text-xs text-[var(--ff-text-tertiary)]">{batchType === 'supplier' && suppliersLoading ? 'Loading suppliers…' : 'No results found'}</div>
               )}
             </div>
           </div>
