@@ -22,6 +22,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
 import { ensureStandingLink } from '@/modules/accounting/services/ar/standingPaymentLink';
+import { CustomerInvoiceLockTimeoutError } from '@/modules/accounting/services/ar/customerInvoiceLock';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -45,11 +46,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // Every refusal comes before the first write (withAuth COMMITs a 4xx).
-  const link = await ensureStandingLink(companyId, invoiceId, appUrl);
+  let link: Awaited<ReturnType<typeof ensureStandingLink>>;
+  try {
+    link = await ensureStandingLink(companyId, invoiceId, appUrl);
+  } catch (err) {
+    if (err instanceof CustomerInvoiceLockTimeoutError) return apiResponse.badRequest(res, err.message, { code: err.code });
+    throw err;
+  }
   if (!link.ok) {
     switch (link.reason) {
       case 'invoice_not_found': return apiResponse.notFound(res, 'Invoice');
-      case 'invoice_draft': return apiResponse.badRequest(res, 'A draft invoice cannot be paid online. Approve it first.');
+      case 'invoice_unapproved': return apiResponse.badRequest(res, 'An invoice that is not approved cannot be paid online. Approve it first.');
       case 'no_customer': return apiResponse.badRequest(res, 'Invoice has no linked customer');
       case 'nothing_owed': return apiResponse.badRequest(res, 'Invoice has no outstanding balance');
     }

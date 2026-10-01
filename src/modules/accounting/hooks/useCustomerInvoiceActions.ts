@@ -53,7 +53,7 @@ export function useCustomerInvoiceActions(opts: Options | null): {
   const recordPaymentClientId = invoice.client_id ?? invoice.customer_id ?? '';
   const canShowPortalLink = !['draft', 'cancelled'].includes(invoice.status);
   const showPaymentButton = invoice.online_payment_enabled && !!invoice.payment_url;
-  const showPayNow = !['paid', 'cancelled', 'draft'].includes(invoice.status) && balance > 0;
+  const showPayNow = !['paid', 'cancelled', 'draft', 'pending_approval'].includes(invoice.status) && balance > 0;
 
   const sendGroup: InvoiceActionGroup = {
     label: 'Send',

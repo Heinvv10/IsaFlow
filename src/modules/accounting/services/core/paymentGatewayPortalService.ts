@@ -12,7 +12,7 @@ import { ensureStandingLink } from '@/modules/accounting/services/ar/standingPay
  * standing link (`charges_balance`), which charges the live balance, is never spent
  * (R-167) and does not expire (R-179). An invoice that already has one keeps it.
  * Null (nothing written) when the invoice is not this company's, is cancelled,
- * soft-deleted or a draft (R-180), or has no balance due.
+ * soft-deleted or not yet approved (R-180), or has no balance due. Needs the request transaction.
  */
 export async function enableOnlinePayment(companyId: string, invoiceId: string): Promise<string | null> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3101';
