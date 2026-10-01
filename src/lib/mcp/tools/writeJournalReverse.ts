@@ -17,7 +17,6 @@
  */
 import {
   PayrollJournalReversalRefusedError,
-  PayrollRunBusyError,
   payrollReversalRefusal,
 } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import type { McpTool } from '../types';
@@ -198,9 +197,11 @@ export const reverseJournalEntryTool: McpTool = {
       };
     }
 
-    // Only the payroll guard's two answers are caught: both are raised before
-    // the reversal writes anything, so returning them releases a savepoint
-    // with nothing in it. Everything else reaches the registry's savepoint.
+    // Only the payroll guard's refusal is caught: it is raised before the
+    // reversal writes anything, so returning it releases a savepoint with
+    // nothing in it. Everything else reaches the registry's savepoint — the
+    // guard's PayrollRunBusyError included: its code is on REFUSAL_CODES, so
+    // the registry answers it with its own message (W3-01 round 7).
     let reversal;
     try {
       reversal = await reverseJournalEntry(ctx.companyId, id, ctx.userId, {
@@ -208,7 +209,7 @@ export const reverseJournalEntryTool: McpTool = {
         ...(reversalDate ? { reversalDate } : {}),
       });
     } catch (err) {
-      if (err instanceof PayrollRunBusyError || err instanceof PayrollJournalReversalRefusedError) return toolError(err.message);
+      if (err instanceof PayrollJournalReversalRefusedError) return toolError(err.message);
       throw err;
     }
 
