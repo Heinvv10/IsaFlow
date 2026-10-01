@@ -855,6 +855,22 @@ A fresh blind reviewer said SHIP with two MEDIUMs and two LOWs.
 
 Mutants: 23, all red, with a green baseline before and after (`green.log`).
 
+### Provider status codes (adversarial LOW after /review)
+
+Any numeric status from a provider used to count as "no work". A 502, 503 or 504 can come from
+a proxy after the provider (Signum, the AI provider) did the work, so the unit was given back
+with the work done. Now, for the Signum call and every AI client (SDK errors with `status`, and
+`fetch` answers that are not OK), one helper decides (`markQuotaUsedForStatus`):
+
+- a 4xx is a refusal of the request (bad input, auth, 429 rate limit): no work, the unit comes
+  back;
+- a 5xx, and a 408, count as use, the same as a timeout.
+
+Signum's API documentation was not available to me; the rule is the general HTTP one. The
+trade: an AI provider answering 529 overloaded, which the provider documents as not processed,
+now costs the unit. A provider outage that shows as 5xx answers can again use up a company's
+daily allowance. Tests per class in five files; mutants ST1 to ST8 red.
+
 ## Rollback
 
 Revert the branch's commits. No migration, no data change, no configuration. Counters written
