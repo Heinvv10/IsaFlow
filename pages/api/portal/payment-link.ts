@@ -93,7 +93,7 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     // balance is refused outright: numeric NaN sorts above every number, so `amount > NaN` is
     // false.
     const invoice = (await sql`
-      SELECT COALESCE(ci.client_id, ci.customer_id) AS customer_id,
+      SELECT COALESCE(ci.client_id, ci.customer_id) AS customer_id, ci.status,
              b.balance::text AS balance,
              (b.balance = 'NaN' OR ${amountNum}::numeric > b.balance) AS over_balance,
              (b.balance > 0 AND b.balance <> 'NaN') AS owes
@@ -105,6 +105,10 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
         AND ci.status != 'cancelled' AND ci.deleted_at IS NULL
     `) as Row[];
     if (invoice.length === 0) return apiResponse.notFound(res, 'Invoice not found');
+    // R-180: a draft is not yet a claim on the customer, so it gets no payment link.
+    if (invoice[0]!.status === 'draft') {
+      return apiResponse.badRequest(res, 'a draft invoice cannot have a payment link; approve it first');
+    }
     // A link pays THIS invoice, so it is for this invoice's customer only.
     if (clientId.toLowerCase() !== String(invoice[0]!.customer_id).toLowerCase()) {
       return apiResponse.badRequest(res, "clientId is not this invoice's customer");
