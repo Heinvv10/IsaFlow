@@ -1,0 +1,19 @@
+# Review round 1: the round-1 cases against the round-0 source (cabe94705), schema at 717 with charges_balance; fixture clone. 64-hex tokens redacted.
+## r167-link-charges-link-amount
+     × a NaN link amount is refused, not turned into the whole balance 34ms
+     × a link with no status is refused 26ms
+     × a link on a paid invoice says there is nothing to pay 15ms
+AssertionError: expected 200 to be 400 // Object.is equality
+AssertionError: expected 200 to be 400 // Object.is equality
+AssertionError: expected 404 to be 400 // Object.is equality
+      Tests  3 failed | 17 passed (20)
+## r167-standing-links-and-checkout
+     × charges more than it was minted at when the invoice grew 35ms
+     × stays active after a payment, and charges the rest next time 380ms
+     × enableOnlinePayment and pay-now mint standing links 27ms
+     × a second click on the same link gets the same checkout, and is charged once 29ms
+AssertionError: expected [ 10000 ] to deeply equal [ 15000 ]
+AssertionError: expected 'paid' to be 'active' // Object.is equality
+AssertionError: expected [ { charges_balance: false } ] to deeply equal [ { charges_balance: true } ]
+AssertionError: expected { …(2) } to deeply equal { …(2) }
+      Tests  4 failed | 4 passed (8)
