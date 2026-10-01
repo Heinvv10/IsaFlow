@@ -8,17 +8,28 @@ import { cancelBackend } from '@/lib/cancelBackend';
  * that has stopped answering (a half-open socket, a query stuck ahead of it) gives its slot back
  * before the callers queued for it give up. No pool here sets a client-side query_timeout, so
  * without this bound the owner's `finally` would never run.
- *
- * An object so a test can shorten it; nothing in production writes it.
  */
-export const rollbackBound = { ms: 5000 };
+export const ROLLBACK_TIMEOUT_MS = 5000;
+let boundMs = ROLLBACK_TIMEOUT_MS;
+let warnedNoCancel = false;
+
+/**
+ * Test seam: shortens the bound and returns the restore. It throws unless NODE_ENV is 'test'.
+ * Next.js inlines NODE_ENV at build time, so in the server bundle this is an unconditional
+ * throw; a script would have to be started with NODE_ENV=test to get past it.
+ */
+export function setRollbackBoundForTests(ms: number): () => void {
+  if (process.env.NODE_ENV !== 'test') throw new Error('setRollbackBoundForTests works only in a test run (NODE_ENV=test)');
+  boundMs = ms;
+  return () => { boundMs = ROLLBACK_TIMEOUT_MS; };
+}
 
 interface Rollbackable { query(text: string): Promise<unknown> }
 
 /**
  * Rolls a transaction back and returns the error if that FAILED, else null (R-176). Never throws.
  *
- * A ROLLBACK that has not answered within rollbackBound.ms counts as failed and is abandoned.
+ * A ROLLBACK that has not answered within ROLLBACK_TIMEOUT_MS counts as failed and is abandoned.
  * Its promise stays handled, so a late rejection (the destroyed connection ends it with
  * "Connection terminated") cannot surface as an unhandled rejection.
  *
@@ -27,21 +38,30 @@ interface Rollbackable { query(text: string): Promise<unknown> }
  */
 export async function rollbackError(client: Rollbackable, source: string): Promise<Error | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const bound = rollbackBound.ms;
+  const bound = boundMs;
+  const noAnswer = new Error(`ROLLBACK did not answer within ${bound}ms`);
   const failure = await Promise.race([
     (async () => client.query('ROLLBACK'))().then(() => null, (err: unknown) => err ?? new Error('ROLLBACK rejected')),
     new Promise<Error>((resolve) => {
-      timer = setTimeout(() => resolve(new Error(`ROLLBACK did not answer within ${bound}ms`)), bound);
+      timer = setTimeout(() => resolve(noAnswer), bound);
+      timer.unref?.(); // must not keep a script alive
     }),
   ]);
   clearTimeout(timer);
   if (failure === null) return null;
   const error = failure instanceof Error ? failure : new Error(String(failure));
   log.error(`${source}: ROLLBACK failed, destroying the connection`, { message: error.message }, 'DB');
+  let cancelSent = false;
   try {
-    cancelBackend(client);
+    cancelSent = cancelBackend(client);
   } catch (cancelErr) {
     log.error(`${source}: backend cancel failed`, { message: cancelErr instanceof Error ? cancelErr.message : String(cancelErr) }, 'DB');
+  }
+  if (!cancelSent && failure === noAnswer && !warnedNoCancel) {
+    // Something was in flight and nothing could be sent to stop it (not a connected pg client, or
+    // node-postgres no longer exposes what cancelBackend reads). Said once per process.
+    warnedNoCancel = true;
+    log.warn(`${source}: cannot cancel the backend of a connection that stopped answering; its statement runs on`, {}, 'DB');
   }
   return error;
 }

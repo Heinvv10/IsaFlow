@@ -248,7 +248,7 @@ const handler: NextApiHandler = async (req, res) => {
       if (pgErr.code !== '23505' || pgErr.constraint !== 'users_email_key') throw err;
       // 23505 aborts the transaction, so nothing may run on this client until
       // it is rolled back. The membership INSERT above goes with it.
-      await client.query('ROLLBACK');
+      unusable = await rollbackFailed(client, 'invite accept');
       opened = false;
       log.error('invite accept blocked: email already held by another user row', {
         inviteId: inv.id,

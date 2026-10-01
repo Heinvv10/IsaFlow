@@ -25,6 +25,7 @@ const alsPool = new pg.Pool({
   connectionString: DATABASE_URL,
   ssl: DATABASE_URL.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
 });
+alsPool.on('error', (err) => console.error('[loans pool]', err.message)); // unlistened, a client error is an uncaught exception
 
 export const closeLoansPool = (): Promise<void> => alsPool.end();
 

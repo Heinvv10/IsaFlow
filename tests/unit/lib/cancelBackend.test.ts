@@ -6,6 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import net from 'net';
+import pg from 'pg';
 import { cancelBackend } from '@/lib/cancelBackend';
 
 let server: net.Server;
@@ -40,7 +41,7 @@ const until = async (cond: () => boolean) => {
 
 describe('cancelBackend', () => {
   it('sends the protocol CancelRequest with the backend pid and secret key', async () => {
-    cancelBackend({ processID: 4242, secretKey: 987654321, host: '127.0.0.1', port });
+    expect(cancelBackend({ processID: 4242, secretKey: 987654321, host: '127.0.0.1', port })).toBe(true);
     expect(await until(() => Buffer.concat(received).length >= 16)).toBe(true);
     const packet = Buffer.concat(received);
     expect(packet.length).toBe(16);
@@ -52,10 +53,21 @@ describe('cancelBackend', () => {
     ['a mock client', { query: async () => ({}) }],
     ['a client that never connected', { processID: null, secretKey: null, host: '127.0.0.1', port: 0 }],
     ['null', null],
-  ])('opens no socket for %s', async (_what, client) => {
-    cancelBackend(client);
+  ])('opens no socket for %s, and says so', async (_what, client) => {
+    expect(cancelBackend(client)).toBe(false);
     await new Promise((done) => setTimeout(done, 30));
     expect(sockets).toHaveLength(0);
+  });
+
+  it('the installed node-postgres still has what the cancel reads (an upgrade that moves it turns this red)', () => {
+    const client = new pg.Client({ host: '127.0.0.1', port: 1 }) as unknown as Record<string, unknown> & {
+      connection: Record<string, unknown> & { stream: Record<string, unknown> };
+    };
+    // Set once the backend sends BackendKeyData; present, and not yet numbers, before a connection.
+    expect('processID' in client && 'secretKey' in client).toBe(true);
+    expect([typeof client.host, typeof client.port]).toEqual(['string', 'number']);
+    expect(['connect', 'cancel', 'on'].map((m) => typeof client.connection[m])).toEqual(['function', 'function', 'function']);
+    expect(typeof client.connection.stream.destroy).toBe('function');
   });
 
   it('its socket is torn down at the bound when the server never closes it', async () => {

@@ -23,6 +23,7 @@
 
 import pg from 'pg';
 import { rollbackFailed } from '../src/lib/rollbackFailed';
+import { log } from '../src/lib/logger';
 
 let _pools: Map<string, pg.Pool> = new Map();
 
@@ -41,6 +42,7 @@ export function createSql(connectionString?: string) {
         ? false
         : { rejectUnauthorized: false },
     });
+    pool.on('error', (err) => log.warn('scripts/_pg pool error', { message: err.message }, 'DB'));
     _pools.set(url, pool);
   }
 
@@ -102,6 +104,8 @@ function getOrCreatePool(url: string): pg.Pool {
       max: 5,
       ssl: url.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
     });
+    // pg-pool re-emits a pooled or removed client's 'error' on the pool; unlistened, that is an uncaught exception.
+    pool.on('error', (err) => log.warn('scripts/_pg pool error', { message: err.message }, 'DB'));
     _pools.set(url, pool);
   }
   return pool;
