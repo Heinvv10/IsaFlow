@@ -40,7 +40,6 @@ export default function NewPurchaseOrderPage() {
     { key: '1', description: '', quantity: '1', unitPrice: '0', taxRate: '15' },
   ]);
 
-
   const addItem = () => setItems(prev => [...prev, { key: String(Date.now()), description: '', quantity: '1', unitPrice: '0', taxRate: '15' }]);
   const removeItem = (key: string) => setItems(prev => prev.length > 1 ? prev.filter(i => i.key !== key) : prev);
   const updateItem = (key: string, field: string, value: string) =>

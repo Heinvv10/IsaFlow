@@ -60,6 +60,20 @@ describe('SupplierSelect', () => {
     await waitFor(() => expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('Supplier 40'), { timeout: 2000 });
   });
 
+  it('shows a loading placeholder, not a blank field, while a preselected id resolves', async () => {
+    let release: (r: Response) => void = () => {};
+    vi.mocked(apiFetch).mockImplementation(() => new Promise<Response>((r) => { release = r; }));
+    render(<Harness initial={uid(40)} />);
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    expect(input.value).toBe('');
+    expect(input.placeholder).toBe('Loading supplier…');
+    expect(input.getAttribute('aria-busy')).toBe('true');
+    release(fakeRoute(`/api/accounting/suppliers-list?id=${uid(40)}`));
+    await waitFor(() => expect(input.value).toBe('Supplier 40'), { timeout: 2000 });
+    expect(input.placeholder).not.toBe('Loading supplier…');
+    expect(input.getAttribute('aria-busy')).toBeNull();
+  });
+
   it('resolves a preselected supplier under React.StrictMode (effects run twice)', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
     render(<StrictMode><Harness initial={uid(40)} /></StrictMode>);

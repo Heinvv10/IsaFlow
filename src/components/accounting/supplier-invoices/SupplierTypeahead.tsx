@@ -24,6 +24,8 @@ interface Props {
   invalidMessage?: string;
   /** Label suppliers by company_name when set (falls back to name). */
   companyFirst?: boolean;
+  /** A preselected id is still being resolved to its name: show that, not an empty field. */
+  loading?: boolean;
   testId?: string;
   ariaLabel?: string;
 }
@@ -33,7 +35,7 @@ const FILTER_INPUT = 'w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 
 export function SupplierTypeahead({
   selectedId, selectedLabel, onSelect, onClear,
   placeholder = 'Filter by supplier…', wrapperClassName = 'w-64', inputClassName = FILTER_INPUT, name = 'supplier',
-  required, invalidMessage, companyFirst, testId, ariaLabel,
+  required, invalidMessage, companyFirst, loading, testId, ariaLabel,
 }: Props) {
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<SupplierOption[]>([]);
@@ -99,7 +101,8 @@ export function SupplierTypeahead({
           setOpen(true);
         }}
         onFocus={() => { setActive(true); setOpen(true); }}
-        placeholder={placeholder}
+        placeholder={loading ? 'Loading supplier…' : placeholder}
+        aria-busy={loading || undefined}
         className={inputClassName}
       />
       {selectedId && (
