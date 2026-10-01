@@ -10,7 +10,7 @@ import type { GLAccount, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { isBankSubtype } from './accountSubtypes';
 import { assertParentUsable } from './accountParentRules';
-import { guardActiveChange, refuseSystemAccountDelete } from './systemRoleReactivation';
+import { clearSystemAccountCacheAfterCommit, guardActiveChange, refuseSystemAccountDelete } from './systemRoleReactivation';
 
 export interface CreateAccountInput {
   accountCode: string;
@@ -337,12 +337,13 @@ export async function renameAccountCode(
     WHERE id = ${id} AND company_id = ${companyId}
     RETURNING *
   ` as { [key: string]: unknown }[];
+  clearSystemAccountCacheAfterCommit(companyId); // the resolver caches the holder's code
   return mapRow(rows[0]);
 }
 
 export async function updateAccount(companyId: string, id: string, input: UpdateAccountInput): Promise<GLAccount> {
   try {
-    await guardActiveChange(companyId, id, input);
+    const finish = await guardActiveChange(companyId, id, input);
     const account = await sql`SELECT * FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}` as {
       is_system_account: boolean;
       account_name: string;
@@ -384,7 +385,7 @@ export async function updateAccount(companyId: string, id: string, input: Update
       WHERE id = ${id} AND company_id = ${companyId}
       RETURNING *
     `;
-    return mapRow((rows as { [key: string]: unknown }[])[0]);
+    return await finish(mapRow((rows as { [key: string]: unknown }[])[0]));
   } catch (err) {
     log.error('Failed to update account', { id, error: err }, 'accounting');
     throw err;
@@ -393,7 +394,7 @@ export async function updateAccount(companyId: string, id: string, input: Update
 
 export async function deleteAccount(companyId: string, id: string): Promise<void> {
   try {
-    await refuseSystemAccountDelete(companyId, id);
+    const finish = await refuseSystemAccountDelete(companyId, id);
     // 1. Child accounts always block deletion, regardless of type.
     // company_id scope: without it this count is a cross-tenant existence
     // oracle AND runs before the ownership check below (audit W6).
@@ -462,6 +463,7 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
 
     const deactivateResult = await sql`UPDATE gl_accounts SET is_active = false WHERE id = ${id} AND company_id = ${companyId} RETURNING id` as unknown[];
     if (deactivateResult.length === 0) throw new Error(`GL account not found: ${id}`);
+    await finish(undefined);
   } catch (err) {
     log.error('Failed to delete account', { id, error: err }, 'accounting');
     throw err;

@@ -23,7 +23,7 @@
 import { sql, type TxSql } from '@/lib/neon';
 import { TransactionRefusal } from '@/lib/transactionRefusal';
 import { SYSTEM_ACCOUNT_KEYS, type SystemAccountKey } from './systemAccountKeys';
-import { getSystemRoleCoverage } from './systemRoleCoverage';
+import { rolesNotKept, snapshotRoles } from './systemRoleInvariant';
 import { lockSystemRoleWrites, withBoundedLockWait } from './systemRoleWriteLock';
 import { roleTargetRefusal } from './roleTargetRules';
 import { VatPeriodLockedError } from './journalVatLockGuard';
@@ -76,20 +76,6 @@ export function plainMapping(value: unknown): Record<string, unknown> {
 
 const idOrNull = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
 
-interface RoleState {
-  /** Role → the account id systemAccountResolver would hand out (same winner rule). */
-  holders: Map<SystemAccountKey, string>;
-  /** Roles more than one active system account claims. */
-  contested: Set<SystemAccountKey>;
-}
-
-async function roleState(companyId: string, q: TxSql = sql): Promise<RoleState> {
-  const coverage = await getSystemRoleCoverage(companyId, q);
-  const holders = new Map<SystemAccountKey, string>();
-  for (const role of coverage.roles) if (role.holder) holders.set(role.key, role.holder.id);
-  return { holders, contested: new Set(coverage.contested.map((r) => r.key)) };
-}
-
 async function storedMapping(companyId: string, q: TxSql = sql): Promise<Record<string, unknown>> {
   const [row] = await q`
     SELECT value FROM app_settings WHERE key = ${SETTINGS_KEY} AND company_id = ${companyId}
@@ -100,7 +86,7 @@ async function storedMapping(companyId: string, q: TxSql = sql): Promise<Record<
 /** What the page shows: the live holder for each managed role, app_settings for the rest. */
 export async function readDefaultAccountMappings(companyId: string): Promise<Record<string, unknown>> {
   const mappings = await storedMapping(companyId);
-  const { holders } = await roleState(companyId);
+  const { holders } = await snapshotRoles(companyId);
   for (const [uiKey, subtype] of Object.entries(KEY_TO_SYSTEM_SUBTYPE)) {
     const holder = holders.get(subtype);
     if (holder) mappings[uiKey] = holder;
@@ -149,7 +135,8 @@ export async function saveDefaultAccountMappings(
     ORDER BY id
     FOR NO KEY UPDATE
   `);
-  const { holders: before, contested } = await roleState(companyId, tx);
+  const snapshot = await snapshotRoles(companyId, tx);
+  const { holders: before, contested } = snapshot;
 
   const changes: AccountAttributeChange[] = [];
   const moves: { subtype: SystemAccountKey; accountId: string }[] = [];
@@ -233,13 +220,11 @@ export async function saveDefaultAccountMappings(
     `;
   }
 
-  // Defence in depth: every role held before or moved must now resolve to
-  // exactly the account intended (an emptied or drifted role posts wrongly).
-  const { holders: after, contested: stillContested } = await roleState(companyId, tx);
-  const intended = new Map<SystemAccountKey, string>(before);
-  for (const { subtype, accountId } of moves) intended.set(subtype, accountId);
-  const wrong = [...intended.keys()].filter((key) => after.get(key) !== intended.get(key)
-    || (moves.some((m) => m.subtype === key) && stillContested.has(key)));
+  // Defence in depth, the post-condition every role writer ends on
+  // (systemRoleInvariant): every role held before or moved must now resolve to
+  // exactly the account intended — one holder, and not a header.
+  const wrong = rolesNotKept(snapshot, await snapshotRoles(companyId, tx),
+    new Map(moves.map((m) => [m.subtype, m.accountId])));
   if (wrong.length > 0) {
     throw new DefaultAccountsRefusal(
       `This change would leave ${wrong.join(', ')} without the account you chose; posting would fail or use another account. Nothing was saved.`,

@@ -18,7 +18,8 @@ import { assertAccountChangesKeepVatLocks } from '../gl/vatLockLineClassificatio
 import { lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 import { accountAttributes, attributeChanges } from './migrationCoaVatLock';
 import { importRowSubtype } from './migrationCoaSubtype';
-import { roleMapConflicts, validateSystemAccountMap } from './migrationCoaRoleMap';
+import { mappedHolders, roleMapConflicts, validateSystemAccountMap } from './migrationCoaRoleMap';
+import { assertRolesKept, snapshotRoles, SystemRoleInvariantError } from '../gl/systemRoleInvariant';
 
 export { validateSystemAccountMap };
 
@@ -79,8 +80,9 @@ export async function importChartOfAccounts(
     // The role map below rewrites system-account flags: serialise with the
     // Default Accounts save, which takes the same lock.
     await lockSystemRoleWrites(companyId);
-    const conflicts = await roleMapConflicts(companyId, systemAccountMap);
+    const conflicts = await roleMapConflicts(companyId, systemAccountMap, accounts);
     if (conflicts.length > 0) return conflicts;
+    const roles = await snapshotRoles(companyId);
     try {
       await withSavepoint('coa_import_vat_lock', async () => {
         const before = await accountAttributes(companyId);
@@ -190,11 +192,6 @@ export async function importChartOfAccounts(
               AND account_subtype = ${subtype}
               AND is_system_account = true
               AND account_code <> ${accountCode}
-              -- Only when the mapped account is really there to take the role:
-              -- its own row may have been skipped above (a missing parent, a
-              -- failed insert), and demoting for it left the role with no holder.
-              AND EXISTS (SELECT 1 FROM gl_accounts t WHERE t.company_id = ${companyId}::UUID
-                            AND t.account_code = ${accountCode} AND t.is_active)
           `;
           await sql`
             UPDATE gl_accounts
@@ -204,10 +201,14 @@ export async function importChartOfAccounts(
         }
 
         await assertAccountChangesKeepVatLocks(companyId, attributeChanges(before, await accountAttributes(companyId)));
+        // Last, on what was ACTUALLY written (skipped rows and all): every role
+        // held before, or mapped, has exactly one usable holder — else the
+        // savepoint is rolled back and the import refused whole.
+        await assertRolesKept(companyId, roles, await mappedHolders(companyId, systemAccountMap));
       });
       return null;
     } catch (err) {
-      if (err instanceof VatPeriodLockedError) return err;
+      if (err instanceof VatPeriodLockedError || err instanceof SystemRoleInvariantError) return err;
       throw err;
     }
   });
@@ -216,7 +217,7 @@ export async function importChartOfAccounts(
     return { imported: 0, skipped: accounts.length, errors: refusal };
   }
   if (refusal) {
-    log.warn('COA import refused: it would change a filed VAT period', { companyId, error: refusal.message }, 'migration');
+    log.warn('COA import refused: it would change a filed VAT period or leave a role unheld', { companyId, error: refusal.message }, 'migration');
     return { imported: 0, skipped: accounts.length, errors: [{ step: 'coa', row: -1, field: 'accountCode', message: refusal.message }] };
   }
 

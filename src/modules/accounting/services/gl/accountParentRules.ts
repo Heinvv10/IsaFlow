@@ -19,6 +19,8 @@
 import { sql } from '@/lib/neon';
 import { isSubjectToLeafRule } from './isReportVisibleLeaf';
 import { lockGlAccountsForUpdate } from './glAccountLock';
+import { lockSystemRoleWrites } from './systemRoleWriteLock';
+import { holderAsParentRefusal, roleHeldBy } from './roleTargetRules';
 
 /**
  * Mirrors `MAX_TREE_DEPTH` in accountReclassifyService, which caps the two
@@ -50,16 +52,23 @@ export async function assertParentUsable(
   parentId: string,
   childType: string,
 ): Promise<ParentCheckResult> {
+  // Role lock first (before any row lock below), and so that the holder check
+  // judges a settled row: a Default Accounts save may be choosing this parent.
+  await lockSystemRoleWrites(companyId);
   const rows = (await sql`
-    SELECT id, account_code, account_type, level FROM gl_accounts
+    SELECT id, account_code, account_type, level, account_subtype, is_system_account FROM gl_accounts
      WHERE id = ${parentId}::UUID AND company_id = ${companyId}::UUID
      LIMIT 1
-  `) as { id: string; account_code: string; account_type: string; level: number }[];
+  `) as { id: string; account_code: string; account_type: string; level: number;
+    account_subtype: string | null; is_system_account: boolean }[];
 
   const parent = rows[0];
   // Same text as a genuine miss: a distinct "belongs to another company" reply
   // would be a cross-tenant existence oracle.
   if (!parent) throw new ParentAccountError(`Parent account ${parentId} not found`);
+
+  const heldRole = roleHeldBy(parent);
+  if (heldRole) throw new ParentAccountError(holderAsParentRefusal(parent.account_code, heldRole));
 
   if (parent.account_type !== childType) {
     throw new ParentAccountError(

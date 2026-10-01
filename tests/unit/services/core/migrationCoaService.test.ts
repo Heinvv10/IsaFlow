@@ -21,6 +21,12 @@ vi.mock('@/modules/accounting/services/gl/vatLockLineClassification', () => ({
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ clearSystemAccountCacheAfterCommit: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/migrationService', () => ({ updateSession: vi.fn() }));
+// The role lock, post-condition and cache clear issue their own statements; they
+// are proven against Postgres in tests/integration/w2-28-*.int.test.ts.
+vi.mock('@/modules/accounting/services/gl/systemRoleInvariant', () => ({
+  snapshotRoles: vi.fn(async () => ({})), assertRolesKept: vi.fn(async () => undefined),
+  rolesNotKept: vi.fn(() => []), SystemRoleInvariantError: class extends Error {},
+}));
 
 import { sql } from '@/lib/neon';
 import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
@@ -105,8 +111,7 @@ describe('importChartOfAccounts', () => {
       expect(u.text).not.toContain('account_subtype = NULL');
     }
     const vatDemote = demote.find((u) => u.params.includes('vat_input'))!;
-    // …and only when the mapped account is there to take the role (company, code again).
-    expect(vatDemote.params).toEqual([CO, 'vat_input', '1140', CO, '1140']);
+    expect(vatDemote.params).toEqual([CO, 'vat_input', '1140']);
     expect(vatDemote.text).toContain('account_code <> ?');
     expect(updates.indexOf(vatDemote)).toBeLessThan(updates.indexOf(promote.find((u) => u.params.includes('vat_input'))!));
   });

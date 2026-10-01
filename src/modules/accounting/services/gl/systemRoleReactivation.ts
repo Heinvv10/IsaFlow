@@ -13,6 +13,8 @@
 import { sql } from '@/lib/neon';
 import { SYSTEM_ACCOUNT_KEYS } from './systemAccountKeys';
 import { lockSystemRoleWrites } from './systemRoleWriteLock';
+import { assertRolesKept, snapshotRoles, type RoleSnapshot } from './systemRoleInvariant';
+import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
 
 /** The refusal message, or null when reactivating `accountId` is safe. */
 export async function reactivationRefusal(companyId: string, accountId: string): Promise<string | null> {
@@ -34,6 +36,23 @@ export async function reactivationRefusal(companyId: string, accountId: string):
 }
 
 /**
+ * What a guarded account write calls LAST, with its result: the post-condition
+ * (`systemRoleInvariant` — every role held before is still held by exactly one
+ * usable account) when the write could have changed a holder, then the
+ * resolver-cache clear, which waits for the COMMIT. The cache carries the
+ * holder's code and name too, so a rename clears it as well.
+ */
+export type FinishRoleWrite = <T>(result: T) => Promise<T>;
+
+function finishWith(companyId: string, before: RoleSnapshot | null): FinishRoleWrite {
+  return async (result) => {
+    if (before) await assertRolesKept(companyId, before);
+    clearSystemAccountCacheAfterCommit(companyId);
+    return result;
+  };
+}
+
+/**
  * `updateAccount`'s role guards, before its first read. A non-boolean flag is
  * refused (the guards test `=== true` / `=== false`; "true", 1 or [true] from
  * an unvalidated caller skipped them while Postgres still cast and applied
@@ -43,14 +62,15 @@ export async function reactivationRefusal(companyId: string, accountId: string):
  */
 export async function guardActiveChange(
   companyId: string, id: string, input: { isActive?: unknown; vatInputDenied?: unknown },
-): Promise<void> {
+): Promise<FinishRoleWrite> {
   for (const flag of ['isActive', 'vatInputDenied'] as const) {
     if (input[flag] !== undefined && typeof input[flag] !== 'boolean') throw new Error(`${flag} must be true or false`);
   }
-  if (input.isActive === undefined) return;
+  if (input.isActive === undefined) return finishWith(companyId, null);
   await lockSystemRoleWrites(companyId);
   const refusal = input.isActive === true ? await reactivationRefusal(companyId, id) : null;
   if (refusal) throw new Error(refusal);
+  return finishWith(companyId, await snapshotRoles(companyId));
 }
 
 /**
@@ -58,11 +78,14 @@ export async function guardActiveChange(
  * making this account a holder), a system account cannot go — posting resolves
  * its role to it.
  */
-export async function refuseSystemAccountDelete(companyId: string, id: string): Promise<void> {
+export async function refuseSystemAccountDelete(companyId: string, id: string): Promise<FinishRoleWrite> {
   await lockSystemRoleWrites(companyId);
   const [row] = (await sql`
     SELECT account_name FROM gl_accounts
     WHERE id::TEXT = ${id} AND company_id = ${companyId}::UUID AND is_system_account
   `) as { account_name: string }[];
   if (row) throw new Error(`Cannot delete "${row.account_name}" — it is a system account`);
+  return finishWith(companyId, await snapshotRoles(companyId));
 }
+
+export { clearSystemAccountCacheAfterCommit };

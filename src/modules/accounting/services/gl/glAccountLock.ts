@@ -120,6 +120,7 @@ export async function lockGlAccountsForUpdate(
   // failed savepoint would answer with a bare 25P02 before the guarded SELECT
   // below is reached.
   assertTxUsable();
+  const previous = await client.query("SELECT current_setting('lock_timeout') AS v");
   await client.query("SET LOCAL lock_timeout = '5s'");
 
   const ordered = [...new Set(accountIds)].sort();
@@ -146,5 +147,9 @@ export async function lockGlAccountsForUpdate(
       throw err;
     }
   }
+  // The bound is for THESE locks. Left in place it turned any later lock wait
+  // of the request into a 55P03 that nothing maps (not after a timeout above:
+  // the transaction is aborted then, and its rollback restores the setting).
+  await client.query("SELECT set_config('lock_timeout', $1, true)", [String(previous?.rows?.[0]?.v ?? '0')]);
   return rows;
 }

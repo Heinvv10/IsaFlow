@@ -25,6 +25,7 @@ import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { ParentAccountError, assertParentUsable } from './accountParentRules';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
 import { lockSystemRoleWrites } from './systemRoleWriteLock';
+import { assertRolesKept, snapshotRoles } from './systemRoleInvariant';
 import { getAccountById } from './chartOfAccountsService';
 import { isBankSubtype } from './accountSubtypes';
 import { findLockedReclassification, lockedReclassMessage } from './vatLockLineClassification';
@@ -193,9 +194,13 @@ export async function reclassifyAccount(
     throw new ReclassifyError('Nothing to reclassify — pass accountSubtype or parentAccountId');
   }
 
-  // A subtype change could take a role from its holder: serialise with every
-  // writer of role flags before reading the account.
-  if (changingSubtype) await lockSystemRoleWrites(companyId);
+  // The role-write lock is ALWAYS the first lock a request takes on the chart.
+  // A subtype change could take a role from its holder; a parent-only change
+  // locks this account's row, and the same request may then need the role lock
+  // (the chart PUT's updateAccount) — row-then-role is the inverse of the
+  // Default Accounts save's order and deadlocked with it (40P01).
+  await lockSystemRoleWrites(companyId);
+  const roles = await snapshotRoles(companyId);
   const account = await loadAccount(companyId, id);
 
   if (changingSubtype) {
@@ -260,6 +265,7 @@ export async function reclassifyAccount(
     throw err;
   }
 
+  await assertRolesKept(companyId, roles);
   clearSystemAccountCacheAfterCommit(companyId);
 
   const updated = await getAccountById(companyId, id);

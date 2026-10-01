@@ -7,7 +7,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { lockSystemRoleWrites } from './systemRoleWriteLock';
-import { isSystemAccountKey } from './systemAccountKeys';
+import { isSystemAccountKey, SYSTEM_ACCOUNT_KEYS } from './systemAccountKeys';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
 import type { GLAccountType } from '../../types/gl.types';
 
@@ -198,12 +198,15 @@ export async function seedChartOfAccountsFromTemplate(
     ON CONFLICT (company_id, account_code) DO NOTHING
   `;
 
-  // Pass 2: wire up parent_account_id (NULL when the parent's code is absent)
+  // Pass 2: wire up parent_account_id (NULL when the parent's code is absent —
+  // or is held by an account with a system role: the company's own bank on the
+  // template's "Current Assets" code must not become a header with sub-accounts).
   await sql`
     UPDATE gl_accounts c
     SET parent_account_id = (
       SELECT p.id FROM gl_accounts p
       WHERE p.company_id = ${companyId}::UUID AND p.account_code = t.parent_code
+        AND NOT (p.is_system_account AND p.account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[]))
     )
     FROM jsonb_to_recordset(${rows}::jsonb) AS t(code TEXT, parent_code TEXT)
     WHERE c.company_id = ${companyId}::UUID AND c.account_code = t.code AND t.parent_code IS NOT NULL

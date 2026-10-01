@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
 import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
 import { roleTargetRefusal } from '../gl/roleTargetRules';
+import { isSystemAccountKey, type SystemAccountKey } from '../gl/systemAccountKeys';
 import type { MigrationError } from './migrationService';
 import type { AccountImportRow, SystemAccountMap } from './migrationCoaService';
 
@@ -77,8 +78,28 @@ export function validateSystemAccountMap(
  * role, or onto an inactive account, demoted the live holder and left a role
  * with no holder. Read under the role-write lock, before any write.
  */
-export async function roleMapConflicts(companyId: string, map: SystemAccountMap): Promise<MigrationError[]> {
+export async function roleMapConflicts(
+  companyId: string, map: SystemAccountMap, accounts: readonly AccountImportRow[],
+): Promise<MigrationError[]> {
   const entries = Object.entries(map);
+  // A mapped row whose parent is neither in this import nor in the chart will
+  // be SKIPPED, and a role cannot go to a row that is not imported.
+  const byCode = new Map(accounts.map((a) => [a.accountCode, a]));
+  const parentOf = entries.flatMap(([role, code]) => {
+    const parent = byCode.get(code)?.parentCode;
+    return parent && !byCode.has(parent) ? [{ role, code, parent }] : [];
+  });
+  const known = parentOf.length === 0 ? [] : (await sql`
+    SELECT account_code FROM gl_accounts
+    WHERE company_id = ${companyId}::UUID AND account_code = ANY(${parentOf.map((p) => p.parent)}::TEXT[])
+  `) as DbRow[];
+  const knownCodes = new Set(known.map((r) => String(r.account_code)));
+  const orphans = parentOf.filter((p) => !knownCodes.has(p.parent)).map((p) => ({
+    step: 'coa' as const, row: -1, field: `systemAccountMap.${p.role}`,
+    message: `Account ${p.code} cannot take the ${p.role} role: its parent code ${p.parent} is not in this import or the chart, so the row would be skipped.`,
+  }));
+  if (orphans.length > 0) return orphans;
+
   const rows = (await sql`
     SELECT a.account_code, a.account_subtype, a.is_active,
            EXISTS (SELECT 1 FROM gl_accounts c
@@ -95,4 +116,15 @@ export async function roleMapConflicts(companyId: string, map: SystemAccountMap)
     });
     return message ? [{ step: 'coa' as const, row: -1, field: `systemAccountMap.${role}`, message }] : [];
   });
+}
+
+/** Role → the id of the account the map names for it, for the post-condition (absent when the code is not in the chart). */
+export async function mappedHolders(companyId: string, map: SystemAccountMap): Promise<Map<SystemAccountKey, string>> {
+  const rows = (await sql`
+    SELECT id::TEXT AS id, account_code FROM gl_accounts
+    WHERE company_id = ${companyId}::UUID AND account_code = ANY(${Object.values(map)}::TEXT[])
+  `) as DbRow[];
+  const idOf = new Map(rows.map((r) => [String(r.account_code), String(r.id)]));
+  return new Map(Object.entries(map).flatMap(([role, code]) => (
+    isSystemAccountKey(role) ? [[role, idOf.get(code) ?? ''] as [SystemAccountKey, string]] : [])));
 }

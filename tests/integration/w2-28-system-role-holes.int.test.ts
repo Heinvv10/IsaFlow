@@ -143,4 +143,15 @@ describeIfDb('W2-28 a role is never emptied or doubled by a rollback, a subtype 
     expect({ types, bank: (await getSystemAccount('bank', CO)).accountType }).toEqual({ bank: 'asset',
       types: [{ account_code: 'Z300', account_type: 'asset' }, { account_code: 'Z400', account_type: 'expense' }] });
   });
+
+  it('a seed never hangs the template\'s sub-accounts under an existing role holder: they are left without a parent', async () => {
+    const BANK = randomUUID();
+    await ins(BANK, '1100', 'asset', 'bank', true);                   // the holder sits on the template's "Current Assets" code
+    const tx = await fx.openTx();
+    await tx.run(() => seedChartOfAccountsFromTemplate(CO, 'isaflow_standard'));
+    await tx.commit();
+    const under = (await fx.query('SELECT count(*)::INT AS n FROM gl_accounts WHERE company_id = $1 AND parent_account_id = $2', [CO, BANK])).rows[0].n;
+    const wired = (await fx.query('SELECT count(*)::INT AS n FROM gl_accounts WHERE company_id = $1 AND parent_account_id IS NOT NULL', [CO])).rows[0].n;
+    expect({ under, othersWired: wired > 5, bank: await holders('bank') }).toEqual({ under: 0, othersWired: true, bank: ['1100'] });
+  });
 });
