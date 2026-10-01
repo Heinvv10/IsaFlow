@@ -140,6 +140,9 @@ describe('R-177: Pay Now hands out the standing link and never calls the gateway
       await pool.query("UPDATE customer_invoices SET status = 'draft' WHERE id = $1", [id]);
       expect((await payNow(id)).statusCode).toBe(404); // not "not approved": that would confirm the invoice exists
       expect((await enableRoute(id)).statusCode).toBe(404);
+      // Row security hides the row from both routes. This call has none: the predicate alone must
+      // answer "not found" (null), never "not approved" (a throw), for another company's draft.
+      await expect(enableOnlinePayment(CO, id, true)).resolves.toBeNull();
       await pool.query("UPDATE customer_invoices SET status = 'sent' WHERE id = $1", [id]);
       expect(await enableOnlinePayment(CO, id)).toBeNull(); // no RLS on this call: the predicate alone
       expect(await links(id)).toEqual([]);
