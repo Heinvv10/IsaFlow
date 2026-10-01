@@ -18,6 +18,7 @@ import {
 } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { buildCashTable } from '@/modules/accounting/services/packs/pages/packStatementTables';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
+import { cashCaption } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
@@ -101,5 +102,66 @@ describe('the fallbacks', () => {
       prior: figures({ cash: OPENING, capitalExpenditure: undefined, investingCashFlow: -40_000 }),
     };
     expect(investingRow(set).figures.prior?.value).toBe(-40_000);
+  });
+});
+
+/**
+ * "NOT CAPTURED" AND "COULD NOT BE READ" ARE TWO STATEMENTS.
+ *
+ * When the cash flow read itself fails the three figures are left unset, and
+ * page 8 said "No operating cash flow figure was captured for this period."
+ * — true, and it reads as a company with no cash flows. The figure set now
+ * carries the reason the read failed; the rows and the caption print it.
+ */
+describe('a cash flow statement that could not be read', () => {
+  const NOT_READ = 'The cash flow statement could not be read for this period.';
+  const unread = (): PackFigureSet => {
+    const base = setOf({});
+    return {
+      ...base,
+      current: {
+        ...base.current,
+        operatingCashFlow: undefined, financingCashFlow: undefined, cashFlowUnavailable: NOT_READ,
+      },
+    };
+  };
+  const reasons = (set: PackFigureSet): Array<string | undefined> =>
+    buildCashTable(set, new PackFigureProvenance()).rows
+      .filter((r) => /^(Operating|Investing|Financing) cash flow$/.test(r.label))
+      .map((r) => r.figures.actual?.unavailable);
+
+  it('says so on all three flow rows', () => {
+    expect(reasons(unread())).toEqual([NOT_READ, NOT_READ, NOT_READ]);
+  });
+
+  it('says so in the caption, not that no figure was captured', () => {
+    const caption = cashCaption(unread(), null, PACK_SCALE);
+    expect(caption).toBe(NOT_READ);
+  });
+
+  it('keeps "not captured" for a statement that was read and carries no figure', () => {
+    const base = setOf({});
+    const set: PackFigureSet = {
+      ...base, current: { ...base.current, operatingCashFlow: undefined, financingCashFlow: undefined },
+    };
+    expect(reasons(set)).toEqual([
+      'No operating cash flow figure was captured for this period.',
+      'No investing cash flow figure was captured for this period.',
+      'No financing cash flow figure was captured for this period.',
+    ]);
+    expect(cashCaption(set, null, PACK_SCALE)).toBe('No operating cash flow figure was captured for this period.');
+  });
+
+  it('gives the comparative cells the comparative\'s own reason', () => {
+    const base = setOf({ investingCashFlow: INVESTING });
+    const set: PackFigureSet = {
+      ...base,
+      prior: {
+        ...base.prior!, operatingCashFlow: undefined, financingCashFlow: undefined, cashFlowUnavailable: NOT_READ,
+      },
+    };
+    const operating = buildCashTable(set, new PackFigureProvenance()).rows.find((r) => r.label === 'Operating cash flow')!;
+    expect(operating.figures.actual?.value).toBe(OPERATING);
+    expect(operating.figures.prior?.unavailable).toBe(NOT_READ);
   });
 });

@@ -325,6 +325,13 @@ export function buildCashTable(set: PackFigureSet, p: PackFigureProvenance): Pac
   // rows already say "not captured" when their figure is absent. R-P44/R-P45's
   // doctrine, applied consistently — see `investingCashFlowOf`.
   const investing = investingCashFlowOf;
+  // "NOT CAPTURED" IS NOT "COULD NOT BE READ". Where the cash flow read
+  // itself failed, the figure set says so (`cashFlowUnavailable`) and the
+  // three flow rows print THAT — "no figure was captured" is true of a
+  // failed read and reads as a company with no cash flows. The comparative
+  // cells take the comparative's own reason the same way.
+  const notRead = current.cashFlowUnavailable;
+  const priorNotRead = prior?.cashFlowUnavailable ?? undefined;
   return buildTable(p, [
     {
       label: 'Opening cash',
@@ -344,15 +351,15 @@ export function buildCashTable(set: PackFigureSet, p: PackFigureProvenance): Pac
       priorUnavailable: 'The period before the comparative period is not in this pack, so there is '
         + 'no earlier opening cash balance to measure this one against.',
     },
-    { label: 'Operating cash flow', key: 'cash.operating', source: 'packFigureSet.current.operatingCashFlow', actual: current.operatingCashFlow ?? null, prior: prior?.operatingCashFlow ?? null, unavailable: 'No operating cash flow figure was captured for this period.' },
+    { label: 'Operating cash flow', key: 'cash.operating', source: 'packFigureSet.current.operatingCashFlow', actual: current.operatingCashFlow ?? null, prior: prior?.operatingCashFlow ?? null, unavailable: notRead ?? 'No operating cash flow figure was captured for this period.', priorUnavailable: priorNotRead },
     { label: 'Investing cash flow', key: 'cash.investing', source: 'packStatementTables.investingCashFlow', actual: investing(current), prior: prior ? investing(prior) : null, // THE REASON NAMES THIS ROW'S OWN NOUN, as the two beside it do. It read
     // "Investing cash flow is taken from capital expenditure, and no capital
     // expenditure figure was captured" — true while this row was capex
     // negated and nothing else. It is net investing from the cash flow
     // statement now, with capex as the fallback, so a sentence equating the
     // two would be false on every pack that has the statement's figure.
-    unavailable: 'No investing cash flow figure was captured for this period.' },
-    { label: 'Financing cash flow', key: 'cash.financing', source: 'packFigureSet.current.financingCashFlow', actual: current.financingCashFlow ?? null, prior: prior?.financingCashFlow ?? null, unavailable: 'No financing cash flow figure was captured for this period.' },
+    unavailable: notRead ?? 'No investing cash flow figure was captured for this period.', priorUnavailable: priorNotRead },
+    { label: 'Financing cash flow', key: 'cash.financing', source: 'packFigureSet.current.financingCashFlow', actual: current.financingCashFlow ?? null, prior: prior?.financingCashFlow ?? null, unavailable: notRead ?? 'No financing cash flow figure was captured for this period.', priorUnavailable: priorNotRead },
     { label: 'Closing cash', key: 'cash.closing', source: 'packFigureSet.current.cash', role: 'total', actual: current.cash, prior: prior?.cash ?? null },
   ], set, false);
 }

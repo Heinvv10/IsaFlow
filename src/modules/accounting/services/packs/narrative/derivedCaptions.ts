@@ -320,7 +320,9 @@ export function positionCaption(set: PackFigureSet, scale: MoneyScale): string {
 export function cashCaption(set: PackFigureSet, residual: number | null, scale: MoneyScale): string {
   const ocf = set.current.operatingCashFlow;
   const lead = ocf === undefined
-    ? 'No operating cash flow figure was captured for this period.'
+    // The read's own reason where the statement could not be read at all —
+    // see `buildCashTable`, whose rows say the same.
+    ? set.current.cashFlowUnavailable ?? 'No operating cash flow figure was captured for this period.'
     : `Operating activities ${ocf >= 0 ? 'generated' : 'consumed'} ${inProse(formatMoney(Math.abs(ocf), { scale }))}.`;
   if (residual === null || Math.abs(residual) <= MONEY_TOLERANCE) return lead;
   return `${lead} ${inProse(formatMoney(Math.abs(residual), { scale }))} of the movement in cash is NOT explained by the operating, investing and financing figures the pack captures; the bridge shows it as an unexplained movement rather than closing the gap silently.`;
