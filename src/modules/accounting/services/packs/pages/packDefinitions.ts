@@ -44,7 +44,7 @@ import { calculateExtendedRatios } from '@/modules/accounting/services/reports/r
 import { OPERATING_PROFIT_SOURCE, operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import { formatMoney, MONEY_SCALES } from '@/lib/format/money';
 import { PACK_SCALE } from './packScale';
-import { toFinancialData } from './packScorecard';
+import { packFiguresToFinancialData } from './packScorecard';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackDefinition } from './packPageModel';
@@ -476,7 +476,7 @@ export function buildDefinitions(
       : t));
   const current = set.current;
   const operating = operatingProfitOf(current);
-  const ebitda = calculateExtendedRatios(toFinancialData(current)).ebitda;
+  const ebitda = calculateExtendedRatios(packFiguresToFinancialData(current)).ebitda;
   const charged = current.depreciation !== 0;
   // THE COMPARATIVE COLUMN, AND THE REASON IT EXISTS.
   //
@@ -494,7 +494,7 @@ export function buildDefinitions(
   const prior = set.prior === null ? null : {
     operating: operatingProfitOf(set.prior),
     addBack: set.prior.depreciation,
-    ebitda: calculateExtendedRatios(toFinancialData(set.prior)).ebitda,
+    ebitda: calculateExtendedRatios(packFiguresToFinancialData(set.prior)).ebitda,
   };
   // A NEGATIVE ADD-BACK IS NOT A SIGN ERROR, AND THE PAGE HAD TO SAY WHICH.
   //

@@ -45,7 +45,7 @@ import { calculateExtendedRatios } from '@/modules/accounting/services/reports/r
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
-import { toFinancialData } from './packScorecard';
+import { packFiguresToFinancialData } from './packScorecard';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { PACK_SCALE } from './packBasis';
 import { DA_ADD_BACK } from './packDefinitions';
@@ -479,5 +479,5 @@ export function ebitdaMemoSentence(
 /** The period's EBITDA, through the one service that owns the measure —
  *  `calculateExtendedRatios`, the same call page 12's reconciliation reads. */
 function ebitdaOf(f: ReportPackFigures): number {
-  return calculateExtendedRatios(toFinancialData(f)).ebitda;
+  return calculateExtendedRatios(packFiguresToFinancialData(f)).ebitda;
 }

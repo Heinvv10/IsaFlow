@@ -24,7 +24,7 @@ import {
   type PackMetricRead,
 } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type { PackFigureFormat } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
-import { toFinancialData } from './packScorecard';
+import { packFiguresToFinancialData } from './packScorecard';
 import {
   PackFigureProvenance,
   type PackFigure,
@@ -229,8 +229,8 @@ export function buildHighlightTiles(
           denominator: current.revenue,
         });
 
-  const ratios = calculateExtendedRatios(toFinancialData(current));
-  const priorRatios = prior ? calculateExtendedRatios(toFinancialData(prior)) : null;
+  const ratios = calculateExtendedRatios(packFiguresToFinancialData(current));
+  const priorRatios = prior ? calculateExtendedRatios(packFiguresToFinancialData(prior)) : null;
 
   // Same sources and the same readings the scorecard uses, deliberately: one
   // source issued twice with the SAME value is what `assertConsistent` is for,

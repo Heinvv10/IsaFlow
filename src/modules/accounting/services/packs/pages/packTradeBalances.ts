@@ -41,7 +41,7 @@
 import { formatMoney, inProse, inScale, type MoneyScale } from '@/lib/format/money';
 import { readCreditorDays, readDebtorDays } from '../figures/packMetricReads';
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
-import { toFinancialData } from './packScorecard';
+import { packFiguresToFinancialData } from './packScorecard';
 import type { PackFigureSet } from '../figures/packFigureSet';
 import type { PackFootnote } from './packPageModel';
 
@@ -80,7 +80,7 @@ const DAY_COUNT_USE: Record<DayCountsMeasured, string> = {
  *  judgement here is how this footnote comes to disagree with the row it
  *  points at. */
 export function dayCountsMeasured(set: PackFigureSet): DayCountsMeasured {
-  const ratios = calculateExtendedRatios(toFinancialData(set.current));
+  const ratios = calculateExtendedRatios(packFiguresToFinancialData(set.current));
   const debtor = readDebtorDays(ratios, set.current).value !== null;
   const creditor = readCreditorDays(ratios, set.current).value !== null;
   if (debtor && creditor) return 'both';

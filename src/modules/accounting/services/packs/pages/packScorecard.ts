@@ -48,8 +48,9 @@ import type { PackScorecardGroup, PackScorecardRow, PackScorecardStatus } from '
 const NO_TURNOVER_MARGIN = 'Revenue is not positive, so there is no turnover to take a margin of.';
 
 /** `FinancialData` off the pack's own figure shape — nothing computed here,
- *  only renamed and carried through. */
-export function toFinancialData(f: ReportPackFigures): FinancialData {
+ *  only renamed and carried through. Named for its input: `toFinancialData`
+ *  is `financialFiguresService`'s, and takes `PeriodFigures`. */
+export function packFiguresToFinancialData(f: ReportPackFigures): FinancialData {
   return {
     revenue: f.revenue,
     costOfSales: f.costOfSales,
@@ -374,8 +375,8 @@ function buildRow(
 }
 
 export function buildScorecardGroups(set: PackFigureSet, p: PackFigureProvenance): PackScorecardGroup[] {
-  const ratios = calculateExtendedRatios(toFinancialData(set.current));
-  const priorRatios = set.prior ? calculateExtendedRatios(toFinancialData(set.prior)) : null;
+  const ratios = calculateExtendedRatios(packFiguresToFinancialData(set.current));
+  const priorRatios = set.prior ? calculateExtendedRatios(packFiguresToFinancialData(set.prior)) : null;
 
   // Every sentence the ACTUAL column states, gathered before any prior cell is
   // written: a prior reason that repeats one of these is left unqualified so

@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildDefinitions } from '@/modules/accounting/services/packs/pages/packDefinitions';
-import { toFinancialData } from '@/modules/accounting/services/packs/pages/packScorecard';
+import { packFiguresToFinancialData } from '@/modules/accounting/services/packs/pages/packScorecard';
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
@@ -49,7 +49,7 @@ const PACKS = [
 describe('the day counts page 12 defines', () => {
   for (const [company, set] of PACKS) {
     it(`reproduce the printed debtor days and creditor days for ${company}`, () => {
-      const data = toFinancialData(set.current);
+      const data = packFiguresToFinancialData(set.current);
       const ratios = calculateExtendedRatios(data);
 
       // Not vacuous on a company whose base is nil: `safeDiv` returns 0 and
