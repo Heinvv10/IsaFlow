@@ -55,10 +55,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'from and to dates are required');
   }
 
-  const [company, data] = await Promise.all([
-    getCompanyDetailsFromCompany(companyId),
-    getReportPackInput(companyId, '', from, to),
-  ]);
+  // ONE AFTER THE OTHER, not `Promise.all`. Both run on the request's one pg
+  // client, and `getReportPackInput` takes a savepoint around its cash-flow
+  // read: a sibling query landing inside it is refused with 25P02 when that
+  // read fails, and the route 500s where the pack was built to degrade.
+  const company = await getCompanyDetailsFromCompany(companyId);
+  const data = await getReportPackInput(companyId, '', from, to);
 
   // companyName is resolved after the figures, which do not need it.
   data.companyName = company.name;
