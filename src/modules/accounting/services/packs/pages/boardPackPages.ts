@@ -416,10 +416,15 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // A `PackFigure` whose `value` is null is a cell printing a reason instead
   // of a number, which is exactly what "prints no comparative" means to a
   // reader who turns to it.
-  const rowPrior = (table: PackTable, label: string): boolean => (
-    table.rows.find((r) => r.label.toLowerCase() === label)?.figures.prior?.value !== null
-      && table.rows.some((r) => r.label.toLowerCase() === label)
-  );
+  //
+  // AND A CELL THAT IS NOT THERE PRINTS NONE EITHER. This read
+  // `row?.figures.prior?.value !== null`, and on a pack with no comparative
+  // period the row carries no `prior` figure at all: `undefined !== null` is
+  // true, so four absent columns were reported as four comparatives.
+  const rowPrior = (table: PackTable, label: string): boolean => {
+    const prior = table.rows.find((r) => r.label.toLowerCase() === label)?.figures.prior;
+    return prior !== undefined && prior.value !== null;
+  };
   const printsComparative = (panelId: string): boolean => {
     switch (panelId) {
       case 'trend-revenue': return rowPrior(income, 'revenue');
@@ -428,7 +433,9 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       case 'trend-cash': return rowPrior(cash, 'closing cash');
       case 'trend-debtor-days':
         return scorecard.some((g) => g.rows.some(
-          (r) => r.metric.toLowerCase() === 'debtor days' && r.prior?.value !== null && r.prior !== undefined,
+          // `prior` is NULL, not undefined, where there is no prior period —
+          // the same trap as `rowPrior` above, one arm down.
+          (r) => r.metric.toLowerCase() === 'debtor days' && r.prior !== null && r.prior.value !== null,
         ));
       // Gross margin's exception is structural — page 6 carries no comparative
       // column for the ratio at all — and `printsAgainstComparative` already

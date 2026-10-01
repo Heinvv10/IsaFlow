@@ -264,12 +264,19 @@ export function trendWindowNote(
   // meaningful this period joins the list without anyone having to remember
   // to declare it. The structural flag stays as the other half: a measure
   // with no comparative COLUMN is an exception whatever the data says.
-  const without = panels
+  const counterparts = panels
     .map((panel) => ({ panel, counterpart: PERIOD_COUNTERPARTS[panel.id] }))
-    .filter((x): x is { panel: PackChartSpec; counterpart: PeriodCounterpart } => x.counterpart !== undefined)
+    .filter((x): x is { panel: PackChartSpec; counterpart: PeriodCounterpart } => x.counterpart !== undefined);
+  const without = counterparts
     .filter((x) => !x.counterpart.printsAgainstComparative || !printsComparative(x.panel.id))
     .map((x) => x.counterpart.measure);
-  const comparative = without.length === 0
+  // AND WHERE NOTHING PRINTS ONE, THE CLAIM IS NOT MADE. A first-period pack
+  // has no comparative column on any sheet, and "against the comparative,
+  // except" followed by every measure on the page is a sentence about a
+  // period the pack does not have.
+  const comparative = without.length === counterparts.length
+    ? ''
+    : without.length === 0
     ? ' against the comparative'
     // "BUT" READ AS A CONJUNCTION AND LEFT THE CLAUSE WITHOUT A VERB.
     // "…on the scorecard page — against the comparative but gross margin and

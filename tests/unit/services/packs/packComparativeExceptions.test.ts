@@ -20,7 +20,7 @@ import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
-import { brightsphereLiveInput } from './fixtures/boardPackInputs';
+import { brightsphereLiveInput, demoInput } from './fixtures/boardPackInputs';
 import { liveDemoShortPanelsInput } from './fixtures/liveDemoBoardPack';
 
 const COMPANIES: Record<string, BoardPackInput> = {
@@ -91,5 +91,42 @@ describe('page 10 excepts every measure whose comparative cell is empty', () => 
     if (!allPrinted) return;
     expect(note, 'Brightsphere excepts a measure its own sheets print a prior for')
       .not.toMatch(/except [^.]*(revenue|operating expenses|net profit)/);
+  });
+});
+
+/**
+ * A PACK WITH NO COMPARATIVE PERIOD CLAIMS NO COMPARATIVE.
+ *
+ * `rowPrior` asked `row?.figures.prior?.value !== null`. On a first-period
+ * company the row exists and carries no `prior` figure at all, so that is
+ * `undefined !== null` — true — and page 10 told the board that revenue,
+ * operating expenses, net profit and cash print "against the comparative" on
+ * sheets whose tables have one column. The debtor-days arm beside it tested
+ * for undefined and was right, which is how the sentence came out naming the
+ * two ratios as the exceptions and four absent columns as the rule.
+ */
+describe('page 10 on a pack with no comparative period', () => {
+  const firstPeriod: BoardPackInput = { ...demoInput, set: { ...demoInput.set, prior: null } };
+  const doc = buildBoardPackPages(firstPeriod);
+
+  it('is the case under test — no statement carries a prior column', () => {
+    expect(doc.comparativePeriod).toBeNull();
+    const tables = doc.pages.flatMap((p) => p.blocks.flatMap((b) => (b.kind === 'table' ? [b.table] : [])));
+    expect(tables.length).toBeGreaterThan(0);
+    expect(tables.some((t) => t.columns.includes('prior'))).toBe(false);
+  });
+
+  it('still reconciles the month against the period', () => {
+    const note = periodNote(doc);
+    expect(note).toMatch(/Each panel plots one MONTH/);
+    expect(note).toMatch(/revenue/);
+  });
+
+  it('does not say "against the comparative" of columns that are not there', () => {
+    expect(periodNote(doc)).not.toMatch(/comparative/i);
+  });
+
+  it('and says it again as soon as there is one', () => {
+    expect(periodNote(buildBoardPackPages(demoInput))).toMatch(/against the comparative/);
   });
 });
