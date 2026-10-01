@@ -750,3 +750,299 @@ int: Tests  75 passed (75)
 unit: Tests  306 passed (306)
 
 DONE BASELINE PM1 PM2 PM3 PM4 PM5 PM6 K5 K6 T1 T2 T3 T4 BASELINE
+
+==================================================================
+### Provider status codes (commit 7f2098e6b): a 4xx refusal is no work; a 5xx or 408 counts as use.
+Whole unit suite:
+ Test Files  1136 passed (1136)
+      Tests  15171 passed | 6 skipped (15177)
+Red on 9754a9c05's sources: red.status.unit.log. Mutants ST1-ST8 (new) and Y1-Y9, V1-V2, N1-N2, R1-R2, F1-F2, A1-A2, SG1-SG3 (re-run; Y2 and N2 redefined for the new code). Baseline green before and after; 30 of 30 RED:
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  338 passed (338)
+
+ST1 | src/lib/quotaUse.ts | a 5xx is not use
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 500: the document may exist, the unit is spent 4ms
+unit: × Signum or a proxy answered 502: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 503: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 504: the document may exist, the unit is spent 1ms
+unit: × counts as use after a provider 529 answer (SDK): a 5xx may come after the work: the provider may have done the work 5ms
+unit: × counts as use after a 502 from a proxy in front of the provider: the provider may have done the work 1ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 529, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 529, and uses 1 unit 0ms
+unit: × after a provider 503 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 4ms
+unit: × after a provider 529 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 1ms
+unit: × after a provider 503 answer, records 1 AI use 4ms
+unit: × records one AI use on a 5xx answer: it may come after the work 1ms
+unit: Tests  16 failed | 322 passed (338)
+
+ST2 | src/lib/quotaUse.ts | a 408 is not use
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 408: the document may exist, the unit is spent 5ms
+unit: × counts as use after a 408 request timeout: the provider may have done the work 5ms
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 4ms
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 1ms
+unit: × after a provider 408 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 3ms
+unit: × after a provider 408 answer, records 1 AI use 4ms
+unit: Tests  6 failed | 332 passed (338)
+
+ST3 | src/lib/quotaUse.ts | a 4xx refusal is use
+int: Tests  75 passed (75)
+unit: × Signum refused the request (400): nothing was done, the unit comes back 4ms
+unit: × Signum refused the request (401): nothing was done, the unit comes back 1ms
+unit: × Signum refused the request (422): nothing was done, the unit comes back 1ms
+unit: × Signum refused the request (429): nothing was done, the unit comes back 1ms
+unit: × is not use after a provider 400 answer (SDK): no work was done 4ms
+unit: × is not use after a provider 401 answer (SDK): no work was done 1ms
+unit: × is not use after a provider 429 rate-limit answer (SDK): no work was done 0ms
+unit: × answers 200 with its fallback after a provider 400, and uses 0 unit 4ms
+unit: × answers 200 with its fallback after a provider 401, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 429, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 400, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 401, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 429, and uses 0 unit 0ms
+unit: × after a provider 400 answer, uses 0 unit (a 4xx refused it; a 5xx may follow the work) 4ms
+unit: × after a provider 429 answer, uses 0 unit (a 4xx refused it; a 5xx may follow the work) 1ms
+unit: × after a provider 400 answer, records 0 AI use 4ms
+unit: × after a provider 429 answer, records 0 AI use 1ms
+unit: × records nothing when the provider refuses the request (4xx) 1ms
+unit: Tests  18 failed | 320 passed (338)
+
+ST4 | src/lib/quotaUse.ts | any status on a thrown error is no work (the old rule)
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 500: the document may exist, the unit is spent 4ms
+unit: × Signum or a proxy answered 502: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 503: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 504: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 408: the document may exist, the unit is spent 1ms
+unit: × counts as use after a provider 529 answer (SDK): a 5xx may come after the work: the provider may have done the work 5ms
+unit: × counts as use after a 502 from a proxy in front of the provider: the provider may have done the work 1ms
+unit: × counts as use after a 408 request timeout: the provider may have done the work 0ms
+unit: × records one AI use on a 5xx answer: it may come after the work 4ms
+unit: Tests  9 failed | 329 passed (338)
+
+ST5 | src/modules/accounting/services/bank/vlmCore.ts | vlmCore: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × after a provider 408 answer, records 1 AI use 4ms
+unit: × after a provider 503 answer, records 1 AI use 1ms
+unit: Tests  2 failed | 336 passed (338)
+
+ST6 | pages/api/accounting/nl-query.ts | nl-query: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × after a provider 408 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 3ms
+unit: × after a provider 503 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 1ms
+unit: × after a provider 529 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 1ms
+unit: Tests  3 failed | 335 passed (338)
+
+ST7 | pages/api/accounting/ai-narrative.ts | ai-narrative: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 529, and uses 1 unit 0ms
+unit: Tests  4 failed | 334 passed (338)
+
+ST8 | pages/api/accounting/ai-forecast.ts | ai-forecast: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 529, and uses 1 unit 0ms
+unit: Tests  4 failed | 334 passed (338)
+
+Y1 | src/lib/quotaUse.ts | a provider call that threw never counts as use
+int: Tests  75 passed (75)
+unit: × the Signum call timed out: it may have created the document, so the unit is spent 5ms
+unit: × counts as use after a timeout: the provider may have done the work 5ms
+unit: × counts as use after an abort: the provider may have done the work 1ms
+unit: × counts as use after a reset after the request was sent: the provider may have done the work 1ms
+unit: × counts as use after a socket closed mid-response: the provider may have done the work 0ms
+unit: × counts as use after an SDK timeout (no status): the provider may have done the work 0ms
+unit: × counts as use after an unknown error: the provider may have done the work 0ms
+unit: × counts as use after a non-error value: the provider may have done the work 0ms
+unit: × answers 200 with its fallback but uses the unit when the provider call times out 3ms
+unit: × answers 200 with its fallback but uses the unit when the provider call times out 0ms
+unit: × uses the unit when the provider call times out or is aborted: the work may have been done 3ms
+unit: × records one AI use when the call times out or is aborted: the provider may have done the work 4ms
+unit: × records one AI use when the call times out 1ms
+unit: Tests  13 failed | 325 passed (338)
+
+Y2 | src/lib/quotaUse.ts | a provider error answer counts as use
+int: Tests  75 passed (75)
+unit: × Signum refused the request (400): nothing was done, the unit comes back 4ms
+unit: × Signum refused the request (401): nothing was done, the unit comes back 1ms
+unit: × Signum refused the request (422): nothing was done, the unit comes back 1ms
+unit: × Signum refused the request (429): nothing was done, the unit comes back 1ms
+unit: × is not use after a provider 400 answer (SDK): no work was done 4ms
+unit: × is not use after a provider 401 answer (SDK): no work was done 1ms
+unit: × is not use after a provider 429 rate-limit answer (SDK): no work was done 1ms
+unit: × records nothing when the provider refuses the request (4xx) 4ms
+unit: Tests  8 failed | 330 passed (338)
+
+Y3 | src/lib/quotaUse.ts | a refused connection counts as use
+int: Tests  75 passed (75)
+unit: × Signum could not be reached: the unit comes back 4ms
+unit: × is not use after a refused connection: no work was done 4ms
+unit: × is not use after a name that does not resolve: no work was done 1ms
+unit: × is not use after a DNS failure: no work was done 0ms
+unit: × is not use after a connect timeout: no work was done 0ms
+unit: × is not use after a code on the error itself: no work was done 0ms
+unit: × answers 200 with its fallback and uses nothing when the provider cannot be reached 3ms
+unit: × answers 200 with its fallback and uses nothing when the provider cannot be reached 0ms
+unit: × leaves the unit unused when the provider cannot be reached 4ms
+unit: × marks the unit used when the provider answered and the generated query then fails 11ms
+unit: × records nothing when the provider could not be reached at all 5ms
+unit: × records nothing when the provider could not be reached 1ms
+unit: Tests  12 failed | 326 passed (338)
+
+Y4 | src/lib/quotaUse.ts | only cause.code is read, not code on the error itself
+int: Tests  75 passed (75)
+unit: × is not use after a code on the error itself: no work was done 5ms
+unit: Tests  1 failed | 337 passed (338)
+
+Y5 | src/modules/accounting/services/bank/vlmCore.ts | callVlmChat: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × records one AI use when the call times out or is aborted: the provider may have done the work 5ms
+unit: Tests  1 failed | 337 passed (338)
+
+DONE BASELINE ST1 ST2 ST3 ST4 ST5 ST6 ST7 ST8 Y1 Y2 Y3 Y4 Y5
+Y6 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × records one AI use on a 5xx answer: it may come after the work 4ms
+unit: × records one AI use when the call times out 1ms
+unit: Tests  2 failed | 336 passed (338)
+
+Y7 | pages/api/accounting/nl-query.ts | nl-query: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × uses the unit when the provider call times out or is aborted: the work may have been done 4ms
+unit: Tests  1 failed | 337 passed (338)
+
+Y8 | pages/api/accounting/ai-narrative.ts | ai-narrative: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback but uses the unit when the provider call times out 3ms
+unit: Tests  1 failed | 337 passed (338)
+
+Y9 | pages/api/accounting/ai-forecast.ts | ai-forecast: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback but uses the unit when the provider call times out 4ms
+unit: Tests  1 failed | 337 passed (338)
+
+V1 | src/modules/accounting/services/bank/vlmCore.ts | callVlmChat records no use on an answer
+int: Tests  75 passed (75)
+unit: × accounting/vlm-extract.ts asks for refundUnused and can reach where its use is recorded 4ms
+unit: × onboarding/extract.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × onboarding/extract-id.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × use is recorded only in the places listed above 59ms
+unit: × records one AI use when the provider answers 4ms
+unit: Tests  5 failed | 333 passed (338)
+
+V2 | src/modules/accounting/services/bank/vlmCore.ts | callVlmChat records use before checking the provider status
+int: Tests  75 passed (75)
+unit: × after a provider 400 answer, records 0 AI use 4ms
+unit: × after a provider 429 answer, records 0 AI use 1ms
+unit: × after a provider 408 answer, records 1 AI use 1ms
+unit: × after a provider 503 answer, records 1 AI use 1ms
+unit: Tests  4 failed | 334 passed (338)
+
+N1 | pages/api/accounting/nl-query.ts | nl-query records no use on an answer
+int: Tests  75 passed (75)
+unit: × accounting/nl-query.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 66ms
+unit: × marks the unit used when the provider answered, even if its answer could not be used 4ms
+unit: × marks the unit used when the provider answered and the generated query then fails 11ms
+unit: × marks the unit used once on success 4ms
+unit: Tests  5 failed | 333 passed (338)
+
+N2 | pages/api/accounting/nl-query.ts | nl-query records use before checking the provider status
+int: Tests  75 passed (75)
+unit: × after a provider 400 answer, uses 0 unit (a 4xx refused it; a 5xx may follow the work) 3ms
+unit: × after a provider 429 answer, uses 0 unit (a 4xx refused it; a 5xx may follow the work) 1ms
+unit: Tests  2 failed | 336 passed (338)
+
+R1 | pages/api/accounting/ai-narrative.ts | ai-narrative records no use on an answer
+int: Tests  75 passed (75)
+unit: × uses the unit when the provider answers 3ms
+unit: × accounting/ai-narrative.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 64ms
+unit: Tests  3 failed | 335 passed (338)
+
+R2 | pages/api/accounting/ai-narrative.ts | ai-narrative records use whatever the provider status
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 400, and uses 0 unit 3ms
+unit: × answers 200 with its fallback after a provider 401, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 429, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 529, and uses 1 unit 0ms
+unit: Tests  7 failed | 331 passed (338)
+
+F1 | pages/api/accounting/ai-forecast.ts | ai-forecast records no use on an answer
+int: Tests  75 passed (75)
+unit: × uses the unit when the provider answers 4ms
+unit: × accounting/ai-forecast.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 62ms
+unit: Tests  3 failed | 335 passed (338)
+
+F2 | pages/api/accounting/ai-forecast.ts | ai-forecast records use whatever the provider status
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 400, and uses 0 unit 3ms
+unit: × answers 200 with its fallback after a provider 401, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 429, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 529, and uses 1 unit 0ms
+unit: Tests  7 failed | 331 passed (338)
+
+A1 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative records no use on an answer
+int: Tests  75 passed (75)
+unit: × accounting/afs/[documentId]/sections/[sectionId]/ai-narrative.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 60ms
+unit: × records one AI use when the provider answers 5ms
+unit: Tests  3 failed | 335 passed (338)
+
+A2 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative records use before the provider call
+int: Tests  75 passed (75)
+unit: × records nothing when the provider refuses the request (4xx) 4ms
+unit: × records one AI use on a 5xx answer: it may come after the work 1ms
+unit: × records nothing when the provider could not be reached 1ms
+unit: × records one AI use when the call times out 1ms
+unit: Tests  4 failed | 334 passed (338)
+
+SG1 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | signing: no use marked after Signum created the document
+int: Tests  75 passed (75)
+unit: × Signum created the document and every email failed: the unit stays spent 7ms
+unit: × accounting/afs/[documentId]/send-for-signing.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 66ms
+unit: × keeps its unit after the mail server accepted the email 4ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × leaves its unit unused when SMTP is not configured 1ms
+unit: Tests  6 failed | 332 passed (338)
+
+SG2 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | signing: a failed Signum call is never classified (a timeout uses nothing)
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 500: the document may exist, the unit is spent 5ms
+unit: × Signum or a proxy answered 502: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 503: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 504: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 408: the document may exist, the unit is spent 1ms
+unit: × the Signum call timed out: it may have created the document, so the unit is spent 1ms
+unit: Tests  6 failed | 332 passed (338)
+
+SG3 | src/modules/accounting/services/afs/signumIntegrationService.ts | Signum refusal without its status (looks like a timeout)
+int: Tests  75 passed (75)
+unit: × a non-2xx carries its status, so the caller knows Signum did no work (R-175) 4ms
+unit: Tests  1 failed | 337 passed (338)
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  338 passed (338)
+
+DONE Y6 Y7 Y8 Y9 V1 V2 N1 N2 R1 R2 F1 F2 A1 A2 SG1 SG2 SG3 BASELINE
