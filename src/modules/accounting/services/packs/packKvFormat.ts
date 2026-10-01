@@ -64,3 +64,12 @@ export function formatScorecardValue(item: KPIScorecardItem): string {
   const figure = scorecardFigure(item);
   return figure.scored ? `${figure.value} / ${figure.target}` : figure.reason;
 }
+
+/**
+ * A KPI status as the legacy PDF and HTML packs print it. `not_meaningful`
+ * printed raw as "NOT_MEANINGFUL" — a code, not a word — and in the HTML pack
+ * in red. It is "Not meaningful", in a neutral style; it was never measured.
+ */
+export function kpiStatusLabel(status: KPIScorecardItem['status']): string {
+  return status === 'not_meaningful' ? 'Not meaningful' : status.toUpperCase();
+}

@@ -25,7 +25,7 @@ import {
   type PackSection,
 } from '@/modules/accounting/services/reports/reportPackService';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
-import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
+import { kpiStatusLabel, scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -181,7 +181,7 @@ export function renderSectionHtml(section: PackSection): string {
         // the reason — not "null" — where the ratio has no value.
         const figure = scorecardFigure(item);
         const actual = figure.scored ? figure.value : figure.reason;
-        return `<tr><td>${escapeHtml(item.name)}</td><td class="num">${escapeHtml(actual)}</td><td class="num">${escapeHtml(figure.target)}</td><td><span class="${cls}">${escapeHtml(item.status.toUpperCase().replace('_', ' '))}</span></td></tr>`;
+        return `<tr><td>${escapeHtml(item.name)}</td><td class="num">${escapeHtml(actual)}</td><td class="num">${escapeHtml(figure.target)}</td><td><span class="${cls}">${escapeHtml(kpiStatusLabel(item.status))}</span></td></tr>`;
       }).join('');
       return tableHtml(['KPI', 'Actual', 'Target', 'Status'], rows);
     }

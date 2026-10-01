@@ -31,7 +31,7 @@ import {
 import { cashFlowPackRows, ratioPackRows } from '@/modules/accounting/services/reports/packUnstatedRows';
 import { getReportPackInput } from '@/modules/accounting/services/reports/reportPackDataService';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
-import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
+import { kpiStatusLabel, scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type JsPDFDoc = any;
@@ -200,7 +200,7 @@ export function renderSection(
       // ratio's unit, and the reason where the ratio has no value.
       const kpiRows = items.map(item => {
         const figure = scorecardFigure(item);
-        return [item.name, figure.scored ? figure.value : figure.reason, figure.target, item.status.toUpperCase()];
+        return [item.name, figure.scored ? figure.value : figure.reason, figure.target, kpiStatusLabel(item.status)];
       });
       return renderTable(doc, autoTable, [['KPI', 'Actual', 'Target', 'Status']], kpiRows, y, margin);
     }

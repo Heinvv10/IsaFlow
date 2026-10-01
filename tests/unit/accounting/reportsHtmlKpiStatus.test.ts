@@ -34,7 +34,7 @@ describe('the legacy HTML pack\'s KPI status', () => {
     const html = row('Debt to Equity');
     expect(html).toContain('class="status-neutral"');
     expect(html).not.toContain('status-red');
-    expect(html).toContain('NOT MEANINGFUL');
+    expect(html).toContain('>Not meaningful<');
   });
 
   it('prints the reason in place of a figure', () => {
@@ -45,5 +45,19 @@ describe('the legacy HTML pack\'s KPI status', () => {
     expect(row('Net Profit Margin')).toContain('class="status-red"');
     expect(row('Current Ratio')).toContain('class="status-green"');
     expect(row('Debtor Days')).toContain('class="status-amber"');
+  });
+});
+
+describe('the legacy PDF pack\'s KPI status', () => {
+  it('reads "Not meaningful", not the raw NOT_MEANINGFUL, and keeps the others', async () => {
+    const { renderSection } = await import('@/../pages/api/accounting/reports-pdf');
+    const calls: Array<{ body: string[][] }> = [];
+    const autoTable = (_d: unknown, o: { body: string[][] }) => { calls.push(o); };
+    const doc = {
+      lastAutoTable: { finalY: 20 }, setFontSize: () => {}, setFont: () => {},
+      setTextColor: () => {}, text: () => {}, addPage: () => {}, setFillColor: () => {}, rect: () => {},
+    } as never;
+    renderSection(doc, autoTable, section, 210, 297, 10, { r: 0, g: 0, b: 0 });
+    expect(calls[0]!.body.map((r) => r[3])).toEqual(['GREEN', 'AMBER', 'RED', 'Not meaningful']);
   });
 });
