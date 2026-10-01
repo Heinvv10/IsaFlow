@@ -68,7 +68,7 @@ describe('SectionCard ratios', () => {
     // The engine's own sentences (`ratioBasis.ts`), so the card cannot pass by
     // echoing a placeholder: a base that is not positive, an input the report
     // never read, an input read and nil, or a stated "Not stated: …".
-    const ENGINE_REASON = /is not positive, so this ratio has no meaning\.$|is not captured in this report, so this ratio cannot be stated\.$|^No .+ recorded in the period, so this ratio cannot be stated\.$|^Not stated: |^Interest income is at least interest expense|^Interest expense is a net credit in the period, so cover on it is not meaningful\.$|^Equity is negative — liabilities exceed assets, so this ratio inverts/;
+    const ENGINE_REASON = /is not positive, so this ratio has no meaning\.$|is not captured in this report, so this ratio cannot be stated\.$|^No .+ recorded in the period, so this ratio cannot be stated\.$|^Not stated: |^No inventory is held, so there is no stock to turn over|^Interest income is at least interest expense|^Interest expense is a net credit in the period, so cover on it is not meaningful\.$|^Equity is negative — liabilities exceed assets, so this ratio inverts/;
     for (const line of shown) {
       expect(valueOf(line.label), line.label).toBe(reasons[line.key]);
       expect(reasons[line.key], line.key).toMatch(ENGINE_REASON);
@@ -104,6 +104,23 @@ describe('SectionCard ratios', () => {
       Object.defineProperty(bad.data, 'currentRatio', { get() { throw new TypeError('boom'); }, enumerable: true });
       expect(() => open(bad)).toThrow(/boom/);
       quiet.mockRestore();
+    });
+  });
+
+  describe('a scorecard item with a ratio key this screen cannot name', () => {
+    const item = (ratioKey: string, over = {}) => ({
+      ratioKey, name: ratioKey === 'currentRatio' ? 'Current Ratio' : 'Mystery', value: 2.32, target: 1.5, status: 'green', ...over,
+    });
+    const kpis = (items: unknown[]) => ({ type: 'kpis', title: 'KPI Scorecard', data: { scorecard: items } });
+
+    it('shows a notice for that tile only, the rest still draw, and warns once', () => {
+      const { rerender } = render(<SectionCard section={kpis([item('currentRatio'), item('aRatioFromAnotherDeploy')])} />);
+      fireEvent.click(screen.getByRole('button'));
+      expect(screen.getByText('This saved item cannot be shown.')).toBeTruthy();
+      expect(screen.getByText('Current Ratio')).toBeTruthy();
+      expect(document.body.textContent).not.toContain('aRatioFromAnotherDeploy');
+      rerender(<SectionCard section={kpis([item('currentRatio'), item('aRatioFromAnotherDeploy')])} defaultOpen />);
+      expect(warn).toHaveBeenCalledTimes(1);
     });
   });
 });

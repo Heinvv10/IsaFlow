@@ -214,7 +214,21 @@ function readRatios(d: Record<string, unknown>): { lines: RatioLine[] | null } {
  * red: an unscorable ratio is not a failing one, and red says it failed.
  */
 function ScorecardTile({ item }: { item: KPIScorecardItem }) {
-  const figure = scorecardFigure(item);
+  // An item whose ratio key this screen does not know (a response cached
+  // across a deploy) would throw out of `scorecardFigure` during render. Read
+  // once per item, outside JSX: that one tile says so, the rest still draw.
+  const figure = useMemo(() => readFigure(item), [item]);
+  useEffect(() => {
+    if (figure === null) log.warn('SectionCard: a saved scorecard item carries a ratio this screen cannot name', {}, 'packs');
+  }, [figure]);
+  if (figure === null) {
+    return (
+      <div className="rounded p-2 text-xs border border-[var(--ff-border-light)] text-[var(--ff-text-tertiary)]">
+        <span className="block opacity-70 mb-0.5">{item.name}</span>
+        <span className="opacity-80">This saved item cannot be shown.</span>
+      </div>
+    );
+  }
   const tone = item.status === 'green' ? 'border-teal-500/30 text-teal-400'
     : item.status === 'amber' ? 'border-amber-500/30 text-amber-400'
     : item.status === 'red' ? 'border-red-500/30 text-red-400'
@@ -233,6 +247,15 @@ function ScorecardTile({ item }: { item: KPIScorecardItem }) {
       )}
     </div>
   );
+}
+
+function readFigure(item: KPIScorecardItem): ReturnType<typeof scorecardFigure> | null {
+  try {
+    return scorecardFigure(item);
+  } catch (err) {
+    if (!(err instanceof UnknownRatioError)) throw err;
+    return null;
+  }
 }
 
 function KVItem({ label, value }: { label: string; value: string }) {
