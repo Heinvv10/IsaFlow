@@ -17,11 +17,13 @@ import pg from 'pg';
 import { log } from '@/lib/logger';
 
 /**
- * Connections per process. Each statement takes about a millisecond, and a key
- * that is over its limit is answered from memory (see `checkRateLimit`), so the
- * pool only carries calls that may be admitted. A few go a long way.
+ * Connections per process. A key that is full is answered from memory (see
+ * `checkRateLimit`), so the pool only carries calls that may be admitted.
+ * Sized by measurement (R-175 fix.md, /review round): with 3, fifty concurrent
+ * admitted calls waited up to 250 ms and a thousand on one key hit the connect
+ * timeout; with 10, 97 ms and no timeout. Idle connections close after 30 s.
  */
-export const RATE_LIMIT_POOL_MAX = 3;
+export const RATE_LIMIT_POOL_MAX = 10;
 
 /**
  * How long a limiter call waits for a connection before it throws. A throw is
