@@ -200,6 +200,20 @@ export function scorecardTitle(met: number, total: number): string {
 }
 
 /**
+ * "One check could not be run and is listed as a matter." — or nothing.
+ *
+ * ONE SENTENCE FOR BOTH TITLES. A failed check is a `PackMatter` and is not a
+ * finding: page 11's title has always counted it apart from the matters that
+ * require a decision, and page 4's must count it the same way — see
+ * `narrativeTitle`.
+ */
+export function failedChecksClause(matters: readonly PackMatter[]): string {
+  const failed = matters.filter((m) => m.kind === 'checkFailed').length;
+  if (failed === 0) return '';
+  return ` ${failed === 1 ? 'One check' : `${failed} checks`} could not be run and ${failed === 1 ? 'is' : 'are'} listed as a matter.`;
+}
+
+/**
  * Page 4's title — ABOUT THE PAGE'S OWN PAYLOAD.
  *
  * It was `Net profit of ${…} for the period.` on both companies: a value
@@ -222,20 +236,33 @@ export function scorecardTitle(met: number, total: number): string {
  * carried by the panel's "N further matters follow" line and are not on this
  * sheet, so counting them here would title the page after content it does not
  * print — the two-pages-disagreeing defect one page over.
+ *
+ * `raised` is every matter the pack carries, printed or not. BOTH ARE COUNTED
+ * AS PAGE 11 COUNTS THEM — findings only.
+ *
+ * This took `printed.length + omitted.length`, and "every check ran clean" is
+ * a `PackMatter` too (kind `none`), as is a check that could not be run. A
+ * clean pack therefore read "1 of 1 matters requiring a board decision is put
+ * to the board on this page" two sheets before a page titled "0 matters
+ * require a board decision this period. Every check ran clean." The panel
+ * still prints those lines; the title does not call them decisions.
  */
 export function narrativeTitle(
-  shown: PackMatter[],
-  raised: number,
+  shown: readonly PackMatter[],
+  raised: readonly PackMatter[],
   scale: MoneyScale,
 ): string {
-  if (raised === 0) {
-    return '0 matters require a board decision this period; this page carries the commentary on it.';
+  const failed = failedChecksClause(raised);
+  const findings = raised.filter((m) => m.kind === 'finding').length;
+  if (findings === 0) {
+    return `0 matters require a board decision this period; this page carries the commentary on it.${failed}`;
   }
-  const scope = `${shown.length} of ${raised} matters requiring a board decision `
-    + `${shown.length === 1 ? 'is' : 'are'} put to the board on this page`;
-  const quantified = shown.filter((m) => m.quantum !== null);
+  const shownFindings = shown.filter((m) => m.kind === 'finding');
+  const scope = `${shownFindings.length} of ${findings} matters requiring a board decision `
+    + `${shownFindings.length === 1 ? 'is' : 'are'} put to the board on this page`;
+  const quantified = shownFindings.filter((m) => m.quantum !== null);
   if (quantified.length === 0) {
-    return `${scope}; none of them carries a single rand amount.`;
+    return `${scope}; none of them carries a single rand amount.${failed}`;
   }
   const largest = quantified.reduce((a, b) => (Math.abs(b.quantum!) > Math.abs(a.quantum!) ? b : a));
   // ONE PLACEMENT FOR THE UNIT, and it is page 11's. This sentence put the
@@ -245,7 +272,7 @@ export function narrativeTitle(
   // pages, in the largest type either page sets: that is what reads as a
   // slot-filled string rather than as written prose. `inScale` takes the
   // WHOLE phrase, so the unit ends the sentence in both places.
-  return `${scope}, the largest carrying ${inScale(`${money(largest.quantum!, scale)} of exposure`, scale)}.`;
+  return `${scope}, the largest carrying ${inScale(`${money(largest.quantum!, scale)} of exposure`, scale)}.${failed}`;
 }
 
 /**

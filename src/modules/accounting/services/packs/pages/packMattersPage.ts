@@ -8,6 +8,7 @@
  * both and stays a sequence.
  */
 import { page } from './packFrontMatter';
+import { failedChecksClause } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import { disclose, note } from './packPageBlocks';
 import { mattersExposure, omittedQuantum, type SelectedMatters } from './packMattersPrinted';
 import { matterSourcesInWords } from './packDerivedMatters';
@@ -52,10 +53,8 @@ export const EXPOSURE_CLAUSE = ' of exposure';
  */
 export function mattersTitle(matters: PackMatter[], scale: MoneyScale): string {
   const findings = matters.filter((m) => m.kind === 'finding');
-  const failed = matters.filter((m) => m.kind === 'checkFailed').length;
-  const failedClause = failed === 0
-    ? ''
-    : ` ${failed === 1 ? 'One check' : `${failed} checks`} could not be run and ${failed === 1 ? 'is' : 'are'} listed as a matter.`;
+  // Page 4's title carries the same clause — see `failedChecksClause`.
+  const failedClause = failedChecksClause(matters);
 
   if (findings.length === 0) {
     // "0 matters", not "No matter": `assertPageTitleIsAMessage` refuses a

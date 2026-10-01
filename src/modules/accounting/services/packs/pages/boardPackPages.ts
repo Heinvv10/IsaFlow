@@ -480,7 +480,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // formed, and the headline no longer states one. It was also the second
   // unanchored footnote in the pack.
   const narrativePage = page(
-    narrativeTitle(boardActionMatters(matters), matters.printed.length + matters.omitted.length, scale),
+    narrativeTitle(boardActionMatters(matters), [...matters.printed, ...matters.omitted], scale),
     'Commentary and actions',
     'Performance',
     'medium',

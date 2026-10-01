@@ -85,7 +85,7 @@ describe('the exposure clause', () => {
    * which is a third position again.
    */
   it('puts the unit in the same place on page 4 and page 11', () => {
-    const page4 = narrativeTitle(matters, 6, PACK_SCALE);
+    const page4 = narrativeTitle(matters, [...matters, ...matters, ...matters], PACK_SCALE);
     const page11 = mattersTitle(matters, PACK_SCALE);
 
     for (const [where, title] of [['page 4', page4], ['page 11', page11]] as const) {

@@ -146,6 +146,43 @@ function checkChartClaims(
  * the headline to the table beneath it: whatever the page says the exposure
  * is, it is the printed rows plus the omitted note, in the page's own words.
  */
+/**
+ * AND THE TWO TITLES COUNT THE SAME MATTERS. The list was one list and the
+ * headlines over it were not: page 4 counted every row of the selection and
+ * page 11 counted findings, so a clean pack — whose one row is the "every
+ * check ran clean" line — was titled "1 of 1 matters requiring a board
+ * decision" on one sheet and "0 matters require a board decision" on the
+ * other. Each title states how many matters require a decision; the two
+ * numbers are compared, and a title that states none is refused rather than
+ * skipped.
+ */
+const RAISED_ON_PANEL_PAGE = /^(?:\d+ of (\d+) matters requiring a board decision|(0) matters require a board decision)/;
+const RAISED_ON_MATTERS_PAGE = /^(\d+) matters? requires? a board decision/;
+
+function checkMattersTitles(doc: PackPagesDocument): string[] {
+  const panelPage = doc.pages.find((p) => p.blocks.some((b) => b.kind === 'narrative' && b.boardActions !== undefined));
+  const mattersPage = doc.pages.find((p) => p.blocks.some((b) => b.kind === 'matters'));
+  if (panelPage === undefined || mattersPage === undefined) return [];
+
+  const onPanel = RAISED_ON_PANEL_PAGE.exec(panelPage.title);
+  const onMatters = RAISED_ON_MATTERS_PAGE.exec(mattersPage.title);
+  if (onPanel === null || onMatters === null) {
+    const silent = onPanel === null ? panelPage : mattersPage;
+    return [
+      `Page ${silent.number} is titled "${silent.title}", which does not state how many matters `
+        + 'require a board decision, so it cannot be held to the other page that counts them.',
+    ];
+  }
+  const panelCount = Number(onPanel[1] ?? onPanel[2]);
+  const mattersCount = Number(onMatters[1]);
+  if (panelCount === mattersCount) return [];
+  return [
+    `Page ${panelPage.number} says ${panelCount} ${panelCount === 1 ? 'matter requires' : 'matters require'} `
+      + `a board decision and page ${mattersPage.number} says ${mattersCount}. The two pages count the `
+      + 'same matters differently, and a director cannot tell which is right.',
+  ];
+}
+
 const FOLLOW_ON = /^(\d+) further matters? follows? on the matters page\./;
 const NOT_PRINTED = /^(\d+) further matters? (?:is|are) not printed in this pack;/;
 const SAME_DECISION = /^Each of these needs the same decision: /;
@@ -159,7 +196,7 @@ export function checkMattersCrossReference(doc: PackPagesDocument): string[] {
 
   const printed = table.matters;
   const omittedCount = table.omitted?.count ?? 0;
-  const failures: string[] = [];
+  const failures: string[] = [...checkMattersTitles(doc)];
 
   let named = 0;
   let followOn: number | null = null;
