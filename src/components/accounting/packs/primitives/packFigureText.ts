@@ -11,7 +11,7 @@
  * bare `toFixed(2)` on a sheet whose money column read `(1 546)` — an ASCII
  * hyphen and an accounting bracket for the same idea, two rows apart.
  */
-import { formatDays, formatMoney, formatPct, formatRatio, type MoneyScale } from '@/lib/format/money';
+import { formatDays, formatMoney, formatPct, formatPctLevel, formatRatio, type MoneyScale } from '@/lib/format/money';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 
 /** The pack's one glyph for a figure measured and nil — page 12 defines it,
@@ -32,7 +32,18 @@ const ZERO_FIGURE = '\u2013';
  * the 1000x misread. A required argument makes forgetting it a compile
  * error instead of a silently wrong board pack.
  */
-export function formatFigureText(figure: PackFigure, scale: MoneyScale): string {
+export function formatFigureText(
+  figure: PackFigure,
+  scale: MoneyScale,
+  /**
+   * A percentage is a LEVEL — a margin, a share of revenue, a target — unless
+   * the cell says it is a CHANGE. Only a change takes "+": page 12 says so,
+   * and the packs printed "+35.0%" for a gross-margin target and "+223.7%" for
+   * a share of revenue. A level by default, because a "+" on a level claims a
+   * movement nobody measured; the change column asks for its sign.
+   */
+  reads: 'level' | 'change' = 'level',
+): string {
   if (figure.value === null) {
     // `PackFigureProvenance.figure()` refuses to construct a null value
     // without a reason, so this is always populated in practice — the
@@ -68,7 +79,7 @@ export function formatFigureText(figure: PackFigure, scale: MoneyScale): string 
   if (figure.value === 0 && figure.format !== 'money') return ZERO_FIGURE;
   switch (figure.format) {
     case 'money': return formatMoney(figure.value, { scale });
-    case 'pct': return formatPct(figure.value, 1, { pack: true });
+    case 'pct': return reads === 'change' ? formatPct(figure.value, 1, { pack: true }) : formatPctLevel(figure.value);
     case 'ratio': return formatRatio(figure.value);
     case 'days': return formatDays(figure.value);
   }

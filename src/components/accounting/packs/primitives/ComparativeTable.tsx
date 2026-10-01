@@ -73,7 +73,7 @@ export function ComparativeTable({ table, scale }: ComparativeTableProps) {
   const cell = (row: PackTableRow, col: PackTableColumnKey) => {
     const figure = row.figures[col];
     if (figure !== undefined) {
-      if (figure.value !== null) return formatFigureText(figure, scale);
+      if (figure.value !== null) return formatFigureText(figure, scale, col === 'changePct' ? 'change' : 'level');
       return <NotMeaningfulCell figure={figure} reasons={notes} />;
     }
     const actual = row.figures.actual;
