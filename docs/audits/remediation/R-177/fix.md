@@ -131,7 +131,12 @@ refusal thrown with the server's message.
 `red.int.log`: 11 of 14 failed on unchanged `origin/master` (the first version of the suite).
 `mutations.log`: 21 mutants on the final code, all RED.
 
-**Not done:** the Pay Now button has not been clicked in a browser.
+**Browser proof (2026-10-01):** a dev server from this branch against the disposable fixture, a
+Playwright Chromium session signed in as a seeded user, and the public create route answered by
+the test so Paystack was not called. Clicking Pay Now on an approved R115 invoice sent
+`POST …/pay-now` (200, `{ token, paymentUrl }`), then `POST /api/portal/payments/paystack/create`
+with that token, and `window.open` was called with the checkout URL. One standing link was
+minted, with no expiry. Not exercised in a browser: the real Paystack page, and a popup blocker.
 
 ## Migration / rollback
 
