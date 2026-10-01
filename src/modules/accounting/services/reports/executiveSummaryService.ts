@@ -2,7 +2,18 @@
  * Executive Summary Service
  * Builds a concise executive dashboard summary from financial data.
  * Pure business logic — no database dependencies.
+ *
+ * THE PROSE WRITES ITS FIGURES AS THE PACK DOES. It used `toFixed` and
+ * `toLocaleString` — "Low gross margin of -1310.8%", "current ratio below 1.0
+ * at -0.14", "Net loss of R 1544240.9" — and took margins on zero or negative
+ * revenue. Margins and ratios in a sentence now come from the ratio engine
+ * (not stated where it says so, with its reason); a percentage carries its
+ * sign in a word (`pctWithWord`); money and ratios use the pack's notation.
+ * The numeric `kpis` are unchanged.
  */
+import { formatMoney, inProse, pctWithWord } from '@/lib/format/money';
+import { calculateFinancialRatios } from './ratioCalculations';
+import { formatRatioOf } from './ratioPresentation';
 
 export interface ExecutiveSummaryInput {
   period: string;
@@ -77,38 +88,54 @@ function growthRate(current: number, prior: number): number {
   return Math.round(((current - prior) / prior) * 10000) / 100;
 }
 
+/** The engine's ratios on this input: null where there is no meaning. */
+function engineRatios(input: ExecutiveSummaryInput) {
+  return calculateFinancialRatios({ ...input, otherIncome: 0 });
+}
+
+const level = (pct: number): string => pctWithWord(pct, 'a positive', 'a negative');
+const ratio = (key: string, value: number): string => formatRatioOf(key, value);
+
 export function generateHighlights(input: ExecutiveSummaryInput): ExecutiveHighlight[] {
   const highlights: ExecutiveHighlight[] = [];
-  const grossProfit = input.revenue - input.costOfSales;
-  const grossMargin = pct(grossProfit, input.revenue);
-  const netMargin = pct(input.netProfit, input.revenue);
+  const ratios = engineRatios(input);
+  const grossMargin = ratios.grossProfitMargin;
+  const netMargin = ratios.netProfitMargin;
 
   if (input.priorRevenue && input.priorRevenue > 0) {
     const revGrowth = growthRate(input.revenue, input.priorRevenue);
     if (revGrowth > 0) {
-      highlights.push({ type: 'positive', message: `Revenue grew ${revGrowth.toFixed(1)}% vs prior period` });
+      highlights.push({ type: 'positive', message: `Revenue ${pctWithWord(revGrowth, 'grew', 'declined')} vs prior period` });
     } else if (revGrowth < 0) {
-      highlights.push({ type: 'negative', message: `Revenue declined ${Math.abs(revGrowth).toFixed(1)}% vs prior period` });
+      highlights.push({ type: 'negative', message: `Revenue ${pctWithWord(revGrowth, 'grew', 'declined')} vs prior period` });
     }
   }
 
-  if (grossMargin >= 40) {
-    highlights.push({ type: 'positive', message: `Strong gross margin of ${grossMargin.toFixed(1)}%` });
-  } else if (grossMargin < 20) {
-    highlights.push({ type: 'negative', message: `Low gross margin of ${grossMargin.toFixed(1)}% — review cost structure` });
+  if (grossMargin === null || netMargin === null) {
+    // The engine's own sentence: on non-positive revenue there is no margin.
+    const reason = ratios.notMeaningful.grossProfitMargin ?? ratios.notMeaningful.netProfitMargin;
+    highlights.push({ type: 'neutral', message: `Margins are not stated: ${reason}` });
+  } else {
+    if (grossMargin >= 40) {
+      highlights.push({ type: 'positive', message: `Gross margin is ${level(grossMargin)} — strong` });
+    } else if (grossMargin < 20) {
+      highlights.push({ type: 'negative', message: `Gross margin is ${level(grossMargin)} — review cost structure` });
+    }
+    if (netMargin >= 15) {
+      highlights.push({ type: 'positive', message: `Net profit margin is ${level(netMargin)} — healthy` });
+    } else if (netMargin < 5 && netMargin >= 0) {
+      highlights.push({ type: 'neutral', message: `Net profit margin is ${level(netMargin)} — thin, monitor closely` });
+    }
   }
 
-  if (netMargin >= 15) {
-    highlights.push({ type: 'positive', message: `Healthy net profit margin of ${netMargin.toFixed(1)}%` });
-  } else if (netMargin < 5 && netMargin >= 0) {
-    highlights.push({ type: 'neutral', message: `Thin net margin of ${netMargin.toFixed(1)}% — monitor closely` });
-  }
-
-  const currentRatio = safeDiv(input.currentAssets, input.currentLiabilities);
-  if (currentRatio >= 2.0) {
-    highlights.push({ type: 'positive', message: `Strong liquidity with current ratio of ${currentRatio.toFixed(2)}` });
-  } else if (currentRatio < 1.0) {
-    highlights.push({ type: 'negative', message: `Liquidity risk — current ratio below 1.0 at ${currentRatio.toFixed(2)}` });
+  const currentRatio = ratios.currentRatio;
+  if (currentRatio !== null && currentRatio >= 2.0) {
+    highlights.push({ type: 'positive', message: `Current ratio is ${ratio('currentRatio', currentRatio)} — strong liquidity` });
+  } else if (currentRatio !== null && currentRatio < 1.0) {
+    highlights.push({
+      type: 'negative',
+      message: `Current ratio is ${ratio('currentRatio', currentRatio)}, below ${ratio('currentRatio', 1)} — liquidity risk`,
+    });
   }
 
   if (highlights.length === 0) {
@@ -132,14 +159,21 @@ export function generateAlerts(input: ExecutiveSummaryInput): ExecutiveAlert[] {
   const alerts: ExecutiveAlert[] = [];
 
   if (input.netProfit < 0) {
-    alerts.push({ severity: 'danger', message: `Net loss of R ${Math.abs(input.netProfit).toLocaleString('en-ZA')} reported this period` });
+    // The sign is in the word "loss", so the amount is its size.
+    const loss = inProse(formatMoney(Math.abs(input.netProfit), { cents: true, symbol: true, pack: true }));
+    alerts.push({ severity: 'danger', message: `Net loss of ${loss} reported this period` });
   }
 
-  const currentRatio = safeDiv(input.currentAssets, input.currentLiabilities);
-  if (currentRatio < 1.0) {
-    alerts.push({ severity: 'danger', message: `Current ratio ${currentRatio.toFixed(2)} — current liabilities exceed current assets` });
-  } else if (currentRatio < 1.2) {
-    alerts.push({ severity: 'warning', message: `Current ratio ${currentRatio.toFixed(2)} is below recommended minimum of 1.2` });
+  // No current liabilities is no current ratio, not a ratio of 0.00 under 1.
+  const ratios = engineRatios(input);
+  const currentRatio = ratios.currentRatio;
+  if (currentRatio !== null && currentRatio < 1.0) {
+    alerts.push({ severity: 'danger', message: `Current ratio ${ratio('currentRatio', currentRatio)} — current liabilities exceed current assets` });
+  } else if (currentRatio !== null && currentRatio < 1.2) {
+    alerts.push({
+      severity: 'warning',
+      message: `Current ratio ${ratio('currentRatio', currentRatio)} is below recommended minimum of ${ratio('currentRatio', 1.2)}`,
+    });
   }
 
   if (input.cash <= 0) {
@@ -148,15 +182,15 @@ export function generateAlerts(input: ExecutiveSummaryInput): ExecutiveAlert[] {
     alerts.push({ severity: 'warning', message: 'Cash balance is very low relative to current liabilities' });
   }
 
-  const debtToEquity = safeDiv(input.totalLiabilities, input.totalEquity);
-  if (debtToEquity > 2.0) {
-    alerts.push({ severity: 'warning', message: `High leverage — debt-to-equity ratio at ${debtToEquity.toFixed(2)}` });
+  const debtToEquity = ratios.debtToEquity;
+  if (debtToEquity !== null && debtToEquity > 2.0) {
+    alerts.push({ severity: 'warning', message: `High leverage — debt-to-equity ratio at ${ratio('debtToEquity', debtToEquity)}` });
   }
 
   if (input.priorNetProfit && input.priorNetProfit > 0) {
     const profitChange = growthRate(input.netProfit, input.priorNetProfit);
     if (profitChange < -20) {
-      alerts.push({ severity: 'warning', message: `Net profit declined ${Math.abs(profitChange).toFixed(1)}% vs prior period` });
+      alerts.push({ severity: 'warning', message: `Net profit ${pctWithWord(profitChange, 'rose', 'declined')} vs prior period` });
     }
   }
 
