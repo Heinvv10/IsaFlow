@@ -1,16 +1,22 @@
 /**
- * R-175 review round 1: two call sites must not share a rate-limit key while
- * disagreeing about its limit.
+ * R-175: two call sites must not share a rate-limit key while disagreeing
+ * about its limit.
  *
  * One key is one row with one window. pages/api/portal/auth.ts (5 per 15 min)
  * and pages/api/accounting/portal/auth.ts (5 per 60 s) both used
  * `portal-auth:${ip}`: the 60-second caller kept resetting the row, so the
  * password login allowed about 60 guesses per 15 minutes instead of 5.
  *
- * This reads every tracked source file (`git ls-files`, so a new file counts
- * only once it is tracked), finds every limiter call, and fails when two of
- * them use the same static key prefix with different options. It fails closed:
- * a call it cannot read must be pinned below, by line, with a reason.
+ * Scope: every tracked .ts/.tsx/.js/.mjs file outside tests/ (`git ls-files`,
+ * so a new file counts once it is tracked). The app's runtime code is all in
+ * pages/ and src/; scanning the rest as well means a script or config file
+ * that starts calling the limiter is seen too.
+ *
+ * Every call is resolved to the key PATTERN it produces (`${...}` becomes `*`),
+ * including the keys the wrappers build, so a hand-written
+ * `report:reports-pdf:co:${id}` is compared with checkReportRateLimit(id,
+ * 'reports-pdf'). It fails closed: a call it cannot read must be pinned below
+ * by file and by the text of its key, with a reason.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -18,21 +24,26 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = path.resolve(__dirname, '../../..');
-const CALL = /\b(checkRateLimit|checkAiRateLimit|checkSendRateLimit|checkReportRateLimit|withRateLimit)\(/g;
+const NAMES = 'checkRateLimit|checkAiRateLimit|checkSendRateLimit|checkReportRateLimit|withRateLimit|refundRateLimit';
+const CALL = new RegExp(`\\b(${NAMES})\\(`, 'g');
+/** The limiter's own files: they define these functions and build the wrapper keys. */
+const OWN = ['src/lib/rateLimit.ts', 'src/lib/rateLimitCore.ts', 'src/lib/rateLimitQuota.ts'];
 
-/** Calls whose key or options are not literals at the call site. `file:line` -> why it is safe. */
+/** Calls whose key or options are not literals at the call site: `file | key text` -> why it is safe. */
 const PINNED: Record<string, string> = {
-  'src/lib/auth/withAuth.ts:177': 'key and options both come from one AUTO_RATE_LIMIT entry',
-  'src/lib/auth/bearerPipeline.ts:213': 'the same AUTO_RATE_LIMIT entry as withAuth, deliberately one bucket',
-  'src/modules/accounting/services/share/shareResolver.ts:88': 'share:ip: key built two lines above; options are file constants used nowhere else',
-  'src/modules/accounting/services/share/shareResolver.ts:89': 'share:token: key built three lines above; options are file constants used nowhere else',
-  'pages/api/accounting/annotations/index.ts:60': 'annotationRateLimitKey builds a per-action, per-user name; default options',
-  'pages/api/accounting/annotations/index.ts:82': 'annotationRateLimitKey builds a per-action, per-user name; default options',
-  'pages/api/accounting/annotations/[id]/resolve.ts:26': 'annotationRateLimitKey builds a per-action, per-user name; default options',
+  'src/lib/auth/withAuth.ts | `${bucket.key}:${activeCompanyId}`': 'key and options both come from one AUTO_RATE_LIMIT entry',
+  'src/lib/auth/bearerPipeline.ts | `${bucket.key}:${ctx.companyId}`': 'the same AUTO_RATE_LIMIT entry as withAuth, deliberately one bucket',
+  'src/modules/accounting/services/share/shareResolver.ts | ipKey': 'share:ip: key built just above; options are file constants used nowhere else',
+  'src/modules/accounting/services/share/shareResolver.ts | tokenKey': 'share:token: key built just above; options are file constants used nowhere else',
+  "pages/api/accounting/annotations/index.ts | annotationRateLimitKey('list', user.id)": 'per-action, per-user name; default options',
+  "pages/api/accounting/annotations/index.ts | annotationRateLimitKey('create', user.id)": 'per-action, per-user name; default options',
+  "pages/api/accounting/annotations/[id]/resolve.ts | annotationRateLimitKey('resolve', user.id)": 'per-action, per-user name; default options',
+  'src/lib/rateLimitQuota.ts | key': 'refunds a key this request charged, taken from the request context',
+  'scripts/generate-closeout-report.mjs | ?': 'prose in a description string, not a call',
 };
 
-interface Site { where: string; prefix: string; options: string }
-interface Census { sites: Site[]; unreadable: string[] }
+interface Site { where: string; pattern: string; options: string }
+interface Census { charges: Site[]; refunds: Site[]; unreadable: string[]; aliased: string[] }
 
 /** Splits the text after a call's `(` into its top-level arguments. */
 function splitArgs(text: string): string[] | null {
@@ -62,11 +73,11 @@ function splitArgs(text: string): string[] | null {
   return null;
 }
 
-/** `{ max: 5, windowSecs: 15 * 60 }` -> `max=5;windowSecs=900`. Null when a value is not a number. */
-function readOptions(literal: string | undefined, source: string, ignore: string[] = []): string | null {
-  if (literal === undefined) return '';
+/** `{ max: 5, windowSecs: 15 * 60 }` -> { max: 5, windowSecs: 900 }. Null when a value is not a number. */
+function readOptions(literal: string | undefined, source: string, ignore: string[]): Record<string, number> | null {
+  if (literal === undefined) return {};
   if (!/^\{[\s\S]*\}$/.test(literal)) return null;
-  const pairs: string[] = [];
+  const out: Record<string, number> = {};
   for (const part of literal.slice(1, -1).split(',')) {
     if (part.trim() === '') continue;
     const m = /^\s*(\w+)\s*:\s*([\s\S]+?)\s*$/.exec(part);
@@ -76,66 +87,94 @@ function readOptions(literal: string | undefined, source: string, ignore: string
     const expr = m[2]!.replace(/\b[A-Z][A-Z0-9_]*\b/g, (name) =>
       new RegExp(`const ${name} = ([0-9_]+);`).exec(source)?.[1] ?? name).replace(/_/g, '');
     if (!/^[0-9*\s]+$/.test(expr)) return null;
-    pairs.push(`${m[1]}=${expr.split('*').reduce((product, n) => product * Number(n), 1)}`);
+    out[m[1]!] = expr.split('*').reduce((product, n) => product * Number(n), 1);
   }
-  return pairs.sort().join(';');
+  return out;
 }
 
-/** The part of a key literal before its first interpolation. Null when the key is not a literal. */
-function staticPrefix(arg: string | undefined): string | null {
+/** A string or template literal with every interpolation replaced by `*`. Null when it is not a literal. */
+function keyPattern(arg: string | undefined): string | null {
   const m = /^([`'"])([\s\S]*)\1$/.exec(arg ?? '');
   if (!m) return null;
-  const prefix = m[1] === '`' ? m[2]!.split('${')[0]! : m[2]!;
-  return prefix === '' ? null : prefix;
+  const pattern = m[1] === '`' ? m[2]!.replace(/\$\{[^}]*\}/g, '*') : m[2]!;
+  return /^[*:]*$/.test(pattern) ? null : pattern;
+}
+
+const limit = (max: number, windowSecs: number) => `max=${max};windowSecs=${windowSecs}`;
+
+/** The keys a call produces, with the limit each is held to. Null when the call cannot be read. */
+function resolve(fn: string, args: string[], source: string): Array<[string, string]> | null {
+  if (fn === 'checkRateLimit') {
+    const pattern = keyPattern(args[0]);
+    const o = readOptions(args[1], source, ['cost']);
+    return pattern && o && o.max !== undefined && o.windowSecs !== undefined ? [[pattern, limit(o.max, o.windowSecs)]] : null;
+  }
+  if (fn === 'refundRateLimit') {
+    const pattern = keyPattern(args[0]);
+    return pattern ? [[pattern, 'refund']] : null;
+  }
+  if (fn === 'withRateLimit') {
+    const scope = keyPattern(args[2]);
+    const o = readOptions(args[1], source, []);
+    return scope && o && o.max !== undefined && o.windowSecs !== undefined ? [[`${scope}:ip:*`, limit(o.max, o.windowSecs)]] : null;
+  }
+  if (fn === 'checkReportRateLimit') {
+    const name = keyPattern(args[1]);
+    const o = readOptions(args[2], source, []);
+    return name && o ? [[`report:${name}:co:*`, limit(o.max ?? 25, o.windowSecs ?? 900)]] : null;
+  }
+  // checkAiRateLimit / checkSendRateLimit: three buckets each, with the wrapper's defaults.
+  const kind = fn === 'checkAiRateLimit' ? 'ai' : 'send';
+  const [ip, co, day] = kind === 'ai' ? [20, 40, 300] : [30, 60, 500];
+  const name = keyPattern(args[2]);
+  const o = readOptions(args[3], source, ['count', 'refundUnused']);
+  return name && o ? [
+    [`${kind}:${name}:ip:*`, limit(o.ipMax ?? ip, 900)],
+    [`${kind}:${name}:co:*`, limit(o.companyMax ?? co, 900)],
+    [`${kind}:${name}:co:*:day`, limit(o.dailyMax ?? day, 86_400)],
+  ] : null;
 }
 
 function census(files: Record<string, string>): Census {
-  const out: Census = { sites: [], unreadable: [] };
+  const out: Census = { charges: [], refunds: [], unreadable: [], aliased: [] };
   for (const [file, raw] of Object.entries(files)) {
     // Drop line comments (they carry commas and slashes) but keep every newline.
     const source = raw.replace(/(^|[ \t])\/\/.*$/gm, '');
+    // A limiter function under another name, or the whole module as a namespace,
+    // would be invisible to the scan below. Refuse it rather than follow it.
+    for (const m of source.matchAll(new RegExp(`\\b(?:${NAMES})\\s+as\\s+\\w+|import\\s*\\*\\s*as\\s+\\w+\\s+from\\s+['"]@/lib/rateLimit(?:Core)?['"]|(?:require|import)\\(\\s*['"]@/lib/rateLimit(?:Core)?['"]\\s*\\)|=\\s*(?:${NAMES})\\s*[;,\\n]`, 'g'))) {
+      out.aliased.push(`${file} | ${m[0].trim()}`);
+    }
     for (const match of source.matchAll(CALL)) {
-      const where = `${file}:${source.slice(0, match.index).split('\n').length}`;
-      const fn = match[1]!;
       const args = splitArgs(source.slice(match.index! + match[0].length));
-      let prefix: string | null = null;
-      let options: string | null = null;
-      if (args && fn === 'checkRateLimit') {
-        prefix = staticPrefix(args[0]);
-        options = readOptions(args[1], source, ['cost']);
-      } else if (args && fn === 'withRateLimit') {
-        const scope = staticPrefix(args[2]);
-        prefix = scope && `${scope}:ip:`;
-        options = readOptions(args[1], source);
-      } else if (args) {
-        const [name, opts] = fn === 'checkReportRateLimit' ? [args[1], args[2]] : [args[2], args[3]];
-        const literal = staticPrefix(name);
-        prefix = literal && `${fn.replace(/^check|RateLimit$/g, '').toLowerCase()}:${literal}:`;
-        options = readOptions(opts, source, ['count']);
+      const keys = args && resolve(match[1]!, args, source);
+      const keyArg = args?.[match[1] === 'withRateLimit' ? 2 : match[1]!.endsWith('ReportRateLimit') ? 1 : /Ai|Send/.test(match[1]!) ? 2 : 0];
+      if (!keys) { out.unreadable.push(`${file} | ${keyArg ?? '?'}`); continue; }
+      const where = `${file}:${source.slice(0, match.index).split('\n').length}`;
+      for (const [pattern, options] of keys) {
+        (options === 'refund' ? out.refunds : out.charges).push({ where, pattern, options });
       }
-      if (prefix === null || options === null || options === '' && fn === 'checkRateLimit') out.unreadable.push(where);
-      else out.sites.push({ where, prefix, options });
     }
   }
   return out;
 }
 
-/** Prefixes used with more than one set of options. */
+/** Key patterns held to more than one limit. */
 function collisions(sites: Site[]): string[] {
-  const byPrefix = new Map<string, Site[]>();
-  for (const site of sites) byPrefix.set(site.prefix, [...(byPrefix.get(site.prefix) ?? []), site]);
-  return [...byPrefix.entries()]
+  const byPattern = new Map<string, Site[]>();
+  for (const site of sites) byPattern.set(site.pattern, [...(byPattern.get(site.pattern) ?? []), site]);
+  return [...byPattern.entries()]
     .filter(([, group]) => new Set(group.map((s) => s.options)).size > 1)
-    .map(([prefix, group]) => `${prefix} -> ${group.map((s) => `${s.where} {${s.options}}`).join(' vs ')}`);
+    .map(([pattern, group]) => `${pattern} -> ${group.map((s) => `${s.where} {${s.options}}`).join(' vs ')}`);
 }
 
 function trackedSources(): Record<string, string> {
-  const listed = execFileSync('git', ['ls-files', '--', 'pages', 'src'], { cwd: ROOT, encoding: 'utf8' });
+  const listed = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const files: Record<string, string> = {};
   for (const file of listed.split('\n')) {
-    // The limiter's own file defines these functions and composes its own keys.
-    if (!/\.tsx?$/.test(file) || file === 'src/lib/rateLimit.ts') continue;
-    files[file] = readFileSync(path.join(ROOT, file), 'utf8');
+    if (!/\.(tsx?|m?js)$/.test(file) || file.startsWith('tests/') || OWN.slice(0, 2).includes(file)) continue;
+    const text = readFileSync(path.join(ROOT, file), 'utf8');
+    if (new RegExp(NAMES).test(text)) files[file] = text;
   }
   return files;
 }
@@ -143,36 +182,59 @@ function trackedSources(): Record<string, string> {
 describe('rate-limit key census (R-175)', () => {
   const found = census(trackedSources());
 
-  it('finds the call sites', () => {
-    expect(found.sites.length).toBeGreaterThan(60);
-    expect(found.sites.map((s) => s.prefix)).toEqual(expect.arrayContaining([
-      'portal-auth:', 'afs-portal-magic-link:', 'login:ip:', 'login:email:', 'ai:nl-query:', 'send:invoice-email:', 'report:reports-pdf:',
+  it('finds the call sites, including the keys the wrappers build', () => {
+    expect(found.charges.length).toBeGreaterThan(100);
+    expect(found.charges.map((s) => s.pattern)).toEqual(expect.arrayContaining([
+      'portal-auth:*', 'afs-portal-magic-link:*', 'login:ip:*', 'login:email:*', 'invite-accept:*',
+      'ai:nl-query:co:*:day', 'send:invoice-email:ip:*', 'report:reports-pdf:co:*', 'statement-bulk-email:attempts:*',
     ]));
   });
 
-  it('no two call sites share a key prefix with different options', () => {
-    expect(collisions(found.sites)).toEqual([]);
+  it('no key pattern is held to two different limits', () => {
+    expect(collisions(found.charges)).toEqual([]);
   });
 
-  it('every call it cannot read is pinned, and every pin still points at such a call', () => {
-    expect([...found.unreadable].sort()).toEqual(Object.keys(PINNED).sort());
+  it('every refund is on a key that some call site charges', () => {
+    const charged = new Set(found.charges.map((s) => s.pattern));
+    expect(found.refunds.map((s) => s.pattern)).toEqual(['invite-accept:*']);
+    expect(found.refunds.filter((s) => !charged.has(s.pattern))).toEqual([]);
   });
 
-  it('the detector goes red on the collision it was written for', () => {
+  it('every call it cannot read is pinned, and every pin still matches a call', () => {
+    expect([...new Set(found.unreadable)].sort()).toEqual(Object.keys(PINNED).sort());
+  });
+
+  it('no file reaches the limiter under another name', () => {
+    expect(found.aliased).toEqual([]);
+  });
+
+  it('the detector goes red on what it was written for', () => {
     const synthetic = census({
       'a.ts': "await checkRateLimit(`portal-auth:${ip}`, { max: 5, windowSecs: 15 * 60 });",
       'b.ts': "const allowed = await checkRateLimit(`portal-auth:${ip}`, { max: 5, windowSecs: 60 });",
       'c.ts': "export default withRateLimit(withUserAuth(withCsrf(handler)), { max: 10, windowSecs: 900 }, 'x');\n"
         + "const W = 900;\nawait checkRateLimit(`x:ip:${getClientIp(req)}`, {\n  max: 10, // per IP\n  windowSecs: W,\n});",
-      'd.ts': "await checkAiRateLimit(req, companyId, 'n', { dailyMax: 300 });\nawait checkAiRateLimit(req, companyId, 'n');",
-      'e.ts': 'await checkRateLimit(key, { max: 1, windowSecs: 1 });\nawait checkRateLimit(`k:${a}`, opts);',
+      'd.ts': "await checkAiRateLimit(req, companyId, 'n', { dailyMax: 300, refundUnused: true });\nawait checkAiRateLimit(req, companyId, 'n', { dailyMax: 100 });",
+      'e.ts': 'await checkRateLimit(key, { max: 1, windowSecs: 1 });\nawait checkRateLimit(`k:${a}`, opts);\nawait checkRateLimit(`${a}:${b}`, { max: 1, windowSecs: 1 });',
+      // A hand-written key that lands on a wrapper's key, at another limit.
+      'f.ts': "await checkReportRateLimit(companyId, 'reports-pdf');\nawait checkRateLimit(`report:reports-pdf:co:${companyId}`, { max: 500, windowSecs: 900 });",
+      'g.ts': "import { checkRateLimit as rl } from '@/lib/rateLimit';\nimport * as limiter from '@/lib/rateLimit';\nconst check = checkRateLimit;\nconst m = await import('@/lib/rateLimit');",
+      'h.ts': 'await refundRateLimit(`never-charged:${id}`, 1);',
     });
 
-    expect(collisions(synthetic.sites)).toEqual([
-      'portal-auth: -> a.ts:1 {max=5;windowSecs=900} vs b.ts:1 {max=5;windowSecs=60}',
-      'ai:n: -> d.ts:1 {dailyMax=300} vs d.ts:2 {}',
+    expect(collisions(synthetic.charges)).toEqual([
+      'portal-auth:* -> a.ts:1 {max=5;windowSecs=900} vs b.ts:1 {max=5;windowSecs=60}',
+      'ai:n:co:*:day -> d.ts:1 {max=300;windowSecs=86400} vs d.ts:2 {max=100;windowSecs=86400}',
+      'report:reports-pdf:co:* -> f.ts:1 {max=25;windowSecs=900} vs f.ts:2 {max=500;windowSecs=900}',
     ]);
-    expect(synthetic.sites.filter((s) => s.prefix === 'x:ip:').map((s) => s.options)).toEqual(['max=10;windowSecs=900', 'max=10;windowSecs=900']);
-    expect(synthetic.unreadable).toEqual(['e.ts:1', 'e.ts:2']);
+    expect(synthetic.charges.filter((s) => s.pattern === 'x:ip:*').map((s) => s.options)).toEqual([limit(10, 900), limit(10, 900)]);
+    expect(synthetic.unreadable).toEqual(['e.ts | key', 'e.ts | `k:${a}`', 'e.ts | `${a}:${b}`']);
+    expect(synthetic.aliased).toEqual([
+      'g.ts | checkRateLimit as rl',
+      "g.ts | import * as limiter from '@/lib/rateLimit'",
+      'g.ts | = checkRateLimit;',
+      "g.ts | import('@/lib/rateLimit')",
+    ]);
+    expect(synthetic.refunds.map((s) => s.pattern)).toEqual(['never-charged:*']);
   });
 });

@@ -2,17 +2,24 @@
  * Tests for checkSendRateLimit — M13 (WS-2b).
  *
  * Verifies the per-IP bucket is enforced when ipMax is exceeded.
- * Uses the DB-backed pattern from rateLimit.test.ts: guards with
- * isDbReachable(), clears the DB rows and remembered refusals between calls.
+ *
+ * Against real PostgreSQL. Moved here from tests/unit/lib/rateLimitSend.test.ts
+ * in R-175: there it ran against whatever DATABASE_URL vitest.config.ts found
+ * in .env.local and wrote test keys to the shared dev database. Here it needs
+ * the disposable fixture, and the name is random per run.
  */
 
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { describe, it, expect, afterAll, beforeAll, afterEach } from 'vitest';
 import type { NextApiRequest } from 'next';
 import { checkSendRateLimit, clearRateLimitCache } from '@/lib/rateLimit';
-import { sql } from '@/lib/neon';
-import { isDbReachable } from '../helpers/dbReachable';
+import { getPoolForTests, sql } from '@/lib/neon';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
-const TEST_NAME = 'test-xyz';
+assertDisposable();
+afterAll(() => getPoolForTests().end());
+
+const TEST_NAME = `test-${randomUUID()}`;
 const TEST_COMPANY = '00000000-0000-0000-0000-000000000099';
 const TEST_IP = '203.0.113.99';
 const KEY_PATTERN = `send:${TEST_NAME}:%`;
@@ -24,21 +31,17 @@ function makeReq(ip = TEST_IP): NextApiRequest {
   } as unknown as NextApiRequest;
 }
 
-const hasRealDb = await isDbReachable();
-
 describe('checkSendRateLimit — DB-backed (M13)', () => {
   beforeAll(async () => {
-    if (!hasRealDb) return;
     await sql`DELETE FROM rate_limit_counters WHERE key LIKE ${KEY_PATTERN}`;
   });
 
   afterEach(async () => {
-    if (!hasRealDb) return;
     await sql`DELETE FROM rate_limit_counters WHERE key LIKE ${KEY_PATTERN}`;
     clearRateLimitCache();
   });
 
-  it.skipIf(!hasRealDb)(
+  it(
     'returns false once the per-IP limit is exceeded',
     async () => {
       const req = makeReq();
@@ -63,7 +66,7 @@ describe('checkSendRateLimit — DB-backed (M13)', () => {
     },
   );
 
-  it.skipIf(!hasRealDb)(
+  it(
     'uses send: key prefix (not ai:)',
     async () => {
       const req = makeReq('203.0.113.100');
@@ -82,7 +85,7 @@ describe('checkSendRateLimit — DB-backed (M13)', () => {
     },
   );
 
-  it.skipIf(!hasRealDb)(
+  it(
     'weights the company/day VOLUME buckets by count, but charges the per-IP RATE bucket 1',
     async () => {
       const req = makeReq('203.0.113.101');
@@ -108,7 +111,7 @@ describe('checkSendRateLimit — DB-backed (M13)', () => {
     },
   );
 
-  it.skipIf(!hasRealDb)(
+  it(
     'a single legitimate large batch (count > ipMax) is NOT blocked by the per-IP rate bucket',
     async () => {
       const req = makeReq('203.0.113.103');
@@ -124,7 +127,7 @@ describe('checkSendRateLimit — DB-backed (M13)', () => {
     },
   );
 
-  it.skipIf(!hasRealDb)(
+  it(
     'a batch whose count exceeds the company VOLUME budget is rejected in a single call',
     async () => {
       const req = makeReq('203.0.113.102');

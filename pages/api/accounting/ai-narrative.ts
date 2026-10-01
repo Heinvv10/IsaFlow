@@ -8,6 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { markQuotaUsed } from '@/lib/quotaUse';
 import { checkAiRateLimit } from '@/lib/rateLimit';
 import {
   buildNarrativePrompt, parseNarrativeResponse, buildVarianceCommentary, buildTrendAnalysis,
@@ -19,7 +20,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const companyId = (req as unknown as { companyId: string }).companyId;
   // Anthropic-backed: per-IP + per-company + per-company-daily budget cap (pentest H8).
-  if (!(await checkAiRateLimit(req, companyId, 'ai-narrative', { ipMax: 30, companyMax: 60, dailyMax: 300 }))) {
+  if (!(await checkAiRateLimit(req, companyId, 'ai-narrative', { ipMax: 30, companyMax: 60, dailyMax: 300, refundUnused: true }))) {
     return apiResponse.tooManyRequests(res, 'AI request limit reached. Please try again later.');
   }
 
@@ -49,6 +50,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1024, messages: [{ role: 'user', content: prompt }] }),
       });
       if (response.ok) {
+        markQuotaUsed('ai'); // the provider answered: the daily unit is spent (R-175)
         const data = await response.json() as { content?: { text?: string }[] };
         narrative = parseNarrativeResponse(data.content?.[0]?.text || '');
       }

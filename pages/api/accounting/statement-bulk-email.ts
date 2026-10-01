@@ -20,8 +20,8 @@ import {
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { checkSendRateLimit } from '@/lib/rateLimit';
-import { refundSendDailyQuota } from '@/lib/rateLimitQuota';
+import { checkRateLimit, checkSendRateLimit } from '@/lib/rateLimit';
+import { isValidUUID } from '@/lib/validation';
 import { sendStatementEmail } from '@/modules/accounting/services/ar/statementEmailService';
 
 type Row = Record<string, unknown>;
@@ -56,7 +56,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
+
+  // Abuse limit: every attempt counts, whatever comes of it, and it is never
+  // given back. It sits ahead of the ownership query below, which the volume
+  // charge no longer does (R-175).
+  if (!(await checkRateLimit(`statement-bulk-email:attempts:${user.id}`, { max: 30, windowSecs: 900 }))) {
+    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
+  }
 
   const body = req.body as {
     customerIds?: unknown;
@@ -80,6 +87,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'all customerIds must be strings');
   }
   const customerIds = rawIds as string[];
+  // Before any query: a non-UUID id would fail the ::UUID cast below as a 500.
+  if (customerIds.some(id => !isValidUUID(id))) {
+    return apiResponse.badRequest(res, 'all customerIds must be UUIDs');
+  }
 
   if (
     typeof body.asAtDate !== 'string' ||
@@ -106,7 +117,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (unauthorized.length > 0) {
     log.warn(
       'Unauthorized customerIds in statement-bulk-email request',
-      { companyId, unauthorized },
+      { companyId, count: unauthorized.length, sample: unauthorized.slice(0, 3) },
       'statement-bulk-email'
     );
     return apiResponse.forbidden(
@@ -122,12 +133,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // (batches are capped at MAX_BATCH_SIZE=100) while bounding an abusive loop.
   // Tunable if a large tenant's monthly run needs more headroom.
   // Charged AFTER the ownership guard (R-175): a request refused there sends
-  // nothing, and used to spend one unit per id it named.
+  // nothing, and used to spend one unit per id it named. refundUnused: each
+  // email the mail server accepts uses one unit; the rest come back.
   const sendAllowed = await checkSendRateLimit(req, companyId, 'statement-bulk-email', {
     ipMax: 30, // requests / 15 min per IP (cost 1 each)
     companyMax: 2_000, // emails / 15 min per company
     dailyMax: 10_000, // emails / day per company
     count: customerIds.length,
+    refundUnused: true,
   });
   if (!sendAllowed) {
     return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
@@ -163,9 +176,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       errors.push(result.error ?? `Failed to send to customer ${customerId}`);
     }
   }
-
-  // The daily bucket bounds emails sent; the ones that failed are given back.
-  if (failed > 0) await refundSendDailyQuota(companyId, 'statement-bulk-email', failed);
 
   log.info(
     'Bulk statement email complete',

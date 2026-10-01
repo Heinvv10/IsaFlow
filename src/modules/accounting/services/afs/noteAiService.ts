@@ -1,6 +1,7 @@
 // src/modules/accounting/services/afs/noteAiService.ts
 import Anthropic from '@anthropic-ai/sdk';
 import { log } from '@/lib/logger';
+import { markQuotaUsed } from '@/lib/quotaUse';
 import type { NoteContent, SectionType, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
 
 export interface CompanyContext {
@@ -30,6 +31,8 @@ export async function generateNoteNarrative(
       max_tokens: 1024,
       messages: [{ role: 'user', content: prompt }],
     });
+    // The provider answered: the request's daily AI unit is spent (R-175).
+    markQuotaUsed('ai');
 
     return response.content[0]?.type === 'text' ? response.content[0].text : '';
   } catch (err) {

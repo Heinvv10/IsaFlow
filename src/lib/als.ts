@@ -42,12 +42,12 @@ export interface RequestContext {
    */
   afterCommit?: Array<{ label: string; fn: () => Promise<unknown> }>;
   /**
-   * Usage-quota units this request has spent (the daily AI and email-send
-   * buckets in `@/lib/rateLimit`). The owner gives them back when the request
-   * fails (see `@/lib/rateLimitQuota`). Present only when the owner does that;
-   * without it a charge simply stands.
+   * Usage-quota units this request charged and has used so far (the daily AI
+   * and email-send buckets; see `@/lib/quotaUse`). When the request ends the
+   * owner gives back `charged - used` (`@/lib/rateLimitQuota`). Present only
+   * when the owner does that; without it a charge simply stands.
    */
-  quotaCharges?: Array<{ key: string; units: number }>;
+  quotaCharges?: Array<{ kind: 'ai' | 'send'; key: string; charged: number; used: number }>;
 }
 
 export const als = new AsyncLocalStorage<RequestContext>();
