@@ -14,7 +14,9 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
+import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { getRules, createRule, applyRules } from '@/modules/accounting/services/bank/bankRulesService';
+import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 const CreateRuleSchema = z.object({
   ruleName: z.string().min(1).max(200),
@@ -30,6 +32,9 @@ const CreateRuleSchema = z.object({
   // creates and posts a journal entry on every match.
   autoCreateEntry: z.boolean().optional().default(false),
   vatCode: z.enum(['none', 'standard', 'zero_rated', 'exempt']).optional().default('none'),
+  // What an auto-posted supplier/customer line does with its cash. Only
+  // meaningful alongside autoCreateEntry — see migration 676.
+  autoApply: z.enum(AUTO_APPLY_MODES).optional(),
   bankAccountId: UUID.optional().nullable(),
 }).refine(
   v => Boolean(v.glAccountId) || Boolean(v.supplierId) || Boolean(v.clientId),
@@ -51,19 +56,31 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     }
     const input = parsed.data;
-    const rule = await createRule(companyId, {
-      ruleName: input.ruleName,
-      matchField: input.matchField,
-      matchType: input.matchType,
-      matchPattern: input.matchPattern,
-      glAccountId: input.glAccountId || undefined,
-      supplierId: input.supplierId || undefined,
-      clientId: input.clientId || undefined,
-      descriptionTemplate: input.descriptionTemplate || undefined,
-      priority: input.priority ?? 100,
-      autoCreateEntry: input.autoCreateEntry,
-      vatCode: input.vatCode,
-    }, userId);
+    let rule;
+    try {
+      rule = await createRule(companyId, {
+        ruleName: input.ruleName,
+        matchField: input.matchField,
+        matchType: input.matchType,
+        matchPattern: input.matchPattern,
+        glAccountId: input.glAccountId || undefined,
+        supplierId: input.supplierId || undefined,
+        clientId: input.clientId || undefined,
+        descriptionTemplate: input.descriptionTemplate || undefined,
+        priority: input.priority ?? 100,
+        autoCreateEntry: input.autoCreateEntry,
+        vatCode: input.vatCode,
+        // Omitted rather than defaulted here: the service and the column own
+        // the default, and a second copy of it is how two entry points drift.
+        ...(input.autoApply === undefined ? {} : { autoApply: input.autoApply }),
+      }, userId);
+    } catch (err) {
+      // Refused before the INSERT, so nothing has been written.
+      if (err instanceof CustomerNotInCompanyError || err instanceof SupplierNotInCompanyError) {
+        return apiResponse.badRequest(res, err.message);
+      }
+      throw err;
+    }
 
     // Auto-apply on create: run only the new rule so the returned `applied`
     // count reflects this rule's matches and not the entire ruleset.

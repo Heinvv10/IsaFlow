@@ -57,7 +57,8 @@ describe('cookies', () => {
     const cookies = headers['set-cookie'];
     // Both auth credentials AND the remember-me hint must be session-only.
     // A Max-Age would survive browser close, defeating the rememberMe=false intent.
-    for (const c of cookies) {
+    expect(cookies.find((c) => c.startsWith('sb-impersonation-proof='))).toMatch(/Max-Age=0/);
+    for (const c of cookies.filter((c) => !c.startsWith('sb-impersonation-proof='))) {
       expect(c).not.toMatch(/Max-Age=/i);
       expect(c).toMatch(/HttpOnly/i);
       expect(c).toMatch(/SameSite=Lax/i);
@@ -103,7 +104,7 @@ describe('cookies', () => {
     clearAuthCookies(res);
     const cookies = headers['set-cookie'];
     // access, refresh, active_company, onboarding_done, pending_mfa, pending_remember, remember_me hint
-    expect(cookies).toHaveLength(7);
+    expect(cookies).toHaveLength(8);
     for (const c of cookies) expect(c).toMatch(/Max-Age=0/);
   });
 
@@ -112,7 +113,7 @@ describe('cookies', () => {
     setAuthCookies(res, { accessToken: 'a', refreshToken: 'r', expiresIn: 3600 });
     setActiveCompanyCookie(res, '00000000-0000-0000-0000-00000000abcd');
     // access + refresh + remember_me hint + active_company
-    expect(headers['set-cookie']).toHaveLength(4); // 3 from setAuthCookies + 1 company
+    expect(headers['set-cookie']).toHaveLength(5); // credentials/hint + expired proof + company
     expect(
       headers['set-cookie'].some((c) =>
         c.startsWith('active_company_id=00000000-0000-0000-0000-00000000abcd;')
@@ -141,7 +142,7 @@ describe('cookies', () => {
       const { res, headers } = mkRes();
       setAuthCookies(res, { accessToken: 'a', refreshToken: 'r', expiresIn: 3600 });
       setActiveCompanyCookie(res, 'cid-1');
-      for (const c of headers['set-cookie']) {
+      for (const c of headers['set-cookie'].filter((c) => !c.startsWith('sb-impersonation-proof='))) {
         expect(c).toMatch(/Domain=\.isaflow\.co\.za/);
       }
     });
@@ -159,13 +160,22 @@ describe('cookies', () => {
       process.env.COOKIE_DOMAIN = '.isaflow.co.za';
       const { res, headers } = mkRes();
       clearAuthCookies(res);
-      // 7 cookies × 2 scopings (host-scoped + domain-scoped)
-      expect(headers['set-cookie']).toHaveLength(14);
+      // 8 cookies × 2 scopings (host-scoped + domain-scoped)
+      expect(headers['set-cookie']).toHaveLength(16);
       const hostScoped = headers['set-cookie'].filter((c) => !/Domain=/.test(c));
       const domainScoped = headers['set-cookie'].filter((c) => /Domain=\.isaflow\.co\.za/.test(c));
-      expect(hostScoped).toHaveLength(7);
-      expect(domainScoped).toHaveLength(7);
+      expect(hostScoped).toHaveLength(8);
+      expect(domainScoped).toHaveLength(8);
       for (const c of headers['set-cookie']) expect(c).toMatch(/Max-Age=0/);
     });
   });
+});
+
+it('ordinary session replacement clears delegation while refresh preserves it', () => {
+  const ordinary = mkRes();
+  setAuthCookies(ordinary.res, { accessToken: 'a', refreshToken: 'r', expiresIn: 3600 });
+  expect(ordinary.headers['set-cookie'].find((c) => c.startsWith('sb-impersonation-proof='))).toMatch(/Max-Age=0/);
+  const refresh = mkRes();
+  setAuthCookies(refresh.res, { accessToken: 'a', refreshToken: 'r', expiresIn: 3600, preserveImpersonation: true });
+  expect(refresh.headers['set-cookie'].some((c) => c.startsWith('sb-impersonation-proof='))).toBe(false);
 });

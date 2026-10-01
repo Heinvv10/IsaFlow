@@ -1,0 +1,48 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k063-supplier-payment-settles-unapproved-bill.int.test.ts" "tests/integration/k063-supplier-allocation-status-gate.int.test.ts" "tests/integration/k064-batch-payment-creation-unvalidated.int.test.ts" "tests/integration/k064-batch-payment-guarded.int.test.ts" "tests/integration/k066-supplier-payment-foreign-bill.int.test.ts" "tests/integration/k066-supplier-payment-guard-cases.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-063
+
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-09-09T09:43:58.251Z","component":"accounting","data":{"paymentId":"d098ae3e-1207-4a91-a308-8887cba51a46","lines":1,"applied":1000,"unappliedAfter":0,"userId":"d1b79171-0417-40e1-8e62-c0a8becd154e"}}
+{"level":"error","message":"Failed to create supplier payment","timestamp":"2026-09-09T09:43:58.959Z","component":"accounting","data":{"error":{"name":"Error","message":"Invoice K066G-PENDING is pending_approval and cannot receive a payment.","stack":"Error: Invoice K066G-PENDING is pending_approval and cannot receive a payment.\n    at assertBillAllocatable (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/src/modules/accounting/services/ap/supplierAllocationLines.ts:168:11)\n    at createSupplierPayment (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/src/modules/accounting/services/ap/supplierPaymentService.ts:156:7)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/tests/integration/k066-supplier-payment-guard-cases.int.test.ts:64:3\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+{"level":"error","message":"Failed to create supplier payment","timestamp":"2026-09-09T09:43:59.003Z","component":"accounting","data":{"error":{"name":"Error","message":"One or more invoice IDs not found or belong to a different company","stack":"Error: One or more invoice IDs not found or belong to a different company\n    at createSupplierPayment (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/src/modules/accounting/services/ap/supplierPaymentService.ts:147:13)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/tests/integration/k066-supplier-payment-guard-cases.int.test.ts:70:3\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+{"level":"error","message":"Failed to create supplier payment","timestamp":"2026-09-09T09:43:58.985Z","component":"accounting","data":{"error":{"name":"Error","message":"Invoice K066-1788947038758-526903-B belongs to a different supplier than this payment.","stack":"Error: Invoice K066-1788947038758-526903-B belongs to a different supplier than this payment.\n    at assertBillAllocatable (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/src/modules/accounting/services/ap/supplierAllocationLines.ts:173:11)\n    at createSupplierPayment (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/src/modules/accounting/services/ap/supplierPaymentService.ts:156:7)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at inTx (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/tests/integration/k066-supplier-payment-foreign-bill.int.test.ts:48:17)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/tests/integration/k066-supplier-payment-foreign-bill.int.test.ts:104:5\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+{"level":"error","message":"Failed to create supplier payment","timestamp":"2026-09-09T09:43:59.056Z","component":"accounting","data":{"error":{"name":"Error","message":"Invoice K066-1788947038758-526903-DRAFT is draft and cannot receive a payment.","stack":"Error: Invoice K066-1788947038758-526903-DRAFT is draft and cannot receive a payment.\n    at assertBillAllocatable (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/src/modules/accounting/services/ap/supplierAllocationLines.ts:168:11)\n    at createSupplierPayment (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/src/modules/accounting/services/ap/supplierPaymentService.ts:156:7)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at inTx (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/tests/integration/k066-supplier-payment-foreign-bill.int.test.ts:48:17)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/tests/integration/k066-supplier-payment-foreign-bill.int.test.ts:119:5\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+{"level":"info","message":"Created supplier payment","timestamp":"2026-09-09T09:43:59.061Z","component":"accounting","data":{"paymentId":"0f24ccc3-c684-49eb-b971-9c52e3a33ce6","paymentNumber":"SP-2026-00001","totalAmount":500}}
+{"level":"error","message":"Failed to create supplier payment","timestamp":"2026-09-09T09:43:59.077Z","component":"accounting","data":{"error":{"name":"Error","message":"Invoice K066-1788947038758-526903-CANC is cancelled and cannot receive a payment.","stack":"Error: Invoice K066-1788947038758-526903-CANC is cancelled and cannot receive a payment.\n    at assertBillAllocatable (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/src/modules/accounting/services/ap/supplierAllocationLines.ts:168:11)\n    at createSupplierPayment (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/src/modules/accounting/services/ap/supplierPaymentService.ts:156:7)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at inTx (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/tests/integration/k066-supplier-payment-foreign-bill.int.test.ts:48:17)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-063/tests/integration/k066-supplier-payment-foreign-bill.int.test.ts:130:5\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+{"level":"info","message":"Created batch payment","timestamp":"2026-09-09T09:43:59.094Z","component":"accounting","data":{"batchId":"717a7577-c104-4e3c-9adf-16f725430edc","paymentCount":1}}
+{"level":"info","message":"Approved batch","timestamp":"2026-09-09T09:43:59.184Z","component":"accounting","data":{"id":"717a7577-c104-4e3c-9adf-16f725430edc"}}
+{"level":"info","message":"Created fiscal year","timestamp":"2026-09-09T09:43:59.308Z","component":"accounting","data":{"companyId":"f46c74e7-e665-439c-9e6a-381628d714fe","year":2027,"startMonth":3,"range":{"startDate":"2026-03-01","endDate":"2027-02-28"}}}
+{"level":"info","message":"Auto-created fiscal year for a journal date","timestamp":"2026-09-09T09:43:59.308Z","component":"accounting","data":{"companyId":"f46c74e7-e665-439c-9e6a-381628d714fe","year":2027}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T09:43:59.317Z","component":"accounting","data":{"entryId":"4ca9cdff-dfcf-4d44-afb5-5ce00fad9b17","entryNumber":"JE-2026-00001","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-09-09T09:43:59.330Z","component":"accounting","data":{"id":"4ca9cdff-dfcf-4d44-afb5-5ce00fad9b17","entryNumber":"JE-2026-00001"}}
+{"level":"info","message":"Processed batch","timestamp":"2026-09-09T09:43:59.335Z","component":"accounting","data":{"id":"717a7577-c104-4e3c-9adf-16f725430edc","journalEntryId":"4ca9cdff-dfcf-4d44-afb5-5ce00fad9b17"}}
+
+ Test Files  6 passed (6)
+      Tests  15 passed (15)
+   Start at  11:43:55
+   Duration  4.00s (transform 5.76s, setup 0ms, import 10.20s, tests 2.51s, environment 0ms)
+
+
+--- gates ---
+Full unit suite (bunx vitest run, DATABASE_URL unset):
+  828 files / 9672 tests -> 787 passed | 36 skipped | 5 files, 10 tests failed.
+  All 10 failures are 10000ms vitest timeouts under a loaded machine
+  (trackerExclusion, bankAllocationService x4, bankAllocationDateShift x3,
+  bankAllocationUnwind, cashFlowReport). All 5 files were re-run in isolation
+  together with the two test files this branch touches: 7 files / 43 tests, all
+  passed. The one genuine break this branch caused
+  (supplierPaymentService.test.ts "proceeds when all invoices belong to the
+  correct company", whose mocked bill row had no supplier_id/status) was fixed
+  in the fixture; the run before that fix had 11 failures, this one has 10.
+
+bunx tsc --noEmit -> exit 0, no output.
+bunx eslint on the four changed src files -> exit 0, no output.
+
+--- mutation checks ---
+K-063: ALLOCATABLE_STATUSES widened back to include 'pending_approval' and
+  'disputed' -> 2 of 4 K-063 tests RED. Restored.
+K-064/K-066: assertBatchAllocatable call removed from createBatch AND the
+  assertBillAllocatable loop removed from createSupplierPayment -> 8 of 11
+  K-064/K-066 tests RED (the 3 that stayed green are the two happy paths and
+  the foreign-TENANT case, which the pre-existing row-count check already
+  caught). Restored.

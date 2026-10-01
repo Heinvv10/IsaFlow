@@ -149,17 +149,123 @@ describe('POST /api/oauth/register', () => {
   });
 
   it('rejects a client_name that impersonates IsaFlow / claims official or verified status', async () => {
-    for (const name of ['IsaFlow Official', 'isaflow support', 'Verified Partner', 'First-Party App']) {
+    const rejected = [
+      // the brand as the subject of the name — reads as "this IS IsaFlow"
+      'IsaFlow',
+      'IsaFlow Official',
+      'isaflow support',
+      'IsaFlow Connector',
+      'The IsaFlow App',
+      'Get IsaFlow Free',
+      'IsaFlow (Claude Code)',
+      // bare parenthetical leaves no qualifying client behind
+      '(isaflow)',
+      // the qualifier must be trailing — a mid-name aside is not a qualifier
+      'Acme (isaflow) Connector',
+      // reserved adjectives anywhere, including inside a qualifier
+      'Verified Partner',
+      'First-Party App',
+      'Claude Code (Official)',
+    ];
+    for (const name of rejected) {
       const res = makeRes();
       await handler(makeReq({ redirect_uris: ['https://c.example/cb'], client_name: name }), res);
-      expect(res.statusCode).toBe(400);
+      expect(res.statusCode, `expected 400 for ${name}`).toBe(400);
       expect(res.body!.error).toBe('invalid_client_metadata');
     }
-    // legit names — including ones with generic words — are NOT blocked
-    for (const name of ['Acme Bookkeeping Bot', 'Acme Billing Bot', 'Support Desk Connector']) {
+
+    // legit names are NOT blocked — including a client naming the service it
+    // connects to in a trailing qualifier, which is what MCP clients do.
+    const allowed = [
+      'Acme Bookkeeping Bot',
+      'Acme Billing Bot',
+      'Support Desk Connector',
+      'Claude Code (isaflow)',
+      'Claude Code (IsaFlow MCP)',
+    ];
+    for (const name of allowed) {
       const ok = makeRes();
       await handler(makeReq({ redirect_uris: ['https://c.example/cb'], client_name: name }), ok);
-      expect(ok.statusCode).toBe(201);
+      expect(ok.statusCode, `expected 201 for ${name}`).toBe(201);
+    }
+  });
+
+  // The stored name must be the same string the reserved-name check compared,
+  // or the consent screen can show something the check never saw. The CJK
+  // compatibility ideographs are letters Chromium declines to DRAW — zero ink,
+  // while occupying a full ideograph cell — so "Isa<U+FACF>Flow" reads as
+  // "Isa Flow", which this endpoint refuses. They are canonical singletons, so
+  // NFC maps each to the ideograph it stands for, which does render.
+  it('stores the NFC form, so what is shown is what was checked', async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({ redirect_uris: ['https://c.example/cb'], client_name: 'Isa\uFACFFlow' }),
+      res,
+    );
+
+    expect(res.statusCode).toBe(201);
+    expect(registerOauthApp).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Isa\u{2284A}Flow' }),
+    );
+    // the un-drawable original must not survive into storage
+    expect(vi.mocked(registerOauthApp).mock.calls[0]?.[0].name).not.toContain('\uFACF');
+  });
+
+  // Normalise BEFORE the slice. `.slice()` counts UTF-16 units and NFC can
+  // EXPAND: U+FACF is one unit and its canonical target U+2284A is a surrogate
+  // pair, so cutting first and normalising after stores 81 units against an
+  // 80-unit cap. Found by the reviewer, who built the distinguishing input the
+  // ordering mutation needed.
+  it('keeps the stored name inside the length cap when NFC expands', async () => {
+    const raw = `\uFACF${'a'.repeat(69)} (IsaFlow)`;
+    expect(raw.length).toBe(80);
+
+    const res = makeRes();
+    await handler(makeReq({ redirect_uris: ['https://c.example/cb'], client_name: raw }), res);
+
+    // Assert what the endpoint DOES first. Without this the `?? ''` below turns
+    // "registerOauthApp was never called" into a zero-length string that
+    // satisfies the cap trivially — the same shape as `?? []` turning a
+    // mismatch into empty data. Here the cut lands inside the qualifier, so the
+    // name reads as the brand alone and is refused.
+    expect(res.statusCode).toBe(400);
+    expect(vi.mocked(registerOauthApp)).not.toHaveBeenCalled();
+
+    // ...and when it IS stored, normalising before the cut keeps it in bounds.
+    vi.mocked(registerOauthApp).mockClear();
+    const ok = makeRes();
+    await handler(
+      makeReq({ redirect_uris: ['https://c.example/cb'], client_name: `\uFACF${'a'.repeat(70)}` }),
+      ok,
+    );
+    expect(ok.statusCode).toBe(201);
+    const stored = vi.mocked(registerOauthApp).mock.calls[0]?.[0].name ?? '';
+    expect(stored.length).toBeGreaterThan(0);
+    expect(stored.length).toBeLessThanOrEqual(80);
+  });
+
+  // NFC, never NFKC. Compatibility folding here would erase the very
+  // distinctions the reserved-name rule depends on: it rewrites the superscript
+  // "un" of "\u1D58\u207FOfficial" into a plain one, which the rule then
+  // shelters as a genuine denial and admits. Canonical composition leaves it
+  // disguised, so the rule still sees the claim.
+  it('does not compatibility-fold a disguised negation into a real one', async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({ redirect_uris: ['https://c.example/cb'], client_name: '\u1D58\u207FOfficial' }),
+      res,
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body!.error).toBe('invalid_client_metadata');
+  });
+
+  it('leaves a name that is already NFC alone', async () => {
+    for (const name of ['\u4f1a\u8ba1 (IsaFlow)', 'Caf\u00e9 Books', 'Claude Code (isaflow)']) {
+      vi.mocked(registerOauthApp).mockClear();
+      const res = makeRes();
+      await handler(makeReq({ redirect_uris: ['https://c.example/cb'], client_name: name }), res);
+      expect(res.statusCode, name).toBe(201);
+      expect(vi.mocked(registerOauthApp).mock.calls[0]?.[0].name, name).toBe(name);
     }
   });
 

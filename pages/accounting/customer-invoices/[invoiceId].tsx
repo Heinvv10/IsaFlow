@@ -15,7 +15,10 @@ import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { CustomerInvoiceSummary } from '@/components/invoices/CustomerInvoiceSummary';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Breadcrumb } from '@/components/ui/Breadcrumb';
+import { buildInvoiceTrail } from '@/components/accounting/invoiceReturnContext';
 import { useCustomerInvoiceActions } from '@/modules/accounting/hooks/useCustomerInvoiceActions';
+import { MarkVatDeclaredElsewhereButton } from '@/components/accounting/sars/MarkVatDeclaredElsewhereButton';
 import type { CustomerInvoiceDetail } from '@/modules/accounting/types/customerInvoice.types';
 import { CUSTOMER_INVOICE_STATUS_COLORS } from '@/modules/accounting/types/customerInvoice.types';
 
@@ -173,14 +176,16 @@ export default function CustomerInvoiceDetailPage() {
   if (!invoice) return <AppLayout><div className="flex items-center justify-center min-h-[60vh] flex-col"><AlertCircle className="h-8 w-8 text-red-400 mb-2" /><p className="text-[var(--ff-text-secondary)]">{error || 'Invoice not found'}</p></div></AppLayout>;
 
   const balance = Number(invoice.total_amount) - Number(invoice.amount_paid);
+  const trail = buildInvoiceTrail('customer', router.query, invoice.client_name, invoice.invoice_number);
 
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
+          <Breadcrumb items={trail.items} className="mb-3" />
           <div className="flex items-center justify-between mb-3">
-            <Link href="/accounting/customer-invoices" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400">
-              <ArrowLeft className="h-4 w-4" /> Back to Invoices
+            <Link href={trail.back.href} className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400">
+              <ArrowLeft className="h-4 w-4" /> Back to {trail.back.label}
             </Link>
             <div className="flex items-center gap-1">
               <button onClick={() => prevId && void router.push(`/accounting/customer-invoices/${prevId}`)} disabled={!prevId} title="Previous invoice" className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] rounded-lg hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
@@ -241,6 +246,11 @@ export default function CustomerInvoiceDetailPage() {
               <FileText className="h-4 w-4" /> View GL Journal Entry
             </Link>
           )}
+          <MarkVatDeclaredElsewhereButton
+            kind="customer" invoiceId={invoiceId as string}
+            glJournalEntryId={invoice.gl_journal_entry_id || null} taxAmount={invoice.tax_amount}
+            onMarked={() => void loadInvoice()}
+          />
           <AccountingDocumentPanel
             entityType="customer_invoice"
             entityId={invoiceId as string}

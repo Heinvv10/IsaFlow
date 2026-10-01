@@ -9,6 +9,12 @@ import { postOpeningBalances } from './migrationOpeningBalanceService';
 import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationParserService';
 import type { DbRow } from '@/types/db';
 import { defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
+import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
+import { assertAccountChangesKeepVatLocks, type AccountAttributeChange } from '../gl/vatLockLineClassification';
+
+// Rollback lives in its own file for the 300-line cap; re-exported so the API
+// route and the wizard keep importing it from here.
+export { rollbackMigration, type RollbackResult } from './migrationRollbackService';
 
 
 export interface ExecuteMigrationResult {
@@ -66,9 +72,28 @@ export async function executeMigration(
     return { ...acct, mappedSubtype: fallback };
   });
 
+  // Before ANY write: re-importing the same source re-types its own accounts
+  // (`account_type = EXCLUDED.account_type`, and fills a NULL subtype). One that
+  // would move a posted line inside a locked (filed) VAT period into a
+  // different box refuses the WHOLE migration, naming account and period —
+  // later steps post opening balances against these accounts.
+  try {
+    await assertAccountChangesKeepVatLocks(companyId, await reimportAttributeChanges(companyId, source, validAccounts));
+  } catch (err) {
+    if (!(err instanceof VatPeriodLockedError)) throw err;
+    log.warn('Migration refused: it would change a filed VAT period', { companyId, source, error: err.message }, 'migration');
+    return { accountsImported: 0, customersImported: 0, suppliersImported: 0, openingBalancesSet: 0, errors: [...errors, err.message] };
+  }
+
   if (validAccounts.length > 0) {
     try {
-      await transaction((txSql) =>
+      // A collision with an account this source did not create leaves that
+      // account entirely alone — no re-tag, and no rename or re-type either.
+      // The company's own `4000 House revenue` must not become the source's
+      // `4000 Sales`: nothing records the old values, so nothing could restore
+      // them, and a NULL imported_from is what shields it from rollback.
+      // Skipped rows return no row and are reported through errors[].
+      const upserted = (await transaction((txSql) =>
         validAccounts.map(acct => txSql`
           INSERT INTO gl_accounts (
             company_id, account_code, account_name, account_type, account_subtype,
@@ -88,11 +113,18 @@ export async function executeMigration(
           ON CONFLICT (company_id, account_code) DO UPDATE SET
             account_name    = EXCLUDED.account_name,
             account_type    = EXCLUDED.account_type,
-            account_subtype = COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype),
-            imported_from   = EXCLUDED.imported_from
+            account_subtype = COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype)
+          WHERE gl_accounts.imported_from = EXCLUDED.imported_from
+          RETURNING account_code
         `)
-      );
-      accountsImported = validAccounts.length;
+      )) as DbRow[][];
+      upserted.forEach((rows, i) => {
+        if (rows.length > 0) { accountsImported += 1; return; }
+        const acct = validAccounts[i]!;
+        errors.push(
+          `Account "${acct.sourceCode} ${acct.sourceName}": code already used by an account the ${source} import does not own — it was created here, or a partial rollback released it — left unchanged (renumber the source row, or delete the existing account, then re-run)`,
+        );
+      });
     } catch (err) {
       errors.push(`Accounts batch: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -211,28 +243,31 @@ export async function verifyBalances(
   return results;
 }
 
-// ── Rollback ─────────────────────────────────────────────────────────────────
-
-export async function rollbackMigration(
-  companyId: string,
-  source: MigrationSource,
-): Promise<{ deleted: number }> {
-  let deleted = 0;
-
-  try {
-    // Remove GL accounts imported from this source
-    const acctRows = (await sql`
-      DELETE FROM gl_accounts
-      WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
-      RETURNING id
-    `) as DbRow[];
-    deleted += acctRows.length;
-
-    log.info('Rollback complete', { companyId, source, deleted }, 'migration');
-  } catch (err) {
-    log.error('Rollback failed', { companyId, source, error: err }, 'migration');
-    throw err;
-  }
-
-  return { deleted };
+/**
+ * The type/subtype changes the upsert above would make to accounts this SAME
+ * source already imported (its ON CONFLICT only updates rows whose
+ * imported_from matches): type := mapped type, subtype := COALESCE(existing,
+ * mapped). Rows another source or the company owns are left alone by the
+ * upsert, so they are not changes.
+ */
+async function reimportAttributeChanges(
+  companyId: string, source: MigrationSource, accounts: readonly ParsedAccount[],
+): Promise<AccountAttributeChange[]> {
+  const codes = accounts.map((a) => a.sourceCode || a.sourceName.substring(0, 20));
+  if (codes.length === 0) return [];
+  const rows = (await sql`
+    SELECT id, account_code, account_type, account_subtype FROM gl_accounts
+    WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
+      AND account_code = ANY(${codes}::TEXT[])`) as DbRow[];
+  const byCode = new Map(accounts.map((a, i) => [codes[i]!, a]));
+  return rows.flatMap((r) => {
+    const acct = byCode.get(String(r.account_code));
+    if (!acct) return [];
+    const subtype = r.account_subtype == null ? null : String(r.account_subtype);
+    return [{
+      accountId: String(r.id), accountCode: String(r.account_code),
+      from: { accountType: String(r.account_type), accountSubtype: subtype },
+      to: { accountType: String(acct.mappedType), accountSubtype: subtype ?? acct.mappedSubtype ?? null },
+    }];
+  });
 }

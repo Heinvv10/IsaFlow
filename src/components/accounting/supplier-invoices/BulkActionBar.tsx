@@ -4,8 +4,9 @@
  * fan-out from the client.
  */
 
-import type { ReactNode } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
+import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { log } from '@/lib/logger';
 
 type BulkAction = 'approve' | 'post_gl' | 'cancel';
@@ -21,7 +22,8 @@ interface Props {
   selected: ReadonlySet<string>;
   busy: BulkAction | null;
   onBusyChange: (b: BulkAction | null) => void;
-  onError: (msg: string) => void;
+  /** The page's error setter: the refusal is joined to whatever the reload left. */
+  onError: Dispatch<SetStateAction<string>>;
   onComplete: () => void | Promise<void>;
   onClear: () => void;
 }
@@ -52,11 +54,29 @@ export function BulkActionBar({
         return;
       }
       const data = (json.data || json) as BulkActionResult;
+      let failure = '';
       if (data.failed > 0) {
-        const firstError = data.results.find((r) => !r.ok)?.error || '';
-        onError(`${data.failed} of ${data.total} ${action}s failed${firstError ? `: ${firstError}` : ''}`);
+        // Group by message rather than showing only the first: a mixed
+        // selection typically fails for ONE reason (a status the action
+        // refuses), and the operator needs to know which reason and how many,
+        // not the first id's message alone.
+        const byReason = new Map<string, number>();
+        for (const r of data.results) {
+          if (r.ok) continue;
+          const reason = r.error || 'unknown error';
+          byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
+        }
+        const detail = Array.from(byReason.entries())
+          .map(([reason, count]) => (byReason.size > 1 ? `${count}× ${reason}` : reason))
+          .join('; ');
+        failure = `${data.failed} of ${data.total} ${action}s failed${detail ? `: ${detail}` : ''}`;
       }
+      // Reload first: the page's reload clears its error, so a failure set
+      // before it would vanish as soon as it appeared. Join rather than
+      // replace, so a failed reload still says the list is stale.
       await onComplete();
+      notifyLateClaims(json); // bills whose VAT was claimed in a later period (s16(3))
+      if (failure) onError((prev) => (prev ? `${prev} — ${failure}` : failure));
     } catch (err) {
       log.warn('Bulk action failed', { action, error: err }, 'supplier-invoices');
       onError(`${action} failed: ${err instanceof Error ? err.message : 'unknown error'}`);

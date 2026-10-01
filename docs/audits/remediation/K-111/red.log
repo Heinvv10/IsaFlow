@@ -1,0 +1,69 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k111-merge-and-timesheet-row-counts.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/accounting/duplicates-merge","timestamp":"2026-09-09T09:35:45.541Z","component":"API","requestId":"01M22RBYW4ARETTZCTXJR2YSNY","data":{"type":"request","method":"POST","url":"/api/accounting/duplicates-merge","query":{},"body":{"entityType":"supplier","primaryId":"265a642d-a25f-46e3-911e-2addd8e2ba8e","duplicateId":"d74bef2b-e83c-4166-9f04-28b2d99cd188"}}}
+{"level":"info","message":"Merging entities","timestamp":"2026-09-09T09:35:45.541Z","component":"duplicate-merge","requestId":"01M22RBYW4ARETTZCTXJR2YSNY","data":{"companyId":"03f5ea0c-4162-4244-a4ca-9ccd172a0480","entityType":"supplier","primaryId":"265a642d-a25f-46e3-911e-2addd8e2ba8e","duplicateId":"d74bef2b-e83c-4166-9f04-28b2d99cd188","userId":"887910a7-83b1-45c8-81e3-f06ef6e0d108"}}
+{"level":"info","message":"Supplier merge complete","timestamp":"2026-09-09T09:35:45.588Z","component":"duplicate-merge","requestId":"01M22RBYW4ARETTZCTXJR2YSNY","data":{"primaryId":"265a642d-a25f-46e3-911e-2addd8e2ba8e","duplicateId":"d74bef2b-e83c-4166-9f04-28b2d99cd188","count":0}}
+{"level":"info","message":"Entity merge complete","timestamp":"2026-09-09T09:35:45.588Z","component":"duplicates-api","requestId":"01M22RBYW4ARETTZCTXJR2YSNY","data":{"companyId":"03f5ea0c-4162-4244-a4ca-9ccd172a0480","entityType":"supplier","primaryId":"265a642d-a25f-46e3-911e-2addd8e2ba8e","duplicateId":"d74bef2b-e83c-4166-9f04-28b2d99cd188","userId":"887910a7-83b1-45c8-81e3-f06ef6e0d108","reassigned":0}}
+{"level":"info","message":"API Response: POST /api/accounting/duplicates-merge - 200 (48ms)","timestamp":"2026-09-09T09:35:45.588Z","component":"API","requestId":"01M22RBYW4ARETTZCTXJR2YSNY","data":{"type":"response","method":"POST","url":"/api/accounting/duplicates-merge","statusCode":200,"duration":"48ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:35:45.589Z","component":"http","requestId":"01M22RBYW4ARETTZCTXJR2YSNY","data":{"event":"request_completed","route":"/api/accounting/duplicates-merge","method":"POST","status":200,"durationMs":49,"userId":"887910a7-83b1-45c8-81e3-f06ef6e0d108","companyId":"03f5ea0c-4162-4244-a4ca-9ccd172a0480","outcome":"ok"}}
+{"level":"info","message":"withAuth slow request","timestamp":"2026-09-09T09:35:45.593Z","component":"Auth","data":{"ms":103,"url":"/api/accounting/duplicates-merge"}}
+{"level":"info","message":"Submitted time entries","timestamp":"2026-09-09T09:35:45.682Z","component":"accounting","data":{"count":0,"ids":["c1e9d5d2-da2d-4cd9-916a-d6f15140c335","ca92cc1b-1806-43a0-9b6c-cbefc490bc7f"]}}
+ ❯ tests/integration/k111-merge-and-timesheet-row-counts.int.test.ts (2 tests | 2 failed) 552ms
+   × reports the number of supplier invoices actually reassigned by a merge 182ms
+   × reports the number of time entries actually submitted 49ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k111-merge-and-timesheet-row-counts.int.test.ts > reports the number of supplier invoices actually reassigned by a merge
+AssertionError: expected { actuallyMoved: 3, reported: +0 } to deeply equal { actuallyMoved: 3, reported: 3 }
+
+- Expected
++ Received
+
+  {
+    "actuallyMoved": 3,
+-   "reported": 3,
++   "reported": 0,
+  }
+
+ ❯ tests/integration/k111-merge-and-timesheet-row-counts.int.test.ts:71:6
+     69|   // RED: three invoices really moved, but the operator is told zero.
+     70|   expect({ actuallyMoved: moved.rows[0].n, reported: body.data.reassig…
+     71|     .toEqual({ actuallyMoved: 3, reported: 3 });
+       |      ^
+     72| });
+     73|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k111-merge-and-timesheet-row-counts.int.test.ts > reports the number of time entries actually submitted
+AssertionError: expected { actuallySubmitted: 2, reported: +0 } to deeply equal { actuallySubmitted: 2, reported: 2 }
+
+- Expected
++ Received
+
+  {
+    "actuallySubmitted": 2,
+-   "reported": 2,
++   "reported": 0,
+  }
+
+ ❯ tests/integration/k111-merge-and-timesheet-row-counts.int.test.ts:79:64
+     77|     "SELECT count(*)::int AS n FROM time_entries WHERE company_id=$1 A…
+     78|   // RED: both entries move to submitted, but submitEntries returns 0.
+     79|   expect({ actuallySubmitted: submitted.rows[0].n, reported }).toEqual…
+       |                                                                ^
+     80| });
+     81|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:35:38
+   Duration  6.83s (transform 3.03s, setup 0ms, import 4.60s, tests 552ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

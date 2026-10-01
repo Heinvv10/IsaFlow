@@ -8,6 +8,7 @@ import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight,
   ExternalLink, ClipboardList, Trash2, Download } from 'lucide-react';
 import { StatusPill, PageHeader } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 interface Quote { id: string; quoteNumber: string; customerName: string; quoteDate: string; expiryDate: string | null; status: string; total: number; invoiceId?: string }
 interface CustomerOption { id: string; name: string }
@@ -19,7 +20,7 @@ const TABS = ['all', 'draft', 'sent', 'accepted', 'declined', 'expired', 'conver
 
 interface ModalProps { customers: CustomerOption[]; onClose: () => void; onCreated: () => void }
 function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
-  const [form, setForm] = useState({ clientId: '', customerName: '', quoteDate: new Date().toISOString().split('T')[0], expiryDate: '', notes: '' });
+  const [form, setForm] = useState({ clientId: '', customerName: '', quoteDate: localISODate(), expiryDate: '', notes: '' });
   const [lines, setLines] = useState([{ desc: '', qty: 1, price: 0 }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -173,8 +174,16 @@ export default function CustomerQuotesPage() {
     if (!window.confirm(`Convert ${q.quoteNumber} to a Sales Order?`)) return;
     setConvertingToSO(q.id);
     const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id, action: 'convert-to-order' }) });
-    const json = await res.json() as { data?: { salesOrderId?: string }; salesOrderId?: string; error?: { message?: string } };
+    const json = await res.json() as {
+      data?: { salesOrderId?: string }; salesOrderId?: string;
+      error?: { message?: string; details?: { salesOrderId?: string | null } };
+    };
+    // A 409 with an order id is the double-click: the first click already made
+    // the order, so open it rather than reporting a failure the user caused by
+    // succeeding twice.
+    const existingOrderId = json.error?.details?.salesOrderId;
     if (res.ok) await router.push(`/accounting/customer-sales-orders/${json.data?.salesOrderId || json.salesOrderId}`);
+    else if (res.status === 409 && existingOrderId) await router.push(`/accounting/customer-sales-orders/${existingOrderId}`);
     else window.alert(json?.error?.message || 'Failed');
     setConvertingToSO(null);
   };

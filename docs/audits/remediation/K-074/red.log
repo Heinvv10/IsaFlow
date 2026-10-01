@@ -1,0 +1,29 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k074-bank-match-confirm-supplier-balance.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/integration/k074-bank-match-confirm-supplier-balance.int.test.ts (1 test | 1 failed) 183ms
+   × records the payment on the bill the way bank-match-confirm writes it 22ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k074-bank-match-confirm-supplier-balance.int.test.ts > records the payment on the bill the way bank-match-confirm writes it
+error: column "balance" can only be updated to DEFAULT
+ ❯ node_modules/pg-pool/index.js:45:11
+ ❯ tests/integration/k074-bank-match-confirm-supplier-balance.int.test.ts:54:3
+     52| it('records the payment on the bill the way bank-match-confirm writes …
+     53|   // Verbatim from pages/api/accounting/bank-match-confirm.ts:119-126.
+     54|   await pool.query(
+       |   ^
+     55|     `UPDATE supplier_invoices
+     56|         SET amount_paid = $1::NUMERIC,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:31:08
+   Duration  824ms (transform 68ms, setup 0ms, import 141ms, tests 183ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

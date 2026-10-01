@@ -9,9 +9,6 @@ import { log } from '@/lib/logger';
 import { calculateUIF } from './uifEngine';
 import { getTaxYear } from './taxTables';
 import { UI19_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
-import { getAccountByCode } from '@/modules/accounting/services/gl/chartOfAccountsService';
-import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
-import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 
 type Row = DbRow;
 
@@ -58,7 +55,8 @@ export interface UifDeclarationDetail extends UifDeclaration {
   lines: UifDeclarationLine[];
 }
 
-function mapDeclaration(r: Row): UifDeclaration {
+/** Exported for `uifPaymentService`, which was split out of this file. */
+export function mapUifDeclaration(r: Row): UifDeclaration {
   return {
     id: String(r.id),
     companyId: String(r.company_id),
@@ -94,7 +92,7 @@ export async function listUifDeclarations(
       AND (${filters.year ?? null}::int IS NULL OR period_year = ${filters.year ?? null})
     ORDER BY period_year DESC, period_month DESC
   `) as Row[];
-  return rows.map(mapDeclaration);
+  return rows.map(mapUifDeclaration);
 }
 
 export async function getUifDeclaration(
@@ -107,7 +105,7 @@ export async function getUifDeclaration(
   `) as Row[];
   if (rows.length === 0 || !rows[0]) return null;
 
-  const decl = mapDeclaration(rows[0]);
+  const decl = mapUifDeclaration(rows[0]);
   const taxYear = getTaxYear(decl.periodMonth, decl.periodYear);
   // Bound as an array rather than inlined literals so the vocabulary lives in
   // exactly one place (@/lib/constants/payrollRunStatuses).
@@ -223,7 +221,7 @@ export async function generateUifDeclaration(
     'uifDeclarationService',
   );
 
-  return mapDeclaration(upsertRows[0]);
+  return mapUifDeclaration(upsertRows[0]);
 }
 
 export async function markUifSubmitted(
@@ -242,58 +240,5 @@ export async function markUifSubmitted(
   `) as Row[];
   if (rows.length === 0 || !rows[0]) return null;
   log.info('UIF declaration marked submitted', { companyId, id }, 'uifDeclarationService');
-  return mapDeclaration(rows[0]);
-}
-
-async function resolveGlAccount(companyId: string, code: string, label: string): Promise<string> {
-  const acc = await getAccountByCode(companyId, code);
-  if (!acc) throw new Error(`GL account ${code} (${label}) not found for company`);
-  return acc.id;
-}
-
-/** DR 2150 UIF Payable / CR 1110 Bank — clears the month's UIF liability on payment to Labour Dept. */
-export async function markUifDeclarationPaid(
-  companyId: string,
-  declarationId: string,
-  opts: { paymentDate?: string; bankAccountId?: string },
-  userId: string,
-): Promise<UifPaymentResult> {
-  const declRows = (await sql`
-    SELECT * FROM uif_declarations
-    WHERE id = ${declarationId}::uuid AND company_id = ${companyId}::uuid
-  `) as Row[];
-  if (declRows.length === 0 || !declRows[0]) throw new Error(`UIF declaration ${declarationId} not found`);
-  const decl = mapDeclaration(declRows[0]);
-  if (decl.status === 'paid') {
-    log.info('UIF declaration already paid — idempotent', { companyId, declarationId }, 'uifDeclarationService');
-    return { id: decl.id, totalPaid: decl.totalUif, journalEntryId: decl.journalEntryId ?? '', status: 'paid' };
-  }
-  if (decl.status !== 'submitted') {
-    throw new Error(`UIF declaration must be 'submitted' before paying (current: ${decl.status})`);
-  }
-  const uifPayableId = await resolveGlAccount(companyId, '2150', 'UIF Payable');
-  const bankAccId = opts.bankAccountId ?? await resolveGlAccount(companyId, '1110', 'Bank - Primary');
-  const totalPaid = Math.round((decl.totalEmployeeContribution + decl.totalEmployerContribution) * 100) / 100;
-  const paymentDate = opts.paymentDate ?? new Date().toISOString().slice(0, 10);
-  const narrative = `UIF payment ${decl.periodYear}-${String(decl.periodMonth).padStart(2, '0')}`;
-  const entry = await createJournalEntry(companyId, {
-    entryDate: paymentDate,
-    description: narrative,
-    source: 'auto_payroll',
-    lines: [
-      { glAccountId: uifPayableId, debit: totalPaid, credit: 0,         description: narrative },
-      { glAccountId: bankAccId,    debit: 0,         credit: totalPaid, description: narrative },
-    ],
-  }, userId);
-  await postJournalEntry(companyId, entry.id, userId);
-  await sql`
-    UPDATE uif_declarations SET
-      status           = 'paid',
-      payment_date     = ${paymentDate}::date,
-      journal_entry_id = ${entry.id}::uuid,
-      updated_at       = NOW()
-    WHERE id = ${declarationId}::uuid AND company_id = ${companyId}::uuid
-  `;
-  log.info('UIF declaration marked paid', { companyId, declarationId, totalPaid, journalEntryId: entry.id }, 'uifDeclarationService');
-  return { id: declarationId, totalPaid, journalEntryId: entry.id, status: 'paid' };
+  return mapUifDeclaration(rows[0]);
 }

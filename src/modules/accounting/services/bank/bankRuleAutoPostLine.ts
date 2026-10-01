@@ -9,25 +9,30 @@
 
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { recordRuleSupplierDocument } from './bankRuleSupplierDocument';
 import {
   createJournalEntry,
   postJournalEntry,
   ClosedFiscalPeriodError,
 } from '../gl/journalEntryService';
+import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { buildAutoCreateLines, getPeriodStatusForDate, type RuleAllocType } from './bankRulesMatchingHelpers';
 import { lockBankTransactionForUpdate } from './bankTxLock';
-import { applyVatDenial, resolveVatCodeForAccount } from '../gl/inputVatDenial';
+import { resolveRuleVatCode } from '../gl/ruleVatResolution';
+import { feedStateOf } from './bankFeedStateGuard';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
 export type AutoPostOutcome =
-  | { kind: 'posted'; journalEntryId: string; vatDenied: boolean }
+  | { kind: 'posted'; journalEntryId: string; vatDenied: boolean; nonSupplyCoerced: boolean }
   /** The row was allocated (or removed) between the candidate query and the lock. */
   | { kind: 'raced' }
   /** Its date falls in a closed/locked period - re-open the period to post it. */
   | { kind: 'closed_period' }
   /** No fiscal period covers its date - the year has not been created. */
-  | { kind: 'no_period' };
+  | { kind: 'no_period' }
+  /** Its journal moves a VAT figure and its date is inside a locked (filed) VAT period. */
+  | { kind: 'vat_period_locked' };
 
 export interface AutoPostLineInput {
   companyId: string;
@@ -42,6 +47,19 @@ export interface AutoPostLineInput {
    * so reading it here would be one redundant SELECT per transaction.
    */
   ruleGlAccountVatDenied?: boolean;
+  /**
+   * `account_name` for `ruleGlAccountId`, resolved in the same one-per-sweep
+   * query as the denial flag. The non-supply guard classifies on NAME, so the
+   * batched branch below cannot run it without this — and an omitted name
+   * silently disables a guard, which is why the branch falls back to the
+   * per-line resolver rather than treating undefined as "nothing to check".
+   */
+  ruleGlAccountName?: string | null;
+  /**
+   * Whether the rule's contra account IS a bank account. Pre-resolved by the
+   * sweep; undefined means "look it up per line", never "not a bank".
+   */
+  ruleGlAccountIsBank?: boolean;
   ruleName: string;
   allocType: RuleAllocType;
   ruleGlAccountId: string | null;
@@ -49,13 +67,19 @@ export interface AutoPostLineInput {
   apAccountId: string | null;
   arAccountId: string | null;
   supplierName: string | null;
+  /**
+   * The rule's supplier. Needed as well as the NAME because this path creates
+   * the supplier payment DOCUMENT for the cash it posts — the name alone only
+   * labels the bank row.
+   */
+  supplierId: string | null;
   customerName: string | null;
 }
 
 export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPostOutcome> {
   const {
     companyId, userId, tx, rule, ruleName, allocType, ruleGlAccountId,
-    bankGlAccountId, apAccountId, arAccountId, supplierName, customerName,
+    bankGlAccountId, apAccountId, arAccountId, supplierName, supplierId, customerName,
   } = input;
 
   // findMatchingTxs read every candidate in one query, possibly seconds
@@ -63,7 +87,8 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   // allocation committed in between would otherwise get a second journal
   // posted on top of it, and the UPDATE below would relink the row to it.
   const locked = await lockBankTransactionForUpdate(companyId, String(tx.id));
-  if (!locked || String(locked.status) !== 'imported' || locked.matched_journal_line_id) {
+  if (!locked || String(locked.status) !== 'imported' || locked.matched_journal_line_id
+      || feedStateOf(locked) !== 'posted') {
     return { kind: 'raced' };
   }
 
@@ -87,8 +112,10 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     ? String(rule.description_template)
         .replace('{description}', String(tx.description || ''))
         .replace('{amount}', totalAmount.toFixed(2))
-    : allocType === 'supplier' ? `Payment to ${supplierName}`
-    : allocType === 'customer' ? `Receipt from ${customerName}`
+    : allocType === 'supplier'
+      ? (isDeposit ? `Refund from ${supplierName}` : `Payment to ${supplierName}`)
+    : allocType === 'customer'
+      ? (isDeposit ? `Receipt from ${customerName}` : `Refund to ${customerName}`)
     : `Bank: ${tx.description || 'Categorised by rule'}`;
 
   // The same resolver the screen's allocateTransaction uses. A rule may not
@@ -101,11 +128,17 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   // omits it (undefined, as opposed to an explicit null meaning "no default")
   // gets the lookup done here instead: this guard is a statutory one, and a
   // caller forgetting to pass an argument must not silently turn it off.
-  const { vatCode, denied: vatDenied } = allocType !== 'account'
-    ? { vatCode: requestedVatCode, denied: false }
-    : input.ruleGlAccountVatDenied !== undefined
-      ? applyVatDenial(input.ruleGlAccountVatDenied, requestedVatCode, denialContext)
-      : await resolveVatCodeForAccount(companyId, ruleGlAccountId, requestedVatCode, denialContext);
+  const { vatCode, denied: vatDenied, nonSupplyCoerced } = await resolveRuleVatCode({
+    allocType,
+    companyId,
+    requestedVatCode,
+    glAccountId: ruleGlAccountId,
+    ruleGlAccountVatDenied: input.ruleGlAccountVatDenied,
+    ruleGlAccountName: input.ruleGlAccountName,
+    ruleGlAccountIsBank: input.ruleGlAccountIsBank,
+    denialContext,
+    guardContext: { bankTxId: String(tx.id), ruleName, glAccountId: ruleGlAccountId ?? undefined },
+  });
   const hasVat = vatCode === 'standard';
   const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
   const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
@@ -153,15 +186,16 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     // fiscal-period state can flip between the pre-flight and the post
     // (rare race; admin closing a period mid-apply). On that path we
     // hard-delete the draft we just inserted instead of leaving it
-    // dangling, then report the skip. Anything else re-throws.
-    if (err instanceof ClosedFiscalPeriodError) {
+    // dangling, then report the skip. A locked (filed) VAT period is the same
+    // shape — a skip, not a failure that aborts the sweep. Anything else re-throws.
+    if (err instanceof ClosedFiscalPeriodError || err instanceof VatPeriodLockedError) {
       await sql`
         DELETE FROM gl_journal_entries
         WHERE id = ${je.id}::UUID
           AND company_id = ${companyId}::UUID
           AND status = 'draft'
       `;
-      return { kind: 'closed_period' };
+      return { kind: err instanceof VatPeriodLockedError ? 'vat_period_locked' : 'closed_period' };
     }
     throw err;
   }
@@ -189,9 +223,37 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
           updated_at = NOW()
       WHERE id = ${tx.id}::UUID AND company_id = ${companyId}::UUID
     `;
+
+    // THE DOCUMENT FOR THE CASH, on the path with no human in the loop.
+    //
+    // INSIDE this block, not after it. Without the bank journal line there is
+    // no `matched_journal_line_id`, so the transaction stays `imported` — and a
+    // `processed` payment against a line still open for allocation is the one
+    // double-document path left: re-allocating it posts a second journal and
+    // creates a second document for the same cash. The line builder always
+    // produces a leg on `bankGlAccountId`, so this is theoretical; it costs one
+    // level of indentation to make it impossible.
+    //
+    // Both directions, the rule's apply instruction and why a refund has none,
+    // and why neither call is caught: `bankRuleSupplierDocument`.
+    if (allocType === 'supplier' && supplierId) {
+      await recordRuleSupplierDocument({
+        companyId,
+        supplierId,
+        ruleAutoApply: rule.auto_apply,
+        bankTxId: String(tx.id),
+        bankAccountId: bankGlAccountId,
+        journalEntryId: je.id,
+        amount: totalAmount,
+        paymentDate: entryDate,
+        description: entryDesc,
+        userId,
+        isDeposit,
+      });
+    }
   }
 
-  return { kind: 'posted', journalEntryId: je.id, vatDenied };
+  return { kind: 'posted', journalEntryId: je.id, vatDenied, nonSupplyCoerced };
 }
 
 /** "<code> <name>" for a GL account, or null when the rule carries no account. */

@@ -18,13 +18,8 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import {
-  BALANCE_SHEET_TYPES,
-  VAT_LEGITIMATE_BALANCE_SHEET_SUBTYPES,
-} from './vatBalanceSheetExceptions';
-import { VAT_TAX_SUBTYPES, type VatLineInput } from './vatBoxBasis';
-
-const NON_VAT_TYPES: readonly string[] = ['no_vat'];
+import type { LateClaimAwareLine } from './vatLateClaimBasis';
+import { vatEntryMemberLineSql, vatEntrySourceAdmitsSql } from './vatEntryMembership';
 
 /**
  * A document in one of these states raises no VAT, but its journal may still be
@@ -35,7 +30,8 @@ const NON_VAT_TYPES: readonly string[] = ['no_vat'];
 const CANCELLED_STATUSES: readonly string[] = ['cancelled', 'void', 'voided'];
 
 export interface VatPeriodLines {
-  lines: VatLineInput[];
+  /** With the journal's source: `auto_vat_late_claim` marks a late claim (vatLateClaimBasis). */
+  lines: LateClaimAwareLine[];
   /**
    * MAX(created_at) across the journal rows consumed, as ISO-8601. Never
    * `now()`: this is what makes the figure re-derivable, so the same period
@@ -65,7 +61,7 @@ export async function getVatPeriodLines(
   periodEnd: string,
 ): Promise<VatPeriodLines> {
   const rows = (await sql`
-    WITH vat_entries AS (
+    WITH RECURSIVE vat_entries AS (
       SELECT DISTINCT jl.journal_entry_id AS id
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
@@ -75,26 +71,13 @@ export async function getVatPeriodLines(
         AND je.status = 'posted'
         AND je.entry_date >= ${periodStart}::DATE
         AND je.entry_date <= ${periodEnd}::DATE
-        AND (
-          COALESCE(ga.account_subtype, '') = ANY(${VAT_TAX_SUBTYPES as unknown as string[]}::TEXT[])
-          OR (
-            jl.vat_type IS NOT NULL
-            AND jl.vat_type <> ALL(${NON_VAT_TYPES as string[]}::TEXT[])
-            AND (
-              -- A VAT code on a balance-sheet account with no VAT treatment.
-              (
-                ga.account_type = ANY(${BALANCE_SHEET_TYPES as string[]}::TEXT[])
-                AND COALESCE(ga.account_subtype, '') <> ALL(
-                  ${VAT_LEGITIMATE_BALANCE_SHEET_SUBTYPES as string[]}::TEXT[]
-                )
-              )
-              -- Or on the GENERIC tax subtype, which is PAYE as often as VAT.
-              OR COALESCE(ga.account_subtype, '') = 'tax'
-            )
-          )
-        )
+        -- The membership rule, shared with the VAT-lock reclassification check.
+        AND ${vatEntryMemberLineSql()}
+        -- Not the VAT submission clearing journal: it settles the previous
+        -- return and is no supply (vatEntrySourceAdmitsSql says why).
+        AND ${vatEntrySourceAdmitsSql(sql`je.source`)}
     )
-    , cancelled_entries AS (
+    , cancelled_entries_base AS (
       SELECT ci.gl_journal_entry_id AS id FROM customer_invoices ci
         WHERE ci.company_id = ${companyId}::UUID AND ci.status = ANY(${CANCELLED_STATUSES as string[]}::TEXT[])
           AND ci.gl_journal_entry_id IS NOT NULL
@@ -107,6 +90,38 @@ export async function getVatPeriodLines(
         WHERE cn.company_id = ${companyId}::UUID AND cn.status = ANY(${CANCELLED_STATUSES as string[]}::TEXT[])
           AND cn.gl_journal_entry_id IS NOT NULL
     )
+    -- A cancellation posts a reversing journal that no document row links to,
+    -- so the original alone was suppressed and the reversal landed in the boxes.
+    -- The pair is only ever hidden TOGETHER. resolveReversalDate pushes the
+    -- reversal into a later period when the original's period is closed, and
+    -- then both legs are real: the original was filed in its own period and the
+    -- credit belongs in the later one. So an original whose posted reversal
+    -- falls outside this period is not suppressed either, while a cancelled
+    -- document that was never reversed still is.
+    -- Recursive because reversing the reversal by hand would otherwise re-admit
+    -- the cancelled document's VAT; UNION dedupes, so a cycle terminates. Both
+    -- arms walk POSTED journals only: a draft reversal has no GL effect, so it
+    -- neither frees its original nor carries suppression on to its own reversal.
+    , cancelled_entries AS (
+      SELECT b.id FROM cancelled_entries_base b
+        WHERE NOT EXISTS (
+          SELECT 1 FROM gl_journal_entries out_rev
+            WHERE out_rev.company_id = ${companyId}::UUID
+              AND out_rev.reversal_of_id = b.id
+              AND out_rev.status = 'posted'
+              AND (out_rev.entry_date < ${periodStart}::DATE
+                   OR out_rev.entry_date > ${periodEnd}::DATE)
+        )
+      UNION
+      SELECT rev.id FROM gl_journal_entries rev
+        JOIN gl_journal_entries parent ON parent.id = rev.reversal_of_id
+        JOIN cancelled_entries ce ON ce.id = parent.id
+        WHERE rev.company_id = ${companyId}::UUID
+          AND rev.status = 'posted'
+          AND parent.company_id = ${companyId}::UUID
+          AND parent.entry_date >= ${periodStart}::DATE
+          AND parent.entry_date <= ${periodEnd}::DATE
+    )
     SELECT
       jl.id::TEXT              AS line_id,
       je.id::TEXT              AS journal_entry_id,
@@ -118,6 +133,9 @@ export async function getVatPeriodLines(
       ga.account_type,
       ga.account_subtype,
       jl.vat_type,
+      je.source AS entry_source,
+      je.reversal_of_id::TEXT  AS reversal_of_id,
+      jl.late_claim_base,
       jl.debit,
       jl.credit,
       GREATEST(je.created_at, jl.created_at) AS row_created_at,
@@ -132,7 +150,7 @@ export async function getVatPeriodLines(
   `) as DbRow[];
 
   let postedThrough = '';
-  const lines: VatLineInput[] = rows.map((r) => {
+  const lines: LateClaimAwareLine[] = rows.map((r) => {
     const created = iso(r.row_created_at);
     if (created > postedThrough) postedThrough = created;
     return {
@@ -146,6 +164,9 @@ export async function getVatPeriodLines(
       accountType: String(r.account_type ?? ''),
       accountSubtype: r.account_subtype == null ? null : String(r.account_subtype),
       vatType: r.vat_type == null ? null : String(r.vat_type),
+      entrySource: r.entry_source == null ? null : String(r.entry_source),
+      lateClaimBase: r.late_claim_base == null ? null : num(r.late_claim_base),
+      reversalOfId: r.reversal_of_id == null ? null : String(r.reversal_of_id),
       debit: num(r.debit),
       credit: num(r.credit),
       cancelledSource: r.cancelled_source === true,

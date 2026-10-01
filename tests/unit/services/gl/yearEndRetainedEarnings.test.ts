@@ -23,6 +23,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sqlMock = vi.fn();
 const withTransactionMock = vi.fn();
+// R-032 L5: the Login-as guard runs its own query first; it is covered by
+// tests/unit/auth/statutoryImpersonationGuards.test.ts and the r-032 integration suites.
+vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
+  assertNotImpersonating: async () => undefined,
+}));
 vi.mock('@/lib/neon', () => ({
   sql: (...a: unknown[]) => sqlMock(...a),
   withTransaction: (fn: unknown) => withTransactionMock(fn),
@@ -76,6 +82,9 @@ function primeSqlToStepFive() {
     if (call === 3) return [{ financial_year_start: 3 }];
     if (call === 4) return [{ id: 'rev-1', account_code: '4000', account_name: 'Sales', balance: '1000' }];
     if (call === 5) return [{ id: 'exp-1', account_code: '5000', account_name: 'Rent', balance: '400' }];
+    // The year's own closing journal, read before the write (K-113). No row:
+    // this year has never been closed.
+    if (call === 6) return [];
     // The fiscal period covering the closing date, resolved before the write
     // transaction opens: a NULL fiscal_period_id would leave the year-end
     // journal outside the trial balance permanently, and the next statement

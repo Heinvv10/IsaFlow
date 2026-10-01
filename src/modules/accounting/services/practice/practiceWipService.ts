@@ -1,10 +1,15 @@
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { markEntriesBilled } from './practiceTimeEntryWorkflow';
+import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { mapEntry } from './practiceTimeEntryService';
+import { lockEligibleWipEntries } from './wipEntryLock';
+import { WipInvoiceRefusal, assertWipTaxRate, assertWipEntryLines } from './wipInvoiceGuards';
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
+
+export { WipInvoiceRefusal } from './wipInvoiceGuards';
 
 export interface WipClientRow {
   practiceClientId: string;
@@ -31,6 +36,8 @@ export interface WipInvoiceResult {
   subtotal: number;
   taxAmount: number;
   totalAmount: number;
+  /** Selected ids not billed: gone, billed by a peer, or not this client's (R-120). */
+  skippedEntryCount: number;
 }
 
 export interface WipFilters {
@@ -140,139 +147,146 @@ export async function generateWipInvoice(
   userId: string,
   input: GenerateWipInvoiceInput,
 ): Promise<WipInvoiceResult> {
+  const taxRate = assertWipTaxRate(input.taxRate);
+
   // 1. Validate practice client — active + link_customer_id required
+  //    The linked customer must be a live customer of THIS company: there is
+  //    no FK, and a legacy cross-tenant link billed another tenant's customer.
   const clientRows = (await sql`
-    SELECT id, status, link_customer_id FROM practice_clients
-    WHERE id = ${input.practiceClientId}::UUID
-      AND company_id = ${companyId}::UUID
+    SELECT pc.id, pc.status, pc.link_customer_id, c.id AS own_customer_id
+    FROM practice_clients pc
+    LEFT JOIN customers c ON c.id = pc.link_customer_id
+      AND c.company_id = ${companyId}::UUID AND c.deleted_at IS NULL
+    WHERE pc.id = ${input.practiceClientId}::UUID
+      AND pc.company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!clientRows[0] || clientRows[0].status !== 'active')
-    throw new Error('practice client not found or not active');
+    throw new WipInvoiceRefusal('practice client not found or not active');
   if (!clientRows[0].link_customer_id)
-    throw new Error('practice client has no linked AR customer — set link_customer_id before generating an invoice');
-  const customerId = String(clientRows[0].link_customer_id);
+    throw new WipInvoiceRefusal('practice client has no linked AR customer — set link_customer_id before generating an invoice');
+  if (!clientRows[0].own_customer_id)
+    throw new WipInvoiceRefusal('the linked AR customer is not a live customer of this company — relink the practice client');
+  const customerId = String(clientRows[0].own_customer_id);
 
-  // 2. Load eligible entries
-  const entries = (await sql`
-    SELECT te.id, te.hours, te.applied_rate, te.line_total,
-      te.entry_date, te.task_description,
-      te.work_item_id, te.job_category_id,
-      pwi.name AS work_item_name,
-      pjc.name AS job_category_name
-    FROM time_entries te
-    LEFT JOIN practice_work_items pwi ON pwi.id = te.work_item_id
-    LEFT JOIN practice_job_categories pjc ON pjc.id = te.job_category_id
-    WHERE te.id = ANY(${input.timeEntryIds}::UUID[])
-      AND te.company_id = ${companyId}::UUID
-      AND te.practice_client_id = ${input.practiceClientId}::UUID
-      AND te.status = 'approved'
-      AND te.billed_at IS NULL
-      AND te.billable = true
-      AND te.line_total IS NOT NULL
-  `) as DbRow[];
+  // 2. Load eligible entries, holding a row lock on each for the rest of the
+  //    request so a concurrent run cannot bill the same hours (K-040). The lock
+  //    is taken by the eligibility read itself, so the read is not a
+  //    check-then-act: the loser parks here, and when the winner COMMITs its
+  //    predicate re-evaluates against the billed row and the entry drops out.
+  const entries = await lockEligibleWipEntries(companyId, input.practiceClientId, input.timeEntryIds);
 
-  if (!entries.length) throw new Error('no eligible approved time entries in selection');
+  if (!entries.length) throw new WipInvoiceRefusal('no eligible approved time entries in selection');
+
+  assertWipEntryLines(entries);
 
   const subtotal = round2(entries.reduce((s, e) => s + Number(e.line_total ?? 0), 0));
-  const taxRate = input.taxRate ?? 15;
   const taxAmount = round2(subtotal * (taxRate / 100));
   const totalAmount = round2(subtotal + taxAmount);
   const invDate = input.invoiceDate ?? new Date().toISOString().split('T')[0]!;
+  const eligibleIds = entries.map((e) => String(e.id));
 
-  // 3. Generate invoice number with retry-on-collision
-  let invoiceId = '';
-  let invoiceNumber = '';
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const maxRows = (await sql`
-      SELECT COALESCE(MAX(CAST(SUBSTRING(invoice_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
-      FROM customer_invoices WHERE company_id = ${companyId}::UUID AND invoice_number ~ '^INV-[0-9]+$'
-    `) as DbRow[];
-    const base = Number(maxRows[0]?.['max_num'] ?? 0) + 1 + attempt;
-    invoiceNumber = `INV-${String(base).padStart(5, '0')}`;
-    try {
-      const invRows = (await sql`
-        INSERT INTO customer_invoices (
-          company_id, invoice_number, customer_id, client_id,
-          subtotal, tax_rate, tax_amount, total_amount,
-          invoice_date, status, created_by,
-          currency_code, exchange_rate, functional_total
-        ) VALUES (
-          ${companyId}::UUID, ${invoiceNumber}, ${customerId}::UUID, ${customerId}::UUID,
-          ${subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
-          ${invDate}, 'draft', ${userId},
-          'ZAR', 1.0, ${totalAmount}
-        ) RETURNING id
-      `) as DbRow[];
-      invoiceId = String(invRows[0]!.id);
-      break;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('unique') && attempt < 4) {
-        log.warn('Invoice number collision, retrying', { attempt, invoiceNumber, companyId }, 'practice');
-        continue;
+  // Steps 3-5 write. The route answers a WipInvoiceRefusal with a 400, which
+  // withAuth COMMITs — so the savepoint is what lets the billed-count refusal
+  // below undo the invoice, and the number reserved for it, instead of leaving
+  // an orphan behind. Any other error is a 500 and withAuth rolls back.
+  return withSavepoint('wip_invoice_build', async () => {
+    // 3. Reserve the number from the company sequence. What this replaced was a
+    // third MAX(invoice_number)+1 generator inside the sequence's own uniqueness
+    // domain — it never advanced company_document_numbers — retrying on a message
+    // that contains "unique" with no savepoint, so a real 23505 left the request
+    // transaction aborted and every later attempt failed 25P02 instead (K-107,
+    // K-120). `insertWithReservedNumber` reserves outside each attempt's own
+    // savepoint and retries only on the numbering index, so the retry terminates.
+    const { invoiceId, invoiceNumber } = await insertWithReservedNumber(
+      companyId, 'customer_invoice', 'wip_inv_', 'uq_customer_invoices_company_number',
+      async (number) => {
+        const invRows = (await sql`
+          INSERT INTO customer_invoices (
+            company_id, invoice_number, customer_id, client_id,
+            subtotal, tax_rate, tax_amount, total_amount,
+            invoice_date, status, created_by,
+            currency_code, exchange_rate, functional_total
+          ) VALUES (
+            ${companyId}::UUID, ${number}, ${customerId}::UUID, ${customerId}::UUID,
+            ${subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
+            ${invDate}, 'draft', ${userId},
+            'ZAR', 1.0, ${totalAmount}
+          ) RETURNING id
+        `) as DbRow[];
+        return { invoiceId: String(invRows[0]!.id), invoiceNumber: number };
+      },
+    );
+
+    // 4. Insert line items based on groupBy mode
+    const groupBy = input.groupBy ?? 'detailed';
+    let lineCount = 0;
+
+    if (groupBy === 'detailed') {
+      for (const e of entries) {
+        const hours = Number(e.hours);
+        const rate = Number(e.applied_rate);
+        const lineAmount = Number(e.line_total);
+        const wi = e.work_item_name ? ` [${String(e.work_item_name)}]` : '';
+        const dateStr = fmtDate(e.entry_date);
+        const desc = `${dateStr}${wi} — ${String(e.task_description)} (${hours}h @ R${rate}/h)`;
+        await sql`
+          INSERT INTO customer_invoice_items (
+            invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code, time_entry_id
+          ) VALUES (
+            ${invoiceId}::UUID, ${desc}, ${rate}, ${hours}, ${lineAmount}, ${taxRate}, 'ZAR', ${String(e.id)}::UUID
+          )
+        `;
+        lineCount++;
       }
+    } else {
+      const groups = buildGroupedLines(entries, groupBy);
+      for (const g of groups.values()) {
+        const hours = round2(g.hours);
+        const value = round2(g.value);
+        const unit = hours > 0 ? round2(value / hours) : 0;
+        await sql`
+          INSERT INTO customer_invoice_items (
+            invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code, time_entry_id
+          ) VALUES (
+            ${invoiceId}::UUID, ${g.name}, ${unit}, ${hours}, ${value}, ${taxRate}, 'ZAR', ${null as null}
+          )
+        `;
+        lineCount++;
+      }
+    }
+
+    // 5. Mark entries billed via workflow. The count is the workflow's way of
+    //    reporting a loss: anything short of the full selection means an entry
+    //    was billed elsewhere, so this invoice must not stand. Defence in depth
+    //    behind the row lock above — while that lock holds the claim cannot
+    //    match fewer rows than it selected — but it is still the only guard for
+    //    a future caller that mints without locking, and discarding it is what
+    //    kept the original double-bill silent.
+    let marked: number;
+    try {
+      marked = await markEntriesBilled(companyId, eligibleIds, invoiceId);
+    } catch (err) {
+      log.error('markEntriesBilled failed after invoice creation — invoice rolled back', {
+        invoiceId,
+        invoiceNumber,
+        entryCount: eligibleIds.length,
+        error: err instanceof Error ? err.message : String(err),
+      }, 'practice');
       throw err;
     }
-  }
-  if (!invoiceId) {
-    throw new Error('invoice number generation failed — exhausted 5 attempts');
-  }
-
-  // 4. Insert line items based on groupBy mode
-  const groupBy = input.groupBy ?? 'detailed';
-  let lineCount = 0;
-
-  if (groupBy === 'detailed') {
-    for (const e of entries) {
-      const hours = Number(e.hours);
-      const rate = Number(e.applied_rate);
-      const lineAmount = Number(e.line_total);
-      const wi = e.work_item_name ? ` [${String(e.work_item_name)}]` : '';
-      const dateStr = fmtDate(e.entry_date);
-      const desc = `${dateStr}${wi} — ${String(e.task_description)} (${hours}h @ R${rate}/h)`;
-      await sql`
-        INSERT INTO customer_invoice_items (
-          invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code, time_entry_id
-        ) VALUES (
-          ${invoiceId}::UUID, ${desc}, ${rate}, ${hours}, ${lineAmount}, ${taxRate}, 'ZAR', ${String(e.id)}::UUID
-        )
-      `;
-      lineCount++;
+    if (marked !== eligibleIds.length) {
+      log.error('WIP invoice billed fewer entries than selected — rolling back', {
+        invoiceId, invoiceNumber, marked, selected: eligibleIds.length,
+      }, 'practice');
+      throw new WipInvoiceRefusal('time entries were billed concurrently — invoice not generated');
     }
-  } else {
-    const groups = buildGroupedLines(entries, groupBy);
-    for (const g of groups.values()) {
-      const hours = round2(g.hours);
-      const value = round2(g.value);
-      const unit = hours > 0 ? round2(value / hours) : 0;
-      await sql`
-        INSERT INTO customer_invoice_items (
-          invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code, time_entry_id
-        ) VALUES (
-          ${invoiceId}::UUID, ${g.name}, ${unit}, ${hours}, ${value}, ${taxRate}, 'ZAR', ${null as null}
-        )
-      `;
-      lineCount++;
-    }
-  }
 
-  // 5. Mark entries billed via workflow
-  const eligibleIds = entries.map((e) => String(e.id));
-  try {
-    await markEntriesBilled(companyId, eligibleIds, invoiceId);
-  } catch (err) {
-    log.error('markEntriesBilled failed after invoice creation — orphan invoice may need cleanup', {
-      invoiceId,
-      invoiceNumber,
-      entryCount: eligibleIds.length,
-      error: err instanceof Error ? err.message : String(err),
+    log.info('Generated WIP invoice', {
+      invoiceId, invoiceNumber, lineCount, subtotal, totalAmount,
     }, 'practice');
-    throw err;
-  }
 
-  log.info('Generated WIP invoice', {
-    invoiceId, invoiceNumber, lineCount, subtotal, totalAmount,
-  }, 'practice');
-
-  return { invoiceId, invoiceNumber, lineCount, subtotal, taxAmount, totalAmount };
+    // Lower-cased: Postgres compares UUIDs case-insensitively, a Set of strings does not.
+    const skippedEntryCount = new Set(input.timeEntryIds.map((id) => id.toLowerCase())).size - eligibleIds.length;
+    return { invoiceId, invoiceNumber, lineCount, subtotal, taxAmount, totalAmount, skippedEntryCount };
+  });
 }

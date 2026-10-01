@@ -6,12 +6,10 @@
  *  2. company_id is the first interpolated arg in EVERY SQL call.
  *  3. Cross-tenant: different companyId → different results (branching mock).
  *  4. overallStatus aggregation: all-pass → pass; one warn → warn; one fail → fail.
- *  5. AR tolerance boundary (0.01).
- *  6. AP tolerance boundary (mirror of AR).
- *  7. Sub-ledger negative balance (−1000 vs −1000.005, within tolerance).
+ *  5-7. AR / AP tie verdicts live in tests/unit/services/gl/subLedgerTieCheck.test.ts;
+ *       here reconcileSubledger is mocked to a tie so the orchestrator is isolated.
  *  8. getCloseReadiness returns null when period not found.
  *  9. SQL shape: bank check filters status IN ('imported','matched') — not NOT IN.
- * 10. SQL shape: AR check includes 'sent' status.
  * 11. SQL shape: each check references its expected table.
  * 12. Promise.allSettled isolation: one check throwing → others still report.
  * 13. Fix-link hrefs correct for each failing check.
@@ -20,15 +18,18 @@
  * 16. tb_balanced fail when debits != credits.
  * 17. vat_reviewed warns (not fails) when no return.
  * 18. AP failure isolation — failing AP check doesn't blank other items.
- * 19. AR warn vs fail boundary (diff > 100 → fail, diff <= 100 → warn).
- * 20. AP warn vs fail boundary mirrors AR.
- * 21. COALESCE(amount_paid) — AR total when amount_paid is NULL.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
+import { mockUnsafe } from '../../helpers/sqlFragmentMock';
 
 vi.mock('@/lib/neon', () => ({
-  sql: vi.fn(),
+  // `unsafe` is part of the real client and the AR/AP sub-ledger checks splice
+  // a fragment through it (shared/softDeleteLedgerPresence — the as-at
+  // soft-delete predicate). It must NOT be the same spy as `sql`: a fragment
+  // build is not a query, and counting it as one consumes a queued
+  // mockResolvedValueOnce and shifts every row after it.
+  sql: Object.assign(vi.fn(), { unsafe: mockUnsafe }),
   // withSavepoint degrades to a plain fn() call when there is no request tx
   // (as in these unit tests and prod cron paths) — it just runs the check.
   withSavepoint: vi.fn((_name: string, fn: () => Promise<unknown>) => fn()),
@@ -39,25 +40,55 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
   getFiscalPeriodById: vi.fn(),
 }));
+// The AR / AP ties read reconcileSubledger (point in time), not raw SQL. It is
+// mocked to a clean tie here; its verdict rules are tested in
+// tests/unit/services/gl/subLedgerTieCheck.test.ts.
+vi.mock('@/modules/accounting/services/reconciliation/subledgerReconciliationService', () => ({
+  reconcileSubledger: vi.fn(),
+}));
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getFiscalPeriodById } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { getCloseReadiness } from '@/modules/accounting/services/gl/periodCloseReadinessService';
 import { bankReconciledCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/bankReconciledCheck';
-import { arSubLedgerCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/arSubLedgerCheck';
-import { apSubLedgerCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/apSubLedgerCheck';
 import { unpostedJournalsCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/unpostedJournalsCheck';
 import { tbBalancedCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/tbBalancedCheck';
 import { BALANCE_TOLERANCE } from '@/modules/accounting/services/gl/trialBalanceService';
 import { vatReviewedCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/vatReviewedCheck';
 import type { FiscalPeriod } from '@/modules/accounting/types/gl.types';
+import {
+  reconcileSubledger,
+  type SubledgerReconciliation,
+} from '@/modules/accounting/services/reconciliation/subledgerReconciliationService';
 
 type SqlFn = MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 type GetPeriodFn = MockedFunction<(companyId: string, id: string) => Promise<FiscalPeriod | null>>;
 
 const mockSql = sql as unknown as SqlFn;
 const mockGetPeriodById = getFiscalPeriodById as GetPeriodFn;
+const mockReconcile = vi.mocked(reconcileSubledger);
+
+/** A reconciliation where the subledger ties to the control account exactly. */
+function tiedReconciliation(role: string, asAt: string): SubledgerReconciliation {
+  return {
+    subledger: role as SubledgerReconciliation['subledger'],
+    as_at: asAt,
+    agedTotal: 1000,
+    subledgerTotal: 1000,
+    subledgerUnavailable: null,
+    controlAccounts: [],
+    controlAccountBalance: 1000,
+    controlAccountAmbiguous: false,
+    difference: 0,
+    reconcilingItems: [],
+    unexplainedDifference: 0,
+    excludedRows: [],
+    settlementFlagged: {} as SubledgerReconciliation['settlementFlagged'],
+    invariants: [],
+    postedThrough: null,
+  };
+}
 
 const COMPANY_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const COMPANY_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -79,30 +110,22 @@ function makePeriod(overrides: Partial<FiscalPeriod> = {}): FiscalPeriod {
 }
 
 /**
- * Sets up mocks for all 7 SQL checks in SEQUENTIAL execution order. The checks
- * now run one-at-a-time (each inside its own savepoint), and the ar/ap checks
- * issue two queries in sequence (invoice sum then GL balance), so the SQL call
- * order is:
+ * Sets up mocks for the SQL checks in SEQUENTIAL execution order. The checks
+ * run one-at-a-time (each inside its own savepoint). The ar/ap ties issue no
+ * direct SQL — they call the (mocked) reconcileSubledger — so the order is:
  *  Call 1: bank       (1 query)
  *  Call 2: journals   (1 query)
- *  Call 3: ar invoice sum
- *  Call 4: ar GL balance
- *  Call 5: ap invoice sum
- *  Call 6: ap GL balance
- *  Call 7: vat        (1 query)
- *  Call 8-12: tb — fiscal-year lookup (close paths refuse to assume March),
+ *  Call 3: vat        (1 query)
+ *  Call 4-8: tb — fiscal-year lookup (close paths refuse to assume March),
  *             this period's postings, then getTrialBalanceReport's period
  *             basis, balances and brought-forward profit (5 queries)
- *  Call 13: opening balance equity (1 query)
+ *  Call 9: opening balance equity (1 query)
+ *  Call 10: orphan period journals (1 query)
  */
 function mockAllChecksPass(): void {
   mockSql
     .mockResolvedValueOnce([{ unreconciled_count: '0' }])  // bank
     .mockResolvedValueOnce([{ draft_count: '0' }])         // journals
-    .mockResolvedValueOnce([{ ar_total: '1000.00' }])      // ar invoice sum
-    .mockResolvedValueOnce([{ gl_balance: '1000.00' }])    // ar GL balance
-    .mockResolvedValueOnce([{ ap_total: '500.00' }])       // ap invoice sum
-    .mockResolvedValueOnce([{ gl_balance: '500.00' }])     // ap GL balance
     .mockResolvedValueOnce([{ vat_count: '1' }])           // vat
     // tb — fiscal year lookup, this period's postings, then the report itself
     .mockResolvedValueOnce([{ financial_year_start: 3 }])
@@ -122,6 +145,7 @@ function mockAllChecksPass(): void {
 describe('getCloseReadiness — orchestrator', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReconcile.mockImplementation(async (_c, role, asAt) => tiedReconciliation(role, asAt));
   });
 
   // ── Null period ──────────────────────────────────────────────────────────
@@ -158,10 +182,6 @@ describe('getCloseReadiness — orchestrator', () => {
     mockSql
       .mockResolvedValueOnce([{ unreconciled_count: '0' }])
       .mockResolvedValueOnce([{ draft_count: '0' }])
-      .mockResolvedValueOnce([{ ar_total: '1000.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '1000.00' }])
-      .mockResolvedValueOnce([{ ap_total: '500.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '500.00' }])
       .mockResolvedValueOnce([{ vat_count: '0' }])         // VAT: WARN
       // tb — fiscal year lookup, period postings, then the report itself
       .mockResolvedValueOnce([{ financial_year_start: 3 }])
@@ -183,10 +203,6 @@ describe('getCloseReadiness — orchestrator', () => {
     mockSql
       .mockResolvedValueOnce([{ unreconciled_count: '3' }])  // bank: FAIL
       .mockResolvedValueOnce([{ draft_count: '0' }])
-      .mockResolvedValueOnce([{ ar_total: '1000.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '1000.00' }])
-      .mockResolvedValueOnce([{ ap_total: '500.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '500.00' }])
       .mockResolvedValueOnce([{ vat_count: '1' }])
       .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }])
       .mockResolvedValueOnce([{ accounts: '0', balance: '0' }]) // opening balance equity
@@ -206,8 +222,9 @@ describe('getCloseReadiness — orchestrator', () => {
 
     await getCloseReadiness(COMPANY_A, PERIOD_ID);
 
-    // 8 single-query checks + the 5 the trial balance check now issues.
-    expect(mockSql).toHaveBeenCalledTimes(14);
+    // 6 single-query checks + the 5 the trial balance check issues; the ar/ap
+    // ties go through reconcileSubledger instead.
+    expect(mockSql).toHaveBeenCalledTimes(10);
     // Every query must be company-scoped. Asserted on membership rather than
     // position: a query with conditional aggregation interpolates its CASE
     // bounds before it reaches the WHERE clause, and an unscoped query fails
@@ -285,8 +302,11 @@ describe('getCloseReadiness — orchestrator', () => {
     const mockWithSavepoint = withSavepoint as unknown as MockedFunction<
       (name: string, fn: () => Promise<unknown>) => Promise<unknown>
     >;
-    // one savepoint per check — six checks
-    expect(mockWithSavepoint).toHaveBeenCalledTimes(8);
+    // one orchestrator savepoint per check — eight checks. The ar/ap ties
+    // also open one NESTED savepoint each around reconcileSubledger.
+    const names = mockWithSavepoint.mock.calls.map((c) => String(c[0]));
+    expect(names.filter((n) => n.startsWith('close_check_'))).toHaveLength(8);
+    expect(names.filter((n) => n.endsWith('_tie_recon'))).toEqual(['ar_tie_recon', 'ap_tie_recon']);
     // every savepoint name is a valid identifier (withSavepoint rejects bad names at runtime)
     for (const call of mockWithSavepoint.mock.calls) {
       expect(String(call[0])).toMatch(/^[a-zA-Z_][a-zA-Z0-9_]{0,30}$/);
@@ -305,13 +325,18 @@ describe('getCloseReadiness — orchestrator', () => {
     const mockWithSavepoint = withSavepoint as unknown as MockedFunction<
       (name: string, fn: () => Promise<unknown>) => Promise<unknown>
     >;
-    mockWithSavepoint.mockImplementation(async (_name, fn) => {
-      openDepth++;
-      maxDepth = Math.max(maxDepth, openDepth);
+    mockWithSavepoint.mockImplementation(async (name, fn) => {
+      // Only the orchestrator's per-check savepoints count: a check may nest
+      // its own savepoint inside (LIFO-safe), but two checks may never overlap.
+      const top = name.startsWith('close_check_');
+      if (top) {
+        openDepth++;
+        maxDepth = Math.max(maxDepth, openDepth);
+      }
       try {
         return await fn();
       } finally {
-        openDepth--;
+        if (top) openDepth--;
       }
     });
     // Real async work per query so a concurrent orchestrator WOULD overlap here.
@@ -338,10 +363,6 @@ describe('getCloseReadiness — orchestrator', () => {
     mockSql
       .mockRejectedValueOnce(new Error('DB timeout'))  // bank check: THROWS
       .mockResolvedValueOnce([{ draft_count: '0' }])
-      .mockResolvedValueOnce([{ ar_total: '1000.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '1000.00' }])
-      .mockResolvedValueOnce([{ ap_total: '500.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '500.00' }])
       .mockResolvedValueOnce([{ vat_count: '1' }])
       .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }])
       .mockResolvedValueOnce([{ accounts: '0', balance: '0' }]) // opening balance equity
@@ -370,13 +391,14 @@ describe('getCloseReadiness — orchestrator', () => {
 
   it('AP check failing does not blank other items', async () => {
     mockGetPeriodById.mockResolvedValueOnce(makePeriod());
+    mockReconcile.mockImplementation(async (_c, role, asAt) => {
+      if (role === 'ap') throw new Error('AP table unavailable');
+      return tiedReconciliation(role, asAt);
+    });
 
     mockSql
       .mockResolvedValueOnce([{ unreconciled_count: '0' }])  // bank: pass
       .mockResolvedValueOnce([{ draft_count: '0' }])           // journals: pass
-      .mockResolvedValueOnce([{ ar_total: '1000.00' }])        // ar invoice sum
-      .mockResolvedValueOnce([{ gl_balance: '1000.00' }])      // ar GL balance
-      .mockRejectedValueOnce(new Error('AP table unavailable')) // ap invoice sum: THROWS (ap GL never runs)
       .mockResolvedValueOnce([{ vat_count: '1' }])             // vat: pass
       // tb: pass — fiscal year lookup, period postings, then the report
       .mockResolvedValueOnce([{ financial_year_start: 3 }])
@@ -395,6 +417,8 @@ describe('getCloseReadiness — orchestrator', () => {
 
     const apItem = result!.items.find(i => i.key === 'ap_ties');
     expect(apItem!.status).toBe('warn');
+    expect(apItem!.reason).toMatch(/^Could not compute/);
+    expect(result!.items.find(i => i.key === 'ar_ties')!.status).toBe('pass');
 
     const bankItem = result!.items.find(i => i.key === 'bank_reconciled');
     expect(bankItem!.status).toBe('pass');
@@ -410,10 +434,6 @@ describe('getCloseReadiness — orchestrator', () => {
     mockSql
       .mockResolvedValueOnce([{ unreconciled_count: '1' }])   // bank
       .mockResolvedValueOnce([{ draft_count: '1' }])          // journals
-      .mockResolvedValueOnce([{ ar_total: '1000' }])          // ar invoice sum
-      .mockResolvedValueOnce([{ gl_balance: '500' }])         // ar GL balance
-      .mockResolvedValueOnce([{ ap_total: '1000' }])          // ap invoice sum
-      .mockResolvedValueOnce([{ gl_balance: '500' }])         // ap GL balance
       .mockResolvedValueOnce([{ vat_count: '0' }])            // vat
       .mockResolvedValueOnce([{ total_debit: '10200', total_credit: '10000' }]) // tb
       .mockResolvedValueOnce([{ accounts: '0', balance: '0' }]) // opening balance equity
@@ -486,172 +506,6 @@ describe('bankReconciledCheck', () => {
     mockSql.mockResolvedValueOnce([{ unreconciled_count: '0' }]);
     await bankReconciledCheck(COMPANY_A, PERIOD);
     expect(mockSql.mock.calls[0]![1]).toBe(COMPANY_A);
-  });
-});
-
-// ── arSubLedgerCheck ─────────────────────────────────────────────────────────
-
-describe('arSubLedgerCheck', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  const PERIOD = { endDate: '2026-01-31' };
-
-  it('passes when AR sub-ledger equals GL balance', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ar_total: '1000.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '1000.00' }]);
-    const item = await arSubLedgerCheck(COMPANY_A, PERIOD);
-    expect(item.status).toBe('pass');
-  });
-
-  it('passes at tolerance boundary (diff = 0.01)', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ar_total: '1000.01' }])
-      .mockResolvedValueOnce([{ gl_balance: '1000.00' }]);
-    const item = await arSubLedgerCheck(COMPANY_A, PERIOD);
-    expect(item.status).toBe('pass');
-  });
-
-  it('passes within tolerance (diff = 0.005)', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ar_total: '1000.005' }])
-      .mockResolvedValueOnce([{ gl_balance: '1000.00' }]);
-    const item = await arSubLedgerCheck(COMPANY_A, PERIOD);
-    expect(item.status).toBe('pass');
-  });
-
-  it('warns when diff > tolerance but <= 100', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ar_total: '1050.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '1000.00' }]);
-    const item = await arSubLedgerCheck(COMPANY_A, PERIOD);
-    expect(item.status).toBe('warn');
-  });
-
-  it('fails when diff > 100 (SUB_LEDGER_FAIL_THRESHOLD)', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ar_total: '1200.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '1000.00' }]);
-    const item = await arSubLedgerCheck(COMPANY_A, PERIOD);
-    expect(item.status).toBe('fail');
-  });
-
-  it('passes when both sub-ledger and GL show negative balance within tolerance', async () => {
-    // Scenario: credit note scenario — AR sub-ledger = -1000, GL = -1000.005
-    mockSql
-      .mockResolvedValueOnce([{ ar_total: '-1000.000' }])
-      .mockResolvedValueOnce([{ gl_balance: '-1000.005' }]);
-    const item = await arSubLedgerCheck(COMPANY_A, PERIOD);
-    expect(item.status).toBe('pass');
-  });
-
-  it("SQL includes 'sent' in AR status filter", async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ar_total: '0' }])
-      .mockResolvedValueOnce([{ gl_balance: '0' }]);
-    await arSubLedgerCheck(COMPANY_A, PERIOD);
-
-    const invoiceQueryTemplate = mockSql.mock.calls[0]![0] as TemplateStringsArray;
-    const invoiceQuery = invoiceQueryTemplate.join('?');
-    expect(invoiceQuery).toContain("'sent'");
-  });
-
-  it('SQL references customer_invoices and gl_journal_lines', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ar_total: '0' }])
-      .mockResolvedValueOnce([{ gl_balance: '0' }]);
-    await arSubLedgerCheck(COMPANY_A, PERIOD);
-
-    const invTemplate = mockSql.mock.calls[0]![0] as TemplateStringsArray;
-    const glTemplate = mockSql.mock.calls[1]![0] as TemplateStringsArray;
-    expect(invTemplate.join('?')).toContain('customer_invoices');
-    expect(glTemplate.join('?')).toContain('gl_journal_lines');
-  });
-
-  it('company_id is first interpolated arg in both SQL calls', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ar_total: '0' }])
-      .mockResolvedValueOnce([{ gl_balance: '0' }]);
-    await arSubLedgerCheck(COMPANY_A, PERIOD);
-
-    expect(mockSql.mock.calls[0]![1]).toBe(COMPANY_A);
-    expect(mockSql.mock.calls[1]![1]).toBe(COMPANY_A);
-  });
-});
-
-// ── apSubLedgerCheck ─────────────────────────────────────────────────────────
-
-describe('apSubLedgerCheck', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  const PERIOD = { endDate: '2026-01-31' };
-
-  it('passes when AP sub-ledger equals GL balance', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ap_total: '500.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '500.00' }]);
-    const item = await apSubLedgerCheck(COMPANY_A, PERIOD);
-    expect(item.status).toBe('pass');
-  });
-
-  it('passes at tolerance boundary (diff = 0.01)', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ap_total: '500.01' }])
-      .mockResolvedValueOnce([{ gl_balance: '500.00' }]);
-    const item = await apSubLedgerCheck(COMPANY_A, PERIOD);
-    expect(item.status).toBe('pass');
-  });
-
-  it('warns when diff > tolerance but <= 100', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ap_total: '550.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '500.00' }]);
-    const item = await apSubLedgerCheck(COMPANY_A, PERIOD);
-    expect(item.status).toBe('warn');
-  });
-
-  it('fails when diff > 100 (SUB_LEDGER_FAIL_THRESHOLD)', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ap_total: '700.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '500.00' }]);
-    const item = await apSubLedgerCheck(COMPANY_A, PERIOD);
-    expect(item.status).toBe('fail');
-  });
-
-  it("SQL does NOT include 'overdue' in AP status filter", async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ap_total: '0' }])
-      .mockResolvedValueOnce([{ gl_balance: '0' }]);
-    await apSubLedgerCheck(COMPANY_A, PERIOD);
-
-    const invTemplate = mockSql.mock.calls[0]![0] as TemplateStringsArray;
-    const invQuery = invTemplate.join('?');
-    expect(invQuery).not.toContain("'overdue'");
-    // Must include approved and partially_paid
-    expect(invQuery).toContain("'approved'");
-    expect(invQuery).toContain("'partially_paid'");
-  });
-
-  it('SQL references supplier_invoices and gl_journal_lines', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ap_total: '0' }])
-      .mockResolvedValueOnce([{ gl_balance: '0' }]);
-    await apSubLedgerCheck(COMPANY_A, PERIOD);
-
-    const invTemplate = mockSql.mock.calls[0]![0] as TemplateStringsArray;
-    const glTemplate = mockSql.mock.calls[1]![0] as TemplateStringsArray;
-    expect(invTemplate.join('?')).toContain('supplier_invoices');
-    expect(glTemplate.join('?')).toContain('gl_journal_lines');
-  });
-
-  it('company_id is first interpolated arg in both SQL calls', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ ap_total: '0' }])
-      .mockResolvedValueOnce([{ gl_balance: '0' }]);
-    await apSubLedgerCheck(COMPANY_A, PERIOD);
-
-    expect(mockSql.mock.calls[0]![1]).toBe(COMPANY_A);
-    expect(mockSql.mock.calls[1]![1]).toBe(COMPANY_A);
   });
 });
 

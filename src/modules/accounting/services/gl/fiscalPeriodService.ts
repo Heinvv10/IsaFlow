@@ -8,6 +8,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { FiscalPeriod, FiscalPeriodStatus } from '../../types/gl.types';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
 
@@ -139,6 +140,7 @@ export {
 } from './fiscalYearCreateService';
 
 export async function closePeriod(companyId: string, id: string, userId: string): Promise<FiscalPeriod> {
+  await assertNotImpersonating(); // R-032: period controls are refused to a Login-as session
   try {
     const period = await getFiscalPeriodById(companyId, id);
     if (!period) throw new Error(`Fiscal period ${id} not found`);
@@ -170,6 +172,7 @@ export async function closePeriod(companyId: string, id: string, userId: string)
 }
 
 export async function lockPeriod(companyId: string, id: string): Promise<FiscalPeriod> {
+  await assertNotImpersonating(); // R-032: period controls are refused to a Login-as session
   try {
     const period = await getFiscalPeriodById(companyId, id);
     if (!period) throw new Error(`Fiscal period ${id} not found`);
@@ -186,6 +189,7 @@ export async function lockPeriod(companyId: string, id: string): Promise<FiscalP
 }
 
 export async function reopenPeriod(companyId: string, id: string): Promise<FiscalPeriod> {
+  await assertNotImpersonating(); // R-032: period controls are refused to a Login-as session
   try {
     const period = await getFiscalPeriodById(companyId, id);
     if (!period) throw new Error(`Fiscal period ${id} not found`);
@@ -206,6 +210,7 @@ export async function reopenPeriod(companyId: string, id: string): Promise<Fisca
 }
 
 export async function closeYear(companyId: string, fiscalYear: number, userId: string): Promise<FiscalPeriod[]> {
+  await assertNotImpersonating(); // R-032: period controls are refused to a Login-as session
   try {
     const periods = await getFiscalPeriods(companyId, fiscalYear);
     if (periods.length === 0) throw new Error(`No periods found for fiscal year ${fiscalYear}`);

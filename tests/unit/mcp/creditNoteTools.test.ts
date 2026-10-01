@@ -27,6 +27,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
+vi.mock('@/modules/accounting/services/shared/creditNoteFifo', async () => {
+  const actual = await vi.importActual<typeof import('@/modules/accounting/services/shared/creditNoteFifo')>(
+    '@/modules/accounting/services/shared/creditNoteFifo',
+  );
+  return { ...actual, listCreditNoteAllocations: vi.fn() };
+});
 vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
   getCreditNotes: vi.fn(),
   getCreditNoteById: vi.fn(),
@@ -54,6 +60,7 @@ import {
   findOpenDuplicateDraft,
 } from '@/modules/accounting/services/ar/creditNoteLinkService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { listCreditNoteAllocations } from '@/modules/accounting/services/shared/creditNoteFifo';
 import { listCreditNotesTool, getCreditNoteTool } from '@/lib/mcp/tools/creditNotes';
 import {
   createCreditNoteTool,
@@ -103,6 +110,7 @@ const draftNote = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(listCreditNoteAllocations).mockResolvedValue([]);
   vi.mocked(validateCreditNoteLinks).mockResolvedValue(null);
   vi.mocked(validateSystemAccounts).mockResolvedValue([]);
   vi.mocked(findOpenDuplicateDraft).mockResolvedValue(null);
@@ -186,6 +194,79 @@ describe('create_credit_note — pre-write guards', () => {
     expect(createCreditNote).not.toHaveBeenCalled();
   });
 
+  /**
+   * Two genuine returns to one supplier on one day for one amount are two
+   * credits. The refusal used to say "change the date, amount or reason" — but
+   * reason is not part of the duplicate key, so the only way through was to
+   * alter the date or the amount: falsify the document to pass the guard.
+   *
+   * The override must NAME the draft it overrides (adversarial review): a bare
+   * boolean could be sent blind on a first call, after which every fresh-key
+   * retry would mint another identical note — the case the guard exists for.
+   */
+  const DUP = '0b0b0b0b-0000-4000-8000-000000000001';
+  const NEWER_DUP = '0b0b0b0b-0000-4000-8000-000000000002';
+
+  it('tells the truth about the way through: duplicate_of naming the draft, not a changed reason', async () => {
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue(DUP);
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, reason: 'other' }, ctx());
+    expect(errText(r)).toContain(`duplicate_of: "${DUP}"`);
+    expect(errText(r)).not.toContain('reason');
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('creates a genuine second credit when duplicate_of names the current identical draft', async () => {
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue(DUP);
+    vi.mocked(createCreditNote).mockResolvedValue(draftNote as never);
+    const out = parseOk(await createCreditNoteTool.handler(
+      { ...base, client_id: CUSTOMER, duplicate_of: DUP }, ctx(),
+    ));
+    expect(out).toMatchObject({ id: NOTE, status: 'draft' });
+  });
+
+  it('refuses a stale duplicate_of — a fresh-key retry after the override cannot mint a third', async () => {
+    // The override created NEWER_DUP; the retry still names DUP.
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue(NEWER_DUP);
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, duplicate_of: DUP }, ctx());
+    expect(errText(r)).toContain(NEWER_DUP);
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('refuses duplicate_of when there is no identical draft — it cannot be sent blind', async () => {
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, duplicate_of: DUP }, ctx());
+    expect(errText(r)).toContain('no longer an identical open draft');
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Re-review LOW: the named draft may have been APPROVED between the refusal
+   * and the retry. Telling the agent to "omit duplicate_of" walked it into a
+   * second note identical to an approved one — which the draft-only guard can
+   * no longer see. The refusal must say the draft is gone and why that matters.
+   */
+  it('does not tell the agent to simply drop duplicate_of once the named draft has moved on', async () => {
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, duplicate_of: DUP }, ctx());
+    const text = errText(r);
+    expect(text).toContain(DUP);
+    expect(text).toContain('approved or cancelled');
+    expect(text).toContain('get_credit_note');
+    expect(text).not.toContain('Omit duplicate_of');
+  });
+
+  it('refuses a duplicate_of that is not a uuid, before any read', async () => {
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, duplicate_of: 'yes' }, ctx());
+    expect(r.isError).toBe(true);
+    expect(findOpenDuplicateDraft).not.toHaveBeenCalled();
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('ignores the old boolean: allow_duplicate no longer opens the guard', async () => {
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue(DUP);
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER, allow_duplicate: true }, ctx());
+    expect(r.isError).toBe(true);
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
   it('checks for a duplicate using the VAT-inclusive total, not the subtotal', async () => {
     vi.mocked(createCreditNote).mockResolvedValue(draftNote as never);
     await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER }, ctx());
@@ -226,24 +307,51 @@ describe('approve_credit_note', () => {
     await approveCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, ctx());
     expect(approveCreditNote).toHaveBeenCalledWith(
       COMPANY, NOTE, expect.any(String),
-      { postingAgent: 'mcp:approve_credit_note:v1', actorType: 'agent', actorTokenJti: 'jti' },
+      { postingAgent: 'mcp:approve_credit_note:v1', actorType: 'agent', actorTokenJti: 'jti',
+        autoApply: 'fifo' },
     );
   });
 
-  it('reports applied_to_invoice_id when the auto-apply fired, and null when it did not', async () => {
+  it('names every document the note settled, and what is left on account', async () => {
     vi.mocked(getCreditNoteById).mockResolvedValue(draftNote as never);
 
     vi.mocked(approveCreditNote).mockResolvedValue({
-      ...draftNote, status: 'applied', customerInvoiceId: CUST_INV, glJournalEntryId: 'je-1',
+      ...draftNote, status: 'partially_applied', totalAmount: 1150, appliedAmount: 400,
+      customerInvoiceId: CUST_INV, glJournalEntryId: 'je-1',
     } as never);
+    vi.mocked(listCreditNoteAllocations).mockResolvedValue([{ invoiceId: CUST_INV, amount: 400 }]);
     expect(parseOk(await approveCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, ctx())))
-      .toMatchObject({ status: 'applied', applied_to_invoice_id: CUST_INV });
+      .toMatchObject({
+        status: 'partially_applied',
+        applied_amount: 400,
+        unapplied_amount: 750,
+        applied_to_invoice_ids: [{ invoice_id: CUST_INV, amount: 400 }],
+      });
 
     vi.mocked(approveCreditNote).mockResolvedValue({
-      ...draftNote, status: 'approved', glJournalEntryId: 'je-1',
+      ...draftNote, status: 'approved', totalAmount: 1150, appliedAmount: 0, glJournalEntryId: 'je-1',
     } as never);
+    vi.mocked(listCreditNoteAllocations).mockResolvedValue([]);
     expect(parseOk(await approveCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, ctx())))
-      .toMatchObject({ status: 'approved', applied_to_invoice_id: null });
+      .toMatchObject({ status: 'approved', applied_amount: 0, applied_to_invoice_ids: [] });
+  });
+
+  it('passes auto_apply "none" through, and refuses a value that is neither', async () => {
+    vi.mocked(getCreditNoteById).mockResolvedValue(draftNote as never);
+    vi.mocked(approveCreditNote).mockResolvedValue({
+      ...draftNote, status: 'approved', totalAmount: 1150, appliedAmount: 0, glJournalEntryId: 'je-1',
+    } as never);
+    vi.mocked(listCreditNoteAllocations).mockResolvedValue([]);
+
+    await approveCreditNoteTool.handler({ credit_note_id: NOTE, auto_apply: 'none', ...KEY }, ctx());
+    expect(vi.mocked(approveCreditNote).mock.calls[0]![3]).toMatchObject({ autoApply: 'none' });
+
+    // Coercing an unknown value to the default would spend the credit for an
+    // agent that asked for the opposite.
+    const bad = await approveCreditNoteTool.handler(
+      { credit_note_id: NOTE, auto_apply: 'oldest', ...KEY }, ctx(),
+    );
+    expect(errText(bad)).toContain('auto_apply must be one of');
   });
 
   it('RETHROWS a service failure instead of flattening it into a tool error', async () => {

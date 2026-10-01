@@ -26,6 +26,14 @@ vi.mock('@/lib/auth', () => ({
   withAuth: (fn: unknown) => fn,
   withWriteAccess: (fn: unknown) => fn,
 }));
+vi.mock('@/lib/als', () => ({
+  // The route now takes a FOR UPDATE row lock before its status check, which
+  // needs the request transaction's client. These tests mock the database
+  // wholesale, so the store is stubbed; the lock's real behaviour is proven
+  // against Postgres in tests/integration/k072-capture-double-post.int.test.ts.
+  als: { getStore: () => ({ client: { query: vi.fn() } }) },
+  assertTxUsable: vi.fn(),
+}));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
 vi.mock('@/lib/apiResponse', () => ({
@@ -56,10 +64,18 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccountId: vi.fn(async (key: string) => `acct-${key}`),
 }));
+// R-088's duplicate check has its own real-PG coverage (r088-receipt-content-dedupe); here it is clear.
+vi.mock('@/modules/accounting/services/capture/receiptDuplicateGuard', () => ({
+  checkReceiptDuplicate: vi.fn(async () => ({
+    kind: 'clear', fingerprint: { receiptKey: null, duplicateOf: null, confirmedBy: null },
+  })),
+}));
 
 // receiptToJournalService is deliberately NOT mocked — the whole point is that
 // the REAL builder emits the zero leg the route has to filter.
 import handler from '../../../pages/api/accounting/receipt-to-journal';
+import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa';
@@ -89,6 +105,11 @@ function stubDb(extracted: Record<string, unknown>) {
     if (text.includes('FROM captured_documents')) {
       return Promise.resolve([{ extracted_data: extracted, status: 'pending' }]);
     }
+    // The route CLAIMS the document — a status-predicated UPDATE ... RETURNING
+    // id — before its first ledger write, and refuses with a 400 when the
+    // statement matches no row. A stub that answered [] to everything therefore
+    // made every test here refuse instead of post.
+    if (text.includes('UPDATE captured_documents')) return Promise.resolve([{ id: 'doc-1' }]);
     if (text.includes('FROM gl_accounts')) return Promise.resolve([]);
     return Promise.resolve([]);
   }) as never);
@@ -215,5 +236,43 @@ describe('receipt-to-journal — zero-VAT receipts', () => {
 
     expect(linesFromRoute().every(l => l.debit !== 0 || l.credit !== 0)).toBe(true);
     expect(validateJournalEntry(linesFromRoute()).valid).toBe(true);
+  });
+});
+
+describe('receipt-to-journal — a transient fault is not a configuration answer', () => {
+  // L-1's narrowing, which nothing exercised. `getSystemAccountId` runs a real
+  // query, so the bare `catch` that used to sit here reported a database fault
+  // to the operator as "set it up in Default Accounts" — unlogged, pointing at
+  // the wrong remedy, and hiding an outage behind a 400. Only the MISSING ROLE
+  // is answered; everything else propagates.
+  it('rethrows a database fault raised while resolving the VAT Input role', async () => {
+    stubDb(ZERO_VAT);
+    const original = vi.mocked(getSystemAccountId).getMockImplementation()!;
+    vi.mocked(getSystemAccountId).mockImplementation(async (key: string, companyId: string) => {
+      if (key === 'vat_input') throw Object.assign(new Error('connection terminated'), { code: '57P01' });
+      return original(key, companyId);
+    });
+    try {
+      await expect(handler(req(ZERO_VAT), res())).rejects.toThrow(/connection terminated/);
+      expect(createMock).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(getSystemAccountId).mockImplementation(original);
+    }
+  });
+
+  it('still answers 400 when the role is genuinely unmapped', async () => {
+    stubDb(ZERO_VAT);
+    const original = vi.mocked(getSystemAccountId).getMockImplementation()!;
+    vi.mocked(getSystemAccountId).mockImplementation(async (key: string, companyId: string) => {
+      if (key === 'vat_input') throw new MissingSystemAccountError('vat_input', companyId, 'no_claimant', []);
+      return original(key, companyId);
+    });
+    try {
+      const result = await handler(req(ZERO_VAT), res());
+      expect(result).toMatchObject({ kind: 'badRequest' });
+      expect(createMock).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(getSystemAccountId).mockImplementation(original);
+    }
   });
 });

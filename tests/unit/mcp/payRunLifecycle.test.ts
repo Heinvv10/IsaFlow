@@ -24,14 +24,35 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunService', () => ({
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollApprovalService', () => ({
   approvePayrollRun: vi.fn(),
+  findApprovalBlocker: vi.fn(),
 }));
+// The error classes must be the real ones — the tool branches on them, and a
+// stubbed sentinel would let those branches pass by accident.
+vi.mock('@/modules/accounting/services/payroll/payrollRunLoanApplication', async () => {
+  const actual = await vi.importActual<
+    typeof import('@/modules/accounting/services/payroll/payrollRunLoanApplication')
+  >('@/modules/accounting/services/payroll/payrollRunLoanApplication');
+  return {
+    PayrollLoanLockTimeoutError: actual.PayrollLoanLockTimeoutError,
+    PayrollRunJournalPostedError: actual.PayrollRunJournalPostedError,
+    runHasLoanWork: vi.fn(),
+  };
+});
 
 import {
   calculatePayrollRun,
   getPayrollRun,
 } from '@/modules/accounting/services/payroll/payrollRunService';
-import { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
+import {
+  approvePayrollRun,
+  findApprovalBlocker,
+} from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
+import {
+  PayrollLoanLockTimeoutError,
+  PayrollRunJournalPostedError,
+  runHasLoanWork,
+} from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { approvePayRunTool, calculatePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
@@ -80,6 +101,7 @@ describe('calculate_pay_run', () => {
     vi.clearAllMocks();
     vi.mocked(getPayrollRun).mockResolvedValue(run() as never);
     vi.mocked(calculatePayrollRun).mockResolvedValue(run({ status: 'calculated' }) as never);
+    vi.mocked(runHasLoanWork).mockResolvedValue(false);
   });
 
   it('does NOT require write:post — costing writes no journal', () => {
@@ -113,6 +135,20 @@ describe('calculate_pay_run', () => {
     expect(r.isError).toBe(true);
   });
 
+  it('returns the posted-journal refusal so the agent reads the instruction', async () => {
+    vi.mocked(calculatePayrollRun).mockRejectedValue(new PayrollRunJournalPostedError(RUN));
+    const r = await calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
+    expect(r.isError).toBe(true);
+    expect(errText(r)).toContain('Reverse the payroll journal first');
+  });
+
+  it('returns the loan lock timeout so the agent can retry', async () => {
+    vi.mocked(calculatePayrollRun).mockRejectedValue(new PayrollLoanLockTimeoutError(RUN));
+    const r = await calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
+    expect(r.isError).toBe(true);
+    expect(errText(r)).toContain('retry in a moment');
+  });
+
   it('RETHROWS anything else so the savepoint sees it', async () => {
     vi.mocked(calculatePayrollRun).mockRejectedValue(new Error('engine blew up'));
     await expect(calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx()))
@@ -135,6 +171,39 @@ describe('calculate_pay_run', () => {
     expect(calculatePayrollRun).not.toHaveBeenCalled();
   });
 
+  it('dry run PREDICTS the posted-journal refusal instead of promising a recost', async () => {
+    // dry_run must run the row-state guards the live path runs, or it promises
+    // an action calculatePayrollRun then refuses.
+    vi.mocked(getPayrollRun).mockResolvedValue(run({ journalEntryId: JE }) as never);
+    vi.mocked(runHasLoanWork).mockResolvedValue(true);
+
+    const out = parseOk(await calculatePayRunTool.handler(
+      { run_id: RUN, dry_run: true, ...KEY }, ctx(),
+    ));
+    expect(out.effects).toEqual([]);
+    expect(JSON.stringify(out.skipped)).toContain('Reverse the payroll journal first');
+    expect(calculatePayrollRun).not.toHaveBeenCalled();
+  });
+
+  it('dry run still promises the recost when the journal carries no loan work', async () => {
+    vi.mocked(getPayrollRun).mockResolvedValue(run({ journalEntryId: JE }) as never);
+    vi.mocked(runHasLoanWork).mockResolvedValue(false);
+
+    const out = parseOk(await calculatePayRunTool.handler(
+      { run_id: RUN, dry_run: true, ...KEY }, ctx(),
+    ));
+    expect(JSON.stringify(out.effects)).toContain('Recost run');
+    expect(out.skipped).toEqual([]);
+  });
+
+  it('dry run does not even ask about loans when no journal is posted', async () => {
+    const out = parseOk(await calculatePayRunTool.handler(
+      { run_id: RUN, dry_run: true, ...KEY }, ctx(),
+    ));
+    expect(JSON.stringify(out.effects)).toContain('Recost run');
+    expect(runHasLoanWork).not.toHaveBeenCalled();
+  });
+
   it('refuses a malformed run_id before any read', async () => {
     expect(errText(await calculatePayRunTool.handler({ run_id: 'nope', ...KEY }, ctx())))
       .toBe('invalid run_id');
@@ -147,14 +216,16 @@ describe('approve_pay_run', () => {
     vi.clearAllMocks();
     vi.mocked(getPayrollRun).mockResolvedValue(run({ status: 'calculated' }) as never);
     vi.mocked(approvePayrollRun).mockResolvedValue(
-      { ...run({ status: 'approved' }), journalEntryId: JE } as never,
+      { ...run({ status: 'approved' }), journalEntryId: JE, advisories: [{ code: 'eti_beyond_paye', detail: 'R2200.00 not booked' }] } as never,
     );
+    vi.mocked(findApprovalBlocker).mockResolvedValue(null);
   });
 
   it('approves, posts, and returns the journal it wrote', async () => {
     const out = parseOk(await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx()));
     expect(out.status).toBe('approved');
     expect(out.journal_entry_id).toBe(JE);
+    expect(out.advisories).toEqual([{ code: 'eti_beyond_paye', detail: 'R2200.00 not booked' }]);
     expect(approvePayrollRun).toHaveBeenCalledWith(
       COMPANY, RUN, ctx().userId, { postingAgent: 'mcp:approve_pay_run:v1' },
     );
@@ -188,7 +259,10 @@ describe('approve_pay_run', () => {
   });
 
   it('dry run flags an uncosted run as skipped', async () => {
+    // Its real plan is refused as nothing_to_post; the uncosted answer, which
+    // says what to do, must win.
     vi.mocked(getPayrollRun).mockResolvedValue(run({ employeeCount: 0 }) as never);
+    vi.mocked(findApprovalBlocker).mockResolvedValue({ code: 'nothing_to_post', detail: 'every journal line is zero' });
     const out = parseOk(await approvePayRunTool.handler(
       { run_id: RUN, dry_run: true, ...KEY }, ctx(),
     ));
@@ -199,33 +273,6 @@ describe('approve_pay_run', () => {
     vi.mocked(getPayrollRun).mockResolvedValue(null);
     expect(errText(await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx())))
       .toBe('Not found');
-    expect(approvePayrollRun).not.toHaveBeenCalled();
-  });
-});
-
-describe('approve_pay_run — the empty month is refused, not warned', () => {
-  it('REFUSES to approve a run that costed nobody', async () => {
-    // 'approved' is a LOCKED status, calculate_pay_run is refused permanently
-    // afterwards, and there is no MCP tool to reopen a run — so an agent that
-    // approved an empty month would have no connector path back out.
-    vi.clearAllMocks();
-    vi.mocked(getPayrollRun).mockResolvedValue(
-      run({ status: 'calculated', employeeCount: 0, totalGross: 0 }) as never,
-    );
-    const r = await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
-    expect(r.isError).toBe(true);
-    expect(r.content[0]!.text).toContain('costed nobody');
-    expect(approvePayrollRun).not.toHaveBeenCalled();
-  });
-
-  it('refuses an already-approved run rather than passing it to a service throw', async () => {
-    // The service admits 'approved' only when the journal did not post, which
-    // this summary cannot see. post_payroll_journal is the recovery.
-    vi.clearAllMocks();
-    vi.mocked(getPayrollRun).mockResolvedValue(run({ status: 'approved' }) as never);
-    const r = await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
-    expect(r.isError).toBe(true);
-    expect(r.content[0]!.text).toContain('post_payroll_journal');
     expect(approvePayrollRun).not.toHaveBeenCalled();
   });
 });

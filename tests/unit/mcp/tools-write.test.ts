@@ -219,6 +219,8 @@ describe('create_draft_journal', () => {
       }),
       USER_ID,
       { postingAgent: 'mcp:create_draft_journal:v1', actorType: 'agent', actorTokenJti: 'jti-1' },
+      // No allow_late_input_claim argument: no late claim (gl/vatLateClaimPlan).
+      { allowLateInputClaim: false },
     );
   });
 
@@ -287,7 +289,8 @@ describe('post_journal / finalize_invoice (post tools)', () => {
   it('post_journal posts the existing draft via ctx company + user', async () => {
     vi.mocked(postJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97', status: 'posted' } as never);
     parseOk(await tool('post_journal').handler({ journal_id: '97120700-9f09-4fe5-804e-34331ce49b97', ...KEY }, ctx()));
-    expect(postJournalEntry).toHaveBeenCalledWith(COMPANY_ID, '97120700-9f09-4fe5-804e-34331ce49b97', USER_ID);
+    expect(postJournalEntry).toHaveBeenCalledWith(
+      COMPANY_ID, '97120700-9f09-4fe5-804e-34331ce49b97', USER_ID, { allowLateInputClaim: false });
   });
 
   it('finalize_invoice approves the draft via ctx company + user', async () => {
@@ -315,7 +318,7 @@ describe('post_journal / finalize_invoice (post tools)', () => {
     vi.mocked(createJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97' } as never);
     vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: null, evidenceDocumentId: null });
     vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' } } as never);
-    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue({ invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0 });
 
     await tool('create_draft_journal').handler({
       date: '2026-06-30',
@@ -447,6 +450,8 @@ describe('write-tool manifest invariants', () => {
     const requiresPost = MCP_TOOLS.filter((t) => t.requiresPost).map((t) => t.name).sort();
     expect(requiresPost).toEqual([
       'allocate_bank_transaction',
+      // Moves a document's outstanding balance and the note's applied amount.
+      'apply_credit_note',
       // Cash application moves a document's outstanding balance and, on the
       // bank-line branch, posts DR Bank / CR AR.
       'apply_payment_to_supplier_invoice',
@@ -454,17 +459,28 @@ describe('write-tool manifest invariants', () => {
       'approve_credit_note',
       'approve_pay_run',
       'approve_supplier_invoice',
+      // The back-fill applies cash to documents, which moves their outstanding
+      // balance — the same reason the two single-document appliers are here.
+      'auto_apply_unapplied',
       'bulk_allocate_bank_transactions',
+      'bulk_approve_credit_notes',
+      'bulk_approve_supplier_invoices',
+      'bulk_finalize_invoices',
       'cancel_credit_note',
+      // Reverses the bill's approval journal.
+      'cancel_supplier_invoice',
       // Closing a period changes what may post; closing a year posts to equity
       // and locks every period behind it; reopening removes a posting lock; and
       // completing a reconciliation marks transactions terminally reconciled.
       'close_fiscal_period',
       'finalize_invoice',
-      // lock_vat_period posts no journal, and requires write:post anyway: it
-      // freezes a filed return, and a control an agent can set without the
-      // posting permission is not a control.
-      'lock_vat_period',
+      // link_document_to_journal posts no journal — it changes what blocks a
+      // VAT exception/lock. (lock_vat_period and mark_vat_declared_elsewhere
+      // used to sit here too, for the same reasoning — item 10 moved both off
+      // write:post onto a dedicated write:vat scope instead, since neither
+      // posts a journal and write:post's consent label never named either
+      // action.)
+      'link_document_to_journal',
       // merge_gl_accounts posts no journal, and rewrites POSTED journal lines
       // in place — potentially thousands at once. write:post is the scope that
       // gates changing what is in the ledger, so it gates this too.
@@ -487,6 +503,9 @@ describe('write-tool manifest invariants', () => {
       // A contra settles a debtor or creditor against a balance-sheet account,
       // so it posts.
       'settle_by_contra',
+      // Un-applying moves documents' outstanding balances, as applying does.
+      'unapply_credit_note',
+      'unapply_supplier_payment',
       // Voiding a posted receipt or payment writes a reversing journal — the
       // same authority reverse_bank_allocation asks for.
       'void_payment',
@@ -536,7 +555,7 @@ describe('write-tool manifest invariants', () => {
     vi.mocked(postJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97' } as never);
     vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: null });
     vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' } } as never);
-    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue({ invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0 });
 
     const argsByTool: Record<string, Record<string, unknown>> = {
       create_draft_invoice: { customer_id: 'd0ac03be-abe5-44c4-80a2-0d99d9d3e3e6', items: [{ description: 'x', unit_price: 1 }], ...KEY },
@@ -569,6 +588,14 @@ describe('write-tool manifest invariants', () => {
       deactivate_gl_account: { ...KEY },
       merge_gl_accounts: { ...KEY },
       create_supplier_invoice: { ...KEY },
+      // The three bulk approve arms refuse on the missing id array before
+      // touching a service — parseDocumentIds runs first in every one — which
+      // is the only path available in a file that does not mock them. An error
+      // envelope is still an envelope, which is what the scan reads.
+      // Behaviour lives in bulkApproveTools.test.ts.
+      bulk_approve_supplier_invoices: { ...KEY },
+      bulk_finalize_invoices: { ...KEY },
+      bulk_approve_credit_notes: { ...KEY },
       approve_supplier_invoice: { ...KEY },
       // Bank-rule writes refuse on a missing required argument before touching
       // a service; behaviour is covered in bankRulesTools.test.ts.
@@ -587,6 +614,9 @@ describe('write-tool manifest invariants', () => {
       // lock_vat_period refuses on the missing period before reading anything;
       // behaviour is covered in vatPeriodLock.db.test.ts against a real ledger.
       lock_vat_period: { ...KEY },
+      // Refuses on the missing action/kind/invoice_ids/reason before any
+      // service call; behaviour in vatDeclaredElsewhereTool.test.ts.
+      mark_vat_declared_elsewhere: { ...KEY },
       create_job_category: { ...KEY },
       create_work_item: { ...KEY },
       log_time_entry: { ...KEY },
@@ -631,6 +661,22 @@ describe('write-tool manifest invariants', () => {
       bulk_create_customer_invoices: { ...KEY },
       // Voids refuse the missing document id before any query; behaviour in
       // voidPaymentTools.test.ts.
+      // Refuses on the missing subledger before reading anything; behaviour in
+      // autoApplyUnappliedPlan.test.ts and the integration file.
+      auto_apply_unapplied: { ...KEY },
+      // Refuses on the missing credit_note_id before reading anything; behaviour
+      // in applyCreditNoteTool.test.ts and credit-note-to-document.int.test.ts.
+      apply_credit_note: { ...KEY },
+      // Refuses on the missing invoice_id before reading anything; behaviour in
+      // cancelSupplierInvoiceTool.test.ts and cancel-supplier-invoice.int.test.ts.
+      cancel_supplier_invoice: { ...KEY },
+      // Refuses on the missing invoice_id before reading anything; behaviour in
+      // updateSupplierInvoiceTool.test.ts and update-supplier-invoice.int.test.ts.
+      update_supplier_invoice: { ...KEY },
+      // Refuse on the missing source id before reading anything; behaviour in
+      // unapplyTools.test.ts and unapply.int.test.ts.
+      unapply_supplier_payment: { ...KEY },
+      unapply_credit_note: { ...KEY },
       void_receipt: { ...KEY },
       void_payment: { ...KEY },
       // Payroll setup refuses on the missing required argument before any
@@ -641,6 +687,9 @@ describe('write-tool manifest invariants', () => {
       end_employee_component: { ...KEY },
       calculate_pay_run: { ...KEY },
       approve_pay_run: { ...KEY },
+      // Refuses on the missing action before reading anything; behaviour in
+      // journalDocumentLinkService.test.ts and journalDocumentLinksRoute.test.ts.
+      link_document_to_journal: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

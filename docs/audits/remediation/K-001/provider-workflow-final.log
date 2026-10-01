@@ -1,0 +1,9 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts tests/integration/pending-mfa-assurance.int.test.ts
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:59:39
+   Duration  20.41s (transform 26ms, setup 0ms, import 50ms, tests 20.26s, environment 0ms)

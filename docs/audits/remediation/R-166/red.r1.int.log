@@ -1,0 +1,8 @@
+# Review round 1: the new r166 cases against the round-0 route (be59cda61), fixture clone at 716. 64-hex tokens redacted.
+   × a negative amount_paid counts as nothing paid, so the cap never exceeds the total 13ms
+   × a NaN balance is refused, not treated as unlimited 15ms
+   × a soft-deleted invoice gets no link (404), like pay-now and payment-gateway 16ms
+AssertionError: expected 200 to be 400 // Object.is equality
+AssertionError: {"success":true,"data":{"token":"<token>","url":"/portal/pay/<token>"},"meta":{"timestamp":"2026-09-30T02:56:54.371Z"}}: expected 200 to be 400 // Object.is equality
+AssertionError: expected 200 to be 404 // Object.is equality
+      Tests  3 failed | 4 passed (7)

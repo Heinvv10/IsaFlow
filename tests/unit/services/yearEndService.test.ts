@@ -9,6 +9,25 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// The VAT-lock guard runs its own queries (advisory lock, active-lock read,
+// account subtypes), which would shift this file's positional sql mock. It is
+// exercised against a real ledger in tests/integration/vat-period-lock-*.int.test.ts;
+// here it is a no-op, and the error class stays real.
+// R-032 L5: the Login-as guard runs its own query first; it is covered by
+// tests/unit/auth/statutoryImpersonationGuards.test.ts and the r-032 integration suites.
+vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
+  assertNotImpersonating: async () => undefined,
+}));
+vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalVatLockGuard')>()),
+  assertJournalVatPeriodOpen: vi.fn(async () => undefined),
+  assertJournalDateOutsideVatLock: vi.fn(async () => undefined),
+  takeVatLockShared: vi.fn(async () => undefined),
+  findActiveVatLock: vi.fn(async () => null),
+  journalMovesVatFigure: vi.fn(async () => false),
+  loadJournalVatLines: vi.fn(async () => []),
+}));
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
   return {
@@ -257,6 +276,9 @@ describe('yearEndService — tenant isolation (S-002)', () => {
         id: RE_ACCOUNT_ID, accountCode: '3200', accountName: 'Retained Earnings',
         accountType: 'equity', accountSubtype: 'retained_earnings', createdAt: 0,
       }]);
+      // The year's own closing journal, read before the dry-run return and
+      // before the write (K-113). No row: this year has never been closed.
+      sqlMock.mockResolvedValueOnce([]);
       // The fiscal period covering the closing date, resolved BEFORE the
       // transaction opens. A NULL fiscal_period_id would put the year-end
       // journal outside the trial balance permanently, and the periods are

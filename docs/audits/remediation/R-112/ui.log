@@ -1,0 +1,6 @@
+URL http://localhost:3263/accounting/customers/statement
+CARDS ["Selected: R112 Statement Customer","Opening Balance","R 800,00","Total Invoiced","R 1 500,00","Total Paid","R 1 000,00","Credits Applied","R 0,00","Balance Outstanding","R 1 300,00"]
+ROWS ["Date\tType\tReference\tDescription\tDebit\tCredit\tBalance\t","21/09/2025\tOpening\t\tBalance brought forward\tR 800,00\t\tR 800,00\t","01/09/2026\tInvoice\tR112-INV-NEW\t—\tR 1 500,00\t\tR 2 300,00\t","11/09/2026\tPayment\tR112-RCPT\t—\t\tR 1 000,00\tR 1 300,00\t","Closing Balance\tR 2 300,00\tR 1 000,00\tR 1 300,00\t"]
+COUNT 2 transactions
+DETAIL ["Total Invoiced","Total Paid","Balance Outstanding","Date\tType\tReference\tDescription\tDebit\tCredit\tBalance\t","2025/08/17\tInvoice\tR112-INV-OLD\t-\tR 1 000,00\t\tR 1 000,00\t","2025/09/06\tCredit Note\tR112-CN-OLD\t-\t\tR 200,00\tR 800,00\t","2026/09/01\tInvoice\tR112-INV-NEW\t-\tR 1 500,00\t\tR 2 300,00\t","2026/09/11\tPayment\tR112-RCPT\t-\t\tR 1 000,00\tR 1 300,00\t"]
+PAGE-ERRORS []

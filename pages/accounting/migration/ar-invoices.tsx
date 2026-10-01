@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import InvoiceImportResult, { type InvoiceImportResultData } from '@/components/accounting/migration/InvoiceImportResult';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch, apiJson } from '@/lib/apiFetch';
@@ -26,18 +27,13 @@ interface CustomerOption {
   name: string;
 }
 
-interface ImportResult {
-  succeeded: number;
-  failed: number;
-}
-
 export default function ArInvoicesPage() {
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<ParsedInvoice[]>([]);
   const [fieldMapping, setFieldMapping] = useState<FieldMapping>({});
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [isImporting, setIsImporting] = useState(false);
-  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importResult, setImportResult] = useState<InvoiceImportResultData | null>(null);
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -177,12 +173,7 @@ export default function ArInvoicesPage() {
             <AlertCircle className="h-4 w-4" /> {error}
           </div>
         )}
-        {importResult && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm mb-4">
-            <CheckCircle2 className="h-4 w-4" />
-            Imported {importResult.succeeded} invoices. Failed: {importResult.failed}.
-          </div>
-        )}
+        {importResult && <InvoiceImportResult result={importResult} />}
 
         <div className="space-y-6">
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">

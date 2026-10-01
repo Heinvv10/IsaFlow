@@ -10,7 +10,7 @@ import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 
 
-const VALID_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
+export const VALID_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
 type CompanyRole = (typeof VALID_ROLES)[number];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -72,19 +72,16 @@ function toIso(val: Date | string | null): string | null {
 // operator, so the query throws at runtime (500) rather than returning a wrong
 // answer. `company_id` IS a uuid and keeps its cast.
 
+// Reads through company_member_directory (mig 716), not a plain JOIN on
+// `users`: under withAuth (app_user) `users_self_read` hides every other
+// member's users row, so the JOIN listed each viewer only themselves (R-152).
+// The function mirrors cu_select — owner/admin get every member, lower roles
+// only their own row — and refuses (42501) outside the caller's own company.
 export async function listCompanyUsers(companyId: string): Promise<CompanyUserRecord[]> {
   const rows = (await sql`
-    SELECT
-      cu.user_id,
-      u.first_name,
-      u.last_name,
-      u.email,
-      cu.role,
-      cu.created_at
-    FROM company_users cu
-    JOIN users u ON u.id = cu.user_id::VARCHAR
-    WHERE cu.company_id = ${companyId}::UUID
-    ORDER BY cu.created_at ASC
+    SELECT m.user_id, m.first_name, m.last_name, m.email, m.role, m.created_at
+    FROM company_member_directory(${companyId}::UUID) m
+    ORDER BY m.created_at ASC
   `) as DbRow[];
 
   return rows.map((r: DbRow) => ({

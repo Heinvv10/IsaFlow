@@ -7,7 +7,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
-import { listCompanyUsers } from './practiceUsersService';
+import { listCompanyUsersForSystem } from './practiceUsersService';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import {
   renderPracticeDigestHtml,
@@ -20,7 +20,15 @@ import {
 
 export interface DailyDigestResult {
   companiesProcessed: number;
+  /** A recipient whose sendEmail call resolved `{ success: true }`. */
   recipientsNotified: number;
+  /**
+   * A recipient whose sendEmail call resolved `{ success: false }` or threw
+   * (R-171). Does NOT include a recipient who was never sent to at all
+   * because a query ahead of the send (overdue tasks, timesheet check)
+   * failed — that recipient's failure lands only in `errors` (review LOW).
+   */
+  recipientsFailed: number;
   recipientsSkipped: number;
   errors: Array<{ companyId: string; userId: string; error: string }>;
 }
@@ -30,9 +38,17 @@ export interface DailyDigestResult {
 const APP_BASE_URL =
   process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
 
+/**
+ * A company its members can still sign into: the same standing withAuth checks
+ * (src/lib/auth/companyMembership.ts). companies has no deleted_at column —
+ * the admin soft delete writes status = 'deleted' (R-162).
+ */
 async function loadActiveCompanies(): Promise<string[]> {
   const rows = (await sql`
-    SELECT id FROM companies WHERE deleted_at IS NULL
+    SELECT id FROM companies
+    WHERE status IS DISTINCT FROM 'suspended'
+      AND status IS DISTINCT FROM 'deleted'
+      AND suspended_at IS NULL
   `) as DbRow[];
   return rows.map((r) => String(r.id));
 }
@@ -62,10 +78,13 @@ async function queryOverdueTasks(
            pc.legal_name AS client_name,
            GREATEST(0, (CURRENT_DATE - t.due_date)::INT) AS days_overdue
     FROM practice_tasks t
-    LEFT JOIN practice_jobs pj ON pj.id = t.job_id
-    LEFT JOIN practice_clients pc ON pc.id = pj.practice_client_id
+    -- No withAuth here: the pool role reads past RLS, and neither FK is
+    -- tenant-bound, so each join carries the task's company (R-162).
+    LEFT JOIN practice_jobs pj ON pj.id = t.job_id AND pj.company_id = t.company_id
+    LEFT JOIN practice_clients pc ON pc.id = pj.practice_client_id AND pc.company_id = t.company_id
     WHERE t.company_id = ${companyId}::UUID
-      AND t.assigned_to = ${userId}::UUID
+      -- users.id is VARCHAR and may not be a UUID: cast the uuid side (R-162)
+      AND t.assigned_to::TEXT = ${userId}
       AND t.status IN ('pending', 'in_progress')
       AND t.due_date < CURRENT_DATE
     ORDER BY t.due_date ASC
@@ -83,21 +102,27 @@ async function queryOverdueTasks(
   }));
 }
 
-async function hasTimesheetForDate(
+/**
+ * True when `date` has no timesheet from someone who tracks practice time.
+ * Only a user with a non-draft practice entry in this company dated from 30
+ * days ago on is nagged (Hein, 2026-09-30): none means they don't track
+ * practice time here, and bool_or over no rows is NULL.
+ */
+async function isTimesheetMissing(
   companyId: string,
   userId: string,
   date: string,
 ): Promise<boolean> {
   const rows = (await sql`
-    SELECT 1 FROM time_entries
+    SELECT bool_or(entry_date = ${date}::DATE) AS submitted
+    FROM time_entries
     WHERE company_id = ${companyId}::UUID
-      AND user_id = ${userId}::UUID
-      AND entry_date = ${date}::DATE
+      AND user_id::TEXT = ${userId}
+      AND entry_date >= ${date}::DATE - 29
       AND status <> 'draft'
       AND practice_client_id IS NOT NULL
-    LIMIT 1
   `) as DbRow[];
-  return rows.length > 0;
+  return rows[0]?.submitted === false;
 }
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
@@ -106,6 +131,7 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
   const result: DailyDigestResult = {
     companiesProcessed: 0,
     recipientsNotified: 0,
+    recipientsFailed: 0,
     recipientsSkipped: 0,
     errors: [],
   };
@@ -119,7 +145,7 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
 
     let users;
     try {
-      users = await listCompanyUsers(companyId);
+      users = await listCompanyUsersForSystem(companyId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error('Failed to list company users', { companyId, error: msg }, 'practiceNotificationService');
@@ -128,32 +154,42 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
     }
 
     for (const user of users) {
+      let overdueTasks: DigestTask[];
+      let missingTimesheetDate: string | null = null;
       try {
-        const overdueTasks = await queryOverdueTasks(companyId, user.id);
+        overdueTasks = await queryOverdueTasks(companyId, user.id);
 
-        let missingTimesheetDate: string | null = null;
         if (yesterdayIsWeekday) {
-          const submitted = await hasTimesheetForDate(companyId, user.id, yesterday);
-          if (!submitted) {
+          if (await isTimesheetMissing(companyId, user.id, yesterday)) {
             missingTimesheetDate = yesterday;
           }
         }
+      } catch (err) {
+        // A query failure never reached sendEmail, so it isn't a failed SEND
+        // (R-171 review LOW) — it still surfaces in errors, just not in
+        // recipientsFailed, which counts only send outcomes.
+        const msg = err instanceof Error ? err.message : String(err);
+        log.error('Failed to process user digest', { companyId, userId: user.id, error: msg }, 'practiceNotificationService');
+        result.errors.push({ companyId, userId: user.id, error: msg });
+        continue;
+      }
 
-        if (overdueTasks.length === 0 && missingTimesheetDate === null) {
-          result.recipientsSkipped++;
-          continue;
-        }
+      if (overdueTasks.length === 0 && missingTimesheetDate === null) {
+        result.recipientsSkipped++;
+        continue;
+      }
 
-        const payload: DigestPayload = {
-          recipientName: user.displayName,
-          overdueTasks,
-          missingTimesheetDate,
-          appBaseUrl: APP_BASE_URL,
-        };
+      const payload: DigestPayload = {
+        recipientName: user.displayName,
+        overdueTasks,
+        missingTimesheetDate,
+        appBaseUrl: APP_BASE_URL,
+      };
 
-        const subject = renderPracticeDigestSubject(payload);
-        const html = renderPracticeDigestHtml(payload);
+      const subject = renderPracticeDigestSubject(payload);
+      const html = renderPracticeDigestHtml(payload);
 
+      try {
         const emailResult = await sendEmail({
           to: user.email,
           subject,
@@ -161,25 +197,27 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
           _log: { companyId, emailType: 'practice_digest', sentBy: null },
         });
 
-        if (!emailResult.success) {
+        if (emailResult.success) {
+          result.recipientsNotified++;
+          log.info('Practice digest sent', {
+            companyId,
+            userId: user.id,
+            overdue: overdueTasks.length,
+            missingTimesheet: missingTimesheetDate !== null,
+          }, 'practiceNotificationService');
+        } else {
+          result.recipientsFailed++;
           result.errors.push({
             companyId,
             userId: user.id,
             error: emailResult.error ?? 'Email send failed',
           });
         }
-
-        result.recipientsNotified++;
-        log.info('Practice digest sent', {
-          companyId,
-          userId: user.id,
-          overdue: overdueTasks.length,
-          missingTimesheet: missingTimesheetDate !== null,
-        }, 'practiceNotificationService');
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        log.error('Failed to process user digest', { companyId, userId: user.id, error: msg }, 'practiceNotificationService');
+        log.error('Failed to send practice digest', { companyId, userId: user.id, error: msg }, 'practiceNotificationService');
         result.errors.push({ companyId, userId: user.id, error: msg });
+        result.recipientsFailed++;
       }
     }
   }
@@ -187,6 +225,7 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
   log.info('Daily digest complete', {
     companiesProcessed: result.companiesProcessed,
     recipientsNotified: result.recipientsNotified,
+    recipientsFailed: result.recipientsFailed,
     recipientsSkipped: result.recipientsSkipped,
     errors: result.errors.length,
   }, 'practiceNotificationService');

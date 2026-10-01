@@ -25,12 +25,23 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { documentInLedgerAsAtFragment } from '../shared/softDeleteLedgerPresence';
+import { classifyStatementInvoice } from '../shared/statementInvoiceExclusion';
+import { creditNoteAppliedAmount } from '../shared/creditNoteAppliedAmount';
+import { RunningBalance, toMoney } from '@/lib/money/decimalSum';
 
 type Row = DbRow;
 
 export interface SupplierStatementTransaction {
   date: string;
-  type: 'invoice' | 'payment' | 'credit_note';
+  /**
+   * `'refund'` (migration 681) is cash the supplier sent BACK. It rides in the
+   * same `debit` column as a payment, NEGATIVE, because that is exactly what it
+   * is — a payment of minus this amount. The running balance therefore RISES by
+   * it, which is right: the company owes the supplier again. It is typed
+   * separately so a reader is never asked to work that out from a sign.
+   */
+  type: 'invoice' | 'payment' | 'credit_note' | 'refund';
   reference: string;
   /** Reduces what we owe. */
   debit: number;
@@ -70,7 +81,7 @@ export interface SupplierStatementPayload {
 /** A supplier payment settles nothing until it has been processed. */
 const SETTLING_PAYMENT_STATUSES = new Set(['processed', 'reconciled', 'paid']);
 /** A credit note is 'approved' standing alone and 'applied' once set against a bill. */
-const LIVE_CREDIT_NOTE_STATUSES = new Set(['approved', 'applied']);
+const LIVE_CREDIT_NOTE_STATUSES = new Set(['approved', 'partially_applied', 'applied']);
 
 function maxIso(values: Array<unknown>): string | null {
   const iso = values
@@ -81,25 +92,6 @@ function maxIso(values: Array<unknown>): string | null {
 }
 
 /** Returns null when the supplier is not in this company — never a distinct reply. */
-/**
- * What a live credit note actually took off what we owe the supplier.
- *
- * Approving a note applies MIN(total_amount, outstanding) and records that
- * capped figure in `applied_amount`; the status only becomes 'applied' when
- * that figure is above zero. So:
- *   - 'applied'  → applied_amount is what was consumed, and total_amount may be
- *     larger. The remainder is stranded: a note at 'applied' cannot be applied
- *     again, so crediting the face value shows the customer more credit than
- *     we received and OVERSTATES what we still owe the supplier.
- *   - 'approved' → applied_amount is 0 by construction, and the note is
- *     unallocated credit the customer holds at face value.
- * Same rule the aging already follows (agingRewind, apAgingService).
- */
-function creditNoteAmount(cn: { status?: unknown; total_amount?: unknown; applied_amount?: unknown }): number {
-  return String(cn.status ?? '') === 'applied'
-    ? Number(cn.applied_amount ?? 0)
-    : Number(cn.total_amount ?? 0);
-}
 
 export async function fetchSupplierStatementData(
   companyId: string,
@@ -116,24 +108,41 @@ export async function fetchSupplierStatementData(
 
   const [invoices, payments, creditNotes] = await Promise.all([
     sql`
-      SELECT id, invoice_number, invoice_date, total_amount, status, created_at
-      FROM supplier_invoices
-      WHERE supplier_id = ${supplierId}::UUID
-        AND company_id = ${companyId}::UUID
-        AND status != 'cancelled'
-        AND invoice_date <= ${asAtDate}::DATE
+      SELECT si.id, si.invoice_number, si.invoice_date, si.total_amount, si.status, si.created_at
+      FROM supplier_invoices si
+      WHERE si.supplier_id = ${supplierId}::UUID
+        AND si.company_id = ${companyId}::UUID
+        -- NOT filtered by status here (R-082 round 2): every candidate bill
+        -- is fetched, then classified below into transactions or excluded
+        -- with documentInPopulation, the JS twin of the ageing's
+        -- status rule (shared/documentPopulation) — the mirror of the
+        -- customer statement's own routing. A SQL-level filter made a draft,
+        -- pending-approval or cancelled bill vanish before it could be
+        -- counted anywhere — the MCP supplier_statement tool's own contract
+        -- claimed only cancelled was omitted.
+        -- What IS shared with apAgingService is the DATED soft-delete
+        -- question: the delete's reversal is dated to the delete, so a bill
+        -- deleted after the as-at date is still on the control account and
+        -- still on this statement. An undated deleted_at IS NULL would make
+        -- the comment above a lie for every as-at date before the delete.
+        AND ${documentInLedgerAsAtFragment('si', asAtDate, companyId)}
+        AND si.invoice_date <= ${asAtDate}::DATE
       ORDER BY invoice_date
     ` as Promise<Row[]>,
 
     sql`
+      -- The CASH paid, i.e. the payment total. This joined the dead migration-201
+      -- supplier_payment_allocations (zero rows everywhere), so the COALESCE
+      -- always fell back to the total. Joining the live payment_allocations
+      -- instead is NOT a fix: measured, a R1,000 payment with R600 applied then
+      -- shows 600, understating what the supplier was paid by the unapplied
+      -- R400 (and a refund's positive allocations would flip its sign).
       SELECT sp.id, sp.payment_number, sp.payment_date, sp.status, sp.created_at,
-        COALESCE(SUM(spa.amount_allocated), sp.total_amount) AS amount_allocated
+        sp.payment_method, sp.total_amount AS amount_allocated
       FROM supplier_payments sp
-      LEFT JOIN supplier_payment_allocations spa ON spa.payment_id = sp.id
       WHERE sp.supplier_id = ${supplierId}::UUID
         AND sp.company_id = ${companyId}::UUID
         AND sp.payment_date <= ${asAtDate}::DATE
-      GROUP BY sp.id, sp.payment_number, sp.payment_date, sp.total_amount, sp.status, sp.created_at
     ` as Promise<Row[]>,
 
     sql`
@@ -150,12 +159,17 @@ export async function fetchSupplierStatementData(
   const excluded: SupplierStatementExclusion[] = [];
 
   for (const inv of invoices) {
+    const exclusion = classifyStatementInvoice(inv, 'Bill');
+    if (exclusion) {
+      excluded.push(exclusion);
+      continue;
+    }
     transactions.push({
       date: fmtDate(inv.invoice_date),
       type: 'invoice',
       reference: String(inv.invoice_number ?? ''),
       debit: 0,
-      credit: Number(inv.total_amount),
+      credit: toMoney(Number(inv.total_amount)),
       balance: 0,
     });
   }
@@ -166,16 +180,24 @@ export async function fetchSupplierStatementData(
         id: String(pmt.id),
         reason: 'payment_not_processed',
         detail: `Payment is '${status}'; it settles nothing until it is processed.`,
-        amount: Number(pmt.amount_allocated),
+        amount: toMoney(Number(pmt.amount_allocated)),
         documentNumber: String(pmt.payment_number ?? ''),
       });
       continue;
     }
     transactions.push({
       date: fmtDate(pmt.payment_date),
-      type: 'payment',
+      // From the METHOD, never from the sign of the amount. The constraint
+      // added in 681 pins the two together, so they cannot disagree — but a
+      // reader that derives the document type from a number is one rounding
+      // artefact away from mislabelling one.
+      type: pmt.payment_method === 'refund' ? 'refund' : 'payment',
       reference: String(pmt.payment_number ?? ''),
-      debit: Number(pmt.amount_allocated),
+      // Negative for a refund, and deliberately in the SAME column. `totalPaid`
+      // is summed off this column and a refund genuinely reduces what the
+      // company has paid this supplier; splitting it into `credit` beside the
+      // invoices would leave `totalPaid` claiming money that came back.
+      debit: toMoney(Number(pmt.amount_allocated)),
       credit: 0,
       balance: 0,
     });
@@ -187,7 +209,7 @@ export async function fetchSupplierStatementData(
         id: String(cn.id),
         reason: 'credit_note_not_live',
         detail: `Credit note is '${status}'; only approved and applied notes reduce what we owe.`,
-        amount: Number(cn.total_amount),
+        amount: toMoney(Number(cn.total_amount)),
         documentNumber: String(cn.credit_note_number ?? ''),
       });
       continue;
@@ -196,7 +218,7 @@ export async function fetchSupplierStatementData(
       date: fmtDate(cn.credit_date),
       type: 'credit_note',
       reference: String(cn.credit_note_number ?? ''),
-      debit: creditNoteAmount(cn),
+      debit: toMoney(creditNoteAppliedAmount(cn)),
       credit: 0,
       balance: 0,
     });
@@ -216,16 +238,16 @@ export async function fetchSupplierStatementData(
     return (typeOrder[a.type] ?? 9) - (typeOrder[b.type] ?? 9);
   });
 
-  let running = 0;
-  let totalInvoiced = 0;
-  let totalPaid = 0;
-  let totalCredits = 0;
+  const running = new RunningBalance(0);
+  const totalInvoiced = new RunningBalance(0);
+  const totalPaid = new RunningBalance(0);
+  const totalCredits = new RunningBalance(0);
   for (const txn of transactions) {
-    running += txn.credit - txn.debit;
-    txn.balance = running;
-    totalInvoiced += txn.credit;
-    if (txn.type === 'payment') totalPaid += txn.debit;
-    if (txn.type === 'credit_note') totalCredits += txn.debit;
+    running.add(txn.credit);
+    txn.balance = running.subtract(txn.debit);
+    totalInvoiced.add(txn.credit);
+    if (txn.type === 'payment') totalPaid.add(txn.debit);
+    if (txn.type === 'credit_note') totalCredits.add(txn.debit);
   }
 
   return {
@@ -243,7 +265,12 @@ export async function fetchSupplierStatementData(
     // excluded.length`, which is the arithmetic buildEnvelope then checks and
     // so could not fail. A row dropped from BOTH buckets changes this number.
     universeTotal: candidateRows,
-    summary: { totalInvoiced, totalPaid, totalCredits, balance: running },
+    summary: {
+      totalInvoiced: totalInvoiced.value(),
+      totalPaid: totalPaid.value(),
+      totalCredits: totalCredits.value(),
+      balance: running.value(),
+    },
     postedThrough: maxIso([
       ...invoices.map((r) => r.created_at),
       ...payments.map((r) => r.created_at),

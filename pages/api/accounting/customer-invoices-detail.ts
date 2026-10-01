@@ -23,6 +23,8 @@ import {
   InvoiceNotApprovableError,
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryService';
+import { ReversalBeforeOriginalError } from '@/modules/accounting/services/gl/journalEntryReversalDate';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import {
   GetQuerySchema,
   PutBodySchema,
@@ -95,6 +97,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return { kind: 'not_draft' as const };
       }
       const existingRate = Number(ownedRows[0]!.exchange_rate ?? 1);
+      // A currency change needs its rate: recomputing at the OLD one left a ZAR
+      // invoice re-labelled USD with functional_total = the USD figure, which is
+      // what approval rules match on (R-035).
+      if (fxCode && fxCode !== String(ownedRows[0]!.currency_code ?? 'ZAR').toUpperCase() && fxRateOverride === null) {
+        return { kind: 'rate_required' as const };
+      }
 
       // Defence-in-depth: clientId must belong to the same tenant. The FK
       // alone does not check company_id, so without this guard a caller could
@@ -179,6 +187,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'not_found') return apiResponse.notFound(res, 'Invoice', id);
     if (result.kind === 'not_draft') return apiResponse.badRequest(res, 'Only draft invoices can be edited');
     if (result.kind === 'bad_client') return apiResponse.badRequest(res, 'clientId does not belong to this company');
+    if (result.kind === 'rate_required') return apiResponse.badRequest(res, 'exchangeRate is required when currencyCode changes');
 
     log.info('Customer invoice updated', { id, hasItems: Boolean(items) });
     return apiResponse.success(res, { updated: true });
@@ -208,8 +217,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (err instanceof InvoiceHasPaymentsError) return apiResponse.badRequest(res, err.message);
         // The GL reversal cannot post into a closed/locked fiscal period; surface
         // that as a 400 instead of a 500 so the caller knows to reopen the period.
+        // Its own message says what is wrong — a reversal dated before a future-dated
+        // invoice — which the generic closed-period text below would lose (R-012).
+        if (err instanceof ReversalBeforeOriginalError) return apiResponse.badRequest(res, err.message);
         if (err instanceof ClosedFiscalPeriodError) {
           return apiResponse.badRequest(res, `Cannot cancel: the invoice's journal is in a ${err.periodStatus} fiscal period. Reopen the period, then retry.`);
+        }
+        // The reversal could not be dated out of a locked (filed) VAT period.
+        if (err instanceof VatPeriodLockedError) {
+          return apiResponse.badRequest(res, `Cannot cancel: ${err.message}`);
         }
         throw err;
       }
@@ -235,19 +251,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // action to 'approve' | 'send' | 'cancel', both handled above).
     const newStatus = 'sent';
 
-    // 'sent' is in AR_OPEN_STATUSES — sending a cancelled invoice would
-    // resurrect it into outstanding AR against a net-zero reversed journal.
+    // Only an approved (posted) invoice can be sent; re-sending keeps 'sent'.
+    // 'sent' is in the AR population: a draft marked sent is AR with no
+    // journal behind it, a cancelled one is resurrected against a reversed
+    // journal, and a paid one is demoted back to open.
     const sent = (await sql`
       UPDATE customer_invoices
       SET status = 'sent', updated_at = NOW()
       WHERE id = ${id}::UUID AND company_id = ${companyId}
-        AND status != 'cancelled'
+        AND status IN ('approved', 'sent')
       RETURNING id
     `) as Row[];
     if (sent.length === 0) {
       const cur = (await sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}`) as Row[];
       if (cur.length === 0) return apiResponse.notFound(res, 'Invoice', id);
-      return apiResponse.badRequest(res, 'Cannot send a cancelled invoice');
+      return apiResponse.badRequest(res, cur[0]!.status === 'cancelled'
+        ? 'Cannot send a cancelled invoice'
+        : `Cannot send a ${String(cur[0]!.status)} invoice — only an approved invoice can be sent`);
     }
 
     // PRD-06 Phase 1: seal the rendered PDF as evidence on send.

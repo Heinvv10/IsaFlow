@@ -35,7 +35,10 @@ export const bankStatementCoverageTool: McpTool = {
     + 'between the first and the third — on one production company it is R2.4m and on another R6.5m. '
     + 'They are NEVER netted into one figure: the gap is the finding. '
     + 'Covers every account of subtype bank INCLUDING deactivated ones, because a deactivated '
-    + 'account still holds money. '
+    + 'account still holds money, and including one whose account_type is not asset: '
+    + 'misclassified is true for those, and their gl_balance reads 0 because the cash figure '
+    + 'correctly refuses to count a liability as cash, so the whole statement balance shows as '
+    + 'unexplained. That is a chart-of-accounts defect to report, not a row to hide. '
     + 'What it cannot do: it cannot see a transaction that was never imported. A gap is evidence '
     + 'that lines are missing; the ABSENCE of a gap is not evidence that they are all there, since '
     + 'a whole month missing from the start or the end of the history leaves no gap between two '
@@ -104,6 +107,7 @@ export const bankStatementCoverageTool: McpTool = {
       account_code: a.accountCode,
       account_name: a.accountName,
       is_active: a.isActive,
+      misclassified: a.misclassified,
       first_transaction_date: a.firstTransactionDate,
       last_transaction_date: a.lastTransactionDate,
       stale_days: a.staleDays,

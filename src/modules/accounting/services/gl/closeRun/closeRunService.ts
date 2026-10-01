@@ -20,6 +20,7 @@ import { log } from '@/lib/logger';
 import { withSavepoint } from '@/lib/neon';
 import { getCloseReadiness } from '../periodCloseReadinessService';
 import { postJournalEntry, ClosedFiscalPeriodError } from '../journalEntryPostingService';
+import { VatPeriodLockedError } from '../journalVatLockGuard';
 import { logAuditOrThrow } from '../../core/auditTrailService';
 import { buildProposals, validateDecision, computeAccuracy } from './closeRunProposalBuilder';
 import * as repo from './closeRunRepo';
@@ -29,6 +30,7 @@ import type {
   Decision,
   AccuracyStats,
 } from './closeRunTypes';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 export const CLOSE_AGENT = 'close-agent:v1';
 
@@ -109,6 +111,7 @@ export async function decideProposal(
   decision: Decision,
   userId: string,
 ): Promise<CloseProposal> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const proposal = await repo.getProposalById(companyId, proposalId);
   if (!proposal || proposal.closeRunId !== runId) {
     throw new CloseRunNotFoundError(`Proposal ${proposalId} not found in close run ${runId}`);
@@ -143,6 +146,9 @@ export async function decideProposal(
 function asDecisionError(err: unknown, title: string): never {
   if (err instanceof ClosedFiscalPeriodError) {
     throw new ProposalDecisionError(`Cannot post ${title}: the fiscal period is ${err.periodStatus}, not open.`);
+  }
+  if (err instanceof VatPeriodLockedError) {
+    throw new ProposalDecisionError(`Cannot post ${title}: ${err.message}`);
   }
   const msg = err instanceof Error ? err.message : '';
   // Matched against postJournalEntry's own specific thrown messages ("Journal

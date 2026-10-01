@@ -19,14 +19,38 @@ import type { McpTool } from '../types';
 import { MUTATION_ARG_SCHEMA, type DryRunResult } from '@/lib/mcp/contracts';
 import {
   getJournalEntryById,
-  resolveReversalDate,
+  resolveReversalDateDetailed,
   reverseJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
+import type { VatLockRoll } from '@/modules/accounting/services/gl/journalEntryReversalDate';
+import { buildReversalLines } from '@/modules/accounting/services/gl/reversalLines';
 import { fmtDate } from '@/lib/fmtDate';
+import { getPeriodStatusForDate } from '@/modules/accounting/services/gl/periodStatusService';
+import { isDateAutoCreatable } from '@/modules/accounting/services/gl/journalEntryReversalVatRoll';
 import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 const TOOL = 'reverse_journal_entry';
+
+/**
+ * A legacy line tagged to another company's project, cost centre or business
+ * unit posts its contra UNTAGGED — carrying the tag forward is refused on the
+ * write, and refusing the reversal outright would make the entry permanently
+ * un-cancellable. See reversalLines.ts. Said in the dry run and in the live
+ * response from the same count, so the preview does not promise a contra the
+ * post will not write.
+ */
+function foreignDimensionWarnings(droppedLines: number): { code: string; detail: string }[] {
+  if (droppedLines === 0) return [];
+  return [{
+    code: 'foreign_dimension_dropped',
+    detail:
+      `${droppedLines} line(s) of this entry carry a project, cost centre or business unit `
+      + 'belonging to another company — a tag no report of yours can match. Those contra lines '
+      + 'post untagged, so the pair nets to zero in the untagged bucket and no figure you '
+      + 'report moves.',
+  }];
+}
 
 export const reverseJournalEntryTool: McpTool = {
   name: TOOL,
@@ -38,6 +62,10 @@ export const reverseJournalEntryTool: McpTool = {
     + 'open, and to TODAY when it is closed — a correction belongs in the period it corrects. '
     + 'Override with reversal_date, which must be a real YYYY-MM-DD day, must not fall before the '
     + 'entry being reversed, and must land in a fiscal period that EXISTS and is open. '
+    + 'LOCKED VAT PERIODS: when the entry moves a VAT-return figure and the DEFAULT date falls inside a '
+    + 'locked (filed) VAT period, the contra is dated forward to the first date outside every locked VAT '
+    + 'period and inside an open fiscal period, and reversal_date_roll says so; a reversal_date you name '
+    + 'inside a locked VAT period is refused. '
     + 'Refuses an entry that is a draft, already reversed, or has no lines. '
     + 'Does NOT cover: bank allocations (reverse_bank_allocation, or reverse_allocations for a '
     + 'date range) — reversing their journal directly would leave the bank transaction still '
@@ -55,8 +83,9 @@ export const reverseJournalEntryTool: McpTool = {
         type: 'string',
         format: 'date',
         description:
-          'YYYY-MM-DD. Omit to use the default (the original entry date when its period is open, '
-          + 'otherwise today).',
+          'YYYY-MM-DD. Omit to use the default: the original entry date when its period is open (or, for a '
+          + 'future-dated entry, when its year would be created on posting), otherwise today. A future-dated '
+          + 'entry in a closed period is refused rather than reversed before it.',
       },
       ...MUTATION_ARG_SCHEMA,
     },
@@ -95,13 +124,35 @@ export const reverseJournalEntryTool: McpTool = {
     // the agent as a generic failure from inside the write path.
     const originalDate = fmtDate(entry.entryDate);
     let resolvedDate: string;
+    let roll: VatLockRoll | null;
     try {
-      resolvedDate = await resolveReversalDate(ctx.companyId, originalDate, reversalDate);
+      // With the lines, so a locked VAT period rolls (or refuses) here exactly
+      // as it will inside reverseJournalEntry.
+      ({ date: resolvedDate, vatLockRoll: roll } = await resolveReversalDateDetailed(
+        ctx.companyId, originalDate, reversalDate, entry.lines));
     } catch (err) {
       return toolError(safeErrorText(err, 'Could not reverse this journal entry.'));
     }
+    // R-012: the default falls back to TODAY when the original's period is not
+    // open, and nothing above asks whether today's is. postJournalEntry would
+    // refuse inside the write, after dry_run had promised the reversal. A
+    // missing period passes only when posting will create it — a gap or an
+    // overlap throws FiscalPeriodOverlapError mid-write otherwise.
+    const targetStatus = await getPeriodStatusForDate(ctx.companyId, resolvedDate);
+    if (targetStatus === 'closed'
+      || (targetStatus === 'no_period' && !(await isDateAutoCreatable(ctx.companyId, resolvedDate)))) {
+      return toolError(
+        `The reversal would be dated ${resolvedDate}, which is not in an open fiscal period (closed, locked, or `
+        + 'a year that cannot be created here). Re-open or create it, or pass reversal_date inside an open period '
+        + 'on or after the entry date.',
+      );
+    }
 
     if (args.dry_run === true) {
+      // The same resolution the write does, so the preview cannot promise a
+      // tag the post would drop. The live path below reads the count off the
+      // reversal instead of paying for these three SELECTs twice.
+      const carried = await buildReversalLines(ctx.companyId, entry.lines, { preview: true });
       const result: DryRunResult = {
         dryRun: true,
         journals: [{
@@ -127,7 +178,14 @@ export const reverseJournalEntryTool: McpTool = {
       };
       // wroteNothing keeps the idempotency key free — without it the real call
       // that follows is served this preview forever.
-      return { ...ok(result), wroteNothing: true };
+      return {
+        ...ok({
+          ...result,
+          warnings: foreignDimensionWarnings(carried.droppedLineCount),
+          reversal_date_roll: roll,
+        }),
+        wroteNothing: true,
+      };
     }
 
     // Nothing below is caught.
@@ -142,6 +200,9 @@ export const reverseJournalEntryTool: McpTool = {
       reversal_entry_id: reversal.id,
       reversal_entry_number: reversal.entryNumber,
       reversal_date: fmtDate(reversal.entryDate),
+      warnings: foreignDimensionWarnings(reversal.foreignDimensionDroppedLines),
+      // Non-null when a locked VAT period moved the default date forward.
+      reversal_date_roll: reversal.vatLockRoll ?? null,
       // Stated because it is the property people get wrong about reversals here.
       original_status: 'posted',
       note: 'The original entry stays posted and is marked reversed in metadata; the contra entry offsets it.',

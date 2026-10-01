@@ -21,11 +21,12 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { sql } from '@/lib/neon';
+import { withPublicRouteTransaction } from '@/lib/publicRouteTx';
 import { log } from '@/lib/logger';
 import {
-  completeBundlePurchase,
-  failBundlePurchase,
-} from '@/modules/billing/services/flowWalletService';
+  processEvent,
+  type PaystackWebhookEvent,
+} from '@/modules/billing/services/paystackEventHandlers';
 
 export const config = { api: { bodyParser: false } };
 
@@ -53,39 +54,6 @@ function integrationName(): string {
   return process.env.PAYSTACK_INTEGRATION_NAME?.trim() || 'unset';
 }
 
-interface PaystackWebhookEvent {
-  event: string;
-  data: {
-    reference?: string;
-    status?: string;
-    amount?: number;
-    currency?: string;
-    channel?: string;
-    paid_at?: string;
-    gateway_response?: string;
-    id?: number;
-    customer?: {
-      email?: string;
-      customer_code?: string;
-    };
-    authorization?: {
-      authorization_code?: string;
-      last4?: string;
-      brand?: string;
-      exp_month?: string;
-      exp_year?: string;
-      bank?: string;
-      reusable?: boolean;
-    };
-    plan?: {
-      plan_code?: string;
-    };
-    subscription_code?: string;
-    email_token?: string;
-    metadata?: Record<string, unknown>;
-    [key: string]: unknown;
-  };
-}
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -119,29 +87,29 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const eventType = event.event ?? 'unknown';
   const reference = event.data?.reference ?? null;
 
-  // Idempotency — duplicate redeliveries return 200 without re-processing.
-  const existing = await sql<{ id: string }>`
-    SELECT id FROM paystack_webhook_events WHERE body_sha256 = ${bodyHash} LIMIT 1
-  `;
-  if (existing[0]) return res.status(200).json({ duplicate: true });
-
-  const logRows = await sql<{ id: string }>`
+  // The event row is written on the pool (outside the processing transaction)
+  // so the raw payload and any processing_error survive a rollback. ON CONFLICT
+  // makes the insert safe against two concurrent redeliveries of one body.
+  const inserted = await sql<{ id: string }>`
     INSERT INTO paystack_webhook_events (body_sha256, event_type, reference, payload)
     VALUES (${bodyHash}, ${eventType}, ${reference}, ${event as unknown as string}::jsonb)
+    ON CONFLICT (body_sha256) DO NOTHING
     RETURNING id
   `;
-  const eventLogId = logRows[0]?.id;
+  let eventLogId = inserted[0]?.id;
+  if (!eventLogId) {
+    const existing = await sql<{ id: string }>`
+      SELECT id FROM paystack_webhook_events WHERE body_sha256 = ${bodyHash} LIMIT 1
+    `;
+    eventLogId = existing[0]?.id;
+  }
   if (!eventLogId) {
     return res.status(500).json({ error: 'Failed to persist webhook event' });
   }
 
   try {
-    await processEvent(eventType, event);
-    await sql`
-      UPDATE paystack_webhook_events
-      SET processed = TRUE, processed_at = now()
-      WHERE id = ${eventLogId}
-    `;
+    const duplicate = await processEventInTransaction(eventLogId, eventType, event);
+    if (duplicate) return res.status(200).json({ duplicate: true });
     return res.status(200).json({ ok: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -155,175 +123,40 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-async function processEvent(
+/**
+ * Run the event handlers and the processed stamp in ONE transaction on an
+ * ALS-bound client, so every `sql` call they make joins it. A throw rolls the
+ * whole event back — including the `paystack_payment_requests` status change —
+ * leaving the row states that let Paystack's redelivery reprocess it.
+ *
+ * The `processed` check lives INSIDE the transaction behind a `FOR UPDATE` on
+ * the event row: the insert above auto-commits, so without the lock two
+ * concurrent redeliveries both read `processed = false` and both process, each
+ * blind to the other's uncommitted writes. Returns true when the lock showed
+ * the event was already processed and nothing was done.
+ */
+async function processEventInTransaction(
+  eventLogId: string,
   eventType: string,
   event: PaystackWebhookEvent,
-): Promise<void> {
-  const data = event.data ?? {};
-  const reference = data.reference;
-
-  if (eventType === 'charge.success') {
-    if (!reference) return;
-    await handleChargeSuccess(reference, event);
-    return;
-  }
-
-  if (
-    eventType === 'charge.failed' ||
-    eventType === 'invoice.payment_failed'
-  ) {
-    if (reference) await handleChargeFailed(reference, eventType);
-    return;
-  }
-
-  if (eventType === 'subscription.disable') {
-    const subCode = (data.subscription_code as string | undefined) ?? null;
-    if (subCode) await handleSubscriptionDisabled(subCode);
-    return;
-  }
-
-  // subscription.create / invoice.create / invoice.update — informational.
-  log.info('Paystack event recorded (no-op handler)', { eventType }, 'PaystackWebhook');
-}
-
-async function handleChargeSuccess(
-  reference: string,
-  event: PaystackWebhookEvent,
-): Promise<void> {
-  const auth = event.data.authorization ?? {};
-  const customer = event.data.customer ?? {};
-
-  const prRows = await sql<{
-    id: string;
-    company_id: string;
-    purpose: string;
-    customer_invoice_id: string | null;
-    flow_purchase_id: string | null;
-    subscription_charge_id: string | null;
-    amount_cents: string;
-    status: string;
-  }>`
-    UPDATE paystack_payment_requests
-    SET status = 'completed',
-        completed_at = COALESCE(completed_at, now()),
-        paystack_transaction_id = ${event.data.id ?? null},
-        paystack_authorization_code = COALESCE(${auth.authorization_code ?? null}, paystack_authorization_code),
-        paystack_customer_code = COALESCE(${customer.customer_code ?? null}, paystack_customer_code),
-        channel = COALESCE(${event.data.channel ?? null}, channel)
-    WHERE paystack_reference = ${reference}
-      AND status <> 'completed'
-    RETURNING id, company_id, purpose, customer_invoice_id, flow_purchase_id, subscription_charge_id, amount_cents, status
-  `;
-  const pr = prRows[0];
-  if (!pr) {
-    log.info(
-      'charge.success — no matching payment request (possible duplicate or out-of-band)',
-      { reference },
-      'PaystackWebhook',
-    );
-    return;
-  }
-
-  if (pr.purpose === 'customer_invoice' && pr.customer_invoice_id) {
-    const amountRand = Number(pr.amount_cents) / 100;
-    await sql`
-      UPDATE customer_invoices
-      SET amount_paid = LEAST(total_amount, COALESCE(amount_paid, 0) + ${amountRand}),
-          status = CASE
-            WHEN COALESCE(amount_paid, 0) + ${amountRand} >= total_amount THEN 'paid'
-            ELSE status
-          END,
-          updated_at = now()
-      WHERE id = ${pr.customer_invoice_id} AND company_id = ${pr.company_id}
+): Promise<boolean> {
+  return withPublicRouteTransaction('paystack-webhook', async () => {
+    const locked = await sql<{ processed: boolean }>`
+      SELECT processed FROM paystack_webhook_events WHERE id = ${eventLogId} FOR UPDATE
     `;
-    return;
-  }
+    // Only a SUCCESSFULLY processed event may be acked as a duplicate. An
+    // earlier delivery that threw left processed = FALSE and rolled its writes
+    // back, so Paystack's redelivery must be processed rather than discarded.
+    if (locked[0]?.processed) return true;
 
-  if (pr.purpose === 'flow_bundle' && pr.flow_purchase_id) {
-    await completeBundlePurchase(pr.flow_purchase_id);
-    log.info(
-      'flow bundle credited via Paystack webhook',
-      { purchaseId: pr.flow_purchase_id, companyId: pr.company_id },
-      'PaystackWebhook',
-    );
-    return;
-  }
-
-  if (pr.purpose === 'authorization' && auth.authorization_code) {
-    // Auth capture — promote the captured authorization onto the company's
-    // mandate row so subsequent recurring debits can charge it.
+    await processEvent(eventType, event);
     await sql`
-      UPDATE subscription_mandates
-      SET status = 'active',
-          gateway = 'paystack',
-          paystack_authorization_code = ${auth.authorization_code},
-          paystack_customer_code = ${customer.customer_code ?? null},
-          card_last4 = ${auth.last4 ?? null},
-          card_brand = ${auth.brand ?? null},
-          card_exp_month = ${auth.exp_month ?? null},
-          card_exp_year = ${auth.exp_year ?? null},
-          bank_name = COALESCE(${auth.bank ?? null}, bank_name),
-          authorised_at = COALESCE(authorised_at, now()),
-          updated_at = now()
-      WHERE company_id = ${pr.company_id} AND status IN ('pending','active')
+      UPDATE paystack_webhook_events
+      SET processed = TRUE, processed_at = now(), processing_error = NULL
+      WHERE id = ${eventLogId}
     `;
-    return;
-  }
-
-  if (pr.purpose === 'subscription_charge' && pr.subscription_charge_id) {
-    await sql`
-      UPDATE subscription_charges
-      SET status = 'settled',
-          settled_at = COALESCE(settled_at, now()),
-          updated_at = now()
-      WHERE id = ${pr.subscription_charge_id} AND company_id = ${pr.company_id}
-    `;
-  }
-}
-
-async function handleChargeFailed(reference: string, reason: string): Promise<void> {
-  const prRows = await sql<{
-    id: string;
-    purpose: string;
-    flow_purchase_id: string | null;
-    subscription_charge_id: string | null;
-  }>`
-    UPDATE paystack_payment_requests
-    SET status = 'failed',
-        failure_reason = ${reason}
-    WHERE paystack_reference = ${reference}
-      AND status NOT IN ('completed','failed')
-    RETURNING id, purpose, flow_purchase_id, subscription_charge_id
-  `;
-  const pr = prRows[0];
-  if (!pr) return;
-
-  if (pr.purpose === 'flow_bundle' && pr.flow_purchase_id) {
-    await failBundlePurchase(pr.flow_purchase_id, reason);
-  }
-  if (pr.purpose === 'subscription_charge' && pr.subscription_charge_id) {
-    await sql`
-      UPDATE subscription_charges
-      SET status = 'failed',
-          failure_reason = ${reason},
-          attempt_count = attempt_count + 1,
-          last_attempt_at = now(),
-          updated_at = now()
-      WHERE id = ${pr.subscription_charge_id}
-    `;
-  }
-}
-
-async function handleSubscriptionDisabled(subscriptionCode: string): Promise<void> {
-  await sql`
-    UPDATE subscription_mandates
-    SET status = 'revoked',
-        revoked_at = COALESCE(revoked_at, now()),
-        revoked_reason = 'paystack_subscription_disabled',
-        updated_at = now()
-    WHERE paystack_subscription_code = ${subscriptionCode}
-      AND status NOT IN ('revoked','expired')
-  `;
+    return false;
+  });
 }
 
 export default withErrorHandler(handler);

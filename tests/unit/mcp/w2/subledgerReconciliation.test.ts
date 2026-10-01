@@ -23,8 +23,14 @@ vi.mock('@/modules/accounting/services/gl/controlAccountService', async (orig) =
 }));
 vi.mock('@/modules/accounting/services/ar/arSubledgerService', () => ({ getARSubledger: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/apSubledgerService', () => ({ getAPSubledger: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/nonControlPostingAccounts', () => ({
+  getNonControlPostingAccounts: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/reconciliation/unappliedCashService', () => ({
   getUnappliedControlCash: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/reconciliation/unappliedCreditNoteService', () => ({
+  getUnappliedCreditNotes: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/reconciliation/unpostedDocumentService', () => ({
   getUnpostedSubledgerDocuments: vi.fn(),
@@ -41,6 +47,8 @@ vi.mock('@/modules/accounting/services/reports/postedThroughService', () => ({
 }));
 
 import { getControlAccountBalances } from '@/modules/accounting/services/gl/controlAccountService';
+import { getNonControlPostingAccounts } from '@/modules/accounting/services/gl/nonControlPostingAccounts';
+import { getUnappliedCreditNotes } from '@/modules/accounting/services/reconciliation/unappliedCreditNoteService';
 import { getARSubledger } from '@/modules/accounting/services/ar/arSubledgerService';
 import { getUnappliedControlCash } from '@/modules/accounting/services/reconciliation/unappliedCashService';
 import { getUnpostedSubledgerDocuments } from '@/modules/accounting/services/reconciliation/unpostedDocumentService';
@@ -74,8 +82,11 @@ function arSnapshot(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.mocked(getControlAccountBalances).mockReset();
   vi.mocked(getARSubledger).mockReset();
+  vi.mocked(getNonControlPostingAccounts).mockReset().mockResolvedValue([]);
+  vi.mocked(getUnappliedCreditNotes).mockReset().mockResolvedValue([]);
   vi.mocked(getUnappliedControlCash).mockReset().mockResolvedValue({
-    appliedRecords: [], withPaymentRecord: [], withoutPaymentRecord: [], total: 0, postedThrough: null,
+    appliedRecords: [], withPaymentRecord: [], withoutPaymentRecord: [], offControl: [],
+    total: 0, postedThrough: null,
   });
   vi.mocked(getUnpostedSubledgerDocuments).mockReset().mockResolvedValue([]);
   // Default: the aged report agrees with the subledger, so the aged bridge is
@@ -91,12 +102,13 @@ describe('reconcileSubledger — AR', () => {
     vi.mocked(getAgedReportTotal).mockResolvedValue(14272647.6);
     vi.mocked(getUnappliedControlCash).mockResolvedValue({
       withPaymentRecord: [
-        { id: 'pay-1', documentNumber: 'CP-1', entityName: 'Velocity', documentDate: '2026-07-24', amount: 2681024 },
+        { id: 'pay-1', documentNumber: 'CP-1', entityName: 'Velocity', documentDate: '2026-07-24', amount: 2681024, documentUnapplied: 2681024, gross: 2681024 },
       ],
       withoutPaymentRecord: [
-        { id: 'je-9', documentNumber: 'JE-2026-00009', entityName: null, documentDate: '2026-04-13', amount: 10000 },
+        { id: 'je-9', documentNumber: 'JE-2026-00009', entityName: null, documentDate: '2026-04-13', amount: 10000, documentUnapplied: 10000, gross: 10000 },
       ],
       appliedRecords: [],
+      offControl: [],
       total: 2691024,
       postedThrough: '2026-07-24T00:00:00.000Z',
     });
@@ -265,13 +277,39 @@ describe('reconcileSubledger — AR', () => {
     expect(rec.reconcilingItems.some((i) => i.type === 'document_after_as_at')).toBe(false);
   });
 
+  it('splits a document dated AFTER as_at with settlement before it into settlement_before_document', async () => {
+    // Velocity Fibre, 32 month-ends: every document_not_on_control_account item
+    // was a bill dated after the month-end with a payment dated on or before it
+    // applied FIFO — a prepayment, not a cut-off error. The close gate must be
+    // able to tell the two apart, so the builder names them apart. A document
+    // dated IN the period keeps its original reason.
+    vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl({ balance: 1000 })]);
+    vi.mocked(getARSubledger).mockResolvedValue(arSnapshot({ subledgerTotal: 1000 + 300 - 200 }) as never);
+    vi.mocked(getAgedReportTotal).mockResolvedValue(1100);
+    vi.mocked(getUnpostedSubledgerDocuments).mockResolvedValue([
+      { id: 'inv-late', documentNumber: 'INV-LATE', entityName: 'A', documentDate: '2026-09-10',
+        amount: -200, gross: 500, reason: 'document_not_on_control_account' },
+      { id: 'inv-cut', documentNumber: 'INV-CUT', entityName: 'B', documentDate: AS_AT,
+        amount: 300, gross: 300, reason: 'document_not_on_control_account' },
+    ] as never);
+
+    const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
+    const prepay = rec.reconcilingItems.find((i) => i.type === 'settlement_before_document');
+    const cut = rec.reconcilingItems.find((i) => i.type === 'document_not_on_control_account');
+    expect(prepay).toMatchObject({ bridge: 'subledger_to_control', amount: -200, documentIds: ['inv-late'] });
+    expect(cut).toMatchObject({ amount: 300, documentIds: ['inv-cut'] });
+    expect(rec.unexplainedDifference).toBe(0);
+  });
+
   it('reports EVERY control account and flags the ambiguity rather than picking one', async () => {
-    // FINDINGS C1: no canonical control account exists. Picking one silently is
-    // how a R10,000 receipt on a NULL-subtype account disappears.
+    // FINDINGS C1: no canonical control account exists. Ambiguity now means
+    // exactly one thing — more than one account CARRIES THE CONTROL SUBTYPE —
+    // rather than "more than one account a document happened to post to",
+    // which made a settle_by_contra loan account into an AP control account.
     vi.mocked(getControlAccountBalances).mockResolvedValue([
       ctrl({ balance: 11591623.6 }),
-      ctrl({ accountId: 'acc-1120', accountCode: '1120', accountSubtype: null,
-             balance: -10000, foundBy: 'posting' }),
+      ctrl({ accountId: 'acc-1120', accountCode: '1120', accountSubtype: 'receivable',
+             balance: -10000 }),
     ]);
     vi.mocked(getARSubledger).mockResolvedValue(arSnapshot({ subledgerTotal: 11581623.6 }) as never);
     vi.mocked(getAgedReportTotal).mockResolvedValue(11581623.6);

@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { VATReturnReport } from '../../types/gl.types';
+import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
 
 type Row = DbRow;
 
@@ -98,7 +99,7 @@ export async function getVATReturn(companyId: string,
         -- IS DISTINCT FROM, not a plain inequality: je.source is nullable, and
         -- an inequality against a NULL source yields NULL, not true, which
         -- would silently drop every NULL-source journal from the return.
-        AND je.source IS DISTINCT FROM 'auto_vat_submission'
+        AND je.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
         AND (
           ga.account_subtype IN ('vat_input', 'vat_output', 'tax')
         )

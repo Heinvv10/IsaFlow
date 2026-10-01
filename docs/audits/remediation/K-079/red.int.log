@@ -1,0 +1,76 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/k079
+
+ ❯ tests/integration/k079-payroll-eti-journal.int.test.ts (5 tests | 3 failed) 499ms
+     × ETI below PAYE: posts a balanced journal with 2140 = paye − eti and links it to the run 57ms
+     × ETI above PAYE: books only the ETI PAYE can absorb, and still posts balanced 15ms
+     × a run the journal cannot post for is refused BEFORE it is marked approved 13ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > ETI below PAYE: posts a balanced journal with 2140 = paye − eti and links it to the run
+AssertionError: expected 400 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 400
+
+ ❯ tests/integration/k079-payroll-eti-journal.int.test.ts:105:28
+    103|     const id = await run(companyA, 3, { gross: 100000, paye: 20000, ui…
+    104|     const res = await callApprove(id);
+    105|     expect(res.statusCode).toBe(200);
+       |                            ^
+    106|
+    107|     const h = await header(id);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > ETI above PAYE: books only the ETI PAYE can absorb, and still posts balanced
+AssertionError: expected 400 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 400
+
+ ❯ tests/integration/k079-payroll-eti-journal.int.test.ts:122:28
+    120|     const id = await run(companyA, 4, { gross: 10000, paye: 300, uif: …
+    121|     const res = await callApprove(id);
+    122|     expect(res.statusCode).toBe(200);
+       |                            ^
+    123|
+    124|     const h = await header(id);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/integration/k079-payroll-eti-journal.int.test.ts > K-079: approving a run that claims ETI > a run the journal cannot post for is refused BEFORE it is marked approved
+AssertionError: expected { status: 'approved', …(1) } to deeply equal { status: 'calculated', …(1) }
+
+- Expected
++ Received
+
+  {
+    "journal_entry_id": null,
+-   "status": "calculated",
++   "status": "approved",
+  }
+
+ ❯ tests/integration/k079-payroll-eti-journal.int.test.ts:161:30
+    159|     const res = await callApprove(id);
+    160|     expect(res.statusCode).toBe(400);
+    161|     expect(await header(id)).toEqual({ status: 'calculated', journal_e…
+       |                              ^
+    162|   });
+    163| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 2 passed (5)
+   Start at  16:26:03
+   Duration  1.27s (transform 363ms, setup 0ms, import 650ms, tests 499ms, environment 0ms)
+

@@ -16,7 +16,14 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { ContactValidationError } from './customerWriteService';
+import { ContactValidationError, boundedText } from './customerWriteService';
+import {
+  AUTO_ALLOCATE_STRATEGIES,
+  parseAutoAllocateStrategy,
+  type AutoAllocateStrategy,
+} from '../shared/autoAllocateStrategy';
+
+export type { AutoAllocateStrategy };
 
 const MAX_NAME = 255;
 const MAX_TEXT = 255;
@@ -40,7 +47,11 @@ export interface SupplierWriteInput {
   category?: string | null;
   openingBalance?: number | null;
   openingBalanceDate?: string | null;
+  autoAllocateStrategy?: AutoAllocateStrategy;
+  /** @deprecated Legacy boolean from migration 246. Use autoAllocateStrategy — true maps to 'oldest'. */
   autoAllocatePayments?: boolean;
+  /** The supplier's supplies fall under the domestic reverse charge; the one thing DRC VAT eligibility reads. */
+  subjectToDrcVat?: boolean;
 }
 
 function trimmed(value: string | null | undefined): string | null {
@@ -58,11 +69,47 @@ function assertName(name: string | undefined): string {
   return t;
 }
 
+/**
+ * The strategy to write, or `undefined` for "leave it alone" on an update.
+ *
+ * Takes ONLY the new field. The deprecated boolean is not a parameter because
+ * it is not an input to this decision — see the note below on why it stopped
+ * being one. Throws before the value can reach the DB CHECK constraint, which
+ * would otherwise surface as an opaque 23514.
+ */
+function resolveStrategy(
+  strategy: string | undefined,
+): AutoAllocateStrategy | undefined {
+  if (strategy !== undefined) {
+    const parsed = parseAutoAllocateStrategy(strategy);
+    if (!parsed) {
+      throw new ContactValidationError(
+        `auto_allocate_strategy must be one of: ${AUTO_ALLOCATE_STRATEGIES.join(', ')}`,
+      );
+    }
+    return parsed;
+  }
+  // THE LEGACY BOOLEAN NO LONGER TURNS ANYTHING ON, AND IS NO LONGER READ
+  // HERE AT ALL. It used to map true ->
+  // 'oldest', which made it the last path by which a contact could arrive at a
+  // strategy nobody chose — reachable by any caller still sending the old
+  // field: an external API consumer, an import, or the previous build during a
+  // rolling deploy. Migration 614 refused to carry the old ticks over for
+  // exactly that reason (nothing ever read them, so nobody consented to cash
+  // application by ticking one); honouring the same tick when it arrives over
+  // the wire would have re-opened the door the migration closed. Nothing
+  // in-tree sends it — the forms, the REST routes and the MCP contact tools all
+  // moved to `auto_allocate_strategy` — so an old caller's boolean is now
+  // simply ignored rather than obeyed.
+  return undefined;
+}
+
 export async function createSupplier(
   companyId: string,
   input: SupplierWriteInput,
 ): Promise<DbRow> {
   const name = assertName(input.name);
+  const strategy = resolveStrategy(input.autoAllocateStrategy) ?? 'off';
   const rows = (await sql`
     INSERT INTO suppliers (
       company_id, name, company_name, email, phone,
@@ -70,28 +117,31 @@ export async function createSupplier(
       payment_terms,
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
-      opening_balance, opening_balance_date, auto_allocate_payments
+      opening_balance, opening_balance_date, subject_to_drc_vat,
+      auto_allocate_strategy, auto_allocate_payments
     ) VALUES (
       ${companyId}::UUID,
       ${name},
       ${trimmed(input.companyName)},
       ${trimmed(input.email)},
-      ${trimmed(input.phone)},
-      ${trimmed(input.vatNumber)},
-      ${trimmed(input.registrationNumber)},
+      ${boundedText(input.phone, 'phone', 50)},
+      ${boundedText(input.vatNumber, 'vat_number', 50)},
+      ${boundedText(input.registrationNumber, 'registration_number', 50)},
       ${trimmed(input.address)},
       ${trimmed(input.contactPerson)},
       ${input.paymentTerms ?? 30},
-      ${trimmed(input.bankName)},
-      ${trimmed(input.bankAccountNumber)},
-      ${trimmed(input.bankBranchCode)},
-      ${trimmed(input.bankAccountType)},
+      ${boundedText(input.bankName, 'bank_name', 100)},
+      ${boundedText(input.bankAccountNumber, 'bank_account_number', 50)},
+      ${boundedText(input.bankBranchCode, 'bank_branch_code', 20)},
+      ${boundedText(input.bankAccountType, 'bank_account_type', 20)},
       ${input.isActive ?? true},
       ${trimmed(input.notes)},
-      ${trimmed(input.category)},
+      ${boundedText(input.category, 'category', 100)},
       ${input.openingBalance ?? 0},
       ${trimmed(input.openingBalanceDate)}::DATE,
-      ${input.autoAllocatePayments ?? false}
+      ${input.subjectToDrcVat ?? false},
+      ${strategy},
+      ${strategy !== 'off'}
     )
     RETURNING
       id, name, company_name, email, phone,
@@ -99,7 +149,8 @@ export async function createSupplier(
       payment_terms,
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
-      opening_balance, opening_balance_date, auto_allocate_payments,
+      opening_balance, opening_balance_date,
+      auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat,
       created_at
   `) as DbRow[];
 
@@ -127,26 +178,33 @@ export async function updateSupplier(
   if (input.name !== undefined) {
     name = assertName(input.name);
   }
+  // undefined = "leave it alone"; COALESCE below handles that the same way it
+  // handles every other omitted field.
+  const strategy = resolveStrategy(input.autoAllocateStrategy);
 
   const rows = (await sql`
     UPDATE suppliers SET
       name                = COALESCE(${name}, name),
       company_name        = COALESCE(${trimmed(input.companyName)}, company_name),
       email               = COALESCE(${trimmed(input.email)}, email),
-      phone               = COALESCE(${trimmed(input.phone)}, phone),
-      vat_number          = COALESCE(${trimmed(input.vatNumber)}, vat_number),
-      registration_number = COALESCE(${trimmed(input.registrationNumber)}, registration_number),
+      phone               = COALESCE(${boundedText(input.phone, 'phone', 50)}, phone),
+      vat_number          = COALESCE(${boundedText(input.vatNumber, 'vat_number', 50)}, vat_number),
+      registration_number = COALESCE(${boundedText(input.registrationNumber, 'registration_number', 50)}, registration_number),
       address             = COALESCE(${trimmed(input.address)}, address),
       contact_person      = COALESCE(${trimmed(input.contactPerson)}, contact_person),
       payment_terms       = COALESCE(${input.paymentTerms ?? null}, payment_terms),
-      bank_name           = COALESCE(${trimmed(input.bankName)}, bank_name),
-      bank_account_number = COALESCE(${trimmed(input.bankAccountNumber)}, bank_account_number),
-      bank_branch_code    = COALESCE(${trimmed(input.bankBranchCode)}, bank_branch_code),
-      bank_account_type   = COALESCE(${trimmed(input.bankAccountType)}, bank_account_type),
+      bank_name           = COALESCE(${boundedText(input.bankName, 'bank_name', 100)}, bank_name),
+      bank_account_number = COALESCE(${boundedText(input.bankAccountNumber, 'bank_account_number', 50)}, bank_account_number),
+      bank_branch_code    = COALESCE(${boundedText(input.bankBranchCode, 'bank_branch_code', 20)}, bank_branch_code),
+      bank_account_type   = COALESCE(${boundedText(input.bankAccountType, 'bank_account_type', 20)}, bank_account_type),
       is_active           = COALESCE(${input.isActive ?? null}, is_active),
       notes               = COALESCE(${trimmed(input.notes)}, notes),
-      category            = COALESCE(${trimmed(input.category)}, category),
-      auto_allocate_payments = COALESCE(${input.autoAllocatePayments ?? null}, auto_allocate_payments),
+      category            = COALESCE(${boundedText(input.category, 'category', 100)}, category),
+      auto_allocate_strategy = COALESCE(${strategy ?? null}, auto_allocate_strategy),
+      auto_allocate_payments = COALESCE(
+        ${strategy !== undefined ? strategy !== 'off' : null}, auto_allocate_payments
+      ),
+      subject_to_drc_vat  = COALESCE(${input.subjectToDrcVat ?? null}, subject_to_drc_vat),
       updated_at          = NOW()
     WHERE id = ${supplierId}::UUID
       AND company_id = ${companyId}::UUID
@@ -157,7 +215,8 @@ export async function updateSupplier(
       payment_terms,
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       is_active, notes, category,
-      opening_balance, opening_balance_date, auto_allocate_payments,
+      opening_balance, opening_balance_date,
+      auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat,
       created_at
   `) as DbRow[];
 

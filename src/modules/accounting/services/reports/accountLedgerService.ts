@@ -12,55 +12,12 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { RunningBalance, toMoney } from '@/lib/money/decimalSum';
 
 type Row = DbRow;
 
-export interface AccountLedgerRow {
-  journalEntryId: string;
-  entryDate: string;
-  entryNumber: string;
-  description: string;
-  reference: string;
-  source: string;
-  debit: number;
-  credit: number;
-  runningBalance: number;
-}
-
-export interface AccountLedgerMeta {
-  accountId: string;
-  accountCode: string;
-  accountName: string;
-  accountType: string;
-  normalBalance: string;
-}
-
-export interface AccountLedgerResult {
-  rows: AccountLedgerRow[];
-  total: number;
-  openingBalance: number;
-  /** Sum of (debits − credits) over the FULL date range — server-computed, not a client-side slice reduce. */
-  periodNet: number;
-  /** Opening balance + periodNet — the true period closing balance regardless of pagination. */
-  periodClosingBalance: number;
-  meta: AccountLedgerMeta;
-}
-
-export interface GetAccountLedgerParams {
-  companyId: string;
-  /** UUID of the GL account. Either accountId or accountCode is required. */
-  accountId?: string;
-  /** Account code (e.g. "1110"). Either accountId or accountCode is required. */
-  accountCode?: string;
-  fromDate: string;
-  toDate: string;
-  /** Default: true — only include posted entries */
-  postedOnly?: boolean;
-  /** Default: 200 */
-  limit?: number;
-  /** Default: 0 */
-  offset?: number;
-}
+import type { AccountLedgerRow, AccountLedgerMeta, AccountLedgerResult, GetAccountLedgerParams } from './accountLedgerTypes';
+export type { AccountLedgerRow, AccountLedgerMeta, AccountLedgerResult, GetAccountLedgerParams } from './accountLedgerTypes';
 
 // WORKING: All WHERE clauses include company_id on both je and jl tables.
 export async function getAccountLedger(
@@ -70,12 +27,17 @@ export async function getAccountLedger(
     companyId,
     accountId,
     accountCode,
+    costCentreId,
+    businessUnitId,
     fromDate,
     toDate,
     postedOnly = true,
     limit = 200,
     offset = 0,
   } = params;
+
+  const cc = costCentreId ?? null;
+  const bu = businessUnitId ?? null;
 
   if (!accountId && !accountCode) {
     throw new Error('Either accountId or accountCode is required');
@@ -128,6 +90,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date    < ${fromDate}
             AND je.status        = 'posted'
         `) as Row[]
@@ -140,6 +105,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date    < ${fromDate}
         `) as Row[];
 
@@ -147,8 +115,9 @@ export async function getAccountLedger(
     const obCredit = Number(obRows[0]?.total_credit ?? 0);
     // Debit-normal accounts: balance = debits − credits.
     // Credit-normal accounts: balance = credits − debits.
-    const openingBalance =
-      normalBalance === 'debit' ? obDebit - obCredit : obCredit - obDebit;
+    const openingBalance = toMoney(
+      normalBalance === 'debit' ? obDebit - obCredit : obCredit - obDebit,
+    );
 
     // 3. Count total matching rows in range for pagination.
     const countRows = postedOnly
@@ -159,6 +128,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
             AND je.status        = 'posted'
@@ -170,6 +142,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
         `) as Row[];
@@ -193,6 +168,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
             AND je.status        = 'posted'
@@ -215,6 +193,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
           ORDER BY je.entry_date ASC, je.id ASC
@@ -223,11 +204,12 @@ export async function getAccountLedger(
         `) as Row[];
 
     // 5. Compute running balance across the paginated slice.
-    let running = openingBalance;
+    const running = new RunningBalance(openingBalance);
     const rows: AccountLedgerRow[] = txnRows.map((r: Row) => {
-      const d = Number(r.debit ?? 0);
-      const c = Number(r.credit ?? 0);
-      running += normalBalance === 'debit' ? d - c : c - d;
+      const d = toMoney(Number(r.debit ?? 0));
+      const c = toMoney(Number(r.credit ?? 0));
+      running.add(normalBalance === 'debit' ? d : c);
+      const runningBalance = running.subtract(normalBalance === 'debit' ? c : d);
       return {
         journalEntryId: String(r.journal_entry_id),
         entryDate: fmtDate(r.entry_date),
@@ -237,7 +219,7 @@ export async function getAccountLedger(
         source: String(r.source ?? 'manual'),
         debit: d,
         credit: c,
-        runningBalance: running,
+        runningBalance,
       };
     });
 
@@ -254,6 +236,9 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
             AND je.status        = 'posted'
@@ -267,15 +252,19 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
         `) as Row[];
 
     const periodDebit = Number(periodRows[0]?.period_debit ?? 0);
     const periodCredit = Number(periodRows[0]?.period_credit ?? 0);
-    const periodNet =
-      normalBalance === 'debit' ? periodDebit - periodCredit : periodCredit - periodDebit;
-    const periodClosingBalance = openingBalance + periodNet;
+    const periodNet = toMoney(
+      normalBalance === 'debit' ? periodDebit - periodCredit : periodCredit - periodDebit,
+    );
+    const periodClosingBalance = toMoney(openingBalance + periodNet);
 
     return { rows, total, openingBalance, periodNet, periodClosingBalance, meta };
   } catch (err) {

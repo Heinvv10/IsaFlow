@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { localISODate } from '@/lib/dateUtils';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,7 +40,7 @@ function fmtCurrency(n: number): string {
 function ytdRange(): { start: string; end: string } {
   const now = new Date();
   const start = `${now.getFullYear()}-01-01`;
-  const end = now.toISOString().slice(0, 10);
+  const end = localISODate(now);
   return { start, end };
 }
 

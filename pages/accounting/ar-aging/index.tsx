@@ -3,19 +3,26 @@
  * PRD-060 Phase 3: Current / 30 / 60 / 90 / 120+ day buckets
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { Fragment, useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { Clock, Loader2, AlertCircle, Download } from 'lucide-react';
+import { Clock, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import type { AgingBucket } from '@/modules/accounting/types/ap.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { fmtDate } from '@/lib/fmtDate';
+import { AgingInvoicesPanel } from '@/components/accounting/AgingInvoicesPanel';
+import { useAgingReturn } from '@/components/accounting/useAgingReturn';
 
 export default function ARAgingPage() {
   const [buckets, setBuckets] = useState<AgingBucket[]>([]);
-  const [asAtDate, setAsAtDate] = useState(new Date().toISOString().split('T')[0]);
+  // A LOCAL date: toISOString() is UTC and named yesterday before 02:00 SAST.
+  const [asAtDate, setAsAtDate] = useState(() => fmtDate(new Date()));
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const { restored, expandedId, rowProps } = useAgingReturn({
+    entityParam: 'customer', rowsReady: !isLoading && buckets.length > 0, onAsAtDate: setAsAtDate,
+  });
 
   const loadAging = useCallback(async () => {
     setIsLoading(true);
@@ -34,7 +41,8 @@ export default function ARAgingPage() {
     }
   }, [asAtDate]);
 
-  useEffect(() => { void loadAging(); }, [loadAging]);
+  // Wait for a restored ?as_at_date= so the first load is already the right date.
+  useEffect(() => { if (restored) void loadAging(); }, [restored, loadAging]);
 
   function handleExport() {
     const params = new URLSearchParams();
@@ -129,6 +137,7 @@ export default function ARAgingPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)]">
+                    <th className="w-6 px-4 py-3"></th>
                     <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Client</th>
                     <th className="text-right px-4 py-3 text-emerald-700 dark:text-emerald-400 font-medium">Current</th>
                     <th className="text-right px-4 py-3 text-amber-700 dark:text-amber-400 font-medium">1-30</th>
@@ -140,9 +149,13 @@ export default function ARAgingPage() {
                 </thead>
                 <tbody>
                   {buckets.map(b => (
-                    <tr key={b.entityId} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors">
+                    <Fragment key={b.entityId}>
+                    <tr {...rowProps(b.entityId)} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors cursor-pointer">
+                      <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">
+                        {expandedId === b.entityId ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </td>
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">
-                        <Link href={`/accounting/customer-statements/${b.entityId}`} className="hover:text-teal-400 transition-colors">
+                        <Link href={`/accounting/customer-statements/${b.entityId}?as_at_date=${asAtDate}`} onClick={e => e.stopPropagation()} className="hover:text-teal-400 transition-colors">
                           {b.entityName}
                         </Link>
                       </td>
@@ -153,9 +166,14 @@ export default function ARAgingPage() {
                       <td className="px-4 py-3 text-right font-mono text-rose-700 dark:text-rose-400">{formatCurrency(b.days120Plus)}</td>
                       <td className="px-4 py-3 text-right font-mono font-bold text-[var(--ff-text-primary)]">{formatCurrency(b.total)}</td>
                     </tr>
+                    {expandedId === b.entityId && (
+                      <AgingInvoicesPanel side="ar" entityId={b.entityId} entityName={b.entityName} asAtDate={asAtDate} colSpan={8} />
+                    )}
+                    </Fragment>
                   ))}
                   {/* Totals row */}
                   <tr className="bg-[var(--ff-bg-primary)] font-bold">
+                    <td className="px-4 py-3"></td>
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
                     <td className="px-4 py-3 text-right font-mono text-teal-400">{formatCurrency(totals.current)}</td>
                     <td className="px-4 py-3 text-right font-mono text-amber-400">{formatCurrency(totals.days30)}</td>

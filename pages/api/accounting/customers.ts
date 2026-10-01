@@ -11,11 +11,10 @@ import {
   createCustomer,
   ContactValidationError,
 } from '@/modules/accounting/services/core/customerWriteService';
+import type { AutoAllocateStrategy } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { cacheThrough, cache } from '@/lib/cache';
-import { CACHE_KEYS, CACHE_TTL } from '@/lib/cache-keys';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { listCustomers } from '@/modules/accounting/services/core/contactDirectoryService';
 
@@ -83,18 +82,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       const searchQuery = typeof q === 'string' ? q : null;
 
-      let rows: Row[];
-
-      if (searchQuery && searchQuery.trim()) {
-        // Search queries are not cached — results change with every keystroke
-        rows = await listCustomers(companyId, searchQuery);
-      } else {
-        rows = await cacheThrough(
-          CACHE_KEYS.customers(companyId),
-          async () => listCustomers(companyId, null),
-          CACHE_TTL.REFERENCE_DATA,
-        );
-      }
+      // Not cached (R-125): ten files write customers, and an in-process
+      // cache is invisible to every other process.
+      const rows = await listCustomers(companyId, searchQuery);
 
       return apiResponse.success(res, rows);
     } catch (err: unknown) {
@@ -129,6 +119,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         categoryId: s('category_id'), cashSale: bool('cash_sale'),
         openingBalance: n('opening_balance'), openingBalanceDate: s('opening_balance_date'),
         acceptsElectronicInvoices: bool('accepts_electronic_invoices'),
+        // auto_allocate_strategy is the only field that decides this. The
+        // legacy boolean below is still ACCEPTED but no longer selects a
+        // strategy: an old client sending only `auto_allocate_receipts: true`
+        // gets no error and no effect. Deliberate — see the note on the
+        // supplier route and migration 614.
+        autoAllocateStrategy: s('auto_allocate_strategy') as AutoAllocateStrategy | undefined,
         autoAllocateReceipts: bool('auto_allocate_receipts'),
         statementDistribution: s('statement_distribution'),
         defaultDiscount: n('default_discount'), defaultVatType: s('default_vat_type'),
@@ -137,7 +133,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         defaultPriceList: s('default_price_list'),
       })];
 
-      cache.invalidate(CACHE_KEYS.customers(companyId));
       log.info('Customer created', { id: rows[0]?.id, name: rows[0]?.name, module: 'accounting' });
       return apiResponse.success(res, rows[0]);
     } catch (err: unknown) {

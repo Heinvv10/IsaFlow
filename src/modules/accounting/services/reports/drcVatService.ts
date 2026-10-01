@@ -11,12 +11,14 @@
  * The invoice amount stays the same but both sides of VAT are recorded.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import type { JournalLineInput } from '../../types/gl.types';
+import { BALANCE_DERIVED } from '../ar/invoiceStatusRecompute';
+import { lockSupplierInvoiceForUpdate } from '../ap/supplierInvoiceLock';
 
 type Row = DbRow;
 
@@ -46,22 +48,71 @@ export interface DRCResult {
 /**
  * Apply DRC VAT to a supplier invoice.
  * Creates a journal entry: DR Input VAT, CR Output VAT.
+ *
+ * Approved bills only — approved, partially_paid or paid. The allow-list is
+ * BALANCE_DERIVED (posted documents), shared with AR, so it also names
+ * 'sent'/'overdue', which the supplier_invoices status check never admits. Not
+ * FIFO_ELIGIBLE_STATUSES: that is "where cash may land" and may narrow for cash
+ * reasons. A draft's figures can still change under the journal, and nothing
+ * re-runs DRC on an `is_drc` bill to correct it. The row lock serialises two concurrent calls
+ * so the second sees `is_drc` and refuses. Everything runs in one savepoint:
+ * the route turns any throw into a 400, which `withAuth` COMMITS, so without
+ * it a failure after `createJournalEntry` left an orphan draft journal.
  */
-export async function applyDRCVat(companyId: string, 
+export async function applyDRCVat(companyId: string,
   supplierInvoiceId: string,
   userId: string
 ): Promise<DRCResult> {
-  // Get invoice details
-  const invoices = (await sql`
-    SELECT si.id, si.invoice_number, si.subtotal, si.total_amount, si.is_drc
-    FROM supplier_invoices si
-    WHERE si.id = ${supplierInvoiceId}::UUID AND si.company_id = ${companyId}
-  `) as Row[];
+  return withSavepoint('drc_vat_apply', () => applyDRCVatInner(companyId, supplierInvoiceId, userId));
+}
 
-  if (!invoices[0]) throw new Error('Supplier invoice not found');
-  const inv = invoices[0];
+async function applyDRCVatInner(
+  companyId: string,
+  supplierInvoiceId: string,
+  userId: string,
+): Promise<DRCResult> {
+  const inv = await lockSupplierInvoiceForUpdate(companyId, supplierInvoiceId);
+  // One reply for absent, foreign and soft-deleted: no existence oracle. The
+  // lock is held through the post on purpose — released earlier, a second
+  // call could read is_drc = false again.
+  if (!inv || inv.deleted_at) throw new Error('Supplier invoice not found');
 
   if (inv.is_drc) throw new Error('DRC VAT already applied to this invoice');
+  const status = String(inv.status);
+  if (!BALANCE_DERIVED.includes(status)) {
+    throw new Error(
+      `DRC VAT can only be applied to an approved supplier invoice; ${String(inv.invoice_number)} is ${status}.`,
+    );
+  }
+  // Zero VAT alone is not reverse charge — zero-rated, exempt and foreign
+  // supplies carry none either. The supplier's own flag decides.
+  const [supplier] = (await sql`
+    SELECT subject_to_drc_vat FROM suppliers
+    WHERE id = ${inv.supplier_id}::UUID AND company_id = ${companyId}::UUID
+      AND deleted_at IS NULL`) as Row[];
+  if (supplier?.subject_to_drc_vat !== true) {
+    throw new Error(
+      `DRC VAT applies only to a supplier marked as subject to DRC VAT; ${String(inv.invoice_number)}'s supplier `
+      + 'is not marked as subject to DRC (or has been deleted). Set it on the supplier first if its supplies '
+      + 'are reverse-charge.',
+    );
+  }
+  // A reverse-charge invoice carries no supplier VAT. On a bill that does, DRC
+  // is the wrong treatment: approval posts DR Input VAT = tax_amount, and DRC's
+  // DR Input / CR Output on top inflates both VAT201 boxes (net unchanged).
+  // Not every taxed bill has an approval journal (e.g. bills written approved
+  // without one — 496 of 1,229 on dev, not Sage imports), so the
+  // refusal says the supplier charged VAT, not that it was already claimed.
+  // Any non-zero figure, negative included: the eligible list admits exactly
+  // tax_amount = 0, and the two must never disagree.
+  const supplierVat = Number(inv.tax_amount ?? 0);
+  if (supplierVat !== 0) {
+    throw new Error(
+      `DRC VAT applies only to a bill on which the supplier charged no VAT; ${String(inv.invoice_number)} `
+      + `records R${supplierVat.toFixed(2)} of supplier VAT, so it is not a reverse-charge supply. `
+      + 'If that VAT was captured in error, correct the bill first (cancel and re-enter it without VAT).',
+    );
+  }
 
   // DRC VAT is calculated on the pre-VAT base (subtotal), not the gross total
   const totalExclVat = Number(inv.subtotal);
@@ -116,7 +167,15 @@ export async function getDRCEligibleInvoices(companyId: string): Promise<Array<{
     FROM supplier_invoices si
     LEFT JOIN suppliers s ON s.id = si.supplier_id
     WHERE si.company_id = ${companyId}
-      AND si.status IN ('approved', 'partially_paid', 'paid')
+      AND si.status = ANY(${BALANCE_DERIVED}::TEXT[])
+      AND si.deleted_at IS NULL
+      AND COALESCE(si.tax_amount, 0) = 0
+      AND s.subject_to_drc_vat = true
+      -- The flag is read only from a live supplier of THIS company: a deleted
+      -- one's flag can no longer be changed, and the FK alone does not stop a
+      -- bill naming another tenant's supplier.
+      AND s.company_id = si.company_id
+      AND s.deleted_at IS NULL
       AND (si.is_drc IS NULL OR si.is_drc = false)
     ORDER BY si.invoice_date DESC
   `) as Row[];

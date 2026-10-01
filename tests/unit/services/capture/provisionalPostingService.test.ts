@@ -186,7 +186,7 @@ describe('postProvisional', () => {
   it('skips incoming transactions (amount > 0) and returns skipped reason containing "incoming"', async () => {
     // bank_tx fetch — amount is positive (inflow)
     vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: 500, description: 'CUSTOMER PAYMENT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
+      { id: BANK_TX_ID, amount: 500, description: 'CUSTOMER PAYMENT', status: 'imported', feed_state: 'posted', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
     ] as never);
 
     const result = await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
@@ -200,7 +200,7 @@ describe('postProvisional', () => {
   it('skips when prediction confidence is below default minConfidence of 0.7', async () => {
     // bank_tx
     vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -800, description: 'XYZZY RANDOM TX', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
+      { id: BANK_TX_ID, amount: -800, description: 'XYZZY RANDOM TX', status: 'imported', feed_state: 'posted', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
     ] as never);
     // Suppliers → empty → confidence 0
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
@@ -214,7 +214,7 @@ describe('postProvisional', () => {
 
   it('skips when prediction confidence is 0.5 (supplier matched but no history) with default threshold', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -600, description: 'ESKOM HOLDINGS', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
+      { id: BANK_TX_ID, amount: -600, description: 'ESKOM HOLDINGS', status: 'imported', feed_state: 'posted', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
     ] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([
       { id: SUPPLIER_ID, name: 'Eskom Holdings' },
@@ -229,7 +229,7 @@ describe('postProvisional', () => {
 
   it('respects a custom minConfidence option — skips a 0.7 prediction when threshold is 0.9', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -600, description: 'ESKOM HOLDINGS', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
+      { id: BANK_TX_ID, amount: -600, description: 'ESKOM HOLDINGS', status: 'imported', feed_state: 'posted', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
     ] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'S', 1) as never); // → 0.7
@@ -243,7 +243,7 @@ describe('postProvisional', () => {
   it('creates a journal entry and returns its id on the happy path', async () => {
     // bank_tx
     vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
+      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', feed_state: 'posted', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
     ] as never);
     // Suppliers
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
@@ -263,7 +263,7 @@ describe('postProvisional', () => {
 
   it('updates bank_transactions status to "provisional" by issuing at least two SQL calls after prediction', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
+      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', feed_state: 'posted', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
     ] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'S', 4) as never);
@@ -278,7 +278,7 @@ describe('postProvisional', () => {
 
   it('passes postingAgent "ai-provisional:v1" in the meta argument to createJournalEntry', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
+      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', feed_state: 'posted', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
     ] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'S', 4) as never);
@@ -307,6 +307,56 @@ describe('postProvisional', () => {
     expect(vi.mocked(createJournalEntry)).not.toHaveBeenCalled();
   });
 
+  it('skips a pending feed row with skipped: "feed_state pending" and journalEntryId: null', async () => {
+    // Guards migration 675's DB trigger backstop: a feed row still pending at
+    // the bank carries status 'imported' (the status check above would let it
+    // through), so this must be decided from feed_state before anything posts.
+    vi.mocked(sqlMock).mockResolvedValueOnce([
+      {
+        id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS', status: 'imported',
+        bank_account_id: 'ba-1', transaction_date: '2026-04-10', feed_state: 'pending',
+      },
+    ] as never);
+
+    const result = await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
+
+    expect(result.journalEntryId).toBeNull();
+    expect(result.skipped).toBe('feed_state pending');
+    expect(vi.mocked(createJournalEntry)).not.toHaveBeenCalled();
+  });
+
+  it('refuses to repeat a wrong claim its own history taught it', async () => {
+    // The prediction is the most frequent vat_code on that supplier's prior
+    // lines, so a ledger already carrying the defect trains this path to
+    // reproduce it — Velocity's salary account has 34 historical lines at
+    // 'standard'. Nobody is watching here, so the claim is dropped.
+    vi.mocked(sqlMock).mockResolvedValueOnce([
+      { id: BANK_TX_ID, amount: -1150, description: 'PAYROLL SERVICES EFT', status: 'imported', feed_state: 'posted', bank_account_id: 'ba-1', transaction_date: '2026-04-25' },
+    ] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Payroll Services' }] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'standard', 4) as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce(
+      [{ vat_input_denied: false, account_code: '49784360', account_name: 'Salaries & Wages - EX4000' }] as never,
+    );
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ account_name: 'Salaries & Wages - EX4000' }] as never);
+    vi.mocked(createJournalEntry).mockResolvedValue({ id: 'je-ns' } as never);
+    vi.mocked(postJournalEntry).mockResolvedValue(undefined as never);
+    vi.mocked(sqlMock).mockResolvedValue([] as never);
+
+    await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
+
+    const lines = vi.mocked(createJournalEntry).mock.calls[0]![1].lines as
+      Array<{ debit: number; credit: number; vatType?: string; description: string }>;
+    // No VAT leg, and the expense carries the gross rather than 1150/1.15.
+    expect(lines.some((l) => /VAT @/.test(l.description)),
+      'the guard must not let a VAT leg be posted').toBe(false);
+    expect(lines.some((l) => l.vatType === 'standard')).toBe(false);
+    expect(lines[0]!.debit).toBe(1150);
+    // vat_input is never even resolved, because there is no VAT leg to post.
+    expect(vi.mocked(getSystemAccountId).mock.calls.map((c) => c[0]))
+      .not.toContain('vat_input');
+  });
+
   it('throws an error when the bank transaction is not found', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // no rows
 
@@ -317,11 +367,22 @@ describe('postProvisional', () => {
 
   it('rejects when the vat_input system account is missing for a VAT-bearing posting', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([
-      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
+      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', feed_state: 'posted', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
     ] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
     // vat_code 'standard' → hasVat path; 4 consistent rows → confidence 0.9
     vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'standard', 4) as never);
+    // The unattended VAT guard reads the predicted account before the lines
+    // are built — twice, once per statute. A real supply name, so it passes
+    // the claim through unchanged and the vat_input lookup below still runs.
+    vi.mocked(sqlMock).mockResolvedValueOnce(
+      [{ vat_input_denied: false, account_code: '5700', account_name: 'Electricity & Water' }] as never,
+    );
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ account_name: 'Electricity & Water' }] as never);
+    // THIRD guard read, and only on a code that survived the other two: the
+    // contra's subtype, because a rule whose contra IS a bank account is a
+    // transfer and claims nothing. An expense account, so the claim stands.
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ account_subtype: 'default_expense' }] as never);
     // vat_input lookup fails — system account not configured
     vi.mocked(getSystemAccountId).mockRejectedValueOnce(
       new Error('system account vat_input not configured'),

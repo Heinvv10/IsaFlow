@@ -1,0 +1,11 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/auth/impersonation-admin-denied.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  18:18:49
+   Duration  592ms (transform 208ms, setup 0ms, import 455ms, tests 6ms, environment 0ms)

@@ -241,7 +241,14 @@ describe('credit note MCP tools — real round trip', () => {
       { type: 'customer', client_id: customer, customer_invoice_id: invoice, credit_date: '2026-06-30', subtotal: 100, idempotency_key: 'k5' }, ctx())));
     const approved = J(await inTx(() => approveCreditNoteTool.handler({ credit_note_id: created.id, idempotency_key: 'k6' }, ctx())));
     expect(approved.status).toBe('applied');
-    expect(approved.applied_to_invoice_id).toBe(invoice);
+    // `applied_to_invoice_ids`, plural, since the FIFO walk (migration 677): a
+    // note can settle several documents and the old single id could only ever
+    // name one. Here the linked invoice absorbs the whole note, so there is one
+    // line and its amount is the note's face value.
+    expect(approved.applied_to_invoice_ids)
+      .toEqual([{ invoice_id: invoice, amount: 115 }]);
+    expect(approved.applied_amount).toBeCloseTo(115, 2);
+    expect(approved.unapplied_amount).toBeCloseTo(0, 2);
 
     let inv = await sql`SELECT amount_paid FROM customer_invoices WHERE id = ${invoice}::UUID` as {amount_paid:string}[];
     expect(Number(inv[0]!.amount_paid)).toBeCloseTo(115, 2);

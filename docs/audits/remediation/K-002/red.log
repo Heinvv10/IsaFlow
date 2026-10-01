@@ -1,0 +1,47 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"PAT created","timestamp":"2026-09-08T16:45:03.017Z","component":"pat","data":{"userId":"74ca1037-7048-486c-bc26-44df2791a0b9","companyId":"239741d3-da58-4217-90f5-d6faf5bc168b","name":"standing fixture","scopes":["read:invoices"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:45:03.026Z","component":"AdminCompanyService","data":{"companyId":"239741d3-da58-4217-90f5-d6faf5bc168b"}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:45:03.042Z","component":"AdminCompanyService","data":{"companyId":"239741d3-da58-4217-90f5-d6faf5bc168b","reason":"disposable regression"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:45:03.057Z","component":"AdminCompanyService","data":{"companyId":"239741d3-da58-4217-90f5-d6faf5bc168b"}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:45:03.067Z","component":"AdminCompanyService","data":{"companyId":"239741d3-da58-4217-90f5-d6faf5bc168b"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:45:03.077Z","component":"AdminCompanyService","data":{"companyId":"239741d3-da58-4217-90f5-d6faf5bc168b"}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:45:03.096Z","component":"AdminCompanyService","data":{"companyId":"239741d3-da58-4217-90f5-d6faf5bc168b","reason":"disposable regression"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:45:03.108Z","component":"AdminCompanyService","data":{"companyId":"239741d3-da58-4217-90f5-d6faf5bc168b"}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:45:03.119Z","component":"AdminCompanyService","data":{"companyId":"239741d3-da58-4217-90f5-d6faf5bc168b"}}
+ ❯ tests/integration/company-standing.int.test.ts (4 tests | 4 failed) 234ms
+   × cookie: existing credentials denied after company suspended; another tenant and reactivation work 29ms
+   × cookie: existing credentials denied after company deleted; another tenant and reactivation work 22ms
+   × pat: existing credentials denied after company suspended; another tenant and reactivation work 30ms
+   × pat: existing credentials denied after company deleted; another tenant and reactivation work 22ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/company-standing.int.test.ts > cookie: existing credentials denied after company suspended; another tenant and reactivation work
+ FAIL  tests/integration/company-standing.int.test.ts > cookie: existing credentials denied after company deleted; another tenant and reactivation work
+ FAIL  tests/integration/company-standing.int.test.ts > pat: existing credentials denied after company suspended; another tenant and reactivation work
+ FAIL  tests/integration/company-standing.int.test.ts > pat: existing credentials denied after company deleted; another tenant and reactivation work
+AssertionError: expected 200 to be 403 // Object.is equality
+
+- Expected
++ Received
+
+- 403
++ 200
+
+ ❯ tests/integration/company-standing.int.test.ts:68:39
+     66|       const denied = response();
+     67|       await wrapped(req(), denied.res);
+     68|       expect(denied.state.statusCode).toBe(403);
+       |                                       ^
+     69|       expect(calls).toBe(1);
+     70|       // Suspension is tenant-specific; the same user can still enter …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  18:45:02
+   Duration  589ms (transform 107ms, setup 0ms, import 259ms, tests 234ms, environment 0ms)

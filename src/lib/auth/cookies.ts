@@ -1,3 +1,4 @@
+import { clearImpersonationProofCookie } from './impersonation-cookies';
 // src/lib/auth/cookies.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 
@@ -85,10 +86,11 @@ function appendSetCookie(res: NextApiResponse, cookie: string): void {
 
 export function setAuthCookies(
   res: NextApiResponse,
-  params: { accessToken: string; refreshToken: string; expiresIn: number; persistent?: boolean }
+  params: { accessToken: string; refreshToken: string; expiresIn: number; persistent?: boolean; preserveImpersonation?: boolean }
 ): void {
   const domain = cookieDomain();
   const persistent = params.persistent ?? true;
+  if (!params.preserveImpersonation) clearImpersonationProofCookie(res);
   // When not persistent ("Keep me signed in" unchecked), BOTH cookies must be
   // session-only. If only the refresh cookie is session-only, a browser close
   // and reopen within ~1h leaves the access cookie alive and the user signed
@@ -120,6 +122,7 @@ export function setOnboardingDoneCookie(res: NextApiResponse): void {
 }
 
 export function setPendingMfaCookie(res: NextApiResponse, pendingToken: string): void {
+  clearImpersonationProofCookie(res);
   // 5-minute TTL — just long enough for the user to type a TOTP code.
   appendSetCookie(res, `${PENDING_MFA_COOKIE}=${pendingToken}; ${cookieFlags(300, cookieDomain())}`);
 }
@@ -154,6 +157,7 @@ export function clearPendingRememberCookie(res: NextApiResponse): void {
  * invalidation on the server side (e.g. rotate JWT_SECRET).
  */
 export function clearAuthCookies(res: NextApiResponse): void {
+  clearImpersonationProofCookie(res);
   const domain = cookieDomain();
   for (const name of [ACCESS_COOKIE, REFRESH_COOKIE, ACTIVE_COMPANY_COOKIE, ONBOARDING_DONE_COOKIE, PENDING_MFA_COOKIE, PENDING_REMEMBER_COOKIE, REMEMBER_ME_COOKIE]) {
     appendSetCookie(res, `${name}=; ${cookieFlags(0)}`);

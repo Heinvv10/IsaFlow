@@ -1,0 +1,5 @@
+APPROVED-BUTTONS ["Reverse batch"]
+PROCESSED-BUTTONS ["Reverse batch"]
+DIALOG "Reverse this processed batch?\nThis posts a reversing journal (DR Bank / CR Accounts Payable for R 200,00) and reopens 1 bill by exactly what this batch paid. Every payment in the batch is voided. Payments made separately stay as they are.\nKeep it\nReverse batch\n\n/accounting/batch-payments/6295be73-a992-4b12-9b3c-53d8091c7c87"
+/Reverse batch/ -> 200 (page reloaded before body read)
+REVERSED-PAGE buttons=[] rows=["SP-2026-00001\tK065 Supplier\tR 200,00\tcancelled"] badge="reversed"; DB: batch reversed, K065-BILL-B amount_paid 0.00 approved, 1 posted contra

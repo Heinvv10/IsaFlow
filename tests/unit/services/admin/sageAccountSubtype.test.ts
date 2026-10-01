@@ -19,7 +19,7 @@ vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ 
 vi.mock('@/modules/accounting/services/ar/customerPaymentAllocationService', () => ({ postCustomerInvoiceToGL: vi.fn() }));
 
 import { sageAccountSubtype } from '@/modules/admin/services/sageAccountSubtype';
-import { commitSageMigration } from '@/modules/admin/services/sageMigrationCommitService';
+import { commitSageMigration } from '@/modules/admin/services/sageMigrationOrchestrator';
 
 const CO = '4a159669-2f50-46b5-a7b8-2e94dab3d495';
 

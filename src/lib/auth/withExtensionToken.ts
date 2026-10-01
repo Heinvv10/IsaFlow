@@ -19,10 +19,12 @@ import pg from 'pg';
 // in this process. This file builds its own Pool, so it must not depend on
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
-import { als } from '@/lib/als';
+import type { RequestContext } from '@/lib/als';
+import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { extractBearerToken } from './captureApiKeyAuth';
 import { verifyExtensionToken } from './extensionJwt';
+import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } from './deferredEnd';
 
 export interface ExtensionAuthedRequest extends NextApiRequest {
   extension: {
@@ -88,6 +90,7 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
     }
 
     const client = await pool().connect();
+    let deferred: DeferredEnd | null = null;
     try {
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE app_user');
@@ -134,19 +137,54 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
         bankAccountId: row.bank_account_id,
       };
 
-      await als.run(
-        { client, userId: claims.userId, companyId: claims.companyId, claims: { sub: claims.userId } },
-        async () => { await handler(req, res); },
-      );
-      await client.query('COMMIT');
+      // Defer the flush until the transaction is finalised — withAuth.ts's
+      // pattern. Otherwise the extension reads a 200 for a batch whose COMMIT
+      // then fails. res.json/res.send both funnel through res.end.
+      const flush = deferEnd(res);
+      deferred = flush;
+
+      const ctx: RequestContext = {
+        client, userId: claims.userId, companyId: claims.companyId, claims: { sub: claims.userId }, afterCommit: [],
+      };
+      await runOwnedContext(ctx, async () => { await handler(req, res); });
+      // A 5xx means withErrorHandler (inside this wrapper) caught a fault,
+      // answered 500, and returned normally — mirrors withAuth.ts: we must
+      // NOT COMMIT its partial writes, and must NOT drain afterCommit work
+      // queued before the fault.
+      const handlerFailed = res.statusCode >= 500;
+      try {
+        await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
+      } catch (finalizeErr) {
+        try { await client.query('ROLLBACK'); } catch { /* secondary */ }
+        log.error('withExtensionToken: transaction finalize failed after handler responded', {
+          status: res.statusCode, handlerFailed, connectionId: claims.connectionId,
+          message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
+        }, 'extensionAuth');
+        if (res.headersSent) {
+          abortResponse(res); // the status is on the wire; a clean close would read as success
+        } else {
+          const body = JSON.stringify({ success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED' });
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Content-Length', Buffer.byteLength(body));
+          flush.realEnd(body);
+        }
+        return;
+      }
+      // replayEnd never throws: past COMMIT, the catch below must not ROLLBACK or answer 500.
+      replayEnd(res, flush, {
+        source: 'withExtensionToken', companyId: claims.companyId, userId: claims.userId,
+        extra: { connectionId: claims.connectionId },
+      });
+      if (!handlerFailed) drainAfterCommit(ctx);
     } catch (err) {
-      try { await client.query('ROLLBACK'); } catch { /* secondary */ }
-      log.error(
-        'withExtensionToken handler error',
-        { error: err instanceof Error ? err.message : String(err), connectionId: claims.connectionId },
-        'extensionAuth',
-      );
-      throw err;
+      // R-159: answer the throw here; see withAuth.
+      let rolledBack = true;
+      try { await client.query('ROLLBACK'); } catch { rolledBack = false; }
+      answerThrow(req, res, deferred, err, {
+        source: 'withExtensionToken', companyId: claims.companyId, userId: claims.userId,
+        extra: { connectionId: claims.connectionId }, rolledBack,
+      });
     } finally {
       client.release();
     }

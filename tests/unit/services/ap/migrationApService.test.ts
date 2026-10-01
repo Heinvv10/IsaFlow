@@ -17,6 +17,12 @@
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+// R-035 PR2: the import exemption (a set_config pair in a savepoint) is
+// covered in r035-pr2-trigger.int.test.ts; here it only wraps the write.
+vi.mock('@/modules/accounting/services/gl/approvalGateExempt', () => ({
+  assertMayImportOpenBills: async () => undefined,
+  withApprovalGateExempt: <T,>(_importer: unknown, write: () => Promise<T>) => write(),
+}));
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
@@ -93,7 +99,10 @@ beforeEach(() => {
 describe('importAPInvoices — no sourceDocumentId, linked via gl_journal_entry_id', () => {
   it('does not pass sourceDocumentId to createJournalEntry (would violate fk_gl_je_source_document)', async () => {
     mockSql
+      .mockResolvedValueOnce([]) // pg_advisory_xact_lock
+      .mockResolvedValueOnce([]) // steps_completed: no opening control total on the session
       .mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Widget Supplies', vat_number: '4123456789' }]) // suppliers lookup
+      .mockResolvedValueOnce([]) // idempotency lookup: no bill with this fingerprint yet
       .mockResolvedValueOnce([{ id: INVOICE_ID }]) // INSERT supplier_invoices RETURNING id
       .mockResolvedValueOnce([]); // UPDATE supplier_invoices SET gl_journal_entry_id
 
@@ -107,14 +116,60 @@ describe('importAPInvoices — no sourceDocumentId, linked via gl_journal_entry_
 
   it('persists gl_journal_entry_id on the migrated invoice', async () => {
     mockSql
+      .mockResolvedValueOnce([]) // pg_advisory_xact_lock
+      .mockResolvedValueOnce([]) // steps_completed: no opening control total on the session
       .mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Widget Supplies', vat_number: '4123456789' }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: INVOICE_ID }])
       .mockResolvedValueOnce([]);
 
     await importAPInvoices(COMPANY_ID, SESSION_ID, [invoiceRow], USER_ID);
 
-    const linkageCall = mockSql.mock.calls[2]!;
+    const linkageCall = mockSql.mock.calls[5]!;
     expect(sqlCallTouches(linkageCall, 'gl_journal_entry_id', JE_ID)).toBe(true);
     expect(sqlCallTouches(linkageCall, 'gl_journal_entry_id', INVOICE_ID)).toBe(true);
+  });
+});
+
+describe('importAPInvoices — R-119: a take-on row may not carry a negative or NaN total', () => {
+  it.each([
+    ['a negative total', -1150],
+    ['a NaN total', Number.NaN],
+  ])('refuses %s by file row, names credit notes, and never reaches the INSERT', async (_label, totalAmount) => {
+    mockSql
+      .mockResolvedValueOnce([]) // pg_advisory_xact_lock
+      .mockResolvedValueOnce([]) // steps_completed
+      .mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Widget Supplies', vat_number: '4123456789' }]);
+
+    const result = await importAPInvoices(
+      COMPANY_ID, SESSION_ID, [{ ...invoiceRow, totalAmount }], USER_ID,
+    );
+
+    expect(result.imported).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.errors.map((e) => e.message).join(' ')).toMatch(/credit note/i);
+    expect(mockCreateJournalEntry).not.toHaveBeenCalled();
+    const insertCalls = mockSql.mock.calls.filter((c) =>
+      String((c as [readonly string[]])[0]?.join?.('') ?? '').includes('INSERT INTO supplier_invoices'));
+    expect(insertCalls).toHaveLength(0);
+  });
+});
+
+describe('importAPInvoices — R-119: a swapped LEG passes the drift check and must still be refused', () => {
+  it('refuses subtotal 1200 / tax -200 / total 1000, which |subtotal+tax-total| accepts', async () => {
+    mockSql
+      .mockResolvedValueOnce([]) // pg_advisory_xact_lock
+      .mockResolvedValueOnce([]) // steps_completed
+      .mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Widget Supplies', vat_number: '4123456789' }])
+      .mockResolvedValueOnce([{ source_system: 'sage' }]);
+
+    const result = await importAPInvoices(
+      COMPANY_ID, SESSION_ID, [{ ...invoiceRow, subtotal: 1200, taxAmount: -200, totalAmount: 1000 }], USER_ID,
+    );
+
+    expect(result.imported).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.errors.map((e) => e.message).join(' ')).toMatch(/credit note/i);
+    expect(mockCreateJournalEntry).not.toHaveBeenCalled();
   });
 });

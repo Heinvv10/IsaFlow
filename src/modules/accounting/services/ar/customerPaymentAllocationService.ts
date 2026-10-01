@@ -4,7 +4,7 @@
  * Extracted from customerPaymentService.ts for file-size compliance.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -14,11 +14,23 @@ import { defaultHumanMeta, actorMeta, type PostingActorOpts } from '../gl/journa
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { assertNoInactiveAccountLines } from '../gl/journalEntryPostingService';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
+import { assertJournalVatPeriodOpen } from '../gl/journalVatLockGuard';
+import { lockCustomerPaymentForUpdate } from '../core/paymentLock';
 import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
+import { documentInPopulation } from '../shared/documentPopulation';
 
 type Row = DbRow;
+
+/**
+ * Allocation rows in ASCENDING invoice id — the order `fetchInvoiceCandidates`
+ * already takes its `FOR UPDATE OF ci` in. Two receipts touching the same two
+ * invoices in opposite orders hold one row each and deadlock (40P01).
+ */
+function byInvoiceId<T extends { invoiceId: string }>(allocs: readonly T[]): T[] {
+  return [...allocs].sort((a, b) => (a.invoiceId < b.invoiceId ? -1 : a.invoiceId > b.invoiceId ? 1 : 0));
+}
 
 /**
  * @param opts.postingAgent Stamp for the DR Bank / CR AR journal this posts.
@@ -35,7 +47,29 @@ export async function confirmCustomerPayment(
   userId: string,
   opts?: { postingAgent?: string },
 ): Promise<CustomerPayment> {
+  // SAVEPOINT: the route answers 400 for everything and `withAuth` COMMITs a
+  // 4xx, so a throw after the invoice loop would commit invoices reading as
+  // paid against a payment still 'draft'.
+  return withSavepoint('confirm_customer_payment', () =>
+    confirmCustomerPaymentInner(companyId, id, userId, opts),
+  );
+}
+
+async function confirmCustomerPaymentInner(
+  companyId: string,
+  id: string,
+  userId: string,
+  opts?: { postingAgent?: string },
+): Promise<CustomerPayment> {
   try {
+    // (2) THE PAYMENT FIRST — the inverse of `planReceiptApplication`, which
+    // locks the receipt and THEN the invoices through `fetchInvoiceCandidates`;
+    // both reach the same payment and the same invoice. The journal this posts
+    // below is CREATED here, so no other transaction can contend for it and it
+    // does not belong to the ordering.
+    if (!(await lockCustomerPaymentForUpdate(companyId, id))) {
+      throw new Error(`Payment ${id} not found`);
+    }
     const payment = await getCustomerPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'draft') throw new Error(`Cannot confirm payment with status: ${payment.status}`);
@@ -63,8 +97,9 @@ export async function confirmCustomerPayment(
     await postJournalEntry(companyId, je.id, userId);
 
     // Update invoice balances and mark payment confirmed — runs on the ALS-bound
-    // connection so the outer withAuth transaction provides atomicity.
-    for (const alloc of payment.allocations) {
+    // connection so the outer withAuth transaction provides atomicity, and BY
+    // INVOICE ID so two confirms sharing two invoices cannot deadlock.
+    for (const alloc of byInvoiceId(payment.allocations)) {
       const newPaid = alloc.amountAllocated;
       await sql`
         UPDATE customer_invoices
@@ -104,21 +139,41 @@ export async function cancelCustomerPayment(
   userId: string,
   reason?: string,
 ): Promise<CustomerPayment> {
+  // SAVEPOINT for the same reason `voidSupplierPayment` has one, and it is what
+  // makes the reorder below safe: the route catches EVERYTHING and answers 400,
+  // which `withAuth` COMMITs — so a throw between the invoice roll-back and the
+  // payment flip would otherwise leave the invoices un-applied against a
+  // payment still reading 'confirmed'.
+  return withSavepoint('cancel_customer_payment', () =>
+    cancelCustomerPaymentInner(companyId, id, userId, reason),
+  );
+}
+
+async function cancelCustomerPaymentInner(
+  companyId: string,
+  id: string,
+  userId: string,
+  reason?: string,
+): Promise<CustomerPayment> {
   try {
+    // (2) THE PAYMENT FIRST. This is the AR twin of `voidSupplierPayment`: it
+    // took `gl_journal_entries` (the reversal of the pre-existing posting) then
+    // `customer_invoices` then `customer_payments` — the inverse of the
+    // canonical order in `bank/.claude.md` and of `voidPaymentDocument`, which
+    // reaches the same receipt through `unwindOnePayment`.
+    if (!(await lockCustomerPaymentForUpdate(companyId, id))) {
+      throw new Error(`Payment ${id} not found`);
+    }
     const payment = await getCustomerPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'confirmed') {
       throw new Error(`Cannot cancel payment with status: ${payment.status}`);
     }
 
-    // Reverse GL journal entry
-    if (payment.glJournalEntryId) {
-      await reverseJournalEntry(companyId, payment.glJournalEntryId, userId);
-    }
-
-    // Reverse invoice balances + cancel payment — runs on the ALS-bound
-    // connection so the outer withAuth transaction provides atomicity.
-    for (const alloc of payment.allocations) {
+    // (3) Reverse invoice balances — runs on the ALS-bound connection so the
+    // outer withAuth transaction provides atomicity, and BY INVOICE ID so two
+    // cancels touching the same two invoices cannot deadlock on each other.
+    for (const alloc of byInvoiceId(payment.allocations)) {
       await sql`
         UPDATE customer_invoices
         SET amount_paid = GREATEST(0, amount_paid - ${alloc.amountAllocated}),
@@ -130,6 +185,12 @@ export async function cancelCustomerPayment(
             paid_at = CASE WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) <= 0.01 THEN NULL ELSE paid_at END
         WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}
       `;
+    }
+
+    // (4) Reverse the GL journal LAST — the pre-existing posted entry is the
+    // most-contended row of the four and the canonical order puts it last.
+    if (payment.glJournalEntryId) {
+      await reverseJournalEntry(companyId, payment.glJournalEntryId, userId);
     }
 
     const cancelNote = reason ? ` [CANCELLED: ${reason}]` : ' [CANCELLED]';
@@ -179,6 +240,22 @@ export async function postCustomerInvoiceToGL(
 
     if (inv.gl_journal_entry_id) return String(inv.gl_journal_entry_id);
 
+    // R-118, AR side. Below the early return for the same reason as the AP
+    // twin: an invoice that already carries a journal posts nothing here.
+    // What is refused is a NEW journal for a document outside the AR
+    // population — pages/api/accounting/customer-invoices-gl.ts posts whatever
+    // invoiceId the body names, with no status filter, so a draft's journal
+    // would stand in the GL while documentInPopulationExpr keeps the draft off
+    // the document half of every AR-vs-GL reconciliation. Approving is what
+    // posts a draft: approveCustomerInvoice sets the status first, then calls
+    // this, so the ordinary path is unaffected.
+    if (!documentInPopulation(String(inv.status))) {
+      throw new Error(
+        `Cannot post a ${String(inv.status)} invoice to GL — approve it instead, `
+        + 'which posts the journal and moves the status together.',
+      );
+    }
+
     const arAccount = await getSystemAccount('receivable', companyId);
     const revenueAccount = await getSystemAccount('default_revenue', companyId);
     const vatAccount = await getSystemAccount('vat_output', companyId);
@@ -222,6 +299,11 @@ export async function postCustomerInvoiceToGL(
         );
       }
     }
+    // A locked (filed) VAT period refuses a journal that moves a VAT figure —
+    // historicalImport included: a migration may land in a CLOSED fiscal period
+    // but not in a filed VAT return. Before createJournalEntry, for the same
+    // orphan-draft reason as the period check above.
+    await assertJournalVatPeriodOpen(companyId, entryDate, lines);
     // sourceDocumentId FKs to captured_documents(id) — not customer_invoices.
     // The invoice↔JE link is maintained via customer_invoices.gl_journal_entry_id
     // below.

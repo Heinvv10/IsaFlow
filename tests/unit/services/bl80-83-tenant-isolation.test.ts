@@ -13,7 +13,7 @@
  *   b180 — BL-80 (purgeExpiredDeletes per-tenant log)
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ── Shared mock references (hoisted so vi.mock factories can reference them) ──
 
@@ -82,6 +82,11 @@ const B180_COMPANY_B = 'b1800000-0000-0000-0000-bbbbbbbbbbbb';
 
 // ── Helper: collect all sql() call argument values ────────────────────────────
 
+/** The default sqlMock behaviour: a nested tagged template is a spliced fragment. */
+function sqlFragment(): unknown {
+  return { _isSqlFragment: true };
+}
+
 function flatSqlValues(): unknown[] {
   return vi.mocked(sql).mock.calls.flatMap((callArgs: unknown[]) => {
     const [, ...values] = callArgs;
@@ -143,6 +148,9 @@ describe('BL-81: getBankTransactions — reconciliationId must be scoped by comp
 
 describe('BL-82: startReconciliation — bank_transactions UPDATE must include company_id', () => {
   beforeEach(() => vi.clearAllMocks());
+  // mockImplementation outlives clearAllMocks; put the shared fragment stub back
+  // so the BL-83 describe below starts from the same mock every other test sees.
+  afterEach(() => vi.mocked(sql).mockImplementation(sqlFragment as never));
 
   it('passes companyId into the bank_transactions UPDATE inside the transaction', async () => {
     const reconRow = {
@@ -165,8 +173,13 @@ describe('BL-82: startReconciliation — bank_transactions UPDATE must include c
       unmatched_count: 0,
     };
 
-    // sql() for gl_balance query
-    vi.mocked(sql).mockResolvedValueOnce([{ gl_balance: '10000' }] as never);
+    // Answer the balance query by its TEXT, not by call position: startReconciliation
+    // composes the shared bankGlBalanceAsAt fragment, and how many sql() calls that
+    // takes is an implementation detail this tenant-scoping test should not encode.
+    vi.mocked(sql).mockImplementation(((strings: TemplateStringsArray) =>
+      strings.join('').includes('gl_balance')
+        ? Promise.resolve([{ gl_balance: '10000' }])
+        : sqlFragment()) as never);
 
     // withTransaction captures the callback and executes it
     vi.mocked(withTransaction).mockImplementationOnce(async (cb: (tx: typeof sql) => Promise<unknown>) => {
@@ -204,6 +217,21 @@ describe('BL-82: startReconciliation — bank_transactions UPDATE must include c
 
 describe('BL-83: completeReconciliation — bank_transactions UPDATE must include company_id', () => {
   beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.mocked(sql).mockImplementation(sqlFragment as never));
+
+  /**
+   * Answer by TEXT, not call position: completion first recomputes the live GL
+   * balance (an UPDATE), and the session counts are spliced fragments — how many
+   * sql() calls that takes is not what this tenant-scoping test is about.
+   */
+  function answerReconRead(row: Record<string, unknown>): void {
+    vi.mocked(sql).mockImplementation(((strings: TemplateStringsArray) => {
+      const text = strings.join('');
+      if (text.includes('SELECT br.*')) return Promise.resolve([row]);
+      if (text.includes('UPDATE bank_reconciliations')) return Promise.resolve([]);
+      return sqlFragment();
+    }) as never);
+  }
 
   it('passes companyId into the SET status=reconciled UPDATE', async () => {
     const completedRow = {
@@ -227,13 +255,13 @@ describe('BL-83: completeReconciliation — bank_transactions UPDATE must includ
     };
 
     // getReconciliationById (called internally) — returns an open recon with difference=0
-    vi.mocked(sql).mockResolvedValueOnce([{
+    answerReconRead({
       ...completedRow,
       status: 'open',
       difference: 0,
       matched_count: '2',
       unmatched_count: '0',
-    }] as never);
+    });
 
     vi.mocked(withTransaction).mockImplementationOnce(async (cb: (tx: typeof sql) => Promise<unknown>) => {
       const txMock = Object.assign(
@@ -289,7 +317,7 @@ describe('BL-83: completeReconciliation — bank_transactions UPDATE must includ
       unmatched_count: '0',
     };
 
-    vi.mocked(sql).mockResolvedValueOnce([reconRow] as never);
+    answerReconRead(reconRow);
 
     let capturedFirstUpdateValues: unknown[] = [];
 
@@ -339,7 +367,7 @@ describe('BL-80: purgeExpiredDeletes — per-tenant structured logging', () => {
       .mockResolvedValueOnce([] as never)            // customer_invoices
       .mockResolvedValueOnce([] as never);           // supplier_invoices
 
-    const total = await purgeExpiredDeletes();
+    const total = await purgeExpiredDeletes(B180_COMPANY_A);
 
     expect(total).toBe(2);
 
@@ -365,7 +393,7 @@ describe('BL-80: purgeExpiredDeletes — per-tenant structured logging', () => {
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never);
 
-    const total = await purgeExpiredDeletes();
+    const total = await purgeExpiredDeletes(B180_COMPANY_A);
 
     expect(total).toBe(0);
     expect(vi.mocked(log).info).not.toHaveBeenCalled();
@@ -387,7 +415,7 @@ describe('BL-80: purgeExpiredDeletes — per-tenant structured logging', () => {
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never);
 
-    await purgeExpiredDeletes();
+    await purgeExpiredDeletes(B180_COMPANY_A);
 
     const infoCall = vi.mocked(log).info.mock.calls[0];
     expect(infoCall).toBeDefined();
@@ -407,7 +435,7 @@ describe('BL-80: purgeExpiredDeletes — per-tenant structured logging', () => {
       .mockResolvedValueOnce([] as never);                       // supplier_invoices
 
     // Should not throw — error is caught and logged per-table
-    const total = await purgeExpiredDeletes();
+    const total = await purgeExpiredDeletes(B180_COMPANY_A);
 
     expect(total).toBe(0);
     expect(vi.mocked(log).error).toHaveBeenCalledWith(
@@ -427,6 +455,6 @@ describe('BL-80: purgeExpiredDeletes — per-tenant structured logging', () => {
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never);
 
-    await expect(purgeExpiredDeletes()).resolves.toBe(0);
+    await expect(purgeExpiredDeletes(B180_COMPANY_A)).resolves.toBe(0);
   });
 });

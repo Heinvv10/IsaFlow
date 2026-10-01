@@ -55,7 +55,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     if (req.query.action === 'user-companies') {
       const companies = await getUserCompanies(userId);
-      return apiResponse.success(res, { items: companies });
+      // The company withAuth scoped this request to (the active_company_id
+      // cookie, membership-checked). CompanyProvider names this one, not its
+      // localStorage copy — R-148.
+      const activeCompanyId = (req as CompanyAuthedRequest).companyId;
+      return apiResponse.success(res, { items: companies, activeCompanyId });
     }
     if (req.query.id) {
       // super_admin can access any company (impersonation / support access)

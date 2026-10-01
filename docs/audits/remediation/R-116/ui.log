@@ -1,0 +1,8 @@
+/accounting/customer-statements DEFAULT 2026-09-21 ["R112 Statement Customer\tR 2 500,00\tR 1 000,00\tR 200,00\tR 1 300,00\t2\t2026-09-11\tView","R112 Deposit Customer\tR 0,00\tR 500,00\tR 0,00\t-R 500,00\t0\t2026-09-19\tView"]
+/accounting/customer-statements AS-AT 2026-08-31 ["R112 Statement Customer\tR 1 000,00\tR 0,00\tR 200,00\tR 800,00\t1\t-\tView"]
+/accounting/statement-run DEFAULT 2026-09-21 ["\tR112 Statement Customer\tR 2 500,00\tR 1 000,00\tR 200,00\tR 1 300,00\t2\t—"]
+/accounting/statement-run AS-AT 2026-08-31 ["\tR112 Statement Customer\tR 1 000,00\tR 0,00\tR 200,00\tR 800,00\t1\t—"]
+/accounting/statements DEFAULT 2026-09-21 ["\tR112 Statement Customer\tr112-cust@test.local\tR 1 300,00\tR 1 000,00\t\nPreview"]
+/accounting/statements AS-AT 2026-08-31 ["\tR112 Statement Customer\tr112-cust@test.local\tR 800,00\tR 1 000,00\t\nPreview"]
+REQUESTS ["/accounting/customer-statements","/_next/static/chunks/pages/accounting/customer-statements.js","/api/accounting/customer-statements?as_at_date=2026-09-21","/api/accounting/customer-statements?as_at_date=2026-09-21","/api/accounting/customer-statements?as_at_date=2026-08-31","/api/accounting/customer-statements?as_at_date=2026-09-21","/api/accounting/customer-statements?as_at_date=2026-09-21","/api/accounting/customer-statements?as_at_date=2026-08-31","/api/accounting/customer-statements?as_at_date=2026-09-21","/api/accounting/customer-statements?as_at_date=2026-09-21","/api/accounting/customer-statements?as_at_date=2026-08-31"]
+PAGE-ERRORS []

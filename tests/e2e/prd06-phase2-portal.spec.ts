@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test';
  * This spec exercises the full chain against prod (or dev):
  *   1. List approved/sent invoices for the tenant — pick one with a
  *      portal_token (existing ones from prior sessions) or mint one via
- *      /api/accounting/ar/invoice/[id]/portal-link.
+ *      POST /api/accounting/ar/invoice/[id]/portal-link (a GET only reads).
  *   2. Hit the public portal page — expect 200 + invoice-number text.
  *   3. Hit the public sealed-PDF endpoint — expect application/pdf.
  *   4. Hit the tracking pixel — expect image/gif, 1×1 bytes.
@@ -56,8 +56,8 @@ test.describe('PRD-06 Phase 2 — portal + access log', () => {
     const invoice = invoices[0]!;
     const invoiceId = invoice.id as string;
 
-    // 2. Mint (or fetch existing) portal link.
-    const linkRes = await request.get(`/api/accounting/ar/invoice/${invoiceId}/portal-link`, {
+    // 2. Mint (or fetch existing) portal link. POST: the GET never mints (R-157).
+    const linkRes = await request.post(`/api/accounting/ar/invoice/${invoiceId}/portal-link`, {
       headers: await csrfHeaders(request),
     });
     expect(linkRes.status(), 'portal-link status').toBe(200);

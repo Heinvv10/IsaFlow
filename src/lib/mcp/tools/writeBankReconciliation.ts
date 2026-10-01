@@ -26,6 +26,14 @@
  * `completed: false` with the difference, and leaves the session open for the
  * next step. It wrote, so the idempotency key is consumed: a retry must not
  * open a second session.
+ *
+ * ── ALLOCATED LINES ARE THEIR OWN MATCH (2026-09-30) ────────────────────────
+ *
+ * Start used to claim only `imported` lines and auto-match reads only those, so
+ * on books allocated through the bank feed a session claimed and matched
+ * nothing and could never complete. Start now also claims every allocated line
+ * dated on or before the statement date and counts it matched to its own
+ * allocation journal line — see `bankReconciliationClaim.ts`.
  */
 import type { McpTool } from '../types';
 import {
@@ -33,6 +41,7 @@ import {
   completeReconciliation,
   getReconciliationById,
   getReconciliations,
+  previewReconciliationClaim,
   startReconciliation,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { bankGlAccountBelongsToCompany } from '@/modules/accounting/services/bank/bankStatementImportService';
@@ -46,23 +55,28 @@ const BALANCED_TOLERANCE = 0.01;
 export const performBankReconciliationTool: McpTool = {
   name: 'perform_bank_reconciliation',
   description:
-    'Start a bank reconciliation for one account at a statement date and balance, claim every '
-    + 'unreconciled imported transaction into it, auto-match those transactions to posted GL '
-    + 'journal lines, and report the reconciled balance and the outstanding difference. '
+    'Start a bank reconciliation for one account at a statement date and balance. It claims every '
+    + 'unreconciled transaction of that account dated on or before the statement date: an ALLOCATED '
+    + 'transaction is matched to its own allocation journal line at once (self_matched, confidence '
+    + '1.0) when that line is a posted, unreversed bank-account line dated on or before the '
+    + 'statement date; an unallocated (imported) transaction is auto-matched to an unclaimed posted '
+    + 'GL line on the account. Reconciled and excluded transactions are never claimed. '
     + 'Auto-matching only applies matches it scores at 0.9 confidence or better; anything weaker '
     + 'is returned as a candidate for a person and is NOT applied. '
     + 'It does NOT create journals: a transaction with nothing in the GL to match stays '
     + 'unmatched — allocate it with allocate_bank_transaction and reconcile again. '
     + 'complete defaults to false. With complete: true the session is completed ONLY when the '
-    + 'difference is exactly zero AND at least one transaction was matched — an empty session '
+    + 'difference is exactly zero (recomputed from the ledger at completion) AND at least one '
+    + 'transaction is matched (self-matches count) — an empty session '
     + 'balances trivially, because a reconciliation starts at the GL balance, and completing one '
-    + 'proves nothing (production holds exactly such a reconciliation). When either condition '
-    + 'fails the call still SUCCEEDS, reports '
+    + 'proves nothing. Completion marks every matched and self-matched transaction reconciled. '
+    + 'When either condition fails the call still SUCCEEDS, reports '
     + 'completed: false with the difference, and leaves the session in progress so the matches are '
     + 'not thrown away — cancel_bank_reconciliation releases it if you want to start over. '
     + 'Refuses if a reconciliation is already in progress on the account. '
     + 'dry_run reports the GL balance at the statement date, the difference against the statement '
-    + 'balance you supplied, and how many transactions would be claimed — and writes nothing. '
+    + 'balance you supplied, and how many transactions would be claimed and self-matched — and '
+    + 'writes nothing. '
     + 'Requires the write:post permission.',
   scope: 'write:bank-tx',
   write: true,
@@ -143,6 +157,7 @@ export const performBankReconciliationTool: McpTool = {
       // owning service rather than being re-derived here.
       const cash = await getCashBalance(ctx.companyId, statementDate);
       const glBalance = cash.accounts.find((a) => a.accountId === bankAccountId)?.glBalance ?? 0;
+      const preview = await previewReconciliationClaim(ctx.companyId, bankAccountId, statementDate);
       return {
         ...ok({
           dry_run: true,
@@ -151,6 +166,8 @@ export const performBankReconciliationTool: McpTool = {
           statement_balance: statementBalance,
           gl_balance: glBalance,
           difference: statementBalance - glBalance,
+          would_claim_unallocated: preview.claimedUnallocated,
+          would_self_match: preview.selfMatched,
           would_auto_match: autoMatch,
           would_complete_if_balanced: complete,
           note:
@@ -179,7 +196,8 @@ export const performBankReconciliationTool: McpTool = {
     const current = await getReconciliationById(ctx.companyId, started.id);
     const difference = current?.difference ?? started.difference;
     const balanced = Math.abs(difference) < BALANCED_TOLERANCE;
-    const matchedCount = current?.matchedCount ?? matchResult?.matched ?? 0;
+    // Session count: self-matched allocated lines plus whatever auto-match applied.
+    const matchedCount = current?.matchedCount ?? started.selfMatched + (matchResult?.matched ?? 0);
 
     // A session that matched NOTHING is trivially "balanced": startReconciliation
     // sets reconciled_balance to gl_balance, so an empty session shows a R0.00
@@ -187,6 +205,8 @@ export const performBankReconciliationTool: McpTool = {
     // completed reconciliation — R0.00 difference, zero matched transactions —
     // and in every list and report it is indistinguishable from one that
     // proved the whole account. Completing that is signing off on nothing.
+    // An allocated line matched to its own journal line IS a match: before
+    // they counted, books allocated through the feed could never complete.
     const provedSomething = matchedCount > 0;
     const completed = complete && balanced && provedSomething
       ? await completeReconciliation(ctx.companyId, started.id, ctx.userId)
@@ -204,11 +224,13 @@ export const performBankReconciliationTool: McpTool = {
       balanced,
       status: completed?.status ?? current?.status ?? started.status,
       completed: completed !== null,
+      self_matched: started.selfMatched,
       auto_matched: matchResult?.matched ?? 0,
       matched_count: matchedCount,
-      still_unmatched: matchResult?.unmatched ?? current?.unmatchedCount ?? 0,
+      still_unmatched: current?.unmatchedCount ?? matchResult?.unmatched ?? 0,
       low_confidence_candidates: matchResult?.candidates.length ?? 0,
       skipped_raced: matchResult?.skippedRaced ?? 0,
+      skipped_unavailable: matchResult?.skippedUnavailable ?? 0,
       ...(complete && !balanced
         ? {
           note:

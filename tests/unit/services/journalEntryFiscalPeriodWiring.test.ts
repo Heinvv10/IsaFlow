@@ -22,10 +22,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sqlMock = vi.fn();
+// createJournalEntry asks whether a line is on the late-claim clearing account
+// (gl/lateClaimClearingGuard); none is here, and the positional sql queue must not see it.
+vi.mock('@/modules/accounting/services/gl/lateClaimClearingGuard', () => ({
+  assertNoLateClaimClearingLines: vi.fn(async () => undefined),
+}));
 vi.mock('@/lib/neon', () => ({
   sql: (...a: unknown[]) => sqlMock(...a),
   withTransaction: vi.fn(),
   fmtDate: (v: unknown) => String(v ?? ''),
+}));
+vi.mock('@/lib/alsTransaction', () => ({
+  withAlsTransaction: (_actor: unknown, fn: () => unknown) => fn(),
 }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -53,7 +61,10 @@ const INPUT = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  sqlMock.mockResolvedValue([]);
+  // Both of INPUT's accounts come back as owned by COMPANY: createJournalEntry
+  // now refuses a line naming another company's account before it resolves a
+  // period, and an empty answer would stop it short of the subject of this file.
+  sqlMock.mockResolvedValue([{ id: 'a1' }, { id: 'a2' }]);
 });
 
 describe('createJournalEntry — fiscal period resolution is wired in', () => {

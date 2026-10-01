@@ -125,16 +125,56 @@ describe('flowQuantityFor — bulk creates bill per ELEMENT', () => {
     expect(flowQuantityFor('create_supplier_invoice', { invoices: [1, 2, 3] })).toBe(1);
   });
 
+  // Real payloads, not `Array.from({length: n})`. The AP arm now counts what
+  // will be CREATED — it partitions the batch with the same pure function the
+  // handler uses — so a placeholder array reads as malformed and bills 1.
+  const bill = (n: number) => ({
+    supplier_id: '11111111-1111-4111-8111-111111111111',
+    invoice_number: `INV-${n}`,
+    invoice_date: '2026-03-01',
+    lines: [{ description: 'x', quantity: 1, unit_price: 100 }],
+  });
+
   it('is the element count for each bulk create', () => {
-    for (const name of ['bulk_create_supplier_invoices', 'bulk_create_customer_invoices']) {
-      expect(flowQuantityFor(name, { invoices: Array.from({ length: 40 }) })).toBe(40);
-    }
+    expect(flowQuantityFor('bulk_create_supplier_invoices', {
+      invoices: Array.from({ length: 40 }, (_, i) => bill(i)),
+    })).toBe(40);
+    // The AR arm reserves its own numbers and has no skip, so it still bills
+    // straight off the sent count.
+    expect(flowQuantityFor('bulk_create_customer_invoices', {
+      invoices: Array.from({ length: 40 }),
+    })).toBe(40);
+  });
+
+  // The defect this closes: skipped elements were billed. A payload of 40
+  // carrying 6 identical repeats creates 34 bills and must cost 34 — the
+  // refund is all-or-nothing, so an over-debit here is never returned.
+  it('bills only what the batch will actually create', () => {
+    const invoices = [
+      ...Array.from({ length: 34 }, (_, i) => bill(i)),
+      ...Array.from({ length: 6 }, (_, i) => bill(i)),
+    ];
+    expect(invoices).toHaveLength(40);
+    expect(flowQuantityFor('bulk_create_supplier_invoices', { invoices })).toBe(34);
+  });
+
+  // One number naming two DIFFERENT bills is refused by the handler with
+  // nothing written, so it costs the single unit the refund returns.
+  it('is 1 for a batch the partition refuses', () => {
+    expect(flowQuantityFor('bulk_create_supplier_invoices', {
+      invoices: [
+        bill(1),
+        { ...bill(1), lines: [{ description: 'x', quantity: 1, unit_price: 48500 }] },
+      ],
+    })).toBe(1);
   });
 
   it('is CAPPED at the batch maximum — an oversized array must not drain the wallet', () => {
     // The debit is taken before the handler runs and JSON Schema maxItems is
     // advisory, so an uncapped quantity would bill 50,000 invoices before the
     // handler refused the batch as over the maximum.
+    // Also proves the oversized array is NOT partitioned: 50,000 placeholder
+    // elements would read as malformed and bill 1 if the bound came second.
     expect(flowQuantityFor('bulk_create_supplier_invoices', {
       invoices: Array.from({ length: 50_000 }),
     })).toBe(100);
@@ -156,8 +196,15 @@ describe('debitForTool', () => {
     expect(unit).toBeGreaterThan(0);
 
     vi.mocked(deductFlows).mockClear();
+    // Real payloads: the AP arm partitions the batch to count what it will
+    // create, so placeholders would read as malformed and bill 1.
     const bulk = await debitForTool(COMPANY, 'bulk_create_supplier_invoices', {
-      invoices: Array.from({ length: 7 }),
+      invoices: Array.from({ length: 7 }, (_, i) => ({
+        supplier_id: '11111111-1111-4111-8111-111111111111',
+        invoice_number: `INV-${i}`,
+        invoice_date: '2026-03-01',
+        lines: [{ description: 'x', quantity: 1, unit_price: 100 }],
+      })),
     });
     expect(bulk.ok).toBe(true);
     expect(vi.mocked(deductFlows).mock.calls[0]![1]).toBe(unit * 7);

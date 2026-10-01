@@ -11,59 +11,22 @@ import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { validateThreeWayMatch } from '../../utils/threeWayMatch';
 import { getSupplierInvoiceById } from './supplierInvoiceService';
+import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
 import type { SupplierInvoice } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
+import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
+import { buildExpenseLines } from './supplierInvoiceExpenseLines';
+import { assertSupplierInvoiceLinesPostable } from './billLineAccountGuard';
+import { planSupplierInvoiceCancel } from './supplierInvoiceCancelPlan';
+import { documentInPopulation } from '../shared/documentPopulation';
+import type { LateClaimInfo, PostJournalOpts } from '../gl/vatLateClaimPlan';
+import { claimEvidencedProvisional, settleClaimedProvisional } from './provisionalInvoiceSettlement';
+import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { assertApprovalCleared } from '../gl/approvalGate';
 
 type Row = DbRow;
-
-/**
- * Build the expense journal lines for a supplier invoice.
- *
- * Handles gross vs net line totals: if the sum of lineTotals matches
- * totalAmount (gross-inclusive storage), scale each line down to net
- * to avoid double-counting VAT. Uses a last-line adjustment so the
- * per-line rounding errors don't accumulate into a debit/credit imbalance.
- */
-function buildExpenseLines(
-  invoice: SupplierInvoice,
-  defaultGlAccountId: string,
-): JournalLineInput[] {
-  const items = invoice.items ?? [];
-  const sumLineTotal = items.reduce((s, i) => s + i.lineTotal, 0);
-  const lineTotalsAreGross = invoice.taxRate > 0 && Math.abs(sumLineTotal - invoice.totalAmount) < 0.02;
-  const netTotal = invoice.subtotal;
-  const lines: JournalLineInput[] = [];
-
-  let allocatedNet = 0;
-  const itemCount = items.length;
-
-  items.forEach((item, idx) => {
-    const glAccountId = item.glAccountId || defaultGlAccountId;
-    let debit: number;
-
-    if (idx === itemCount - 1) {
-      // Last line: absorb rounding residual so debits sum exactly to subtotal.
-      debit = Math.round((netTotal - allocatedNet) * 100) / 100;
-    } else if (lineTotalsAreGross && sumLineTotal > 0) {
-      debit = Math.round(item.lineTotal * (netTotal / sumLineTotal) * 100) / 100;
-    } else {
-      debit = Math.round(item.lineTotal * 100) / 100;
-    }
-
-    allocatedNet += debit;
-    lines.push({
-      glAccountId,
-      debit,
-      credit: 0,
-      description: item.description,
-      projectId: item.projectId || invoice.projectId,
-      costCenterId: item.costCenterId || invoice.costCenterId,
-    });
-  });
-
-  return lines;
-}
 
 export async function approveSupplierInvoice(
   companyId: string,
@@ -75,21 +38,84 @@ export async function approveSupplierInvoice(
   // `human:<userId>` — affirmatively claiming the token owner did it by hand,
   // and invisible to list_agent_postings, which filters posting_agent LIKE
   // 'mcp:%'. That review surface is the control the whole agent-write model
-  // rests on.
-  opts?: PostingActorOpts,
-): Promise<SupplierInvoice> {
+  // rests on. `allowLateInputClaim`: human-initiated callers only (gl/vatLateClaimPlan.ts).
+  opts?: PostingActorOpts & PostJournalOpts,
+): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo }> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
+  // All-or-nothing (R-127): the provisional settlement runs AFTER the journal and
+  // the status UPDATE, and every route answers a throw 4xx, which withAuth COMMITs.
+  return withSavepoint('approve_supplier_invoice', () => approveInner(companyId, id, userId, opts));
+}
+
+async function approveInner(
+  companyId: string, id: string, userId: string, opts?: PostingActorOpts & PostJournalOpts,
+): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo }> {
   try {
+    // Serialise concurrent approvals of the SAME invoice before reading its
+    // status. Without this the check-then-act window below is wide open: two
+    // callers both read 'draft', both post an Expense/VAT/AP journal, and the
+    // second UPDATE overwrites the first's gl_journal_entry_id — one bill, two
+    // journals, the payable credited twice, and one journal orphaned where no
+    // reversal can reach it. cancelSupplierInvoiceInner has locked for this
+    // reason since the C1 audit; approve was the remaining asymmetry.
+    //
+    // Taken BEFORE the read, not instead of it: the lock returns the bare row,
+    // while buildExpenseLines needs the invoice's items. Once the lock is held
+    // the read below sees the settled state — a caller that was blocked here
+    // re-reads 'approved' and refuses on the next line.
+    if (!(await lockSupplierInvoiceForUpdate(companyId, id))) {
+      throw new Error(`Supplier invoice ${id} not found`);
+    }
     const invoice = await getSupplierInvoiceById(companyId, id);
     if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
     if (invoice.status !== 'draft' && invoice.status !== 'pending_approval') {
       throw new Error(`Cannot approve invoice with status: ${invoice.status}`);
     }
+    await assertApprovalCleared(companyId, 'supplier_invoice', id); // R-035: under the lock, before any write
+
+    // A DRAFT can already carry a journal, and posting a second one is the
+    // worst outcome this function has.
+    //
+    // `postSupplierInvoiceToGL` posts the Expense/VAT/AP journal and sets
+    // `gl_journal_entry_id` WITHOUT touching `status` — and it is exposed to
+    // operators as the "Post to GL" bulk action
+    // (pages/api/accounting/supplier-invoices-bulk-action.ts), which accepts
+    // drafts. So "post 40 drafts to GL, then approve them" leaves 40 bills with
+    // a journal and status still 'draft'. Guarding on status alone, this
+    // function would build and post a SECOND journal for each — AP credited
+    // twice, expenses and input VAT doubled — and then overwrite
+    // `gl_journal_entry_id` with the new id, stranding the first journal where
+    // `cancelSupplierInvoiceInner` (which reverses only the id on the row) can
+    // never reach it. No race is required; the two calls are sequential.
+    //
+    // The AR twin has always been immune: `postCustomerInvoiceToGL` early-returns
+    // on `if (inv.gl_journal_entry_id)`. This is that guard, on the AP side.
+    //
+    // The existing journal is REUSED rather than refused: the document is
+    // genuinely unapproved, and the lines this function would build are the
+    // ones already posted, so the correct completion of "approve" is to flip the
+    // status and keep the journal that is already in the ledger.
+    if (invoice.glJournalEntryId) {
+      const reused = (await sql`
+        UPDATE supplier_invoices
+        SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW()
+        WHERE id = ${id} AND company_id = ${companyId}::UUID
+        RETURNING *
+      `) as Row[];
+      log.info('Approved supplier invoice that already carried a journal', {
+        id, journalEntryId: invoice.glJournalEntryId,
+      }, 'accounting');
+      return mapInvoiceRow(reused[0]!);
+    }
+
+    const provisional = await claimEvidencedProvisional(companyId, id); // R-127: locked before the first write
 
     // Auto-post GL entry: DR Expense + DR VAT Input, CR Accounts Payable
     const apAccount = await getSystemAccount('payable', companyId);
     const vatAccount = await getSystemAccount('vat_input', companyId);
     const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
 
+    await assertSupplierInvoiceLinesPostable(companyId, invoice);
     const lines: JournalLineInput[] = buildExpenseLines(invoice, defaultExpenseAccount.id);
 
     if (invoice.taxAmount > 0) {
@@ -117,9 +143,9 @@ export async function approveSupplierInvoice(
       description: `Supplier invoice ${invoice.invoiceNumber}`,
       source: 'auto_supplier_invoice',
       lines,
-    }, userId, actorMeta(opts));
+    }, userId, actorMeta(opts), { allowLateInputClaim: opts?.allowLateInputClaim });
 
-    await postJournalEntry(companyId, journalEntry.id, userId);
+    const posted = await postJournalEntry(companyId, journalEntry.id, userId, opts);
 
     const updated = (await sql`
       UPDATE supplier_invoices
@@ -128,9 +154,10 @@ export async function approveSupplierInvoice(
       WHERE id = ${id} AND company_id = ${companyId}::UUID
       RETURNING *
     `) as Row[];
+    const settled = await settleClaimedProvisional(companyId, provisional, invoice, apAccount.id, userId, opts);
 
     log.info('Approved supplier invoice', { id, journalEntryId: journalEntry.id }, 'accounting');
-    return mapInvoiceRow(updated[0]!);
+    return { ...mapInvoiceRow(settled ?? updated[0]!), ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}) };
   } catch (err) {
     log.error('Failed to approve supplier invoice', { id, error: err }, 'accounting');
     throw err;
@@ -147,6 +174,32 @@ export async function postSupplierInvoiceToGL(
   userId: string,
   opts?: PostingActorOpts,
 ): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
+  // All-or-nothing, as approveSupplierInvoice (R-127).
+  return withSavepoint('post_supplier_invoice_gl', () => postToGLInner(companyId, id, userId, opts));
+}
+
+async function postToGLInner(
+  companyId: string, id: string, userId: string, opts?: PostingActorOpts,
+): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
+  // Same check-then-act window approveSupplierInvoice closes at :95, and the
+  // same reason: this function decides on `glJournalEntryId` below and then
+  // overwrites it. Unlocked, two overlapping "Post to GL" calls both read NULL,
+  // both post an Expense/VAT/AP journal, and the second UPDATE strands the
+  // first where cancelSupplierInvoiceInner (which reverses only the id on the
+  // row) can never reach it — AP credited twice for one bill. The bulk action
+  // (supplier-invoices-bulk-action.ts, action=post_gl) walks up to the route's
+  // 200-id cap in one transaction, so the window is seconds. Each id there is
+  // wrapped in its own savepoint, so this lock timing out is that id's failure
+  // and not the batch's. Locking only in approve left this path free to race an
+  // approve that WAS holding the row lock.
+  //
+  // Taken BEFORE the read so the guards below see settled state: a caller that
+  // blocked here re-reads the journal id the winner wrote and early-returns
+  // alreadyPosted.
+  if (!(await lockSupplierInvoiceForUpdate(companyId, id))) {
+    throw new Error(`Supplier invoice ${id} not found`);
+  }
   const invoice = await getSupplierInvoiceById(companyId, id);
   if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
 
@@ -161,10 +214,28 @@ export async function postSupplierInvoiceToGL(
     return { journalEntryId: invoice.glJournalEntryId, alreadyPosted: true };
   }
 
+  // R-118: BELOW the early return on purpose — a bill that already carries a
+  // journal posts nothing here whatever its status, and refusing it would turn
+  // an idempotent no-op into an error for rows written before this guard.
+  // What is refused is posting a NEW journal outside the AP population: a
+  // draft's journal stands on the GL half of every AP-vs-GL reconciliation
+  // while documentInPopulationExpr keeps the document off the other half — a
+  // permanent difference by the bill's full amount, in one click, because the
+  // bulk "Post to GL" action offers itself on any selection. Approving is what
+  // posts a draft: approveSupplierInvoice moves the status and posts together.
+  if (!documentInPopulation(invoice.status)) {
+    throw new Error(
+      `Cannot post a ${invoice.status} supplier invoice to GL — approve it instead, `
+      + 'which posts the journal and moves the status together.',
+    );
+  }
+
+  const provisional = await claimEvidencedProvisional(companyId, id); // R-127, as in approve
   const apAccount = await getSystemAccount('payable', companyId);
   const vatAccount = await getSystemAccount('vat_input', companyId);
   const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
 
+  await assertSupplierInvoiceLinesPostable(companyId, invoice);
   const lines: JournalLineInput[] = buildExpenseLines(invoice, defaultExpenseAccount.id);
 
   if (invoice.taxAmount > 0) {
@@ -191,6 +262,9 @@ export async function postSupplierInvoiceToGL(
     lines,
   }, userId, actorMeta(opts));
 
+  // NEVER a late claim: this posts a bill that is ALREADY approved, so it was in
+  // the figures of the VAT period its date falls in when that return was filed.
+  // Only an approval made in the same act may claim late (approveSupplierInvoice).
   await postJournalEntry(companyId, journalEntry.id, userId);
 
   await sql`
@@ -198,6 +272,7 @@ export async function postSupplierInvoiceToGL(
     SET gl_journal_entry_id = ${journalEntry.id}::UUID
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `;
+  await settleClaimedProvisional(companyId, provisional, invoice, apAccount.id, userId, opts);
 
   log.info('Backfilled supplier invoice GL', { id, journalEntryId: journalEntry.id }, 'accounting');
   return { journalEntryId: journalEntry.id, alreadyPosted: false };
@@ -207,12 +282,15 @@ export async function cancelSupplierInvoice(
   companyId: string,
   id: string,
   userId: string,
+  // Optional and last-positional, as on approveSupplierInvoice: an MCP cancel
+  // must stamp its reversal as the agent's, or list_agent_postings cannot see it.
+  opts?: PostingActorOpts,
 ): Promise<SupplierInvoice> {
   // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx —
   // a failure after the reversal's draft INSERTs must roll them back
   // instead of orphan-committing (see customerInvoiceCancelService).
   return withSavepoint('cancel_supplier_invoice', () =>
-    cancelSupplierInvoiceInner(companyId, id, userId),
+    cancelSupplierInvoiceInner(companyId, id, userId, opts),
   );
 }
 
@@ -220,13 +298,17 @@ async function cancelSupplierInvoiceInner(
   companyId: string,
   id: string,
   userId: string,
+  opts?: PostingActorOpts,
 ): Promise<SupplierInvoice> {
   try {
     // FOR UPDATE: serialise concurrent cancels — both passing the guards
     // would double-reverse the same approval journal.
+    // K-053: a soft-deleted bill is not cancellable — same reasoning as
+    // customerInvoiceCancelService, where it is spelled out.
     const lockRows = (await sql`
       SELECT id, status, gl_journal_entry_id FROM supplier_invoices
       WHERE id = ${id} AND company_id = ${companyId}::UUID
+        AND deleted_at IS NULL
       FOR UPDATE
     `) as Row[];
     if (lockRows.length === 0) throw new Error(`Supplier invoice ${id} not found`);
@@ -238,6 +320,9 @@ async function cancelSupplierInvoiceInner(
     if (status === 'cancelled') {
       throw new Error('Supplier invoice is already cancelled');
     }
+    // Every refusal the MCP tool's plan makes, on the row just locked, before
+    // any write — the UI Cancel button and the bulk action reach only this.
+    await planSupplierInvoiceCancel(companyId, id);
 
     // P1.1 (audit C1, systemic): approve posts GL — cancel must reverse it.
     // Reverse BEFORE the flip so a blocked reversal (locked period) aborts
@@ -254,7 +339,7 @@ async function cancelSupplierInvoiceInner(
         String(jeRows[0]!.status) === 'posted' &&
         jeRows[0]!.reversed_at == null
       ) {
-        await reverseJournalEntry(companyId, String(locked.gl_journal_entry_id), userId);
+        await reverseJournalEntry(companyId, String(locked.gl_journal_entry_id), userId, opts);
       }
     }
 
@@ -268,6 +353,16 @@ async function cancelSupplierInvoiceInner(
     if (rows.length !== 1) {
       throw new Error('Supplier invoice state changed concurrently — cancel aborted');
     }
+
+    // The other half of the capture posting claim's undo. A cancelled invoice
+    // is not a live claim on the receipt behind it, and until this line the
+    // document stayed refused by every posting route with no way back — which
+    // is what made "Reverse the journal or invoice first" a dead end.
+    const cancelledSourceDoc = rows[0]!.source_document_id;
+    if (cancelledSourceDoc) {
+      await releaseCapturedDocumentPostingClaim(companyId, String(cancelledSourceDoc));
+    }
+
     return mapInvoiceRow(rows[0]!);
   } catch (err) {
     log.error('Failed to cancel supplier invoice', { id, error: err }, 'accounting');
@@ -400,45 +495,7 @@ export async function performThreeWayMatch(
   return { invoiceId, matchStatus: overallStatus, itemResults };
 }
 
-// ── Private mapper (duplicated from supplierInvoiceService to avoid circular import) ──
-import { fmtDate } from '@/lib/fmtDate';
 import type { VatType } from '../../types/gl.types';
 import type { SupplierInvoiceItem } from '../../types/ap.types';
-
-function mapInvoiceRow(row: Row): SupplierInvoice {
-  return {
-    id: String(row.id),
-    invoiceNumber: String(row.invoice_number),
-    supplierId: String(row.supplier_id),
-    purchaseOrderId: row.purchase_order_id ? String(row.purchase_order_id) : undefined,
-    grnId: row.grn_id ? String(row.grn_id) : undefined,
-    invoiceDate: fmtDate(row.invoice_date),
-    dueDate: row.due_date ? fmtDate(row.due_date) : undefined,
-    receivedDate: row.received_date ? fmtDate(row.received_date) : undefined,
-    subtotal: Number(row.subtotal),
-    taxRate: Number(row.tax_rate),
-    taxAmount: Number(row.tax_amount),
-    totalAmount: Number(row.total_amount),
-    amountPaid: Number(row.amount_paid),
-    balance: Number(row.balance),
-    paymentTerms: row.payment_terms ? String(row.payment_terms) : undefined,
-    currency: String(row.currency),
-    reference: row.reference ? String(row.reference) : undefined,
-    status: String(row.status) as SupplierInvoice['status'],
-    matchStatus: String(row.match_status) as SupplierInvoice['matchStatus'],
-    projectId: row.project_id ? String(row.project_id) : undefined,
-    costCenterId: row.cost_center_id ? String(row.cost_center_id) : undefined,
-    glJournalEntryId: row.gl_journal_entry_id ? String(row.gl_journal_entry_id) : undefined,
-    sageInvoiceId: row.sage_invoice_id ? String(row.sage_invoice_id) : undefined,
-    notes: row.notes ? String(row.notes) : undefined,
-    createdBy: String(row.created_by),
-    approvedBy: row.approved_by ? String(row.approved_by) : undefined,
-    approvedAt: row.approved_at ? String(row.approved_at) : undefined,
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-    supplierName: row.supplier_name ? String(row.supplier_name) : undefined,
-    poNumber: row.po_number ? String(row.po_number) : undefined,
-  };
-}
 
 export type { SupplierInvoiceItem, VatType };

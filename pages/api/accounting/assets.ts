@@ -11,15 +11,37 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { validateAsset, generateAssetNumber, type AssetInput } from '@/modules/accounting/services/items/assetService';
+import { validateAsset, generateAssetNumber, assetNumberPrefix, type AssetInput } from '@/modules/accounting/services/items/assetService';
 
 type Row = Record<string, unknown>;
+
+const ASSET_STATUSES: readonly string[] = ['available', 'assigned', 'in_maintenance', 'disposed', 'written_off'];
+
+/**
+ * `status` is a single value, a comma list (`available,assigned`) or a repeated
+ * param (string[]). Returns the validated list, null for "no filter" (absent, blank
+ * or `all`), or an error message for anything outside the asset status enum.
+ */
+function parseStatusFilter(raw: unknown): { statuses: string[] | null; error?: string } {
+  if (raw === undefined || (typeof raw === 'string' && raw.trim() === '')) return { statuses: null };
+  if (typeof raw !== 'string' && !(Array.isArray(raw) && raw.every(v => typeof v === 'string'))) {
+    return { statuses: null, error: 'status must be a string' };
+  }
+  const parts = (Array.isArray(raw) ? raw : [raw]).flatMap(v => (v as string).split(',')).map(v => v.trim());
+  if (parts.length === 1 && parts[0] === 'all') return { statuses: null };
+  if (parts.some(v => !ASSET_STATUSES.includes(v))) {
+    return { statuses: null, error: `Invalid status. Must be one of: ${ASSET_STATUSES.join(', ')}` };
+  }
+  return { statuses: parts };
+}
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
-    const { status, category, search } = req.query;
+    const { category, search } = req.query;
+    const { statuses, error: statusError } = parseStatusFilter(req.query.status);
+    if (statusError) return apiResponse.badRequest(res, statusError);
 
     let rows: Row[];
 
@@ -31,18 +53,18 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         WHERE a.company_id = ${companyId}::UUID AND (a.name ILIKE ${term} OR a.asset_number ILIKE ${term} OR a.serial_number ILIKE ${term})
         ORDER BY a.created_at DESC LIMIT 200
       ` as Row[];
-    } else if (status && status !== 'all' && category) {
+    } else if (statuses && category) {
       rows = await sql`
         SELECT a.*, ac.name as category_name, ac.sars_rate, ac.sars_years
         FROM assets a LEFT JOIN asset_categories ac ON a.category_id = ac.id
-        WHERE a.company_id = ${companyId}::UUID AND a.status = ${String(status)} AND (a.category = ${String(category)} OR ac.code = ${String(category)})
+        WHERE a.company_id = ${companyId}::UUID AND a.status = ANY(${statuses}::TEXT[]) AND (a.category = ${String(category)} OR ac.code = ${String(category)})
         ORDER BY a.created_at DESC LIMIT 200
       ` as Row[];
-    } else if (status && status !== 'all') {
+    } else if (statuses) {
       rows = await sql`
         SELECT a.*, ac.name as category_name, ac.sars_rate, ac.sars_years
         FROM assets a LEFT JOIN asset_categories ac ON a.category_id = ac.id
-        WHERE a.company_id = ${companyId}::UUID AND a.status = ${String(status)}
+        WHERE a.company_id = ${companyId}::UUID AND a.status = ANY(${statuses}::TEXT[])
         ORDER BY a.created_at DESC LIMIT 200
       ` as Row[];
     } else if (category) {
@@ -91,11 +113,21 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     const catKey = body.category || body.sarsCategory || 'general';
-    const countResult = await sql`
-      SELECT COUNT(*) as cnt FROM assets WHERE category = ${catKey} AND company_id = ${companyId}::UUID
+    // MAX of the numbers ALREADY MINTED under this category's prefix, not a
+    // COUNT of the category's rows: assets carries UNIQUE(company_id,
+    // asset_number), and count is not max — after a single asset was deleted
+    // every later create in that category re-issued an existing number and
+    // 23505'd permanently, since the count never caught up.
+    // MAX+1 with no savepointed retry: two concurrent creates in one category
+    // now 23505 into a 500 rather than duplicating a number, which is the
+    // correct trade against a unique index but is not a retry.
+    const assetPrefix = assetNumberPrefix(body.sarsCategory || body.category || 'general');
+    const maxResult = await sql`
+      SELECT COALESCE(MAX(CAST(SUBSTRING(asset_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
+      FROM assets
+      WHERE company_id = ${companyId}::UUID AND asset_number LIKE ${assetPrefix + '-%'}
     ` as Row[];
-    const existingCount = Number(countResult[0]?.cnt ?? 0);
-    const assetNumber = generateAssetNumber(body.sarsCategory || body.category || 'general', existingCount);
+    const assetNumber = generateAssetNumber(body.sarsCategory || body.category || 'general', Number(maxResult[0]?.max_num ?? 0));
 
     const inserted = await sql`
       INSERT INTO assets (

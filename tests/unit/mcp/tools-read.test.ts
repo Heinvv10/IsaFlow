@@ -97,6 +97,9 @@ vi.mock('@/modules/accounting/services/ar/customerInvoiceReadService', () => ({
   getCustomerInvoiceDetail: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/ar/quoteService', () => ({ getQuotes: vi.fn() }));
+vi.mock('@/modules/accounting/services/ap/supplierPaymentListService', () => ({
+  listSupplierPayments: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   listCustomers: vi.fn(),
   listSuppliers: vi.fn(),
@@ -146,6 +149,7 @@ import {
   listCustomers,
   listSuppliers,
 } from '@/modules/accounting/services/core/contactDirectoryService';
+import { listSupplierPayments } from '@/modules/accounting/services/ap/supplierPaymentListService';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
 import { InvalidCursorError } from '@/modules/accounting/services/bank/bankTxCursor';
@@ -319,7 +323,7 @@ describe('invoice + quote tools', () => {
       { status: 'sent', customer_id: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', limit: 500 }, ctx(),
     ));
     expect(listCustomerInvoices).toHaveBeenCalledWith(COMPANY_ID, {
-      status: ['sent'], clientId: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', search: null, limit: 100,
+      status: ['sent'], clientId: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', search: null, limit: 100, offset: 0,
     });
   });
 
@@ -350,7 +354,7 @@ describe('contact + bank + vat tools', () => {
     parseOk(await tool('bank_accounts_status').handler({}, ctx()));
     parseOk(await tool('list_bank_transactions').handler({ allocation_filter: 'unallocated' }, ctx()));
 
-    expect(listCustomers).toHaveBeenCalledWith(COMPANY_ID, 'brit');
+    expect(listCustomers).toHaveBeenCalledWith(COMPANY_ID, 'brit', { limit: 201, offset: 0 });
     expect(listSuppliers).toHaveBeenCalledWith(COMPANY_ID, expect.any(Object));
     // companyId stays first — the point of this test. The options arg opts the
     // tool into inactive accounts: an agent asking for status is asking about
@@ -570,8 +574,8 @@ describe('list_bank_transactions — paging and compact rows', () => {
 describe('suite-wide invariants', () => {
   const READ_TOOLS = MCP_TOOLS.filter((t) => !t.write);
 
-  it('exactly 68 read tools, all write:false, additionalProperties:false everywhere', () => {
-    expect(READ_TOOLS).toHaveLength(68);
+  it('exactly 70 read tools, all write:false, additionalProperties:false everywhere', () => {
+    expect(READ_TOOLS).toHaveLength(71);
     // Every registered tool is drift-guarded against CLIENT_MCP_TOOL_NAMES.
     expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
     for (const t of READ_TOOLS) {
@@ -664,6 +668,9 @@ describe('suite-wide invariants', () => {
     // Feed every service mock innocuous data, run every tool, scan everything.
     vi.mocked(getCompany).mockResolvedValue({ name: 'Co' } as never);
     vi.mocked(getFiscalPeriodIdForDate).mockResolvedValue('fp-1');
+    vi.mocked(listSupplierPayments).mockResolvedValue({
+      rows: [], total: 0, totals: { paymentAmount: 0, allocatedAmount: 0, unappliedAmount: 0 },
+    });
     vi.mocked(getTrialBalanceReport).mockResolvedValue({
       fiscalPeriodId: 'fp-1', rows: [], accountCount: 0, totalDebit: 0, totalCredit: 0,
       difference: 0, balanced: true, periodStart: '2026-03-01', periodEnd: '2026-03-31',

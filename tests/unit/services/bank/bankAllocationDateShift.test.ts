@@ -17,7 +17,14 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
-  return { sql: vi.fn(), withTransaction: vi.fn(), fmtDate: actual.fmtDate };
+  // withSavepoint passes through: R-067's tenant fence runs its ownership read
+  // inside one, and an undefined mock would make every customer allocation throw.
+  return {
+    sql: vi.fn(),
+    withTransaction: vi.fn(),
+    withSavepoint: vi.fn((_n: string, fn: () => unknown) => Promise.resolve().then(fn)),
+    fmtDate: actual.fmtDate,
+  };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
@@ -29,6 +36,15 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
 }));
 vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => ({
   mapTxRow: vi.fn((row: unknown) => row),
+}));
+
+// This file is about the DATE the journal and the receipt carry. Applying the
+// receipt afterwards is a different concern with its own file, and left real it
+// would consume the mocked `sql` queue below.
+vi.mock('@/modules/accounting/services/ar/customerAutoAllocate', () => ({
+  autoApplyCustomerReceipt: vi.fn(async () => ({
+    appliedLines: [], unappliedRemainder: 0, strategy: 'off',
+  })),
 }));
 
 import { sql, withTransaction } from '@/lib/neon';
@@ -69,7 +85,7 @@ const TX_ROW = {
   bank_account_id: BANK_ACCOUNT_ID,
   amount: -115,
   transaction_date: SAST_EARLY_MORNING,
-  status: 'imported',
+  status: 'imported', feed_state: 'posted',
   description: 'Test expense',
   reference: null,
 };
@@ -77,8 +93,8 @@ const TX_ROW = {
 describe('bankAllocationService — allocation date survives UTC rendering', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockWithTx.mockImplementation(async (fn) => { await fn(vi.fn().mockResolvedValue(undefined)); });
-    mockPostJE.mockResolvedValue(undefined);
+    mockWithTx.mockImplementation(async (fn) => { await fn(vi.fn().mockResolvedValue([{ id: 'cp-1' }])); });
+    mockPostJE.mockResolvedValue({} as never); // a posted entry; the caller reads .lateClaim off it
     mockGetSystemAccountId.mockResolvedValue('sys-account-id');
     mockCreateJE.mockResolvedValue({
       id: JE_ID, companyId: COMPANY_ID, entryDate: '2026-03-01',
@@ -123,12 +139,15 @@ describe('bankAllocationService — allocation date survives UTC rendering', () 
     const receiptRow = { ...TX_ROW, amount: 115 }; // money in → customer receipt path
     mockSql
       .mockResolvedValueOnce([receiptRow])                 // fetch bank tx
+      .mockResolvedValueOnce([{ ok: 1 }])                  // R-067 tenant fence on entityId
       .mockResolvedValueOnce([{ name: 'Acme (Pty) Ltd' }]) // customers lookup
       .mockResolvedValueOnce([])                           // customer_invoices source doc
       .mockResolvedValueOnce([{ id: JL_ID }])              // je line lookup
       .mockResolvedValueOnce([receiptRow]);                // final fetch
 
-    const wTx = vi.fn().mockResolvedValue(undefined);
+    // Returns rows: the customer_payments INSERT reads its id back so the
+    // receipt can be applied.
+    const wTx = vi.fn().mockResolvedValue([{ id: 'cp-1' }]);
     mockWithTx.mockImplementation(async (fn) => { await fn(wTx); });
 
     const { allocateTransaction } = await import(

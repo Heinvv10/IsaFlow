@@ -27,6 +27,7 @@ export type CanonicalSubtype =
   | 'current_asset'
   | 'other_current_asset'
   | 'vat_input'
+  | 'vat_input_late_claim' // the late-claim clearing account (migration 701) — NOT a VAT control subtype
   | 'fixed_asset'
   | 'accumulated_depreciation'
   | 'intangible_asset'
@@ -91,6 +92,7 @@ const SUBTYPE_ALIASES: Record<string, CanonicalSubtype> = {
   other_current_asset: 'other_current_asset',
   other_current_assets: 'other_current_asset',
   vat_input: 'vat_input',
+  vat_input_late_claim: 'vat_input_late_claim',
   fixed_asset: 'fixed_asset',
   fixed_assets: 'fixed_asset',
   property_plant_equipment: 'fixed_asset',
@@ -177,9 +179,17 @@ const SUBTYPE_ALIASES: Record<string, CanonicalSubtype> = {
   finance_cost: 'finance_cost',
   finance_costs: 'finance_cost',
   interest_expense: 'finance_cost',
+  bank_charges: 'finance_cost', // unaliased, it banded operating: notes 20 AND 21 printed it
   tax: 'tax_expense',
   tax_expense: 'tax_expense',
   income_tax: 'tax_expense',
+  // The AFS note generators' own spellings. Absent from this map they
+  // canonicalised to NULL, so `expenseBand` reported an income-tax account as an
+  // OPERATING expense while AFS note 20 excluded it — the same statutory pack
+  // disagreeing with itself. Note 17 still splits current from deferred by the
+  // raw spelling; that split lives inside this one canonical token.
+  income_tax_expense: 'tax_expense',
+  deferred_tax_expense: 'tax_expense',
   other_expense: 'other_expense',
   other_expenses: 'other_expense',
 };
@@ -243,6 +253,19 @@ export function rawSubtypesFor(...canonical: CanonicalSubtype[]): string[] {
 export const CASH_SUBTYPES: readonly string[] = rawSubtypesFor('bank', 'cash');
 
 /**
+ * Raw spellings of every NON-CURRENT token, derived from the same `NON_CURRENT`
+ * set `isCurrentSubtype` reads. SQL that partitions the balance sheet passes
+ * this, so the current/non-current split cannot disagree between a query and
+ * the TypeScript answering the same question. Asset and liability tokens are
+ * disjoint by side, so a caller already filtering `account_type` needs only one.
+ */
+export const NON_CURRENT_SUBTYPES: readonly string[] = rawSubtypesFor(...NON_CURRENT);
+
+/** Every canonical token in the vocabulary. Used by the census lint. */
+export const ALL_CANONICAL_SUBTYPES: readonly CanonicalSubtype[] =
+  Array.from(new Set(Object.values(SUBTYPE_ALIASES)));
+
+/**
  * Raw spellings meaning inventory / stock. No production account currently
  * carries any of them — see `inventoryWarning` in financialFiguresService.
  */
@@ -255,6 +278,17 @@ export const INVENTORY_SUBTYPES: readonly string[] = rawSubtypesFor('inventory')
  * pairing) and CASH_SUBTYPES where it is about cash and cash equivalents.
  */
 export const BANK_SUBTYPES: readonly string[] = rawSubtypesFor('bank');
+
+/**
+ * The predicate form of `BANK_SUBTYPES`, for the paths that compare a subtype
+ * in TypeScript rather than in SQL. Both answer the same question — "does this
+ * account hold bank transactions?" — so they must not be able to disagree, and
+ * a literal `=== 'bank'` beside a query that accepts `bank_account` is exactly
+ * such a disagreement.
+ */
+export function isBankSubtype(subtype: string | null | undefined): boolean {
+  return canonicalSubtype(subtype) === 'bank';
+}
 
 /** Raw spellings meaning trade receivables. */
 export const RECEIVABLE_SUBTYPES: readonly string[] = rawSubtypesFor('receivable');

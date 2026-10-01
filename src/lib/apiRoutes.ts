@@ -48,6 +48,7 @@ import type { getBudgetVariance } from '@/modules/accounting/services/reports/bu
 import type { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
 import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
 import type { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
+import type { mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -81,6 +82,7 @@ import type { unclassifiedWarning } from '@/modules/accounting/services/gl/finan
  */
 interface StaticRoutes {
   '/api/accounting/currencies': Currency[];
+  '/api/accounting/customer-merge': Awaited<ReturnType<typeof mergeCustomers>>;
   '/api/accounting/migration/session': { session: MigrationSession | null };
   '/api/accounting/reports-vat-return': Awaited<ReturnType<typeof getVATReturn>>;
   '/api/accounting/vat-allocation-mismatches': Awaited<ReturnType<typeof findVatAllocationMismatches>>;

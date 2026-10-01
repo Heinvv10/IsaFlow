@@ -21,6 +21,13 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import {
+  AUTO_ALLOCATE_STRATEGIES,
+  parseAutoAllocateStrategy,
+  type AutoAllocateStrategy,
+} from '../shared/autoAllocateStrategy';
+
+export type { AutoAllocateStrategy };
 
 const MAX_NAME = 255;
 const MAX_TEXT = 255;
@@ -47,6 +54,8 @@ export interface CustomerWriteInput {
   openingBalance?: number | null;
   openingBalanceDate?: string | null;
   acceptsElectronicInvoices?: boolean;
+  autoAllocateStrategy?: AutoAllocateStrategy;
+  /** @deprecated Legacy boolean from migration 246. Use autoAllocateStrategy — true maps to 'oldest'. */
   autoAllocateReceipts?: boolean;
   statementDistribution?: string | null;
   defaultDiscount?: number | null;
@@ -69,6 +78,26 @@ function trimmed(value: string | null | undefined): string | null {
   return t ? t.slice(0, MAX_TEXT) : null;
 }
 
+/**
+ * The trimmed value of a field whose column is NARROWER than MAX_TEXT, or a
+ * refusal naming it. `trimmed()` slices to 255, which does nothing for a
+ * VARCHAR(50): the value reached the INSERT and Postgres raised 22001, whose
+ * message names the type but not the column. Refused, not sliced — a VAT or
+ * bank number cut short is a wrong number, not a shorter one.
+ */
+export function boundedText(
+  value: string | null | undefined,
+  field: string,
+  max: number,
+): string | null {
+  if (typeof value !== 'string') return null;
+  const t = value.trim();
+  if (t.length > max) {
+    throw new ContactValidationError(`${field} is ${t.length} characters; the maximum is ${max}`);
+  }
+  return t || null;
+}
+
 function assertName(name: string | undefined): string {
   const t = typeof name === 'string' ? name.trim() : '';
   if (!t) throw new ContactValidationError('Customer name is required');
@@ -78,11 +107,47 @@ function assertName(name: string | undefined): string {
   return t;
 }
 
+/**
+ * The strategy to write, or `undefined` for "leave it alone" on an update.
+ *
+ * Takes ONLY the new field. The deprecated boolean is not a parameter because
+ * it is not an input to this decision — see the note below on why it stopped
+ * being one. Throws before the value can reach the DB CHECK constraint, which
+ * would otherwise surface as an opaque 23514.
+ */
+function resolveStrategy(
+  strategy: string | undefined,
+): AutoAllocateStrategy | undefined {
+  if (strategy !== undefined) {
+    const parsed = parseAutoAllocateStrategy(strategy);
+    if (!parsed) {
+      throw new ContactValidationError(
+        `auto_allocate_strategy must be one of: ${AUTO_ALLOCATE_STRATEGIES.join(', ')}`,
+      );
+    }
+    return parsed;
+  }
+  // THE LEGACY BOOLEAN NO LONGER TURNS ANYTHING ON, AND IS NO LONGER READ
+  // HERE AT ALL. It used to map true ->
+  // 'oldest', which made it the last path by which a contact could arrive at a
+  // strategy nobody chose — reachable by any caller still sending the old
+  // field: an external API consumer, an import, or the previous build during a
+  // rolling deploy. Migration 614 refused to carry the old ticks over for
+  // exactly that reason (nothing ever read them, so nobody consented to cash
+  // application by ticking one); honouring the same tick when it arrives over
+  // the wire would have re-opened the door the migration closed. Nothing
+  // in-tree sends it — the forms, the REST routes and the MCP contact tools all
+  // moved to `auto_allocate_strategy` — so an old caller's boolean is now
+  // simply ignored rather than obeyed.
+  return undefined;
+}
+
 export async function createCustomer(
   companyId: string,
   input: CustomerWriteInput,
 ): Promise<DbRow> {
   const name = assertName(input.name);
+  const strategy = resolveStrategy(input.autoAllocateStrategy) ?? 'off';
   const rows = (await sql`
     INSERT INTO customers (
       company_id, name, email, phone, mobile, fax, web_address,
@@ -90,7 +155,7 @@ export async function createCustomer(
       billing_address, shipping_address, contact_person,
       payment_terms, payment_terms_type, credit_limit, is_active, notes,
       category_id, cash_sale, opening_balance, opening_balance_date,
-      accepts_electronic_invoices, auto_allocate_receipts,
+      accepts_electronic_invoices, auto_allocate_strategy, auto_allocate_receipts,
       statement_distribution, default_discount, default_vat_type,
       subject_to_drc_vat, invoices_viewable_online,
       default_price_list
@@ -98,17 +163,17 @@ export async function createCustomer(
       ${companyId}::UUID,
       ${name},
       ${trimmed(input.email)},
-      ${trimmed(input.phone)},
-      ${trimmed(input.mobile)},
-      ${trimmed(input.fax)},
+      ${boundedText(input.phone, 'phone', 50)},
+      ${boundedText(input.mobile, 'mobile', 50)},
+      ${boundedText(input.fax, 'fax', 50)},
       ${trimmed(input.webAddress)},
-      ${trimmed(input.vatNumber)},
-      ${trimmed(input.registrationNumber)},
+      ${boundedText(input.vatNumber, 'vat_number', 50)},
+      ${boundedText(input.registrationNumber, 'registration_number', 50)},
       ${trimmed(input.billingAddress)},
       ${trimmed(input.shippingAddress)},
       ${trimmed(input.contactPerson)},
       ${input.paymentTerms ?? 30},
-      ${trimmed(input.paymentTermsType) ?? 'days'},
+      ${boundedText(input.paymentTermsType, 'payment_terms_type', 30) ?? 'days'},
       ${input.creditLimit ?? null},
       ${input.isActive ?? true},
       ${trimmed(input.notes)},
@@ -117,13 +182,14 @@ export async function createCustomer(
       ${input.openingBalance ?? 0},
       ${trimmed(input.openingBalanceDate)}::DATE,
       ${input.acceptsElectronicInvoices ?? false},
-      ${input.autoAllocateReceipts ?? false},
-      ${trimmed(input.statementDistribution) ?? 'email'},
+      ${strategy},
+      ${strategy !== 'off'},
+      ${boundedText(input.statementDistribution, 'statement_distribution', 20) ?? 'email'},
       ${input.defaultDiscount ?? 0},
-      ${trimmed(input.defaultVatType)},
+      ${boundedText(input.defaultVatType, 'default_vat_type', 50)},
       ${input.subjectToDrcVat ?? false},
       ${input.invoicesViewableOnline ?? true},
-      ${trimmed(input.defaultPriceList)}
+      ${boundedText(input.defaultPriceList, 'default_price_list', 100)}
     )
     RETURNING *
   `) as DbRow[];
@@ -161,36 +227,42 @@ export async function updateCustomer(
   if (input.name !== undefined) {
     name = assertName(input.name);
   }
+  // undefined = "leave it alone"; COALESCE below handles that the same way it
+  // handles every other omitted field.
+  const strategy = resolveStrategy(input.autoAllocateStrategy);
 
   const rows = (await sql`
     UPDATE customers SET
       name            = COALESCE(${name}, name),
       email           = COALESCE(${trimmed(input.email)}, email),
-      phone           = COALESCE(${trimmed(input.phone)}, phone),
-      mobile          = COALESCE(${trimmed(input.mobile)}, mobile),
-      fax             = COALESCE(${trimmed(input.fax)}, fax),
+      phone           = COALESCE(${boundedText(input.phone, 'phone', 50)}, phone),
+      mobile          = COALESCE(${boundedText(input.mobile, 'mobile', 50)}, mobile),
+      fax             = COALESCE(${boundedText(input.fax, 'fax', 50)}, fax),
       web_address     = COALESCE(${trimmed(input.webAddress)}, web_address),
-      vat_number      = COALESCE(${trimmed(input.vatNumber)}, vat_number),
-      registration_number = COALESCE(${trimmed(input.registrationNumber)}, registration_number),
+      vat_number      = COALESCE(${boundedText(input.vatNumber, 'vat_number', 50)}, vat_number),
+      registration_number = COALESCE(${boundedText(input.registrationNumber, 'registration_number', 50)}, registration_number),
       billing_address = COALESCE(${trimmed(input.billingAddress)}, billing_address),
       shipping_address = COALESCE(${trimmed(input.shippingAddress)}, shipping_address),
       contact_person  = COALESCE(${trimmed(input.contactPerson)}, contact_person),
       payment_terms   = COALESCE(${input.paymentTerms ?? null}, payment_terms),
-      payment_terms_type = COALESCE(${trimmed(input.paymentTermsType)}, payment_terms_type),
+      payment_terms_type = COALESCE(${boundedText(input.paymentTermsType, 'payment_terms_type', 30)}, payment_terms_type),
       credit_limit    = COALESCE(${input.creditLimit ?? null}, credit_limit),
       is_active       = COALESCE(${input.isActive ?? null}, is_active),
       notes           = COALESCE(${trimmed(input.notes)}, notes),
       category_id     = COALESCE(${trimmed(input.categoryId)}::UUID, category_id),
       cash_sale       = COALESCE(${input.cashSale ?? null}, cash_sale),
       default_discount = COALESCE(${input.defaultDiscount ?? null}, default_discount),
-      default_vat_type = COALESCE(${trimmed(input.defaultVatType)}, default_vat_type),
+      default_vat_type = COALESCE(${boundedText(input.defaultVatType, 'default_vat_type', 50)}, default_vat_type),
       subject_to_drc_vat = COALESCE(${input.subjectToDrcVat ?? null}, subject_to_drc_vat),
       accepts_electronic_invoices =
         COALESCE(${input.acceptsElectronicInvoices ?? null}, accepts_electronic_invoices),
-      auto_allocate_receipts = COALESCE(${input.autoAllocateReceipts ?? null}, auto_allocate_receipts),
-      statement_distribution = COALESCE(${trimmed(input.statementDistribution)}, statement_distribution),
+      auto_allocate_strategy = COALESCE(${strategy ?? null}, auto_allocate_strategy),
+      auto_allocate_receipts = COALESCE(
+        ${strategy !== undefined ? strategy !== 'off' : null}, auto_allocate_receipts
+      ),
+      statement_distribution = COALESCE(${boundedText(input.statementDistribution, 'statement_distribution', 20)}, statement_distribution),
       invoices_viewable_online = COALESCE(${input.invoicesViewableOnline ?? null}, invoices_viewable_online),
-      default_price_list = COALESCE(${trimmed(input.defaultPriceList)}, default_price_list),
+      default_price_list = COALESCE(${boundedText(input.defaultPriceList, 'default_price_list', 100)}, default_price_list),
       updated_at      = NOW()
     WHERE id = ${customerId}::UUID
       AND company_id = ${companyId}::UUID

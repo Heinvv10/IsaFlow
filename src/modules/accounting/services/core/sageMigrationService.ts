@@ -7,7 +7,7 @@
  * Every query must scope to companyId. See audit item #28.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 type Row = DbRow;
@@ -23,7 +23,7 @@ export interface MigrationStatus {
   accounts: { sageTotal: number; mapped: number; unmapped: number; autoMapped: number };
   ledger: { sageTotal: number; imported: number; pending: number; failed: number; dateRange: { earliest: string | null; latest: string | null } };
   invoices: { sageTotal: number; imported: number; pending: number; failed: number };
-  customerInvoices: { sageTotal: number; imported: number; pending: number; failed: number };
+  customerInvoices: { sageTotal: number; imported: number; pending: number; failed: number; creditNotes: number };
   lastRuns: MigrationRun[];
 }
 
@@ -31,6 +31,8 @@ export interface MigrationRun {
   id: string; runType: string; status: string; totalRecords: number;
   processed: number; succeeded: number; failed: number; skipped: number;
   startedAt: string; completedAt: string | null;
+  /** Imported rows whose source carried no VAT figure — R-089, none invented; see fix.md. */
+  vatNotStated: number;
 }
 
 export interface AccountMapping {
@@ -59,14 +61,16 @@ export async function startRun(runType: string, userId: string, companyId: strin
 }
 
 export async function completeRun(
-  runId: string, total: number, succeeded: number, failed: number, skipped: number,
+  runId: string, companyId: string, total: number, succeeded: number, failed: number, skipped: number,
+  vatNotStated = 0,
 ): Promise<MigrationRun> {
   const status = failed === 0 ? 'completed' : 'partial';
   const rows = (await sql`
     UPDATE gl_migration_runs
     SET status = ${status}, total_records = ${total}, processed = ${succeeded + failed + skipped},
-        succeeded = ${succeeded}, failed = ${failed}, skipped = ${skipped}, completed_at = NOW()
-    WHERE id = ${runId}::UUID RETURNING *
+        succeeded = ${succeeded}, failed = ${failed}, skipped = ${skipped},
+        details = ${JSON.stringify({ vatNotStated })}::JSONB, completed_at = NOW()
+    WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID RETURNING *
   `) as Row[];
   const r = rows[0]!;
   return {
@@ -74,15 +78,34 @@ export async function completeRun(
     totalRecords: Number(r.total_records), processed: Number(r.processed),
     succeeded: Number(r.succeeded), failed: Number(r.failed), skipped: Number(r.skipped),
     startedAt: String(r.started_at), completedAt: r.completed_at ? String(r.completed_at) : null,
+    vatNotStated,
   };
 }
 
-export async function failRun(runId: string, err: unknown): Promise<void> {
+export async function failRun(runId: string, companyId: string, err: unknown): Promise<void> {
   const msg = err instanceof Error ? err.message : 'Unknown error';
   await sql`
     UPDATE gl_migration_runs SET status = 'failed', error_message = ${msg}, completed_at = NOW()
-    WHERE id = ${runId}::UUID
+    WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
   `;
+}
+
+/**
+ * Run a migration body so a failure inside it leaves the request transaction
+ * usable and the ORIGINAL error is what propagates (K-090). `failRun` used to
+ * run on the transaction the failure had aborted and raise 25P02, masking the
+ * cause. The savepoint is taken before the body and rolled back before
+ * `failRun`. The 'failed' run row is written inside the request transaction;
+ * withAuth rolls that back with the 500, so it is observable to this
+ * transaction and to tests, not persisted for the operator.
+ */
+export async function withRunRecovery<T>(runId: string, companyId: string, body: () => Promise<T>): Promise<T> {
+  try {
+    return await withSavepoint('sage_migration_run', body);
+  } catch (err) {
+    await failRun(runId, companyId, err);
+    throw err;
+  }
 }
 
 // ── Migration Status ────────────────────────────────────────────────────────
@@ -111,12 +134,13 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
       FROM sage_supplier_invoices WHERE company_id = ${companyId}::UUID
     `) as Row[];
 
-    let customerInvoiceStats: Row[] = [{ total: 0, imported: 0, pending: 0, failed: 0 }];
+    let customerInvoiceStats: Row[] = [{ total: 0, imported: 0, pending: 0, failed: 0, credit_notes: 0 }];
     try {
       customerInvoiceStats = (await sql`
         SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE migration_status = 'imported') AS imported,
           COUNT(*) FILTER (WHERE migration_status = 'pending') AS pending,
-          COUNT(*) FILTER (WHERE migration_status = 'failed') AS failed
+          COUNT(*) FILTER (WHERE migration_status = 'failed') AS failed,
+          COUNT(*) FILTER (WHERE migration_status = 'credit_note') AS credit_notes
         FROM sage_customer_invoices WHERE company_id = ${companyId}::UUID
       `) as Row[];
     } catch (err) {
@@ -125,7 +149,7 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
 
     const runs = (await sql`
       SELECT id, run_type, status, total_records, processed, succeeded, failed, skipped,
-        started_at, completed_at
+        started_at, completed_at, details
       FROM gl_migration_runs WHERE company_id = ${companyId}::UUID ORDER BY started_at DESC LIMIT 10
     `) as Row[];
 
@@ -148,12 +172,14 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
         imported: Number(customerInvoiceStats[0]?.imported || 0),
         pending: Number(customerInvoiceStats[0]?.pending || 0),
         failed: Number(customerInvoiceStats[0]?.failed || 0),
+        creditNotes: Number(customerInvoiceStats[0]?.credit_notes || 0),
       },
       lastRuns: runs.map((r: Row) => ({
         id: String(r.id), runType: String(r.run_type), status: String(r.status),
         totalRecords: Number(r.total_records), processed: Number(r.processed),
         succeeded: Number(r.succeeded), failed: Number(r.failed), skipped: Number(r.skipped),
         startedAt: String(r.started_at), completedAt: r.completed_at ? String(r.completed_at) : null,
+        vatNotStated: Number((r.details as { vatNotStated?: number } | null)?.vatNotStated ?? 0),
       })),
     };
   } catch (err) {
@@ -200,7 +226,7 @@ function nameSimilarity(a: string, b: string): number {
 
 export async function autoMapAccounts(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('account_mapping', userId, companyId);
-  try {
+  return withRunRecovery(runId, companyId, async () => {
     const sageAccounts = (await sql`
       SELECT id, sage_account_id, name, account_type, balance FROM sage_accounts WHERE company_id = ${companyId}::UUID AND gl_account_id IS NULL ORDER BY name
     `) as Row[];
@@ -232,8 +258,8 @@ export async function autoMapAccounts(companyId: string, userId: string): Promis
         succeeded++;
       } else { skipped++; }
     }
-    return await completeRun(runId, sageAccounts.length, succeeded, 0, skipped);
-  } catch (err) { await failRun(runId, err); throw err; }
+    return await completeRun(runId, companyId, sageAccounts.length, succeeded, 0, skipped);
+  });
 }
 
 export async function mapAccount(companyId: string, sageAccountId: string, glAccountId: string | null, notes?: string): Promise<void> {

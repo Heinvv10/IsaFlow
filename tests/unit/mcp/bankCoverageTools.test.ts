@@ -30,6 +30,7 @@ vi.mock('@/modules/accounting/services/bank/bankReconciliationService', () => ({
   startReconciliation: vi.fn(),
   autoMatchTransactions: vi.fn(),
   completeReconciliation: vi.fn(),
+  previewReconciliationClaim: vi.fn(),
 }));
 
 import { getBankStatementCoverage } from '@/modules/accounting/services/bank/bankStatementCoverageService';
@@ -41,6 +42,7 @@ import {
   completeReconciliation,
   getReconciliationById,
   getReconciliations,
+  previewReconciliationClaim,
   startReconciliation,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { bankStatementCoverageTool, getOpeningBalancesTool } from '@/lib/mcp/tools/bankCoverage';
@@ -201,7 +203,8 @@ describe('perform_bank_reconciliation', () => {
 
   beforeEach(() => {
     vi.mocked(getReconciliations).mockResolvedValue([]);
-    vi.mocked(startReconciliation).mockResolvedValue(started);
+    vi.mocked(startReconciliation).mockResolvedValue({ ...started, selfMatched: 0, claimedUnallocated: 15 });
+    vi.mocked(previewReconciliationClaim).mockResolvedValue({ selfMatched: 40, claimedUnallocated: 15 });
     vi.mocked(autoMatchTransactions).mockResolvedValue({
       matched: 12, unmatched: 3, candidates: [], skippedRaced: 0,
     });

@@ -6,12 +6,15 @@
 import { sql, withTransaction } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
-import { runAutoMatch } from '../../utils/autoMatch';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
-import { matchTransaction, BankTransactionAllocatedError } from './bankTransactionQueryService';
-import type { BankReconciliation, AutoMatchResult } from '../../types/bank.types';
+import type { BankReconciliation } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
+import { isBankSubtype } from '../gl/accountSubtypes';
+import {
+  claimTransactionsForReconciliation, countsAsMatched, countsAsUnmatched,
+  type ReconciliationClaim,
+} from './bankReconciliationClaim';
 
 
 // ── Reconciliation CRUD ───────────────────────────────────────────────────────
@@ -26,8 +29,7 @@ export async function getReconciliations(
             ga.parent_account_id AS group_id,
             pa.account_name AS group_name,
             pa.account_subtype AS parent_subtype,
-            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched') AS matched_count,
-            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported') AS unmatched_count
+            ${sessionCounts(companyId)}
           FROM bank_reconciliations br
           LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id AND ga.company_id = ${companyId}
           LEFT JOIN gl_accounts pa ON pa.id = ga.parent_account_id AND pa.company_id = ga.company_id
@@ -38,8 +40,7 @@ export async function getReconciliations(
             ga.parent_account_id AS group_id,
             pa.account_name AS group_name,
             pa.account_subtype AS parent_subtype,
-            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched') AS matched_count,
-            (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported') AS unmatched_count
+            ${sessionCounts(companyId)}
           FROM bank_reconciliations br
           LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id AND ga.company_id = ${companyId}
           LEFT JOIN gl_accounts pa ON pa.id = ga.parent_account_id AND pa.company_id = ga.company_id
@@ -58,8 +59,7 @@ export async function getReconciliationById(
   try {
     const rows = (await sql`
       SELECT br.*, ga.account_name AS bank_account_name,
-        (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched') AS matched_count,
-        (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported') AS unmatched_count
+        ${sessionCounts(companyId)}
       FROM bank_reconciliations br
       LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id
       WHERE br.id = ${id}::UUID AND br.company_id = ${companyId}`) as DbRow[];
@@ -73,22 +73,16 @@ export async function getReconciliationById(
 export async function startReconciliation(
   companyId: string, bankAccountId: string, statementDate: string,
   statementBalance: number, userId: string
-): Promise<BankReconciliation> {
+): Promise<BankReconciliation & ReconciliationClaim> {
   try {
-    const balRows = (await sql`
-      SELECT COALESCE(SUM(jl.debit) - SUM(jl.credit), 0) AS gl_balance
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      WHERE jl.gl_account_id = ${bankAccountId}::UUID
-        AND jl.company_id = ${companyId}::UUID
-        AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
-        AND je.entry_date <= ${statementDate}`) as DbRow[];
+    const balRows = (await bankGlBalanceAsAt(
+      companyId, sql`${bankAccountId}::UUID`, sql`${statementDate}`)) as DbRow[];
     const glBalance = Number(balRows[0]!.gl_balance);
 
     // INSERT and the subsequent bank_transactions UPDATE must be atomic.
     // If the UPDATE fails after the INSERT, transactions would be orphaned
     // with no reconciliation_id and would be silently skipped in future runs.
-    const recon = await withTransaction(async (tx) => {
+    const { recon, claim } = await withTransaction(async (tx) => {
       const rows = (await tx`
         INSERT INTO bank_reconciliations (
           company_id, bank_account_id, statement_date, statement_balance, gl_balance,
@@ -97,18 +91,17 @@ export async function startReconciliation(
           ${companyId}, ${bankAccountId}::UUID, ${statementDate}, ${statementBalance},
           ${glBalance}, ${glBalance}, ${userId}::UUID
         ) RETURNING *`) as DbRow[];
-      // BL-82: guard by company_id to prevent cross-tenant UPDATE
-      await tx`
-        UPDATE bank_transactions SET reconciliation_id = ${rows[0]!.id}::UUID
-        WHERE bank_account_id = ${bankAccountId}::UUID
-          AND company_id = ${companyId}::UUID
-          AND status = 'imported' AND reconciliation_id IS NULL`;
-      return rows[0]!;
+      // BL-82: company-scoped. Claims unallocated lines AND allocated lines,
+      // which are matched to their own journal line — bankReconciliationClaim.
+      const claimed = await claimTransactionsForReconciliation(
+        tx, companyId, String(rows[0]!.id), bankAccountId, statementDate);
+      return { recon: rows[0]!, claim: claimed };
     });
     log.info('Started bank reconciliation', {
-      id: String(recon.id), bankAccountId, statementBalance, glBalance,
+      id: String(recon.id), bankAccountId, statementBalance, glBalance, ...claim,
     }, 'accounting');
-    return mapReconRow(recon);
+    return { ...mapReconRow({ ...recon, matched_count: claim.selfMatched,
+      unmatched_count: claim.claimedUnallocated }), ...claim };
   } catch (err) {
     log.error('Failed to start reconciliation', { error: err }, 'accounting');
     throw err;
@@ -119,6 +112,10 @@ export async function completeReconciliation(
   companyId: string, id: string, userId: string
 ): Promise<BankReconciliation> {
   try {
+    // Sign off against the ledger as it stands NOW, not the start snapshot: a
+    // line reversed or a journal back-dated mid-session moves the GL, and the
+    // snapshot would let a stale R0.00 through.
+    await updateReconciledBalance(companyId, id);
     const recon = await getReconciliationById(companyId, id);
     if (!recon) throw new Error(`Reconciliation ${id} not found`);
     if (recon.status === 'completed') throw new Error('Reconciliation already completed');
@@ -129,11 +126,15 @@ export async function completeReconciliation(
     // after transactions are marked 'reconciled', they become stuck in a
     // terminal state with no completed reconciliation to reference them.
     const completedRow = await withTransaction(async (tx) => {
-      // BL-83: defense-in-depth company_id guard on bank_transactions UPDATE
+      // BL-83: company_id guard. Reconciles exactly what the session counts as
+      // matched — matched lines and self-matched allocated lines.
       await tx`
-        UPDATE bank_transactions SET status = 'reconciled'
-        WHERE reconciliation_id = ${id}::UUID AND status = 'matched'
-          AND company_id = ${companyId}::UUID`;
+        UPDATE bank_transactions bt SET status = 'reconciled', updated_at = NOW()
+        FROM bank_reconciliations br
+        WHERE bt.reconciliation_id = ${id}::UUID AND bt.company_id = ${companyId}::UUID
+          AND br.id = bt.reconciliation_id AND br.company_id = ${companyId}::UUID
+          AND bt.feed_state = 'posted'
+          AND ${countsAsMatched(companyId, sql`br.statement_date`)}`;
       const rows = (await tx`
         UPDATE bank_reconciliations
         SET status = 'completed', completed_by = ${userId}::UUID, completed_at = NOW()
@@ -160,6 +161,17 @@ export async function createAdjustmentEntry(
          { glAccountId: bankAccountId, debit: 0, credit: Math.abs(amount), description }];
     const recon = await getReconciliationById(companyId, reconciliationId);
     if (!recon) throw new Error(`Reconciliation ${reconciliationId} not found`);
+    // A completed reconciliation is an audit artefact: its balances record what
+    // the ledger said at sign-off and must not be rewritten by a later adjustment.
+    if (recon.status === 'completed') {
+      throw new Error('Cannot adjust a completed reconciliation');
+    }
+    // updateReconciledBalance recomputes from the reconciliation's OWN bank
+    // account, so an adjustment posted to a different one would post a journal
+    // and silently leave the difference untouched.
+    if (bankAccountId !== recon.bankAccountId) {
+      throw new Error('Adjustment bank account does not match the reconciliation');
+    }
     const je = await createJournalEntry(companyId, {
       entryDate: recon.statementDate,
       description: `Bank recon adjustment: ${description}`,
@@ -177,103 +189,62 @@ export async function createAdjustmentEntry(
   }
 }
 
-// ── Auto-Match ────────────────────────────────────────────────────────────────
-
-export async function autoMatchTransactions(
-  companyId: string, bankAccountId: string, reconciliationId?: string
-): Promise<AutoMatchResult> {
-  try {
-    const bankTxRows = (await sql`
-      SELECT id, amount, transaction_date, reference, description
-      FROM bank_transactions
-      WHERE bank_account_id = ${bankAccountId}::UUID
-        AND company_id = ${companyId}::UUID
-        AND status = 'imported'
-      ORDER BY transaction_date`) as DbRow[];
-    if (bankTxRows.length === 0) return { matched: 0, unmatched: 0, candidates: [] };
-    const glRows = (await sql`
-      SELECT jl.id, jl.debit, jl.credit, jl.description,
-        je.entry_date, je.entry_number, je.source_document_id
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      WHERE jl.gl_account_id = ${bankAccountId}::UUID
-        AND jl.company_id = ${companyId}::UUID
-        AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
-        -- company_id on the subquery: unscoped it read every tenant's rows.
-        AND jl.id NOT IN (
-          SELECT matched_journal_line_id FROM bank_transactions
-          WHERE matched_journal_line_id IS NOT NULL
-            AND company_id = ${companyId}::UUID)
-      ORDER BY je.entry_date`) as DbRow[];
-    const bankTxs = bankTxRows.map((r: DbRow) => ({
-      id: String(r.id), amount: Number(r.amount), transactionDate: String(r.transaction_date),
-      reference: r.reference ? String(r.reference) : undefined,
-      description: r.description ? String(r.description) : undefined,
-    }));
-    const glLines = glRows.map((r: DbRow) => ({
-      id: String(r.id), debit: Number(r.debit), credit: Number(r.credit),
-      description: r.description ? String(r.description) : undefined,
-      entryDate: String(r.entry_date),
-      entryNumber: r.entry_number ? String(r.entry_number) : undefined,
-      sourceDocumentId: r.source_document_id ? String(r.source_document_id) : undefined,
-    }));
-    const result = runAutoMatch(bankTxs, glLines);
-    let matchedCount = 0;
-    let skippedRaced = 0;
-    // Locked in transaction-id order: matchTransaction takes a row lock that is
-    // held to the end of the request, so a run walking its rows in a different
-    // order from a concurrent allocation deadlocks on the pair (40P01).
-    const ordered = [...result.matches].sort((a, b) =>
-      a.bankTransactionId < b.bankTransactionId ? -1 : a.bankTransactionId > b.bankTransactionId ? 1 : 0);
-    for (const match of ordered) {
-      if (match.confidence >= 0.9) {
-        try {
-          await matchTransaction(companyId, match.bankTransactionId, match.journalLineId, reconciliationId);
-          matchedCount++;
-        } catch (matchErr) {
-          // The candidate query read these rows in bulk; one of them has been
-          // allocated since. Skip it and keep going — letting it escape would
-          // abort the loop, and because withAuth COMMITs on any handler that
-          // returns (the route catches and 400s), the matches already applied
-          // would persist while the remaining ones were silently dropped.
-          // Anything else is a real failure and must still reach the caller.
-          if (!(matchErr instanceof BankTransactionAllocatedError)) throw matchErr;
-          skippedRaced++;
-        }
-      }
-    }
-    const lowConfidence = result.matches.filter(m => m.confidence < 0.9);
-    log.info('Auto-match completed', {
-      bankAccountId, autoMatched: matchedCount, skippedRaced,
-      candidates: lowConfidence.length, unmatched: result.unmatched.length,
-    }, 'accounting');
-    return {
-      matched: matchedCount, unmatched: result.unmatched.length,
-      candidates: lowConfidence, skippedRaced,
-    };
-  } catch (err) {
-    log.error('Failed to auto-match transactions', { error: err }, 'accounting');
-    throw err;
-  }
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** matched_count / unmatched_count for the row aliased `br` — the claim module's definition. */
+function sessionCounts(companyId: string): ReturnType<typeof sql> {
+  const inSession = sql`bt.reconciliation_id = br.id AND bt.company_id = ${companyId}::UUID
+    AND bt.feed_state = 'posted'`;
+  return sql`
+    (SELECT COUNT(*) FROM bank_transactions bt WHERE ${inSession}
+      AND ${countsAsMatched(companyId, sql`br.statement_date`)}) AS matched_count,
+    (SELECT COUNT(*) FROM bank_transactions bt WHERE ${inSession}
+      AND ${countsAsUnmatched(companyId, sql`br.statement_date`)}) AS unmatched_count`;
+}
 
 export async function updateReconciledBalance(companyId: string, reconciliationId: string): Promise<void> {
   // Single atomic UPDATE — avoids race condition from read-then-write pattern.
   // Both the outer UPDATE and inner SELECT are scoped by company_id to prevent
   // cross-tenant contamination if two tenants share a reconciliation_id UUID.
+  // K-020: recompute the bank GL balance live as at statement_date rather than
+  // adding matched bank amounts to the frozen gl_balance snapshot. Matching only
+  // stamps a bank row against an already-posted line, so that movement is already
+  // inside the GL balance and adding it counted it twice; the adjustment journal
+  // this helper is called to reflect never entered the frozen column at all.
   await sql`
-    UPDATE bank_reconciliations
-    SET reconciled_balance = gl_balance + COALESCE((
-      SELECT SUM(amount) FROM bank_transactions
-      WHERE reconciliation_id = ${reconciliationId}::UUID
-        AND company_id = ${companyId}::UUID
-        AND status IN ('matched', 'reconciled')
-    ), 0)
-    WHERE id = ${reconciliationId}::UUID
-      AND company_id = ${companyId}::UUID
+    UPDATE bank_reconciliations br
+    SET (gl_balance, reconciled_balance) = (
+      SELECT bal.gl_balance, bal.gl_balance
+      FROM (${bankGlBalanceAsAt(
+        companyId, sql`br.bank_account_id`, sql`br.statement_date`)}) bal
+    )
+    WHERE br.id = ${reconciliationId}::UUID
+      AND br.company_id = ${companyId}::UUID
+      AND br.status = 'in_progress' -- a completed one is an audit artefact
   `;
+}
+
+/**
+ * Posted bank-account GL balance as at a date, as a composable fragment.
+ * Both the startReconciliation snapshot and the updateReconciledBalance
+ * recompute build on this one definition so the two cannot drift — drift
+ * between a frozen snapshot and a later figure was defect K-020. The account
+ * and date arrive as fragments because the recompute correlates on the
+ * reconciliation row's own columns while the snapshot binds parameters.
+ */
+function bankGlBalanceAsAt(
+  companyId: string,
+  glAccount: ReturnType<typeof sql>,
+  asAtDate: ReturnType<typeof sql>,
+): ReturnType<typeof sql> {
+  return sql`
+    SELECT COALESCE(SUM(jl.debit) - SUM(jl.credit), 0) AS gl_balance
+    FROM gl_journal_lines jl
+    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+    WHERE jl.gl_account_id = ${glAccount}
+      AND jl.company_id = ${companyId}::UUID
+      AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
+      AND je.entry_date <= ${asAtDate}`;
 }
 
 function mapReconRow(row: DbRow): BankReconciliation {
@@ -298,8 +269,8 @@ function mapReconRow(row: DbRow): BankReconciliation {
     unmatchedCount: row.unmatched_count !== undefined ? Number(row.unmatched_count) : undefined,
     // Only treat the parent as an umbrella group when it is itself a bank-subtype
     // account (mirrors the bank-accounts grouping rule); otherwise leave ungrouped.
-    groupId: row.parent_subtype === 'bank' && row.group_id ? String(row.group_id) : undefined,
-    groupName: row.parent_subtype === 'bank' && row.group_name ? String(row.group_name) : undefined,
+    groupId: isBankSubtype(row.parent_subtype as string | null) && row.group_id ? String(row.group_id) : undefined,
+    groupName: isBankSubtype(row.parent_subtype as string | null) && row.group_name ? String(row.group_name) : undefined,
   };
 }
 
@@ -317,6 +288,9 @@ export {
   fmtDate,
 } from './bankTransactionQueryService';
 export type { BankTxFilters } from './bankTransactionQueryService';
+export { autoMatchTransactions } from './bankAutoMatchService';
+export { previewReconciliationClaim } from './bankReconciliationClaim';
+export type { ReconciliationClaim } from './bankReconciliationClaim';
 export {
   allocateTransaction, splitAllocateTransaction, reverseReconciledTransaction,
 } from './bankAllocationService';

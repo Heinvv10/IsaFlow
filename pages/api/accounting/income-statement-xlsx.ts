@@ -8,10 +8,12 @@ import type { IncomeStatementReport } from '@/modules/accounting/types/gl.report
 import { reasonLabel } from '@/modules/accounting/services/reports/incomeStatementDisclosure';
 import ExcelJS from 'exceljs';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { apiLogger } from '@/lib/logger';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
+import { isUuidParam } from '@/lib/validation';
 
 type Row = Record<string, unknown>;
 
@@ -249,18 +251,29 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   const companyId = (req as unknown as CompanyAuthedRequest).companyId;
-  const { period_start: start, period_end: end, cost_centre_id: ccId } = req.query as Record<string, string>;
+  const { period_start: start, period_end: end } = req.query as Record<string, string>;
+  const ccId = req.query.cost_centre_id;
+  const businessUnitId = req.query.business_unit_id;
 
   if (!start || !end) {
     res.status(400).json({ success: false, error: 'period_start and period_end are required' });
     return;
+  }
+  if (ccId !== undefined && !isUuidParam(ccId)) {
+    return apiResponse.badRequest(res, 'cost_centre_id must be a valid UUID');
+  }
+  if (businessUnitId !== undefined && !isUuidParam(businessUnitId)) {
+    return apiResponse.badRequest(res, 'business_unit_id must be a valid UUID');
   }
 
   apiLogger.info({ companyId, start, end }, 'Income statement xlsx export requested');
 
   const [companyRows, report] = await Promise.all([
     sql`SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1` as Promise<Row[]>,
-    getIncomeStatement(companyId, start, end, ccId ? { costCentreId: ccId } : {}),
+    getIncomeStatement(companyId, start, end, {
+      costCentreId: ccId || undefined,
+      businessUnitId,
+    }),
   ]);
 
   const companyName = String(companyRows[0]?.name ?? 'Company');

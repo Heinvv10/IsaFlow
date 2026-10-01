@@ -6,12 +6,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { CheckCircle, Loader2, AlertCircle, XCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { PracticeTimeEntry } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
 import type { PracticeClient } from '@/modules/accounting/services/practice/practiceClientService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import { PeriodPicker } from '@/components/practice/PeriodPicker';
 import type { PeriodRange } from '@/components/practice/PeriodPicker';
+import { localISODate, monthStartISO } from '@/lib/dateUtils';
 
 // ---------- helpers ----------
 
@@ -35,13 +36,12 @@ function ErrBanner({ msg }: { msg: string }) {
 
 // ---------- page ----------
 
-type Filters = { userId: string; practiceClientId: string; dateFrom: string; dateTo: string };
-const EMPTY_FILTERS: Filters = { userId: '', practiceClientId: '', dateFrom: '', dateTo: '' };
+// 'approved' lists what WIP has not billed yet, so an entry WIP refuses can be
+// written off here — the remedy its refusal names (R-120).
+type Filters = { userId: string; practiceClientId: string; dateFrom: string; dateTo: string; status: 'submitted' | 'approved' };
+const EMPTY_FILTERS: Filters = { userId: '', practiceClientId: '', dateFrom: '', dateTo: '', status: 'submitted' };
 
-function firstOfMonth() {
-  const d = new Date();
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().split('T')[0]!;
-}
+function firstOfMonth() { return monthStartISO(); }
 
 export default function ApprovalsPage() {
   const [entries, setEntries] = useState<PracticeTimeEntry[]>([]);
@@ -51,7 +51,7 @@ export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [period, setPeriod] = useState<PeriodRange>({ dateFrom: firstOfMonth(), dateTo: new Date().toISOString().slice(0, 10) });
+  const [period, setPeriod] = useState<PeriodRange>({ dateFrom: firstOfMonth(), dateTo: localISODate() });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [approving, setApproving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
@@ -65,7 +65,7 @@ export default function ApprovalsPage() {
   const loadEntries = useCallback(async (f: Filters) => {
     setLoading(true); setLoadError(null);
     try {
-      const params = new URLSearchParams({ status: 'submitted' });
+      const params = new URLSearchParams({ status: f.status });
       if (f.userId) params.set('userId', f.userId);
       if (f.practiceClientId) params.set('practiceClientId', f.practiceClientId);
       if (f.dateFrom) params.set('dateFrom', f.dateFrom);
@@ -114,7 +114,7 @@ export default function ApprovalsPage() {
     void loadEntries(next);
   }
   function clearFilters() {
-    const defPeriod = { dateFrom: firstOfMonth(), dateTo: new Date().toISOString().slice(0, 10) };
+    const defPeriod = { dateFrom: firstOfMonth(), dateTo: localISODate() };
     setPeriod(defPeriod);
     const next = { ...EMPTY_FILTERS, dateFrom: defPeriod.dateFrom, dateTo: defPeriod.dateTo };
     setFilters(next);
@@ -140,12 +140,11 @@ export default function ApprovalsPage() {
       const res = await apiFetch('/api/accounting/practice/time-entries/write-off', {
         method: 'POST', body: JSON.stringify({ ids: Array.from(selected), reason: writeOffReason }),
       });
-      const json = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      await assertOk(res, 'Write-off failed');
       const n = selected.size;
       setToast(`Wrote off ${n} entr${n === 1 ? 'y' : 'ies'}`); setWriteOffOpen(false);
       await loadEntries(filters);
-    } catch (err) { setWriteOffError(err instanceof Error ? err.message : 'Write-off failed'); }
+    } catch (err) { setWriteOffError(apiErrorMessage(err, 'Write-off failed')); }
     finally { setWritingOff(false); }
   }
 
@@ -154,12 +153,11 @@ export default function ApprovalsPage() {
     setApproving(true); setApproveError(null);
     try {
       const res = await apiFetch('/api/accounting/practice/time-entries/approve', { method: 'POST', body: JSON.stringify({ ids: Array.from(selected) }) });
-      const json = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      await assertOk(res, 'Approval failed');
       const n = selected.size;
       setToast(`Approved ${n} entr${n === 1 ? 'y' : 'ies'}`);
       await loadEntries(filters);
-    } catch (err) { setApproveError(err instanceof Error ? err.message : 'Approval failed'); }
+    } catch (err) { setApproveError(apiErrorMessage(err, 'Approval failed')); }
     finally { setApproving(false); }
   }
 
@@ -177,7 +175,7 @@ export default function ApprovalsPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button disabled={selected.size === 0 || approving} onClick={() => void handleApprove()} className={`${BTN_BASE} bg-teal-600 hover:bg-teal-700`}>
+              <button disabled={selected.size === 0 || approving || filters.status === 'approved'} onClick={() => void handleApprove()} className={`${BTN_BASE} bg-teal-600 hover:bg-teal-700`}>
                 {approving && <Loader2 className="h-4 w-4 animate-spin" />}
                 Approve selected{selected.size > 0 ? ` (${selected.size})` : ''}
               </button>
@@ -200,6 +198,13 @@ export default function ApprovalsPage() {
               <select value={filters.userId} onChange={(e) => applyFilter({ userId: e.target.value })} className={SEL_CLS}>
                 <option value="">All submitters</option>
                 {submitterIds.map((id) => <option key={id} value={id}>{userMap.get(id) ?? shortId(id)}</option>)}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Status</label>
+              <select aria-label="Status" value={filters.status} onChange={(e) => applyFilter({ status: e.target.value as Filters['status'] })} className={SEL_CLS}>
+                <option value="submitted">Submitted</option>
+                <option value="approved">Approved, not billed</option>
               </select>
             </div>
             <div className="flex flex-col gap-1">

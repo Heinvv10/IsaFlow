@@ -4,13 +4,14 @@
  * payrollJournalBuilder.ts to keep both files under the 300-line cap; the
  * builder is the assembler, this is the machinery.
  *
- * The account lookup deliberately carries NO `is_active` filter. That column
- * is a picker flag — it decides whether an account appears in a dropdown and
- * says nothing about whether it holds money. The poster has never filtered on
- * it, so the money DOES land in a deactivated account; the builder reports
- * that as an advisory instead. Filtering here would silently understate the
- * journal, which is the casewareExportService defect (R130,000 dropped from a
- * balanced export) in a new place.
+ * The account lookups deliberately carry NO `is_active` filter. Filtering here
+ * would silently drop the line and understate the journal — the
+ * casewareExportService defect (R130,000 dropped from a balanced export) in a
+ * new place. The flag is read instead, and the builder turns a deactivated
+ * target into the `inactive_target_account` BLOCKER, because `postJournalEntry`
+ * refuses a posting to a deactivated account (`assertNoInactiveAccountLines`).
+ * It must stay a blocker: as an advisory the preview passed a post the live
+ * call refused (K-079).
  */
 
 import { sql } from '@/lib/neon';
@@ -55,8 +56,8 @@ export async function resolveAccounts(companyId: string): Promise<Map<string, Re
     ...REQUIRED_PAYROLL_ACCOUNT_CODES,
     ...OPTIONAL_PAYROLL_ACCOUNT_CODES,
   ] as unknown as string[];
-  // No is_active filter: this query resolves where money WILL land, not what a
-  // human may pick. See the file header.
+  // No is_active filter: a filtered account would vanish from the journal. The
+  // flag is read and the builder blocks on it. See the file header.
   const rows = (await sql`
     SELECT account_code, id, account_name, is_active
     FROM gl_accounts
@@ -76,9 +77,43 @@ export async function resolveAccounts(companyId: string): Promise<Map<string, Re
 }
 
 /**
+ * The cost-centre labour accounts a split routed money to, by id, with their
+ * code and active flag — so a deactivated one is caught by the plan, as the GL
+ * poster would catch it, rather than after approval's status write (K-079).
+ */
+export async function resolveAccountsById(
+  companyId: string,
+  ids: string[],
+): Promise<Map<string, ResolvedAccount & { code: string }>> {
+  const map = new Map<string, ResolvedAccount & { code: string }>();
+  if (ids.length === 0) return map;
+  const rows = (await sql`
+    SELECT id, account_code, account_name, is_active
+    FROM gl_accounts
+    WHERE company_id = ${companyId}::uuid AND id = ANY(${ids}::uuid[])
+  `) as Row[];
+  for (const r of rows) {
+    map.set(String(r.id), {
+      id: String(r.id),
+      code: String(r.account_code ?? ''),
+      name: String(r.account_name ?? ''),
+      isActive: r.is_active !== false,
+    });
+  }
+  return map;
+}
+
+/**
  * Builds the labour-debit lines, split across per-cost-centre expense accounts
  * where mappings exist. Lifted wholesale from the poster so both paths split
  * identically.
+ *
+ * K-079: each employee carries a gross-share of the cost BEFORE ETI
+ * (labourDebit + etiUsed) less their own share of `etiUsed`, apportioned by
+ * the ETI on their run line — ETI is earned by the low-wage staff, so spreading
+ * it by gross moved cost between cost-centre accounts. The per-employee
+ * amounts are then tied to `labourDebit` to the cent (residual on the largest),
+ * because the GL rejects a journal that is out by even R0.01.
  */
 export async function buildLabourLines(
   companyId: string,
@@ -86,6 +121,7 @@ export async function buildLabourLines(
   labourDebit: number,
   totalGross: number,
   defaultAccountId: string,
+  etiUsed: number,
 ): Promise<Array<{ glAccountId: string; debit: number; description: string }>> {
   const fallback = [{
     glAccountId: defaultAccountId,
@@ -95,7 +131,7 @@ export async function buildLabourLines(
   if (labourDebit === 0 || totalGross === 0) return fallback;
 
   const lineRows = (await sql`
-    SELECT prl.employee_id, prl.gross_pay, e.cost_centre_id
+    SELECT prl.employee_id, prl.gross_pay, prl.eti, e.cost_centre_id
       FROM payroll_run_lines prl
       JOIN payroll_employees e ON e.id = prl.employee_id
      WHERE prl.run_id = ${runId}::uuid
@@ -113,11 +149,25 @@ export async function buildLabourLines(
   const mappings = await getMappingLookup(companyId);
   const employeeCostCentre: Record<string, string | null> = {};
   const runLines: RunLabourLine[] = [];
+  const costBeforeEti = labourDebit + etiUsed;
+  const lineEti = lineRows.reduce((s, r) => s + (Number(r.eti) || 0), 0);
   for (const r of lineRows) {
     const employeeId = String(r.employee_id);
-    const grossShare = Number(r.gross_pay) || 0;
+    const grossShare = (Number(r.gross_pay) || 0) / totalGross;
+    // No ETI on the lines (an imported or hand-edited header): fall back to gross.
+    const etiShare = lineEti > 0 ? (Number(r.eti) || 0) / lineEti : grossShare;
     employeeCostCentre[employeeId] = r.cost_centre_id == null ? null : String(r.cost_centre_id);
-    runLines.push({ employeeId, labourAmount: round2((grossShare / totalGross) * labourDebit) });
+    runLines.push({ employeeId, labourAmount: round2(grossShare * costBeforeEti - etiShare * etiUsed) });
+  }
+  // Tie only ROUNDING — at most half a cent per line. A bigger gap means the
+  // run lines disagree with the header; absorbing it would move real cost onto
+  // one cost centre silently, so it is left for the plan's exact balance check
+  // to refuse as 'unbalanced'.
+  const residual = round2(labourDebit - runLines.reduce((s, l) => s + l.labourAmount, 0));
+  const roundingCents = Math.ceil(runLines.length / 2);
+  if (residual !== 0 && Math.abs(Math.round(residual * 100)) <= roundingCents) {
+    const largest = runLines.reduce((a, b) => (b.labourAmount > a.labourAmount ? b : a));
+    largest.labourAmount = round2(largest.labourAmount + residual);
   }
 
   const employeeAllocations: Record<string, AllocationShare[]> = {};

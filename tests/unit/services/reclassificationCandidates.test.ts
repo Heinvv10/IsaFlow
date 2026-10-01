@@ -120,15 +120,12 @@ describe('partitionCandidates', () => {
     expect(skipped.map((s) => s.reason)).toEqual(['entry_reversed', 'entry_is_reversal']);
   });
 
-  it('skips a line carrying analysis coding the reclassification cannot reproduce', () => {
-    // JournalLineInput cannot express cc1_id / cc2_id, so a line carrying them
-    // would post its pair with those dimensions silently dropped.
-    expect(partitionCandidates([row({ cc1_id: 'c1' })], OPEN).skipped[0])
-      .toMatchObject({ reason: 'unreproducible_analysis_coding' });
-    expect(partitionCandidates([row({ cc2_id: 'c2' })], OPEN).skipped[0])
-      .toMatchObject({ reason: 'unreproducible_analysis_coding' });
-    // bu_id IS expressible, so it does not skip.
-    expect(partitionCandidates([row({ bu_id: 'b1' })], OPEN).movable).toHaveLength(1);
+  it('moves lines carrying CC1/CC2/BU and maps every analysis dimension', () => {
+    const { movable, skipped } = partitionCandidates([
+      row({ cc1_id: 'c1', cc2_id: 'c2', bu_id: 'b1' }),
+    ], OPEN);
+    expect(skipped).toEqual([]);
+    expect(movable[0]).toMatchObject({ cc1Id: 'c1', cc2Id: 'c2', buId: 'b1' });
   });
 
   it('skips a line an earlier live batch already moved', () => {

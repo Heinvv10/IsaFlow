@@ -99,7 +99,7 @@ function makeRes(events: string[]) {
 }
 
 async function makeToken(sub: string) {
-  return new SignJWT({ sub, email: 'x@y.z', aud: 'authenticated', role: 'authenticated' })
+  return new SignJWT({ sub, email: 'x@y.z', aud: 'authenticated', role: 'authenticated', aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h')
     .sign(new TextEncoder().encode(TEST_SECRET));
@@ -190,22 +190,24 @@ describe('withAuth — commit-before-respond ordering', () => {
     expect(events.indexOf('COMMIT')).toBeLessThan(events.indexOf('FLUSH'));
   });
 
-  it('ROLLBACKs and rethrows when the handler throws without responding', async () => {
+  it('ROLLBACKs, then answers 500 itself, when the handler throws without responding (R-159)', async () => {
     const events: string[] = [];
     currentClient = makeClient({ events });
     const { res } = makeRes(events);
     const { withAuth } = await import('@/lib/auth/withAuth');
     const tok = await makeToken('user-1');
 
-    // A handler that throws BEFORE responding (bypasses withErrorHandler) must
-    // hit withAuth's outer catch: ROLLBACK + rethrow, nothing to replay.
+    // A handler that throws BEFORE responding (bypasses withErrorHandler) hits
+    // withAuth's outer catch: ROLLBACK, then one 500 through the real end. It
+    // used to rethrow with end still buffered, so no answer ever reached the client.
     await expect(
       withAuth(async () => { throw new Error('handler exploded'); })(mkReq(tok, COMPANY_ID), res),
-    ).rejects.toThrow('handler exploded');
+    ).resolves.toBeUndefined();
 
-    expect(events).toContain('ROLLBACK');
     expect(events).not.toContain('COMMIT');
-    expect(events).not.toContain('FLUSH'); // handler never called end → nothing replayed
+    expect(events.filter((e) => e === 'FLUSH')).toHaveLength(1);
+    expect(events.indexOf('ROLLBACK')).toBeLessThan(events.indexOf('FLUSH'));
+    expect(res.statusCode).toBe(500);
   });
 
   it('COMMITs (preserves current behaviour) on a 4xx response', async () => {

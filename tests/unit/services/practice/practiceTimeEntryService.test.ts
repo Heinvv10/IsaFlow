@@ -7,6 +7,12 @@ const { sqlMock, resolveRateMock, getEntryTemplateMock } = vi.hoisted(() => {
   return { sqlMock, resolveRateMock, getEntryTemplateMock };
 });
 
+// R-032 L5: the Login-as guard runs its own query first; it is covered by
+// tests/unit/auth/impersonationGuard.test.ts and the r-032 integration suites.
+vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
+  assertNotImpersonating: async () => undefined,
+}));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -175,6 +181,32 @@ describe('updatePracticeEntry', () => {
     const updateCall = sqlMock.mock.calls[1]!;
     const updateValues = updateCall.slice(1);
     expect(updateValues).toContain(true);  // updateNotes sentinel
+  });
+
+  it('stores the rounded hours its line is computed from, not the raw input (R-120)', async () => {
+    // NUMERIC(6,2) would store 1.005 as 1.01 while the line was computed from
+    // JS-rounded 1.00: a line WIP billing refuses once the entry is approved.
+    sqlMock.mockResolvedValueOnce([{
+      status: 'draft', practice_client_id: CLIENT, entry_date: '2026-04-19', user_id: USER,
+      hours: 2, job_category_id: CATEGORY, work_item_id: WORK_ITEM,
+    }]);
+    resolveRateMock.mockResolvedValueOnce(1500);
+    sqlMock.mockResolvedValueOnce([entryRow]);
+
+    await updatePracticeEntry(COMPANY, ENTRY_ID, { hours: 1.005 });
+    const updateValues = sqlMock.mock.calls[1]!.slice(1);
+    expect(updateValues).not.toContain(1.005);
+    const hoursWritten = updateValues.find((v) => typeof v === 'number' && Math.abs(v - 1.005) < 0.01 && v !== 1500) as number;
+    expect(updateValues).toContain(Math.round(hoursWritten * 1500 * 100) / 100);
+  });
+
+  it('refuses hours that round to zero before touching the row (R-120)', async () => {
+    sqlMock.mockResolvedValueOnce([{
+      status: 'draft', practice_client_id: CLIENT, entry_date: '2026-04-19', user_id: USER,
+      hours: 2, job_category_id: CATEGORY, work_item_id: WORK_ITEM,
+    }]);
+    await expect(updatePracticeEntry(COMPANY, ENTRY_ID, { hours: 0.004 })).rejects.toThrow(/between 0 and 24/);
+    expect(sqlMock.mock.calls.some((c) => (c[0] as string[]).join('').includes('UPDATE time_entries'))).toBe(false);
   });
 
   it('rejects update when entry not draft', async () => {

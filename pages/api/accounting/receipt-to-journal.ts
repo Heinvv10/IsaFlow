@@ -1,7 +1,7 @@
 /**
  * Receipt-to-Journal API
  * POST /api/accounting/receipt-to-journal
- * Body: { documentId } or multipart file upload
+ * Body: { documentId, confirmDuplicate? } or multipart file upload
  */
 
 import type { NextApiResponse } from 'next';
@@ -21,10 +21,27 @@ import {
   buildExpenseJournalFromReceipt,
   shouldAutoPostReceipt,
   parseReceiptType,
+  mealsVatNeedsAPerson,
+  MEALS_VAT_HELD_SUFFIX,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
+import {
+  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE, CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
+  CaptureRowLockTimeoutError,
+  claimCapturedDocumentForPosting,
+  lockCapturedDocumentForUpdate,
+  refusalForPosting,
+} from '@/modules/accounting/services/capture/captureRowLock';
+import { checkReceiptDuplicate } from '@/modules/accounting/services/capture/receiptDuplicateGuard';
+import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
+import {
+  INPUT_VAT_DENIED_ADVICE,
+  resolveVatCodeForAccount,
+  VAT_CODE_STANDARD,
+} from '@/modules/accounting/services/gl/inputVatDenial';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import { VatPeriodLockedError, assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/journalVatLockGuard';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -34,17 +51,37 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const { companyId } = req;
   const userId: string = req.user?.id || '';
-  const { documentId } = req.body as { documentId?: string };
+  const { documentId, confirmDuplicate } = req.body as { documentId?: string; confirmDuplicate?: boolean };
 
   if (!documentId) return apiResponse.badRequest(res, 'documentId is required');
 
-  // Fetch captured document
-  const [doc] = (await sql`
-    SELECT extracted_data, status FROM captured_documents
-    WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-  `) as Row[];
+  // Fetch captured document, holding the row for the rest of the request.
+  //
+  // The status check below is a check-then-act: the stamp that settles it is
+  // written at the very end of the handler, so two concurrent requests both
+  // read 'pending', both pass, and both post. Under the lock the second one
+  // blocks here and reads the settled status instead. Nothing has been written
+  // at this point, so a lock timeout is still a safe 4xx.
+  let doc: Row | null;
+  try {
+    doc = (await lockCapturedDocumentForUpdate(companyId, documentId)) as Row | null;
+  } catch (err) {
+    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
+    throw err;
+  }
 
   if (!doc) return apiResponse.notFound(res, 'Captured document', documentId);
+  // Nothing on this path is idempotent, so a double-click or a client retry
+  // created and auto-posted a SECOND journal against the same
+  // source_document_id, doubling the expense and the bank credit. The refusal
+  // reads `posted_at`, not `status`: a document that is merely 'matched'
+  // because its slip was attached to a bank transaction has no journal and is
+  // still postable. The check is a read, before any write, so the 4xx commits
+  // nothing.
+  const readRefusal = refusalForPosting(doc);
+  if (readRefusal) {
+    return apiResponse.badRequest(res, CAPTURED_DOCUMENT_REFUSAL_MESSAGE[readRefusal]);
+  }
   if (!doc.extracted_data) return apiResponse.badRequest(res, 'Document has no extracted data');
 
   const extracted = doc.extracted_data as ExtractedDocument;
@@ -72,7 +109,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       getSystemAccountId('bank', companyId),
       getSystemAccountId('default_expense', companyId),
     ]);
-  } catch {
+  } catch (err) {
+    // Only a MISSING ROLE is a configuration answer. `getSystemAccountId` runs a
+    // real query, so a bare `catch` reported a transient database fault to the
+    // operator as "set up your default accounts" — unlogged, and pointing at the
+    // wrong remedy.
+    if (!(err instanceof MissingSystemAccountError)) throw err;
+    log.warn('Receipt-to-journal refused: default accounts not configured',
+      { companyId, documentId, err: err.message }, 'accounting');
     return apiResponse.badRequest(res, 'Default accounts not configured. Set VAT Input, Bank, and Expense accounts under Accounting > Default Accounts.');
   }
 
@@ -82,10 +126,33 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     : null;
   const expenseAccountId = accountSuggestion?.id ?? defaultExpenseAccountId;
 
+  // Ask the account itself before building. `resolveVatCodeForAccount` reads
+  // the `vat_input_denied` marker on the expense account this receipt is being
+  // coded to (company-scoped, one query) and coerces the claim away for an
+  // unattended caller — which this is, since the receipt auto-posts under a
+  // confidence gate with nobody looking at it. The account flag is the ONLY
+  // thing that folds the VAT (K-072 r35); the vendor name folds nothing.
+  const accountDenial = await resolveVatCodeForAccount(
+    companyId,
+    expenseAccountId,
+    VAT_CODE_STANDARD,
+    { documentId, source: 'receipt_to_journal' },
+  );
+
   // Build journal entry
-  const journalInput = buildExpenseJournalFromReceipt(extracted, { expenseAccountId, vatInputAccountId, bankAccountId });
+  const journalInput = buildExpenseJournalFromReceipt(
+    extracted,
+    { expenseAccountId, vatInputAccountId, bankAccountId },
+    { accountVatDenied: accountDenial.denied },
+  );
   const receiptType = parseReceiptType(extracted);
-  const autoPost = shouldAutoPostReceipt(extracted.totalAmount || 0, extracted.confidence, { maxAmount: 5000, minConfidence: 0.85 });
+  // A meals merchant whose VAT is still claimed is HELD for a person (K-072
+  // r35–r36): not auto-posted, marked on the draft, and refused by every
+  // unattended poster through the same predicate (`capturedVatEvidence`).
+  const claimedVat = journalInput.lines.find((l) => l.accountId === vatInputAccountId)?.debit ?? 0;
+  const heldForPerson = mealsVatNeedsAPerson({ confirmed: doc.vendor_name as string | null, extracted: extracted.vendorName }, claimedVat);
+  if (heldForPerson) journalInput.description += MEALS_VAT_HELD_SUFFIX;
+  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.85 }) && !heldForPerson;
 
   // Create the entry through the validated posting service.
   //
@@ -117,6 +184,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       debit: l.debit,
       credit: l.credit,
       description: l.description,
+      vatType: l.vatType,
     }));
 
   // Check the extraction actually balances BEFORE calling createJournalEntry.
@@ -137,6 +205,42 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     );
   }
 
+  // Claim the document BEFORE the first ledger write, not after it.
+  //
+  // The stamp used to be the last statement in the handler, which made the
+  // read above a check-then-act — and the OTHER posting routes never read this
+  // document at all, so posting a receipt here and then posting the same
+  // document from the capture inbox wrote two VAT-bearing journals against one
+  // receipt with no concurrency involved. Claiming here settles all of them:
+  // the `posted_at IS NULL` UPDATE is the one write that decides who posts, and
+  // it happens while the row is held.
+  //
+  // This is the last point at which a 4xx is safe — `withAuth` COMMITs on 4xx,
+  // and a refusal here has written nothing because the UPDATE matched no row.
+  // A receipt that moves a VAT figure into a locked (filed) VAT period can
+  // never post; createJournalEntry would refuse it, but only AFTER the claim
+  // below — the route's first write — so its 500 would roll the claim back with
+  // no reason shown. Refused here instead, while nothing has been written, as a
+  // 400 the caller can act on. Only THIS refusal is caught: anything thrown
+  // after the claim still propagates and rolls back.
+  try {
+    await assertJournalVatPeriodOpen(companyId, journalInput.entryDate, postableLines);
+  } catch (err) {
+    if (err instanceof VatPeriodLockedError) return apiResponse.badRequest(res, err.message);
+    throw err;
+  }
+
+  // A re-upload of a receipt already posted from ANOTHER document (R-088):
+  // the checks above are all about this row, and a second upload is a second
+  // row. Still before the first write, so the 409 commits nothing.
+  const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, { confirmDuplicate: confirmDuplicate === true, userId });
+  if (duplicate.kind !== 'clear') return apiResponse.conflict(res, duplicate.message, duplicate.details);
+
+  const refusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'expense', ...duplicate.fingerprint });
+  if (refusal) {
+    return apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[refusal], CAPTURED_DOCUMENT_REFUSAL_MESSAGE[refusal]);
+  }
+
   const entry = await createJournalEntry(companyId, {
     entryDate: journalInput.entryDate,
     description: journalInput.description,
@@ -148,10 +252,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (autoPost) {
     await postJournalEntry(companyId, entry.id, userId);
   }
-
-  await sql`
-    UPDATE captured_documents SET status = 'matched' WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-  `;
 
   const je = { id: entry.id, status: autoPost ? 'posted' : 'draft' };
 
@@ -166,9 +266,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     accountSuggestion: accountSuggestion ? { code: accountSuggestion.code, name: accountSuggestion.name } : null,
     autoPosted: autoPost,
     amount: extracted.totalAmount,
-    warnings: validation.warnings,
+    inputVatDenied: journalInput.inputVatDenied,
+    warnings: journalInput.inputVatDenied
+      ? [...validation.warnings, INPUT_VAT_DENIED_ADVICE]
+      : validation.warnings,
   });
 }
 
- 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

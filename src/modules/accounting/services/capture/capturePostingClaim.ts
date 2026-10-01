@@ -1,0 +1,190 @@
+/**
+ * The capture POSTING CLAIM: the `posted_at` fence every posting route stamps
+ * before its first ledger write, and the refusal it answers with.
+ *
+ * Split out of `captureRowLock.ts` (K-072 round 18), which carries the locks
+ * the claim is taken under and had grown past the 300-line cap. Why the fence
+ * is `posted_at` and not `status`, and which routes it reaches, is documented
+ * at the top of that file; `captureRowLock` re-exports everything here, so
+ * callers import from one place.
+ */
+
+import { ErrorCode } from '@/lib/apiResponse.types';
+import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
+import {
+  findPostedContent,
+  lockPostedContent,
+  PostedContentBusyError,
+  type ContentSpend,
+} from './postedContentFence';
+
+/**
+ * Why a posting route refused the document.
+ *
+ * Two reasons, two messages: telling an operator "already posted to a journal"
+ * about a document that was merely rejected — or merely attached to a bank
+ * transaction — is a false statement about the ledger, and the only undo the
+ * product offered for it was the confirm button, which is itself a bypass.
+ *
+ * The two `content_*` reasons are the claim's own posted-content check
+ * (R-088): the same FILE is already booked from another upload, or another
+ * request holds that file's fingerprint past the bounded wait.
+ */
+export type CapturedDocumentRefusal = 'already_posted' | 'rejected' | 'content_posted' | 'content_busy';
+
+export const CAPTURED_DOCUMENT_REFUSAL_MESSAGE: Record<CapturedDocumentRefusal, string> = {
+  already_posted: 'Document already posted',
+  rejected: 'Document was rejected — reopen it before posting',
+  content_posted: 'The same file was already posted from another upload — it cannot be booked twice',
+  content_busy: 'Another request is posting a document with the same content — retry in a moment',
+};
+
+/** The status a route answers each refusal with: a conflict with other content is a 409. */
+export const CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE: Record<CapturedDocumentRefusal, ErrorCode> = {
+  already_posted: ErrorCode.BAD_REQUEST,
+  rejected: ErrorCode.BAD_REQUEST,
+  content_posted: ErrorCode.CONFLICT,
+  content_busy: ErrorCode.CONFLICT,
+};
+
+/**
+ * The refusal a locked document row earns, or null when it may be posted.
+ *
+ * `posted_at` is the fence; `status` is consulted for one value only, the
+ * terminal `'rejected'` an operator set deliberately. Every other status —
+ * including the `'matched'` that attaching the slip to a bank transaction
+ * writes — is postable, which is the whole point of moving off the column.
+ */
+export function refusalForPosting(
+  row: { status?: unknown; posted_at?: unknown },
+): CapturedDocumentRefusal | null {
+  if (row.posted_at != null) return 'already_posted';
+  if (row.status === 'rejected') return 'rejected';
+  return null;
+}
+
+/**
+ * The document cannot be posted: already claimed by another route or request,
+ * or rejected by an operator.
+ *
+ * Thrown rather than returned where the claim happens inside a service, so the
+ * route can answer 400 with the same wording it uses for its own read guard.
+ * Safe to answer 4xx with, and only because of WHERE it is thrown: the claim is
+ * every caller's LAST read-only step, so a refusal has written nothing and
+ * `withAuth`'s commit-on-4xx commits nothing.
+ */
+export class CapturedDocumentAlreadyPostedError extends Error {
+  readonly code = 'CAPTURED_DOCUMENT_ALREADY_POSTED';
+  readonly refusal: CapturedDocumentRefusal;
+  constructor(refusal: CapturedDocumentRefusal = 'already_posted') {
+    super(CAPTURED_DOCUMENT_REFUSAL_MESSAGE[refusal]);
+    this.name = 'CapturedDocumentAlreadyPostedError';
+    this.refusal = refusal;
+  }
+}
+
+/** What a receipt was posted under — see `receiptDuplicateGuard.ts`. */
+export interface PostedReceiptFingerprint {
+  receiptKey: string | null;
+  /** The earlier document a person confirmed this one repeats (a details match only); null otherwise. */
+  duplicateOf: string | null;
+  /** The user who confirmed it; null when nothing was confirmed. */
+  confirmedBy: string | null;
+}
+
+/** What the claim is for, and — on a receipt path — what `checkReceiptDuplicate` cleared. */
+export type ClaimContent = { spend: ContentSpend } & Partial<PostedReceiptFingerprint>;
+
+/**
+ * Claim the document for posting: stamp `posted_at`, but only from a row that
+ * has not been claimed and has not been rejected.
+ *
+ * The read under `lockCapturedDocumentForUpdate` refuses the ordinary second
+ * attempt with an accurate message. This is the fence behind it — one statement
+ * carrying the same predicate the read did, so a caller reaching the write
+ * without the lock still cannot post what another path settled. The predicate
+ * is on `posted_at`: a status-predicated claim is only as durable as the
+ * lifecycle column it rides on, and that column is rewritten by the confirm
+ * button, the reject button and the bank-attach path — none of which know they
+ * are unlocking a ledger write.
+ *
+ * Callers MUST run it BEFORE their first ledger write and answer a refusal with
+ * a 4xx. That ordering is the safe one: `withAuth` COMMITs the request
+ * transaction on a 4xx, so a refusal here commits nothing (the UPDATE matched
+ * no row), while every failure AFTER it throws and rolls the claim back with
+ * the journal.
+ *
+ * `status = 'matched'` is stamped alongside because the inbox reads that column
+ * to show the document as settled; it is now a consequence of posting, never
+ * the thing that decides it. `document_category` is stamped for the two routes
+ * that set it; passing null leaves the column untouched.
+ *
+ * `content` (R-088) is required, so no caller can forget it. Every claim —
+ * the provisional evidence attach included — takes the file's advisory lock
+ * and refuses a FILE already booked from another upload in this company
+ * ('content_posted'). All but the evidence attach (`spend: 'evidence'`, which
+ * books nothing new — see `postedContentFence.ts`) then stamp
+ * `posted_content_sha256` from the row's own `raw_bytes_sha256` in the same
+ * UPDATE as the claim. The
+ * partial unique index on that column (migration 710) is the backstop: a
+ * writer that stamps and skips the check raises 23505 and rolls back. A
+ * receipt path also stamps the key it posted under and, for a confirmed
+ * repeat, the earlier document and who confirmed it.
+ *
+ * Returns null when the claim succeeded, otherwise the reason it did not.
+ */
+export async function claimCapturedDocumentForPosting(
+  companyId: string,
+  documentId: string,
+  documentCategory: string | null,
+  content: ClaimContent,
+): Promise<CapturedDocumentRefusal | null> {
+  const books = content.spend !== 'evidence';
+  const [doc] = (await sql`
+    SELECT raw_bytes_sha256 FROM captured_documents
+    WHERE id = ${documentId}::uuid AND company_id = ${companyId}`) as DbRow[];
+  const contentSha256 = (doc?.raw_bytes_sha256 as string | null | undefined) ?? null;
+  if (contentSha256) {
+    // Every claim serialises on the file AND refuses a file another upload has
+    // booked — the evidence attach too. It stamps nothing, but it tells the
+    // ledger the slip is the provisional's evidence: beside another upload's
+    // bill (which R-127 does not settle) that hides a double booking (R-088 x R-127).
+    try {
+      await lockPostedContent(companyId, [`sha:${contentSha256}`]);
+    } catch (err) {
+      if (err instanceof PostedContentBusyError) return 'content_busy';
+      throw err;
+    }
+    if (await findPostedContent(companyId, documentId, { contentSha256, spend: content.spend })) {
+      return 'content_posted';
+    }
+  }
+
+  const rows = (await sql`
+    UPDATE captured_documents
+       SET posted_at = NOW(),
+           status = 'matched',
+           document_category = COALESCE(${documentCategory}, document_category),
+           posted_content_sha256 = CASE WHEN ${books}::boolean THEN raw_bytes_sha256 END,
+           posted_receipt_key = ${content.receiptKey ?? null},
+           posted_duplicate_of = ${content.duplicateOf ?? null}::uuid,
+           posted_duplicate_confirmed_by = ${content.confirmedBy ?? null},
+           updated_at = NOW()
+     WHERE id = ${documentId}::uuid
+       AND company_id = ${companyId}
+       AND posted_at IS NULL
+       AND status <> 'rejected'
+    RETURNING id`) as DbRow[];
+  if (rows.length === 1) return null;
+
+  // Which of the two predicates refused it. The row is held under
+  // `lockCapturedDocumentForUpdate` on every posting path, so this re-read sees
+  // the settled values. A row that vanished (wrong tenant, deleted) reports
+  // 'already_posted' — the caller has already answered NOT_FOUND for that case
+  // from its own earlier read.
+  const [row] = (await sql`
+    SELECT status, posted_at FROM captured_documents
+    WHERE id = ${documentId}::uuid AND company_id = ${companyId}`) as DbRow[];
+  return row ? (refusalForPosting(row) ?? 'already_posted') : 'already_posted';
+}

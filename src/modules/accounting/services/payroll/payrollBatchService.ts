@@ -13,6 +13,8 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { endOfMonthIso } from './leaveAccrualService';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
 
@@ -106,6 +108,24 @@ function toDateOrNull(v: unknown): Date | null {
 }
 function toIso(d: Date): string {
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * A once-off batch line must be paid once. The batch UI never sets a line
+ * `effective_to`, so without this the assignment is open-ended and the amount is
+ * paid again in every later run. Recurring batches stay open-ended.
+ *
+ * The close date is the end of the LINE's own `effective_from` month, which is
+ * the rule `payrollEmployeeComponentService.assignComponentToEmployee` already
+ * applies to a once-off assignment. Closing at the BATCH period end instead
+ * would bound only the tail: a backdated line still pays in every month from
+ * its own date up to the period end, and a line dated after the period end
+ * would be clamped to a single day the run never evaluates, so it would never
+ * be paid at all.
+ */
+function closeOnceOffAt(batch: PayrollBatch, effectiveFrom: Date, effectiveTo: Date | null): Date | null {
+  if (effectiveTo || batch.isRecurring) return effectiveTo;
+  return new Date(endOfMonthIso(effectiveFrom.getUTCFullYear(), effectiveFrom.getUTCMonth() + 1));
 }
 
 function mapBatch(r: Row): PayrollBatch {
@@ -382,6 +402,7 @@ export async function postBatch(
   batchId: string,
   userId: string,
 ): Promise<{ inserted: number }> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const batch = await loadBatchForCompany(companyId, batchId);
   if (batch.status === 'posted' || batch.status === 'cancelled') {
     throw new BatchNotEditableError(batch.status);
@@ -404,12 +425,13 @@ export async function postBatch(
     const componentId = batch.componentId;
     if (!componentId) throw new Error('component_values batch missing componentId');
     for (const line of lines) {
+      const effectiveFrom = toDate(line.effective_from);
       await insertAssignment({
         employeeId: String(line.employee_id),
         componentId,
         amount: Number(line.value ?? 0),
-        effectiveFrom: toDate(line.effective_from),
-        effectiveTo: toDateOrNull(line.effective_to),
+        effectiveFrom,
+        effectiveTo: closeOnceOffAt(batch, effectiveFrom, toDateOrNull(line.effective_to)),
         isRecurring: batch.isRecurring,
       });
       inserted += 1;
@@ -424,7 +446,7 @@ export async function postBatch(
       const taxable = Number(line.taxable_portion ?? 0);
       const nonTaxable = Number(line.non_taxable_portion ?? 0);
       const effectiveFrom = toDate(line.effective_from);
-      const effectiveTo = toDateOrNull(line.effective_to);
+      const effectiveTo = closeOnceOffAt(batch, effectiveFrom, toDateOrNull(line.effective_to));
 
       if (taxable > 0) {
         await insertAssignment({

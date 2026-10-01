@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { Archive, Database, Clock, AlertTriangle, Eye } from 'lucide-react';
+import { Archive, Database, Clock, Eye } from 'lucide-react';
 import type {
   StorageStats, ArchivePreview, ArchiveValidation, ArchiveRun, ArchivedEntry,
 } from '@/modules/accounting/services/core/dataArchivingService';
@@ -17,6 +17,7 @@ import { ArchiveStorageStats } from '@/components/accounting/ArchiveStorageStats
 import { ArchiveWizardSection } from '@/components/accounting/ArchiveWizardSection';
 import { ArchiveHistoryTable } from '@/components/accounting/ArchiveHistoryTable';
 import { ArchivedDataViewer } from '@/components/accounting/ArchivedDataViewer';
+import { localISODate } from '@/lib/dateUtils';
 
 const COMPONENT = 'data-archiving-page';
 const ARCHIVE_LIMIT = 50;
@@ -51,10 +52,6 @@ export default function DataArchivingPage() {
   const [validating, setValidating] = useState(false);
   const [preview, setPreview] = useState<ArchivePreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [archiving, setArchiving] = useState(false);
-  const [archiveError, setArchiveError] = useState<string | null>(null);
-  const [archiveSuccess, setArchiveSuccess] = useState(false);
   const [runs, setRuns] = useState<ArchiveRun[]>([]);
   const [runsLoading, setRunsLoading] = useState(true);
   const [archivedItems, setArchivedItems] = useState<ArchivedEntry[]>([]);
@@ -66,7 +63,7 @@ export default function DataArchivingPage() {
 
   const maxCutoff = (() => {
     const d = new Date(); d.setFullYear(d.getFullYear() - 5);
-    return d.toISOString().split('T')[0] ?? '';
+    return localISODate(d);
   })();
 
   const loadStats = useCallback(async () => {
@@ -126,24 +123,8 @@ export default function DataArchivingPage() {
     finally { setPreviewing(false); }
   };
 
-  const handleArchive = async () => {
-    setShowConfirm(false); setArchiving(true); setArchiveError(null); setArchiveSuccess(false);
-    try {
-      await apiFetch('/api/accounting/data-archiving', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cutoffDate }),
-      });
-      setArchiveSuccess(true); setCutoffDate(''); setValidation(null); setPreview(null);
-      await loadStats(); await loadRuns();
-    } catch (err) {
-      setArchiveError(err instanceof Error ? err.message : 'Archive failed. All changes have been rolled back.');
-      log.error('Archive execution failed', { error: err }, COMPONENT);
-    } finally { setArchiving(false); }
-  };
-
   const handleCutoffChange = (v: string) => {
     setCutoffDate(v); setValidation(null); setPreview(null);
-    setArchiveError(null); setArchiveSuccess(false);
   };
 
   const totalRows = stats.reduce((sum, s) => sum + s.rowCount, 0);
@@ -184,11 +165,9 @@ export default function DataArchivingPage() {
                 cutoffDate={cutoffDate} maxCutoff={maxCutoff}
                 validation={validation} validating={validating}
                 preview={preview} previewing={previewing}
-                archiving={archiving} archiveError={archiveError} archiveSuccess={archiveSuccess}
                 onCutoffChange={handleCutoffChange}
                 onValidate={() => void handleValidate()}
                 onPreview={() => void handlePreview()}
-                onRequestArchive={() => setShowConfirm(true)}
               />
             </Section>
 
@@ -211,27 +190,6 @@ export default function DataArchivingPage() {
           </Section>
         )}
       </div>
-
-      {showConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-[var(--ff-bg-primary)] rounded-xl border border-[var(--ff-border)] p-6 max-w-md w-full space-y-4 shadow-xl">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-6 w-6 text-red-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="text-base font-semibold text-[var(--ff-text-primary)]">Confirm Archive Operation</h3>
-                <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
-                  This will permanently move all eligible records before <strong>{cutoffDate}</strong> to the archive tables. This operation cannot be undone from the UI.
-                </p>
-                {preview && <p className="text-sm text-[var(--ff-text-muted)] mt-2"><strong>{preview.totalRecords.toLocaleString()}</strong> total records will be archived.</p>}
-              </div>
-            </div>
-            <div className="flex gap-3 justify-end pt-2">
-              <button onClick={() => setShowConfirm(false)} className="text-sm px-4 py-2 rounded-lg border border-[var(--ff-border)] hover:bg-[var(--ff-bg-secondary)] text-[var(--ff-text-primary)] transition-colors">Cancel</button>
-              <button onClick={() => void handleArchive()} className="text-sm px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors">Yes, Archive Now</button>
-            </div>
-          </div>
-        </div>
-      )}
     </AppLayout>
   );
 }

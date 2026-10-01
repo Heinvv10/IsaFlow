@@ -1,3 +1,4 @@
+import { IMPERSONATION_PROOF_COOKIE } from '@/lib/auth/impersonation-cookies';
 /**
  * /oauth/authorize — OAuth 2.0 consent screen (PRD-10 Layer 2).
  *
@@ -17,12 +18,16 @@ import { getOauthAppByClientId, OAUTH_SCOPES } from '@/lib/auth/oauth';
 import { ConsentScopeList } from '@/components/oauth/ConsentScopeList';
 import { ConsentCompanyPicker } from '@/components/oauth/ConsentCompanyPicker';
 import { ConsentRejected } from '@/components/oauth/ConsentRejected';
+import { ConsentRedirectTarget } from '@/components/oauth/ConsentRedirectTarget';
 import { partitionRequestedScopes } from '@/lib/auth/consentScopes';
 import { apiFetch } from '@/lib/apiFetch';
 import { parseCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from '@/lib/auth/cookies';
 import { resolveConsentCompany, type ConsentCompany } from '@/lib/auth/consentCompany';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
 import { verifyToken } from '@/lib/auth/gotrue';
+import { consentAppView } from '@/lib/auth/consentAppView';
+import { rejectionForUnknownScope } from '@/lib/auth/consentRejection';
+import { log } from '@/lib/logger';
 
 interface ConsentApp {
   name: string;
@@ -150,6 +155,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
                   {app.homepageUrl}
                 </a>
               )}
+              <ConsentRedirectTarget redirectUri={redirectUri} />
             </div>
           </div>
           {app.description && (
@@ -163,7 +169,6 @@ export default function AuthorizePage(props: Props | ErrorProps) {
             value={companyId}
             onChange={setCompanyId}
             disabled={submitting}
-            appName={app.name}
           />
 
           <div>
@@ -229,7 +234,7 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
   let userId = '';
   if (accessToken) {
     try {
-      const claims = await verifyToken(accessToken);
+      const claims = await verifyToken(accessToken, cookies[IMPERSONATION_PROOF_COOKIE]);
       userId = claims.sub;
     } catch { /* fall through to login redirect */ }
   }
@@ -261,7 +266,17 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
 
   const scopes = scopeStr.split(/[\s,]+/).filter(Boolean);
   for (const s of scopes) {
-    if (!VALID_SCOPES.has(s)) return { props: { ok: false, error: `Unknown scope: ${s}` } };
+    if (!VALID_SCOPES.has(s)) {
+      // The token goes to the log, never to the page — see consentRejection.ts.
+      // BOTH values are truncated: each is attacker-chosen and neither is
+      // length-capped on the way in (clientId comes straight off q.client_id).
+      log.warn(
+        'OAuth consent: unknown scope requested',
+        { clientId: clientId.slice(0, 120), scope: s.slice(0, 120) },
+        'oauth',
+      );
+      return { props: { ok: false, error: rejectionForUnknownScope(s) } };
+    }
   }
   if (scopes.length === 0) return { props: { ok: false, error: 'At least one scope must be requested' } };
 
@@ -279,13 +294,7 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
       ok: true,
       companies: choice.companies,
       selectedCompanyId: choice.selectedCompanyId,
-      app: {
-        name: app.name,
-        description: app.description,
-        logoUrl: app.logoUrl,
-        homepageUrl: app.homepageUrl,
-        isVerified: app.isVerified,
-      },
+      app: consentAppView(app),
       clientId,
       redirectUri,
       scopes,

@@ -17,6 +17,7 @@ import {
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { assertTxUsable } from '@/lib/als';
 import { generateInvoiceFromRecurring } from '@/modules/accounting/services/ar/recurringInvoiceService';
 import type { DbRow } from '@/lib/neon';
 
@@ -55,6 +56,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const msg = err instanceof Error ? err.message : 'Failed to generate invoice';
       result.errors.push(`${recurring_invoice_id}: ${msg}`);
       log.error('Recurring invoice run failed', { recurring_invoice_id, error: err }, 'recurring-run');
+      assertTxUsable();
     }
     return apiResponse.success(res, result);
   }
@@ -70,7 +72,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     LIMIT ${RUN_BATCH_CAP + 1}
   `) as DbRow[];
 
-  const dueRows = dueRowsRaw.slice(0, RUN_BATCH_CAP);
+  // Chosen by due date, PROCESSED in id order. Each template stays locked
+  // (FOR UPDATE, recurringInvoiceLock) until this request ends, and a customer
+  // merge locks the same customer's templates ORDER BY id (K-061). Walking them
+  // by due date instead was the inverse order for any two whose dates and ids
+  // disagree: a 40P01 cycle. pg returns lower-case uuid text, whose string
+  // order is Postgres's uuid order.
+  const dueRows = dueRowsRaw.slice(0, RUN_BATCH_CAP)
+    .sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0));
   if (dueRowsRaw.length > RUN_BATCH_CAP) {
     result.remaining = true;
     log.warn('Recurring run batch cap hit — more due invoices remain', {
@@ -93,6 +102,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const msg = err instanceof Error ? err.message : 'Failed to generate invoice';
       result.errors.push(`${id}: ${msg}`);
       log.error('Bulk recurring run — single item failed', { id, error: err }, 'recurring-run');
+      // A per-template failure is normally a skip. But if the failure ALSO
+      // poisoned the shared request transaction (a savepoint rollback that
+      // itself failed), everything already in `invoice_ids` is doomed: the
+      // success response below would COMMIT, Postgres would turn that COMMIT
+      // into a ROLLBACK, and the caller would hold ids for invoices that do not
+      // exist. Rethrow instead, so withErrorHandler answers 500 and withAuth
+      // rolls back explicitly.
+      assertTxUsable();
     }
   }
 

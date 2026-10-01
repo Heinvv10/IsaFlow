@@ -43,6 +43,7 @@ function makeReqRes(url: string, query: Record<string, unknown> = {}) {
     status: vi.fn().mockReturnThis(),
     json: vi.fn(),
     end: vi.fn(),
+    destroy: vi.fn(),
   } as unknown as NextApiResponse;
   return { req, res };
 }
@@ -113,6 +114,14 @@ describe('withErrorHandler — share token redaction', () => {
     expect(serialized).toContain('[token]');
   });
 
+  it('a response the handler already ended is left alone when it throws afterwards (R-159)', async () => {
+    const { req, res } = makeReqRes('/api/portal/invoice/x/pdf');
+    Object.assign(res, { headersSent: true, writableEnded: true, statusCode: 200 });
+    await withErrorHandler(async () => { throw new Error('after the send'); })(req, res);
+    expect((res as unknown as { destroy: ReturnType<typeof vi.fn> }).destroy).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+  });
+
   it('redacts the token out of the "headers already sent" warning', async () => {
     const { req, res } = makeReqRes(`/share/${TOKEN}`);
     (res as unknown as { headersSent: boolean }).headersSent = true;
@@ -122,8 +131,21 @@ describe('withErrorHandler — share token redaction', () => {
     await handler(req, res);
 
     expect(apiLoggerWarn).toHaveBeenCalledTimes(1);
+    // R-159: the response is aborted and marked failed, so an enclosing auth wrapper rolls back.
+    expect((res as unknown as { destroy: ReturnType<typeof vi.fn> }).destroy).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(500);
     const serialized = JSON.stringify(apiLoggerWarn.mock.calls[0]);
     expect(serialized).not.toContain(TOKEN);
     expect(serialized).toContain('[token]');
   });
+});
+
+it('redacts encoded token names and values before logging a WhatsApp callback', async () => {
+  apiLoggerInfo.mockReset();
+  const encoded = '%41'.repeat(43);
+  const { req, res } = makeReqRes(`/api/accounting/capture/inbound/whatsapp?%74oken=${encoded}`, { token: TOKEN });
+  await withErrorHandler(async () => {})(req, res);
+  expect(JSON.stringify(apiLoggerInfo.mock.calls)).not.toContain(encoded);
+  expect(JSON.stringify(apiLoggerInfo.mock.calls)).not.toContain(TOKEN);
+  expect(JSON.stringify(apiLoggerInfo.mock.calls)).toContain('[token]');
 });

@@ -10,11 +10,18 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, withCsrf, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { createPaymentLink, getPaymentLink } from '@/modules/accounting/services/ar/portalService';
+import { assertCustomerInCompany, CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { sql } from '@/lib/neon';
+import { isUuidParam } from '@/lib/validation';
 import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
+
+/** A body amount as text: plain decimal, at most cents (no '0x10', '1e3', ' 7 ', 12.345). */
+const AMOUNT_STRING_RE = /^\d+(\.\d{1,2})?$/;
+/** portal_payment_links.amount is numeric(15,2). */
+const MAX_LINK_AMOUNT = 9_999_999_999_999.99;
 
 async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     const token = req.query.token as string;
@@ -50,39 +57,80 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     if (!invoiceId || !clientId || !amount) {
       return apiResponse.badRequest(res, 'invoiceId, clientId, and amount are required');
     }
+    if (!isUuidParam(invoiceId)) {
+      return apiResponse.badRequest(res, 'invoiceId must be a UUID');
+    }
+    if (typeof clientId !== 'string') {
+      return apiResponse.badRequest(res, 'clientId must be a string');
+    }
+    // A number is checked by its shortest round-trip text, so 12.34 passes and 12.345 (which the
+    // column would silently round to 12.35) does not, the same as the string '12.345'.
+    if ((typeof amount !== 'number' && typeof amount !== 'string') || !AMOUNT_STRING_RE.test(String(amount))) {
+      return apiResponse.badRequest(res, 'amount must be a positive number in whole cents');
+    }
+    // '0.00' passes the text check; the floor refuses it, so no link is ever for R0.00.
     const amountNum = Number(amount);
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      return apiResponse.badRequest(res, 'amount must be a positive number');
+    if (!Number.isFinite(amountNum) || amountNum <= 0 || amountNum > MAX_LINK_AMOUNT) {
+      return apiResponse.badRequest(res, 'amount must be between 0.01 and 9 999 999 999 999.99');
     }
 
-    const userId = (req as AuthenticatedNextApiRequest).user.id;
-    const companyRows = (await sql`
-      SELECT company_id FROM company_users
-      WHERE user_id = ${userId}
-      ORDER BY is_default DESC, created_at ASC
-      LIMIT 1
-    `) as Row[];
-    if (companyRows.length === 0) {
-      return apiResponse.badRequest(res, 'No company assigned to this user');
-    }
-    const companyId = companyRows[0]!.company_id as string;
+    // K-101: the active company withAuth verified, not the user's default one.
+    const companyId = (req as CompanyAuthedRequest).companyId;
 
+    // R-166: the balance is compared in numeric, not in float, so the exact balance is never
+    // refused (0.30 - 0.10 is 0.19999999999999998 in float). A NULL or negative amount_paid
+    // counts as 0 (GREATEST ignores NULL), so it cannot raise the cap above the total. A NaN
+    // balance is refused outright: numeric NaN sorts above every number, so `amount > NaN` is
+    // false.
     const invoice = (await sql`
-      SELECT id FROM customer_invoices
-      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+      SELECT COALESCE(ci.client_id, ci.customer_id) AS customer_id,
+             b.balance::text AS balance,
+             (b.balance = 'NaN' OR ${amountNum}::numeric > b.balance) AS over_balance,
+             (b.balance > 0 AND b.balance <> 'NaN') AS owes
+      FROM customer_invoices ci
+      CROSS JOIN LATERAL (
+        SELECT ci.total_amount - GREATEST(ci.amount_paid, 0) AS balance
+      ) b
+      WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
+        AND ci.status != 'cancelled' AND ci.deleted_at IS NULL
     `) as Row[];
     if (invoice.length === 0) return apiResponse.notFound(res, 'Invoice not found');
+    // A link pays THIS invoice, so it is for this invoice's customer only.
+    if (clientId.toLowerCase() !== String(invoice[0]!.customer_id).toLowerCase()) {
+      return apiResponse.badRequest(res, "clientId is not this invoice's customer");
+    }
+    // R-166: a link may ask for part of what is owed, never more. A paid invoice owes nothing.
+    if (invoice[0]!.over_balance !== false) {
+      return apiResponse.badRequest(res, invoice[0]!.owes === true
+        ? `amount is more than the invoice's outstanding balance of ${String(invoice[0]!.balance)}`
+        : "the invoice has no outstanding balance");
+    }
 
+    // R-067: clientId comes from the request body, and the unauthenticated GET
+    // above hands the link's client_id to anyone holding the token.
+    try {
+      await assertCustomerInCompany(companyId, clientId);
+    } catch (err) {
+      if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
     const token = await createPaymentLink(invoiceId, clientId, amountNum);
     return apiResponse.success(res, { token, url: `/portal/pay/${token}` });
 }
 
-const authedPost = withAuth(postHandler);
+// R-157: a link is a public credential to pay this invoice, so creating one is a write:
+// CSRF-checked, and owner/admin/manager only, refused before the first write (withAuth COMMITs a 4xx).
+// withErrorHandler sits INSIDE withAuth, as on every withAuth route: withAuth defers res.end until
+// COMMIT/ROLLBACK and replays it only on a normal return, so a 500 from a withErrorHandler outside
+// it never reached the client. Each method is wrapped once, so a request is logged once.
+const authedPost = withAuth(withErrorHandler(withCsrf(withWriteAccess(postHandler))));
+const publicGet = withErrorHandler(getHandler);
+/** Every other method: 405, except OPTIONS, which withErrorHandler answers (CORS preflight). */
+const otherMethods = withErrorHandler(async (req: NextApiRequest, res: NextApiResponse) =>
+  apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']));
 
-async function router(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method === 'GET') return getHandler(req, res);
+export default async function router(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method === 'GET') return publicGet(req, res);
   if (req.method === 'POST') return authedPost(req, res);
-  return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
+  return otherMethods(req, res);
 }
-
-export default withErrorHandler(router);

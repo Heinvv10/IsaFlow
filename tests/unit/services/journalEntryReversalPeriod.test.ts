@@ -14,8 +14,20 @@
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+// reverseJournalEntry first asks whether the entry has a late-claim companion
+// (vatLateClaimSplit); none here, and the positional sql queue must not see it.
+vi.mock('@/modules/accounting/services/gl/vatLateClaimSplit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/vatLateClaimSplit')>()),
+  planLateClaimCompanionReversal: vi.fn(async () => null),
+}));
 vi.mock('@/lib/neon', () => {
-  const sqlMock = Object.assign(vi.fn().mockResolvedValue([]), {
+  // reverseJournalEntry claims the reversal with a predicated UPDATE before it
+  // creates the contra; one row back means this caller won it. Everything else
+  // this suite exercises is indifferent to the rows returned.
+  const sqlMock = Object.assign(
+    vi.fn((strings: readonly string[]) =>
+      Promise.resolve(strings.join(' ').includes('reversed_at IS NULL') ? [{ id: 'claimed' }] : [])),
+    {
     transaction: vi.fn(),
     unsafe: vi.fn((s: string) => s),
   });
@@ -26,6 +38,28 @@ vi.mock('@/lib/neon', () => {
   };
 });
 
+vi.mock('@/lib/alsTransaction', async () => {
+  const { als } = await import('@/lib/als');
+  return {
+    // reverseJournalEntry wraps itself in a transaction (withAlsTransaction) so
+    // the reversal claim cannot outlive the contra, and the claim REFUSES to run
+    // without one. Bind a client whose BEGIN/COMMIT and lock_timeout statements
+    // are no-ops, so this suite keeps asserting reversal semantics.
+    withAlsTransaction: (
+      actor: { userId: string; companyId: string | undefined },
+      fn: () => Promise<unknown>,
+    ) =>
+      als.run(
+        {
+          client: { query: async () => ({ rows: [{ v: '0' }] }) } as never,
+          userId: actor.userId,
+          companyId: actor.companyId,
+          claims: {},
+        },
+        fn,
+      ),
+  };
+});
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

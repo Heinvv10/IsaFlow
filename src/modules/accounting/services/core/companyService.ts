@@ -269,6 +269,7 @@ export {
   getDocumentNumbers,
   ensureDocumentNumbers,
   updateDocumentNumber,
+  isRetiredDocumentNumberType,
   formatDocumentNumber,
   reserveNextDocumentNumber,
   peekNextDocumentNumber,

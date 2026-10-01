@@ -43,6 +43,8 @@ import { ALLOCATION_PROPERTIES, SELECTOR_PROPERTIES } from './allocationSchema';
 import { MAX_LINES, prepareAllocationLines } from './bulkAllocationPrepare';
 import { nothingToPostText, partitionAllocationLines } from './bulkAllocationSkip';
 import { postPreparedLines } from './bulkAllocationPost';
+import { PREVIEW_CAVEATS, previewBatchApplications } from './bulkAutoApplyPreview';
+import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { ok, strArg, toolError } from './toolHelpers';
 
 const BULK_TOOL = 'bulk_allocate_bank_transactions';
@@ -57,6 +59,15 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
     + 'reason and the rest of the batch still posts, so you can re-send a list without checking it first. '
     + 'A transaction_id or bank_reference that matches no transaction — or matches several — is also SKIPPED '
     + 'with a reason, so one unrecognised reference never costs you the rest of the batch. '
+    + 'DIRECTION FOLLOWS THE SIGN: a money-out line against a supplier is a payment (DR Accounts Payable / CR Bank) and a money-IN line is a supplier refund (DR Bank / CR Accounts Payable); a money-in line against a customer is a receipt and a money-out line is a customer refund. '
+    + 'A REFUND GETS ITS OWN DOCUMENT: a payment record with payment_method "refund" and a NEGATIVE amount, carrying the journal, applied to nothing. It NETS against that contact\'s other unapplied cash everywhere that is summed — list_unapplied_payments shows it as a negative row, aged_creditors nets it in that supplier\'s "unapplied" and "net", and the statement carries it as a negative payment. Name no invoice_id for one: applying a negative remainder to an invoice would un-pay it. '
+    + 'A refund LARGER than the on-account credit that contact is holding is REFUSED before anything posts — the contact would then owe the company, which is a receivable and belongs on no payable document. '
+    + 'A line whose invoice_id contradicts its direction is SKIPPED with that reason, never guessed. '
+    + 'CASH WITH NO invoice_id IS STILL APPLIED: each supplier or customer line settles that contact\'s OLDEST '
+    + 'open documents first, part-paying the one the money runs out on, and every line reports what it closed in '
+    + '"applications" with the remainder in "on_account". Lines are applied IN ORDER, so two lines against one '
+    + 'supplier consume the same bills in turn. Pass auto_apply:"none" — per line, or once for the whole batch — '
+    + 'to create the payments and receipts without applying them. '
     + 'ALL OR NOTHING for real faults: if a line genuinely fails, the whole batch is rolled back, nothing is '
     + 'posted, and the error names the line. Every line is attributed to the agent, and the returned batch_id '
     + 'undoes the posted set through reverse_bank_allocation_batch. Use dry_run to see what would post and '
@@ -77,6 +88,13 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
           properties: { ...SELECTOR_PROPERTIES, ...ALLOCATION_PROPERTIES },
           additionalProperties: false,
         },
+      },
+      auto_apply: {
+        type: 'string',
+        enum: [...AUTO_APPLY_MODES],
+        description:
+          'The default for every line that does not carry its own auto_apply. "fifo" (the default) applies each '
+          + "supplier or customer line to that contact's oldest open documents; \"none\" leaves the cash on account.",
       },
       dry_run: {
         type: 'boolean',
@@ -111,6 +129,11 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
       .sort((a, b) => a.index - b.index);
 
     if (args.dry_run === true) {
+      // SIMULATED, not planned line by line: two lines against one supplier
+      // consume the same open bills, so a preview that measured each against
+      // the opening balances would promise both of them the same bill and then
+      // disagree with the batch it is previewing.
+      const applications = await previewBatchApplications(ctx.companyId, postable);
       // No batch row either: a dry run that left a batch behind would hand the
       // agent an id that reverses nothing.
       const preview = ok({
@@ -119,15 +142,34 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
         posted: 0,
         would_post: postable.length,
         skipped,
-        lines: postable.map(({ txId, line }) => ({
-          transaction_id: txId,
-          contra_account_id: line.contraAccountId || null,
-          alloc_type: line.allocType,
-          entity_id: line.entityId || null,
-          invoice_id: line.invoiceId ?? null,
-          vat_code: line.vatCode ?? null,
-          description: line.description ?? null,
-        })),
+        // Only when something was actually previewed as applied: a caveat about
+        // applications on a batch that plans none tells the agent nothing.
+        ...(applications.size > 0 ? { preview_caveats: [...PREVIEW_CAVEATS] } : {}),
+        lines: postable.map(({ index, txId, line }) => {
+          const applied = applications.get(index);
+          return {
+            transaction_id: txId,
+            contra_account_id: line.contraAccountId || null,
+            alloc_type: line.allocType,
+            entity_id: line.entityId || null,
+            invoice_id: line.invoiceId ?? null,
+            vat_code: line.vatCode ?? null,
+            description: line.description ?? null,
+            // Absent for a line that settles nothing by construction — a GL
+            // line, a refund, a line that already names its invoice.
+            ...(applied
+              ? {
+                auto_apply: line.autoApply,
+                applications: applied.applications.map((a) => ({
+                  document_id: a.documentId,
+                  document_number: a.documentNumber,
+                  amount: a.amount,
+                })),
+                on_account: applied.onAccount,
+              }
+              : {}),
+          };
+        }),
       });
       // Wrote nothing, so it must not occupy the idempotency key: the real call
       // that follows carries the same intent and would otherwise be served this
@@ -161,7 +203,7 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
     // tx1. A total order over the locked rows makes that impossible: the batch
     // that gets there first simply blocks the other.
     const ordered = [...postable].sort((a, b) => (a.txId < b.txId ? -1 : a.txId > b.txId ? 1 : 0));
-    const { lines, raced } = await postPreparedLines(
+    const { lines, raced, vatCoerced } = await postPreparedLines(
       ctx, ordered, BULK_TOOL,
     );
     // Ordered by the agent's own line index: `skipped` is a list a human reads
@@ -207,6 +249,12 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
       journal_entry_ids: lines.map((l) => l.journal_entry_id),
       lines,
       skipped: allSkipped,
+      // Only when something was actually dropped. Surfaced at batch level as
+      // well as per line: a caller reading the summary of a 500-line run would
+      // otherwise never see that 40 of them posted gross.
+      ...(vatCoerced.length > 0
+        ? { vat_coerced_count: vatCoerced.length, vat_coerced: vatCoerced }
+        : {}),
     });
   },
 };

@@ -17,7 +17,7 @@ import {
   getWipAging,
   type UtilisationRow,
 } from './practiceReportsService';
-import { listCompanyUsers } from './practiceUsersService';
+import { listCompanyUsersForSystem, type CompanyUserSummary } from './practiceUsersService';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import {
   renderMonthlyReportHtml,
@@ -30,6 +30,8 @@ import {
 export interface MonthlyReportResult {
   companiesProcessed: number;
   recipientsEmailed: number;
+  /** Opted-in recipients whose email is no member of the company in good standing. */
+  recipientsSkipped: number;
   errors: Array<{ companyId: string; email: string; error: string }>;
 }
 
@@ -56,6 +58,10 @@ function periodFromYearMonth(yearMonth: string): ReportPeriod {
   return { periodStart, periodEnd, periodLabel };
 }
 
+function normaliseEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 /** If no explicit reportMonth, use the previous complete calendar month. */
 function previousMonth(): string {
   const now = new Date();
@@ -67,9 +73,18 @@ function previousMonth(): string {
   return `${year}-${String(month).padStart(2, '0')}`;
 }
 
+/**
+ * The company standing withAuth enforces (src/lib/auth/companyMembership.ts).
+ * There is no `deleted_at` column: the admin soft delete writes
+ * status = 'deleted' (R-168, as R-162).
+ */
 async function loadActiveCompanies(): Promise<Array<{ id: string; name: string }>> {
   const rows = (await sql`
-    SELECT id, name FROM companies WHERE deleted_at IS NULL ORDER BY name
+    SELECT id, name FROM companies
+    WHERE status IS DISTINCT FROM 'suspended'
+      AND status IS DISTINCT FROM 'deleted'
+      AND suspended_at IS NULL
+    ORDER BY name
   `) as DbRow[];
   return rows.map((r) => ({ id: String(r.id), name: String(r.name) }));
 }
@@ -82,6 +97,7 @@ export async function runMonthlyReports(
   const result: MonthlyReportResult = {
     companiesProcessed: 0,
     recipientsEmailed: 0,
+    recipientsSkipped: 0,
     errors: [],
   };
 
@@ -95,10 +111,23 @@ export async function runMonthlyReports(
   for (const company of companies) {
     result.companiesProcessed++;
 
+    // The report carries staff, client and WIP figures, so it goes only to the
+    // company's own members in good standing (R-168): an opted-in address that
+    // matches none of them is skipped and counted.
     let recipients: ReportRecipient[];
+    let users: CompanyUserSummary[] = [];
     try {
       const all = await listReportRecipients(company.id, true);
-      recipients = all.filter((r) => r.reportTypes.includes('monthly_summary'));
+      const optedIn = all.filter((r) => r.reportTypes.includes('monthly_summary'));
+      if (optedIn.length > 0) users = await listCompanyUsersForSystem(company.id);
+      const memberEmails = new Set(users.map((u) => normaliseEmail(u.email)));
+      recipients = optedIn.filter((r) => memberEmails.has(normaliseEmail(r.email)));
+      const skipped = optedIn.length - recipients.length;
+      if (skipped > 0) {
+        result.recipientsSkipped += skipped;
+        log.warn('Skipped report recipients who are not members in good standing',
+          { companyId: company.id, skipped }, 'practiceMonthlyReportService');
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error('Failed to load recipients', { companyId: company.id, error: msg }, 'practiceMonthlyReportService');
@@ -124,7 +153,6 @@ export async function runMonthlyReports(
         getWipAging(company.id, { asOfDate: periodEnd }),
       ]);
 
-      const users = await listCompanyUsers(company.id);
       userMap = new Map(users.map((u) => [u.id, u.displayName]));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

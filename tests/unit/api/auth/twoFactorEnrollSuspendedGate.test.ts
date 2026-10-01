@@ -13,6 +13,9 @@ process.env.GOTRUE_URL = 'http://example.test/auth/v1';
 
 const cookieJar = vi.hoisted(() => ({ access: '' }));
 
+// R-032 (f): the Login-as refusal reads the session store first; it is covered
+// by tests/integration/r-032-account-security.int.test.ts.
+vi.mock('@/lib/auth/impersonationGuard', () => ({ refuseImpersonatedSession: async () => false }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/auth/cookies', () => ({
@@ -37,7 +40,7 @@ import enrollHandler from '../../../../pages/api/auth/2fa-enroll';
 type Handler = (req: NextApiRequest, res: NextApiResponse) => unknown | Promise<unknown>;
 
 async function tok() {
-  return new SignJWT({ sub: 'user-1', email: 'u@e.z', aud: 'authenticated', role: 'authenticated' })
+  return new SignJWT({ sub: 'user-1', email: 'u@e.z', aud: 'authenticated', role: 'authenticated', aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
     .sign(new TextEncoder().encode(TEST_SECRET));
 }

@@ -12,6 +12,7 @@ export interface ApplyResultParts {
   autoPostRulesSkippedNoBankGl?: number;
   autoPostSkippedClosedPeriod?: number;
   autoPostSkippedNoPeriod?: number;
+  autoPostSkippedVatLocked?: number;
   autoPostSkippedRaced?: number;
   autoPostSkippedLocked?: number;
   autoPostTruncatedRules?: number;
@@ -35,6 +36,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   const applied = parts.applied ?? 0;
   const skippedClosed = parts.autoPostSkippedClosedPeriod ?? 0;
   const skippedNoPeriod = parts.autoPostSkippedNoPeriod ?? 0;
+  const skippedVatLocked = parts.autoPostSkippedVatLocked ?? 0;
   const noBankGl = parts.autoPostRulesSkippedNoBankGl ?? 0;
   const raced = parts.autoPostSkippedRaced ?? 0;
   const locked = parts.autoPostSkippedLocked ?? 0;
@@ -42,6 +44,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   const bits: string[] = [`${applied} categorised`];
   if (skippedClosed > 0) bits.push(`${skippedClosed} skipped (closed period)`);
   if (skippedNoPeriod > 0) bits.push(`${skippedNoPeriod} skipped (no fiscal period)`);
+  if (skippedVatLocked > 0) bits.push(`${skippedVatLocked} skipped (locked VAT period)`);
   if (noBankGl > 0) bits.push(`${noBankGl} auto-post rule${noBankGl > 1 ? 's' : ''} skipped (bank not GL-linked)`);
   if (raced > 0) bits.push(`${raced} skipped — allocated by another request`);
   if (locked > 0) bits.push(`${locked} skipped — locked by another request, retry`);
@@ -52,7 +55,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   // raced) is misleading without a louder cue. `no_period` is treated like
   // `closed_period` here — both are actionable but non-blocking, as is a race,
   // which simply means someone else got to the transaction first.
-  const hasCollateral = skippedClosed > 0 || skippedNoPeriod > 0 || noBankGl > 0
+  const hasCollateral = skippedClosed > 0 || skippedNoPeriod > 0 || skippedVatLocked > 0 || noBankGl > 0
     || raced > 0 || locked > 0 || truncated > 0;
   const kind = noBankGl > 0 || (applied === 0 && hasCollateral) ? 'warn' : 'success';
   return { kind, message };

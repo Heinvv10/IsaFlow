@@ -211,16 +211,16 @@ describe('mergeAccounts writes', async () => {
         [[f.childId, f.grandchildId]],
       );
       expect(rows.rows[0]!.parent_account_id).toBe(f.targetId);
-      expect(rows.rows[0]!.level).toBe(3);
+      expect(rows.rows[0]!.level).toBe(4);
       // The grandchild keeps its parent and shifts by the same delta.
       expect(rows.rows[1]!.parent_account_id).toBe(f.childId);
-      expect(rows.rows[1]!.level).toBe(4);
+      expect(rows.rows[1]!.level).toBe(5);
 
       // The target's OWN child did not move and must not be re-levelled. A
       // cascade seeded from "everything under the target" would shift it too.
       const untouched = await c.query<{ level: number }>(
         'SELECT level FROM gl_accounts WHERE id = $1', [f.targetChildId]);
-      expect(untouched.rows[0]!.level).toBe(3);
+      expect(untouched.rows[0]!.level).toBe(4);
     });
   }, 60_000);
 });
@@ -246,6 +246,12 @@ describe('the configuration-reference sweep', async () => {
         CONFIGURATION_REFERENCE_EXCLUSIONS.some((e) => e.table === r.tbl && e.column === r.col));
       expect(excluded).toHaveLength(CONFIGURATION_REFERENCE_EXCLUSIONS.length);
       expect(rows.length).toBeGreaterThan(CONFIGURATION_REFERENCE_EXCLUSIONS.length);
+      // The document-line columns the merge repoints are real FKs and are excluded
+      // by name — each is excluded because the merge moves it, not by accident.
+      expect(excluded.map((r) => `${r.tbl}.${r.col}`)).toEqual(expect.arrayContaining([
+        'supplier_invoice_items.gl_account_id', 'expense_claim_lines.gl_account_id',
+        'po_items.gl_account_id', 'capture_events.resolved_gl_account_id',
+      ]));
     } finally {
       client.release();
     }

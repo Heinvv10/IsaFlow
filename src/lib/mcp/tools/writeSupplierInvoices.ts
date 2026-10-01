@@ -17,10 +17,12 @@ import {
   getSupplierInvoiceById,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
-import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
-import { MAX_LINES, parseSupplierInvoiceInput } from './invoiceCreateArgs';
+import { agentApprovalRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
+import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS, parseSupplierInvoiceInput } from './invoiceCreateArgs';
 import {
   NOT_FOUND,
   guardCastableArgs,
@@ -29,6 +31,7 @@ import {
   strArg,
   toolError,
 } from './toolHelpers';
+import { ALLOW_LATE_INPUT_CLAIM_PROP, allowLateInputClaim, lateClaimResult } from './lateClaimArg';
 
 export const createSupplierInvoiceTool: McpTool = {
   name: 'create_supplier_invoice',
@@ -42,12 +45,16 @@ export const createSupplierInvoiceTool: McpTool = {
     type: 'object',
     properties: {
       supplier_id: { type: 'string', description: 'Supplier UUID (from list_suppliers)' },
-      invoice_number: { type: 'string', description: "The supplier's own invoice number" },
+      invoice_number: {
+        type: 'string',
+        maxLength: TEXT_LIMITS.invoice_number,
+        description: `The supplier's own invoice number. Refused over ${TEXT_LIMITS.invoice_number} characters.`,
+      },
       invoice_date: { type: 'string', format: 'date', description: 'YYYY-MM-DD' },
       due_date: { type: 'string', format: 'date', description: 'Defaults from payment_terms when omitted' },
       tax_rate: { type: 'number', description: 'Invoice-level VAT %, default 15. Per-line tax_rate overrides it.' },
-      payment_terms: { type: 'string' },
-      reference: { type: 'string' },
+      payment_terms: { type: 'string', maxLength: TEXT_LIMITS.payment_terms },
+      reference: { type: 'string', maxLength: TEXT_LIMITS.reference },
       notes: { type: 'string' },
       lines: {
         type: 'array',
@@ -75,19 +82,17 @@ export const createSupplierInvoiceTool: McpTool = {
     const parsed = parseSupplierInvoiceInput(args);
     if (typeof parsed === 'string') return toolError(parsed);
 
-    // Ownership, batched, before the first write. Neither the service nor the
-    // database re-checks the tenant — supplier_id and gl_account_id become
-    // plain foreign keys with no composite (id, company_id) constraint — so
-    // this is the only thing standing between a foreign id and a cross-tenant
-    // document. NOT_FOUND for both: a distinct "belongs to another company"
-    // reply is an existence oracle.
+    // Ownership, batched, before the first write. supplier_id and
+    // gl_account_id are plain foreign keys with no composite (id, company_id)
+    // constraint, so the database never re-checks the tenant. NOT_FOUND for
+    // the supplier: a distinct "belongs to another company" reply is an
+    // existence oracle. The line-account check also refuses accounts a bill
+    // line may not name (billLineAccountGuard.ts); the service repeats it.
     if (!(await supplierBelongsToCompany(ctx.companyId, parsed.supplierId))) {
       return toolError(NOT_FOUND);
     }
-    if (parsed.accountIds.length > 0 &&
-        !(await accountsBelongToCompany(ctx.companyId, parsed.accountIds))) {
-      return toolError('One or more lines[].gl_account_id values are not GL accounts in your company.');
-    }
+    const accountRefusal = await billLineAccountRefusal(ctx.companyId, parsed.accountIds);
+    if (accountRefusal) return toolError(accountRefusal);
 
     try {
       const invoice = await createSupplierInvoice(
@@ -139,6 +144,7 @@ export const approveSupplierInvoiceTool: McpTool = {
     properties: {
       invoice_id: { type: 'string' },
       idempotency_key: { type: 'string' },
+      allow_late_input_claim: ALLOW_LATE_INPUT_CLAIM_PROP,
     },
     required: ['invoice_id', 'idempotency_key'],
     additionalProperties: false,
@@ -159,6 +165,13 @@ export const approveSupplierInvoiceTool: McpTool = {
     if (invoice.status !== 'draft' && invoice.status !== 'pending_approval') {
       return toolError(`Cannot approve invoice with status: ${invoice.status}`);
     }
+    // R-035 (Q6): a bill an enforced approval rule governs is refused from this
+    // read too — an agent can neither raise nor decide the approval it needs.
+    const approvalRefusal = await agentApprovalRefusal(ctx.companyId, 'supplier_invoice', invoiceId);
+    if (approvalRefusal) return toolError(approvalRefusal);
+    // K-072 r30–r36: a VAT the captured document never showed, or a meals merchant's VAT, is not an agent's to post.
+    const vatRefusal = (await invoiceVatRefusals(ctx.companyId, [invoiceId])).get(invoiceId);
+    if (vatRefusal) return toolError(`Cannot approve invoice: ${vatRefusal}.`);
 
     // No catch: a missing system account, a closed period or a database
     // failure must reach the registry's savepoint rather than being flattened
@@ -169,6 +182,7 @@ export const approveSupplierInvoiceTool: McpTool = {
     // agent work as the token owner's own.
     const updated = await approveSupplierInvoice(ctx.companyId, invoiceId, ctx.userId, {
       ...mcpPostingOpts(ctx, 'approve_supplier_invoice'),
+      allowLateInputClaim: allowLateInputClaim(args),
     });
 
     return ok({
@@ -177,6 +191,7 @@ export const approveSupplierInvoiceTool: McpTool = {
       status: updated.status,
       total_amount: updated.totalAmount,
       gl_journal_entry_id: updated.glJournalEntryId ?? null,
+      late_claim: lateClaimResult(updated.lateClaim),
     });
   },
 };

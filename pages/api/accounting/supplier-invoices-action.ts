@@ -17,6 +17,8 @@ import {
   cancelSupplierInvoice,
   performThreeWayMatch,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 // TODO(PRD-05): When a human-driven CREATE path is added to this handler
 // (or to pages/api/accounting/supplier-invoices.ts), call:
 //   recordCoding({ companyId, supplierId, supplierInvoiceId, glAccountId, vatCode,
@@ -49,7 +51,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'approve': {
-        const invoice = await approveSupplierInvoice(companyId, invoiceId, userId);
+        // A person approving: a bill dated in a filed VAT period claims its input
+        // VAT late (s16(3)) where the law allows, and `lateClaim` says so.
+        const invoice = await approveSupplierInvoice(companyId, invoiceId, userId, { allowLateInputClaim: true });
         return apiResponse.success(res, invoice);
       }
       case 'cancel': {
@@ -64,6 +68,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
+    // R-035: a 409 the client acts on (submit for approval), not the blanket 400.
+    if (respondIfApprovalRequired(res, err)) return;
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Supplier invoice action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

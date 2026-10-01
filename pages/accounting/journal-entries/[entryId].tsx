@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import type { JournalEntry } from '@/modules/accounting/types/gl.types';
 import { apiFetch } from '@/lib/apiFetch';
+import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
+import { LinkTaxInvoiceButton } from '@/components/accounting/gl/LinkTaxInvoiceButton';
 
 export default function JournalEntryDetailPage() {
   const router = useRouter();
@@ -69,6 +71,7 @@ export default function JournalEntryDetailPage() {
         const errData = await res.json();
         throw new Error(errData.message || `Failed to ${action} entry`);
       }
+      notifyLateClaims(await res.json()); // post: VAT claimed in a later period (s16(3))
       await loadEntry();
     } catch (err) {
       const msg = err instanceof Error ? err.message : `Failed to ${action} entry`;
@@ -216,6 +219,11 @@ export default function JournalEntryDetailPage() {
                     {entry.reversedBy && (
                       <div className="bg-amber-500/10 border border-amber-500/20 rounded p-2 mt-2">
                         <p className="text-xs text-amber-400">This entry has been reversed</p>
+                      </div>
+                    )}
+                    {entry.status === 'posted' && !entry.reversedBy && (
+                      <div className="border-t border-[var(--ff-border-light)] pt-3">
+                        <LinkTaxInvoiceButton journalEntryId={entry.id} onChanged={() => void loadEntry()} />
                       </div>
                     )}
                   </div>

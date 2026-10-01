@@ -14,7 +14,7 @@ export const MCP_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-s
 export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
 /**
- * All MCP tool names — 64 read + 47 write = 111. Drift-guarded against
+ * All MCP tool names — 65 read + 48 write = 113. Drift-guarded against
  * toolIndex.ts by tests/unit/mcp/clientMetadata.test.ts, which compares the
  * ARRAY rather than this comment; the comment is the part that can rot, so it
  * is derived by counting `MCP_TOOLS.filter(t => !t.write)` and not by hand.
@@ -43,9 +43,11 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'vat_status',
   'vat_reconciliation',
   'vat201_export',
+  'vat_exceptions',
   'data_integrity_checks',
   'chart_of_accounts_health',
   'lock_vat_period',
+  'mark_vat_declared_elsewhere',
   'list_agent_postings',
   'audit_trail',
   'list_documents',
@@ -66,6 +68,8 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'get_credit_note',
   'suggest_receipt_matches',
   'list_unapplied_receipts',
+  'list_unapplied_payments',
+  'list_supplier_payments',
   'list_fiscal_periods',
   'get_fiscal_period',
   'period_close_checklist',
@@ -112,6 +116,9 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'create_supplier_invoice',
   'approve_supplier_invoice',
   'bulk_create_supplier_invoices',
+  'bulk_approve_supplier_invoices',
+  'bulk_finalize_invoices',
+  'bulk_approve_credit_notes',
   'bulk_create_customer_invoices',
   'void_receipt',
   'void_payment',
@@ -137,6 +144,12 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'cancel_credit_note',
   'apply_receipt_to_invoice',
   'apply_payment_to_supplier_invoice',
+  'auto_apply_unapplied',
+  'apply_credit_note',
+  'cancel_supplier_invoice',
+  'update_supplier_invoice',
+  'unapply_supplier_payment',
+  'unapply_credit_note',
   'reverse_journal_entry',
   'settle_by_contra',
   'create_customer',
@@ -149,4 +162,5 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'perform_bank_reconciliation',
   'create_pay_run',
   'post_payroll_journal',
+  'link_document_to_journal',
 ] as const;

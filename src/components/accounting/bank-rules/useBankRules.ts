@@ -220,6 +220,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
           applied: Number(json.data?.applied ?? 0),
           autoPostSkippedClosedPeriod: Number(json.data?.autoPostSkippedClosedPeriod ?? 0),
           autoPostSkippedNoPeriod: Number(json.data?.autoPostSkippedNoPeriod ?? 0),
+          autoPostSkippedVatLocked: Number(json.data?.autoPostSkippedVatLocked ?? 0),
           autoPostRulesSkippedNoBankGl: Number(json.data?.autoPostRulesSkippedNoBankGl ?? 0),
           autoPostSkippedRaced: Number(json.data?.autoPostSkippedRaced ?? 0),
           autoPostSkippedLocked: Number(json.data?.autoPostSkippedLocked ?? 0),
@@ -228,7 +229,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
         if (parts.applied > 0) setApplyResult({ ...parts, skipped: 0 });
         const headline = `Rule "${payload.ruleName}" created`;
         const anythingToReport = parts.applied + parts.autoPostSkippedClosedPeriod
-          + parts.autoPostSkippedNoPeriod + parts.autoPostRulesSkippedNoBankGl
+          + parts.autoPostSkippedNoPeriod + parts.autoPostSkippedVatLocked + parts.autoPostRulesSkippedNoBankGl
           + parts.autoPostSkippedRaced + parts.autoPostSkippedLocked
           + parts.autoPostTruncatedRules;
         if (anythingToReport > 0) {

@@ -19,6 +19,12 @@
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+// R-032 L5: the Login-as guard runs its own query first; it is covered by
+// tests/unit/auth/statutoryImpersonationGuards.test.ts and the r-032 integration suites.
+vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
+  assertNotImpersonating: async () => undefined,
+}));
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(),
   withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(txSpy)),
@@ -58,7 +64,8 @@ function retainedEarnings(accounts: Array<{ code: string }>): void {
 
 /**
  * open-period probe → year range → financial_year_start → revenue → expenses →
- * (live path only) the fiscal period covering the closing date. Retained
+ * the already-closed lookup → (live path only) the fiscal period covering the
+ * closing date. Retained
  * earnings comes from the system-account RESOLVER and costs no sql call.
  */
 function mockReads(openPeriods: unknown[] = [], startMonth: unknown = 3,
@@ -73,6 +80,7 @@ function mockReads(openPeriods: unknown[] = [], startMonth: unknown = 3,
     .mockResolvedValueOnce([
       { id: 'exp-1', account_code: '5000', account_name: 'Wages', balance: '400000.00' },
     ])
+    .mockResolvedValueOnce([])                       // no existing closing journal (K-113 lookup)
     .mockResolvedValueOnce([{ id: 'fp-12' }]);
   retainedEarnings([{ code: '3200' }]);
 }
@@ -94,7 +102,7 @@ describe('closeFiscalYear — dry run', () => {
 
     expect(writes).toHaveLength(0);
     expect(result).toMatchObject({ dryRun: true, netIncome: 600000 });
-    if (!('preview' in result)) throw new Error('expected a preview');
+    if (!('preview' in result) || result.preview === null) throw new Error('expected a preview');
     expect(result.preview.entryDate).toBe('2027-02-28');
     expect(result.preview.totalDebit).toBe(1000000);
     expect(result.preview.totalCredit).toBe(1000000);
@@ -103,7 +111,7 @@ describe('closeFiscalYear — dry run', () => {
   it('shows every line of the journal, not a count', async () => {
     mockReads();
     const result = await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
-    if (!('preview' in result)) throw new Error('expected a preview');
+    if (!('preview' in result) || result.preview === null) throw new Error('expected a preview');
 
     expect(result.preview.lines).toEqual([
       { accountId: 'rev-1', accountCode: '4000', accountName: 'Sales', debit: 1000000, credit: 0 },
@@ -121,11 +129,12 @@ describe('closeFiscalYear — dry run', () => {
       .mockResolvedValueOnce([{ start_date: '2026-03-01', end_date: '2027-02-28' }])
       .mockResolvedValueOnce([{ financial_year_start: 3 }])
       .mockResolvedValueOnce([{ id: 'rev-1', account_code: '4000', account_name: 'Sales', balance: '100.00' }])
-      .mockResolvedValueOnce([{ id: 'exp-1', account_code: '5000', account_name: 'Wages', balance: '500.00' }]);
+      .mockResolvedValueOnce([{ id: 'exp-1', account_code: '5000', account_name: 'Wages', balance: '500.00' }])
+      .mockResolvedValueOnce([]);  // no existing closing journal (K-113 lookup)
     retainedEarnings([{ code: '3200' }]);
 
     const result = await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
-    if (!('preview' in result)) throw new Error('expected a preview');
+    if (!('preview' in result) || result.preview === null) throw new Error('expected a preview');
 
     expect(result.netIncome).toBe(-400);
     expect(result.preview.lines[2]).toMatchObject({ accountId: 're-1', debit: 400, credit: 0 });
@@ -161,7 +170,8 @@ describe('closeFiscalYear — dry run', () => {
       .mockResolvedValueOnce([{ start_date: '2026-03-01', end_date: '2027-02-28' }])
       .mockResolvedValueOnce([{ financial_year_start: 3 }])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);  // no existing closing journal (K-113 lookup)
     retainedEarnings([{ code: '3210' }, { code: '3220' }]);
 
     const result = await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
@@ -177,7 +187,8 @@ describe('closeFiscalYear — dry run', () => {
       .mockResolvedValueOnce([{ start_date: '2026-03-01', end_date: '2027-02-28' }])
       .mockResolvedValueOnce([{ financial_year_start: 3 }])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);  // no existing closing journal (K-113 lookup)
     retainedEarnings([]);
 
     const result = await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });

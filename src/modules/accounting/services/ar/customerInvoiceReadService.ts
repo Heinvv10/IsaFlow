@@ -10,6 +10,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 
 type Row = Record<string, unknown>;
 
@@ -23,37 +24,79 @@ export interface CustomerInvoiceListFilters {
   clientId?: string | null;
   search?: string | null;
   agingFilters?: Array<'due-soon' | 'overdue-90' | 'viewed-unpaid'>;
+  /** Inclusive invoice_date bounds, YYYY-MM-DD. The caller validates them. */
+  dateFrom?: string | null;
+  dateTo?: string | null;
   limit?: number;
   page?: number;
+  /** Rows to skip. Wins over `page` when given — the MCP tool pages by offset. */
+  offset?: number;
+}
+
+/**
+ * The list's WHERE clause: the tenant scope first, then every optional filter
+ * as a typed `${x}::type IS NULL OR ...` predicate, so one parameterised query
+ * serves every combination (BL-23). The list, its count and the CSV export all
+ * use this one fragment, which is what keeps them from disagreeing.
+ *
+ * `clientId` narrows within `companyId`; it never replaces it.
+ */
+function customerInvoiceListWhere(companyId: string, filters: CustomerInvoiceListFilters) {
+  const { status = null, clientId = null, search = null, agingFilters = [], dateFrom = null, dateTo = null } = filters;
+
+  const statusValues: string[] | null = status && status.length > 0 ? status : null;
+  const clientIdFilter: string | null = clientId && clientId.trim() ? clientId.trim() : null;
+  const searchTermFilter: string | null = search && search.trim() ? search.trim() : null;
+  const filterDueSoon = agingFilters.includes('due-soon');
+  const filterOverdue90 = agingFilters.includes('overdue-90');
+  const filterViewedUnpaid = agingFilters.includes('viewed-unpaid');
+
+  return sql`
+    ci.company_id = ${companyId}::UUID
+    AND ci.deleted_at IS NULL
+    AND (${statusValues}::text[] IS NULL OR ci.status = ANY(${statusValues}::text[]))
+    AND (${clientIdFilter}::uuid IS NULL OR COALESCE(ci.client_id, ci.customer_id) = ${clientIdFilter}::uuid)
+    AND (
+      ${searchTermFilter}::text IS NULL
+      OR ci.invoice_number ILIKE '%' || ${searchTermFilter}::text || '%'
+      OR c.name ILIKE '%' || ${searchTermFilter}::text || '%'
+    )
+    AND (${dateFrom}::date IS NULL OR ci.invoice_date >= ${dateFrom}::date)
+    AND (${dateTo}::date IS NULL OR ci.invoice_date <= ${dateTo}::date)
+    AND (NOT ${filterDueSoon} OR (
+      ci.status != 'paid'
+      AND ci.due_date IS NOT NULL
+      AND ci.due_date::date >= CURRENT_DATE
+      AND ci.due_date::date <= CURRENT_DATE + INTERVAL '7 days'
+    ))
+    AND (NOT ${filterOverdue90} OR (
+      ci.status != 'paid'
+      AND ci.due_date IS NOT NULL
+      AND (CURRENT_DATE - ci.due_date::date) > 90
+    ))
+    AND (NOT ${filterViewedUnpaid} OR (
+      ci.status = 'sent'
+      AND vs.last_viewed_at IS NOT NULL
+    ))
+  `;
 }
 
 export async function listCustomerInvoices(
   companyId: string,
   filters: CustomerInvoiceListFilters = {},
 ): Promise<{ invoices: Row[]; total: number }> {
-  const {
-    status = null,
-    clientId = null,
-    search = null,
-    agingFilters = [],
-    limit,
-    page,
-  } = filters;
+  const { limit, page, offset: offsetRaw } = filters;
 
   // Cap at 100 — aligns with BL-11 / BL-24 limit policy.
   // Sanitise: NaN / negative values from the caller become safe defaults,
   // same as the route did before extraction.
   const safeLimit = Number.isFinite(limit) && (limit as number) > 0 ? Math.min(Math.floor(limit as number), 100) : 25;
   const safePage = Number.isFinite(page) && (page as number) >= 1 ? Math.floor(page as number) : 1;
-  const offset = (safePage - 1) * safeLimit;
+  const offset = Number.isInteger(offsetRaw) && (offsetRaw as number) >= 0
+    ? (offsetRaw as number)
+    : (safePage - 1) * safeLimit;
 
-  const statusValues: string[] | null = status && status.length > 0 ? status : null;
-  const clientIdFilter: string | null = clientId && clientId.trim() ? clientId.trim() : null;
-  const searchTermFilter: string | null = search && search.trim() ? search.trim() : null;
-
-  const filterDueSoon = agingFilters.includes('due-soon');
-  const filterOverdue90 = agingFilters.includes('overdue-90');
-  const filterViewedUnpaid = agingFilters.includes('viewed-unpaid');
+  const where = customerInvoiceListWhere(companyId, filters);
 
   const [invoices, countResult] = await Promise.all([
     sql`
@@ -93,31 +136,10 @@ export async function listCustomerInvoices(
       LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       LEFT JOIN customer_invoice_view_summary vs
         ON vs.customer_invoice_id = ci.id AND vs.company_id = ci.company_id
-      WHERE ci.company_id = ${companyId}::UUID
-        AND ci.deleted_at IS NULL
-        AND (${statusValues}::text[] IS NULL OR ci.status = ANY(${statusValues}::text[]))
-        AND (${clientIdFilter}::uuid IS NULL OR COALESCE(ci.client_id, ci.customer_id) = ${clientIdFilter}::uuid)
-        AND (
-          ${searchTermFilter}::text IS NULL
-          OR ci.invoice_number ILIKE '%' || ${searchTermFilter}::text || '%'
-          OR c.name ILIKE '%' || ${searchTermFilter}::text || '%'
-        )
-        AND (NOT ${filterDueSoon} OR (
-          ci.status != 'paid'
-          AND ci.due_date IS NOT NULL
-          AND ci.due_date::date >= CURRENT_DATE
-          AND ci.due_date::date <= CURRENT_DATE + INTERVAL '7 days'
-        ))
-        AND (NOT ${filterOverdue90} OR (
-          ci.status != 'paid'
-          AND ci.due_date IS NOT NULL
-          AND (CURRENT_DATE - ci.due_date::date) > 90
-        ))
-        AND (NOT ${filterViewedUnpaid} OR (
-          ci.status = 'sent'
-          AND vs.last_viewed_at IS NOT NULL
-        ))
-      ORDER BY ci.invoice_date DESC
+      WHERE ${where}
+      -- id breaks ties: dozens of invoices share a date, and without a total
+      -- order OFFSET pages can skip or repeat them.
+      ORDER BY ci.invoice_date DESC, ci.id DESC
       LIMIT ${safeLimit} OFFSET ${offset}
     `,
     sql`
@@ -126,35 +148,38 @@ export async function listCustomerInvoices(
       LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       LEFT JOIN customer_invoice_view_summary vs
         ON vs.customer_invoice_id = ci.id AND vs.company_id = ci.company_id
-      WHERE ci.company_id = ${companyId}::UUID
-        AND ci.deleted_at IS NULL
-        AND (${statusValues}::text[] IS NULL OR ci.status = ANY(${statusValues}::text[]))
-        AND (${clientIdFilter}::uuid IS NULL OR COALESCE(ci.client_id, ci.customer_id) = ${clientIdFilter}::uuid)
-        AND (
-          ${searchTermFilter}::text IS NULL
-          OR ci.invoice_number ILIKE '%' || ${searchTermFilter}::text || '%'
-          OR c.name ILIKE '%' || ${searchTermFilter}::text || '%'
-        )
-        AND (NOT ${filterDueSoon} OR (
-          ci.status != 'paid'
-          AND ci.due_date IS NOT NULL
-          AND ci.due_date::date >= CURRENT_DATE
-          AND ci.due_date::date <= CURRENT_DATE + INTERVAL '7 days'
-        ))
-        AND (NOT ${filterOverdue90} OR (
-          ci.status != 'paid'
-          AND ci.due_date IS NOT NULL
-          AND (CURRENT_DATE - ci.due_date::date) > 90
-        ))
-        AND (NOT ${filterViewedUnpaid} OR (
-          ci.status = 'sent'
-          AND vs.last_viewed_at IS NOT NULL
-        ))
+      WHERE ${where}
     `,
   ]);
 
   const total = Number(countResult[0]?.total ?? 0);
   return { invoices: invoices as Row[], total };
+}
+
+/**
+ * Every invoice the list would show for these filters, for CSV export, newest
+ * first. Capped at `rowLimit`; the route asks for one row over its ceiling so
+ * it can tell the user the export was truncated.
+ */
+export async function exportCustomerInvoices(
+  companyId: string,
+  filters: CustomerInvoiceListFilters,
+  rowLimit = EXPORT_ROW_CEILING + 1,
+): Promise<Row[]> {
+  const where = customerInvoiceListWhere(companyId, filters);
+  return (await sql`
+    SELECT ci.invoice_number, c.name AS client_name,
+      ci.total_amount, ci.amount_paid, ci.status,
+      to_char(ci.invoice_date, 'YYYY-MM-DD') AS invoice_date,
+      to_char(ci.due_date, 'YYYY-MM-DD') AS due_date, NULL AS project_name
+    FROM customer_invoices ci
+    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
+    LEFT JOIN customer_invoice_view_summary vs
+      ON vs.customer_invoice_id = ci.id AND vs.company_id = ci.company_id
+    WHERE ${where}
+    ORDER BY ci.invoice_date DESC, ci.id DESC
+    LIMIT ${rowLimit}
+  `) as Row[];
 }
 
 export async function getCustomerInvoiceDetail(companyId: string, invoiceId: string): Promise<Row | null> {

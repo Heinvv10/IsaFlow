@@ -32,6 +32,7 @@ import {
 } from '@/modules/billing/services/flowWalletService';
 import { getCompanyPlan } from '@/lib/billing/getCompanyPlan';
 import { MAX_INVOICES } from './tools/writeBulkInvoices';
+import { partitionSupplierInvoiceBatch } from './tools/bulkInvoiceDuplicateSkip';
 import {
   getFlowCost,
   type FlowOperationCode,
@@ -95,6 +96,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // surface like list_agent_postings. Both free, like every other read.
   suggest_receipt_matches: null,
   list_unapplied_receipts: null,
+  list_unapplied_payments: null,
+  list_supplier_payments: null,
   // Period control and bank completeness. Free, and deliberately so: these are
   // the review surfaces the safety model depends on. Charging to ask "is this
   // period open" or "does this account's history have a hole in it" would put a
@@ -128,6 +131,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   vat_status: null,
   vat_reconciliation: null,
   vat201_export: null,
+  vat_exceptions: null,
   // The integrity suite is free for the same reason list_agent_postings is:
   // it is a control surface. Putting a price on the call that finds a
   // R1,058,000 invoice missing from the aging is the wrong incentive, and it
@@ -188,6 +192,16 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   finalize_invoice: null,
   approve_supplier_invoice: null,
   post_journal: null,
+  // The bulk approve arms, free for the SAME reason and not by oversight: each
+  // element approves a document whose creation was already billed, so pricing
+  // the approval would charge twice for one bill. Deliberately NOT a per-element
+  // multiple of some other code — charging N times what the single tool charges
+  // is the rule, and N x 0 is 0. If any of the three single tools above ever
+  // gains a price, its bulk arm must become a per-element debit (see
+  // flowQuantityFor), not a flat one.
+  bulk_approve_supplier_invoices: null,
+  bulk_finalize_invoices: null,
+  bulk_approve_credit_notes: null,
 
   // ── Bank allocation is free in the app (bank.allocate is unused there) ───
   suggest_bank_allocation: null,
@@ -302,6 +316,17 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Same reasoning on the AP side: POST /api/accounting/supplier-allocations is
   // unmetered and the bank allocation path is free.
   apply_payment_to_supplier_invoice: null,
+  // The back-fill is the same correction in bulk, so it is free for the same
+  // reason — and more so: it applies cash the books already hold to documents
+  // they already hold, posting nothing. Pricing the clearing of a control
+  // account that is wrong today would be a toll on fixing the books.
+  auto_apply_unapplied: null,
+  apply_credit_note: null,
+  cancel_supplier_invoice: null,
+  // Editing a draft bill: the create already paid for the document.
+  update_supplier_invoice: null,
+  unapply_supplier_payment: null,
+  unapply_credit_note: null,
 
   // A reversal is a correction, and every other reversal here is free for the
   // same reason: pricing the control the agent-safety model depends on is the
@@ -352,6 +377,11 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // app does not meter it either, and pricing a control that stops a period
   // being changed after filing would discourage using it.
   lock_vat_period: null,
+  // Posts nothing to the ledger either — a flag on the document, not a
+  // journal. Same reasoning as lock_vat_period.
+  mark_vat_declared_elsewhere: null,
+  // Posts nothing to the ledger — links/unlinks evidence, same reasoning.
+  link_document_to_journal: null,
 };
 
 /**
@@ -379,6 +409,22 @@ export function flowOperationFor(
  *
  * A malformed `invoices` argument yields 1 — the handler refuses it before
  * writing anything, and the refund path returns that one unit.
+ *
+ * ── WHY THE AP ARM COUNTS WHAT WILL BE CREATED, NOT WHAT WAS SENT ───────────
+ *
+ * `bulk_create_supplier_invoices` SKIPS an element that repeats an earlier one
+ * identically, so `created` is no longer either 0 or N — and the refund is
+ * all-or-nothing (`registry.ts` has one boolean `billable`, not a partial), so
+ * billing the sent count charges for bills that were never written. A payload
+ * of 100 carrying 14 repeats would debit 100 and create 86, with no refund;
+ * under the previous contract the same call refused and was refunded whole.
+ *
+ * So the quantity comes from the SAME pure partition the handler uses. It is
+ * still read pre-handler and still refunded whole on failure — the invariant
+ * the debit relies on is intact, it is just counted correctly. A batch the
+ * partition refuses (malformed, or one number naming two different bills)
+ * yields 1, matching the malformed case above: the handler writes nothing and
+ * the single unit is refunded.
  */
 export function flowQuantityFor(
   toolName: string,
@@ -388,6 +434,24 @@ export function flowQuantityFor(
     return 1;
   }
   if (!Array.isArray(args.invoices) || args.invoices.length === 0) return 1;
+  if (toolName === 'bulk_create_supplier_invoices' && args.invoices.length <= MAX_INVOICES) {
+    // Bounded FIRST, and partitioned only inside the bound. An oversized array
+    // is refused whole by the handler, so it falls through to the capped count
+    // below rather than being parsed — otherwise a hostile 50,000-element
+    // payload would be fully parsed HERE and again in the handler, before
+    // anything had decided to refuse it.
+    const elements = args.invoices.filter(
+      (e): e is Record<string, unknown> => typeof e === 'object' && e !== null && !Array.isArray(e),
+    );
+    // A shape the partition cannot read is refused by the handler unwritten, so
+    // it costs the one unit the refund returns.
+    if (elements.length !== args.invoices.length) return 1;
+    const partitioned = partitionSupplierInvoiceBatch(elements);
+    if (typeof partitioned === 'string') return 1;
+    // `kept` is never 0 for a batch that parses, but the floor is explicit: a
+    // zero debit would take the call off the metering ledger entirely.
+    return Math.max(partitioned.kept.length, 1);
+  }
   // CAPPED. The debit is taken before the handler runs, and JSON Schema
   // `maxItems` is advisory — nothing in this server enforces it — so a 50,000
   // element array would debit 50,000 invoices before the handler refused it as

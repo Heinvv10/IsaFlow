@@ -17,12 +17,37 @@ import {
   customersBelongToCompany,
   suppliersBelongToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
-import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import {
+  allocateTransaction,
+  type AllocationApplicationResult,
+} from '@/modules/accounting/services/bank/bankAllocationService';
+import {
+  AUTO_APPLY_MODES, DEFAULT_AUTO_APPLY, parseAutoApplyMode, type AutoApplyMode,
+} from '@/modules/accounting/services/shared/autoAllocateStrategy';
+import {
+  resolveLineVatCode, type AllocationVatFacts, type VatCoercion,
+} from './allocationVatGuard';
 import { pickTxSelector, resolveTxId, resolveTxSelectors, type TxSelector } from './txSelectorResolve';
 import { mcpPostingOpts } from '../mcpActor';
 import { applyRouteFor, postAndApplyLine } from './allocationApplyRoute';
 import type { McpToolContext } from '../types';
 import { NOT_FOUND, guardCastableArgs } from './toolHelpers';
+
+/**
+ * What one posted line reports back. `vatCoerced` is present only when a guard
+ * actually changed the code — its absence means the caller's choice stood.
+ */
+export interface PostedAllocationLine {
+  journalEntryId: string;
+  transactionId: string;
+  /** Present only when a guard changed the code — absence means it stood. */
+  vatCoerced?: VatCoercion;
+  /**
+   * What this line's cash settled, for a supplier/customer line that named no
+   * document. Absent for a GL line, which settles nothing by construction.
+   */
+  application?: AllocationApplicationResult;
+}
 
 // Selector parsing and reference resolution moved to txSelectorResolve.ts when
 // resolution became batched (a 500-line bulk call must not issue 500 queries
@@ -68,6 +93,8 @@ export interface AllocationLine {
   vatCode?: VatCode;
   invoiceId?: string;
   description?: string;
+  /** Whether this line's cash is applied to the contact's open documents. */
+  autoApply: AutoApplyMode;
 }
 
 function str(args: Record<string, unknown>, key: string): string {
@@ -157,6 +184,17 @@ export function parseAllocationLine(args: Record<string, unknown>): AllocationLi
   // way; leaving one raw was the inconsistency, not the fix.
   const invoiceId = str(args, 'invoice_id');
 
+  // Same runtime gate as alloc_type and vat_code, for the same reason: the
+  // transport does not enforce inputSchema.enum, and a mode that silently
+  // became the default would apply cash the caller asked to leave on account.
+  const rawAutoApply = args.auto_apply;
+  let autoApply: AutoApplyMode = DEFAULT_AUTO_APPLY;
+  if (rawAutoApply !== undefined) {
+    const parsed = parseAutoApplyMode(rawAutoApply);
+    if (parsed === null) return `auto_apply must be one of: ${AUTO_APPLY_MODES.join(', ')}`;
+    autoApply = parsed;
+  }
+
   const description = typeof args.description === 'string' ? args.description : undefined;
   return {
     selector,
@@ -166,6 +204,7 @@ export function parseAllocationLine(args: Record<string, unknown>): AllocationLi
     vatCode,
     invoiceId: invoiceId || undefined,
     description,
+    autoApply,
   };
 }
 
@@ -227,7 +266,9 @@ export async function postAllocationLine(
   txId: string,
   line: AllocationLine,
   toolName: string,
-): Promise<{ journalEntryId: string; transactionId: string }> {
+  /** Pre-resolved account facts from the bulk caller; absent = look up here. */
+  facts?: AllocationVatFacts,
+): Promise<PostedAllocationLine> {
   // A line that names an invoice goes to the service that posts the journal
   // AND applies it. `allocateTransaction` is left alone deliberately:
   // `applyBankLineToSupplierInvoices` already calls it with an invoiceId, so
@@ -235,13 +276,21 @@ export async function postAllocationLine(
   //
   // Deliberately NOT wrapped: once that service starts writing, a caught error
   // would release the tool's savepoint and COMMIT a partial write under a
-  // success-shaped reply. Refusals belong to `invoiceSkipReason`, pre-write.
+  // success-shaped reply. Refusals belong before the first write — see the
+  // header of allocationApplyRoute.ts for which check owns which path.
   const applyKind = applyRouteFor(line.allocType, line.invoiceId);
   if (applyKind !== null) {
     return postAndApplyLine({
       ctx, txId, kind: applyKind, invoiceId: line.invoiceId!, toolName,
     });
   }
+
+  // The guard, and why this path has one, live in allocationVatGuard.ts.
+  // `facts` arrives pre-resolved from the bulk caller so a 500-line batch does
+  // not run two SELECTs per line; absent, the resolver looks them up itself.
+  const { effectiveVatCode, vatCoerced } = await resolveLineVatCode(
+    ctx.companyId, txId, line, toolName, facts,
+  );
 
   const result = await allocateTransaction(
     ctx.companyId,                                            // tenant from ctx ONLY
@@ -251,12 +300,17 @@ export async function postAllocationLine(
     line.description,
     line.allocType,
     line.entityId || undefined,
-    line.vatCode,
+    effectiveVatCode,
     undefined,
     undefined,
     undefined,
     line.invoiceId,
-    mcpPostingOpts(ctx, toolName),
+    { ...mcpPostingOpts(ctx, toolName), autoApply: line.autoApply },
   );
-  return { journalEntryId: result.journalEntryId, transactionId: result.bankTransaction.id };
+  return {
+    journalEntryId: result.journalEntryId,
+    transactionId: result.bankTransaction.id,
+    vatCoerced,
+    ...(result.application ? { application: result.application } : {}),
+  };
 }

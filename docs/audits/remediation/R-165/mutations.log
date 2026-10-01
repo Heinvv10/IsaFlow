@@ -1,0 +1,34 @@
+Mutation M1: BEGIN ISOLATION LEVEL REPEATABLE READ -> BEGIN
+
+withBusiestCompany now lives in generalLedgerStream.helpers.ts (moved there
+in review round 2, M2/L3), not the .integration.test.ts file. Applied by
+copying the fixed helpers file aside, sed-reverting the one BEGIN line,
+running the suite, then copying the saved fixed file back over the working
+file (never `git checkout`, per CLAUDE.md — this is a shared worktree
+convention, not a correctness requirement here, but followed anyway).
+
+  cp tests/unit/mcp/w2/generalLedgerStream.helpers.ts <scratch>/fixed.copy
+  sed -i "s/BEGIN ISOLATION LEVEL REPEATABLE READ/BEGIN/" \
+    tests/unit/mcp/w2/generalLedgerStream.helpers.ts
+
+Result: RED, 3/3 runs (see red.log) —
+  is not disturbed by a peer session committing a posted line mid-read (R-165 regression)
+  AssertionError: expected 762 to be 760
+  at expect(whole.lineCount).toBe(before.lineCount)
+
+Restore:
+  cp <scratch>/fixed.copy tests/unit/mcp/w2/generalLedgerStream.helpers.ts
+
+Result after restore: GREEN, full suite 10/10 (see ci.log).
+
+Re-ran the same M1 cycle again after review round 2 (the M2/file-split, the
+L3 allowlist swap, the M1/L4 cleanup-guard changes) to confirm none of those
+changes weakened the regression test's own effectiveness: same RED (3/3,
+identical assertion), same GREEN (10/10) after restore.
+
+No other guard was introduced by this change — the fix is the isolation
+level on one BEGIN statement, and M1 is the only mutation that applies.
+The round-2 additions (`isDisposableFixtureTarget`/`assertDisposableTarget`,
+the cleanup's post-delete count check) are write-safety, not the fix itself,
+so they have no mutation of their own — they only gate whether the
+regression test runs at all, never its outcome once it does.

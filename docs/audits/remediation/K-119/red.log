@@ -1,0 +1,47 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+ ❯ tests/unit/services/k119-recurring-monthly-drift.test.ts (3 tests | 2 failed) 64ms
+     × advances a 31 January monthly template to the end of February, not into March 46ms
+     × keeps a month-end template on month-end rather than migrating it to the 3rd 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/k119-recurring-monthly-drift.test.ts > K-119 monthly recurring schedule > advances a 31 January monthly template to the end of February, not into March
+AssertionError: expected '2026-03-03' to be '2026-02-28' // Object.is equality
+
+Expected: "2026-02-28"
+Received: "2026-03-03"
+
+ ❯ tests/unit/services/k119-recurring-monthly-drift.test.ts:46:50
+     44|     const advanceDate = extractAdvanceDate(shipped);
+     45|     // February is a real billing period. Overflowing past it skips an…
+     46|     expect(advanceDate('2026-01-31', 'monthly')).toBe('2026-02-28');
+       |                                                  ^
+     47|   });
+     48|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/services/k119-recurring-monthly-drift.test.ts > K-119 monthly recurring schedule > keeps a month-end template on month-end rather than migrating it to the 3rd
+AssertionError: expected '2026-05-01' to be '2026-04-30' // Object.is equality
+
+Expected: "2026-04-30"
+Received: "2026-05-01"
+
+ ❯ tests/unit/services/k119-recurring-monthly-drift.test.ts:51:50
+     49|   it('keeps a month-end template on month-end rather than migrating it…
+     50|     const advanceDate = extractAdvanceDate(shipped);
+     51|     expect(advanceDate('2026-03-31', 'monthly')).toBe('2026-04-30');
+       |                                                  ^
+     52|   });
+     53| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  11:34:58
+   Duration  2.07s (transform 137ms, setup 0ms, import 233ms, tests 64ms, environment 0ms)
+

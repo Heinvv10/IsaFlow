@@ -2,23 +2,18 @@
  * Subledger ↔ control-account reconciliation, DECOMPOSED.
  *
  * The requirement: itemised reconciling items with document ids, not a gap. A
- * report that says "the difference is R2,691,024" leaves a reader exactly where
- * they started; one that says "R2,681,024 of receipts against 37 payment
- * documents, and R10,000 posted by journal JE-2026-00009 with no payment
- * document at all" ends the investigation.
+ * report that says "the difference is R2,691,024" leaves a reader where they
+ * started; one that names the 37 payment documents and the journal behind the
+ * rest ends the investigation.
  *
- * TWO BRIDGES, deliberately kept apart. Re-deriving Brightsphere showed the
- * specification had merged them, which is why its R1,429,774 reconciles to
- * nothing exactly:
+ * TWO BRIDGES, deliberately kept apart — merging them is why Brightsphere's
+ * R1,429,774 reconciles to nothing exactly:
  *
  *   aged_to_subledger    why the AGED REPORT'S total is not the subledger's —
- *                        open disputes, which its bucket totals are net of, and
- *                        unallocated credit notes, which never reach a bucket.
- *                        These do NOT explain any GL difference: those
- *                        documents' own journals are in the control account.
- *   subledger_to_control what the SUBLEDGER and the GL disagree about —
- *                        unapplied cash, postings no document claims,
- *                        documents whose value never reached control. This is
+ *                        open disputes and unallocated credit notes. These do
+ *                        NOT explain any GL difference: those documents' own
+ *                        journals are in the control account.
+ *   subledger_to_control what the SUBLEDGER and the GL disagree about. This is
  *                        the reconciliation proper.
  *
  * TWO IDENTITIES, one per bridge, each with its own residual emitted AS AN ITEM
@@ -28,19 +23,12 @@
  *   controlAccountBalance + Σ(subledger_to_control items) = subledgerTotal
  *   agedTotal             + Σ(aged_to_subledger items)    = subledgerTotal
  *
- * `agedTotal` is READ FROM the aged report, never recomputed here. The second
- * identity is what caught `unageable_document` describing a defect #303 had
- * already fixed, worth R12,730,757.43 of Velocity AR — with the aged total
- * recomputed from this service's own snapshot, both sides moved together and
- * nothing could go red.
+ * Both are ASSERTED rather than assumed, with the checks that cannot close by
+ * construction, in `reconciliationInvariants.ts`.
  *
  * POINT IN TIME. `as_at` moves BOTH sides: the subledger readers use the same
  * settlement rewind as the aging reports (`services/shared/agingRewind.ts`) and
- * the control balance stops at `entry_date <= as_at`. When only the control
- * side moved, a past-date call closed its arithmetic against today's subledger
- * — R81,996,370.82 of Velocity AR at 2025-12-31, absorbed by one
- * `document_after_as_at` item that has since been removed along with the
- * `afterAsAt` set it was built from.
+ * the control balance stops at `entry_date <= as_at`.
  */
 
 import { log } from '@/lib/logger';
@@ -52,7 +40,9 @@ import {
 import { getARSubledger } from '../ar/arSubledgerService';
 import { getAPSubledger } from '../ap/apSubledgerService';
 import type { SubledgerDocument, SubledgerSnapshot } from '../ar/subledgerTypes';
+import { getNonControlPostingAccounts } from '../gl/nonControlPostingAccounts';
 import { getUnappliedControlCash } from './unappliedCashService';
+import { getUnappliedCreditNotes } from './unappliedCreditNoteService';
 import { getUnpostedSubledgerDocuments } from './unpostedDocumentService';
 import { getAgedReportTotal } from './agedReportTotal';
 import { getSettlementFlagged, type SettlementFlagged } from './settlementFlagService';
@@ -62,28 +52,43 @@ import {
   buildControlBridgeItems,
   unexplainedItem,
 } from './reconcilingItemBuilders';
-export type { ReconcilingBridge, ReconcilingItem } from './reconcilingItemTypes';
+import { checkInvariants } from './reconciliationInvariants';
+import {
+  netZeroItemWarnings,
+  nonControlPostingWarnings,
+  offControlCashWarnings,
+} from './reconcilingWarnings';
+export type {
+  ReconciliationInvariant,
+  ReconcilingBridge,
+  ReconcilingItem,
+} from './reconcilingItemTypes';
 import { round2, laterOf } from './reconciliationMath';
 
-import type { ReconcilingItem } from './reconcilingItemTypes';
+import type { ReconciliationInvariant, ReconcilingItem } from './reconcilingItemTypes';
 
 export interface SubledgerReconciliation {
   subledger: SubledgerRole;
   as_at: string;
   /**
-   * What `aged_debtors` / `aged_creditors` DO total, read from those reports
-   * rather than recomputed. Null for a role with no aged report.
+   * What the aged reports DO total, READ FROM them and never recomputed here:
+   * recomputing it from this service's own snapshot moved both sides together
+   * and nothing could go red. Null for a role with no aged report.
    */
   agedTotal: number | null;
-  /** Every open document, including the ones that cannot be aged. */
+  /** Every open document, the ones that cannot be aged included. */
   subledgerTotal: number | null;
   /** Why the subledger side is absent, when it is. */
   subledgerUnavailable: { reason: string; detail: string } | null;
-  /** EVERY candidate control account. There is no canonical one — FINDINGS C1. */
+  /** EVERY account typed for the role. No canonical one exists — FINDINGS C1. */
   controlAccounts: ControlAccountBalance[];
   /** Sum across all of them. Null when none exists — never a fabricated zero. */
   controlAccountBalance: number | null;
-  /** True when more than one account could be "the" control account. */
+  /**
+   * True when more than one account CARRIES THE CONTROL SUBTYPE — not, as it
+   * once was, whenever a subledger document had posted to more than one, which
+   * made a `settle_by_contra` loan account a third "AP control account".
+   */
   controlAccountAmbiguous: boolean;
   /** subledgerTotal − controlAccountBalance. Null when either side is absent. */
   difference: number | null;
@@ -93,12 +98,17 @@ export interface SubledgerReconciliation {
   excludedRows: Array<{ id: string; reason: string; detail?: string; amount?: number }>;
   /**
    * Bills a matching process already believed settled, still open. NOT a
-   * reconciling item and deliberately outside `reconcilingItems`: the cash is
-   * already counted once as `posting_with_no_document`, so counting it again
-   * would drive the residual to minus this amount. It attributes part of an
-   * existing difference rather than adding to it — see settlementFlagService.
+   * reconciling item and deliberately outside `reconcilingItems`: that cash is
+   * already counted once as `posting_with_no_document`. See settlementFlagService.
    */
   settlementFlagged: SettlementFlagged;
+  /**
+   * What this reconciliation asserts about its own output, and whether it
+   * holds. Reported rather than thrown: a violation is the most interesting
+   * thing the endpoint can say about a set of books, and a 500 would replace it
+   * with nothing. See reconciliationInvariants.ts.
+   */
+  invariants: ReconciliationInvariant[];
   postedThrough: string | null;
 }
 
@@ -113,6 +123,7 @@ async function readSubledger(
   return null;
 }
 
+/** Why a role has no document subledger to compare against. */
 const NO_SOURCE_DETAIL: Record<string, string> = {
   bank: 'Bank reconciliation compares a statement feed to the GL, not a document subledger. Use the banking tools, which own the cash figure and its statement-coverage gap.',
   vat: 'VAT is posted from the transactions of other subledgers and has no document subledger of its own. Use the VAT return tools for the return-to-ledger comparison.',
@@ -130,29 +141,29 @@ export async function reconcileSubledger(
   asAtDate: string,
 ): Promise<SubledgerReconciliation> {
   try {
-    // SEQUENTIAL, not Promise.all. Every read here runs on the ONE pg client
-    // the request's transaction holds (via the ALS context), and issuing
-    // queries on a client that is already executing one is deprecated in
-    // node-postgres and removed in pg@9 — it printed a DeprecationWarning on
-    // the first production run of this service. Four readers, each issuing
-    // several statements of its own, is not the place to rely on the driver's
-    // internal queue.
+    // SEQUENTIAL, not Promise.all. Every read runs on the ONE pg client the
+    // request's transaction holds, and querying a client already executing one
+    // is deprecated in node-postgres and removed in pg@9.
     const controlAccounts = await getControlAccountBalances(companyId, role, asAtDate);
     const snapshot = await readSubledger(companyId, role, asAtDate);
     const agedTotal = await getAgedReportTotal(companyId, role, asAtDate);
     const settlementFlagged = await getSettlementFlagged(companyId, role, asAtDate);
-    // The LEDGER side of posted_through. Half this endpoint's answer is
-    // `controlAccountBalance`, read from the journals, and the subledger's own
-    // MAX(created_at) says nothing about them: a journal posted to a control
-    // account after the newest document, dated on or before as_at, moves the
-    // difference while leaving posted_through untouched. The contract's
-    // invariant — same as_at plus same posted_through reproduces the same
-    // figures — would then be false in the one endpoint where the control side
-    // IS the question. Same function every other report uses; one definition of
-    // how fresh a figure is.
+    // The LEDGER side of posted_through. Half this endpoint's answer is read
+    // from the journals, and the subledger's own MAX(created_at) says nothing
+    // about them: a journal posted to a control account after the newest
+    // document, dated on or before as_at, moves the difference while leaving
+    // posted_through untouched. Same function every other report uses.
     const ledgerPostedThrough = await getLedgerPostedThrough(companyId, asAtDate);
+    // Accounts this subledger's own documents move in the control direction
+    // that are NOT typed for the role. They used to be ADOPTED as control
+    // accounts; they are now reported, because an untyped account carrying
+    // payable-direction movement from supplier documents is either a mistyped
+    // chart or a settlement route nobody has reviewed.
+    const nonControl = await getNonControlPostingAccounts(companyId, role, asAtDate);
 
-    const excludedRows: SubledgerReconciliation['excludedRows'] = [];
+    const excludedRows: SubledgerReconciliation['excludedRows'] = [
+      ...nonControlPostingWarnings(role, nonControl),
+    ];
     // A control balance of zero and NO control account are different facts.
     // Reporting the first when the second is true fabricates a difference.
     const controlAccountBalance =
@@ -187,6 +198,13 @@ export async function reconcileSubledger(
         difference: null,
         reconcilingItems: [],
         unexplainedDifference: null,
+        invariants: checkInvariants({
+          subledgerTotal: null,
+          controlAccountBalance,
+          difference: null,
+          unexplained: null,
+          items: [],
+        }),
         // The GL side is still reported for these roles, so its freshness is
         // still a claim this response makes.
         postedThrough: ledgerPostedThrough,
@@ -195,7 +213,10 @@ export async function reconcileSubledger(
 
     const cash =
       controlAccounts.length === 0
-        ? { withPaymentRecord: [], appliedRecords: [], withoutPaymentRecord: [], total: 0, postedThrough: null }
+        ? {
+            withPaymentRecord: [], appliedRecords: [], withoutPaymentRecord: [],
+            offControl: [], total: 0, postedThrough: null,
+          }
         : await getUnappliedControlCash(
             companyId,
             role,
@@ -213,10 +234,32 @@ export async function reconcileSubledger(
             controlAccounts.map((a) => a.accountId),
           );
 
-    const items = [
+    excludedRows.push(...offControlCashWarnings(cash.offControl));
+
+    // Approved credit the subledger does not already carry. AR passes the ids
+    // its snapshot holds so they are not counted twice; AP has no credit-note
+    // leg at all, which is exactly why this item exists.
+    const creditNotes =
+      role === 'ar' || role === 'ap'
+        ? await getUnappliedCreditNotes(
+            companyId,
+            role,
+            asAtDate,
+            snapshot.creditNotes.map((c) => c.id),
+          )
+        : [];
+
+    const built = [
       ...buildAgedBridgeItems({ snapshot, agedTotal }),
-      ...buildControlBridgeItems({ snapshot, cash, unposted }),
+      ...buildControlBridgeItems({ snapshot, cash, unposted, creditNotes, asAtDate }),
     ];
+    // A control-bridge item that nets to exactly zero explains nothing and
+    // reads to an agent as a finding that resolves itself. Its rows are real,
+    // so they are named on excludedRows rather than dropped with it.
+    excludedRows.push(...netZeroItemWarnings(built));
+    const items = built.filter(
+      (i) => !(i.bridge === 'subledger_to_control' && i.amount === 0),
+    );
 
     const difference =
       controlAccountBalance === null ? null : round2(snapshot.subledgerTotal - controlAccountBalance);
@@ -237,6 +280,13 @@ export async function reconcileSubledger(
       difference,
       reconcilingItems: items,
       unexplainedDifference: unexplained,
+      invariants: checkInvariants({
+        subledgerTotal: snapshot.subledgerTotal,
+        controlAccountBalance,
+        difference,
+        unexplained,
+        items,
+      }),
       postedThrough: laterOf(
         laterOf(snapshot.postedThrough, cash.postedThrough),
         ledgerPostedThrough,

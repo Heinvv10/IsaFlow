@@ -12,6 +12,7 @@ import type { SubledgerDocument, SubledgerSnapshot } from '../ar/subledgerTypes'
 import type { UnappliedCash } from './unappliedCashService';
 import type { UnpostedDocument } from './unpostedDocumentService';
 import { round2 } from './reconciliationMath';
+import type { UnappliedCreditNote } from './unappliedCreditNoteService';
 import type { CitableDocument, ReconcilingBridge, ReconcilingItem } from './reconcilingItemTypes';
 
 export function sumBalances(docs: readonly SubledgerDocument[]): number {
@@ -24,6 +25,10 @@ function item(
   description: string,
   amount: number,
   docs: readonly CitableDocument[],
+  /** Summed face value of `docs`. See ReconcilingItem.citedGross. */
+  citedGross: number,
+  /** Σ|member amount|. See ReconcilingItem.citedAbsAmount. */
+  citedAbsAmount: number,
 ): ReconcilingItem {
   return {
     bridge,
@@ -34,7 +39,21 @@ function item(
     documentNumbers: docs
       .map((d) => d.documentNumber)
       .filter((n): n is string => typeof n === 'string' && n.length > 0),
+    citedGross: round2(citedGross),
+    citedAbsAmount: round2(citedAbsAmount),
   };
+}
+
+/** Σ|amount| over a set of members — what an item may not exceed in total. */
+function absOf(members: readonly { amount: number }[]): number {
+  return members.reduce((s, m) => s + Math.abs(m.amount), 0);
+}
+
+/** Face value of a set of documents, taken POSITIVE: a credit note's total is
+ *  carried negative in the subledger and a gross of −R50,000 would make every
+ *  item citing it look like a violation. */
+function grossOf(docs: readonly { totalAmount: number }[]): number {
+  return docs.reduce((s, d) => s + Math.abs(d.totalAmount), 0);
 }
 
 const UNPOSTED_TEXT: Record<UnpostedDocument['reason'], string> = {
@@ -44,10 +63,27 @@ const UNPOSTED_TEXT: Record<UnpostedDocument['reason'], string> = {
     'open document(s) have a linked journal whose effect on the control accounts as at the reporting date differs from the document balance. A journal dated AFTER the reporting date lands here, which is what it is: the document is in the subledger and its posting is not yet in the ledger balance.',
 };
 
+/**
+ * A document dated AFTER the reporting date is not in the subledger at that
+ * date, so any control-account effect it carries as at the date comes from
+ * legs posted on or before it — in practice a payment or credit applied in
+ * advance (a prepayment applied FIFO to a later bill). That is cash timing,
+ * not a cut-off error: on Velocity Fibre all 700 such items across 32
+ * month-ends were this and none was a missing posting. Named apart so the
+ * close gate can tolerate it while still failing a document dated IN the
+ * period whose journal is late or missing.
+ */
+const SETTLEMENT_BEFORE_DOCUMENT_TEXT =
+  'document(s) dated AFTER the reporting date carry settlement (a payment, credit note or write-off) posted on or before it. The documents are not yet in the subledger; the cash applied to them in advance is on the control account. Timing, not a cut-off error.';
+
 export interface ItemInputs {
   snapshot: SubledgerSnapshot & { disputes?: ReadonlyMap<string, number> };
+  /** 'YYYY-MM-DD' — splits documents dated after it into settlement_before_document. */
+  asAtDate: string;
   cash: UnappliedCash;
   unposted: readonly UnpostedDocument[];
+  /** Approved credit the subledger does not already carry. */
+  creditNotes: readonly UnappliedCreditNote[];
 }
 
 /**
@@ -99,6 +135,10 @@ export function buildAgedBridgeItems({
           'Amounts under open dispute. The aged report subtracts these from its bucket totals; the subledger still carries them.',
           disputedTotal,
           disputed,
+          grossOf(disputed),
+          // A dispute is capped at the document's own balance above, so each
+          // member is already positive and bounded by its document.
+          disputed.reduce((sum, d) => sum + Math.min(disputes.get(d.id) ?? 0, d.balance), 0),
         ),
       );
     }
@@ -113,6 +153,8 @@ export function buildAgedBridgeItems({
         `${snapshot.creditNotes.length} approved credit note(s) are not applied to any document. The subledger nets them off what is owed; the aged report cannot, because a row with a balance of zero or less never reaches an aging bucket.`,
         creditTotal,
         snapshot.creditNotes,
+        grossOf(snapshot.creditNotes),
+        absOf(snapshot.creditNotes.map((d) => ({ amount: d.balance }))),
       ),
     );
   }
@@ -134,6 +176,8 @@ export function buildAgedBridgeItems({
         amount: residual,
         documentIds: [],
         documentNumbers: [],
+        citedGross: 0,
+        citedAbsAmount: 0,
       });
     }
   }
@@ -146,7 +190,7 @@ export function buildAgedBridgeItems({
  * proper: unapplied cash, postings no document claims, documents whose value
  * never reached a control account.
  */
-export function buildControlBridgeItems({ cash, unposted }: ItemInputs): ReconcilingItem[] {
+export function buildControlBridgeItems({ cash, unposted, creditNotes, asAtDate }: ItemInputs): ReconcilingItem[] {
   const items: ReconcilingItem[] = [];
 
   if (cash.withPaymentRecord.length > 0) {
@@ -154,9 +198,11 @@ export function buildControlBridgeItems({ cash, unposted }: ItemInputs): Reconci
       item(
         'subledger_to_control',
         'unapplied_receipt',
-        `${cash.withPaymentRecord.length} payment document(s) credited to the control account with nothing (or not everything) applied to a document. The GL is reduced; the subledger is not.`,
+        `${cash.withPaymentRecord.length} payment document(s) credited to the control account with nothing (or not everything) applied to a document. The GL is reduced; the subledger is not. The amount is each payment's movement ON THE CONTROL ACCOUNT, which is what it can explain of the difference; list_unapplied_receipts / list_unapplied_payments report the same payments by their document remainder, and the two agree unless cash was posted somewhere other than the control account.`,
         cash.withPaymentRecord.reduce((s, i) => s + i.amount, 0),
         cash.withPaymentRecord,
+        cash.withPaymentRecord.reduce((s, i) => s + Math.abs(i.gross), 0),
+        absOf(cash.withPaymentRecord),
       ),
     );
   }
@@ -168,26 +214,50 @@ export function buildControlBridgeItems({ cash, unposted }: ItemInputs): Reconci
         `${cash.withoutPaymentRecord.length} posted journal(s) moved the control account with NO subledger document referencing them, so no cash-application or invoicing tool can see or clear them. Cash that arrived this way needs a payment document created before it can be applied.`,
         cash.withoutPaymentRecord.reduce((s, i) => s + i.amount, 0),
         cash.withoutPaymentRecord,
+        cash.withoutPaymentRecord.reduce((s, i) => s + Math.abs(i.gross), 0),
+        absOf(cash.withoutPaymentRecord),
+      ),
+    );
+  }
+  if (creditNotes.length > 0) {
+    items.push(
+      item(
+        'subledger_to_control',
+        'unapplied_credit_note',
+        `${creditNotes.length} approved credit note(s) carry credit that has not been consumed by any document. The note's journal moved the control account; the subledger does not carry the unconsumed part — on AP it does not carry credit notes at all. Approved credit the AR subledger already counts is deliberately NOT repeated here.`,
+        creditNotes.reduce((s, c) => s + c.amount, 0),
+        creditNotes,
+        creditNotes.reduce((s, c) => s + Math.abs(c.gross), 0),
+        absOf(creditNotes),
       ),
     );
   }
 
   // Grouped by reason, because "never posted" and "posted to the wrong account"
-  // need different remedies and a single lump tells a reader neither.
-  const byReason = new Map<UnpostedDocument['reason'], UnpostedDocument[]>();
+  // need different remedies and a single lump tells a reader neither. A
+  // document dated after the reporting date is its own group whatever its
+  // link state — see SETTLEMENT_BEFORE_DOCUMENT_TEXT. 'YYYY-MM-DD' strings
+  // compare lexically; an empty date never sorts after, so it stays a finding.
+  type Group = UnpostedDocument['reason'] | 'settlement_before_document';
+  const byReason = new Map<Group, UnpostedDocument[]>();
   for (const doc of unposted) {
-    const list = byReason.get(doc.reason);
+    const key: Group = doc.documentDate > asAtDate ? 'settlement_before_document' : doc.reason;
+    const list = byReason.get(key);
     if (list) list.push(doc);
-    else byReason.set(doc.reason, [doc]);
+    else byReason.set(key, [doc]);
   }
   for (const [reason, docs] of byReason) {
+    const text =
+      reason === 'settlement_before_document' ? SETTLEMENT_BEFORE_DOCUMENT_TEXT : UNPOSTED_TEXT[reason];
     items.push(
       item(
         'subledger_to_control',
         reason,
-        `${docs.length} ${UNPOSTED_TEXT[reason]}`,
+        `${docs.length} ${text}`,
         docs.reduce((s, d) => s + d.amount, 0),
         docs,
+        docs.reduce((s, d) => s + Math.abs(d.gross), 0),
+        absOf(docs),
       ),
     );
   }
@@ -209,5 +279,7 @@ export function unexplainedItem(amount: number): ReconcilingItem {
     amount,
     documentIds: [],
     documentNumbers: [],
+    citedGross: 0,
+    citedAbsAmount: 0,
   };
 }

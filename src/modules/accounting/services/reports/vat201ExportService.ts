@@ -19,6 +19,8 @@ import { getCompany } from '../core/companyService';
 import { buildVAT201Payload, type SARSPayload } from './sarsEfilingService';
 import { getVat201Report, type Vat201Report } from './vat201ReportService';
 import { getVatPeriodLock, type VatPeriodLock } from './vatPeriodLockService';
+import { getVatExceptions } from './vatExceptionsService';
+import { vatGateExceptionCounts, type VatGateExceptionCounts } from './vatGateOverrideService';
 
 export type Vat201ExportFormat = 'sars_payload' | 'csv';
 
@@ -40,6 +42,21 @@ export interface Vat201Export {
    */
   driftSinceLock: { outputTax: number; inputTax: number; netVat: number } | null;
   postedThrough: string;
+  /**
+   * WARNING ONLY — never a refusal. getVatExceptions' blocking exceptions,
+   * carried through so a filer sees them beside the export; unlike ISV filing
+   * (sarsEfilingSubmissionService) and lock/mark-submitted
+   * (vatGateOverrideService), the export itself never blocks and needs no
+   * override.
+   */
+  blockingExceptions: VatGateExceptionCounts;
+  /**
+   * WARNING ONLY, NOT in blockingExceptions (Hein, 2026-09-27): supplier
+   * bills with no tax rate, or a rate but zero VAT — can only mean less
+   * input VAT was claimed than the bill's own rate supports, never more.
+   */
+  billTaxCodeWarningCount: number;
+  billTaxCodeWarningPotentialVat: number;
 }
 
 function r2(n: number): number {
@@ -78,11 +95,13 @@ export async function exportVat201(
   periodEnd: string,
   format: Vat201ExportFormat = 'sars_payload',
 ): Promise<Vat201Export> {
-  const [report, company, lock] = await Promise.all([
+  const [report, company, lock, exceptionsReport] = await Promise.all([
     getVat201Report(companyId, periodStart, periodEnd, { detail: 'summary' }),
     getCompany(companyId),
     getVatPeriodLock(companyId, periodStart, periodEnd),
+    getVatExceptions(companyId, periodStart, periodEnd),
   ]);
+  const blockingExceptions = vatGateExceptionCounts(exceptionsReport);
 
   const driftSinceLock = lock && (
     r2(lock.outputTax) !== report.totals.outputTax
@@ -103,6 +122,9 @@ export async function exportVat201(
     lock,
     driftSinceLock,
     postedThrough: report.postedThrough,
+    blockingExceptions,
+    billTaxCodeWarningCount: exceptionsReport.billTaxCodeWarningCount,
+    billTaxCodeWarningPotentialVat: exceptionsReport.billTaxCodeWarningPotentialVat,
   };
 
   if (format === 'csv') return { ...base, csv: toCsv(report) };

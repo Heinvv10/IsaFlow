@@ -58,6 +58,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
+import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 
 export interface BankAllocationUnwindResult {
   /** Invoices whose `amount_paid` was reduced. */
@@ -66,6 +67,8 @@ export interface BankAllocationUnwindResult {
   amountUnapplied: number;
   /** Payment documents cancelled. */
   paymentsCancelled: number;
+  /** Set by the reversal when a locked VAT period moved its default date forward. */
+  vatLockRoll?: VatLockRoll | null;
 }
 
 function round2(n: number): number {
@@ -111,17 +114,44 @@ export async function unwindOnePayment(
   let invoicesReopened = 0;
   let amountUnapplied = 0;
 
+  // (1) THE PAYMENT FIRST, AND BEFORE ITS ROWS ARE READ. This flip is the
+  // payment row lock. It used to run AFTER the loop, so
+  // `reverseReconciledTransaction` — the only caller that does not already
+  // hold the payment — took bank -> invoices -> payment, the inverse of
+  // `planReceiptApplication` / `planSupplierPaymentApplication`, which lock the
+  // payment and THEN the invoices. It then ran after the allocation READ, which
+  // was the second defect: an un-apply that committed while this waited had
+  // already deleted a row and restored the bill, and the stale row was
+  // subtracted again — R1,150 left the AP subledger (adversarial review,
+  // reproduced). Reading the rows only once the row is held is what makes them
+  // the rows this transaction will act on.
+  if (kind === 'customer') {
+    await sql`
+      UPDATE customer_payments SET status = 'cancelled', updated_at = NOW()
+      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
+  } else {
+    await sql`
+      UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
+      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
+  }
+
   // customer_payment_allocations vs payment_allocations is not a typo:
   // `supplier_payment_allocations` (migration 201) holds zero rows in dev and
   // in production and is read by nothing, while every supplier service uses
   // `payment_allocations`.
+  //
+  // ORDER BY invoice_id: two unwinds touching the same two invoices in opposite
+  // orders hold one row each and deadlock. Every other multi-invoice path
+  // (`fetchInvoiceCandidates`, `fetchBillCandidates`) already orders by id.
   const allocs = (kind === 'customer'
     ? await sql`
         SELECT invoice_id, amount_allocated FROM customer_payment_allocations
-        WHERE payment_id = ${paymentId}::UUID`
+        WHERE payment_id = ${paymentId}::UUID
+        ORDER BY invoice_id`
     : await sql`
         SELECT invoice_id, amount_allocated FROM payment_allocations
-        WHERE payment_id = ${paymentId}::UUID`) as DbRow[];
+        WHERE payment_id = ${paymentId}::UUID
+        ORDER BY invoice_id`) as DbRow[];
 
   for (const a of allocs) {
     const invoiceId = String(a.invoice_id);
@@ -157,16 +187,12 @@ export async function unwindOnePayment(
     amountUnapplied = round2(amountUnapplied + amt);
   }
 
+  // The allocation rows go last: they are what the loop above just reversed,
+  // and deleting them before it would leave a partial unwind unrecoverable.
   if (kind === 'customer') {
     await sql`DELETE FROM customer_payment_allocations WHERE payment_id = ${paymentId}::UUID`;
-    await sql`
-      UPDATE customer_payments SET status = 'cancelled', updated_at = NOW()
-      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
   } else {
     await sql`DELETE FROM payment_allocations WHERE payment_id = ${paymentId}::UUID`;
-    await sql`
-      UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
-      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
   }
 
   return { invoicesReopened, amountUnapplied };

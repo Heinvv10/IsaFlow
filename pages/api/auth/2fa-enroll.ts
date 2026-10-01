@@ -1,3 +1,4 @@
+import { IMPERSONATION_PROOF_COOKIE } from '@/lib/auth/impersonation-cookies';
 // pages/api/auth/2fa-enroll.ts
 import type { NextApiHandler } from 'next';
 import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
@@ -6,19 +7,23 @@ import { verifyToken } from '@/lib/auth/gotrue';
 import { log } from '@/lib/logger';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { requireActiveAccount } from '@/lib/auth/requireActiveAccount';
+import { refuseImpersonatedSession } from '@/lib/auth/impersonationGuard';
 
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
   }
-  const token = parseCookies(req)[ACCESS_COOKIE];
+  const cookies = parseCookies(req);
+  const token = cookies[ACCESS_COOKIE];
   if (!token) {
     return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
   }
+  // R-032 (f): a Login-as session changes none of the target's credentials.
+  if (await refuseImpersonatedSession(req, res)) return;
   let email: string;
   let userId: string;
   try {
-    const claims = await verifyToken(token);
+    const claims = await verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]);
     email = typeof claims.email === 'string' ? claims.email : '';
     userId = claims.sub;
   } catch {

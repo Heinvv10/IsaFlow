@@ -13,6 +13,10 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { assertNonNegativeDocumentTotal, NegativeDocumentTotalError } from '@/modules/accounting/services/shared/documentTotalSign';
+import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
+import { lockTimeEntries, TimeEntriesNotClaimedError } from '@/modules/accounting/services/practice/timeEntryLock';
 
 type Row = Record<string, unknown>;
 
@@ -40,6 +44,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const userId = String(req.user.id);
   const invDate = typeof invoiceDate === 'string' && invoiceDate ? invoiceDate : new Date().toISOString().split('T')[0];
   const rate = typeof taxRate === 'number' ? taxRate : 15;
+  // R-119 review: the rate is taken off the body and used for the invoice's
+  // tax_amount, its line tax_rate and the output-VAT GL leg. A negative rate
+  // makes all three negative while the TOTAL stays positive, so neither the
+  // total guard below nor the database trigger sees it. A rate over 100 is
+  // the same class in the other direction.
+  if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+    return apiResponse.badRequest(res, `taxRate must be between 0 and 100, got ${String(taxRate)}`);
+  }
 
   try {
     // 1. Verify customer belongs to company
@@ -49,13 +61,18 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     `) as Row[];
     if (!custRows[0]) return apiResponse.badRequest(res, 'Customer not found in this company');
 
-    // 2. Load time entries — must belong to company, be billable, not yet invoiced
+    // 2. Load time entries — must belong to company, be billable, not yet
+    // invoiced. The row lock is taken FIRST: without it this read was a
+    // check-then-act and two concurrent POSTs over the same ids both minted a
+    // full invoice, billing the client twice (see timeEntryLock).
+    await lockTimeEntries(companyId, timeEntryIds.map(String));
     const entries = (await sql`
       SELECT id, task_description, hours, rate, entry_date, project_name
       FROM time_entries
       WHERE id = ANY(${timeEntryIds}::UUID[])
         AND company_id = ${companyId}::UUID
         AND invoiced = false
+        AND billed_at IS NULL
         AND billable = true
     `) as Row[];
 
@@ -73,19 +90,18 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     subtotal = Math.round(subtotal * 100) / 100;
     const taxAmount = Math.round(subtotal * (rate / 100) * 100) / 100;
     const totalAmount = subtotal + taxAmount;
+    // R-119: neither this route nor createTimeEntry guards the sign of hours
+    // or rate, so a negative entry would bill as a negative invoice.
+    assertNonNegativeDocumentTotal(totalAmount, `Invoice for ${entries.length} time entries`, 'customer');
 
-    // 4. Generate invoice number (retry on conflict)
-    let invoiceId = '';
-    let invoiceNumber = '';
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const maxRows = (await sql`
-        SELECT COALESCE(MAX(CAST(SUBSTRING(invoice_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
-        FROM customer_invoices WHERE company_id = ${companyId} AND invoice_number ~ '^INV-[0-9]+$'
-      `) as Row[];
-      const base = Number(maxRows[0]?.['max_num'] ?? 0) + 1 + attempt;
-      invoiceNumber = `INV-${String(base).padStart(5, '0')}`;
-
-      try {
+    // 4. Reserve the number from the company sequence. What this replaced was a
+    // fourth MAX(invoice_number)+1 generator inside the sequence's own uniqueness
+    // domain — it never advanced company_document_numbers — retrying on a message
+    // containing "unique" with no savepoint, so a real 23505 left the request
+    // transaction aborted and every later attempt failed 25P02 instead.
+    const { invoiceId, invoiceNumber } = await insertWithReservedNumber(
+      companyId, 'customer_invoice', 'te_inv_', 'uq_customer_invoices_company_number',
+      async (number) => {
         const invRows = (await sql`
           INSERT INTO customer_invoices (
             company_id, invoice_number, customer_id, client_id,
@@ -93,20 +109,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
             invoice_date, status, created_by,
             currency_code, exchange_rate, functional_total
           ) VALUES (
-            ${companyId}, ${invoiceNumber}, ${customerId}::UUID, ${customerId}::UUID,
+            ${companyId}, ${number}, ${customerId}::UUID, ${customerId}::UUID,
             ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount},
             ${invDate!}, 'draft', ${userId},
             'ZAR', 1.0, ${totalAmount}
           ) RETURNING id
         `) as Row[];
-        invoiceId = String(invRows[0]!.id);
-        break;
-      } catch (insertErr) {
-        const msg = insertErr instanceof Error ? insertErr.message : String(insertErr);
-        if (msg.includes('unique') && attempt < 4) continue;
-        throw insertErr;
-      }
-    }
+        return { invoiceId: String(invRows[0]!.id), invoiceNumber: number };
+      },
+    );
 
     // 5. Insert line items for each time entry
     for (const e of entries) {
@@ -127,13 +138,30 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       `;
     }
 
-    // 6. Mark time entries as invoiced
-    await sql`
+    // 6. Claim the entries with a PREDICATED update, and check the row count.
+    // The old UPDATE matched on id + company only and its count was discarded,
+    // so a loser that had already been beaten to these entries still reported
+    // success and left a second billed invoice behind.
+    //
+    // `billed_at IS NULL` is here and in the read above because this table has
+    // TWO billing subsystems on it. The practice WIP path marks an entry
+    // status='billed' + billed_at, leaving `invoiced` false; this route read
+    // only `invoiced = false`, so every entry the practice path had already
+    // invoiced was still offered here and billed to the client a second time —
+    // no concurrency required. The reverse hole does not exist: this route sets
+    // status='invoiced', which the WIP path's status='approved' already excludes.
+    const claimed = (await sql`
       UPDATE time_entries
       SET invoiced = true, invoice_id = ${invoiceId}::UUID, status = 'invoiced', updated_at = NOW()
       WHERE id = ANY(${entries.map(e => String(e.id))}::UUID[])
         AND company_id = ${companyId}::UUID
-    `;
+        AND invoiced = false
+        AND billed_at IS NULL
+      RETURNING id
+    `) as Row[];
+    if (claimed.length !== entries.length) {
+      throw new TimeEntriesNotClaimedError(entries.length, claimed.length);
+    }
 
     log.info('Time entries converted to invoice', {
       invoiceNumber, invoiceId, count: entries.length, totalAmount,
@@ -150,6 +178,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('time-entries-invoice failed', { error: msg }, 'accounting-api');
+    // 503 with Retry-After for contention, 500 for everything else. Both are
+    // >= 500, so withAuth ROLLBACKs either way and no partial invoice survives.
+    if (respondIfLockTimeout(res, err)) return;
+    // R-119, pre-write: the entries or the tax rate make a negative or
+    // non-numeric total. The operator fixes the entry — it is not a fault —
+    // so answer 400 with the remedy rather than a 500 that pages someone.
+    if (err instanceof NegativeDocumentTotalError) {
+      return apiResponse.badRequest(res, err.message);
+    }
     return apiResponse.internalError(res, err, 'Failed to create invoice from time entries');
   }
 }

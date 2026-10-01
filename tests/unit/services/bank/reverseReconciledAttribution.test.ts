@@ -13,11 +13,27 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// The VAT-lock guard runs its own queries (advisory lock, active-lock read,
+// account subtypes), which would shift this file's positional sql mock. It is
+// exercised against a real ledger in tests/integration/vat-period-lock-*.int.test.ts;
+// here it is a no-op, and the error class stays real.
+vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalVatLockGuard')>()),
+  assertJournalVatPeriodOpen: vi.fn(async () => undefined),
+  assertJournalDateOutsideVatLock: vi.fn(async () => undefined),
+  takeVatLockShared: vi.fn(async () => undefined),
+  findActiveVatLock: vi.fn(async () => null),
+  journalMovesVatFigure: vi.fn(async () => false),
+  loadJournalVatLines: vi.fn(async () => []),
+}));
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn().mockResolvedValue([]), { transaction: vi.fn() });
   return {
     sql: sqlFn,
     withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)),
+    // The reversal's writes run inside a savepoint; with `sql` mocked there is
+    // no transaction to hold one, so run the body straight through.
+    withSavepoint: vi.fn((_name: string, fn: () => unknown) => fn()),
     fmtDate: vi.fn(() => '2026-08-04'),
   };
 });
@@ -25,7 +41,11 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   createJournalEntry: vi.fn(),
   postJournalEntry: vi.fn(),
-  reverseJournalEntry: vi.fn(),
+  reverseJournalEntry: vi.fn(async () => ({ vatLockRoll: null })),
+  resolveReversalDate: vi.fn(async () => '2026-08-04'),
+}));
+vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
+  getPeriodStatusForDate: vi.fn(async () => 'open'),
 }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccountId: vi.fn(),
@@ -54,13 +74,17 @@ const LINE_ID = '33333333-3333-3333-3333-333333333333';
 const JE_ID = '44444444-4444-4444-4444-444444444444';
 const USER_ID = '55555555-5555-5555-5555-555555555555';
 
-/** SELECT tx → SELECT journal_entry_id for the matched line → UPDATE reset. */
+/**
+ * SELECT tx → SELECT journal_entry_id for the matched line → SELECT entry_date
+ * for the reversal-date pre-flight → UPDATE reset.
+ */
 function primeReversal(): void {
   vi.mocked(sql)
     .mockResolvedValueOnce([
       { id: TX_ID, status: 'allocated', matched_journal_line_id: LINE_ID },
     ] as never)
     .mockResolvedValueOnce([{ journal_entry_id: JE_ID }] as never)
+    .mockResolvedValueOnce([{ entry_date: '2026-08-04' }] as never)
     .mockResolvedValueOnce([] as never);
 }
 
@@ -103,5 +127,20 @@ describe('reverseReconciledTransaction — posting-agent attribution', () => {
     );
     expect(update).toBeDefined();
     expect(update!.slice(1)).toContain(COMPANY_ID);
+  });
+
+  // A coded refusal from the reversal must reach the route/MCP boundary as
+  // ITSELF: rewrapped as a plain Error it lost its class (no 400 mapping) and
+  // its code (no REFUSAL_CODES wording). A plain failure keeps the old wrapper.
+  it('rethrows a coded refusal (VatPeriodLockedError) unchanged, and still wraps a plain failure', async () => {
+    const { VatPeriodLockedError } = await import('@/modules/accounting/services/gl/journalVatLockGuard');
+    const refusal = new VatPeriodLockedError('2026-06-10', { id: 'l', periodStart: '2026-05-01', periodEnd: '2026-06-30' });
+    primeReversal();
+    vi.mocked(reverseJournalEntry).mockRejectedValueOnce(refusal);
+    await expect(reverseReconciledTransaction(COMPANY_ID, TX_ID, USER_ID)).rejects.toBe(refusal);
+
+    primeReversal();
+    vi.mocked(reverseJournalEntry).mockRejectedValueOnce(new Error('boom'));
+    await expect(reverseReconciledTransaction(COMPANY_ID, TX_ID, USER_ID)).rejects.toThrow('Cannot reverse: boom');
   });
 });

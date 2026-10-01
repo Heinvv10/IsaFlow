@@ -29,8 +29,17 @@ import {
   getPayrollRun,
   type PayrollRunSummary,
 } from '@/modules/accounting/services/payroll/payrollRunService';
-import { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
+import {
+  approvePayrollRun,
+  findApprovalBlocker,
+} from '@/modules/accounting/services/payroll/payrollApprovalService';
+import { PayrollApprovalRefusedError } from '@/modules/accounting/services/payroll/payrollApprovalRefusal';
 import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
+import {
+  PayrollLoanLockTimeoutError,
+  PayrollRunJournalPostedError,
+  runHasLoanWork,
+} from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -90,12 +99,19 @@ export const calculatePayRunTool: McpTool = {
     if (!run) return toolError(NOT_FOUND);
 
     if (args.dry_run === true) {
+      // dry_run must run the row-state guards the live path runs. Without this
+      // a reopened run whose GL journal is still posted was promised a recost
+      // that calculatePayrollRun then refuses.
+      const blocked = run.journalEntryId != null
+        && await runHasLoanWork(ctx.companyId, runId, run.periodYear, run.periodMonth);
       return ok({
         dryRun: true,
         wroteNothing: true,
         journals: [],
-        effects: [`Recost run ${run.periodMonth}/${run.periodYear} (status '${run.status}') and rebuild its lines.`],
-        skipped: [],
+        effects: blocked
+          ? []
+          : [`Recost run ${run.periodMonth}/${run.periodYear} (status '${run.status}') and rebuild its lines.`],
+        skipped: blocked ? [new PayrollRunJournalPostedError(runId).message] : [],
         current: runPayload(run),
       });
     }
@@ -114,6 +130,12 @@ export const calculatePayRunTool: McpTool = {
       // registry's savepoint rather than being flattened into a tool error
       // that would leave the lines half-rebuilt and the key freed.
       if (err instanceof PayrollRunLockedError) return toolError(err.message);
+      // Same shape: raised before any line is touched, and the message names
+      // the action the agent must take instead.
+      if (err instanceof PayrollRunJournalPostedError
+        || err instanceof PayrollLoanLockTimeoutError) {
+        return toolError(err.message);
+      }
       throw err;
     }
   },
@@ -126,8 +148,9 @@ export const approvePayRunTool: McpTool = {
     + '(including employer UIF and SDL) / CR PAYE, UIF, SDL, deductions and net pay. '
     + 'This is not a status flip: it writes to the general ledger, and it requires the '
     + 'write:post permission. Approvable from draft, calculated or processed. '
-    + 'Run calculate_pay_run first and check the totals — approving an uncosted run posts nothing '
-    + 'but marks the month done. Reversal is by a reversing journal, not by re-approving.',
+    + 'Run calculate_pay_run first and check the totals — an uncosted run, or one whose journal '
+    + 'cannot post (closed period, deactivated account, missing account), is refused before it is '
+    + 'approved. Reversal is by a reversing journal, not by re-approving.',
   scope: 'write:payroll',
   write: true,
   requiresPost: true,
@@ -164,31 +187,34 @@ export const approvePayRunTool: McpTool = {
       );
     }
 
+    const preview = (skipped: Array<{ id: string; reason: string; detail: string }>) => ok({
+      dryRun: true,
+      wroteNothing: true,
+      journals: [],
+      effects: [
+        // A reopened run keeps its journal; the live call posts nothing and returns it.
+        run.journalEntryId
+          ? `Approve run ${run.periodMonth}/${run.periodYear}. It already carries journal `
+            + `${run.journalEntryId}, which is returned — nothing new is posted.`
+          : `Approve run ${run.periodMonth}/${run.periodYear} and POST its journal: `
+            + `${run.employeeCount} employees, gross ${run.totalGross}, PAYE ${run.totalPaye}, `
+            + `UIF ${run.totalUif}, SDL ${run.totalSdl}, net ${run.totalNet}.`,
+      ],
+      skipped,
+      current: runPayload(run),
+    });
 
-    if (args.dry_run === true) {
-      return ok({
-        dryRun: true,
-        wroteNothing: true,
-        journals: [],
-        effects: [
-          `Approve run ${run.periodMonth}/${run.periodYear} and POST its journal: `
-          + `${run.employeeCount} employees, gross ${run.totalGross}, PAYE ${run.totalPaye}, `
-          + `UIF ${run.totalUif}, SDL ${run.totalSdl}, net ${run.totalNet}.`,
-        ],
-        skipped: run.employeeCount === 0
-          ? [{ id: run.id, reason: 'run_not_costed', detail: 'No lines — run calculate_pay_run first.' }]
-          : [],
-        current: runPayload(run),
-      });
-    }
-
-    // REFUSED on the LIVE path, not warned — and after the dry run, so a
-    // preview still previews. Approving sets status 'approved', which is a
-    // LOCKED status: `calculate_pay_run` is refused permanently thereafter and
-    // there is no MCP tool to reopen a run. An agent that approved a run
-    // costing nobody would lock the month with an empty journal and have no
-    // connector path back out.
+    // An uncosted run is answered first, by name: its plan would otherwise be
+    // refused as `nothing_to_post`, which does not say what to do. The preview
+    // still previews (flagged skipped); the LIVE call is refused, not warned.
+    // Approving sets status 'approved', which is a LOCKED status:
+    // `calculate_pay_run` is refused permanently thereafter and there is no MCP
+    // tool to reopen a run. An agent that approved a run costing nobody would
+    // lock the month with an empty journal and have no connector path back out.
     if (run.employeeCount === 0) {
+      if (args.dry_run === true) {
+        return preview([{ id: run.id, reason: 'run_not_costed', detail: 'No lines — run calculate_pay_run first.' }]);
+      }
       return toolError(
         'This run has costed nobody — approving it would lock the month with an empty journal '
         + 'and there is no connector tool to reopen a locked run. '
@@ -196,16 +222,33 @@ export const approvePayRunTool: McpTool = {
       );
     }
 
-    // No catch. The refusals above are the only ones answerable from a
-    // read; a failure during approve-and-post must reach the registry's
+    // The service refuses a run whose journal cannot post BEFORE it approves
+    // it (K-079). The dry run asks the same question, so it refuses what the
+    // live call refuses.
+    if (args.dry_run === true) {
+      const blocker = await findApprovalBlocker(ctx.companyId, runId);
+      if (blocker) return toolError(`The journal for this run cannot post, so it was not approved: ${blocker.detail}`);
+      return preview([]);
+    }
+
+    // Only the service's own pre-write refusal is returned: nothing has been
+    // written, so releasing the savepoint commits nothing. Everything else is
+    // rethrown — a failure during approve-and-post must reach the registry's
     // savepoint, because a returned error there would RELEASE it and commit a
     // run marked approved against a journal that did not post.
-    const approved = await approvePayrollRun(ctx.companyId, runId, ctx.userId, {
-      postingAgent: APPROVE_TOOL_AGENT,
-    });
+    let approved;
+    try {
+      approved = await approvePayrollRun(ctx.companyId, runId, ctx.userId, {
+        postingAgent: APPROVE_TOOL_AGENT,
+      });
+    } catch (err) {
+      if (err instanceof PayrollApprovalRefusedError) return toolError(`Not approved: ${err.message}`);
+      throw err;
+    }
     return ok({
       ...runPayload(approved),
       journal_entry_id: approved.journalEntryId,
+      advisories: approved.advisories,
     });
   },
 };

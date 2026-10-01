@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
+import { ApprovalEnforcementPanel } from '@/components/accounting/approvals/ApprovalEnforcementPanel';
 
 function formatCurrency(amount: number): string {
   return 'R ' + Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -32,6 +33,8 @@ interface ApprovalRequest {
   documentId: string;
   documentReference: string | null;
   amount: number | null;
+  /** What the request vouches for (R-035); approve must send it back as expectedDigest. */
+  documentDigest: string | null;
   status: string;
   requestedByName?: string;
   requestedAt: string;
@@ -85,18 +88,30 @@ export default function ApprovalsPage() {
 
   useEffect(() => { void fetchData(); }, [fetchData]);
 
-  const handleDecision = async (requestId: string, action: 'approve' | 'reject') => {
+  const handleDecision = async (req: ApprovalRequest, action: 'approve' | 'reject') => {
+    const requestId = req.id;
     setDeciding(requestId);
+    setError('');
     try {
       const res = await apiFetch('/api/accounting/approval-requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, requestId }),
+        // Approving vouches for the content this row showed: the API refuses an
+        // approve that does not name it (400), or names a stale one (409).
+        body: JSON.stringify(action === 'approve' && req.documentDigest
+          ? { action, requestId, expectedDigest: req.documentDigest }
+          : { action, requestId }),
       });
-      if (!res.ok) throw new Error('Failed');
+      if (!res.ok) {
+        // A 403 here is a segregation-of-duties refusal carrying the reason it
+        // was refused. Discarding the body left it indistinguishable from a
+        // network failure, so nobody learned why the button did nothing.
+        const json = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        throw new Error(json?.error?.message || 'Failed to process decision');
+      }
       await fetchData();
-    } catch {
-      setError('Failed to process decision');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to process decision');
     } finally {
       setDeciding(null);
     }
@@ -150,12 +165,19 @@ export default function ApprovalsPage() {
           </div>
         )}
 
+        {/* R-149: mounted outside the `loading` branch — the switch's own preview
+            GET fires on mount, and gating it on `loading` unmounted/remounted it
+            (and refired the GET) every time the shared rules/requests fetch
+            re-ran after the tab switch, doubling the request for one visit. */}
+        {tab === 'rules' && <ApprovalEnforcementPanel />}
+
         {loading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
           </div>
         ) : tab === 'rules' ? (
-          /* Rules Tab */
+          /* Rules Tab — R-035: rules the Enforce switch (above) governs */
+          <div className="space-y-4">
           <div className="bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] rounded-xl overflow-hidden">
             <table className="w-full text-sm">
               <thead>
@@ -191,6 +213,7 @@ export default function ApprovalsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
           </div>
         ) : (
           /* Pending / History Tab */
@@ -229,14 +252,14 @@ export default function ApprovalsPage() {
                 {req.status === 'pending' && (
                   <div className="flex gap-2 flex-shrink-0">
                     <button
-                      onClick={() => void handleDecision(req.id, 'approve')}
+                      onClick={() => void handleDecision(req, 'approve')}
                       disabled={deciding === req.id}
                       className="flex items-center gap-1 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                     >
                       <CheckCircle2 className="h-4 w-4" /> Approve
                     </button>
                     <button
-                      onClick={() => void handleDecision(req.id, 'reject')}
+                      onClick={() => void handleDecision(req, 'reject')}
                       disabled={deciding === req.id}
                       className="flex items-center gap-1 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                     >

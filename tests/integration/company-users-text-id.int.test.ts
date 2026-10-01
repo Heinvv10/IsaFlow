@@ -17,6 +17,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
+import { als } from '@/lib/als';
 import {
   userBelongsToCompany,
   userBelongsToGroup,
@@ -122,14 +123,32 @@ describe('company_users.user_id is text — queries must not cast the parameter 
   });
 
   describe('company user management', () => {
+    // listCompanyUsers reads through company_member_directory (mig 716), which
+    // answers only inside a withAuth-shaped session: app_user, JWT sub, and
+    // the active company (R-152).
+    async function listAsOwner() {
+      const client = await admin.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('SET LOCAL ROLE app_user');
+        await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: OWNER })]);
+        await client.query("SELECT set_config('app.current_company_id', $1, true)", [COMPANY]);
+        return await als.run({ client, userId: OWNER, companyId: COMPANY, claims: {} } as never,
+          () => listCompanyUsers(COMPANY));
+      } finally {
+        await client.query('ROLLBACK');
+        client.release();
+      }
+    }
+
     it('lists company users', async () => {
-      const rows = await listCompanyUsers(COMPANY);
+      const rows = await listAsOwner();
       expect(rows.map(r => r.userId).sort()).toEqual([OWNER, MEMBER].sort());
     });
 
     it('updates a role without an operator-does-not-exist error', async () => {
       await updateCompanyUserRole(COMPANY, MEMBER, 'manager');
-      const rows = await listCompanyUsers(COMPANY);
+      const rows = await listAsOwner();
       expect(rows.find(r => r.userId === MEMBER)?.role).toBe('manager');
       // restore so the remove test still has two owners to work with
       await updateCompanyUserRole(COMPANY, MEMBER, 'owner');
@@ -137,7 +156,7 @@ describe('company_users.user_id is text — queries must not cast the parameter 
 
     it('removes a company user without an operator-does-not-exist error', async () => {
       await removeCompanyUser(COMPANY, MEMBER);
-      const rows = await listCompanyUsers(COMPANY);
+      const rows = await listAsOwner();
       expect(rows.map(r => r.userId)).toEqual([OWNER]);
       // put it back for afterAll symmetry
       await admin.query(

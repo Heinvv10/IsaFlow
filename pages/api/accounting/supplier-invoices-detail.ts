@@ -1,6 +1,7 @@
 /**
  * Supplier Invoice Detail API
- * GET /api/accounting/supplier-invoices-detail?id=UUID - Get invoice with items
+ * GET /api/accounting/supplier-invoices-detail?id=UUID - Get invoice with items and,
+ *   while it is unposted, its derived approval state (R-035)
  * PUT - Update draft invoice fields
  */
 
@@ -12,6 +13,8 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { withContentEditorStamp } from '@/modules/accounting/services/ap/supplierInvoiceContentEditor';
+import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -22,7 +25,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!id) return apiResponse.badRequest(res, 'id query parameter is required');
       const invoice = await getSupplierInvoiceById(companyId, id);
       if (!invoice) return apiResponse.notFound(res, 'Supplier invoice', id);
-      return apiResponse.success(res, invoice);
+      // R-035: the derived approval state, while the bill can still be approved.
+      const approval = invoice.status === 'draft' || invoice.status === 'pending_approval'
+        ? await describeApprovalGate(companyId, 'supplier_invoice', id) : null;
+      return apiResponse.success(res, { ...invoice, approval });
     } catch (err) {
       log.error('Failed to get supplier invoice detail', { error: err }, 'accounting-api');
       return apiResponse.badRequest(res, 'Failed to get supplier invoice');
@@ -33,7 +39,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { id, invoiceNumber, invoiceDate, dueDate, paymentTerms, notes } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
     try {
-      await sql`
+      // R-035: an edit that moves the approval digest makes this user its author.
+      const userId = (req as CompanyAuthedRequest).user.id;
+      const updatedRows = await withContentEditorStamp(companyId, id, userId, () => sql`
         UPDATE supplier_invoices
         SET invoice_number = COALESCE(${invoiceNumber || null}, invoice_number),
             invoice_date = COALESCE(${invoiceDate || null}, invoice_date),
@@ -42,7 +50,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             notes = COALESCE(${notes || null}, notes),
             updated_at = NOW()
         WHERE id = ${id}::UUID AND company_id = ${companyId} AND status IN ('draft', 'pending_approval')
-      `;
+        RETURNING id
+      `);
+      if (updatedRows.length === 0) {
+        const existing = await getSupplierInvoiceById(companyId, id);
+        if (!existing) return apiResponse.notFound(res, 'Supplier invoice', id);
+        // Status moved back to editable between the UPDATE and this read.
+        if (existing.status === 'draft' || existing.status === 'pending_approval') {
+          return apiResponse.conflict(res, 'The invoice changed while saving; reload and try again');
+        }
+        return apiResponse.badRequest(res,
+          `Only draft or pending-approval invoices can be edited (this invoice is ${existing.status})`);
+      }
       log.info('Supplier invoice updated', { id });
       const updated = await getSupplierInvoiceById(companyId, id);
       return apiResponse.success(res, updated);

@@ -20,6 +20,8 @@ import { listJournalsTool } from './tools/journals';
 import { attachDocumentTool } from './tools/writeAttachDocument';
 import { getMatchCandidatesTool } from './tools/bankMatch';
 import { listUnappliedReceiptsTool, suggestReceiptMatchesTool } from './tools/receipts';
+import { listUnappliedPaymentsTool } from './tools/supplierPayments';
+import { listSupplierPaymentsTool } from './tools/listSupplierPayments';
 import { applyReceiptToInvoiceTool } from './tools/writeApplyReceipt';
 import { applyPaymentToSupplierInvoiceTool } from './tools/writeApplySupplierPayment';
 import { reverseJournalEntryTool } from './tools/writeJournalReverse';
@@ -33,6 +35,9 @@ import {
 import { vatStatusTool } from './tools/vat';
 import { chartOfAccountsHealthTool, dataIntegrityChecksTool } from './tools/integrity';
 import { lockVatPeriodTool, vat201ExportTool, vatReconciliationTool } from './tools/vatReports';
+import { markVatDeclaredElsewhereTool } from './tools/vatDeclaredElsewhere';
+import { vatExceptionsTool } from './tools/vatExceptions';
+import { linkDocumentToJournalTool } from './tools/journalDocumentLink';
 import { listAgentPostingsTool } from './tools/agentActivity';
 import { auditTrailTool } from './tools/auditTrail';
 import {
@@ -54,6 +59,11 @@ import { importBankStatementTool, undoBankImportTool } from './tools/writeBankIm
 import {
   bulkAllocateBankTransactionsTool,
 } from './tools/writeBankBulkAllocate';
+import { autoApplyUnappliedTool } from './tools/writeAutoApplyUnapplied';
+import { applyCreditNoteTool } from './tools/writeApplyCreditNote';
+import { cancelSupplierInvoiceTool } from './tools/writeCancelSupplierInvoice';
+import { updateSupplierInvoiceTool } from './tools/writeUpdateSupplierInvoice';
+import { unapplyCreditNoteTool, unapplySupplierPaymentTool } from './tools/writeUnapply';
 import { reverseBankAllocationBatchTool } from './tools/writeBankReverseBatch';
 import { reverseAllocationsTool } from './tools/writeBankReverseRange';
 import { setOpeningBalanceTool } from './tools/writeOpeningBalance';
@@ -68,10 +78,11 @@ import {
   createSupplierInvoiceTool,
   approveSupplierInvoiceTool,
 } from './tools/writeSupplierInvoices';
-import {
-  bulkCreateSupplierInvoicesTool,
-  bulkCreateCustomerInvoicesTool,
-} from './tools/writeBulkInvoices';
+import { bulkCreateSupplierInvoicesTool } from './tools/writeBulkInvoices';
+import { bulkApproveSupplierInvoicesTool } from './tools/writeBulkApproveSupplierInvoices';
+import { bulkFinalizeInvoicesTool } from './tools/writeBulkFinalizeInvoices';
+import { bulkApproveCreditNotesTool } from './tools/writeBulkApproveCreditNotes';
+import { bulkCreateCustomerInvoicesTool } from './tools/writeBulkCustomerInvoices';
 import { voidReceiptTool, voidPaymentTool } from './tools/writeVoidPayments';
 import { listBankRulesTool, getBankRuleTool } from './tools/bankRules';
 import { listCreditNotesTool, getCreditNoteTool } from './tools/creditNotes';
@@ -164,6 +175,7 @@ export const MCP_TOOLS = [
   vatStatusTool,
   vatReconciliationTool,
   vat201ExportTool,
+  vatExceptionsTool,
   dataIntegrityChecksTool,
   chartOfAccountsHealthTool,
   listAgentPostingsTool,
@@ -188,6 +200,8 @@ export const MCP_TOOLS = [
   getCreditNoteTool,
   suggestReceiptMatchesTool,
   listUnappliedReceiptsTool,
+  listUnappliedPaymentsTool,
+  listSupplierPaymentsTool,
   // Period control and bank completeness (W3). The five reads that let a caller
   // see the posting lock and prove a bank account's history.
   listFiscalPeriodsTool,
@@ -217,7 +231,7 @@ export const MCP_TOOLS = [
   jobCostReportTool,
   budgetVarianceTool,
   proposeReclassificationTool,
-  // write (53) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  // write (56) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -226,9 +240,16 @@ export const MCP_TOOLS = [
   suggestBankAllocationTool,
   postJournalTool,
   finalizeInvoiceTool,
+  bulkFinalizeInvoicesTool,
   allocateBankTransactionTool,
   reverseBankAllocationTool,
   bulkAllocateBankTransactionsTool,
+  autoApplyUnappliedTool,
+  applyCreditNoteTool,
+  cancelSupplierInvoiceTool,
+  updateSupplierInvoiceTool,
+  unapplySupplierPaymentTool,
+  unapplyCreditNoteTool,
   reverseBankAllocationBatchTool,
   postReclassificationBatchTool,
   importBankStatementTool,
@@ -240,6 +261,7 @@ export const MCP_TOOLS = [
   createSupplierInvoiceTool,
   approveSupplierInvoiceTool,
   bulkCreateSupplierInvoicesTool,
+  bulkApproveSupplierInvoicesTool,
   bulkCreateCustomerInvoicesTool,
   voidReceiptTool,
   voidPaymentTool,
@@ -258,6 +280,7 @@ export const MCP_TOOLS = [
   submitTimeEntriesTool,
   createCreditNoteTool,
   approveCreditNoteTool,
+  bulkApproveCreditNotesTool,
   cancelCreditNoteTool,
   // Payroll: create_pay_run opens an empty period and posts nothing, so it is
   // not requiresPost. post_payroll_journal writes to gl_journal_entries and is.
@@ -287,9 +310,17 @@ export const MCP_TOOLS = [
   reopenFiscalPeriodTool,
   yearEndCloseTool,
   performBankReconciliationTool,
-  // Records that a VAT period has been filed. requiresPost because it freezes
-  // a filed return: a control an agent can set without write:post is not one.
+  // Records that a VAT period has been filed. requiresScope 'write:vat' (NOT
+  // requiresPost — it never posts a journal) because it freezes a filed
+  // return: a control an agent can set without that scope is not one.
   lockVatPeriodTool,
+  // Marks/unmarks a document "VAT declared outside IsaFlow" — never posts to
+  // the GL. requiresScope 'write:vat' (NOT requiresPost) because it changes
+  // what blocks a VAT period lock.
+  markVatDeclaredElsewhereTool,
+  // Links/unlinks a captured document to a posted journal — never posts to
+  // the GL. requiresPost because it changes what blocks a VAT exception/lock.
+  linkDocumentToJournalTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

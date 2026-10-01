@@ -15,14 +15,32 @@ export type RuleAllocType = 'account' | 'supplier' | 'customer';
 export type { PeriodStatus } from '../gl/periodStatusService';
 export { getPeriodStatusForDate } from '../gl/periodStatusService';
 
+/**
+ * Escape the LIKE metacharacters a rule's own pattern may contain.
+ *
+ * `match_pattern` is a literal the operator typed, not a pattern language they
+ * were offered. Unescaped, `_` is ILIKE's single-character wildcard, so a rule
+ * keyed on `SALARY_JAN` also claims `SALARYXJAN` and `exact` is not exact; `%`
+ * matches any run of characters, so `50% OFF` claims `50ANYTHING OFF`.
+ * `applyRules` auto-posts a journal for every row the match returns, so an
+ * over-match is a posted misallocation rather than a display glitch.
+ *
+ * Backslash is ILIKE's default escape character, so escaping it first (before
+ * the two wildcards) is what makes a literal backslash in the pattern stay one.
+ */
+function escapeLikeLiteral(matchPattern: string): string {
+  return matchPattern.replace(/[\\%_]/g, ch => `\\${ch}`);
+}
+
 /** Convert rule match type to SQL ILIKE pattern. */
 export function toSqlPattern(matchType: string, matchPattern: string): string {
+  const lit = escapeLikeLiteral(matchPattern);
   switch (matchType) {
-    case 'contains':    return `%${matchPattern}%`;
-    case 'starts_with': return `${matchPattern}%`;
-    case 'ends_with':   return `%${matchPattern}`;
-    case 'exact':       return matchPattern;
-    default:            return `%${matchPattern}%`;
+    case 'contains':    return `%${lit}%`;
+    case 'starts_with': return `${lit}%`;
+    case 'ends_with':   return `%${lit}`;
+    case 'exact':       return lit;
+    default:            return `%${lit}%`;
   }
 }
 
@@ -56,6 +74,7 @@ export async function findMatchingTxs(
       WHERE bank_account_id = ${bankAccountId}::UUID
         AND company_id = ${companyId}::UUID
         AND status = 'imported'
+        AND feed_state = 'posted'
         AND matched_journal_line_id IS NULL
         AND description ILIKE ${pattern}
       ORDER BY transaction_date
@@ -69,6 +88,7 @@ export async function findMatchingTxs(
       WHERE bank_account_id = ${bankAccountId}::UUID
         AND company_id = ${companyId}::UUID
         AND status = 'imported'
+        AND feed_state = 'posted'
         AND matched_journal_line_id IS NULL
         AND reference ILIKE ${pattern}
       ORDER BY transaction_date
@@ -81,6 +101,7 @@ export async function findMatchingTxs(
     WHERE bank_account_id = ${bankAccountId}::UUID
       AND company_id = ${companyId}::UUID
       AND status = 'imported'
+      AND feed_state = 'posted'
       AND matched_journal_line_id IS NULL
       AND (description ILIKE ${pattern} OR reference ILIKE ${pattern})
     ORDER BY transaction_date
@@ -115,20 +136,46 @@ export async function buildAutoCreateLines(args: BuildLinesArgs): Promise<Journa
     const id = await getSystemAccountId(vatAccountKey, companyId);
     return { glAccountId: id, debit: 0, credit: 0, description: 'VAT @ 15%', vatType: 'standard' as const };
   };
+  // `isDeposit` reached this function and only the `account` arm below used it.
+  // The supplier arm always emitted the PAYMENT direction and the customer arm
+  // always the RECEIPT direction, so a refund posted as its own opposite and
+  // the bank moved the wrong way by twice the line — the same defect
+  // `allocateTransaction` carried, on the one path with no human in the loop.
+  // `findMatchingTxs` filters on account, status and an ILIKE and has no sign
+  // filter, so any rule that matches a name matches its refunds too.
   if (allocType === 'supplier') {
-    const lines: JournalLineInput[] = [
-      { glAccountId: apAccountId!, debit: netAmount, credit: 0, description: entryDesc, vatType },
-      { glAccountId: bankGlAccountId, debit: 0, credit: totalAmount, description: entryDesc },
-    ];
-    if (hasVat) lines.splice(1, 0, { ...await vatLine(), debit: vatAmount });
+    const lines: JournalLineInput[] = isDeposit
+      ? [
+        { glAccountId: bankGlAccountId, debit: totalAmount, credit: 0, description: entryDesc },
+        { glAccountId: apAccountId!, debit: 0, credit: netAmount, description: entryDesc, vatType },
+      ]
+      : [
+        { glAccountId: apAccountId!, debit: netAmount, credit: 0, description: entryDesc, vatType },
+        { glAccountId: bankGlAccountId, debit: 0, credit: totalAmount, description: entryDesc },
+      ];
+    if (hasVat) {
+      // A refund REVERSES the input tax the purchase claimed, so the same
+      // vat_input account is credited rather than debited. The key itself is
+      // already alloc-type-derived upstream (bankRuleAutoPostLine).
+      if (isDeposit) lines.push({ ...await vatLine(), credit: vatAmount });
+      else lines.splice(1, 0, { ...await vatLine(), debit: vatAmount });
+    }
     return lines;
   }
   if (allocType === 'customer') {
-    const lines: JournalLineInput[] = [
-      { glAccountId: bankGlAccountId, debit: totalAmount, credit: 0, description: entryDesc },
-      { glAccountId: arAccountId!, debit: 0, credit: netAmount, description: entryDesc, vatType },
-    ];
-    if (hasVat) lines.push({ ...await vatLine(), credit: vatAmount });
+    const lines: JournalLineInput[] = isDeposit
+      ? [
+        { glAccountId: bankGlAccountId, debit: totalAmount, credit: 0, description: entryDesc },
+        { glAccountId: arAccountId!, debit: 0, credit: netAmount, description: entryDesc, vatType },
+      ]
+      : [
+        { glAccountId: arAccountId!, debit: netAmount, credit: 0, description: entryDesc, vatType },
+        { glAccountId: bankGlAccountId, debit: 0, credit: totalAmount, description: entryDesc },
+      ];
+    if (hasVat) {
+      if (isDeposit) lines.push({ ...await vatLine(), credit: vatAmount });
+      else lines.splice(1, 0, { ...await vatLine(), debit: vatAmount });
+    }
     return lines;
   }
   if (isDeposit) {

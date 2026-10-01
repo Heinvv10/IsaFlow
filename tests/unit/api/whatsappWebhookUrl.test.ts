@@ -20,13 +20,17 @@ vi.mock('@/modules/accounting/services/capture/whatsAppReplyService', () => ({
   sendWhatsAppMessage: vi.fn(async () => undefined),
 }));
 
+vi.mock('@/modules/accounting/services/capture/whatsAppVerificationService', () => ({
+  verifyWhatsAppDestination: vi.fn(async () => ({companyId: 'company-1', inboxId: 'inbox-1', tokenHash: 'fixture-proof'})),
+}));
+
 import handler from '../../../pages/api/accounting/capture/inbound/whatsapp';
 
 function mockReqRes() {
   const req = {
     method: 'POST',
     headers: { 'x-twilio-signature': 'sig' },
-    body: { From: 'whatsapp:+27820000000' },
+    body: { From: 'whatsapp:+27820000000', To: 'whatsapp:+27820000001', Body: '', NumMedia: '0', WaId: '27820000000' },
   } as unknown as NextApiRequest;
   const res = {
     statusCode: 0,

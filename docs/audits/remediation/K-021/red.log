@@ -1,0 +1,52 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k021-failed-reversal-commits-unwind.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-021
+
+{"level":"info","message":"API Request: POST /api/accounting/bank-transactions-action","timestamp":"2026-09-09T03:48:19.641Z","component":"API","requestId":"01M224FSHRC8SYK643SC6V3GNY","data":{"type":"request","method":"POST","url":"/api/accounting/bank-transactions-action","query":{},"body":{"action":"reverse","bankTransactionId":"626d1fad-fb0c-4cae-a448-cff76db33a77"}}}
+{"level":"info","message":"Unwound bank allocation application before journal reversal","timestamp":"2026-09-09T03:48:19.656Z","component":"accounting","requestId":"01M224FSHRC8SYK643SC6V3GNY","data":{"companyId":"ab66b05a-aba8-4a0d-81e6-46ef91432226","journalEntryId":"ea4779f4-270f-4f81-8374-f755c1c0ddc1","invoicesReopened":1,"amountUnapplied":1000,"paymentsCancelled":1}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T03:48:19.669Z","component":"accounting","requestId":"01M224FSHRC8SYK643SC6V3GNY","data":{"entryId":"c6e1494d-d07a-4bf2-b437-e571d72e9aee","entryNumber":"JE-2026-00002","lineCount":2}}
+{"level":"error","message":"Failed to post journal entry","timestamp":"2026-09-09T03:48:19.682Z","component":"accounting","requestId":"01M224FSHRC8SYK643SC6V3GNY","data":{"id":"c6e1494d-d07a-4bf2-b437-e571d72e9aee","error":{"name":"ClosedFiscalPeriodError","periodStatus":"closed","message":"Cannot post to closed fiscal period","stack":"ClosedFiscalPeriodError: Cannot post to closed fiscal period\n    at postJournalEntry (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/modules/accounting/services/gl/journalEntryPostingService.ts:94:15)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at reverseJournalEntry (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/modules/accounting/services/gl/journalEntryPostingService.ts:288:7)\n    at reverseReconciledTransaction (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/modules/accounting/services/bank/bankAllocationService.ts:645:9)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/pages/api/accounting/bank-transactions-action.ts:174:9)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/api-error-handler.ts:192:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/auth/withAuth.ts:207:25\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/auth/withAuth.ts:216:9"}}}
+{"level":"error","message":"Failed to reverse journal entry","timestamp":"2026-09-09T03:48:19.698Z","component":"accounting","requestId":"01M224FSHRC8SYK643SC6V3GNY","data":{"id":"ea4779f4-270f-4f81-8374-f755c1c0ddc1","error":{"name":"ClosedFiscalPeriodError","periodStatus":"closed","message":"Cannot post to closed fiscal period","stack":"ClosedFiscalPeriodError: Cannot post to closed fiscal period\n    at postJournalEntry (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/modules/accounting/services/gl/journalEntryPostingService.ts:94:15)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at reverseJournalEntry (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/modules/accounting/services/gl/journalEntryPostingService.ts:288:7)\n    at reverseReconciledTransaction (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/modules/accounting/services/bank/bankAllocationService.ts:645:9)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/pages/api/accounting/bank-transactions-action.ts:174:9)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/api-error-handler.ts:192:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/auth/withAuth.ts:207:25\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/auth/withAuth.ts:216:9"}}}
+{"level":"error","message":"Bank transaction action failed","timestamp":"2026-09-09T03:48:19.698Z","component":"accounting-api","requestId":"01M224FSHRC8SYK643SC6V3GNY","data":{"error":{"name":"Error","message":"Cannot reverse: Cannot post to closed fiscal period","stack":"Error: Cannot reverse: Cannot post to closed fiscal period\n    at reverseReconciledTransaction (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/modules/accounting/services/bank/bankAllocationService.ts:647:15)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/pages/api/accounting/bank-transactions-action.ts:174:9)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/api-error-handler.ts:118:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/api-error-handler.ts:91:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/api-error-handler.ts:192:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/auth/withAuth.ts:207:25\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/src/lib/auth/withAuth.ts:216:9\n    at /home/hein/Workspace/IsaFlow/.worktrees/fix-K-021/tests/integration/k021-failed-reversal-commits-unwind.int.test.ts:114:5\n    at file:///home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20"}}}
+{"level":"info","message":"API Response: POST /api/accounting/bank-transactions-action - 400 (59ms)","timestamp":"2026-09-09T03:48:19.699Z","component":"API","requestId":"01M224FSHRC8SYK643SC6V3GNY","data":{"type":"response","method":"POST","url":"/api/accounting/bank-transactions-action","statusCode":400,"duration":"59ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:48:19.699Z","component":"http","requestId":"01M224FSHRC8SYK643SC6V3GNY","data":{"event":"request_completed","route":"/api/accounting/bank-transactions-action","method":"POST","status":400,"durationMs":59,"userId":"541eb517-3a1b-4bf4-94f8-2228bd8ce29e","companyId":"ab66b05a-aba8-4a0d-81e6-46ef91432226","outcome":"client_error"}}
+ ❯ tests/integration/k021-failed-reversal-commits-unwind.int.test.ts (1 test | 1 failed) 251ms
+     × leaves the subledger untouched when the contra journal cannot be posted 86ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k021-failed-reversal-commits-unwind.int.test.ts > K-021 failed bank reversal > leaves the subledger untouched when the contra journal cannot be posted
+AssertionError: expected { bankTxStatus: 'allocated', …(4) } to deeply equal { bankTxStatus: 'allocated', …(4) }
+
+- Expected
++ Received
+
+  {
+-   "allocationRows": 1,
++   "allocationRows": 0,
+    "bankTxStatus": "allocated",
+-   "invoiceAmountPaid": 1000,
+-   "invoiceStatus": "paid",
+-   "paymentStatus": "reconciled",
++   "invoiceAmountPaid": 0,
++   "invoiceStatus": "approved",
++   "paymentStatus": "cancelled",
+  }
+
+ ❯ tests/integration/k021-failed-reversal-commits-unwind.int.test.ts:133:8
+    131|       paymentStatus: pay.rows[0].status,
+    132|       allocationRows: allocs.rows[0].n,
+    133|     }).toEqual({
+       |        ^
+    134|       bankTxStatus: 'allocated',
+    135|       invoiceAmountPaid: 1000,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  05:48:18
+   Duration  1.29s (transform 556ms, setup 0ms, import 896ms, tests 251ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

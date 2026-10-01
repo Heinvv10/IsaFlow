@@ -14,6 +14,7 @@ import {
   listEntryTemplates,
   createEntryTemplate,
 } from '@/modules/accounting/services/practice/practiceEntryTemplateService';
+import { PracticeClientNotInCompanyError } from '@/modules/accounting/services/practice/practiceClientFence';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const authed = req as CompanyAuthedRequest;
@@ -41,17 +42,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'template name is required');
     }
 
-    const template = await createEntryTemplate(companyId, userId, {
-      name: String(name),
-      practiceClientId: typeof practiceClientId === 'string' ? practiceClientId : null,
-      jobCategoryId: typeof jobCategoryId === 'string' ? jobCategoryId : null,
-      workItemId: typeof workItemId === 'string' ? workItemId : null,
-      defaultHours: defaultHours !== undefined && defaultHours !== null ? Number(defaultHours) : null,
-      taskDescription: typeof taskDescription === 'string' ? taskDescription : null,
-      notes: typeof notes === 'string' ? notes : null,
-      billable: typeof billable === 'boolean' ? billable : true,
-    });
-    return apiResponse.created(res, template);
+    try {
+      const template = await createEntryTemplate(companyId, userId, {
+        name: String(name),
+        practiceClientId: typeof practiceClientId === 'string' ? practiceClientId : null,
+        jobCategoryId: typeof jobCategoryId === 'string' ? jobCategoryId : null,
+        workItemId: typeof workItemId === 'string' ? workItemId : null,
+        defaultHours: defaultHours !== undefined && defaultHours !== null ? Number(defaultHours) : null,
+        taskDescription: typeof taskDescription === 'string' ? taskDescription : null,
+        notes: typeof notes === 'string' ? notes : null,
+        billable: typeof billable === 'boolean' ? billable : true,
+      });
+      return apiResponse.created(res, template);
+    } catch (err) {
+      if (err instanceof PracticeClientNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);

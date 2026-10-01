@@ -11,6 +11,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 type Row = Record<string, unknown>;
 
 const PutBody = z.object({
@@ -53,6 +54,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // ── PUT ──────────────────────────────────────────────────────────────────
   if (req.method === 'PUT') {
+    // R-032 (f): phone / mobile are the account's recovery contact.
+    await assertNotImpersonating();
     const parsed = PutBody.safeParse(req.body);
     if (!parsed.success) {
       return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);

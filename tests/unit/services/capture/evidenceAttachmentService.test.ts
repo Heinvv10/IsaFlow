@@ -9,8 +9,20 @@
  * The service issues these SQL calls in order:
  *   1. SELECT captured_documents (doc row lookup)
  *   2. SELECT gl_journal_entries JOIN bank_transactions (provisional match)
- *   3. UPDATE gl_journal_entries (flip to evidenced)
- *   4. UPDATE bank_transactions  (status = 'matched')
+ *   3. SELECT gl_journal_entries (documentJournalClaimGuard: one document,
+ *      one claim — VAT-gaps batch item 1)
+ *   4. SELECT gl_journal_document_links (documentJournalClaimGuard: not
+ *      already an active link — VAT-gaps batch item 1, migration 706)
+ *   5. UPDATE bank_transactions  (status = 'matched')
+ *   6. UPDATE gl_journal_entries (flip to evidenced)
+ *
+ * CALLS 5 AND 6 ARE IN THAT ORDER ON PURPOSE — the canonical lock order in
+ * `bank/.claude.md` is bank line before a PRE-EXISTING journal, and reversed
+ * these two writes invert every settlement path that holds a bank line and then
+ * reaches a journal. This docblock said 3=GL, 4=bank until round 10 — after the
+ * service had already been reordered — which is an instruction to the next
+ * author to put the deadlock back. `pins the canonical lock order` below is
+ * what makes the swap fail rather than this comment.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -24,7 +36,13 @@ const { sqlMock } = vi.hoisted(() => {
   return { sqlMock };
 });
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock, fmtDate: (x: unknown) => String(x) }));
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock,
+  fmtDate: (x: unknown) => String(x),
+  // Outside a request transaction withSavepoint runs fn directly; the real behaviour is
+  // pinned by tests/integration/r107-auto-attach-savepoint.int.test.ts.
+  withSavepoint: <T>(_name: string, fn: () => Promise<T>) => fn(),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -71,8 +89,10 @@ describe('attachEvidenceToProvisional', () => {
   it('returns non-null attachedJeId and bankTxId when a matching provisional exists', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);       // captured_documents
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);     // provisional match
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);                   // UPDATE gl_journal_entries
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);                   // documentJournalClaimGuard: not already posted
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);                   // documentJournalClaimGuard: not already linked
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);                   // UPDATE bank_transactions
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);                   // UPDATE gl_journal_entries
 
     const result = await attachEvidenceToProvisional(
       COMPANY_ID, DOC_ID, SUPPLIER_ID, MATCHING_AMOUNT, DOCUMENT_DATE,
@@ -82,17 +102,41 @@ describe('attachEvidenceToProvisional', () => {
     expect(result.bankTxId).toBe(BANK_TX_ID);
   });
 
-  it('issues exactly 4 SQL calls on the happy path (1 doc SELECT + 1 match SELECT + 2 UPDATEs)', async () => {
+  it('pins the canonical lock order: UPDATE bank_transactions before UPDATE gl_journal_entries', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard: not already linked
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);
 
     await attachEvidenceToProvisional(
       COMPANY_ID, DOC_ID, SUPPLIER_ID, MATCHING_AMOUNT, DOCUMENT_DATE,
     );
 
-    expect(vi.mocked(sqlMock)).toHaveBeenCalledTimes(4);
+    // The template STRINGS, joined — the first argument of a tagged-template
+    // call. Reading `.mock.calls[n][0]` alone would be the array, and
+    // `String()` on it hides which statement it is behind commas.
+    const statementAt = (n: number): string =>
+      (vi.mocked(sqlMock).mock.calls[n]![0] as unknown as string[]).join(' ');
+
+    expect(statementAt(4)).toMatch(/UPDATE\s+bank_transactions/);
+    expect(statementAt(5)).toMatch(/UPDATE\s+gl_journal_entries/);
+  });
+
+  it('issues exactly 6 SQL calls on the happy path (1 doc SELECT + 1 match SELECT + 2 guard SELECTs + 2 UPDATEs)', async () => {
+    vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard: not already linked
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);
+
+    await attachEvidenceToProvisional(
+      COMPANY_ID, DOC_ID, SUPPLIER_ID, MATCHING_AMOUNT, DOCUMENT_DATE,
+    );
+
+    expect(vi.mocked(sqlMock)).toHaveBeenCalledTimes(6);
   });
 
   it('returns nulls and issues no UPDATEs when the captured_documents row is not found', async () => {
@@ -164,8 +208,10 @@ describe('attachEvidenceToProvisional', () => {
   it('matches purely on amount and date when supplierId is null (uses alternative query branch)', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow({ bt_id: BANK_TX_ID })] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard: not already linked
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);
 
     const result = await attachEvidenceToProvisional(
       COMPANY_ID, DOC_ID, null, MATCHING_AMOUNT, DOCUMENT_DATE,
@@ -178,8 +224,10 @@ describe('attachEvidenceToProvisional', () => {
   it('accepts amount exactly R0.01 within tolerance as a valid match', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
     vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // documentJournalClaimGuard: not already linked
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
-    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: 'je' }] as never);
 
     const result = await attachEvidenceToProvisional(
       COMPANY_ID, DOC_ID, SUPPLIER_ID, MATCHING_AMOUNT + 0.01, DOCUMENT_DATE,
@@ -188,6 +236,19 @@ describe('attachEvidenceToProvisional', () => {
     // The service passes the totalAmount ±0.01 window to the query;
     // we model tolerance-passing matches by letting the SELECT return a row
     expect(result.attachedJeId).toBe(JE_ID);
+  });
+
+  it('returns nulls when the journal was evidenced by another request before the flip (predicated UPDATE matched nothing)', async () => {
+    vi.mocked(sqlMock).mockResolvedValueOnce([makeDocRow()] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([makeMatchRow()] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);   // documentJournalClaimGuard
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);   // documentJournalClaimGuard: not already linked
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);   // UPDATE bank_transactions
+    vi.mocked(sqlMock).mockResolvedValueOnce([] as never);   // UPDATE gl_journal_entries … AND needs_evidence = true
+
+    const result = await attachEvidenceToProvisional(COMPANY_ID, DOC_ID, SUPPLIER_ID, 1150, '2026-04-01');
+
+    expect(result).toEqual({ attachedJeId: null, bankTxId: null });
   });
 
   it('does not throw when no provisional match exists — resolves with nulls gracefully', async () => {

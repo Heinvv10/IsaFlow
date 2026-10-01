@@ -9,6 +9,12 @@ vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
+// The as-of WIP predicate is a nested sql fragment; built by the real `sql` it
+// would consume one of the queued results below. Its behaviour is pinned
+// against a database in tests/integration/r059-wip-aging-as-of.int.test.ts.
+vi.mock('@/modules/accounting/services/practice/wipAsOf', () => ({
+  wipInForceAsOf: vi.fn(() => 'TRUE'),
+}));
 
 import {
   getStaffUtilisation,
@@ -55,13 +61,11 @@ describe('getStaffUtilisation', () => {
     expect(row.utilisationPct).toBe(75);
   });
 
-  it('resolves userDisplayName from joined first_name + last_name', async () => {
+  it('resolves userDisplayName from approval_company_member_name', async () => {
     sqlMock.mockResolvedValueOnce([
       {
         user_id: USER_1,
-        first_name: 'Alex',
-        last_name: 'Botha',
-        email: 'alex@example.com',
+        display_name: 'Alex Botha',
         total_hours: '4',
         billable_hours: '4',
         billable_value: '3400',
@@ -78,9 +82,7 @@ describe('getStaffUtilisation', () => {
     sqlMock.mockResolvedValueOnce([
       {
         user_id: USER_1,
-        first_name: null,
-        last_name: null,
-        email: 'someone@example.com',
+        display_name: 'someone@example.com',
         total_hours: '1',
         billable_hours: '1',
         billable_value: '850',
@@ -97,9 +99,7 @@ describe('getStaffUtilisation', () => {
     sqlMock.mockResolvedValueOnce([
       {
         user_id: USER_1,
-        first_name: null,
-        last_name: null,
-        email: null,
+        display_name: null,
         total_hours: '2',
         billable_hours: '0',
         billable_value: '0',

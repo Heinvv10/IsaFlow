@@ -7,6 +7,17 @@ vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
   accountsBelongToCompany: vi.fn(),
 }));
+// The unattended VAT guard reads the contra account before posting (it refuses
+// a claim on an account where no supply can arise). Without this the tool
+// reaches a real pg pool with the fixture's fake company id. A plain expense
+// name, so the guard passes every documented code straight through — which is
+// what the pass-through cases below are asserting.
+vi.mock('@/lib/neon', () => ({
+  sql: vi.fn(async () => [
+    { vat_input_denied: false, account_code: '5410', account_name: 'Computer Expenses' },
+  ]),
+  getPoolForTests: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   customersBelongToCompany: vi.fn(),
   suppliersBelongToCompany: vi.fn(),
@@ -63,7 +74,7 @@ describe('allocate_bank_transaction', () => {
     const call = vi.mocked(allocateTransaction).mock.calls[0]!;
     expect(call[0]).toBe('company-1');           // tenant from ctx
     expect(call[3]).toBe('user-1');
-    expect(call[12]).toEqual({ postingAgent: 'mcp:allocate_bank_transaction:v1', actorType: 'agent', actorTokenJti: 'jti' });
+    expect(call[12]).toEqual({ postingAgent: 'mcp:allocate_bank_transaction:v1', actorType: 'agent', actorTokenJti: 'jti', autoApply: 'fifo' });
   });
 
   it('rejects a missing transaction_id without touching the ledger', async () => {
@@ -133,7 +144,8 @@ describe('allocate_bank_transaction', () => {
   );
 
   it.each(['standard', 'zero_rated', 'exempt', 'none'])(
-    'accepts the documented vat_code %j and passes it through unchanged',
+    'accepts the documented vat_code %j and passes it through unchanged '
+    + '(the guard does not fire on an ordinary expense account)',
     async (code) => {
       vi.mocked(allocateTransaction).mockResolvedValue({
         journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' },
@@ -416,7 +428,7 @@ describe('reverse_bank_allocation', () => {
   });
 
   it('reverses using the tenant from ctx', async () => {
-    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue({ invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0 });
 
     const res = await reverseBankAllocationTool.handler(
       { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', idempotency_key: 'k9' }, ctx,
@@ -435,7 +447,7 @@ describe('reverse_bank_allocation', () => {
   // mechanism the whole attribution safety model leans on would be the one
   // operation the review surface cannot see.
   it('stamps the contra journal with the reversal tool, not the human default', async () => {
-    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue({ invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0 });
 
     await reverseBankAllocationTool.handler(
       { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', idempotency_key: 'k9' }, ctx,

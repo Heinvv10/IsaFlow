@@ -27,8 +27,24 @@ vi.mock('@/lib/neon', () => {
   };
 });
 
+// R-035 PR2 review HIGH-1: the currency/rate check reads the company row; it
+// has its own integration test (r035-pr2-review-amounts). ZAR at 1 here.
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceCurrency', () => ({
+  resolveBillCurrency: async () => ({ currencyCode: 'ZAR', exchangeRate: 1 }),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
+}));
+// R-068's tenant fence runs ahead of this path's first query and is pinned by
+// tests/integration/supplier-ownership-fence-*.int.test.ts. Stubbed so the
+// queue below stays positional.
+vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
+  assertSupplierInCompany: vi.fn(async () => undefined),
+}));
+// Same for the line-account guard: pinned against a real chart by
+// tests/integration/bill-line-account-guard.int.test.ts.
+vi.mock('@/modules/accounting/services/ap/billLineAccountGuard', () => ({
+  assertBillLineAccounts: vi.fn(async () => undefined),
 }));
 
 vi.mock('@/modules/accounting/services/journalEntryService', () => ({

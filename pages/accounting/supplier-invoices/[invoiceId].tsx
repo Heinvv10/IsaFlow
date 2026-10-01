@@ -13,10 +13,16 @@ import type { SupplierInvoice, SupplierInvoiceItem } from '@/modules/accounting/
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { apiFetch } from '@/lib/apiFetch';
 import { ThreeWayMatchPanel } from '@/components/accounting/ap/ThreeWayMatchPanel';
+import { MarkVatDeclaredElsewhereButton } from '@/components/accounting/sars/MarkVatDeclaredElsewhereButton';
 import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
 import { SupplierInvoiceSummary } from '@/components/invoices/SupplierInvoiceSummary';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Breadcrumb } from '@/components/ui/Breadcrumb';
+import { buildInvoiceTrail } from '@/components/accounting/invoiceReturnContext';
 import { useSupplierInvoiceActions } from '@/modules/accounting/hooks/useSupplierInvoiceActions';
+import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
+import { SupplierInvoiceApprovalPanel } from '@/components/accounting/ap/SupplierInvoiceApprovalPanel';
+import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -35,7 +41,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-type InvoiceWithItems = SupplierInvoice & { items: SupplierInvoiceItem[] };
+type InvoiceWithItems = SupplierInvoice & { items: SupplierInvoiceItem[]; approval?: DocumentApprovalState | null };
 
 export default function SupplierInvoiceDetailPage() {
   const router = useRouter();
@@ -75,7 +81,13 @@ export default function SupplierInvoiceDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, invoiceId }),
       });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || 'Action failed'); }
+      if (!res.ok) {
+        const err = await res.json();
+        // R-035: 409 is the approval gate — reload so the page offers Submit for approval.
+        if (res.status === 409) await loadInvoice();
+        throw new Error(err.error?.message || 'Action failed');
+      }
+      notifyLateClaims(await res.json()); // approve: VAT claimed in a later period (s16(3))
       await loadInvoice();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed');
@@ -87,15 +99,16 @@ export default function SupplierInvoiceDetailPage() {
   const handleSaveEdit = async () => {
     setActionLoading('save');
     try {
-      await apiFetch('/api/accounting/supplier-invoices-detail', {
+      const res = await apiFetch('/api/accounting/supplier-invoices-detail', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: invoiceId, ...editForm }),
       });
+      if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || 'Save failed'); }
       setEditing(false);
       await loadInvoice();
-    } catch {
-      setError('Save failed');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
     }
     setActionLoading('');
   };
@@ -123,12 +136,15 @@ export default function SupplierInvoiceDetailPage() {
     </AppLayout>
   );
 
+  const trail = buildInvoiceTrail('supplier', router.query, invoice.supplierName, invoice.invoiceNumber);
+
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <Link href="/accounting/supplier-invoices" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-teal-600 mb-3">
-            <ArrowLeft className="h-4 w-4" /> Back to Supplier Invoices
+          <Breadcrumb items={trail.items} className="mb-3" />
+          <Link href={trail.back.href} className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-teal-600 mb-3">
+            <ArrowLeft className="h-4 w-4" /> Back to {trail.back.label}
           </Link>
           <div className="flex items-end justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
@@ -144,6 +160,7 @@ export default function SupplierInvoiceDetailPage() {
         </div>
 
         {error && <div className="mx-6 mt-4 flex items-center gap-2 p-3 bg-red-500/10 rounded-lg text-red-400 text-sm"><AlertCircle className="h-4 w-4" />{error}</div>}
+        <SupplierInvoiceApprovalPanel invoiceId={invoiceId as string} approval={invoice.approval} onChanged={loadInvoice} />
 
         <div className="p-6 space-y-6">
           <SupplierInvoiceSummary
@@ -169,6 +186,11 @@ export default function SupplierInvoiceDetailPage() {
               <FileText className="h-4 w-4" /> View GL Journal Entry
             </Link>
           )}
+          <MarkVatDeclaredElsewhereButton
+            kind="supplier" invoiceId={invoiceId as string}
+            glJournalEntryId={invoice.glJournalEntryId || null} taxAmount={invoice.taxAmount}
+            onMarked={() => void loadInvoice()}
+          />
 
           <ThreeWayMatchPanel invoiceId={invoiceId as string} />
 

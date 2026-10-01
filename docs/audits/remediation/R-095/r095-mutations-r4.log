@@ -1,0 +1,9 @@
+N1 overdue: future-dated invoice counted as not yet due: RED | Test Files  1 failed (1) | Tests  1 failed | 4 passed (5) | restored=identical
+N2 overdue: population rule dropped from not-yet-due: RED | Test Files  1 failed (1) | Tests  2 failed | 3 passed (5) | restored=identical
+N3 overdue: soft-delete leg dropped from not-yet-due: RED | Test Files  1 failed (1) | Tests  2 failed | 3 passed (5) | restored=identical
+N4 overdue: whole balance reported as overdue: RED | Test Files  1 failed (1) | Tests  2 failed | 3 passed (5) | restored=identical
+N5 overdue: due-date test inverted: RED | Test Files  1 failed (1) | Tests  2 failed | 3 passed (5) | restored=identical
+N6 statement: refund shown as a negative credit: RED | Test Files  1 failed (1) | Tests  1 failed | 4 passed (5) | restored=identical
+N7 invoices: NULL status stringified: RED | Test Files  1 failed (1) | Tests  1 failed | 4 passed (5) | restored=identical
+N8 chat: company taken from the request body: RED | Test Files  1 failed (1) | Tests  1 failed | 4 passed (5) | restored=identical
+N9 prompt: credit balance worded as outstanding:       Tests  1 failed | 18 passed (19) | restored=identical

@@ -1,0 +1,43 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k110-cost-centre-delete-unassigns.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/accounting/cost-centres-action","timestamp":"2026-09-09T09:34:30.776Z","component":"API","requestId":"01M22R9NVQZ2C1CA28BQ9BVKES","data":{"type":"request","method":"POST","url":"/api/accounting/cost-centres-action","query":{},"body":{"action":"delete","id":"1fee0e6d-8e1c-4a05-83f2-5698766319d4"}}}
+{"level":"info","message":"API Response: POST /api/accounting/cost-centres-action - 200 (51ms)","timestamp":"2026-09-09T09:34:30.830Z","component":"API","requestId":"01M22R9NVQZ2C1CA28BQ9BVKES","data":{"type":"response","method":"POST","url":"/api/accounting/cost-centres-action","statusCode":200,"duration":"51ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:34:30.831Z","component":"http","requestId":"01M22R9NVQZ2C1CA28BQ9BVKES","data":{"event":"request_completed","route":"/api/accounting/cost-centres-action","method":"POST","status":200,"durationMs":55,"userId":"c9ebe61a-71e9-4505-a30f-b9da49163985","companyId":"2d61c788-cbf7-4e97-95a4-f2daeb3bb14b","outcome":"ok"}}
+{"level":"info","message":"withAuth slow request","timestamp":"2026-09-09T09:34:30.844Z","component":"Auth","data":{"ms":147,"url":"/api/accounting/cost-centres-action"}}
+ ❯ tests/integration/k110-cost-centre-delete-unassigns.int.test.ts (1 test | 1 failed) 508ms
+   × refuses to delete a cost centre that payroll employees are assigned to 284ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k110-cost-centre-delete-unassigns.int.test.ts > refuses to delete a cost centre that payroll employees are assigned to
+AssertionError: expected { Object (centreRows, employeeCentre) } to deeply equal { centreRows: 1, …(1) }
+
+- Expected
++ Received
+
+  {
+-   "centreRows": 1,
+-   "employeeCentre": "1fee0e6d-8e1c-4a05-83f2-5698766319d4",
++   "centreRows": 0,
++   "employeeCentre": null,
+  }
+
+ ❯ tests/integration/k110-cost-centre-delete-unassigns.int.test.ts:56:6
+     54|   // RED: today the delete succeeds and the employee's assignment is s…
+     55|   expect({ centreRows: centres.rows.length, employeeCentre: emp.rows[0…
+     56|     .toEqual({ centreRows: 1, employeeCentre: centre });
+       |      ^
+     57| });
+     58|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:34:25
+   Duration  5.22s (transform 1.48s, setup 0ms, import 3.51s, tests 508ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

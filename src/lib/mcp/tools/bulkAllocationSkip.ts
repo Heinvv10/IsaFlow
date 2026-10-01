@@ -24,6 +24,7 @@ import type { ResolvedLine } from './bulkAllocationPrepare';
 import {
   applyRouteFor,
   fetchInvoiceStates,
+  signMismatchReason,
   skipReasonForInvoice,
   type ApplyKind,
 } from './allocationApplyRoute';
@@ -77,6 +78,10 @@ export function reasonForStatus(status: string): string {
  * passed a fixture and let the #261 batch through.
  */
 export function skipReasonFor(state: BankTransactionAllocationState): string | null {
+  // First: a non-posted feed row is refused by allocateTransaction mid-batch,
+  // which would unwind every good line beside it (A-4).
+  if (state.feedState === 'pending') return 'pending at the bank';
+  if (state.feedState === 'removed') return 'removed by the bank';
   if (state.status === 'imported' && state.matchedJournalLineId === null) return null;
   if (state.matchedJournalLineId !== null) {
     // An excluded row that ALSO carries a journal is a contradiction someone
@@ -126,7 +131,10 @@ export async function partitionAllocationLines(
   const skipped: SkippedLine[] = [];
   // Lines that cleared the row-state check, carried with the bank amount so
   // the invoice check below needs no further reads.
-  const candidates: { line: ResolvedLine; amount: number }[] = [];
+  // The SIGNED amount rides along beside the absolute one: the invoice checks
+  // want the magnitude, the direction check below wants the sign, and re-reading
+  // the row to recover it would put a second query on the hot path.
+  const candidates: { line: ResolvedLine; amount: number; signed: number }[] = [];
   for (const line of resolved) {
     const state = states.get(line.txId);
     // The id resolved but names no row this company has. Reported WITH the id
@@ -141,7 +149,7 @@ export async function partitionAllocationLines(
       skipped.push({ index: line.index, transaction_id: line.txId, reason });
       continue;
     }
-    candidates.push({ line, amount: Math.abs(state.amount) });
+    candidates.push({ line, amount: Math.abs(state.amount), signed: state.amount });
   }
 
   // Second pass: the invoice a line names may itself be settled, cancelled or
@@ -176,11 +184,27 @@ export async function partitionAllocationLines(
   const committed = new Map<string, number>();
   const claimedBy = new Map<string, number>();
 
-  for (const { line, amount } of candidates) {
+  for (const { line, amount, signed } of candidates) {
     const kind = applyRouteFor(line.line.allocType, line.line.invoiceId);
     const invoiceId = line.line.invoiceId;
     if (kind === null || !invoiceId) {
-      postable.push(line);
+      postable.push({ ...line, signedAmount: signed });
+      continue;
+    }
+
+    // BEFORE the balance check, and that order is load-bearing twice over: a
+    // line pointing the wrong way must not consume any of `committed`, or a
+    // later good line against the same invoice is skipped for a balance an
+    // impossible line claimed; and the reason it gets told has to be the sign,
+    // not "exceeds the outstanding", which sends the agent to fix a number.
+    //
+    // A SKIP rather than the single tool's refusal, on this file's standing
+    // rule: one contradictory line in a 500-line batch must not unwind 499 that
+    // are correct. `postAndApplyLine` raises the identical text as a
+    // BankLineDirectionError for the single-line tools.
+    const wrongWay = signMismatchReason(kind, signed);
+    if (wrongWay !== null) {
+      skipped.push({ index: line.index, transaction_id: line.txId, reason: wrongWay });
       continue;
     }
 
@@ -194,7 +218,7 @@ export async function partitionAllocationLines(
 
     const reason = skipReasonForInvoice(remaining, invoiceId, amount);
     if (reason === null) {
-      postable.push(line);
+      postable.push({ ...line, signedAmount: signed });
       committed.set(invoiceId, Math.round((already + amount) * 100) / 100);
       if (!claimedBy.has(invoiceId)) claimedBy.set(invoiceId, line.index);
       continue;

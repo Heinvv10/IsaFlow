@@ -1,6 +1,11 @@
 /**
  * Practice Client Rate Override Service
  * Manages per-staff billing rate overrides for specific clients.
+ *
+ * Staff names come from public.users through the company-bound SECURITY DEFINER
+ * functions (715 approval_company_member_profile, 716 company_member_directory),
+ * never auth.users: app_user has no grant on it, and a grant would expose every
+ * tenant's users (R-123).
  */
 
 import { sql } from '@/lib/neon';
@@ -48,8 +53,8 @@ function mapRow(row: Record<string, unknown>): ClientRateOverride {
     id: row.id as string,
     companyId: row.company_id as string,
     clientId: row.client_id as string,
-    staffUserId: row.staff_user_id as string,
-    ratePerHour: Number(row.rate_per_hour),
+    staffUserId: (row.staff_user_id ?? row.user_id) as string,
+    ratePerHour: Number(row.rate_per_hour ?? row.rate),
     effectiveFrom: fmtDate(row.effective_from),
     effectiveTo: row.effective_to ? fmtDate(row.effective_to) : null,
     notes: (row.notes as string | null) ?? null,
@@ -70,16 +75,18 @@ export async function listClientRateOverrides(
       pcro.company_id,
       pcro.client_id,
       pcro.staff_user_id,
+      pcro.user_id,
       pcro.rate_per_hour,
+      pcro.rate,
       pcro.effective_from,
       pcro.effective_to,
       pcro.notes,
       pcro.created_at,
       pcro.updated_at,
-      au.email AS staff_email,
-      au.raw_user_meta_data->>'full_name' AS staff_name
+      p.email AS staff_email,
+      NULLIF(TRIM(BOTH ' ' FROM COALESCE(p.first_name, '') || ' ' || COALESCE(p.last_name, '')), '') AS staff_name
     FROM practice_client_rate_overrides pcro
-    LEFT JOIN auth.users au ON au.id::text = pcro.staff_user_id::text
+    LEFT JOIN LATERAL approval_company_member_profile(pcro.company_id, COALESCE(pcro.staff_user_id, pcro.user_id)::text) p ON true
     WHERE pcro.company_id = ${companyId}
       AND pcro.client_id = ${clientId}
     ORDER BY pcro.effective_from DESC
@@ -96,9 +103,10 @@ export async function createClientRateOverride(
 
   const rows = await sql`
     INSERT INTO practice_client_rate_overrides
-      (company_id, client_id, staff_user_id, rate_per_hour, effective_from, effective_to, notes)
+      (company_id, client_id, staff_user_id, user_id, rate_per_hour, rate, effective_from, effective_to, notes)
     VALUES
-      (${companyId}, ${clientId}, ${input.staffUserId}, ${input.ratePerHour},
+      (${companyId}, ${clientId}, ${input.staffUserId}, ${input.staffUserId},
+       ${input.ratePerHour}, ${input.ratePerHour},
        ${input.effectiveFrom}, ${input.effectiveTo ?? null}, ${input.notes ?? null})
     RETURNING *
   `;
@@ -109,10 +117,10 @@ export async function createClientRateOverride(
   const withUser = await sql`
     SELECT
       pcro.*,
-      au.email AS staff_email,
-      au.raw_user_meta_data->>'full_name' AS staff_name
+      p.email AS staff_email,
+      NULLIF(TRIM(BOTH ' ' FROM COALESCE(p.first_name, '') || ' ' || COALESCE(p.last_name, '')), '') AS staff_name
     FROM practice_client_rate_overrides pcro
-    LEFT JOIN auth.users au ON au.id::text = pcro.staff_user_id::text
+    LEFT JOIN LATERAL approval_company_member_profile(pcro.company_id, COALESCE(pcro.staff_user_id, pcro.user_id)::text) p ON true
     WHERE pcro.id = ${inserted.id as string}
       AND pcro.company_id = ${companyId}
   `;
@@ -130,6 +138,7 @@ export async function updateClientRateOverride(
     UPDATE practice_client_rate_overrides
     SET
       rate_per_hour  = COALESCE(${input.ratePerHour ?? null}, rate_per_hour),
+      rate           = COALESCE(${input.ratePerHour ?? null}, rate),
       effective_from = COALESCE(${input.effectiveFrom ?? null}, effective_from),
       effective_to   = ${input.effectiveTo !== undefined ? (input.effectiveTo ?? null) : sql`effective_to`},
       notes          = ${input.notes !== undefined ? (input.notes ?? null) : sql`notes`},
@@ -145,10 +154,10 @@ export async function updateClientRateOverride(
   const withUser = await sql`
     SELECT
       pcro.*,
-      au.email AS staff_email,
-      au.raw_user_meta_data->>'full_name' AS staff_name
+      p.email AS staff_email,
+      NULLIF(TRIM(BOTH ' ' FROM COALESCE(p.first_name, '') || ' ' || COALESCE(p.last_name, '')), '') AS staff_name
     FROM practice_client_rate_overrides pcro
-    LEFT JOIN auth.users au ON au.id::text = pcro.staff_user_id::text
+    LEFT JOIN LATERAL approval_company_member_profile(pcro.company_id, COALESCE(pcro.staff_user_id, pcro.user_id)::text) p ON true
     WHERE pcro.id = ${overrideId}
       AND pcro.company_id = ${companyId}
   `;
@@ -174,13 +183,11 @@ export async function deleteClientRateOverride(
 export async function listCompanyStaff(companyId: string): Promise<CompanyStaffMember[]> {
   const rows = await sql`
     SELECT
-      cu.user_id,
-      au.email,
-      au.raw_user_meta_data->>'full_name' AS full_name
-    FROM company_users cu
-    LEFT JOIN auth.users au ON au.id::text = cu.user_id::text
-    WHERE cu.company_id = ${companyId}
-    ORDER BY au.email
+      d.user_id,
+      d.email,
+      NULLIF(TRIM(BOTH ' ' FROM COALESCE(d.first_name, '') || ' ' || COALESCE(d.last_name, '')), '') AS full_name
+    FROM company_member_directory(${companyId}) d
+    ORDER BY d.email
   `;
   return rows.map((row) => ({
     userId: row.user_id as string,

@@ -3,13 +3,12 @@
  *
  * List queries extracted from customers.ts and suppliers-list.ts so the MCP
  * read-tool layer can call the exact same functions the API routes use. SQL
- * text and parameter semantics are unchanged from the routes. No caching
- * lives here — cacheThrough wrapping (for the uncached-list case in
- * customers.ts, and the page-1 case in suppliers-list.ts) stays in the
- * routes.
+ * text and parameter semantics are unchanged from the routes. Neither list
+ * is cached, here or in the routes: suppliers since K-139, customers since
+ * R-125 (many writers bypass the routes, so no invalidation list was complete).
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 
 type Row = Record<string, unknown>;
 
@@ -26,6 +25,113 @@ export async function customerBelongsToCompany(companyId: string, customerId: st
     LIMIT 1
   `) as Row[];
   return rows.length > 0;
+}
+
+/**
+ * Refusal raised when a caller supplies a customer id that is not this
+ * company's. Typed so a route can answer 4xx instead of 500.
+ */
+export class CustomerNotInCompanyError extends Error {
+  readonly code = 'CUSTOMER_NOT_FOUND';
+  constructor(customerId: string) {
+    super(`Customer ${customerId} was not found for this company`);
+    this.name = 'CustomerNotInCompanyError';
+  }
+}
+
+/**
+ * Savepoint names are sequenced: Postgres SHADOWS a re-declared name, so two
+ * live subtransactions sharing one would make ROLLBACK TO unwind the wrong one.
+ */
+let ownershipSeq = 0;
+
+/**
+ * The tenant fence for a caller-supplied customer id, to be called BEFORE the
+ * first write of any path that stores one.
+ *
+ * `customerBelongsToCompany` has existed since the MCP write tools were built,
+ * but only the MCP layer ever called it: every HTTP route took `clientId` from
+ * the request body and wrote it into `customer_invoices.client_id` /
+ * `customer_id` (neither of which carries an (id, company_id) constraint, and
+ * the RLS WITH CHECK only tests the invoice's own company_id). The fence
+ * therefore lives HERE, in the service the route and the tool share, not in
+ * either caller.
+ *
+ * An absent id is NOT a refusal — a quote, sales order or recurring-transaction
+ * template may legitimately carry no customer, and every one of those columns
+ * is nullable.
+ *
+ * The read takes a SAVEPOINT: a malformed id raises 22P02, which aborts the
+ * request transaction withAuth opened, and a caller mid-batch would then see
+ * 25P02 on every subsequent statement instead of this refusal. A malformed id
+ * is by definition not a customer of this company, so it is refused; anything
+ * else propagates.
+ *
+ * It asks ONLY about the tenant, not about `deleted_at`. This is a tenant
+ * fence, and the paths it sits on are not all creates: quote update, sales-order
+ * update, practice-client update, recurring-transaction execute and bank
+ * allocation all take an id that an EXISTING company-owned row already carries,
+ * and `softDeleteService.ts:69-73` soft-deletes a customer with no check for
+ * open documents. Filtering deleted rows here therefore refuses edits that
+ * previously saved, with no cross-tenant exposure closed by the refusal —
+ * measured on `isaflow_dev`: editing a draft quote whose own-company customer
+ * had been soft-deleted raised CustomerNotInCompanyError. It also matches the
+ * guard this fix cites as its precedent, `customer-invoices-detail.ts:104-110`,
+ * which has no such clause. `customerBelongsToCompany` /
+ * `customersBelongToCompany` keep theirs: the MCP write tools call them to
+ * decide whether a NEW document may name a customer, which is a different
+ * question.
+ */
+export async function assertCustomerInCompany(
+  companyId: string,
+  customerId: string | null | undefined,
+): Promise<void> {
+  if (!customerId) return;
+  const owned = await withSavepoint(
+    `cust_own_${++ownershipSeq}`,
+    async () => {
+      const rows = (await sql`
+        SELECT 1 FROM customers
+        WHERE id = ${customerId}::uuid AND company_id = ${companyId}
+        LIMIT 1
+      `) as Row[];
+      return rows.length > 0;
+    },
+  ).catch((err: unknown) => {
+    // 22P02 invalid_text_representation — the id is not even a UUID.
+    if ((err as { code?: string }).code === '22P02') return false;
+    throw err;
+  });
+  if (!owned) throw new CustomerNotInCompanyError(customerId);
+}
+
+/** Supplier twin of CustomerNotInCompanyError (R-068). */
+export class SupplierNotInCompanyError extends Error {
+  readonly code = 'SUPPLIER_NOT_FOUND';
+  constructor(supplierId: string) {
+    super(`Supplier ${supplierId} was not found for this company`);
+    this.name = 'SupplierNotInCompanyError';
+  }
+}
+
+/**
+ * Supplier twin of assertCustomerInCompany (R-068), same contract: before the
+ * first write; absent id passes; savepointed read, malformed id refused;
+ * tenant only, not `deleted_at`. Every FK to `suppliers` but one is
+ * tenant-agnostic, so nothing else stops a body id naming another tenant's creditor.
+ */
+export async function assertSupplierInCompany(companyId: string, supplierId: string | null | undefined): Promise<void> {
+  if (!supplierId) return;
+  const owned = await withSavepoint(`supp_own_${++ownershipSeq}`, async () => {
+    const rows = (await sql`
+      SELECT 1 FROM suppliers WHERE id = ${supplierId}::uuid AND company_id = ${companyId} LIMIT 1
+    `) as Row[];
+    return rows.length > 0;
+  }).catch((err: unknown) => {
+    if ((err as { code?: string }).code === '22P02') return false;
+    throw err;
+  });
+  if (!owned) throw new SupplierNotInCompanyError(supplierId);
 }
 
 /**
@@ -80,28 +186,22 @@ export async function customersBelongToCompany(
   return rows.length === unique.length;
 }
 
-export async function listCustomers(companyId: string, search?: string | null): Promise<Row[]> {
-  const searchTerm = search && search.trim() ? `%${search.trim()}%` : null;
+export interface CustomerPage {
+  limit: number;
+  offset: number;
+}
 
-  if (searchTerm) {
-    // Search queries are not cached — results change with every keystroke
-    return (await sql`
-      SELECT
-        id, name, email, phone, contact_person,
-        payment_terms, credit_limit, is_active,
-        vat_number, registration_number,
-        created_at
-      FROM customers
-      WHERE company_id = ${companyId}
-        AND deleted_at IS NULL
-        AND (name ILIKE ${searchTerm}
-        OR email ILIKE ${searchTerm}
-        OR vat_number ILIKE ${searchTerm}
-        OR contact_person ILIKE ${searchTerm})
-      ORDER BY name ASC
-      LIMIT 200
-    `) as Row[];
-  }
+/**
+ * Customers ordered by name, then id — a total order, so offset pages neither
+ * skip nor repeat customers that share a name. The UI calls without `page` and
+ * gets the first 200, as it always has.
+ */
+export async function listCustomers(
+  companyId: string,
+  search?: string | null,
+  page: CustomerPage = { limit: 200, offset: 0 },
+): Promise<Row[]> {
+  const searchTerm = search && search.trim() ? `%${search.trim()}%` : null;
 
   return (await sql`
     SELECT
@@ -112,8 +212,13 @@ export async function listCustomers(companyId: string, search?: string | null): 
     FROM customers
     WHERE company_id = ${companyId}
       AND deleted_at IS NULL
-    ORDER BY name ASC
-    LIMIT 200
+      AND (${searchTerm}::text IS NULL
+        OR name ILIKE ${searchTerm}
+        OR email ILIKE ${searchTerm}
+        OR vat_number ILIKE ${searchTerm}
+        OR contact_person ILIKE ${searchTerm})
+    ORDER BY name ASC, id ASC
+    LIMIT ${page.limit} OFFSET ${page.offset}
   `) as Row[];
 }
 
@@ -149,7 +254,7 @@ export async function listSuppliers(
           OR email ILIKE ${searchTerm}
           OR company_name ILIKE ${searchTerm}
           OR contact_person ILIKE ${searchTerm})
-        ORDER BY name ASC
+        ORDER BY name ASC, id ASC
         LIMIT ${limit} OFFSET ${offset}
       `,
       sql`
@@ -175,7 +280,7 @@ export async function listSuppliers(
       FROM suppliers
       WHERE company_id = ${companyId}
         AND deleted_at IS NULL
-      ORDER BY name ASC
+      ORDER BY name ASC, id ASC
       LIMIT ${limit} OFFSET ${offset}
     `,
     sql`

@@ -1,0 +1,26 @@
+R-005 GREEN — EMP501 reconciliation aligned to EMP201_DECLARABLE_STATUSES
+
+Branch: fix/audit-k024-annual-export-declarable (second commit, on top of K-024)
+
+1) RED confirmed before the fix — see red.log. Both tests failed, in BOTH directions:
+   - the paid June run was dropped     (emp201Paye 2000 -> 0, status no_data)
+   - the calculated April run was kept (total PAYE 201000 instead of 3000)
+
+2) GREEN after the fix:
+   tests/integration/r005-emp501-reconciliation-declarable-status.int.test.ts
+   Test Files 1 passed (1) / Tests 2 passed (2)
+
+3) Mutation check — both predicates restored to
+   `status IN ('approved', 'posted', 'calculated')`:
+   Test Files 1 failed (1) / Tests 2 failed (2)   → restored.
+
+4) bunx tsc --noEmit — exit 0, no output.
+   bunx eslint pages/api/payroll/emp501/reconciliation.ts — exit 0, no output.
+
+5) Full unit suite, DATABASE_URL unset, two runs of the same tree:
+   run 1: Test Files 5 failed | 782 passed | 36 skipped (823)
+          Tests      10 failed | 9325 passed | 234 skipped (9569)
+   run 2: Test Files 2 failed | 820 passed (823)   [bankAllocationUnwind, cashFlowReport]
+   Every failure is a 10s+ timeout and the failing set differs between runs, under
+   parallel-agent load on this box. The affected files re-run in isolation on this
+   branch: Test Files 4 passed (4) / Tests 24 passed (24). Unrelated to this change.

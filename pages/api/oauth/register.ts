@@ -19,6 +19,8 @@ import type { NextApiHandler } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { isReservedClientName } from '@/lib/auth/reservedClientName';
+import { isLoopbackHost } from '@/lib/auth/oauthLoopback';
 import { log } from '@/lib/logger';
 import { registerOauthApp } from '@/lib/auth/oauth';
 import { pruneStaleDynamicApps } from '@/lib/auth/oauthDynamicClients';
@@ -36,13 +38,6 @@ const MAX_REDIRECT_URIS = 5;
 const MAX_REDIRECT_URI_LEN = 512;
 const MAX_NAME_LEN = 80;
 
-// Reserved terms a dynamic client_name may not contain (case-insensitive) —
-// stops a public DCR client claiming to BE IsaFlow or to be official/verified
-// to phish consent. Kept narrow to the impersonation-specific words so legit
-// names ("Acme Billing Bot", "Support Desk Connector") aren't blocked; generic
-// suspicion is already handled by the unverified-app warning on the consent
-// screen. First-party apps get is_first_party via a separate authed path, not DCR.
-const RESERVED_NAME_RE = /\b(isaflow|official|verified|first[-\s]?party)\b/i;
 const SUPPORTED_GRANT_TYPES = ['authorization_code', 'refresh_token'];
 const SUPPORTED_RESPONSE_TYPES = ['code'];
 
@@ -55,12 +50,7 @@ function isAcceptableRedirect(raw: string): boolean {
   let url: URL;
   try { url = new URL(raw); } catch { return false; }
   if (url.protocol === 'https:') return true;
-  if (
-    url.protocol === 'http:' &&
-    ['localhost', '127.0.0.1', '[::1]', '::1'].includes(url.hostname)
-  ) {
-    return true;
-  }
+  if (url.protocol === 'http:' && isLoopbackHost(url.hostname)) return true;
   return false;
 }
 
@@ -107,11 +97,33 @@ const handler: NextApiHandler = async (req, res) => {
   }
 
   // Optional metadata — validate what we honour, reject what we can't.
+  // NFC first, so the name we STORE and later display is the same string the
+  // reserved-name check compares. Some code points are letters the browser
+  // declines to draw — the CJK compatibility ideographs (U+FACF, U+2F803 and
+  // kin) render as nothing in Chromium even with CJK fonts installed, while
+  // occupying a full ideograph cell. "Isa<U+FACF>Flow" therefore READS as
+  // "Isa Flow", which this endpoint refuses, while comparing as neither. They
+  // are canonical singletons, so NFC maps each to the ideograph it stands for
+  // — a glyph that does render — and the gap between shown and compared closes
+  // at the boundary rather than in the matcher, which was right all along.
+  //
+  // A name already in NFC is stored byte-identical; a DECOMPOSED one is not,
+  // and that is the point — a macOS pasteboard hands you NFD, and composing it
+  // means the stored name is compared as the same thing it displays as.
+  //
+  // Normalise BEFORE the slice, not after. `.slice()` counts UTF-16 units and
+  // NFC can EXPAND: U+FACF is one unit, its canonical target is a surrogate
+  // pair, so cutting first would store 81 units against this 80-unit cap.
+  //
+  // Truncate BEFORE the reserved-name check, never after: the check's cost
+  // grows with length, and it runs before the global rate limit is charged, so
+  // a refused name is bounded only by this cut (~0.6ms at 80 chars, ~20ms on
+  // an untruncated 8kb body).
   const clientName =
     typeof body.client_name === 'string' && body.client_name.trim()
-      ? body.client_name.trim().slice(0, MAX_NAME_LEN)
+      ? body.client_name.trim().normalize('NFC').slice(0, MAX_NAME_LEN)
       : 'MCP Client';
-  if (RESERVED_NAME_RE.test(clientName)) {
+  if (isReservedClientName(clientName)) {
     return res.status(400).json(
       rfcError('invalid_client_metadata', 'client_name may not impersonate IsaFlow or use a reserved term'),
     );

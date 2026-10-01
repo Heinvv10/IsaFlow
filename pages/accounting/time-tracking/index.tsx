@@ -7,12 +7,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Clock, Plus, X } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { TimeEntryModal } from '@/components/accounting/time-tracking/TimeEntryModal';
 import { TimeFilters, SummaryDateFilter } from '@/components/accounting/time-tracking/TimeFilters';
 import { TimeEntriesTable } from '@/components/accounting/time-tracking/TimeEntriesTable';
 import { TimeSummaryTab } from '@/components/accounting/time-tracking/TimeSummaryTab';
 import { BulkActionsBar } from '@/components/accounting/time-tracking/BulkActionsBar';
+import { localISODate } from '@/lib/dateUtils';
 
 interface TimeEntry {
   id: string; userId: string; projectName: string | null; taskDescription: string;
@@ -30,7 +31,7 @@ interface TimeSummary {
 interface Customer { id: string; companyName: string }
 type TabId = 'my-time' | 'all-entries' | 'summary';
 
-const todayStr = () => new Date().toISOString().split('T')[0] ?? '';
+const todayStr = () => localISODate();
 const BLANK_FORM = { projectName: '', taskDescription: '', entryDate: todayStr(), hours: '', rate: '', billable: true, customerId: '', notes: '' };
 const TABS: { id: TabId; label: string }[] = [
   { id: 'my-time', label: 'My Time' },
@@ -119,11 +120,11 @@ export default function TimeTrackingPage() {
       const res = editId
         ? await apiFetch('/api/accounting/time-entries', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editId, ...body }) })
         : await apiFetch('/api/accounting/time-entries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      // R-120: the error envelope is { error: { message } }; json.message showed "Failed".
+      await assertOk(res, 'Save failed');
       setSuccess(editId ? 'Entry updated' : 'Entry created');
       setShowForm(false); resetForm(); await loadEntries();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Save failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Save failed')); }
     finally { setBusy(''); }
   };
 

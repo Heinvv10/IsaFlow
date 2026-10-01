@@ -6,10 +6,9 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getPostedAccountBalance, holdsMoney, formatAccountBalance } from './glAccountBalance';
-import { cacheThrough, cache } from '@/lib/cache';
-import { CACHE_KEYS, CACHE_TTL } from '@/lib/cache-keys';
 import type { GLAccount, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
+import { isBankSubtype } from './accountSubtypes';
 import { assertParentUsable } from './accountParentRules';
 
 export interface CreateAccountInput {
@@ -39,48 +38,46 @@ interface AccountTreeNode extends GLAccount {
   children: AccountTreeNode[];
 }
 
+// Not cached (R-125): 12 files write gl_accounts and every journal post
+// changes has_transactions, so no invalidation list can stay complete, and an
+// in-process cache is invisible to other processes. The query is ~10 ms at
+// 3 000 accounts / 500 000 journal lines.
 export async function getChartOfAccounts(companyId: string, includeInactive = false): Promise<GLAccount[]> {
-  const cacheKey = includeInactive
-    ? CACHE_KEYS.glAccountsInactive(companyId)
-    : CACHE_KEYS.glAccounts(companyId);
-
-  return cacheThrough(cacheKey, async () => {
-    try {
-      let rows;
-      if (includeInactive) {
-        rows = await sql`
-          SELECT a.*,
-            p.account_code AS parent_code,
-            p.account_name AS parent_name,
-            EXISTS (
-              SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = a.id AND jl.company_id = a.company_id
-            ) AS has_transactions
-          FROM gl_accounts a
-          LEFT JOIN gl_accounts p ON p.id = a.parent_account_id
-          WHERE a.company_id = ${companyId}
-          ORDER BY a.account_code
-        `;
-      } else {
-        rows = await sql`
-          SELECT a.*,
-            p.account_code AS parent_code,
-            p.account_name AS parent_name,
-            EXISTS (
-              SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = a.id AND jl.company_id = a.company_id
-            ) AS has_transactions
-          FROM gl_accounts a
-          LEFT JOIN gl_accounts p ON p.id = a.parent_account_id
-          WHERE a.company_id = ${companyId}
-            AND a.is_active = true
-          ORDER BY a.account_code
-        `;
-      }
-      return (rows as { [key: string]: unknown }[]).map(mapRow);
-    } catch (err) {
-      log.error('Failed to get chart of accounts', { error: err }, 'accounting');
-      throw err;
+  try {
+    let rows;
+    if (includeInactive) {
+      rows = await sql`
+        SELECT a.*,
+          p.account_code AS parent_code,
+          p.account_name AS parent_name,
+          EXISTS (
+            SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = a.id AND jl.company_id = a.company_id
+          ) AS has_transactions
+        FROM gl_accounts a
+        LEFT JOIN gl_accounts p ON p.id = a.parent_account_id
+        WHERE a.company_id = ${companyId}
+        ORDER BY a.account_code
+      `;
+    } else {
+      rows = await sql`
+        SELECT a.*,
+          p.account_code AS parent_code,
+          p.account_name AS parent_name,
+          EXISTS (
+            SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = a.id AND jl.company_id = a.company_id
+          ) AS has_transactions
+        FROM gl_accounts a
+        LEFT JOIN gl_accounts p ON p.id = a.parent_account_id
+        WHERE a.company_id = ${companyId}
+          AND a.is_active = true
+        ORDER BY a.account_code
+      `;
     }
-  }, CACHE_TTL.REFERENCE_DATA);
+    return (rows as { [key: string]: unknown }[]).map(mapRow);
+  } catch (err) {
+    log.error('Failed to get chart of accounts', { error: err }, 'accounting');
+    throw err;
+  }
 }
 
 export async function getAccountTree(companyId: string, includeInactive = false): Promise<AccountTreeNode[]> {
@@ -280,7 +277,6 @@ export async function createAccount(companyId: string, input: CreateAccountInput
       )
       RETURNING *
     `;
-    cache.invalidatePrefix(`${companyId}:gl-accounts`);
     return mapRow((rows as { [key: string]: unknown }[])[0]);
   } catch (err) {
     log.error('Failed to create account', { error: err }, 'accounting');
@@ -340,7 +336,6 @@ export async function renameAccountCode(
     WHERE id = ${id} AND company_id = ${companyId}
     RETURNING *
   ` as { [key: string]: unknown }[];
-  cache.invalidatePrefix(`${companyId}:gl-accounts`);
   return mapRow(rows[0]);
 }
 
@@ -387,7 +382,6 @@ export async function updateAccount(companyId: string, id: string, input: Update
       WHERE id = ${id} AND company_id = ${companyId}
       RETURNING *
     `;
-    cache.invalidatePrefix(`${companyId}:gl-accounts`);
     return mapRow((rows as { [key: string]: unknown }[])[0]);
   } catch (err) {
     log.error('Failed to update account', { id, error: err }, 'accounting');
@@ -444,12 +438,13 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
 
     // 4. Bank accounts: additional check — any unreconciled bank
     //    transactions would be orphaned if we soft-deleted the account.
-    if (accountSubtype === 'bank') {
+    if (isBankSubtype(accountSubtype)) {
       const pendingRows = await sql`
         SELECT COUNT(*) AS cnt FROM bank_transactions
         WHERE bank_account_id = ${id}
           AND company_id = ${companyId}
           AND status NOT IN ('reconciled', 'excluded')
+          AND feed_state <> 'removed'
       ` as { cnt: string }[];
       const pendingCount = Number(pendingRows[0]!.cnt);
 
@@ -464,7 +459,6 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
 
     const deactivateResult = await sql`UPDATE gl_accounts SET is_active = false WHERE id = ${id} AND company_id = ${companyId} RETURNING id` as unknown[];
     if (deactivateResult.length === 0) throw new Error(`GL account not found: ${id}`);
-    cache.invalidatePrefix(`${companyId}:gl-accounts`);
   } catch (err) {
     log.error('Failed to delete account', { id, error: err }, 'accounting');
     throw err;

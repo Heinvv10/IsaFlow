@@ -1,0 +1,71 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k108-k109-approval-rules.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/accounting/approval-rules","timestamp":"2026-09-09T09:33:17.383Z","component":"API","requestId":"01M22R7E64TN07WYBT9QSCG0V2","data":{"type":"request","method":"POST","url":"/api/accounting/approval-rules","query":{},"body":{"name":"Payments over 1000","documentType":"payment","conditionField":"amount","conditionOperator":"gt","conditionValue":1000,"approverRole":"admin"}}}
+{"level":"info","message":"Created approval rule","timestamp":"2026-09-09T09:33:17.425Z","component":"accounting","requestId":"01M22R7E64TN07WYBT9QSCG0V2","data":{"id":"e3bf2d49-a59f-45d2-945e-a960cdfc49ea","name":"Payments over 1000"}}
+{"level":"info","message":"API Response: POST /api/accounting/approval-rules - 200 (45ms)","timestamp":"2026-09-09T09:33:17.425Z","component":"API","requestId":"01M22R7E64TN07WYBT9QSCG0V2","data":{"type":"response","method":"POST","url":"/api/accounting/approval-rules","statusCode":200,"duration":"45ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:33:17.426Z","component":"http","requestId":"01M22R7E64TN07WYBT9QSCG0V2","data":{"event":"request_completed","route":"/api/accounting/approval-rules","method":"POST","status":200,"durationMs":46,"userId":"65452ef6-ba28-4c4e-a758-7c9450dcbdaa","companyId":"200c6826-a2f9-44e1-8ae3-264af8637386","outcome":"ok"}}
+{"level":"info","message":"withAuth slow request","timestamp":"2026-09-09T09:33:17.435Z","component":"Auth","data":{"ms":163,"url":"/api/accounting/approval-rules"}}
+{"level":"info","message":"API Request: GET /api/accounting/approval-rules","timestamp":"2026-09-09T09:33:17.456Z","component":"API","requestId":"01M22R7E8F30FKJSHGH4Y6ZY3Y","data":{"type":"request","method":"GET","url":"/api/accounting/approval-rules","query":{"action":"check","documentType":"payment","documentId":"3e165be7-a1f1-4450-ab8c-118048621e29","amount":"999999"}}}
+{"level":"info","message":"API Response: GET /api/accounting/approval-rules - 200 (10ms)","timestamp":"2026-09-09T09:33:17.466Z","component":"API","requestId":"01M22R7E8F30FKJSHGH4Y6ZY3Y","data":{"type":"response","method":"GET","url":"/api/accounting/approval-rules","statusCode":200,"duration":"10ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:33:17.466Z","component":"http","requestId":"01M22R7E8F30FKJSHGH4Y6ZY3Y","data":{"event":"request_completed","route":"/api/accounting/approval-rules","method":"GET","status":200,"durationMs":10,"userId":"65452ef6-ba28-4c4e-a758-7c9450dcbdaa","companyId":"200c6826-a2f9-44e1-8ae3-264af8637386","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/approval-rules","timestamp":"2026-09-09T09:33:17.520Z","component":"API","requestId":"01M22R7EAFN497N1PTEGR2XXFW","data":{"type":"request","method":"POST","url":"/api/accounting/approval-rules","query":{},"body":{"action":"request","ruleId":"054a54c0-5a78-404c-befa-3d49debc9e22","documentType":"payment","documentId":"086618d5-2074-40c2-8541-8326d19e2924","amount":5000}}}
+{"level":"info","message":"Approval requested","timestamp":"2026-09-09T09:33:17.521Z","component":"accounting","requestId":"01M22R7EAFN497N1PTEGR2XXFW","data":{"id":"c0d837b6-cedd-4272-bbc4-0136fea82873","documentType":"payment","documentId":"086618d5-2074-40c2-8541-8326d19e2924"}}
+{"level":"info","message":"API Response: POST /api/accounting/approval-rules - 200 (2ms)","timestamp":"2026-09-09T09:33:17.521Z","component":"API","requestId":"01M22R7EAFN497N1PTEGR2XXFW","data":{"type":"response","method":"POST","url":"/api/accounting/approval-rules","statusCode":200,"duration":"2ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T09:33:17.521Z","component":"http","requestId":"01M22R7EAFN497N1PTEGR2XXFW","data":{"event":"request_completed","route":"/api/accounting/approval-rules","method":"POST","status":200,"durationMs":2,"userId":"65452ef6-ba28-4c4e-a758-7c9450dcbdaa","companyId":"200c6826-a2f9-44e1-8ae3-264af8637386","outcome":"ok"}}
+ ❯ tests/integration/k108-k109-approval-rules.int.test.ts (2 tests | 2 failed) 524ms
+   × K-108: a rule created with operator "gt" is stored verbatim and never requires approval 254ms
+   × K-109: a request naming another tenant's rule id is accepted 42ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k108-k109-approval-rules.int.test.ts > K-108: a rule created with operator "gt" is stored verbatim and never requires approval
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/integration/k108-k109-approval-rules.int.test.ts:74:41
+     72|   const payload = checked.state.body as { data: { requiresApproval: bo…
+     73|   // RED: an active rule the UI shows as "payments over 1000" lets R99…
+     74|   expect(payload.data.requiresApproval).toBe(true);
+       |                                         ^
+     75| });
+     76|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k108-k109-approval-rules.int.test.ts > K-109: a request naming another tenant's rule id is accepted
+AssertionError: expected { status: 200, …(1) } to deeply equal { status: 400, storedRuleId: null }
+
+- Expected
++ Received
+
+  {
+-   "status": 400,
+-   "storedRuleId": null,
++   "status": 200,
++   "storedRuleId": "054a54c0-5a78-404c-befa-3d49debc9e22",
+  }
+
+ ❯ tests/integration/k108-k109-approval-rules.int.test.ts:87:6
+     85|   // RED: the insert must be refused; today it succeeds with a foreign…
+     86|   expect({ status: made.state.statusCode, storedRuleId: stored.rows[0]…
+     87|     .toEqual({ status: 400, storedRuleId: null });
+       |      ^
+     88| });
+     89|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:33:11
+   Duration  6.56s (transform 2.06s, setup 0ms, import 4.42s, tests 524ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

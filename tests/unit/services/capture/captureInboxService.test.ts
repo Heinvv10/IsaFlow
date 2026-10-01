@@ -54,15 +54,15 @@ function makeInboxRow(overrides: Record<string, unknown> = {}) {
 // ── generateInboxAddress — pure helper ───────────────────────────────────────
 
 describe('generateInboxAddress', () => {
-  it('returns address matching cap-<6 hex>@inbox.isaflow.co.za', () => {
+  it('returns address matching cap-<32 hex>@inbox.isaflow.co.za', () => {
     const addr = generateInboxAddress(COMPANY_ID);
-    expect(addr).toMatch(/^cap-[a-f0-9]{6}@inbox\.isaflow\.co\.za$/);
+    expect(addr).toMatch(/^cap-[a-f0-9]{32}@inbox\.isaflow\.co\.za$/);
   });
 
   it('generates different addresses on successive calls', () => {
     const a = generateInboxAddress(COMPANY_ID);
     const b = generateInboxAddress(COMPANY_ID);
-    // Not guaranteed to differ every time, but almost always true with random 3 bytes
+    // Not guaranteed to differ every time, but almost always true with random 16 bytes
     // We run 20 pairs and assert at least one differs to avoid false failures
     const pairs = Array.from({ length: 20 }, () => [
       generateInboxAddress(COMPANY_ID),
@@ -77,13 +77,13 @@ describe('generateInboxAddress', () => {
     const addresses = new Set(
       Array.from({ length: N }, () => generateInboxAddress(COMPANY_ID)),
     );
-    // With 3 random bytes (16^6 = ~16.7 M space) collisions are astronomically rare
+    // With 16 random bytes collisions are astronomically rare
     expect(addresses.size).toBeGreaterThan(N * 0.99);
   });
 
   it('works with any companyId string — pure, no DB side-effects', () => {
     const addr = generateInboxAddress('some-other-company');
-    expect(addr).toMatch(/^cap-[a-f0-9]{6}@inbox\.isaflow\.co\.za$/);
+    expect(addr).toMatch(/^cap-[a-f0-9]{32}@inbox\.isaflow\.co\.za$/);
   });
 });
 
@@ -141,8 +141,8 @@ describe('getOrCreateEmailInbox', () => {
   it('retries INSERT when address collision occurs, succeeding on second attempt', async () => {
     // SELECT — no existing inbox
     vi.mocked(sql).mockResolvedValueOnce([] as never);
-    // First INSERT — unique constraint violation
-    vi.mocked(sql).mockRejectedValueOnce(new Error('duplicate key value violates unique constraint') as never);
+    // First INSERT — ON CONFLICT returns no row
+    vi.mocked(sql).mockResolvedValueOnce([] as never);
     // Second INSERT — succeeds
     vi.mocked(sql).mockResolvedValueOnce([
       { id: INBOX_ID, address: ADDRESS, is_active: true },
@@ -157,7 +157,7 @@ describe('getOrCreateEmailInbox', () => {
     vi.mocked(sql).mockResolvedValueOnce([] as never);
     // 5 INSERT failures
     for (let i = 0; i < 5; i++) {
-      vi.mocked(sql).mockRejectedValueOnce(new Error('unique constraint violation') as never);
+      vi.mocked(sql).mockResolvedValueOnce([] as never);
     }
 
     await expect(getOrCreateEmailInbox(COMPANY_ID)).rejects.toThrow(

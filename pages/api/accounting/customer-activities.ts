@@ -12,6 +12,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
+import { assertCustomerInCompany, CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 type Row = Record<string, unknown>;
 
@@ -53,6 +54,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const limitNum = Math.min(parseInt(typeof limit === 'string' ? limit : '50', 10) || 50, 200);
 
     try {
+      // Name lookup goes through approval_company_member_profile (mig 715),
+      // not a plain join to `users`: app_user can only SELECT its own row
+      // there (users_self_read, FORCE RLS), so a join resolved the creator's
+      // name only when the viewer was the creator themselves.
       const rows = (await sql`
         SELECT
           ca.id,
@@ -66,7 +71,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           u.first_name   AS created_by_first_name,
           u.last_name    AS created_by_last_name
         FROM customer_activities ca
-        LEFT JOIN users u ON u.id = ca.created_by
+        LEFT JOIN LATERAL public.approval_company_member_profile(ca.company_id, ca.created_by)
+          AS u(email, first_name, last_name) ON true
         WHERE ca.customer_id = ${customerId}
           AND ca.company_id  = ${companyId}
         ORDER BY ca.created_at DESC
@@ -93,6 +99,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!description?.trim()) return apiResponse.badRequest(res, 'description is required');
 
     const subject = body.subject?.trim() || null;
+
+    // R-067: customerId comes from the request body. Checked before the first
+    // write (withAuth COMMITs a 4xx returned after one).
+    try {
+      await assertCustomerInCompany(companyId, customerId);
+    } catch (err) {
+      if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
 
     try {
       const rows = (await sql`

@@ -1,0 +1,690 @@
+// tests/integration/ap-payment-document-backfill.int.test.ts
+//
+// Migration 615: the classification that decides which historical bank lines
+// can have the supplier payment document that allocation never created before
+// #340, and the function that mints it.
+//
+// ONE FILE, not two, and the fixture is shared: vitest runs test FILES in
+// parallel, and two suites seeding and truncating one tenant's bank lines race
+// each other into foreign-key failures. The seed itself lives in
+// `tests/helpers/apBackfillFixture.ts`.
+//
+// What has to hold:
+//   · every line is decided on the LEDGER, never on the bank row's word. A
+//     journal that is not the two-legged DR Accounts Payable / CR Bank entry
+//     for exactly that amount, a supplier name that does not resolve to one
+//     live row, a journal two bank lines share — each is REPORTED under its
+//     own outcome and skipped. None is approximated; none is passed over in
+//     silence.
+//   · the run writes ONE document per qualifying line and NOTHING else. No
+//     journal, no allocation, no `amount_paid`: the DR AP / CR Bank entry
+//     already exists and a second would double the debit.
+//   · a run scoped to one company leaves every other tenant untouched.
+//   · re-running creates nothing.
+//   · rollback removes exactly what a batch created, and REFUSES once a human
+//     has applied one of those payments to a bill.
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { Pool } from 'pg';
+import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
+import {
+  AP2, BANK, BILL, CASES, CO, CO2, CO2_AMOUNT, CO2_TX, CREATE_TX, DRAFT_REV_J1,
+  LIVE_OTHER_TX, OWN_REVERSER_TX, REALLOC_AMOUNT, REALLOC_TX, REFUND_TX, REFUND_AMOUNT,
+  CONTROL_REFUND_TX, CONTROL_REFUND_AMOUNT, REFUND_JE,
+  EXCESS_REFUND_TX, EXCESS_REFUND_AMOUNT, ON_ACCOUNT_AMOUNT,
+  PAIR_A_TX, PAIR_B_TX, PAIR_AMOUNT, PAIR_SUP, SUP, SUP2,
+  cleanup, cleanupCompany, createdPaymentId, journalFor, ledgerShape, seed,
+} from '../helpers/apBackfillFixture';
+import {
+  CO3, CO3_AMOUNT, CO3_JE1, CO3_JE2, CO3_TX, USER3,
+  reallocateOntoSecondJournal, seedGeneration,
+} from '../helpers/apBackfillGenerationFixture';
+
+const DATABASE_URL = process.env.DATABASE_URL;
+const describeIfDb = DATABASE_URL ? describe : describe.skip;
+
+const BATCH_1 = '00000000-0000-0000-0000-0000000bfb01';
+const BATCH_2 = '00000000-0000-0000-0000-0000000bfb02';
+const BATCH_3 = '00000000-0000-0000-0000-0000000bfb03';
+const BATCH_4 = '00000000-0000-0000-0000-0000000bfb04';
+const BATCH_5 = '00000000-0000-0000-0000-0000000bfb05';
+const BATCH_6 = '00000000-0000-0000-0000-0000000bfb06';
+
+describeIfDb('AP payment-document backfill (migration 615)', () => {
+  let db: Pool;
+
+  beforeAll(async () => {
+    assertNotProductionDb('This test inserts bank, journal and payment fixtures.');
+    db = new Pool({ connectionString: DATABASE_URL, max: 2 });
+    await cleanup(db);
+    await cleanupCompany(db, CO3);
+    await seed(db);
+    await seedGeneration(db);
+  });
+
+  afterAll(async () => {
+    if (db) {
+      await cleanup(db);
+      await cleanupCompany(db, CO3);
+      await db.query('DELETE FROM users WHERE id = $1::TEXT', [USER3]);
+      await db.end();
+    }
+  });
+
+  it('gives every line exactly one outcome, decided on the ledger', async () => {
+    const res = await db.query(
+      `SELECT bank_transaction_id::TEXT AS id, outcome
+         FROM ap_payment_document_backfill_candidates WHERE company_id = $1::UUID`,
+      [CO],
+    );
+    const got = new Map<string, string>(res.rows.map((r) => [r.id, r.outcome]));
+    for (const [id, expected] of CASES) {
+      expect(`${id}=${got.get(id)}`).toBe(`${id}=${expected}`);
+    }
+    // ── The two refund shapes (migration 681) ──────────────────────────────
+    //
+    // Before 681 the view filtered `b.amount < 0`, so neither of these lines
+    // was classified AT ALL — not skipped, invisible — while both journals sat
+    // on the control account with no document. The refund now mints a negative
+    // on-account entry; the control-account one is named and refused.
+    expect(got.get(REFUND_TX)).toBe('create_refund');
+    expect(got.get(CONTROL_REFUND_TX)).toBe('refund_on_control_unresolved');
+    // `refund_on_control_unresolved` is decided BEFORE every supplier guard.
+    // `supplier_unresolved` would be a true statement pointing at the wrong
+    // remedy: the line names a GL account and no supplier record can fix it.
+    expect(got.get(CONTROL_REFUND_TX)).not.toBe('supplier_unresolved');
+    // 682: the ceiling. Same supplier, same direction, same journal shape as
+    // REFUND_TX — only the amount differs, so this outcome is the ceiling and
+    // nothing else.
+    expect(got.get(EXCESS_REFUND_TX)).toBe('refund_exceeds_credit');
+    // The cumulative pair is a RUN-TIME decision, not a view one: the view
+    // judges each line against the books as they stand, and neither of these
+    // is wrong on its own. Both read `create_refund` here, and 683 demotes the
+    // second inside the run — see the case further down.
+    expect(got.get(PAIR_A_TX)).toBe('create_refund');
+    expect(got.get(PAIR_B_TX)).toBe('create_refund');
+    expect(got.size).toBe(CASES.length + 5);
+  });
+
+  it('measures the ceiling as at the LINE\'S OWN DATE, and reports the figure', async () => {
+    const res = await db.query(
+      `SELECT bank_transaction_id::TEXT AS id, amount, on_account_credit, outcome
+         FROM ap_payment_document_backfill_candidates
+        WHERE bank_transaction_id = ANY($1::UUID[]) ORDER BY amount`,
+      [[REFUND_TX, EXCESS_REFUND_TX]]);
+    const by = new Map(res.rows.map((r) => [r.id, r]));
+    const credit = Number(by.get(REFUND_TX)!.on_account_credit);
+    // No literal: the figure is every unapplied remainder SUP carries, and
+    // pinning it would make this case fail the first time an unrelated payment
+    // is added to the fixture for an unrelated outcome. What is pinned is the
+    // RELATION — the credit brackets the two refunds — which is the thing the
+    // ceiling actually decides.
+    expect(credit).toBeGreaterThanOrEqual(ON_ACCOUNT_AMOUNT);
+    expect(REFUND_AMOUNT).toBeLessThanOrEqual(credit);
+    expect(EXCESS_REFUND_AMOUNT).toBeGreaterThan(credit);
+    expect(Number(by.get(EXCESS_REFUND_TX)!.on_account_credit)).toBe(credit);
+    expect(by.get(REFUND_TX)!.outcome).toBe('create_refund');
+  });
+
+  it('bounds the on-account credit by the as-at date', async () => {
+    // The ceiling is measured as at the LINE'S OWN DATE, not today's: cash
+    // applied since must not retrospectively make a correct refund wrong, and
+    // cash that arrived later must not fund an earlier refund. The seeded
+    // on-account payment is dated 2026-03-01, so the bound is visible across it.
+    const { rows } = await db.query(
+      `SELECT ap_supplier_on_account_credit($1::UUID, $2::UUID, '2026-02-01'::DATE) AS before_it,
+              ap_supplier_on_account_credit($1::UUID, $2::UUID, '2026-03-01'::DATE) AS on_it`,
+      [CO, SUP]);
+    expect(Number(rows[0]!.on_it) - Number(rows[0]!.before_it))
+      .toBeGreaterThanOrEqual(ON_ACCOUNT_AMOUNT);
+  });
+
+  it('carries the gross line value for a refund, and resolves its supplier', async () => {
+    const res = await db.query(
+      `SELECT amount, direction, supplier_id::TEXT AS supplier_id
+         FROM ap_payment_document_backfill_candidates WHERE bank_transaction_id = $1::UUID`,
+      [REFUND_TX],
+    );
+    expect(res.rows).toHaveLength(1);
+    // The view always reports the gross; the SIGN is applied at the point of
+    // writing, so nothing downstream has to remember which way an absolute
+    // value was meant to point.
+    expect(Number(res.rows[0]!.amount)).toBe(REFUND_AMOUNT);
+    expect(res.rows[0]!.direction).toBe('refund');
+    expect(res.rows[0]!.supplier_id).toBe(SUP);
+  });
+
+  it('resolves no supplier for a control-account refund', async () => {
+    const res = await db.query(
+      `SELECT amount, direction, supplier_id
+         FROM ap_payment_document_backfill_candidates WHERE bank_transaction_id = $1::UUID`,
+      [CONTROL_REFUND_TX],
+    );
+    expect(res.rows[0]!.supplier_id).toBeNull();
+    expect(Number(res.rows[0]!.amount)).toBe(CONTROL_REFUND_AMOUNT);
+    expect(res.rows[0]!.direction).toBe('refund');
+  });
+
+  it('resolves the supplier within the company, never across tenants', async () => {
+    // Both tenants use one trading name, and name is all the bank row carries.
+    const res = await db.query(
+      `SELECT supplier_id::TEXT AS supplier_id, outcome, amount
+         FROM ap_payment_document_backfill_candidates
+        WHERE bank_transaction_id = $1::UUID`,
+      [CO2_TX],
+    );
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0]!.outcome).toBe('create');
+    expect(res.rows[0]!.supplier_id).toBe(SUP2);
+    expect(Number(res.rows[0]!.amount)).toBe(CO2_AMOUNT);
+  });
+
+  it('scopes each line to its own company', async () => {
+    const res = await db.query(
+      `SELECT company_id::TEXT AS company_id, COUNT(*)::INT AS n
+         FROM ap_payment_document_backfill_candidates
+        WHERE company_id = ANY($1::UUID[]) GROUP BY 1`,
+      [[CO, CO2]],
+    );
+    const byCompany = new Map(res.rows.map((r) => [r.company_id, Number(r.n)]));
+    // +5: the supplier refund and the control-account refund (681), the refund
+    // that breaches the ceiling (682), and the cumulative pair (683).
+    expect(byCompany.get(CO)).toBe(CASES.length + 5);
+    expect(byCompany.get(CO2)).toBe(1);
+  });
+
+  it('does not treat a DRAFT reversal as a reversal', async () => {
+    // A cancelled document whose journal is reversed only by an unposted entry
+    // has not been reversed at all: J1 still stands and its cash is still on
+    // the control account behind a cancelled document. 615's outcome, and the
+    // one a reverser test that ignores `status` would silently convert into a
+    // mint.
+    const je = await db.query(
+      `SELECT status, reversed_at,
+              (SELECT status FROM gl_journal_entries r WHERE r.reversal_of_id = $1::UUID) AS rev_status
+         FROM gl_journal_entries WHERE id = $1::UUID`,
+      [DRAFT_REV_J1],
+    );
+    expect(je.rows[0]!.status).toBe('posted');
+    expect(je.rows[0]!.reversed_at).toBeNull();
+    expect(je.rows[0]!.rev_status).toBe('draft');
+  });
+
+  it('reads a POSTED reversing entry as reversing the line own journal', async () => {
+    // `reversed_at` is NULL and the status is 'posted' — a hand-posted reversal
+    // leaves both untouched on the entry it reverses. The only witness is the
+    // posted entry naming it, and minting here would document cash the ledger
+    // has already taken back.
+    const je = await db.query(
+      `SELECT status, reversed_at FROM gl_journal_entries WHERE id = $1::UUID`,
+      [journalFor(OWN_REVERSER_TX)],
+    );
+    expect(je.rows[0]!.status).toBe('posted');
+    expect(je.rows[0]!.reversed_at).toBeNull();
+    // CASES asserts the outcome is `journal_reversed`; this is what makes it so.
+    const rev = await db.query(
+      `SELECT COUNT(*)::INT AS n FROM gl_journal_entries
+        WHERE reversal_of_id = $1::UUID AND status = 'posted'`,
+      [journalFor(OWN_REVERSER_TX)],
+    );
+    expect(Number(rev.rows[0]!.n)).toBe(1);
+  });
+
+  it('writes nothing — reading the classification is the dry run', async () => {
+    const before = await db.query(
+      `SELECT (SELECT COUNT(*) FROM supplier_payments WHERE company_id = $1::UUID) AS p,
+              (SELECT COUNT(*) FROM ap_payment_document_backfill WHERE company_id = $1::UUID) AS l`,
+      [CO],
+    );
+    await db.query('SELECT * FROM ap_payment_document_backfill_candidates');
+    const after = await db.query(
+      `SELECT (SELECT COUNT(*) FROM supplier_payments WHERE company_id = $1::UUID) AS p,
+              (SELECT COUNT(*) FROM ap_payment_document_backfill WHERE company_id = $1::UUID) AS l`,
+      [CO],
+    );
+    expect(after.rows[0]).toEqual(before.rows[0]);
+  });
+
+  it('creates the document for the qualifying lines and writes nothing else', async () => {
+    const before = await ledgerShape(db);
+
+    const run = await db.query(
+      `SELECT result_outcome, result_reason, line_count
+         FROM ap_backfill_supplier_payment_documents($1::UUID, $2::UUID)`,
+      [CO, BATCH_1],
+    );
+    const created = run.rows.find((r) => r.result_outcome === 'created');
+    // TWO: the never-documented line, and the one re-allocated after its first
+    // document was cancelled and its first journal reversed.
+    expect(Number(created?.line_count ?? 0)).toBe(2);
+
+    const pay = await db.query(
+      `SELECT sp.supplier_id::TEXT, sp.payment_date::TEXT AS payment_date, sp.total_amount,
+              sp.status, sp.payment_method, sp.gl_journal_entry_id::TEXT AS je, sp.reference,
+              sp.payment_number, sp.bank_account_id::TEXT AS bank
+         FROM supplier_payments sp
+         JOIN ap_payment_document_backfill l ON l.supplier_payment_id = sp.id
+        WHERE l.batch_id = $1::UUID AND l.outcome = 'created'
+          AND l.bank_transaction_id = $2::UUID`,
+      [BATCH_1, CREATE_TX],
+    );
+    expect(pay.rows).toHaveLength(1);
+    const p = pay.rows[0]!;
+    expect(p.supplier_id).toBe(SUP);
+    expect(Number(p.total_amount)).toBe(1000);
+    expect(p.status).toBe('processed');
+    expect(p.payment_method).toBe('eft');
+    expect(p.bank).toBe(BANK);
+    // The reference is the bank line: the audit trail back, and half the
+    // idempotency.
+    expect(p.reference).toBe(CREATE_TX);
+    expect(p.je).toBe(journalFor(CREATE_TX));
+    expect(p.payment_number).toMatch(/^SP-\d{4}-\d{5}$/);
+    // Read as TEXT from pg. A raw Pool has no DATE type parser, so the driver
+    // hands back a Date at LOCAL midnight and toISOString() re-reads it in UTC
+    // — on this UTC+2 box that reports the day before.
+    expect(p.payment_date).toBe('2026-03-15');
+
+    // NOTHING ELSE MOVED, except the one payment row. A second journal would
+    // double the AP debit and break the bank reconciliation; a touched
+    // `amount_paid` would settle a bill nobody chose.
+    // +4: two ordinary payment documents, the refund, and the FIRST of the
+    // cumulative pair. The pair's second line is demoted inside the run.
+    expect(await ledgerShape(db)).toEqual({ ...before, payments: before.payments + 4 });
+  });
+
+  it('mints the refund as a NEGATIVE on-account entry, applied to nothing', async () => {
+    const pay = await db.query(
+      `SELECT sp.total_amount, sp.payment_method, sp.status,
+              sp.gl_journal_entry_id::TEXT AS je, sp.reference, sp.supplier_id::TEXT AS supplier_id,
+              (SELECT COUNT(*)::INT FROM payment_allocations pa WHERE pa.payment_id = sp.id) AS allocs
+         FROM supplier_payments sp
+         JOIN ap_payment_document_backfill l ON l.supplier_payment_id = sp.id
+        WHERE l.batch_id = $1::UUID AND l.bank_transaction_id = $2::UUID`,
+      [BATCH_1, REFUND_TX]);
+    expect(pay.rows).toHaveLength(1);
+    const r = pay.rows[0]!;
+    expect(Number(r.total_amount)).toBe(-REFUND_AMOUNT);
+    expect(r.payment_method).toBe('refund');
+    expect(r.status).toBe('processed');
+    expect(r.supplier_id).toBe(SUP);
+    expect(r.reference).toBe(REFUND_TX);
+    expect(r.je).toBe(REFUND_JE);
+    // Applied to NOTHING, ever. A negative remainder applied to a bill un-pays
+    // it, which is a correction a person makes deliberately.
+    expect(Number(r.allocs)).toBe(0);
+  });
+
+  it('mints the FIRST of two same-day refunds and refuses the second', async () => {
+    // R3,000 of credit and two R2,000 refunds on one day. Each passes the
+    // per-line ceiling, so on 682 alone BOTH were minted and the supplier ended
+    // the run having returned R4,000 it never held. Neither line is wrong on
+    // its own; the pair is — the same shape as the concurrency race the live
+    // path closes with a contact lock, arriving by a different road.
+    const log = await db.query(
+      `SELECT bank_transaction_id::TEXT AS id, outcome, reason, supplier_payment_id
+         FROM ap_payment_document_backfill
+        WHERE batch_id = $1::UUID AND bank_transaction_id = ANY($2::UUID[])`,
+      [BATCH_1, [PAIR_A_TX, PAIR_B_TX]]);
+    const by = new Map(log.rows.map((r) => [r.id, r]));
+    expect(by.get(PAIR_A_TX)!.outcome).toBe('created');
+    expect(by.get(PAIR_A_TX)!.reason).toBe('backfilled_refund');
+    expect(by.get(PAIR_B_TX)!.outcome).toBe('skipped');
+    expect(by.get(PAIR_B_TX)!.reason).toBe('refund_exceeds_credit');
+    // ONE log row each. The demotion happens before the skip log, so a line is
+    // never recorded twice under two different outcomes.
+    expect(log.rows).toHaveLength(2);
+    expect(by.get(PAIR_B_TX)!.supplier_payment_id).toBeNull();
+
+    // THE OUTCOME, not the classification: exactly one refund document exists
+    // for this supplier, and it did not return more than was held.
+    const docs = await db.query(
+      `SELECT COALESCE(SUM(total_amount), 0) AS total, COUNT(*)::INT AS n
+         FROM supplier_payments
+        WHERE company_id = $1::UUID AND supplier_id = $2::UUID AND payment_method = 'refund'`,
+      [CO, PAIR_SUP]);
+    expect(docs.rows[0]!.n).toBe(1);
+    expect(Number(docs.rows[0]!.total)).toBe(-PAIR_AMOUNT);
+  });
+
+  it('logs the over-ceiling refund as skipped and mints nothing for it', async () => {
+    // The live path REFUSES this outright. The batch path cannot refuse a whole
+    // tenant's run over one line, so it reports it — but it must not mint, or
+    // the two paths would write the same document under two different rules.
+    const res = await db.query(
+      `SELECT outcome, reason, amount, supplier_payment_id
+         FROM ap_payment_document_backfill
+        WHERE batch_id = $1::UUID AND bank_transaction_id = $2::UUID`,
+      [BATCH_1, EXCESS_REFUND_TX]);
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0]!.outcome).toBe('skipped');
+    expect(res.rows[0]!.reason).toBe('refund_exceeds_credit');
+    expect(res.rows[0]!.supplier_payment_id).toBeNull();
+
+    const minted = await db.query(
+      `SELECT COUNT(*)::INT AS n FROM supplier_payments WHERE reference = $1`,
+      [EXCESS_REFUND_TX]);
+    expect(minted.rows[0]!.n).toBe(0);
+  });
+
+  it('logs the control-account refund as skipped and mints nothing for it', async () => {
+    const res = await db.query(
+      `SELECT outcome, reason, amount, supplier_payment_id
+         FROM ap_payment_document_backfill
+        WHERE batch_id = $1::UUID AND bank_transaction_id = $2::UUID`,
+      [BATCH_1, CONTROL_REFUND_TX]);
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0]!.outcome).toBe('skipped');
+    expect(res.rows[0]!.reason).toBe('refund_on_control_unresolved');
+    expect(res.rows[0]!.supplier_payment_id).toBeNull();
+    expect(Number(res.rows[0]!.amount)).toBe(CONTROL_REFUND_AMOUNT);
+  });
+
+  it('mints the re-allocated line a document carrying the journal that STANDS', async () => {
+    // The whole point of 679. The document must carry J2 — the journal the
+    // re-allocation posted and which nothing else claims — and never J1, whose
+    // document was cancelled and whose entry was reversed with it.
+    const pay = await db.query(
+      `SELECT sp.total_amount, sp.reference, sp.status,
+              sp.gl_journal_entry_id::TEXT AS je
+         FROM supplier_payments sp
+         JOIN ap_payment_document_backfill l ON l.supplier_payment_id = sp.id
+        WHERE l.batch_id = $1::UUID AND l.outcome = 'created'
+          AND l.bank_transaction_id = $2::UUID`,
+      [BATCH_1, REALLOC_TX],
+    );
+    expect(pay.rows).toHaveLength(1);
+    expect(pay.rows[0]!.je).toBe(journalFor(REALLOC_TX));
+    expect(Number(pay.rows[0]!.total_amount)).toBe(REALLOC_AMOUNT);
+    expect(pay.rows[0]!.reference).toBe(REALLOC_TX);
+    expect(pay.rows[0]!.status).toBe('processed');
+  });
+
+  it('mints NOTHING for a line whose live document sits on another journal', async () => {
+    // Reported, never minted over: a second live document beside the first
+    // would claim the same cash twice, and overriding the first is not this
+    // backfill's call to make.
+    const log = await db.query(
+      `SELECT outcome, reason FROM ap_payment_document_backfill
+        WHERE batch_id = $1::UUID AND bank_transaction_id = $2::UUID`,
+      [BATCH_1, LIVE_OTHER_TX],
+    );
+    expect(log.rows).toHaveLength(1);
+    expect(log.rows[0]!.outcome).toBe('skipped');
+    expect(log.rows[0]!.reason).toBe('document_on_other_journal');
+
+    const docs = await db.query(
+      `SELECT COUNT(*)::INT AS n FROM supplier_payments
+        WHERE company_id = $1::UUID AND reference = $2`,
+      [CO, LIVE_OTHER_TX],
+    );
+    expect(Number(docs.rows[0]!.n)).toBe(1);
+  });
+
+  it('leaves every other tenant alone', async () => {
+    // CO2 has its own qualifying line, against a supplier of the same NAME.
+    const other = await db.query(
+      `SELECT COUNT(*)::INT AS n FROM supplier_payments WHERE company_id = $1::UUID`,
+      [CO2],
+    );
+    expect(Number(other.rows[0]!.n)).toBe(0);
+    const log = await db.query(
+      `SELECT COUNT(*)::INT AS n FROM ap_payment_document_backfill WHERE company_id = $1::UUID`,
+      [CO2],
+    );
+    expect(Number(log.rows[0]!.n)).toBe(0);
+    const stillOpen = await db.query(
+      `SELECT outcome FROM ap_payment_document_backfill_candidates
+        WHERE bank_transaction_id = $1::UUID`,
+      [CO2_TX],
+    );
+    expect(stillOpen.rows[0]?.outcome).toBe('create');
+  });
+
+  it('creates nothing on a second run', async () => {
+    const run = await db.query(
+      `SELECT result_outcome, result_reason, line_count
+         FROM ap_backfill_supplier_payment_documents($1::UUID, $2::UUID)`,
+      [CO, BATCH_2],
+    );
+    expect(run.rows.some((r) => r.result_outcome === 'created')).toBe(false);
+    const now = await db.query(
+      `SELECT outcome FROM ap_payment_document_backfill_candidates
+        WHERE bank_transaction_id = $1::UUID`,
+      [CREATE_TX],
+    );
+    expect(now.rows[0]?.outcome).toBe('already_has_document');
+    // And so is the re-allocated one: its new document carries J2, which IS
+    // this line's journal.
+    const realloc = await db.query(
+      `SELECT outcome FROM ap_payment_document_backfill_candidates
+        WHERE bank_transaction_id = $1::UUID`,
+      [REALLOC_TX],
+    );
+    expect(realloc.rows[0]?.outcome).toBe('already_has_document');
+  });
+
+  it('serves the other tenant when it is the one asked for', async () => {
+    const before = await ledgerShape(db, CO2, AP2);
+    const run = await db.query(
+      `SELECT result_outcome, line_count
+         FROM ap_backfill_supplier_payment_documents($1::UUID, $2::UUID)`,
+      [CO2, BATCH_3],
+    );
+    const created = run.rows.find((r) => r.result_outcome === 'created');
+    expect(Number(created?.line_count ?? 0)).toBe(1);
+    expect(await ledgerShape(db, CO2, AP2)).toEqual({ ...before, payments: before.payments + 1 });
+    // And the first tenant gained nothing from the second tenant's run.
+    const first = await db.query(
+      `SELECT COUNT(*)::INT AS n FROM ap_payment_document_backfill
+        WHERE batch_id = $1::UUID AND company_id = $2::UUID`,
+      [BATCH_3, CO],
+    );
+    expect(Number(first.rows[0]!.n)).toBe(0);
+  });
+
+  it('survives a payment hard-deleted outside its own rollback', async () => {
+    // The log's FK is ON DELETE SET NULL, so a payment removed by anything but
+    // this migration's rollback leaves the log row behind with a null id. If
+    // that orphan still occupied the unique index, the next run would die on a
+    // duplicate key INSIDE the data-modifying CTE and abort the WHOLE tenant's
+    // run over one line, with an error naming an index rather than a cause.
+    const id = await createdPaymentId(db, BATCH_3, CO2_TX);
+    await db.query('DELETE FROM supplier_payments WHERE id = $1::UUID', [id]);
+
+    const orphan = await db.query(
+      `SELECT outcome, rolled_back_at IS NULL AS live, supplier_payment_id
+         FROM ap_payment_document_backfill WHERE batch_id = $1::UUID AND outcome = 'created'`,
+      [BATCH_3],
+    );
+    expect(orphan.rows[0]?.live).toBe(true);
+    expect(orphan.rows[0]?.supplier_payment_id).toBeNull();
+
+    const again = await db.query(
+      `SELECT result_outcome, line_count
+         FROM ap_backfill_supplier_payment_documents($1::UUID, $2::UUID)`,
+      [CO2, BATCH_4],
+    );
+    const created = again.rows.find((r) => r.result_outcome === 'created');
+    expect(Number(created?.line_count ?? 0)).toBe(1);
+  });
+
+  it('refuses to roll back a payment a human has since cancelled', async () => {
+    // The OTHER arm of the refusal. A cancelled payment carries no allocation
+    // row, so the allocation test alone leaves `sp.status <> 'processed'`
+    // deletable — and rollback would then hard-delete a document somebody
+    // deliberately cancelled, which is exactly the "someone else's work" this
+    // refusal exists to protect.
+    const id = await createdPaymentId(db, BATCH_1, CREATE_TX);
+    await db.query(`UPDATE supplier_payments SET status = 'cancelled' WHERE id = $1::UUID`, [id]);
+    await expect(
+      db.query('SELECT * FROM ap_rollback_supplier_payment_document_backfill($1::UUID)', [BATCH_1]),
+    ).rejects.toThrow(/Rollback refused/);
+    const still = await db.query('SELECT 1 FROM supplier_payments WHERE id = $1::UUID', [id]);
+    expect(still.rowCount).toBe(1);
+    await db.query(`UPDATE supplier_payments SET status = 'processed' WHERE id = $1::UUID`, [id]);
+  });
+
+  it('refuses to roll back a payment allocated through the LEGACY table', async () => {
+    // `supplier_payment_allocations` holds zero rows and has no writer today,
+    // which is exactly why this needs a test: a guard whose justification is
+    // "the day anything starts writing them" is the kind a future cleanup
+    // deletes. It cascades on delete like the live table, so a rollback that
+    // ignores it destroys those rows in silence. This is the ONLY arm of the
+    // refusal that fires here — the payment stays `processed` and has no
+    // `payment_allocations` row.
+    const id = await createdPaymentId(db, BATCH_1, CREATE_TX);
+    await db.query(
+      `INSERT INTO supplier_payment_allocations (payment_id, invoice_id, amount_allocated)
+       VALUES ($1::UUID, $2::UUID, 50)`,
+      [id, BILL],
+    );
+    await expect(
+      db.query('SELECT * FROM ap_rollback_supplier_payment_document_backfill($1::UUID)', [BATCH_1]),
+    ).rejects.toThrow(/Rollback refused/);
+    const still = await db.query('SELECT 1 FROM supplier_payments WHERE id = $1::UUID', [id]);
+    expect(still.rowCount).toBe(1);
+    await db.query('DELETE FROM supplier_payment_allocations WHERE payment_id = $1::UUID', [id]);
+  });
+
+  it('will not record a second live created row for one bank line', async () => {
+    // `uq_ap_pdb_created_line` is the hard floor under idempotency — the one
+    // that holds if every guard in the view is wrong at once. Nothing else in
+    // this suite reaches it, so it is exercised directly.
+    const id = await createdPaymentId(db, BATCH_1, CREATE_TX);
+    await expect(db.query(
+      `INSERT INTO ap_payment_document_backfill
+         (batch_id, company_id, bank_transaction_id, journal_entry_id, supplier_payment_id, amount, outcome, reason)
+       VALUES ($1::UUID, $2::UUID, $3::UUID, $5::UUID, $4::UUID, 1000, 'created', 'duplicate')`,
+      ['00000000-0000-0000-0000-0000000bfb09', CO, CREATE_TX, id, journalFor(CREATE_TX)],
+    )).rejects.toThrow(/uq_ap_pdb_created_line/);
+  });
+
+  it('refuses to roll back a payment a human has since applied', async () => {
+    const id = await createdPaymentId(db, BATCH_1, CREATE_TX);
+    await db.query(
+      `INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated)
+       VALUES ($1::UUID, $2::UUID, 100)`,
+      [id, BILL],
+    );
+    await expect(
+      db.query('SELECT * FROM ap_rollback_supplier_payment_document_backfill($1::UUID)', [BATCH_1]),
+    ).rejects.toThrow(/Rollback refused/);
+    // And it refused whole: the payment is still there.
+    const still = await db.query('SELECT 1 FROM supplier_payments WHERE id = $1::UUID', [id]);
+    expect(still.rowCount).toBe(1);
+
+    await db.query('DELETE FROM payment_allocations WHERE payment_id = $1::UUID', [id]);
+  });
+
+  it('rolls the batch back wholesale and returns the line to the queue', async () => {
+    const res = await db.query(
+      'SELECT * FROM ap_rollback_supplier_payment_document_backfill($1::UUID)',
+      [BATCH_1],
+    );
+    expect(Number(res.rows[0]?.deleted_count)).toBe(4);
+    // The refund's total is NEGATIVE, so the rollback's amount NETS it. That is
+    // the honest figure — it is the sum of what was deleted — and it is the one
+    // place in this file where a total is deliberately not a gross.
+    expect(Number(res.rows[0]?.deleted_amount))
+      .toBe(1000 + REALLOC_AMOUNT - REFUND_AMOUNT - PAIR_AMOUNT);
+
+    const back = await db.query(
+      `SELECT outcome FROM ap_payment_document_backfill_candidates
+        WHERE bank_transaction_id = $1::UUID`,
+      [CREATE_TX],
+    );
+    expect(back.rows[0]?.outcome).toBe('create');
+    const backRealloc = await db.query(
+      `SELECT outcome FROM ap_payment_document_backfill_candidates
+        WHERE bank_transaction_id = $1::UUID`,
+      [REALLOC_TX],
+    );
+    expect(backRealloc.rows[0]?.outcome).toBe('create');
+
+    // The log survives the payment it recorded, and says so.
+    const log = await db.query(
+      `SELECT rolled_back_at IS NOT NULL AS rolled_back, supplier_payment_id
+         FROM ap_payment_document_backfill
+        WHERE batch_id = $1::UUID AND outcome = 'created'
+        ORDER BY bank_transaction_id`,
+      [BATCH_1],
+    );
+    expect(log.rows).toHaveLength(4);
+    expect(log.rows.every((r) => r.rolled_back === true)).toBe(true);
+    expect(log.rows.every((r) => r.supplier_payment_id === null)).toBe(true);
+
+    // The OTHER tenant's batch is untouched by this batch's rollback.
+    const other = await db.query(
+      `SELECT COUNT(*)::INT AS n FROM supplier_payments WHERE company_id = $1::UUID`,
+      [CO2],
+    );
+    expect(Number(other.rows[0]!.n)).toBe(1);
+  });
+
+  it('mints once per generation when a line is cancelled and re-allocated again', async () => {
+    // The history a re-allocated line can have TWICE. Generation one is the
+    // ordinary backfill; then its document is cancelled, its journal reversed,
+    // and the line allocated onto a second journal — which is exactly the
+    // shape 679 now classifies `create`. The log's uniqueness floor is what
+    // decides whether that classification can be acted on: keyed on the bank
+    // line alone, generation one's row occupies it forever and the second mint
+    // dies on a duplicate key INSIDE the data-modifying CTE, taking the whole
+    // tenant's run with it rather than failing the one line.
+    const gen1 = await db.query(
+      `SELECT result_outcome, line_count
+         FROM ap_backfill_supplier_payment_documents($1::UUID, $2::UUID)`,
+      [CO3, BATCH_5],
+    );
+    expect(Number(gen1.rows.find((r) => r.result_outcome === 'created')?.line_count ?? 0)).toBe(1);
+    const firstDoc = await db.query(
+      `SELECT gl_journal_entry_id::TEXT AS je FROM supplier_payments WHERE company_id = $1::UUID`,
+      [CO3],
+    );
+    expect(firstDoc.rows).toHaveLength(1);
+    expect(firstDoc.rows[0]!.je).toBe(CO3_JE1);
+
+    await reallocateOntoSecondJournal(db);
+
+    const nowIs = await db.query(
+      `SELECT outcome, journal_entry_id::TEXT AS je
+         FROM ap_payment_document_backfill_candidates WHERE bank_transaction_id = $1::UUID`,
+      [CO3_TX],
+    );
+    expect(nowIs.rows[0]!.outcome).toBe('create');
+    expect(nowIs.rows[0]!.je).toBe(CO3_JE2);
+
+    const gen2 = await db.query(
+      `SELECT result_outcome, line_count
+         FROM ap_backfill_supplier_payment_documents($1::UUID, $2::UUID)`,
+      [CO3, BATCH_6],
+    );
+    expect(Number(gen2.rows.find((r) => r.result_outcome === 'created')?.line_count ?? 0)).toBe(1);
+
+    // ONE live document, carrying the journal that stands. The cancelled first
+    // generation is still there, and its log row is still live — which is the
+    // row that used to make this impossible.
+    const docs = await db.query(
+      `SELECT status, gl_journal_entry_id::TEXT AS je, total_amount
+         FROM supplier_payments WHERE company_id = $1::UUID ORDER BY status`,
+      [CO3],
+    );
+    expect(docs.rows.map((r) => `${r.status}:${r.je}`))
+      .toEqual([`cancelled:${CO3_JE1}`, `processed:${CO3_JE2}`]);
+    expect(Number(docs.rows[1]!.total_amount)).toBe(CO3_AMOUNT);
+
+    const log = await db.query(
+      `SELECT journal_entry_id::TEXT AS je FROM ap_payment_document_backfill
+        WHERE bank_transaction_id = $1::UUID AND outcome = 'created'
+          AND rolled_back_at IS NULL ORDER BY created_at`,
+      [CO3_TX],
+    );
+    expect(log.rows.map((r) => r.je)).toEqual([CO3_JE1, CO3_JE2]);
+
+    // And a THIRD run against the unchanged history mints nothing.
+    const again = await db.query(
+      `SELECT result_outcome FROM ap_backfill_supplier_payment_documents($1::UUID, $2::UUID)`,
+      [CO3, '00000000-0000-0000-0000-0000000bfb07'],
+    );
+    expect(again.rows.some((r) => r.result_outcome === 'created')).toBe(false);
+  });
+});

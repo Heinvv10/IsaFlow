@@ -26,7 +26,11 @@ import {
 } from './bankCsvParserGeneric';
 
 /** Column positions of the legacy 6-column layout, used when no header matches. */
-const LEGACY_COLUMNS: MappedColumns = { date: 1, descriptions: [2, 3], amount: 4, balance: 5 };
+// The legacy layout is positional and carries no reference column, so there is
+// no index to name here — null, not a guess at one.
+const LEGACY_COLUMNS: MappedColumns = {
+  date: 1, descriptions: [2, 3], amount: 4, balance: 5, reference: null,
+};
 
 /**
  * Retained for the detection tests and any caller probing an ABSA header.

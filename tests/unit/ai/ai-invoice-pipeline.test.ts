@@ -54,6 +54,33 @@ describe('Pipeline Input Validation', () => {
     expect(r.errors).toContain('totalAmount is required');
   });
 
+  // R-119: the routes write `subtotal = totalAmount - vatAmount` and
+  // `tax_amount = vatAmount`, so a VAT figure above the total makes the
+  // subtotal negative and a negative one makes the tax leg negative — both
+  // refused by migration 692's leg arms. Caught here the operator gets a 400
+  // naming the figure; uncaught a bad scan is a 500 and a paged engineer.
+  it('rejects a negative totalAmount, naming the credit note', () => {
+    const r = validatePipelineInput(makeExtracted({ totalAmount: -115 }));
+    expect(r.valid).toBe(false);
+    expect(r.errors.join(' ')).toMatch(/credit note/i);
+  });
+
+  it('rejects a negative vatAmount', () => {
+    const r = validatePipelineInput(makeExtracted({ totalAmount: 115, vatAmount: -50 }));
+    expect(r.valid).toBe(false);
+    expect(r.errors.join(' ')).toMatch(/vatAmount is negative/i);
+  });
+
+  it('rejects a vatAmount greater than the total (the inclusive/exclusive swap)', () => {
+    const r = validatePipelineInput(makeExtracted({ totalAmount: 115, vatAmount: 200 }));
+    expect(r.valid).toBe(false);
+    expect(r.errors.join(' ')).toMatch(/greater than totalAmount/i);
+  });
+
+  it('accepts a VAT figure that is part of the total', () => {
+    expect(validatePipelineInput(makeExtracted({ totalAmount: 115, vatAmount: 15 })).valid).toBe(true);
+  });
+
   it('rejects extracted document with no vendorName', () => {
     const r = validatePipelineInput(makeExtracted({ vendorName: null }));
     expect(r.valid).toBe(false);

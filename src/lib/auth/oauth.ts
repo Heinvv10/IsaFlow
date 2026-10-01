@@ -14,8 +14,11 @@
  */
 
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
+import { mayDecorate } from '@/lib/auth/consentAppView';
+import { isReservedClientName } from '@/lib/auth/reservedClientName';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertNotImpersonating } from './impersonationGuard';
 
 type Row = Record<string, unknown>;
 
@@ -66,7 +69,20 @@ export interface RegisteredApp {
   clientSecret: string | null;
 }
 
+/**
+ * A name the consent screen must never show. Thrown rather than returned so a
+ * caller cannot ignore it by accident — which is the whole reason this lives
+ * here and not only in the routes.
+ */
+export class ReservedClientNameError extends Error {
+  constructor() {
+    super('client_name may not impersonate IsaFlow or use a reserved term');
+    this.name = 'ReservedClientNameError';
+  }
+}
+
 export async function registerOauthApp(input: RegisterAppInput): Promise<RegisteredApp> {
+  await assertNotImpersonating(); // R-032: a Login-as session mints no credential as the target
   if (input.redirectUris.length === 0) {
     throw new Error('registerOauthApp: at least one redirect URI required');
   }
@@ -77,6 +93,15 @@ export async function registerOauthApp(input: RegisterAppInput): Promise<Registe
   if (!isDynamic && !input.ownerUserId) {
     throw new Error('registerOauthApp: ownerUserId required for non-dynamic apps');
   }
+  // Every writer, not just the one that remembered. The reserved-name rule was
+  // enforced only on the RFC 7591 route, so the developer route could store a
+  // name the consent screen then rendered verbatim — an app called plainly
+  // "IsaFlow". A route-level check protects the routes that have it; this
+  // protects the table. NFC for the same reason the endpoint does it: what is
+  // stored must be what was compared, or a name can render as something the
+  // check never saw.
+  const name = input.name.normalize('NFC');
+  if (isReservedClientName(name)) throw new ReservedClientNameError();
 
   const clientId = `client_${base62(24)}`;
   const secret = isDynamic ? null : generateToken('cls_', 32);
@@ -88,7 +113,7 @@ export async function registerOauthApp(input: RegisterAppInput): Promise<Registe
       is_dynamic, token_endpoint_auth_method
     )
     VALUES (
-      ${input.name},
+      ${name},
       ${input.description ?? null},
       ${input.logoUrl ?? null},
       ${input.homepageUrl ?? null},
@@ -107,7 +132,7 @@ export async function registerOauthApp(input: RegisterAppInput): Promise<Registe
 
   log.info(
     'OAuth app registered',
-    { appId: rows[0].id, ownerUserId: input.ownerUserId, name: input.name, isDynamic },
+    { appId: rows[0].id, ownerUserId: input.ownerUserId, name, isDynamic },
     'oauth',
   );
   return { id: rows[0].id as string, clientId, clientSecret: secret?.raw ?? null };
@@ -139,7 +164,9 @@ export async function listOauthApps(ownerUserId: string): Promise<OauthAppListIt
 
   return rows.map((r) => ({
     id: r.id as string,
-    name: r.name as string,
+    // Same reason as getOauthAppByClientId: a legacy row can hold a name the
+    // browser will not draw. Every surface that shows a name normalises it.
+    name: (r.name as string).normalize('NFC'),
     description: r.description as string | null,
     logoUrl: r.logo_url as string | null,
     homepageUrl: r.homepage_url as string | null,
@@ -196,7 +223,14 @@ export async function getOauthAppByClientId(clientId: string): Promise<PublicOau
   const r = rows[0]!;
   return {
     id: r.id as string,
-    name: r.name as string,
+    // Normalised on READ, not only on write, because rows predating the write
+    // guard still hold whatever was stored. Some code points are letters the
+    // browser declines to draw — a name saved as "Isa<U+FACF>Flow" renders as
+    // "Isa Flow" and the reserved-name check does not re-run at consent time.
+    // In the loader rather than the consent page so every consumer — screen,
+    // developer list, logs — sees one string; doing it in the page would
+    // rebuild the stored-not-equal-to-displayed defect somewhere new.
+    name: (r.name as string).normalize('NFC'),
     description: r.description as string | null,
     logoUrl: r.logo_url as string | null,
     homepageUrl: r.homepage_url as string | null,
@@ -233,6 +267,7 @@ export interface CreateCodeInput {
 }
 
 export async function createAuthorisationCode(input: CreateCodeInput): Promise<string> {
+  await assertNotImpersonating(); // R-032: a Login-as session mints no credential as the target
   const code = `oac_${base62(32)}`;
   const codeHash = sha256Hex(code);
   await sql`
@@ -553,7 +588,8 @@ export async function listConnectedApps(userId: string, companyId: string): Prom
   const rows = (await sql`
     SELECT a.id AS authorisation_id, a.oauth_app_id, a.scopes, a.company_id,
            a.last_used_at, a.created_at,
-           app.name AS app_name, app.logo_url AS app_logo_url, app.is_verified
+           app.name AS app_name, app.logo_url AS app_logo_url,
+           app.is_verified, app.is_first_party
     FROM oauth_authorisations a
     JOIN oauth_apps app ON app.id = a.oauth_app_id
     WHERE a.user_id = ${userId}
@@ -565,8 +601,22 @@ export async function listConnectedApps(userId: string, companyId: string): Prom
   return rows.map((r) => ({
     authorisationId: r.authorisation_id as string,
     appId: r.oauth_app_id as string,
-    appName: r.app_name as string,
-    appLogoUrl: r.app_logo_url as string | null,
+    // This feeds the screen where a user decides to CUT OFF an app's access —
+    // it must not show a different string from the one they consented to.
+    appName: (r.app_name as string).normalize('NFC'),
+    // Withheld for an unverified app, for the same reason the consent screen
+    // withholds it: a logo is free branding, this screen renders it as a raw
+    // <img>, and it is where a user decides whether to CUT OFF access. An app
+    // that cannot fake our branding at consent must not be able to fake it
+    // here either. Withheld server-side, so the URL is never fetched and
+    // cannot beacon the viewer's IP. Same predicate object as the consent
+    // screen, so the two surfaces cannot drift apart.
+    appLogoUrl: mayDecorate({
+      isVerified: Boolean(r.is_verified),
+      isFirstParty: Boolean(r.is_first_party),
+    })
+      ? (r.app_logo_url as string | null)
+      : null,
     appIsVerified: Boolean(r.is_verified),
     scopes: Array.isArray(r.scopes) ? (r.scopes as string[]) : [],
     companyId: r.company_id as string,

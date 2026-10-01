@@ -9,8 +9,9 @@ import { StatusPill } from '@/components/ui';
 import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
-const TABS = ['all', 'draft', 'approved', 'applied', 'cancelled'] as const;
+const TABS = ['all', 'draft', 'approved', 'partially_applied', 'applied', 'cancelled'] as const;
 type Tab = typeof TABS[number];
 
 // Match Bank Transactions colour pattern: Customer = teal, Supplier = amber.
@@ -55,7 +56,7 @@ export default function CreditNotesPage() {
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `credit-notes-${new Date().toISOString().split('T')[0]}.csv`; a.click();
+    a.download = `credit-notes-${localISODate()}.csv`; a.click();
   };
 
   return (

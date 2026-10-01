@@ -103,6 +103,10 @@ function voidTool(
         amount_unapplied: result.amountUnapplied,
         journal_entry_id: result.journalEntryId,
         bank_transaction_id: result.bankTransactionId,
+        // Non-null when the contra was dated past a locked (filed) VAT period.
+        reversal_date_roll: result.vatLockRoll,
+        // A bank-first settlement undo also reverses its reclass (R-127).
+        reclass_reversal_date_roll: result.reclassVatLockRoll ?? null,
       });
     },
   };

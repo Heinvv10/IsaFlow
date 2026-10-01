@@ -34,7 +34,21 @@ export interface PipelineInvoiceInput {
   taxAmount: number;
   taxRate: number;
   items: Array<{ description: string; quantity: number; unitPrice: number; taxRate: number }>;
+  /** Set when the extraction read no VAT: the draft says so to the person approving it. */
+  notes?: string;
 }
+
+/**
+ * What a draft carries when the extraction read NO VAT (K-072 r30). The builder
+ * used to invent 15/115 of the total as the invoice's tax, and the draft showed
+ * that figure as if the document printed it — and an agent could approve it,
+ * booking input VAT a non-VAT vendor never charged. Now the draft carries no
+ * VAT at all and says why; the MCP approve tools refuse any VAT the captured
+ * document does not show (`capturedVatEvidence`, r32), so an agent can approve
+ * this draft only as it stands — claiming none.
+ */
+export const VAT_UNREAD_NOTE = 'VAT was not read from the captured document, so this draft carries NO VAT. '
+  + 'If the document shows VAT, do not approve it as is: cancel it and enter the bill with its VAT.';
 
 export interface PipelineValidation {
   valid: boolean;
@@ -75,6 +89,34 @@ export function validatePipelineInput(extracted: ExtractedDocument): PipelineVal
   const warnings: string[] = [];
 
   if (extracted.totalAmount === null || extracted.totalAmount === undefined) errors.push('totalAmount is required');
+  // R-119: the extractor reads whatever the document says, and a credit note
+  // fed through this pipeline reads as a negative total. It is not a bill.
+  else if (!Number.isFinite(extracted.totalAmount as number)) {
+    errors.push('totalAmount is not a number — check the extracted figure');
+  } else if ((extracted.totalAmount as number) < 0) {
+    errors.push('totalAmount is negative — a credit is a credit note, not a supplier invoice');
+  }
+
+  // The VAT LEG, separately: `buildInvoiceFromExtraction` writes
+  // `subtotal = totalAmount - vatAmount` and `tax_amount = vatAmount`, so a
+  // VAT figure above the total makes the subtotal negative and a negative one
+  // makes the tax leg negative — while the TOTAL stays clean, which is
+  // exactly the shape migration 692's leg arms refuse. Caught here, the
+  // operator gets a 400 naming the figure; uncaught, a bad scan is a 500 and
+  // a paged engineer, on the highest-volume automated path in this module.
+  const vat = extracted.vatAmount;
+  if (vat !== null && vat !== undefined) {
+    if (!Number.isFinite(vat)) {
+      errors.push('vatAmount is not a number — check the extracted figure');
+    } else if (vat < 0) {
+      errors.push('vatAmount is negative — a credit is a credit note, not a supplier invoice');
+    } else if (Number.isFinite(extracted.totalAmount as number) && vat > (extracted.totalAmount as number)) {
+      errors.push(
+        `vatAmount (${vat}) is greater than totalAmount (${extracted.totalAmount}) — `
+        + 'the VAT-inclusive and exclusive figures look swapped',
+      );
+    }
+  }
   if (!extracted.vendorName) errors.push('vendorName is required');
   if (!extracted.date) errors.push('date is required');
   if (!extracted.referenceNumber) warnings.push('No reference/invoice number extracted');
@@ -127,7 +169,10 @@ export function buildInvoiceFromExtraction(
   extracted: ExtractedDocument,
   supplierId: string,
 ): PipelineInvoiceInput {
-  const taxRate = extracted.vatRate ?? 15;
+  // A VAT the document never showed is never invented (K-072 r30): no VAT read
+  // is no VAT on the draft, at a 0% rate, flagged for the person approving it.
+  const vatRead = extracted.vatAmount !== null && extracted.vatAmount !== undefined;
+  const taxRate = vatRead ? (extracted.vatRate ?? 15) : 0;
 
   return {
     supplierId,
@@ -137,8 +182,9 @@ export function buildInvoiceFromExtraction(
     paymentTerms: extracted.paymentTerms || undefined,
     reference: extracted.purchaseOrderRef || undefined,
     totalAmount: extracted.totalAmount ?? 0,
-    taxAmount: extracted.vatAmount ?? (extracted.totalAmount ? Math.round(extracted.totalAmount / (1 + taxRate / 100) * (taxRate / 100) * 100) / 100 : 0),
+    taxAmount: vatRead ? extracted.vatAmount! : 0,
     taxRate,
+    notes: vatRead ? undefined : VAT_UNREAD_NOTE,
     items: extracted.lineItems.length > 0
       ? extracted.lineItems.map(li => ({
           description: li.description,
@@ -146,7 +192,7 @@ export function buildInvoiceFromExtraction(
           unitPrice: li.unitPrice ?? li.total ?? 0,
           taxRate,
         }))
-      : [{ description: 'As per invoice', quantity: 1, unitPrice: extracted.subtotal ?? extracted.totalAmount ?? 0, taxRate }],
+      : [{ description: 'As per invoice', quantity: 1, unitPrice: (vatRead ? extracted.subtotal : null) ?? extracted.totalAmount ?? 0, taxRate }],
   };
 }
 

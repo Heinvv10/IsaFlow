@@ -18,9 +18,28 @@ const { sqlMock, recomputeInvoiceStatus } = vi.hoisted(() => ({
   recomputeInvoiceStatus: vi.fn(),
 }));
 
+// The VAT-lock guard runs its own queries (advisory lock, active-lock read,
+// account subtypes), which would shift this file's positional sql mock. It is
+// exercised against a real ledger in tests/integration/vat-period-lock-*.int.test.ts;
+// here it is a no-op, and the error class stays real.
+vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalVatLockGuard')>()),
+  assertJournalVatPeriodOpen: vi.fn(async () => undefined),
+  assertJournalDateOutsideVatLock: vi.fn(async () => undefined),
+  takeVatLockShared: vi.fn(async () => undefined),
+  findActiveVatLock: vi.fn(async () => null),
+  journalMovesVatFigure: vi.fn(async () => false),
+  loadJournalVatLines: vi.fn(async () => []),
+}));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/modules/accounting/services/ar/invoiceStatusRecompute', () => ({ recomputeInvoiceStatus }));
+// `importOriginal` keeps BALANCE_DERIVED real — `supplierAllocationLines`
+// builds its allocatable-status allow-list from it at module load, so a
+// hand-written stub would silently decide which statuses may take a payment.
+vi.mock('@/modules/accounting/services/ar/invoiceStatusRecompute', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/ar/invoiceStatusRecompute')>()),
+  recomputeInvoiceStatus,
+}));
 
 import { unwindBankAllocationApplication } from '@/modules/accounting/services/bank/bankAllocationUnwind';
 
@@ -42,7 +61,8 @@ function customerWithOneAllocation(amount = '750.00') {
   sqlMock.mockReset();
   sqlMock
     .mockResolvedValueOnce([{ id: PAYMENT }])                                   // customer_payments
-    .mockResolvedValueOnce([{ invoice_id: INVOICE, amount_allocated: amount }]) // its allocations
+    .mockResolvedValueOnce([])                                                  // the cancel flip (the row lock)
+    .mockResolvedValueOnce([{ invoice_id: INVOICE, amount_allocated: amount }]) // its allocations, read under it
     .mockResolvedValue([]);
 }
 
@@ -121,7 +141,8 @@ describe('unwindBankAllocationApplication', () => {
   it('reads allocations through the payment, which has no company_id of its own', async () => {
     customerWithOneAllocation();
     await unwindBankAllocationApplication(COMPANY, JOURNAL);
-    expect(textOf(1)).toContain('payment_id');
+    const read = sqlMock.mock.calls.map((_, i) => textOf(i)).find((t) => /FROM customer_payment_allocations/i.test(t));
+    expect(read).toContain('payment_id');
   });
 
   it('is a no-op for a journal that settled nothing', async () => {
@@ -134,11 +155,70 @@ describe('unwindBankAllocationApplication', () => {
     sqlMock.mockReset();
     sqlMock
       .mockResolvedValueOnce([{ id: PAYMENT }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ invoice_id: INVOICE, amount_allocated: '0.00' }])
       .mockResolvedValue([]);
     const r = await unwindBankAllocationApplication(COMPANY, JOURNAL);
     expect(r.invoicesReopened).toBe(0);
     expect(r.amountUnapplied).toBe(0);
+  });
+});
+
+describe('unwindOnePayment — canonical lock order', () => {
+  // `reverseReconciledTransaction` is the one caller that does not already hold
+  // the payment, so the order INSIDE this function is the order that path
+  // takes: it must reach `customer_payments` before `customer_invoices`, or it
+  // inverts `planReceiptApplication` (payment then invoices) on the same pair.
+  /**
+   * The flip is the payment row lock, and the allocation rows must be read
+   * only once it is held: an un-apply that committed while the unwind waited
+   * had deleted a row and restored the bill, and the stale row was subtracted
+   * again — R1,150 left the AP subledger (unapply.int.test.ts reproduces it).
+   */
+  it('takes the payment row lock (the cancel flip) BEFORE reading its allocations', async () => {
+    customerWithOneAllocation();
+    await unwindBankAllocationApplication(COMPANY, JOURNAL);
+
+    const texts = sqlMock.mock.calls.map((_, i) => textOf(i));
+    const flip = texts.findIndex((t) => /UPDATE customer_payments\s+SET status = 'cancelled'/i.test(t));
+    const read = texts.findIndex((t) => /FROM customer_payment_allocations/i.test(t));
+    expect(flip).toBeGreaterThanOrEqual(0);
+    expect(read).toBeGreaterThanOrEqual(0);
+    expect(flip).toBeLessThan(read);
+  });
+
+  it('cancels the payment before it touches the invoices', async () => {
+    customerWithOneAllocation();
+    await unwindBankAllocationApplication(COMPANY, JOURNAL);
+
+    const texts = sqlMock.mock.calls.map((_, i) => textOf(i));
+    const flip = texts.findIndex((t) => /UPDATE customer_payments\s+SET status = 'cancelled'/i.test(t));
+    const invoice = texts.findIndex((t) => /UPDATE customer_invoices/i.test(t));
+    expect(flip, 'the payment must be cancelled').toBeGreaterThanOrEqual(0);
+    expect(invoice, 'the invoice must be rolled back').toBeGreaterThanOrEqual(0);
+    expect(flip).toBeLessThan(invoice);
+  });
+
+  it('reads the allocations in a deterministic invoice order', async () => {
+    // Without ORDER BY, two unwinds sharing two invoices can take them in
+    // opposite orders and deadlock.
+    customerWithOneAllocation();
+    await unwindBankAllocationApplication(COMPANY, JOURNAL);
+
+    const allocRead = sqlMock.mock.calls
+      .map((_, i) => textOf(i))
+      .find((t) => /FROM customer_payment_allocations/i.test(t));
+    expect(allocRead).toMatch(/ORDER BY invoice_id/i);
+  });
+
+  it('deletes the allocation rows only after the loop that reverses them', async () => {
+    customerWithOneAllocation();
+    await unwindBankAllocationApplication(COMPANY, JOURNAL);
+
+    const texts = sqlMock.mock.calls.map((_, i) => textOf(i));
+    const invoice = texts.findIndex((t) => /UPDATE customer_invoices/i.test(t));
+    const del = texts.findIndex((t) => /DELETE FROM customer_payment_allocations/i.test(t));
+    expect(del).toBeGreaterThan(invoice);
   });
 });
 
@@ -148,6 +228,7 @@ describe('unwindBankAllocationApplication — supplier side', () => {
     sqlMock
       .mockResolvedValueOnce([])                                                  // customer_payments: none
       .mockResolvedValueOnce([{ id: PAYMENT }])                                   // supplier_payments
+      .mockResolvedValueOnce([])                                                  // the cancel flip (the row lock)
       .mockResolvedValueOnce([{ invoice_id: INVOICE, amount_allocated: '400.00' }])
       .mockResolvedValue([]);
   }
@@ -216,7 +297,11 @@ describe('reverseReconciledTransaction — ordering', () => {
       }),
     }));
     vi.doMock('@/modules/accounting/services/gl/journalEntryService', () => ({
-      reverseJournalEntry: vi.fn(async () => { order.push('reverse'); }),
+      reverseJournalEntry: vi.fn(async () => { order.push('reverse'); return { vatLockRoll: null }; }),
+      resolveReversalDate: vi.fn(async () => '2026-08-04'),
+    }));
+    vi.doMock('@/modules/accounting/services/gl/periodStatusService', () => ({
+      getPeriodStatusForDate: vi.fn(async () => 'open'),
     }));
     vi.doMock('@/modules/accounting/services/bank/bankTxLock', () => ({
       lockBankTransactionForUpdate: vi.fn(async () => ({
@@ -224,8 +309,9 @@ describe('reverseReconciledTransaction — ordering', () => {
       })),
     }));
     vi.doMock('@/lib/neon', () => ({
-      sql: vi.fn(async () => [{ journal_entry_id: JOURNAL }]),
+      sql: vi.fn(async () => [{ journal_entry_id: JOURNAL, entry_date: '2026-08-04' }]),
       withTransaction: vi.fn(async (fn: (t: unknown) => Promise<void>) => fn(vi.fn())),
+      withSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => fn()),
     }));
 
     const { reverseReconciledTransaction } = await import(

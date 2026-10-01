@@ -1,3 +1,6 @@
+import { verifyTokenSignature } from '@/lib/auth/gotrue';
+import { mintImpersonationProof } from '@/lib/auth/impersonationAssurance';
+import { registerImpersonationSession } from '@/lib/auth/impersonationSessions';
 /**
  * POST /api/admin/users/:id/impersonate
  * Super-admin "Login as X" — swaps admin's session for target's via GoTrue
@@ -15,7 +18,7 @@ import {
   REFRESH_COOKIE,
 } from '@/lib/auth/cookies';
 import { generateLink, verifyMagicLink, GotrueAdminLinkError } from '@/lib/auth/gotrue-admin-link';
-import { stashAdminTokens, validateImpersonationTarget, deleteStash } from '@/modules/admin/services/userImpersonationService';
+import { stashAdminTokens, validateImpersonationTarget, deleteStash, loadStash } from '@/modules/admin/services/userImpersonationService';
 import { setImpersonationCookies } from '@/lib/auth/impersonation-cookies';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -70,9 +73,11 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     targetUserId: target.userId,
   });
 
-  // Pentest H11: impersonation_start is a CRITICAL_ACTION. withAdmin opens NO
-  // transaction, so ordering is the guarantee: the audit INSERT is awaited
-  // BEFORE cookies are set — if it throws, impersonation never starts. On
+  // Pentest H11: impersonation_start is a CRITICAL_ACTION. The handler runs in
+  // withPlatformAdmin's transaction, which COMMITs after the handler returns
+  // (a 500 answered by withErrorHandler included) and does not hold the
+  // response — so ordering is the guarantee: the audit INSERT is awaited
+  // BEFORE cookies are set, and if it throws, impersonation never starts. On
   // failure we also remove the freshly-stashed admin tokens so no orphan row
   // remains.
   try {
@@ -97,6 +102,35 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     throw auditErr;
   }
 
+  let proof: string;
+  try {
+    const [actorClaims, targetClaims, stash] = await Promise.all([
+      verifyTokenSignature(adminAccess), verifyTokenSignature(targetTokens.access_token), loadStash(stashId),
+    ]);
+    if (actorClaims.sub !== req.user.id || targetClaims.sub !== target.userId
+      || !stash || stash.admin_user_id !== req.user.id || stash.target_user_id !== target.userId
+      || typeof targetClaims.session_id !== 'string' || typeof actorClaims.exp !== 'number') {
+      throw new Error('Impersonation session identity mismatch');
+    }
+    proof = await mintImpersonationProof({
+      actorUserId: req.user.id, targetUserId: target.userId, targetSessionId: targetClaims.session_id,
+      actorExpiresAt: actorClaims.exp, stashExpiresAt: Math.floor(new Date(stash.expires_at).getTime() / 1000),
+    });
+    // R-032: the proof and stash cookies can be deleted by this browser; this
+    // row cannot. It is what refuses approval decisions from this session, so
+    // it is committed on its own connection before any cookie is set. A failure
+    // here leaves this transaction usable: the stash cleanup below runs, and
+    // the impersonation_start row above records the refused attempt.
+    await registerImpersonationSession({
+      sessionId: targetClaims.session_id, actorUserId: req.user.id, targetUserId: target.userId,
+    });
+  } catch (proofErr) {
+    await deleteStash(stashId).catch((cleanupErr: unknown) =>
+      log.error('impersonate: proof setup cleanup failed', { stashId, error: String(cleanupErr) }, 'Admin'),
+    );
+    throw proofErr;
+  }
+
   setAuthCookies(res, {
     accessToken: targetTokens.access_token,
     refreshToken: targetTokens.refresh_token,
@@ -111,7 +145,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
   `;
   if (memberships.length > 0) setActiveCompanyCookie(res, memberships[0]!.company_id);
 
-  setImpersonationCookies(res, stashId);
+  setImpersonationCookies(res, stashId, proof);
 
   res.status(200).json({ success: true, data: { redirect: '/accounting' } });
 }

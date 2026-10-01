@@ -10,18 +10,49 @@ import { withSavepoint } from '@/lib/neon';
 import { BulkAllocationLineError } from '../bulkAllocationLineError';
 import type { ResolvedLine } from './bulkAllocationPrepare';
 import { reasonForStatus, type SkippedLine } from './bulkAllocationSkip';
+import { prefetchAllocationVatFacts, type VatCoercionReason } from './allocationVatGuard';
 import { postAllocationLine } from './allocationLine';
+import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import type { McpToolContext } from '../types';
 
 export interface PostedLine {
   transaction_id: string;
   journal_entry_id: string;
+  /** Present only when a guard changed this line's VAT code before posting. */
+  vat_coerced?: { from: string; to: string; reason: VatCoercionReason };
+  /** The mode this line ran under. Absent when it could settle nothing. */
+  auto_apply?: string;
+  /** The documents this line's cash closed, in the order it closed them. */
+  applications?: { document_id: string; document_number: string; amount: number }[];
+  /** The remainder left on the contact's account. */
+  on_account?: number;
+}
+
+/** One line whose VAT claim a guard dropped before it posted. */
+export interface CoercedVatLine {
+  index: number;
+  transaction_id: string;
+  from: string;
+  to: string;
+  /**
+   * `input_tax_denied` = s17(2)(a) entertainment. `no_supply` = no supply can
+   * arise on the account. `settlement` = the line settles a bill or an invoice
+   * that already accounted for the VAT. Aliased, not restated, so a new reason
+   * cannot be added to the guard and forgotten here.
+   */
+  reason: VatCoercionReason;
 }
 
 export interface PostedBatch {
   lines: PostedLine[];
   /** Rows that became unallocatable AFTER the pre-check — a lost race. */
   raced: SkippedLine[];
+  /**
+   * Lines that POSTED, but gross: a guard refused the VAT claim. Reported per
+   * batch because a caller reading only the summary would otherwise miss that
+   * 40 of its 500 lines did not do what it asked.
+   */
+  vatCoerced: CoercedVatLine[];
 }
 
 /**
@@ -44,20 +75,6 @@ const ALREADY_REFUSAL = /Transaction already (\S+) — cannot allocate/;
 function racedStatus(err: unknown): string | null {
   if (!(err instanceof Error)) return null;
   return ALREADY_REFUSAL.exec(err.message)?.[1] ?? null;
-}
-
-/**
- * `lockBankTransactionForUpdate` waits 5s for the row and then raises
- * `BankTransactionLockTimeoutError` (code BANK_TX_LOCK_TIMEOUT). Detected by
- * CODE rather than `instanceof`: the loop must not import a bank service just
- * to compare constructors, and the code is the stable part of that contract.
- *
- * Write-free by construction — the lock is taken before anything is posted —
- * so the line is skipped rather than failing the batch.
- */
-function isLockTimeout(err: unknown): boolean {
-  return typeof err === 'object' && err !== null
-    && (err as { code?: unknown }).code === 'BANK_TX_LOCK_TIMEOUT';
 }
 
 /**
@@ -117,12 +134,17 @@ export function safeLineDetail(err: unknown): string {
  *     status under its own FOR UPDATE and refused, so NOTHING was written for
  *     this line and the batch is entitled to treat it exactly like a pre-check
  *     skip: counted, reported, and the batch continues.
- *   - the row is LOCKED by another request that has not finished (5s
- *     lock_timeout, BankTransactionLockTimeoutError). Also write-free — the
- *     lock is taken before anything is posted — so it is the same class of
- *     outcome as the race: skipped, reported as retryable, batch continues.
- *     Failing 499 good lines because one row was briefly busy is the opposite
- *     of what a bulk tool is for.
+ *   - a peer HELD a row this line needed and it was never acquired — the whole
+ *     `isRetryableContention` union, not the bank lock alone. `postAllocationLine`
+ *     reaches `allocateTransaction`, which reaches `recordSupplierBankPayment` /
+ *     `autoApplyCustomerReceipt` and through them the payment lock and the two
+ *     retryable plan refusals, so classifying on BANK_TX_LOCK_TIMEOUT alone
+ *     failed the whole batch for three of the four members. Every one of them is
+ *     write-free for the call that raised it, and the per-line savepoint has
+ *     rolled back anyway, so it is the same class of outcome as the race:
+ *     skipped, reported as retryable, batch continues. Failing 499 good lines
+ *     because one row was briefly busy is the opposite of what a bulk tool is
+ *     for.
  *   - anything else — a closed period, a missing contra account, a constraint —
  *     is fatal. It is rethrown as BulkAllocationLineError so the registry's
  *     savepoint unwinds the whole batch AND the agent is told which line did
@@ -136,8 +158,18 @@ export async function postPreparedLines(
   ordered: readonly ResolvedLine[],
   toolName: string,
 ): Promise<PostedBatch> {
+  // Two queries for the whole batch instead of two per line. Unbatched, a
+  // 500-line run of standard-coded account lines does up to 1,000 sequential
+  // SELECTs inside the savepoint loop below — and a salary batch is exactly
+  // that shape, so the worst case is the case this guard exists for.
+  const vatFacts = await prefetchAllocationVatFacts(
+    ctx.companyId, ordered.map(({ line }) => line.contraAccountId),
+  );
   const lines: PostedLine[] = [];
   const raced: SkippedLine[] = [];
+  // Per batch, not per line: a run that quietly dropped a claim on 40 of 500
+  // lines is exactly the thing a caller reading only the summary would miss.
+  const vatCoerced: CoercedVatLine[] = [];
 
   for (const { index, txId, line } of ordered) {
     // Sequential, not Promise.all: these share one pg connection, and
@@ -148,19 +180,34 @@ export async function postPreparedLines(
         // ≤31 chars for every index up to 499 — withSavepoint THROWS on a
         // longer name, which would fail the batch before it posted anything.
         `bulk_alloc_line_${index}`,
-        () => postAllocationLine(ctx, txId, line, toolName),
+        () => postAllocationLine(ctx, txId, line, toolName, vatFacts),
       );
       lines.push({
         transaction_id: result.transactionId,
         journal_entry_id: result.journalEntryId,
+        ...(result.vatCoerced ? { vat_coerced: result.vatCoerced } : {}),
+        // The same three fields the dry run reports, so a caller can compare
+        // its preview against what actually posted without reshaping either.
+        ...(result.application
+          ? {
+            auto_apply: result.application.autoApply,
+            applications: result.application.applications.map((a) => ({
+              document_id: a.documentId,
+              document_number: a.documentNumber,
+              amount: a.amount,
+            })),
+            on_account: result.application.onAccount,
+          }
+          : {}),
       });
+      if (result.vatCoerced) vatCoerced.push({ index, transaction_id: txId, ...result.vatCoerced });
     } catch (err) {
       const status = racedStatus(err);
       if (status !== null) {
         raced.push({ index, transaction_id: txId, reason: reasonForStatus(status) });
         continue;
       }
-      if (isLockTimeout(err)) {
+      if (isRetryableContention(err)) {
         raced.push({
           index, transaction_id: txId, reason: 'locked by another request — retry',
         });
@@ -172,5 +219,5 @@ export async function postPreparedLines(
     }
   }
 
-  return { lines, raced };
+  return { lines, raced, vatCoerced };
 }

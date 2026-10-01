@@ -54,6 +54,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       userId,
       reimbursementAccountId: body.reimbursementAccountId,
       vatInputAccountId: body.vatInputAccountId ?? null,
+      // A person posting: s16(3) late input-VAT claim where allowed (claim.lateClaim).
+      allowLateInputClaim: true,
     });
     if (!claim) return apiResponse.notFound(res, 'Expense claim', id);
     return apiResponse.success(res, { claim });

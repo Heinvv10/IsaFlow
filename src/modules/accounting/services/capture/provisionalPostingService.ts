@@ -6,6 +6,8 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
+import { resolveRuleVatCode } from '../gl/ruleVatResolution';
+import { feedStateOf } from '../bank/bankFeedStateGuard';
 
 type Row = DbRow;
 
@@ -159,7 +161,7 @@ export async function postProvisional(
 
   // Load bank transaction
   const txRows = (await sql`
-    SELECT id, bank_account_id, transaction_date, amount, description, status
+    SELECT id, bank_account_id, transaction_date, amount, description, status, feed_state
     FROM bank_transactions
     WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
@@ -172,6 +174,14 @@ export async function postProvisional(
       journalEntryId: null,
       prediction: { supplierId: null, supplierName: null, glAccountId: null, vatCode: null, costCentreId: null, projectId: null, confidence: 0, basis: 'none' },
       skipped: `already ${String(tx.status)}`,
+    };
+  }
+
+  if (feedStateOf(tx) !== 'posted') {
+    return {
+      journalEntryId: null,
+      prediction: { supplierId: null, supplierName: null, glAccountId: null, vatCode: null, costCentreId: null, projectId: null, confidence: 0, basis: 'none' },
+      skipped: `feed_state ${feedStateOf(tx)}`,
     };
   }
 
@@ -204,15 +214,31 @@ export async function postProvisional(
   const txDate = fmtDate(tx.transaction_date);
   const description = String(tx.description ?? 'Provisional bank allocation');
 
-  const hasVat = prediction.vatCode === 'standard';
-  const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + VAT_RATE)) * 100) / 100 : totalAmount;
-  const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
-
   // Resolve GL account — use predicted or fall back to default_expense
   let expenseAccountId = prediction.glAccountId;
   if (!expenseAccountId) {
     expenseAccountId = await getSystemAccountId('default_expense', companyId);
   }
+
+  // THE THIRD UNATTENDED POSTER. This one predicts its own vat code, from the
+  // most frequent code on that supplier's history — so a ledger already
+  // carrying a wrong claim teaches this path to repeat it, which is exactly
+  // Velocity's salary account: 34 historical lines at 'standard'. It posts
+  // with nobody watching, so it guards like the other two rather than
+  // trusting the prediction. Resolved AFTER the account falls back to
+  // default_expense, because the fallback is what actually gets posted to.
+  const guarded = await resolveRuleVatCode({
+    allocType: 'account',
+    companyId,
+    requestedVatCode: prediction.vatCode ?? 'none',
+    glAccountId: expenseAccountId,
+    denialContext: { bankTxId, source: 'provisional_posting' },
+    guardContext: { bankTxId, ruleName: 'provisional posting' },
+  });
+
+  const hasVat = guarded.vatCode === 'standard';
+  const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + VAT_RATE)) * 100) / 100 : totalAmount;
+  const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
 
   type JournalLine = { glAccountId: string; debit: number; credit: number; description: string; vatType?: 'standard' | 'zero_rated' | 'exempt'; projectId?: string; costCenterId?: string };
   const lines: JournalLine[] = [

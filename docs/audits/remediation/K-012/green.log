@@ -1,0 +1,55 @@
+=== GREEN: real DB ===
+      Tests  7 passed (7)
+   Start at  05:56:28
+   Duration  1.27s (transform 722ms, setup 0ms, import 1.31s, tests 448ms, environment 0ms)
+
+=== GREEN: full unit suite ===
+   Duration  63.45s (transform 918.46s, setup 0ms, import 1477.39s, tests 101.38s, environment 163ms)
+
+error: script "test:unit" exited with code 1
+=== MUTATION 1: restore the allocation-based credit ===
+   Start at  05:57:34
+   Duration  1.07s (transform 502ms, setup 0ms, import 1.07s, tests 464ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
+=== MUTATION 2: drop the company_id predicate ===
+   Start at  05:57:36
+   Duration  1.16s (transform 452ms, setup 0ms, import 643ms, tests 254ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
+=== MUTATION 3: revert the unit fixture rename (proves the H1 coupling) ===
+      Tests  3 failed | 7 passed (10)
+   Start at  05:57:38
+   Duration  708ms (transform 122ms, setup 0ms, import 149ms, tests 18ms, environment 0ms)
+
+=== RESTORED ===
+      Tests  7 passed (7)
+   Start at  05:57:39
+   Duration  1.14s (transform 664ms, setup 0ms, import 1.30s, tests 439ms, environment 0ms)
+
+      Tests  10 passed (10)
+   Start at  05:57:41
+   Duration  512ms (transform 138ms, setup 0ms, import 203ms, tests 21ms, environment 0ms)
+
+
+=== NOTE on the "GREEN: full unit suite" line above ===
+That step was piped through `tail -3`, which cut the counts and left a bare exit
+code 1. The cause is environmental and NOT a flake, and not K-012:
+tests/unit/services/reports/incomeStatementDisclosureDb.test.ts skips itself when
+DATABASE_URL is unset and runs against a real ledger when it is set. That step ran
+in the same shell that had sourced the disposable zero-row fixture env for the
+integration mutations, so it hit an empty database. Reproduced both ways from this
+worktree at this tree state:
+
+  $ source <fixture.env>; bunx vitest run tests/unit/services/reports/incomeStatementDisclosureDb.test.ts
+    Test Files  1 failed (1)
+         Tests  7 failed | 1 passed (8)
+
+  $ env -u DATABASE_URL bunx vitest run tests/unit/services/reports/incomeStatementDisclosureDb.test.ts
+    Test Files  1 passed (1)
+         Tests  1 passed | 7 skipped (8)
+
+That file was the only failure in ~9.5k tests. `bun run test:unit` in a shell with
+no DATABASE_URL passes: 784 files passed / 36 skipped, 9320 tests passed / 234
+skipped, exit 0 (full output: scratchpad/k012-unit3.log). Run the unit suite in a
+clean shell; do not carry the integration fixture env into it.

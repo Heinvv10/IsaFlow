@@ -119,12 +119,18 @@ beforeEach(() => {
   vi.mocked(createAllocationBatch).mockResolvedValue(BATCH);
   vi.mocked(recordAllocationBatchLines).mockResolvedValue(undefined);
   sqlMock.mockResolvedValue([]);
-  fetchBankTransaction.mockResolvedValue({ amount: 100, transactionDate: '2026-01-01' });
+  // Money OUT, and the two mocks agree on it. These lines are supplier
+  // payments and rent — an outflow — and since 2026-09-07 the direction is
+  // load-bearing: a money-IN line naming a bill is refused rather than
+  // applied at its magnitude. `findBankTransactionAllocationStates` carries
+  // the SIGNED amount for exactly that check, so a fixture that omits it
+  // sends the partition and the posting loop different facts.
+  fetchBankTransaction.mockResolvedValue({ amount: -100, transactionDate: '2026-01-01' });
   confirmReceiptMatch.mockResolvedValue({ journalEntryId: 'je-applied' });
   applyBankLineToSupplierInvoices.mockResolvedValue({ journalEntryId: 'je-applied' });
   vi.mocked(findBankTransactionAllocationStates).mockImplementation(
     async (_c: string, ids: readonly string[]) => new Map(
-      ids.map((id) => [id, { id, status: 'imported', matchedJournalLineId: null }]),
+      ids.map((id) => [id, { id, status: 'imported', matchedJournalLineId: null, amount: -100 }]),
     ),
   );
   vi.mocked(allocateTransaction).mockImplementation(
@@ -144,7 +150,7 @@ describe('bulk_allocate_bank_transactions — posting', () => {
     for (const call of vi.mocked(allocateTransaction).mock.calls) {
       expect(call[0]).toBe('company-1');
       expect(call[3]).toBe('user-1');
-      expect(call[12]).toEqual({ postingAgent: 'mcp:bulk_allocate_bank_transactions:v1', actorType: 'agent', actorTokenJti: 'jti' });
+      expect(call[12]).toEqual({ postingAgent: 'mcp:bulk_allocate_bank_transactions:v1', actorType: 'agent', actorTokenJti: 'jti', autoApply: 'fifo' });
     }
     const body = payload(res as never);
     expect(body.batch_id).toBe(BATCH);
@@ -181,9 +187,14 @@ describe('bulk_allocate_bank_transactions — posting', () => {
     ]);
   });
 
-  it('passes alloc_type, entity, vat and description straight through', async () => {
+  it('passes alloc_type, entity and description straight through', async () => {
     // No invoice_id: this is still the plain journal-posting path.
-    await bulkAllocateBankTransactionsTool.handler(
+    // The VAT code is the ONE field that does not pass through — this runs the
+    // real `resolveRuleVatCode`, and a supplier line settles a bill that
+    // already claimed the tax (K-016/K-017), so the claim is dropped here
+    // rather than inside `allocateTransaction`. Reported, not silent: the
+    // agent's reply carries `vat_coerced` saying so.
+    const res = await bulkAllocateBankTransactionsTool.handler(
       {
         allocations: [{
           transaction_id: TX(1),
@@ -201,7 +212,33 @@ describe('bulk_allocate_bank_transactions — posting', () => {
     expect(call[4]).toBe('Rent');
     expect(call[5]).toBe('supplier');
     expect(call[6]).toBe(SUPPLIER);
-    expect(call[7]).toBe('standard');
+    expect(call[7]).toBe('none');
+
+    const body = JSON.parse(String(res.content[0]!.text));
+    expect(body.vat_coerced_count).toBe(1);
+    expect(body.vat_coerced[0]).toMatchObject({
+      transaction_id: TX(1), from: 'standard', to: 'none', reason: 'settlement',
+    });
+  });
+
+  it('leaves an account line claiming, and reports no coercion', async () => {
+    // The control that keeps the case above honest: the same batch shape on an
+    // `account` line still hands `standard` down and says nothing.
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      {
+        allocations: [{
+          transaction_id: TX(1),
+          alloc_type: 'account',
+          contra_account_id: ACC(1),
+          vat_code: 'standard',
+          description: 'Stationery',
+        }],
+        idempotency_key: 'k1',
+      },
+      ctx,
+    );
+    expect(vi.mocked(allocateTransaction).mock.calls[0]![7]).toBe('standard');
+    expect(JSON.parse(String(res.content[0]!.text)).vat_coerced_count).toBeUndefined();
   });
 
   it('a line naming an invoice APPLIES it instead of only posting a journal', async () => {

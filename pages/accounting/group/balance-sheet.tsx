@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { BarChart3, Loader2, AlertCircle, Download, Building2, CheckCircle2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -52,7 +53,6 @@ interface EntityGroup {
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
-const defaultAsAtDate = new Date().toISOString().substring(0, 10);
 
 const selectClass =
   'px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm';
@@ -65,7 +65,7 @@ const inputClass = selectClass;
 export default function ConsolidatedBalanceSheetPage() {
   const [groups, setGroups] = useState<EntityGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
-  const [asAtDate, setAsAtDate] = useState(defaultAsAtDate);
+  const [asAtDate, setAsAtDate] = useState(() => localISODate());
 
   const [data, setData] = useState<ConsolidatedBSResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -145,7 +145,7 @@ export default function ConsolidatedBalanceSheetPage() {
 
     const csvRows: string[] = [headerCols.map(c => `"${c}"`).join(',')];
 
-    for (const row of data.rows) {
+    for (const row of [...assetRows, ...equityRows, ...liabilityRows]) {
       const cols: string[] = [
         `"${row.groupAccountCode}"`,
         `"${row.groupAccountName}"`,
@@ -165,7 +165,7 @@ export default function ConsolidatedBalanceSheetPage() {
     a.download = `consolidated-balance-sheet-${asAtDate}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [data, entityIds, asAtDate]);
+  }, [data, entityIds, asAtDate, assetRows, equityRows, liabilityRows]);
 
   /* ---------- Render helpers ---------- */
   const colCount = entityIds.length + 2;
@@ -296,7 +296,7 @@ export default function ConsolidatedBalanceSheetPage() {
                 </p>
               </div>
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-                <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Total L + E</p>
+                <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Total Equity and Liabilities</p>
                 <p className="text-xl font-bold text-blue-400">
                   {fmt(data.totalLiabilitiesAndEquity?.consolidated ?? 0)}
                 </p>
@@ -369,18 +369,18 @@ export default function ConsolidatedBalanceSheetPage() {
                   {renderSectionRows(assetRows)}
                   {renderTotalsRow('Total Assets', data.totalAssets, true, 'text-blue-400')}
 
-                  {/* Liabilities */}
-                  {renderSectionHeader('Liabilities', 'text-amber-400')}
-                  {renderSectionRows(liabilityRows)}
-                  {renderTotalsRow('Total Liabilities', data.totalLiabilities, false, 'text-amber-400')}
-
                   {/* Equity */}
                   {renderSectionHeader('Equity', 'text-purple-400')}
                   {renderSectionRows(equityRows)}
                   {renderTotalsRow('Total Equity', data.totalEquity, false, 'text-purple-400')}
 
-                  {/* Total L + E */}
-                  {renderTotalsRow('Total Liabilities + Equity', data.totalLiabilitiesAndEquity, true, 'text-blue-400')}
+                  {/* Liabilities */}
+                  {renderSectionHeader('Liabilities', 'text-amber-400')}
+                  {renderSectionRows(liabilityRows)}
+                  {renderTotalsRow('Total Liabilities', data.totalLiabilities, false, 'text-amber-400')}
+
+                  {/* Total E + L */}
+                  {renderTotalsRow('Total Equity and Liabilities', data.totalLiabilitiesAndEquity, true, 'text-blue-400')}
                 </tbody>
               </table>
             </div>

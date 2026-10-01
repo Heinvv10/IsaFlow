@@ -48,7 +48,7 @@ export function generateInboxAddress(companyId: string): string {
   // Use companyId only to satisfy the parameter; actual uniqueness comes from
   // random bytes so we don't expose the UUID in the address.
   void companyId;
-  const slug = crypto.randomBytes(4).toString('hex').slice(0, 6).toLowerCase();
+  const slug = crypto.randomBytes(16).toString('hex');
   return `cap-${slug}@inbox.isaflow.co.za`;
 }
 
@@ -80,24 +80,20 @@ export async function getOrCreateEmailInbox(
   const MAX_ATTEMPTS = 5;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const address = generateInboxAddress(companyId);
-    try {
-      const inserted = await sql`
-        INSERT INTO capture_inboxes (company_id, channel, address, is_active, created_by)
-        VALUES (${companyId}, 'email', ${address}, true, ${userId ?? null})
-        RETURNING id, address, is_active
-      ` as InboxRow[];
-
-      const row = inserted[0]!;
+    // A conflict must not abort the caller's withAuth transaction. Empty RETURNING
+    // means retry; SQL/network errors remain errors rather than guessed collisions.
+    const inserted = await sql`
+      INSERT INTO capture_inboxes (company_id, channel, address, is_active, created_by)
+      VALUES (${companyId}, 'email', ${address}, true, ${userId ?? null})
+      ON CONFLICT DO NOTHING
+      RETURNING id, address, is_active
+    ` as InboxRow[];
+    const row = inserted[0];
+    if (row) {
       log.info('Created email capture inbox', { companyId, address, attempt }, 'capture-inbox');
       return { id: row.id as string, address: row.address as string, isActive: row.is_active as boolean };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('unique') || msg.includes('duplicate')) {
-        log.warn('Address collision — retrying', { attempt, address }, 'capture-inbox');
-        continue;
-      }
-      throw err;
     }
+    log.warn('Address collision — retrying', { attempt, address }, 'capture-inbox');
   }
 
   throw new Error('Failed to mint unique inbox address after 5 attempts');

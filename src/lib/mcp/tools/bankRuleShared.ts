@@ -20,6 +20,9 @@ import type {
   RuleMatchType,
   RuleVatCode,
 } from '@/modules/accounting/types/bank.types';
+import {
+  AUTO_APPLY_MODES, parseAutoApplyMode, type AutoApplyMode,
+} from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { strArg } from './toolHelpers';
 
 export const MATCH_FIELDS: readonly RuleMatchField[] = ['description', 'reference', 'both'];
@@ -50,6 +53,7 @@ export function compactRule(rule: BankCategorisationRule): Record<string, unknow
     client_id: rule.clientId ?? null,
     client_name: rule.clientName ?? null,
     description_template: rule.descriptionTemplate ?? null,
+    auto_apply: rule.autoApply,
   };
 }
 
@@ -88,6 +92,14 @@ export const RULE_TARGET_PROPERTIES = {
     type: 'boolean',
     description: 'TRUE means a match POSTS a journal automatically. Default false.',
   },
+  auto_apply: {
+    type: 'string',
+    enum: [...AUTO_APPLY_MODES],
+    description:
+      'What an auto-posted supplier or customer line does with its cash. "fifo" (the default) '
+      + "applies it to that contact's OLDEST open documents; \"none\" creates the payment or "
+      + 'receipt and leaves the cash on account. Only meaningful with auto_create_entry.',
+  },
 } as const;
 
 export function parseRefs(args: Record<string, unknown>) {
@@ -96,6 +108,22 @@ export function parseRefs(args: Record<string, unknown>) {
     supplierId: strArg(args, 'supplier_id'),
     clientId: strArg(args, 'client_id'),
   };
+}
+
+/**
+ * The rule's auto-apply mode, `undefined` when the caller named none, or the
+ * refusal text.
+ *
+ * inputSchema.enum is documentation — the transport does not enforce it — so
+ * this is the runtime gate, and it REFUSES rather than defaulting: a typo'd
+ * mode silently becoming 'fifo' would have an unattended sweep apply cash the
+ * rule's author asked to leave on account.
+ */
+export function parseRuleAutoApply(
+  args: Record<string, unknown>,
+): AutoApplyMode | undefined | 'invalid' {
+  if (args.auto_apply === undefined || args.auto_apply === null) return undefined;
+  return parseAutoApplyMode(args.auto_apply) ?? 'invalid';
 }
 
 export function parsePriority(args: Record<string, unknown>): number | undefined | 'invalid' {

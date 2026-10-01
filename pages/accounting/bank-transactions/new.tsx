@@ -10,6 +10,9 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeft, Loader2, Receipt, Banknote } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
+import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
+import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
+import { localISODate } from '@/lib/dateUtils';
 
 type TxType = 'spend' | 'receive';
 type AllocType = 'account' | 'supplier' | 'customer';
@@ -37,7 +40,7 @@ interface FormState {
   amount: string; allocationType: AllocType; contraAccountId: string; entityId: string; vatCode: VatCode;
 }
 
-const todayISO = () => new Date().toISOString().split('T')[0]!;
+const todayISO = () => localISODate();
 const VAT_OPTIONS: { value: VatCode; label: string }[] = [
   { value: 'none', label: 'No VAT' }, { value: 'standard', label: 'Standard 15%' },
   { value: 'zero_rated', label: 'Zero Rated' }, { value: 'exempt', label: 'Exempt' },
@@ -76,7 +79,7 @@ export default function NewBankTransactionPage() {
         if (!mounted) return;
         const list = asArray<GlAccountOption>(json.data ?? json);
         setGlAccounts(list
-          .filter(a => a.accountSubtype !== 'bank')
+          .filter(a => !isBankSubtype(a.accountSubtype))
           .map(a => ({ id: a.id, code: a.accountCode ?? a.code ?? undefined, name: a.accountName ?? a.name ?? '' })));
       }),
       apiFetch('/api/accounting/suppliers-list?status=active').then(r => r.json()).then(json => {
@@ -147,6 +150,7 @@ export default function NewBankTransactionPage() {
       if (!res.ok || json.success === false)
         throw new Error(json.error?.message ?? json.message ?? 'Failed to record transaction');
       notify.success('Transaction recorded successfully');
+      notifyLateClaims(json); // VAT claimed in a later period (s16(3))
       void router.push('/accounting/bank-transactions');
     } catch (error) {
       notify.error(error instanceof Error ? error.message : 'Failed to record transaction');

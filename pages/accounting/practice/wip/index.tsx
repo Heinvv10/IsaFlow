@@ -7,10 +7,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, ChevronDown, ChevronRight, FileText } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { WipClientRow, GenerateWipInvoiceInput } from '@/modules/accounting/services/practice/practiceWipService';
+import { localISODate } from '@/lib/dateUtils';
 
-function todayIso() { return new Date().toISOString().slice(0, 10); }
+function todayIso() { return localISODate(); }
 function fmtMoney(n: number) { return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n); }
 function fmtDate(iso: string) { return iso ? new Date(iso).toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'; }
 
@@ -141,7 +142,7 @@ function InvoiceModal({ client, selectedIds, state, onChange, onConfirm, onCance
 // ---- page ----
 
 type GroupBy = 'detailed' | 'by_work_item' | 'by_category';
-type InvoiceResult = { invoiceId: string; invoiceNumber: string; totalAmount: number };
+type InvoiceResult = { invoiceId: string; invoiceNumber: string; totalAmount: number; skippedEntryCount?: number };
 
 export default function WipBoardPage() {
   const [groups, setGroups] = useState<WipClientRow[]>([]);
@@ -195,14 +196,19 @@ export default function WipBoardPage() {
     try {
       const input: GenerateWipInvoiceInput = { practiceClientId: modalClient.practiceClientId, timeEntryIds: ids, invoiceDate: modalState.invoiceDate, taxRate: modalState.taxRate, groupBy: modalState.groupBy as GroupBy };
       const res = await apiFetch('/api/accounting/practice/wip/invoice', { method: 'POST', body: JSON.stringify(input) });
-      const json = (await res.json()) as { data?: InvoiceResult; error?: string } & InvoiceResult;
-      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      // R-120: the error envelope is { error: { message } }; reading json.error
+      // as a string showed "[object Object]". assertOk reads it properly.
+      await assertOk(res, 'Invoice generation failed');
+      const json = (await res.json()) as { data?: InvoiceResult } & InvoiceResult;
       const r: InvoiceResult = json.data ?? json;
-      setToast({ message: `Invoice ${r.invoiceNumber} created (${fmtMoney(r.totalAmount)})`, href: `/accounting/customer-invoices?id=${r.invoiceId}` });
+      // R-120: entries a peer billed or that stopped being billable are left out
+      // (K-040) — say so rather than invoice part of the selection silently.
+      const skipped = r.skippedEntryCount ? ` — ${r.skippedEntryCount} selected entr${r.skippedEntryCount === 1 ? 'y was' : 'ies were'} no longer billable and left out` : '';
+      setToast({ message: `Invoice ${r.invoiceNumber} created (${fmtMoney(r.totalAmount)})${skipped}`, href: `/accounting/customer-invoices?id=${r.invoiceId}` });
       setModalClient(null);
       setModalState({ invoiceDate: todayIso(), taxRate: 15, groupBy: 'detailed' });
       await loadWip();
-    } catch (err) { setModalError(err instanceof Error ? err.message : 'Invoice generation failed'); }
+    } catch (err) { setModalError(apiErrorMessage(err, 'Invoice generation failed')); }
     finally { setModalLoading(false); }
   }
 

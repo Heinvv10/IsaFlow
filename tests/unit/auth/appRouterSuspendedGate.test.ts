@@ -20,7 +20,7 @@ import { SignJWT } from 'jose';
 import { getUserFromRequest } from '@/lib/auth/app-router';
 
 async function tok() {
-  return new SignJWT({ sub: 'user-1', email: 'u@e.z', aud: 'authenticated', role: 'authenticated' })
+  return new SignJWT({ sub: 'user-1', email: 'u@e.z', aud: 'authenticated', role: 'authenticated', aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
     .sign(new TextEncoder().encode(TEST_SECRET));
 }

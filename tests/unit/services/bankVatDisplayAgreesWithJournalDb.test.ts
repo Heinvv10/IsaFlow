@@ -232,6 +232,11 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
           allocType: 'account',
           ruleGlAccountId: deniedAccountId,
           ruleGlAccountVatDenied: true,
+          // Both fields, or the branch is not batched: resolveRuleVatCode
+          // treats an absent name as "look it up per line", so passing only
+          // the flag exercised the fallback while the comment claimed
+          // otherwise.
+          ruleGlAccountName: 'Staff Welfare (test)',
           bankGlAccountId: fixture.bankAccountId,
           apAccountId: null,
           arAccountId: null,

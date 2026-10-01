@@ -8,7 +8,7 @@
 
 export interface StatementTransaction {
   date: string;
-  type: 'invoice' | 'payment' | 'credit_note';
+  type: 'invoice' | 'payment' | 'credit_note' | 'opening_balance';
   reference: string;
   description: string;
   debit: number;
@@ -25,6 +25,8 @@ export interface StatementData {
   totalPaid: number;
   totalCredits: number;
   balanceOutstanding: number;
+  /** Balance brought forward into a dated window; shown as its own card when non-zero. */
+  openingBalance?: number;
   transactions: StatementTransaction[];
   companyName?: string;
   companyVatNumber?: string;
@@ -150,18 +152,19 @@ export async function generateStatementPdf(data: StatementData): Promise<Blob> {
   y += 16;
 
   // ── Summary cards ─────────────────────────────────────────────────────────
-  const CARD_W = (CONTENT_W - 9) / 4;
   const CARD_H = 20;
   const summaryItems = [
+    ...(data.openingBalance ? [{ label: 'Opening Balance', value: data.openingBalance, color: TPRI }] : []),
     { label: 'Total Invoiced',   value: data.totalInvoiced,      color: TPRI },
     { label: 'Total Paid',       value: data.totalPaid,          color: [22, 163, 74]  as [number,number,number] },
     { label: 'Credits Applied',  value: data.totalCredits,       color: TPRI },
     { label: 'Balance Due',      value: data.balanceOutstanding, color: data.balanceOutstanding > 0 ? [220,38,38] as [number,number,number] : [22,163,74] as [number,number,number] },
   ];
 
+  const CARD_W = (CONTENT_W - 3 * (summaryItems.length - 1)) / summaryItems.length;
   summaryItems.forEach((item, i) => {
     const cx = M + i * (CARD_W + 3);
-    const isLast = i === 3;
+    const isLast = i === summaryItems.length - 1;
 
     if (isLast && data.balanceOutstanding > 0) {
       doc.setFillColor(...accent);
@@ -190,6 +193,7 @@ export async function generateStatementPdf(data: StatementData): Promise<Blob> {
     invoice:     'Invoice',
     payment:     'Payment',
     credit_note: 'Credit Note',
+    opening_balance: 'Opening',
   };
 
   const tableRows = data.transactions.map(t => [

@@ -1,0 +1,47 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k028-ppe-additions-include-prior-year.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: GET /api/accounting/assets/afs-summary","timestamp":"2026-09-09T03:43:37.749Z","component":"API","requestId":"01M224768NQ3J6RXT6NJ8NBGD0","data":{"type":"request","method":"GET","url":"/api/accounting/assets/afs-summary","query":{"period":"202612"}}}
+{"level":"info","message":"API Response: GET /api/accounting/assets/afs-summary - 200 (11ms)","timestamp":"2026-09-09T03:43:37.760Z","component":"API","requestId":"01M224768NQ3J6RXT6NJ8NBGD0","data":{"type":"response","method":"GET","url":"/api/accounting/assets/afs-summary","statusCode":200,"duration":"11ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:43:37.760Z","component":"http","requestId":"01M224768NQ3J6RXT6NJ8NBGD0","data":{"event":"request_completed","route":"/api/accounting/assets/afs-summary","method":"GET","status":200,"durationMs":11,"userId":"c350c821-aa2d-4047-b4e1-4ae499cb36fb","companyId":"85ff41f7-0f55-4e51-84f5-648b5ebcfc1a","outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/accounting/assets/afs-summary","timestamp":"2026-09-09T03:43:37.774Z","component":"API","requestId":"01M224769EV0KFHYT7S97NGF1Q","data":{"type":"request","method":"GET","url":"/api/accounting/assets/afs-summary","query":{"period":"202612"}}}
+{"level":"info","message":"API Response: GET /api/accounting/assets/afs-summary - 200 (5ms)","timestamp":"2026-09-09T03:43:37.779Z","component":"API","requestId":"01M224769EV0KFHYT7S97NGF1Q","data":{"type":"response","method":"GET","url":"/api/accounting/assets/afs-summary","statusCode":200,"duration":"5ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:43:37.779Z","component":"http","requestId":"01M224769EV0KFHYT7S97NGF1Q","data":{"event":"request_completed","route":"/api/accounting/assets/afs-summary","method":"GET","status":200,"durationMs":5,"userId":"c350c821-aa2d-4047-b4e1-4ae499cb36fb","companyId":"85ff41f7-0f55-4e51-84f5-648b5ebcfc1a","outcome":"ok"}}
+ ❯ tests/integration/k028-ppe-additions-include-prior-year.int.test.ts (2 tests | 2 failed) 889ms
+   × reports only the current-year purchase as an addition 43ms
+   × closing cost foots to opening plus genuine additions 15ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k028-ppe-additions-include-prior-year.int.test.ts > reports only the current-year purchase as an addition
+AssertionError: expected 150000 to be close to 50000, received difference is 100000, but expected 0.005
+ ❯ tests/integration/k028-ppe-additions-include-prior-year.int.test.ts:114:28
+    112|   expect(group!.openingCost).toBeCloseTo(OLD_COST, 2);
+    113|   // Only the June 2026 asset is an addition. The 2024 asset already s…
+    114|   expect(group!.additions).toBeCloseTo(NEW_COST, 2);
+       |                            ^
+    115| });
+    116|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k028-ppe-additions-include-prior-year.int.test.ts > closing cost foots to opening plus genuine additions
+AssertionError: expected 250000 to be close to 150000, received difference is 100000, but expected 0.005
+ ❯ tests/integration/k028-ppe-additions-include-prior-year.int.test.ts:119:30
+    117| it('closing cost foots to opening plus genuine additions', async () =>…
+    118|   const [group] = await summary('202612');
+    119|   expect(group!.closingCost).toBeCloseTo(OLD_COST + NEW_COST, 2);
+       |                              ^
+    120| });
+    121|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  05:43:36
+   Duration  1.76s (transform 315ms, setup 0ms, import 667ms, tests 889ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

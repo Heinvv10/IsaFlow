@@ -1,0 +1,5 @@
+# Round 13 GREEN — working tree, same fixture, --no-file-parallelism
+# 92 files (round10-green's set + k064-stamp-is-not-a-lock)
+exit=0
+ Test Files  92 passed (92)
+      Tests  600 passed | 1 skipped (601)

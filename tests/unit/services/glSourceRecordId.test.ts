@@ -21,14 +21,19 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
 }));
 vi.mock('@/lib/neon', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/neon')>();
-  return { ...actual, sql: vi.fn() };
+  // withSavepoint needs a request transaction; this file tests only what is written.
+  return { ...actual, sql: vi.fn(), withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn() };
 });
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({
+  lockSupplierInvoiceForUpdate: vi.fn(),
+}));
 
 import { sql } from '@/lib/neon';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { createAdjustmentEntry } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { applyDRCVat } from '@/modules/accounting/services/reports/drcVatService';
+import { lockSupplierInvoiceForUpdate } from '@/modules/accounting/services/ap/supplierInvoiceLock';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 const RECON_ID = 'eeeeeeee-0000-0000-0000-000000000005';
@@ -67,11 +72,15 @@ describe('createAdjustmentEntry', () => {
 describe('applyDRCVat', () => {
   it('links the supplier invoice through sourceRecordId, never sourceDocumentId', async () => {
     vi.mocked(getSystemAccountId).mockResolvedValue('acct-vat' as never);
+    // The locked invoice row.
+    vi.mocked(lockSupplierInvoiceForUpdate).mockResolvedValue(
+      { id: INVOICE_ID, invoice_number: 'INV-1', subtotal: 1000, total_amount: 1150, is_drc: false,
+        status: 'approved', deleted_at: null, supplier_id: 'eeeeeeee-0000-0000-0000-000000000007',
+        tax_amount: 0 } as never,
+    );
     vi.mocked(sql)
-      // invoice lookup
-      .mockResolvedValueOnce([
-        { id: INVOICE_ID, invoice_number: 'INV-1', subtotal: 1000, total_amount: 1150, is_drc: false },
-      ] as never)
+      // the supplier's DRC flag
+      .mockResolvedValueOnce([{ subject_to_drc_vat: true }] as never)
       // vat_rate setting
       .mockResolvedValueOnce([{ value: '0.15' }] as never)
       // UPDATE supplier_invoices

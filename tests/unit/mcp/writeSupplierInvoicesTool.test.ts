@@ -27,11 +27,17 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', () => ({
   approveSupplierInvoice: vi.fn(),
 }));
+// R-035: the approval gate has its own integration suite (r035-pr2-unattended);
+// here no enforced rule governs any bill.
+vi.mock('@/modules/accounting/services/gl/approvalUnattended', () => ({ agentApprovalRefusal: vi.fn(async () => null) }));
+vi.mock('@/modules/accounting/services/capture/capturedVatEvidence', () => ({
+  invoiceVatRefusals: vi.fn(async () => new Map<string, string>()),
+}));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   supplierBelongsToCompany: vi.fn(),
 }));
-vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
-  accountsBelongToCompany: vi.fn(),
+vi.mock('@/modules/accounting/services/ap/billLineAccountGuard', () => ({
+  billLineAccountRefusal: vi.fn(),
 }));
 
 import {
@@ -40,7 +46,8 @@ import {
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
-import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
+import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import {
   createSupplierInvoiceTool,
   approveSupplierInvoiceTool,
@@ -87,7 +94,7 @@ function createArgs(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(supplierBelongsToCompany).mockResolvedValue(true);
-  vi.mocked(accountsBelongToCompany).mockResolvedValue(true);
+  vi.mocked(billLineAccountRefusal).mockResolvedValue(null);
   vi.mocked(createSupplierInvoice).mockResolvedValue({
     id: INVOICE, invoiceNumber: 'INV-9001', supplierId: SUPPLIER,
     invoiceDate: '2026-06-30', subtotal: 1000, taxAmount: 150,
@@ -113,19 +120,14 @@ describe('create_supplier_invoice', () => {
   });
 
   it('checks every line gl_account_id in ONE batched call, before writing', async () => {
-    vi.mocked(accountsBelongToCompany).mockResolvedValue(false);
+    vi.mocked(billLineAccountRefusal).mockResolvedValue('One or more lines[].gl_account_id values are not GL accounts in your company.');
     const r = await createSupplierInvoiceTool.handler(
       createArgs({ lines: [{ ...GOOD_LINE, gl_account_id: ACCOUNT }] }),
       ctx(),
     );
     expect(errText(r)).toContain('not GL accounts in your company');
     expect(createSupplierInvoice).not.toHaveBeenCalled();
-    expect(vi.mocked(accountsBelongToCompany).mock.calls[0]![1]).toEqual([ACCOUNT]);
-  });
-
-  it('skips the account ownership query entirely when no line names an account', async () => {
-    await createSupplierInvoiceTool.handler(createArgs(), ctx());
-    expect(accountsBelongToCompany).not.toHaveBeenCalled();
+    expect(vi.mocked(billLineAccountRefusal).mock.calls[0]![1]).toEqual([ACCOUNT]);
   });
 
   it('names the offending line INDEX and refuses before any query', async () => {
@@ -183,7 +185,10 @@ describe('approve_supplier_invoice', () => {
     const r = parseOk(await approveSupplierInvoiceTool.handler({ invoice_id: INVOICE, ...KEY }, ctx()));
     expect(r.gl_journal_entry_id).toBe('88888888-8888-4888-8888-888888888888');
     expect(vi.mocked(approveSupplierInvoice).mock.calls[0]![3])
-      .toEqual({ postingAgent: 'mcp:approve_supplier_invoice:v1', actorType: 'agent', actorTokenJti: 'jti' });
+      .toEqual({
+        postingAgent: 'mcp:approve_supplier_invoice:v1', actorType: 'agent', actorTokenJti: 'jti',
+        allowLateInputClaim: false, // no allow_late_input_claim argument: no late claim
+      });
   });
 
   it('requires write:post — it posts an irreversible journal', () => {
@@ -194,6 +199,13 @@ describe('approve_supplier_invoice', () => {
     vi.mocked(getSupplierInvoiceById).mockResolvedValue({ id: INVOICE, status: 'paid' } as never);
     const r = await approveSupplierInvoiceTool.handler({ invoice_id: INVOICE, ...KEY }, ctx());
     expect(errText(r)).toBe('Cannot approve invoice with status: paid');
+    expect(approveSupplierInvoice).not.toHaveBeenCalled();
+  });
+
+  it('K-072 r30–r32: refuses a bill carrying a VAT its captured document never showed, without posting', async () => {
+    vi.mocked(invoiceVatRefusals).mockResolvedValueOnce(new Map([[INVOICE, 'its VAT is not evidenced by its captured document']]));
+    const r = await approveSupplierInvoiceTool.handler({ invoice_id: INVOICE, ...KEY }, ctx());
+    expect(errText(r)).toBe('Cannot approve invoice: its VAT is not evidenced by its captured document.');
     expect(approveSupplierInvoice).not.toHaveBeenCalled();
   });
 

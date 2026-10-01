@@ -34,7 +34,7 @@
  */
 import { parse, type Statement } from 'pgsql-ast-parser';
 import { ALLOWED_TABLES } from './nlQueryValidationService';
-import { FK_PAIRS } from './nlQueryFkPairs';
+import { FK_PAIRS, NO_COMPANY_TABLES } from './nlQueryFkPairs';
 
 export interface ScopeResult {
   ok: boolean;
@@ -196,6 +196,11 @@ function validateSelect(sel: Node, companyId: string, cteNames: Set<string>): Sc
   const queue = [...seeds];
   while (queue.length) {
     const cur = queue.shift()!;
+    // A table without company_id (global reference or child row) may be reached
+    // from a tenant-scoped table but must not propagate scope onward: a global
+    // row is shared by every tenant, so assets -> asset_categories -> assets
+    // would reach another company's rows.
+    if (NO_COMPANY_TABLES.has(aliasTable.get(cur) ?? '')) continue;
     for (const nb of edges.get(cur) ?? []) {
       if (!reached.has(nb)) {
         reached.add(nb);

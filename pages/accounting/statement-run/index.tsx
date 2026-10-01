@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { log } from '@/lib/logger';
 import { apiFetch } from '@/lib/apiFetch';
+import { fmtDate } from '@/lib/fmtDate';
 import {
   CustomerStatementTable,
   type CustomerBalance,
@@ -28,9 +29,8 @@ export default function StatementRunPage() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
-  const [asAtDate, setAsAtDate] = useState(
-    new Date().toISOString().split('T')[0] ?? ''
-  );
+  // A LOCAL date: toISOString() is UTC and named yesterday before 02:00 SAST.
+  const [asAtDate, setAsAtDate] = useState(() => fmtDate(new Date()));
   const [minBalance, setMinBalance] = useState(0);
 
   const { emailProgress, toast, isSending, emailableCount, sendEmails } =
@@ -88,8 +88,12 @@ export default function StatementRunPage() {
   async function handleGenerate() {
     if (selected.size === 0) return;
     setIsGenerating(true);
+    setError('');
     try {
-      await generateStatementsBatch(selected, customers, asAtDate);
+      const { generated, skipped } = await generateStatementsBatch(selected, customers, asAtDate);
+      if (skipped.length > 0) {
+        setError(`Generated ${generated} statement(s). No statement for ${skipped.map(s => `${s.name} (${s.reason})`).join(', ')}`);
+      }
     } catch (err) {
       log.error('Statement generation failed', { data: err }, 'StatementRun');
       setError('Failed to generate statements');

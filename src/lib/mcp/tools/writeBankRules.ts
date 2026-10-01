@@ -13,6 +13,7 @@
  * require restating the rule's whole shape.
  */
 import type { McpTool } from '../types';
+import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { createRule, updateRule, toggleRule } from '@/modules/accounting/services/bank/bankRulesService';
 import type {
   RuleMatchField,
@@ -33,6 +34,7 @@ import {
   VAT_CODES,
   RULE_TARGET_PROPERTIES,
   compactRule,
+  parseRuleAutoApply,
   loadRule,
   parsePriority,
   parseRefs,
@@ -79,6 +81,10 @@ export const createBankRuleTool: McpTool = {
     }
     const priority = parsePriority(args);
     if (priority === 'invalid') return toolError('priority must be a whole number');
+    const autoApply = parseRuleAutoApply(args);
+    if (autoApply === 'invalid') {
+      return toolError(`auto_apply must be one of: ${AUTO_APPLY_MODES.join(', ')}`);
+    }
 
     const bad = guardCastableArgs(args, { uuid: ['gl_account_id', 'supplier_id', 'client_id'] });
     if (bad) return bad;
@@ -99,6 +105,7 @@ export const createBankRuleTool: McpTool = {
           priority,
           autoCreateEntry: args.auto_create_entry === true,
           vatCode: vatCode as RuleVatCode | undefined,
+          ...(autoApply === undefined ? {} : { autoApply }),
         },
         ctx.userId,
       );
@@ -153,6 +160,10 @@ export const updateBankRuleTool: McpTool = {
     }
     const priority = parsePriority(args);
     if (priority === 'invalid') return toolError('priority must be a whole number');
+    const autoApply = parseRuleAutoApply(args);
+    if (autoApply === 'invalid') {
+      return toolError(`auto_apply must be one of: ${AUTO_APPLY_MODES.join(', ')}`);
+    }
 
     // Ownership of the rule AND of anything it is being re-pointed at, both
     // answered from reads before the first write.
@@ -174,6 +185,7 @@ export const updateBankRuleTool: McpTool = {
           : {}),
         ...(typeof args.is_active === 'boolean' ? { isActive: args.is_active } : {}),
         vatCode: vatCode as RuleVatCode | undefined,
+        ...(autoApply === undefined ? {} : { autoApply }),
       });
       return ok(compactRule(rule));
     } catch (err) {

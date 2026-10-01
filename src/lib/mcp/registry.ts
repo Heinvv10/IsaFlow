@@ -13,6 +13,7 @@ import type { McpTool, McpToolContext, McpToolResult } from './types';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 import { debitForTool, refundForTool } from './flowMetering';
 import { BulkAllocationLineError, bulkAllocationLineErrorText } from './bulkAllocationLineError';
+import { BankLineDirectionError, bankLineDirectionErrorText } from './bankLineDirectionError';
 import {
   MissingSystemAccountError,
   missingSystemAccountText,
@@ -31,6 +32,7 @@ import { insufficientScopeMessage } from './scopeRemediation';
  * another's savepoint.
  */
 import { COMPANY_ASSERT_PROPERTY, assertCompanyMatches } from './companyAssert';
+import { isRefusalCoded } from './tools/toolHelpers';
 
 export function savepointNameFor(toolName: string): string {
   return `mcp_${toolName}`.slice(0, 31);
@@ -101,6 +103,10 @@ export class McpRegistry {
         'This operation posts irreversible entries and requires the write:post permission, which this connection was not granted.',
         null,
       );
+    }
+
+    if (tool.requiresScope && !ctx.scopes.includes(tool.requiresScope)) {
+      return reject(insufficientScopeMessage(tool.requiresScope), null);
     }
 
     // Assert-only company guard. Runs before the idempotency-key check so a
@@ -279,6 +285,20 @@ export class McpRegistry {
       if (err instanceof MissingSystemAccountError) {
         return errorResult(missingSystemAccountText(name, err));
       }
+      // A line whose sign contradicts the invoice it names is the third. The
+      // refusal has to say WHICH way to go — drop invoice_id and it posts as a
+      // refund — because "the operation failed" on a payload the agent believes
+      // is a routine settlement invites the retry that keeps failing. Nothing
+      // in the message but the caller's own transaction id.
+      if (err instanceof BankLineDirectionError) {
+        return errorResult(bankLineDirectionErrorText(name, err));
+      }
+      // Any THROWN typed refusal (a code on REFUSAL_CODES) keeps its own message
+      // — e.g. RECONCILED_CASH from bank reverse, reached by void_payment and
+      // every reverse tool, which do not catch so the savepoint sees the throw.
+      // The savepoint has rolled back; the text is caller-facing, no SQL. An
+      // unclassified Error or a pg error still falls through to GENERIC_FAILURE.
+      if (isRefusalCoded(err)) return errorResult(err.message);
       return errorResult(GENERIC_FAILURE);
     }
   }

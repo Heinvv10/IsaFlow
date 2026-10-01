@@ -21,12 +21,21 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
+import { releaseClaimDocuments } from '@/modules/accounting/services/capture/capturePostingClaimRelease';
 import {
   createJournalEntry,
   postJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
+import { deniedVatTypeForLine } from '@/modules/accounting/services/expense/claimVatAdvice';
+import {
+  claimLineSourceDocuments,
+  releaseSourceDocuments,
+} from '@/modules/accounting/services/expense/claimSourceDocuments';
 import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
+import { assertDocumentLineAccounts } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
+import type { LateClaimInfo } from '@/modules/accounting/services/gl/vatLateClaimPlan';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = Record<string, unknown>;
 
@@ -162,8 +171,14 @@ export function computeMileageAmount(km: number, rate: number): number {
 
 async function nextClaimNumber(companyId: string, claimDate: string): Promise<string> {
   const year = claimDate.slice(0, 4);
+  // MAX, not COUNT: expense_claims carries UNIQUE(company_id, claim_number) and
+  // count is not max — after a single claim in the year was deleted every later
+  // claim re-issued an existing number and 23505'd permanently, since the count
+  // never caught up. MAX+1 with no savepointed retry: two concurrent claims
+  // still 23505 into a 500 rather than duplicating, which is the correct trade
+  // against the unique index but is not a retry.
   const rows = (await sql`
-    SELECT COUNT(*) AS n
+    SELECT COALESCE(MAX(CAST(SUBSTRING(claim_number FROM '[0-9]+$') AS INTEGER)), 0) AS n
     FROM expense_claims
     WHERE company_id = ${companyId}::uuid
       AND claim_number LIKE ${'CL-' + year + '-%'}
@@ -182,10 +197,29 @@ export interface CreateClaimInput {
   description?: string | null;
   createdBy?: string | null;
   lines?: ExpenseClaimLine[];
+  /**
+   * The caller already claimed the lines' source documents (`post-expense`
+   * claims its slip before it builds the claim). Every other caller leaves
+   * this unset and `createClaim` claims them itself.
+   */
+  sourceDocumentsClaimed?: boolean;
 }
 
 export async function createClaim(input: CreateClaimInput): Promise<ExpenseClaim> {
   const claimDate = input.claimDate ?? new Date().toISOString().slice(0, 10);
+  // Before the first write, and before `claimLineSourceDocuments` (which DOES
+  // write — it stamps `captured_documents.posted_at`): an account merge holds
+  // FOR UPDATE on the source and target `gl_accounts` rows for its whole
+  // transaction and deactivates the source, so this FOR SHARE read waits on
+  // that lock, then refuses the now-inactive account
+  // (gl/documentLineAccountGuard.ts). Checking every line here, once, is what
+  // lets a caller's 400 commit nothing — a check inside `insertLine`'s own
+  // per-line loop would run AFTER the source-document stamp and the claim
+  // header row were already written.
+  await assertDocumentLineAccounts(input.companyId, (input.lines ?? []).map((l) => l.glAccountId));
+  // Before the first write (R-105): a refusal here has written nothing, so the
+  // route's 400 commits nothing.
+  if (!input.sourceDocumentsClaimed) await claimLineSourceDocuments(input.companyId, input.lines ?? []);
   const claimNumber = await nextClaimNumber(input.companyId, claimDate);
 
   const [claim] = (await sql`
@@ -212,6 +246,13 @@ export async function createClaim(input: CreateClaimInput): Promise<ExpenseClaim
   return (await getClaim(claimId, input.companyId))!;
 }
 
+/**
+ * Callers must have already run `assertDocumentLineAccounts` for every line
+ * they are about to insert, BEFORE their own first write — `createClaim` and
+ * `addLine` both write before this loop runs (a source-document claim, or the
+ * claim header itself), so a check placed here would run too late for a
+ * caller's 400 to commit nothing.
+ */
 async function insertLine(
   claimId: string,
   companyId: string,
@@ -247,6 +288,10 @@ export async function addLine(
   if (claim.status !== 'draft') {
     throw new Error(`Cannot add line to claim in status '${claim.status}'`);
   }
+  // Before `claimLineSourceDocuments`, which writes (stamps the source
+  // document's `posted_at`) — see the identical comment in `createClaim`.
+  await assertDocumentLineAccounts(companyId, [line.glAccountId]);
+  await claimLineSourceDocuments(companyId, [line]);
   await insertLine(claimId, companyId, line);
   await recomputeTotals(claimId, companyId);
   return await getClaim(claimId, companyId);
@@ -262,10 +307,15 @@ export async function deleteLine(
   if (claim.status !== 'draft') {
     throw new Error(`Cannot delete line from claim in status '${claim.status}'`);
   }
-  await sql`
+  const deleted = (await sql`
     DELETE FROM expense_claim_lines
     WHERE id = ${lineId}::uuid AND claim_id = ${claimId}::uuid AND company_id = ${companyId}::uuid
-  `;
+    RETURNING source_document_id
+  `) as Row[];
+  // The slip the line held can be posted again (R-105). Its status stays
+  // 'matched', as after rejectClaim's release.
+  await releaseSourceDocuments(companyId,
+    deleted.map((r) => r.source_document_id).filter((id) => id != null).map(String));
   await recomputeTotals(claimId, companyId);
   return await getClaim(claimId, companyId);
 }
@@ -350,6 +400,7 @@ export async function approveClaim(
   companyId: string,
   approverUserId: string,
 ): Promise<ExpenseClaim | null> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const claim = await getClaim(id, companyId);
   if (!claim) return null;
   if (claim.status !== 'submitted') throw new Error(`Cannot approve claim in status '${claim.status}'`);
@@ -369,6 +420,7 @@ export async function rejectClaim(
   approverUserId: string,
   reason: string,
 ): Promise<ExpenseClaim | null> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const claim = await getClaim(id, companyId);
   if (!claim) return null;
   if (claim.status !== 'submitted') throw new Error(`Cannot reject claim in status '${claim.status}'`);
@@ -379,6 +431,14 @@ export async function rejectClaim(
         rejection_reason = ${reason}
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
   `;
+  // The captured slips this claim was holding go back to the capture inbox.
+  // `post-expense` stamps `captured_documents.posted_at` before it creates the
+  // claim, and the claim's posting journal carries `source_document_id = NULL`
+  // (a claim has many source documents) — so the journal-reversal release can
+  // never reach them. Rejecting the claim is the undo, and until it did this a
+  // rejected claim left its documents claimed for good: unpostable, and
+  // refused by the confirm and reject buttons too.
+  await releaseClaimDocuments(id, companyId);
   return await getClaim(id, companyId);
 }
 
@@ -393,6 +453,8 @@ export async function cancelClaim(id: string, companyId: string): Promise<Expens
     SET status = 'cancelled'
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
   `;
+  // Same undo as rejection — see `rejectClaim`.
+  await releaseClaimDocuments(id, companyId);
   return await getClaim(id, companyId);
 }
 
@@ -418,13 +480,16 @@ export interface PostClaimOptions {
   userId: string;
   reimbursementAccountId: string;     // CR leg — typically "Employee reimbursements" liability
   vatInputAccountId?: string | null;  // DR leg for VAT — optional
+  /** Human-initiated posting only: the s16(3) late input-VAT claim (gl/vatLateClaimPlan). */
+  allowLateInputClaim?: boolean;
 }
 
 export async function postClaimToGl(
   id: string,
   companyId: string,
   opts: PostClaimOptions,
-): Promise<ExpenseClaim | null> {
+): Promise<(ExpenseClaim & { lateClaim?: LateClaimInfo }) | null> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // Lock the claim for the request transaction BEFORE reading its status.
   // Without this, two concurrent posts both read 'approved', both build the
   // same legs and both post — two identical journals and a doubled credit to
@@ -479,6 +544,9 @@ export async function postClaimToGl(
     // neither debit nor credit, and the entry still balances without it because
     // the VAT leg below carries the whole amount.
     if (netAmount === 0) continue;
+    // A denial is a recorded classification, not the absence of one — see
+    // `deniedVatTypeForLine` for why only the denial is mapped.
+    const deniedVatType = deniedVatTypeForLine(line.vatCode, Number(line.vatAmount));
     lines.push({
       glAccountId: line.glAccountId,
       // A credit note captured on a claim arrives as a negative amount; posting
@@ -486,6 +554,7 @@ export async function postClaimToGl(
       debit: netAmount > 0 ? netAmount : 0,
       credit: netAmount < 0 ? -netAmount : 0,
       description: line.description ?? claim.claimNumber,
+      ...(deniedVatType ? { vatType: deniedVatType } : {}),
       ...(line.projectId ? { projectId: line.projectId } : {}),
       ...(line.costCentreId ? { costCenterId: line.costCentreId } : {}),
     });
@@ -499,6 +568,10 @@ export async function postClaimToGl(
       debit: totalVat > 0 ? totalVat : 0,
       credit: totalVat < 0 ? -totalVat : 0,
       description: `VAT Input ${claim.claimNumber}`,
+      // Coded, so the VAT201's pre-filing check does not list it as an uncoded
+      // VAT line. Box-neutral: the return reads an uncoded input leg as
+      // standard (migration 702 backfilled the legs posted before this).
+      vatType: 'standard',
     });
   }
 
@@ -517,9 +590,9 @@ export async function postClaimToGl(
     source: 'auto_expense_claim',
     reference: claim.claimNumber,
     lines,
-  }, opts.userId);
+  }, opts.userId, undefined, { allowLateInputClaim: opts.allowLateInputClaim });
 
-  await postJournalEntry(companyId, entry.id, opts.userId);
+  const posted = await postJournalEntry(companyId, entry.id, opts.userId, { allowLateInputClaim: opts.allowLateInputClaim });
 
   await sql`
     UPDATE expense_claims
@@ -528,5 +601,6 @@ export async function postClaimToGl(
   `;
 
   log.info('expense claim posted to GL', { id, jeId: entry.id, total: totalGross }, 'expense-claims');
-  return await getClaim(id, companyId);
+  const out = await getClaim(id, companyId);
+  return out && posted.lateClaim ? { ...out, lateClaim: posted.lateClaim } : out;
 }

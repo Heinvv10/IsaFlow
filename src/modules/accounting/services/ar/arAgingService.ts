@@ -6,11 +6,13 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { calculateAgingBuckets } from '../../utils/aging';
+import { calculateAgingBuckets, type AgingDetailInvoice } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
 import { getOpenDisputeTotals } from './disputeService';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 type Row = DbRow;
 
 
@@ -51,7 +53,14 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
         ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ar' })}
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
-        AND ci.status NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+        -- A soft-deleted invoice leaves this report exactly when the delete's
+        -- reversal reaches the ledger, and not one day earlier: the reversal is
+        -- dated TODAY whenever the invoice's own period is closed, so an undated
+        -- exclusion drops the document from every earlier as-at date while the
+        -- control account still carries it. See shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
         AND (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) > 0
       -- POINT IN TIME. amount_paid on the invoice is a CURRENT snapshot, so
@@ -77,7 +86,9 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
     `) as Row[];
 
     const invoiceIds = rows.map((r: Row) => String(r.id));
-    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds);
+    // Disputes are rewound to the same date as the balances (R-059): a
+    // dispute raised after asAtStr had not moved anything out of a bucket then.
+    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds, asAtStr);
 
     const invoices: AgingInvoice[] = rows.map((r: Row) => ({
       id: String(r.id),
@@ -136,7 +147,7 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
 export async function getARAgingDetail(companyId: string, 
   clientId: string,
   asAtDate?: string
-): Promise<{ client: { id: string; name: string }; invoices: AgingInvoice[]; buckets: AgingBucket | null }> {
+): Promise<{ client: { id: string; name: string }; invoices: AgingDetailInvoice[]; buckets: AgingBucket | null }> {
   try {
     const asAt = asAtDate ? new Date(asAtDate) : new Date();
     // The other three aging entry points guard this; this one did not, so
@@ -171,7 +182,14 @@ export async function getARAgingDetail(companyId: string,
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
         AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
-        AND ci.status NOT IN ('draft', 'cancelled')
+        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+        -- A soft-deleted invoice leaves this report exactly when the delete's
+        -- reversal reaches the ledger, and not one day earlier: the reversal is
+        -- dated TODAY whenever the invoice's own period is closed, so an undated
+        -- exclusion drops the document from every earlier as-at date while the
+        -- control account still carries it. See shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
         AND (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) > 0
       -- An invoice with no due date is still a debt. Filtering
@@ -184,10 +202,13 @@ export async function getARAgingDetail(companyId: string,
     `) as Row[];
 
     const invoiceIds = rows.map((r: Row) => String(r.id));
-    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds);
+    // Disputes are rewound to the same date as the balances (R-059): a
+    // dispute raised after asAtStr had not moved anything out of a bucket then.
+    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds, asAtStr);
 
-    const invoices: AgingInvoice[] = rows.map((r: Row) => ({
+    const invoices: AgingDetailInvoice[] = rows.map((r: Row) => ({
       id: String(r.id),
+      invoiceNumber: String(r.invoice_number),
       entityId: String(r.entity_id),
       entityName: String(r.entity_name),
       dueDate: String(r.due_date),

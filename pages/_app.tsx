@@ -11,6 +11,7 @@ import { ThemeModeProvider } from '@/contexts/ThemeModeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { TrackerScript } from '@/components/analytics/TrackerScript';
 import { isSharePath } from '@/lib/paths/isSharePath';
+import { dmSans } from '@/lib/fonts';
 import '../styles/globals.css';
 import '../styles/print.css';
 
@@ -81,7 +82,17 @@ export default function App({ Component, pageProps }: AppProps) {
   }, [sharePage]);
 
   return (
-    <div>
+    // dmSans.variable must sit above every page, not inside AppLayout: a page
+    // without AppLayout never saw the variable. font-sans has to be on the SAME
+    // element — preflight declares font-family on <html>, above this div, so a
+    // variable defined here alone changes nothing; the div just inherits the
+    // value html already computed. See src/lib/fonts.ts.
+    // font-sans is withheld from a print render on purpose. packPrint.css pins
+    // the pack's own face on `html.print-mode body`, and this div is a
+    // DESCENDANT of body — declaring font-sans here would override it and
+    // re-render every PDF in DM Sans, changing text metrics on layouts that are
+    // tuned to IBM Plex. The variable still goes on, so nothing else breaks.
+    <div className={printRender ? dmSans.variable : `${dmSans.variable} font-sans`}>
     <ThemeProvider>
       <AuthProvider skipFetch={skipProviders}>
         <CompanyProvider skipFetch={skipProviders}>

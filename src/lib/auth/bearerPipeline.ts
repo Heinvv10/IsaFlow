@@ -1,6 +1,6 @@
+import { getCompanyMembership, type CompanyMembershipRow } from './companyMembership';
 /**
  * Shared Bearer-token request pipeline (PRD-10 / MCP).
- *
  * ONE implementation of: token validation (pat_/oat_), app_user transaction
  * with RLS GUCs (request.jwt.claims + app.current_company_id), the
  * company_users membership re-check, the per-company auto rate-limit mirror,
@@ -11,18 +11,18 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import pg from 'pg';
-// Side-effect import: registers the DATE (OID 1082) parser for every pg Pool
-// in this process. This file builds its own Pool, so it must not depend on
-// src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
+// Register the DATE parser independently of neon.ts import order.
 import '@/lib/pgTypes';
-import { als } from '@/lib/als';
+import type { RequestContext } from '@/lib/als';
+import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { validatePat } from './personalAccessTokens';
 import { validateOauthAccessToken, type OauthAccessContext } from './oauth';
 import type { CompanyAuthedRequest } from './withAuth';
-import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR, type UserAccountRow } from './userAccountStatus';
+import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
+import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } from './deferredEnd';
 
 /**
  * Auto rate-limit table — must stay in sync with the equivalent table in
@@ -131,40 +131,24 @@ export async function runBearerRequest(
 
   const startedAt = Date.now();
   const client = await getAuthPool().connect();
+  let deferred: DeferredEnd | null = null;
   try {
     await client.query('BEGIN');
     await client.query('SET LOCAL ROLE app_user');
     // Synthesize the JWT claims that RLS policies actually read. `sub` keys
     // policies via auth.uid(); `company_id` is read directly by mig 395
-    // (practice_client_rate_overrides) and mig 396 (payroll_leave_*) — without
+    // (practice_client_rate_overrides, until 699 replaced it) and mig 396
+    // (payroll_leave_*, R-122) — without
     // it those policies evaluate `NULL = NULL` and silently return zero rows.
     const claims = { sub: ctx.userId, role: 'authenticated', company_id: ctx.companyId };
     await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
     await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [ctx.companyId]);
 
-    // Belt-and-braces membership + account-standing check — same posture as
-    // withAuth. Catches the case where a user's company access was revoked
-    // since the token was minted (we don't auto-revoke tokens on company_users
-    // delete), and the case where the user was suspended (suspendUser flips
-    // users.is_active/suspended_at but does not revoke PATs or OAuth grants,
-    // so without the join a suspended user's MCP token keeps writing to the
-    // ledger). LEFT JOIN so a membership with no profile behind it is denied
-    // by the predicate rather than looking like a missing membership.
-    type MembershipRow = UserAccountRow & { role: string; account_user_id: string | null };
-    let membership: { rows: MembershipRow[] };
+    // Shared membership lookup denies suspended/deleted tenants under app_user RLS.
+    // Profile LEFT JOIN keeps missing-user data distinct from user suspension.
+    let membership: { rows: CompanyMembershipRow[] };
     try {
-      membership = await client.query<MembershipRow>(
-        `SELECT cu.role,
-                u.id AS account_user_id,
-                u.is_active,
-                u.status,
-                u.suspended_at
-           FROM company_users cu
-           LEFT JOIN users u ON u.id = cu.user_id
-          WHERE cu.user_id = $1::text AND cu.company_id = $2::uuid
-          LIMIT 1`,
-        [ctx.userId, ctx.companyId],
-      );
+      membership = await getCompanyMembership(client, ctx.userId, ctx.companyId);
     } catch (err) {
       // Only treat invalid-UUID casts as 403 (forged or stale token pointing
       // at a non-UUID company). Real DB errors (timeout, pool exhaustion)
@@ -248,21 +232,11 @@ export async function runBearerRequest(
     // Next's res.json funnels through res.end, so buffering the single final
     // end() captures every response; we COMMIT/ROLLBACK on the resolved status,
     // then replay (or replace a 2xx with an honest 500 on a failed COMMIT).
-    let bufferedEndArgs: unknown[] | null = null;
-    let handlerEnded = false;
-    const realEnd = res.end.bind(res) as (...a: unknown[]) => unknown;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (res as any).end = (...args: unknown[]) => {
-      if (handlerEnded) return res; // flush exactly once
-      handlerEnded = true;
-      bufferedEndArgs = args;
-      return res;
-    };
+    const flush = deferEnd(res);
+    deferred = flush;
 
-    const runHandler = async () =>
-      als.run({ client, userId: ctx.userId, companyId: ctx.companyId, claims }, async () => {
-        await handler(authedReq, res);
-      });
+    const txCtx: RequestContext = { client, userId: ctx.userId, companyId: ctx.companyId, claims, afterCommit: [] };
+    const runHandler = async () => runOwnedContext(txCtx, async () => { await handler(authedReq, res); });
 
     if (process.env.SENTRY_ENABLED === 'true') {
       await Sentry.withIsolationScope(async () => {
@@ -293,7 +267,7 @@ export async function runBearerRequest(
         Sentry.captureException(finalizeErr);
       }
       if (res.headersSent) {
-        realEnd(...(bufferedEndArgs ?? []));
+        abortResponse(res); // the status is on the wire; a clean close would read as success
       } else {
         // Replace the buffered 2xx with an honest 500 — the write did NOT land.
         const body = JSON.stringify({
@@ -302,16 +276,20 @@ export async function runBearerRequest(
         res.statusCode = 500;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Content-Length', Buffer.byteLength(body));
-        realEnd(body);
+        flush.realEnd(body);
       }
       return; // finally still runs (release + slow-request log)
     }
 
-    // Transaction durable — replay the buffered flush.
-    if (handlerEnded) realEnd(...(bufferedEndArgs ?? []));
+    // Transaction durable — replay the buffered flush, then start after-commit work (R-075).
+    // replayEnd never throws: past COMMIT, the catch below must not ROLLBACK or answer 500.
+    replayEnd(res, flush, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId });
+    if (!handlerFailed) drainAfterCommit(txCtx);
   } catch (err) {
-    try { await client.query('ROLLBACK'); } catch { /* secondary */ }
-    throw err;
+    // R-159: answer the throw here; see withAuth.
+    let rolledBack = true;
+    try { await client.query('ROLLBACK'); } catch { rolledBack = false; }
+    answerThrow(req, res, deferred, err, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId, rolledBack });
   } finally {
     client.release();
     const ms = Date.now() - startedAt;

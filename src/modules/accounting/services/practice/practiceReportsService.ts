@@ -1,6 +1,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
+import { wipInForceAsOf } from './wipAsOf';
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -88,21 +89,22 @@ export async function getStaffUtilisation(
   const { dateFrom, dateTo } = input;
   const userId = input.userId ?? null;
 
+  // Name lookup goes through approval_company_member_name (mig 714), not a
+  // plain join to `users`: app_user can only SELECT its own row there
+  // (users_self_read, FORCE RLS), so a join resolved a name only when the
+  // viewer was the staff member themselves (R-147 review round 1).
   const rows = (await sql`
     SELECT te.user_id,
-           u.first_name,
-           u.last_name,
-           u.email,
+           public.approval_company_member_name(${companyId}::UUID, te.user_id::TEXT) AS display_name,
            SUM(te.hours)::NUMERIC AS total_hours,
            SUM(CASE WHEN te.billable THEN te.hours ELSE 0 END)::NUMERIC AS billable_hours,
            SUM(CASE WHEN te.billable THEN COALESCE(te.line_total, 0) ELSE 0 END)::NUMERIC AS billable_value
     FROM time_entries te
-    LEFT JOIN users u ON u.id = te.user_id::TEXT
     WHERE te.company_id = ${companyId}::UUID
       AND te.entry_date BETWEEN ${dateFrom}::DATE AND ${dateTo}::DATE
       AND te.practice_client_id IS NOT NULL
       AND (${userId}::UUID IS NULL OR te.user_id = ${userId}::UUID)
-    GROUP BY te.user_id, u.first_name, u.last_name, u.email
+    GROUP BY te.user_id
   `) as DbRow[];
 
   return rows.map((r) => {
@@ -112,10 +114,7 @@ export async function getStaffUtilisation(
     const billableValue = Number(r.billable_value);
     const utilisationPct =
       totalHours > 0 ? Math.round((billableHours / totalHours) * 10000) / 100 : 0;
-    const first = r.first_name ? String(r.first_name).trim() : '';
-    const last = r.last_name ? String(r.last_name).trim() : '';
-    const fullName = [first, last].filter(Boolean).join(' ').trim();
-    const userDisplayName = fullName || (r.email ? String(r.email) : null);
+    const userDisplayName = r.display_name ? String(r.display_name) : null;
     return {
       userId: String(r.user_id),
       userDisplayName,
@@ -142,7 +141,7 @@ export async function getClientProfitability(
              SUM(CASE WHEN te.status = 'billed' THEN COALESCE(te.line_total, 0) ELSE 0 END)::NUMERIC AS revenue,
              SUM(te.hours)::NUMERIC AS hours
       FROM time_entries te
-      JOIN practice_clients pc ON pc.id = te.practice_client_id
+      JOIN practice_clients pc ON pc.id = te.practice_client_id AND pc.company_id = te.company_id
       WHERE te.company_id = ${companyId}::UUID
         AND te.entry_date BETWEEN ${dateFrom}::DATE AND ${dateTo}::DATE
         AND (${clientId}::UUID IS NULL OR te.practice_client_id = ${clientId}::UUID)
@@ -199,6 +198,9 @@ export async function getWipAging(
 ): Promise<WipAgingRow[]> {
   const asOfDate = input.asOfDate ?? todayString();
 
+  // POINT IN TIME (R-059). `asOfDate` used to reach only the bucket
+  // arithmetic, over TODAY's unbilled WIP. The population is now the entries
+  // in WIP on that date — see ./wipAsOf for the entry and exit dates.
   const rows = (await sql`
     SELECT te.practice_client_id,
            pc.legal_name,
@@ -212,10 +214,9 @@ export async function getWipAging(
            SUM(CASE WHEN ${asOfDate}::DATE - te.approved_at::DATE > 30
                     THEN te.line_total ELSE 0 END)::NUMERIC AS bucket_31_plus
     FROM time_entries te
-    JOIN practice_clients pc ON pc.id = te.practice_client_id
+    JOIN practice_clients pc ON pc.id = te.practice_client_id AND pc.company_id = te.company_id
     WHERE te.company_id = ${companyId}::UUID
-      AND te.status = 'approved'
-      AND te.billed_at IS NULL
+      AND ${wipInForceAsOf(companyId, asOfDate, todayString())}
       AND te.billable = true
       AND te.line_total IS NOT NULL
     GROUP BY te.practice_client_id, pc.legal_name
@@ -243,12 +244,14 @@ export async function getRevenuePipeline(
 
   const [approvedRows, invoicedRows] = await Promise.all([
     sql`
-      SELECT COALESCE(SUM(line_total), 0) AS v
-      FROM time_entries
-      WHERE company_id = ${companyId}::UUID
-        AND status = 'approved'
-        AND billed_at IS NULL
-        AND billable = true
+      SELECT COALESCE(SUM(te.line_total), 0) AS v
+      FROM time_entries te
+      -- The same as-of population as getWipAging above, from the same
+      -- predicate — these are one figure asked twice, and answering it two
+      -- ways is how they drift.
+      WHERE te.company_id = ${companyId}::UUID
+        AND ${wipInForceAsOf(companyId, asOfDate, todayString())}
+        AND te.billable = true
     ` as Promise<DbRow[]>,
     sql`
       SELECT COALESCE(SUM(line_total), 0) AS v

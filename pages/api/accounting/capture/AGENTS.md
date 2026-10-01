@@ -14,11 +14,11 @@ Four ingestion channels: PWA upload, Postmark inbound email, Twilio WhatsApp WAB
 
 ### Inbox + config
 - `GET /api/accounting/capture/inbox` — pending events with joined extraction (`?status=`)
-- `GET|POST /api/accounting/capture/inbox-address` — get / regenerate 6-hex email inbox slug (deactivates prior)
-- `GET|POST /api/accounting/capture/whatsapp-inbox` — get / upsert WABA number (E.164 validated); `{ address }`
+- `GET|POST /api/accounting/capture/inbox-address` — get / regenerate 32-hex email inbox slug (deactivates prior)
+- `GET|POST /api/accounting/capture/whatsapp-inbox` — get active/pending status / start WABA provider verification (E.164 validated); POST `{ address }` returns inactive pending claim, one-time verification URL and expiry. GET returns `{ active, pending }`; raw token is never reissued. Another-company reservation blocks callback activation, preserving the old verified destination
 
 ### Per-event actions
-- `POST /api/accounting/capture/[id]/post` — inline AI pipeline; gate-routes via `autoPublishGateService.decide` → `duplicate_blocked` (409) / `route_review` (draft) / `auto_publish` (approved). After insert: `performThreeWayMatch` + `attachEvidenceToProvisional` + `resolvePendingAlertForInvoice`
+- `POST /api/accounting/capture/[id]/post` — inline AI pipeline; gate-routes via `autoPublishGateService.decide` → `duplicate_blocked` (409) / `route_review` (draft) / `auto_publish` (approved). Writes the bill's line items (R-131, `captureBillLines`): the extracted items, or ONE line from net + VAT on the event's account, else the supplier rule's default, else the company `default_expense`; 400 before any write when there is no total or no account. An auto-approved bill is posted to the GL (`postSupplierInvoiceToGL`), or withdrawn to draft when it cannot post. After insert: `performThreeWayMatch` + `attachEvidenceToProvisional` + `resolvePendingAlertForInvoice`
 - `POST /api/accounting/capture/[id]/discard` — body `{ reason? }`; status=`discarded`
 
 ### Mirror (PRD-05 Phase 9)
@@ -32,8 +32,8 @@ Four ingestion channels: PWA upload, Postmark inbound email, Twilio WhatsApp WAB
 - User routes: `withAuth(withErrorHandler(withWriteAccess(...)))` for mutating; `withAuth(withErrorHandler(...))` for GET
 - **Webhooks no-auth, secret-gated**:
   - `inbound-email`: verifies `X-Postmark-Token` against `POSTMARK_INBOUND_TOKEN` env (rejects when env missing)
-  - `inbound/whatsapp`: verifies `X-Twilio-Signature` via `twilio.validateRequest` using `TWILIO_AUTH_TOKEN`
-- **Webhooks always return 200** on rejection so provider stops retrying (payload contains `{ rejected: '<reason>' }`)
+  - `inbound/whatsapp`: verifies `X-Twilio-Signature` via `twilio.validateRequest` using `TWILIO_AUTH_TOKEN`; exact path and query are signed. A single token must match pending/verified destination before ingestion. Signed POST body must be an incoming WhatsApp message (matching WaId/From, Body and NumMedia); outbound status callbacks cannot establish proof
+- **Payload rejections return200** so provider stops retrying (payload contains `{ rejected: '<reason>' }`); WhatsApp signature/configuration failures retain403/503.
 
 ## Business rules
 - `routeEvent` is fire-and-forget — webhook response does not wait for VLM extraction; background task logs its own failures
@@ -48,6 +48,10 @@ Four ingestion channels: PWA upload, Postmark inbound email, Twilio WhatsApp WAB
 - `pages/accounting/capture/{inbox,settings,index}.tsx`
 
 ## Recent changes
+- 2026-09-29 (R-131): `[id]/post` writes `supplier_invoice_items` (it wrote none, so an auto-approved bill sat `approved` with no journal and could not post one). New 400s, both before the claim: "The document has no total to bill…" and "…no expense account to put its total on…" (only when the event, the supplier rule and the company `default_expense` all give none). An auto-approved bill now carries its journal; when that journal cannot post (closed fiscal period, filed VAT period, missing `payable` account) the bill is answered and left as a draft with `provisionalAttach.settlementRefused` and a note — the response `invoice.status` is `draft`, `approvalRoute` `manual_review`.
+- 2026-09-26 (R-088 round 2): `[id]/post.ts` claims with `{ spend: 'invoice' }`; the claim refuses a slip whose FILE is already booked from another upload (a receipt journal, an invoice, a claim line) and the route answers it 409 via `CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE`, before any write. The inbox (`pages/accounting/capture/inbox.tsx`) already toasts `error.message` on any non-OK answer, and a same-file match has no override, so there is no confirm flow to add. `[id]/post-expense.ts`: a same-file match is final even with `confirmDuplicate`; `details.canConfirm` says which 409s can be confirmed; a busy fingerprint answers `details.code = 'RECEIPT_POST_BUSY'`.
+- 2026-09-26 (R-088): `[id]/post-expense.ts` runs `checkReceiptDuplicate` once, before either branch writes, and answers 409 (`details.code = 'DUPLICATE_RECEIPT'`, `details.earlierDocumentId`, `details.matchedOn` `'file' | 'details'`) when the same slip was already posted from another upload; body `confirmDuplicate: true` posts a genuine repeat. `receipt-to-journal.ts` does the same. No `.tsx` calls either route today, so there is no UI override flow to add; a caller that adds one must resend with `confirmDuplicate` on that 409 code only (the route also answers 409 for lock contention).
+- 2026-09-24: `[id]/post-expense.ts`'s employee-claim branch calls `expenseClaimService.createClaim` (which now runs `gl/documentLineAccountGuard` before its own first write) with no local catch, on purpose: `claimCapturedDocumentForPosting` has already written the document claim by that point, so a `DocumentLineAccountRefusal` here must reach a 5xx and roll the request back, not a 400 `withAuth` would COMMIT with the document claimed and no expense claim behind it.
 - 2026-04-24: second pentest batch — M1, M6, M14/M15, M20, M21, L4 + codemod
 - 2026-04-24: remediate pentest findings — 2 Critical + 11 High
 - 2026-04-22: Phase 9 — mirror inbox (IMAP) with Gmail/M365 stubs

@@ -1,0 +1,55 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-034-cancel-at-period-end-ignored.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"cancelSubscription","timestamp":"2026-09-09T03:37:24.774Z","component":"BillingService","data":{"subscriptionId":"08d55fcd-f16e-4735-a9b6-0a6160b1e21b","atPeriodEnd":true}}
+{"level":"info","message":"cancelSubscription","timestamp":"2026-09-09T03:37:24.803Z","component":"BillingService","data":{"subscriptionId":"08d55fcd-f16e-4735-a9b6-0a6160b1e21b","atPeriodEnd":true}}
+{"level":"info","message":"cancelSubscription","timestamp":"2026-09-09T03:37:24.848Z","component":"BillingService","data":{"subscriptionId":"08d55fcd-f16e-4735-a9b6-0a6160b1e21b","atPeriodEnd":true}}
+ ❯ tests/integration/k-034-cancel-at-period-end-ignored.int.test.ts (3 tests | 2 failed) 597ms
+     × must not raise a new charge for a subscription cancelled at period end 47ms
+     × must not roll a cancelled subscription into a new billing period 41ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k-034-cancel-at-period-end-ignored.int.test.ts > K-034 scheduled cancellation ignored at renewal > must not raise a new charge for a subscription cancelled at period end
+AssertionError: expected [ { status: 'queued', …(3) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ tests/integration/k-034-cancel-at-period-end-ignored.int.test.ts:98:26
+     96|       [companyId],
+     97|     );
+     98|     expect(charges.rows).toHaveLength(0);
+       |                          ^
+     99|     expect(generated.created).toBe(0);
+    100|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k-034-cancel-at-period-end-ignored.int.test.ts > K-034 scheduled cancellation ignored at renewal > must not roll a cancelled subscription into a new billing period
+AssertionError: expected '2026-10-08T03:37:24.336Z' to be '2026-09-08T03:37:24.336Z' // Object.is equality
+
+Expected: "2026-09-08T03:37:24.336Z"
+Received: "2026-10-08T03:37:24.336Z"
+
+ ❯ tests/integration/k-034-cancel-at-period-end-ignored.int.test.ts:110:64
+    108|       [subscriptionId],
+    109|     );
+    110|     expect(new Date(rows[0].current_period_end).toISOString()).toBe(
+       |                                                                ^
+    111|       originalPeriodEnd.toISOString(),
+    112|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  05:37:24
+   Duration  794ms (transform 53ms, setup 0ms, import 99ms, tests 597ms, environment 0ms)
+
+error: script "test:integration" exited with code 1

@@ -9,6 +9,24 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// The VAT-lock guard runs its own queries (advisory lock, active-lock read,
+// account subtypes), which would shift this file's positional sql mock. It is
+// exercised against a real ledger in tests/integration/vat-period-lock-*.int.test.ts;
+// here it is a no-op, and the error class stays real.
+// createJournalEntry asks whether a line is on the late-claim clearing account
+// (gl/lateClaimClearingGuard); none is here, and the positional sql queue must not see it.
+vi.mock('@/modules/accounting/services/gl/lateClaimClearingGuard', () => ({
+  assertNoLateClaimClearingLines: vi.fn(async () => undefined),
+}));
+vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/journalVatLockGuard')>()),
+  assertJournalVatPeriodOpen: vi.fn(async () => undefined),
+  assertJournalDateOutsideVatLock: vi.fn(async () => undefined),
+  takeVatLockShared: vi.fn(async () => undefined),
+  findActiveVatLock: vi.fn(async () => null),
+  journalMovesVatFigure: vi.fn(async () => false),
+  loadJournalVatLines: vi.fn(async () => []),
+}));
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
   return {
@@ -18,6 +36,9 @@ vi.mock('@/lib/neon', () => {
     fmtDate: (d: unknown) => (d instanceof Date ? d.toISOString().split('T')[0] : String(d)),
   };
 });
+vi.mock('@/lib/alsTransaction', () => ({
+  withAlsTransaction: (_actor: unknown, fn: () => unknown) => fn(),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
@@ -335,6 +356,9 @@ describe('createJournalEntry', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('inserts entry header then lines and returns mapped entry', async () => {
+    // Ownership: every line's GL account must be in this company
+    // (`accountsBelongToCompany` — one row per distinct account id).
+    vi.mocked(sql).mockResolvedValueOnce([{ id: ACCOUNT_A }, { id: ACCOUNT_B }] as never);
     // P2.2: supplied fiscalPeriodId is coverage-validated before anything else
     vi.mocked(sql).mockResolvedValueOnce([{ ok: 1 }] as never);
     // resolveUserUuid — UUID-format user, passes straight through
@@ -378,6 +402,9 @@ describe('createJournalEntry', () => {
   });
 
   it('resolves non-UUID user IDs by querying users table', async () => {
+    // Ownership: every line's GL account must be in this company
+    // (`accountsBelongToCompany` — one row per distinct account id).
+    vi.mocked(sql).mockResolvedValueOnce([{ id: ACCOUNT_A }, { id: ACCOUNT_B }] as never);
     // P2.2: supplied fiscalPeriodId is coverage-validated before anything else
     vi.mocked(sql).mockResolvedValueOnce([{ ok: 1 }] as never);
     // resolveUserUuid — non-UUID, triggers lookup query (direct sql call)
@@ -394,6 +421,9 @@ describe('createJournalEntry', () => {
   });
 
   it('falls back to zero UUID when no user row found', async () => {
+    // Ownership: every line's GL account must be in this company
+    // (`accountsBelongToCompany` — one row per distinct account id).
+    vi.mocked(sql).mockResolvedValueOnce([{ id: ACCOUNT_A }, { id: ACCOUNT_B }] as never);
     // P2.2: supplied fiscalPeriodId is coverage-validated before anything else
     vi.mocked(sql).mockResolvedValueOnce([{ ok: 1 }] as never);
     // resolveUserUuid — non-UUID, lookup returns empty (direct sql call)
@@ -415,6 +445,9 @@ describe('createJournalEntry', () => {
       fiscalPeriodId: undefined,
     };
 
+    // Ownership: every line's GL account must be in this company
+    // (`accountsBelongToCompany` — one row per distinct account id).
+    vi.mocked(sql).mockResolvedValueOnce([{ id: ACCOUNT_A }, { id: ACCOUNT_B }] as never);
     // fiscal period lookup (direct sql call)
     vi.mocked(sql).mockResolvedValueOnce([{ id: FISCAL_ID }] as never);
     // sql.transaction — header + 2 lines
@@ -434,7 +467,11 @@ describe('createJournalEntry', () => {
 describe('postJournalEntry', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  // postJournalEntry locks the header FOR UPDATE before it reads anything.
+  const mockHeaderLock = () => vi.mocked(sql).mockResolvedValueOnce([{ id: ENTRY_ID }] as never);
+
   function mockGetEntryById(status = 'draft') {
+    mockHeaderLock();
     // getJournalEntryById: entry query
     vi.mocked(sql).mockResolvedValueOnce([makeEntryRow({ status })] as never);
     // getJournalEntryById: lines query
@@ -460,6 +497,7 @@ describe('postJournalEntry', () => {
   });
 
   it('throws when entry does not exist', async () => {
+    mockHeaderLock();
     // getJournalEntryById returns null (empty rows)
     vi.mocked(sql).mockResolvedValueOnce([] as never);
 

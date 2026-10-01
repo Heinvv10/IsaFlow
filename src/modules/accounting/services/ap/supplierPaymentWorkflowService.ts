@@ -8,21 +8,40 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
+import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { defaultHumanMeta } from '../gl/journalEntryMeta';
+import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { getSupplierPaymentById } from './supplierPaymentService';
+import { assertPaymentStillProcessable, voidIfUnprocessed } from './supplierPaymentGates';
+import { SupplierPaymentNotFoundError } from './supplierPaymentNotFound';
+import {
+  assertSameJournal, lockJournalAndUnmatch, lockPaymentBankLeg, voidViaBankAllocation,
+} from './paymentJournalReversal';
 import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 type Row = DbRow;
+
+/**
+ * Allocation rows in ASCENDING invoice id — the order `fetchBillCandidates`
+ * already takes its `FOR UPDATE OF si` in. Two payments touching the same two
+ * bills in opposite orders hold one row each and deadlock (40P01), and the
+ * order a payment's allocations come back in is the order they were captured.
+ */
+function byInvoiceId<T extends { invoiceId: string }>(allocs: readonly T[]): T[] {
+  return [...allocs].sort((a, b) => (a.invoiceId < b.invoiceId ? -1 : a.invoiceId > b.invoiceId ? 1 : 0));
+}
 
 export async function approveSupplierPayment(
   companyId: string,
   id: string,
   userId: string,
 ): Promise<SupplierPayment> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   try {
     const payment = await getSupplierPaymentById(companyId, id);
-    if (!payment) throw new Error(`Payment ${id} not found`);
+    if (!payment) throw new SupplierPaymentNotFoundError(id);
     if (payment.status !== 'draft') throw new Error(`Cannot approve payment with status: ${payment.status}`);
 
     const rows = (await sql`
@@ -39,6 +58,22 @@ export async function approveSupplierPayment(
   }
 }
 
+export { SupplierPaymentNotFoundError };
+
+/**
+ * Raised when the payment is not 'approved' when the claim runs — because it
+ * never was, or because a concurrent request has already processed it. Raised
+ * BEFORE the journal is created, so a route may answer it with a 4xx without
+ * `withAuth` committing a half-processed payment.
+ */
+export class SupplierPaymentNotProcessableError extends Error {
+  readonly code = 'SUPPLIER_PAYMENT_NOT_PROCESSABLE';
+  constructor(readonly paymentStatus: string) {
+    super(`Payment is ${paymentStatus}, not approved — it cannot be processed.`);
+    this.name = 'SupplierPaymentNotProcessableError';
+  }
+}
+
 /**
  * @param opts.postingAgent Stamp for the DR Accounts Payable / CR Bank journal
  *   this posts. Optional and last-positional so every existing caller keeps its
@@ -52,10 +87,49 @@ export async function processSupplierPayment(
   userId: string,
   opts?: { postingAgent?: string },
 ): Promise<SupplierPayment> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   try {
+    // (2) THE PAYMENT FIRST — same canonical order as the void below. Without
+    // it this path took `supplier_invoices` (the allocation loop) before
+    // `supplier_payments` (the status flip), the inverse of
+    // `planSupplierPaymentApplication`, which locks the payment and THEN the
+    // bills through `fetchBillCandidates`. Both reach the same payment and the
+    // same bill, from `supplier-payments-action` and `supplier-allocations`.
+    if (!(await lockSupplierPaymentForUpdate(companyId, id))) {
+      throw new SupplierPaymentNotFoundError(id);
+    }
     const payment = await getSupplierPaymentById(companyId, id);
-    if (!payment) throw new Error(`Payment ${id} not found`);
-    if (payment.status !== 'approved') throw new Error(`Payment must be approved before processing`);
+    if (!payment) throw new SupplierPaymentNotFoundError(id);
+    // Decided under the payment lock, so a double-click's loser is told the
+    // payment is processed (409) rather than that its bills are now paid.
+    if (payment.status !== 'approved') throw new SupplierPaymentNotProcessableError(payment.status);
+    // Not a batch member, and every bill still payable (K-063/K-066) — before the claim.
+    await assertPaymentStillProcessable(companyId, payment);
+
+    // CLAIM the payment before anything is posted — the singular twin of
+    // batchPaymentService.processBatch, which carried the identical defect.
+    // What this replaced read `payment.status !== 'approved'` and then created
+    // and POSTED DR AP / CR Bank for the full amount and incremented
+    // `amount_paid` on every allocated bill, with the payment's own row
+    // rewritten unconditionally: two concurrent "process" clicks credited the
+    // bank twice and overstated the supplier ledger, and only one journal id
+    // survived on the payment to show for it. The status-predicated UPDATE is
+    // the guard — the loser matches zero rows and stops here, before the first
+    // posting — and it also moves the first blocking point off the per-company
+    // entry_number trigger, where two interleaved callers used to park on each
+    // other with no lock_timeout at all.
+    const claimed = await claimUnderLockTimeout('supplier payment', async () => (await sql`
+      UPDATE supplier_payments
+      SET status = 'processed', processed_at = NOW()
+      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'approved'
+      RETURNING id
+    `) as Row[]);
+    if (claimed.length === 0) {
+      // Re-read rather than trusting the row read before the UPDATE: the loser
+      // of a double-click needs the status the winner left behind.
+      const now = await getSupplierPaymentById(companyId, id);
+      throw new SupplierPaymentNotProcessableError(now?.status ?? 'missing');
+    }
 
     const apAccount = await getSystemAccount('payable', companyId);
     const bankAccount = payment.bankAccountId
@@ -91,7 +165,7 @@ export async function processSupplierPayment(
     // Run on the ALS-bound connection so the outer request-scoped tx provides
     // atomicity — withTransaction would deadlock against rows already locked
     // by this same request (e.g. the JE we just inserted/posted above).
-    for (const alloc of payment.allocations) {
+    for (const alloc of byInvoiceId(payment.allocations)) {
       const newPaid = alloc.amountAllocated;
       await sql`
         UPDATE supplier_invoices
@@ -105,10 +179,11 @@ export async function processSupplierPayment(
       `;
     }
 
+    // Only the journal link is left to write — the status and timestamp were
+    // set by the claim above.
     const updatedRows = (await sql`
       UPDATE supplier_payments
-      SET status = 'processed', processed_at = NOW(),
-          gl_journal_entry_id = ${journalEntry.id}::UUID
+      SET gl_journal_entry_id = ${journalEntry.id}::UUID
       WHERE id = ${id} AND company_id = ${companyId}::UUID
       RETURNING *
     `) as Row[];
@@ -146,36 +221,43 @@ async function voidSupplierPaymentInner(
   userId: string,
 ): Promise<SupplierPayment> {
   try {
+    // (1) THE BANK LINE matched to its journal, from an unlocked peek — the
+    // canonical order starts at the bank row (as `voidPaymentDocument` does).
+    // This also runs the pre-write journal refusals: a closed period or a
+    // reconciled line is a 400 here, not a 500 inside `reverseJournalEntry`.
+    const { journalId, leg } = await lockPaymentBankLeg(companyId, id);
+    // (2) THEN THE PAYMENT. This used to open with the unlocked
+    // `getSupplierPaymentById` and take `gl_journal_entries` before
+    // `supplier_invoices` before `supplier_payments` — the exact inverse of the
+    // canonical order in `bank/.claude.md`, and a reachable cycle against
+    // `voidPaymentDocument` (which takes payment → invoices → GL) on the very
+    // same supplier payment. Two agents voiding one payment from its two
+    // entrances held a row each and Postgres killed one with 40P01.
+    if (!(await lockSupplierPaymentForUpdate(companyId, id))) {
+      throw new SupplierPaymentNotFoundError(id);
+    }
     const payment = await getSupplierPaymentById(companyId, id);
-    if (!payment) throw new Error(`Payment ${id} not found`);
-    if (payment.status === 'reconciled') {
-      throw new Error('Cannot void a reconciled payment — remove it from the bank reconciliation first');
-    }
-    if (payment.status !== 'processed') {
-      throw new Error(`Only processed payments can be voided (status: ${payment.status})`);
-    }
-
-    // Reverse the payment journal (skip if already reversed — reversed_at is
-    // the marker; the original keeps status='posted' under metadata semantics).
-    if (payment.glJournalEntryId) {
-      const jeRows = (await sql`
-        SELECT status, reversed_at FROM gl_journal_entries
-        WHERE id = ${payment.glJournalEntryId}::UUID AND company_id = ${companyId}::UUID
-        FOR UPDATE
-      `) as Row[];
-      if (
-        jeRows.length > 0 &&
-        String(jeRows[0]!.status) === 'posted' &&
-        jeRows[0]!.reversed_at == null
-      ) {
-        await reverseJournalEntry(companyId, payment.glJournalEntryId, userId);
-      }
+    if (!payment) throw new SupplierPaymentNotFoundError(id);
+    // Refuses reconciled, batch members and other statuses; a draft/approved
+    // payment is voided as a status change. Only a processed one continues.
+    if (await voidIfUnprocessed(companyId, payment, userId)) return { ...payment, status: 'cancelled' };
+    assertSameJournal(journalId, payment.glJournalEntryId);
+    // A bank ALLOCATION posted this journal: undo it the MCP void's way — bills,
+    // payment, contra and bank line in one call (`voidViaBankAllocation`).
+    if (leg && !leg.alreadyReversed
+      && await voidViaBankAllocation(companyId, leg, userId, `Payment ${payment.paymentNumber}`)) {
+      return (await getSupplierPaymentById(companyId, id)) ?? { ...payment, status: 'cancelled' };
     }
 
-    // Un-apply allocations: roll amount_paid back and recompute status.
+    // (3) Un-apply allocations: roll amount_paid back and recompute status.
     // A voided payment returns the invoice to its pre-payment state
     // ('approved' when nothing else is paid, 'partially_paid' otherwise).
-    for (const alloc of payment.allocations) {
+    // BY INVOICE ID, for the reason `fetchBillCandidates` orders: two voids
+    // touching the same two bills in opposite orders deadlock on each other.
+    // This also runs BEFORE the journal reversal now, which is the ordering
+    // `bankAllocationUnwind.ts` argues for on its own merits — reversing first
+    // returns the credit to AP control while the bill still reads as settled.
+    for (const alloc of byInvoiceId(payment.allocations)) {
       // Mirrors processSupplierPayment's CASE: compare the REMAINING paid
       // amount against total_amount so an invoice still fully covered by
       // OTHER payments keeps status 'paid' (PR #203 review MEDIUM).
@@ -191,12 +273,21 @@ async function voidSupplierPaymentInner(
       `;
     }
 
-    // Guarded flip: only a still-processed payment can be voided (concurrent
-    // void/reconcile loses the race cleanly).
+    // (4) Free the bank line, then reverse the payment journal. Skipped when the
+    // journal already carries a reversal claim (`reversed_at`).
+    if (journalId && leg && !leg.alreadyReversed) {
+      await lockJournalAndUnmatch(companyId, journalId, leg, `Payment ${payment.paymentNumber}`);
+      await reverseJournalEntry(companyId, journalId, userId);
+    }
+
+    // Guarded flip: the status re-assertion is now redundant against a
+    // concurrent void (the row has been locked since the top of this function)
+    // and is KEPT as the row-returning write and as a guard against a future
+    // caller that reaches here without the lock.
     const rows = (await sql`
       UPDATE supplier_payments
       SET status = 'cancelled'
-      WHERE id = ${id} AND company_id = ${companyId}::UUID AND status = 'processed'
+      WHERE id = ${id} AND company_id = ${companyId}::UUID AND status IN ('processed', 'reconciled')
       RETURNING *
     `) as Row[];
     if (rows.length !== 1) {

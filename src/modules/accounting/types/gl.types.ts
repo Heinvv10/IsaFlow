@@ -1,7 +1,4 @@
-/**
- * PRD-060: FibreFlow Accounting Module
- * General Ledger Type Definitions
- */
+/** PRD-060: General Ledger types. */
 
 // ── Enums ────────────────────────────────────────────────────────────────────
 
@@ -18,6 +15,7 @@ export type GLAccountSubtype =
   | 'tax'
   | 'vat_input'
   | 'vat_output'
+  | 'vat_input_late_claim'
   | 'inventory'
   | 'fixed_asset'
   | 'accumulated_depreciation'
@@ -48,15 +46,7 @@ export type VatType =
   | 'bad_debt'       // Bad debt recovery
   | 'no_vat';        // No VAT applicable
 
-/**
- * Must stay a mirror of the gl_journal_entries_source_check CHECK constraint
- * (see migration 509). When the two drifted, four write paths emitted a value
- * the database rejected with 23514 — and the two asset paths swallowed the
- * error and returned null, so asset disposals silently never reached the GL.
- * Adding a member here without also widening the constraint reintroduces
- * exactly that failure; tests/unit/services/glEntrySourceConstraint.test.ts
- * pins the two lists together.
- */
+/** Mirrors migration 509's source CHECK; glEntrySourceConstraint.test.ts pins parity. */
 export const GL_ENTRY_SOURCES = [
   'manual',
   'auto_invoice',
@@ -83,6 +73,11 @@ export const GL_ENTRY_SOURCES = [
   'auto_asset_disposal',
   'auto_asset_expense',
   'auto_gl_import',
+  // Year-end close. Admitted by migration 627 once postClosingJournal gained
+  // its own validateJournalEntry check — it INSERTs at status='posted', so no
+  // other guard sees it.
+  'year_end',
+  'auto_vat_late_claim', // late input-VAT claim companion (migration 701)
 ] as const;
 
 export type GLEntrySource = (typeof GL_ENTRY_SOURCES)[number];
@@ -236,6 +231,9 @@ export interface JournalLine {
   description?: string;
   projectId?: string;
   costCenterId?: string;
+  cc1Id?: string;
+  cc2Id?: string;
+  buId?: string;
   vatType?: VatType;
   createdAt: string;
   // Joined
@@ -249,11 +247,7 @@ export interface JournalEntryCreateInput {
   source?: GLEntrySource;
   /** captured_documents(id) ONLY — it carries an FK. Anything else throws. */
   sourceDocumentId?: string;
-  /**
-   * Id of the record that caused this journal — a reconciliation, a supplier
-   * invoice — read against `source`, which says which table it points at.
-   * Not the OCR document: that is sourceDocumentId.
-   */
+  /** Causing record, keyed by source; captured documents use sourceDocumentId. */
   sourceRecordId?: string;
   fiscalPeriodId?: string;
   /**
@@ -273,6 +267,8 @@ export interface JournalLineInput {
   description?: string;
   projectId?: string;
   costCenterId?: string;
+  cc1Id?: string;
+  cc2Id?: string;
   buId?: string;
   vatType?: VatType;
 }

@@ -16,12 +16,22 @@ import type {
   SupplierInvoice,
   SupplierInvoiceItem,
   SupplierInvoiceCreateInput,
+  SupplierInvoiceImportInput,
 } from '../../types/ap.types';
 import type { VatType } from '../../types/gl.types';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { resolvePendingAlertForInvoice } from '../capture/alertResolutionService';
 import { mapInvoiceRow } from './supplierInvoiceQueryService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
+import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaults';
+import { assertSupplierInCompany } from '../core/contactDirectoryService';
+import { assertBillLineAccounts } from './billLineAccountGuard';
+import { resolveBillCurrency } from './supplierInvoiceCurrency';
+import {
+  assertSupplierInvoiceLines,
+  computeSupplierInvoiceTotals,
+  defaultVatClassification,
+} from './supplierInvoiceTotals';
 
 type Row = DbRow;
 
@@ -52,7 +62,13 @@ export async function getSupplierInvoiceById(
       FROM supplier_invoice_items sii
       LEFT JOIN gl_accounts a ON a.id = sii.gl_account_id
       WHERE sii.supplier_invoice_id = ${id}
-      ORDER BY sii.created_at
+      -- Posting order: buildExpenseLines puts the rounding residual on the LAST
+      -- line. Lines inserted together tie on created_at, so the content (then
+      -- id) breaks the tie instead of heap order. approval_document_digest
+      -- (migration 708) hashes the lines in exactly this order — keep them equal.
+      ORDER BY sii.created_at, sii.description, sii.gl_account_id, sii.quantity,
+               sii.unit_price, sii.tax_rate, sii.tax_amount, sii.line_total,
+               sii.project_id, sii.cost_center_id, sii.vat_classification, sii.id
     `) as Row[];
 
     return { ...mapInvoiceRow(rows[0]!), items: itemRows.map(mapItemRow) };
@@ -64,49 +80,29 @@ export async function getSupplierInvoiceById(
 
 export async function createSupplierInvoice(
   companyId: string,
-  input: SupplierInvoiceCreateInput,
+  input: SupplierInvoiceCreateInput | SupplierInvoiceImportInput,
   userId: string,
   /** Migration 530 actor. Omitted by the REST route; the MCP tool supplies it. */
   actor?: PostingActorOpts,
 ): Promise<SupplierInvoice> {
   try {
-    // W1 (P2.1): negative quantities/prices produce negative documents.
-    for (const item of input.items || []) {
-      if (!(Number(item.quantity) > 0)) {
-        throw new Error(`Line "${item.description}": quantity must be positive`);
-      }
-      if (Number(item.unitPrice) < 0) {
-        throw new Error(`Line "${item.description}": unit price cannot be negative`);
-      }
-    }
-    const invoiceTaxRate = input.taxRate ?? 15;
-    let subtotal = 0;
-    let totalTax = 0;
+    // Only an importer's own input object can turn this on; every REST route
+    // builds its input field by field and never copies it from a body.
+    const trustSourceTax = 'trustSourceTax' in input && input.trustSourceTax === true;
+    // R-068: supplier_invoices.supplier_id's FK is tenant-agnostic and the one
+    // supplier read below (the VAT number) yields NULL on a miss. Before any write.
+    await assertSupplierInCompany(companyId, input.supplierId);
 
-    const computedItems = input.items.map((item) => {
-      const lineTotal = Math.round(item.quantity * item.unitPrice * 100) / 100;
-      const itemTaxRate = item.taxRate ?? invoiceTaxRate;
-      const itemTax = Math.round(lineTotal * itemTaxRate / 100 * 100) / 100;
-      // Warn when a 0% line has no explicit vatClassification — exempt and zero-rated
-      // both have 0% rate but differ in input VAT recoverability under the VAT Act.
-      if (itemTaxRate === 0 && !item.vatClassification) {
-        log.warn('Supplier invoice line has 0% VAT with no vatClassification — defaulting to zero_rated; set vatClassification=exempt explicitly for exempt supplies', { description: item.description }, 'accounting');
-      }
-      subtotal += lineTotal;
-      totalTax += itemTax;
-      return { ...item, lineTotal, taxAmount: itemTax, taxRate: itemTaxRate };
-    });
-
-    subtotal = Math.round(subtotal * 100) / 100;
-    totalTax = Math.round(totalTax * 100) / 100;
-    const totalAmount = subtotal + totalTax;
+    assertSupplierInvoiceLines(input.items || [], trustSourceTax);
+    await assertBillLineAccounts(companyId, (input.items || []).map((i) => i.glAccountId));
+    const invoiceTaxRate = input.taxRate ?? DEFAULT_SUPPLIER_TAX_RATE;
+    const { items: computedItems, subtotal, totalTax, totalAmount } =
+      computeSupplierInvoiceTotals(input.items, invoiceTaxRate, trustSourceTax);
 
     const dueDate = input.dueDate || calculateDueDate(input.invoiceDate, input.paymentTerms);
 
-    // Currency fields — default to ZAR / 1.0 for functional currency pass-through
-    const currencyCode = input.currencyCode?.trim().toUpperCase() || 'ZAR';
-    const exchangeRate = (typeof input.exchangeRate === 'number' && input.exchangeRate > 0)
-      ? input.exchangeRate : 1.0;
+    // Currency fields — default to ZAR / 1.0; the company's own currency at exactly 1 (R-035).
+    const { currencyCode, exchangeRate } = await resolveBillCurrency(companyId, input.currencyCode, input.exchangeRate);
     const functionalTotal = Math.round(totalAmount * exchangeRate * 100) / 100;
 
     // Fetch supplier VAT number for duplicate fingerprint
@@ -154,7 +150,7 @@ export async function createSupplierInvoice(
             ${item.taxAmount}, ${item.lineTotal},
             ${item.glAccountId || null}, ${item.projectId || null},
             ${item.costCenterId || null},
-            ${item.vatClassification || (item.taxRate > 0 ? 'standard' : 'zero_rated')}
+            ${item.vatClassification || defaultVatClassification(item.taxRate)}
           )
         `;
       }

@@ -5,7 +5,17 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertCustomerInCompany } from './contactDirectoryService';
 import type { DbRow } from '@/types/db';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+
+/** An edit the operator asked for that this path refuses, with the reason (R-120). */
+export class TimeEntryEditRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TimeEntryEditRefusal';
+  }
+}
 
 
 export interface TimeEntry {
@@ -134,6 +144,9 @@ export async function createTimeEntry(
   input: TimeEntryInput,
   userId: string,
 ): Promise<TimeEntry> {
+  // R-067: customer_id comes from the request body and is read back with the
+  // customer's name joined on it.
+  await assertCustomerInCompany(companyId, input.customerId);
   const entryDate = input.entryDate || new Date().toISOString().split('T')[0];
   const rows = (await sql`
     INSERT INTO time_entries (
@@ -158,11 +171,26 @@ export async function updateTimeEntry(
   input: Partial<TimeEntryInput>,
 ): Promise<TimeEntry> {
   const existing = (await sql`
-    SELECT status FROM time_entries
+    SELECT status, practice_client_id, hours, rate FROM time_entries
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!existing.length) throw new Error('Time entry not found');
   if (String(existing[0]!.status) !== 'draft') throw new Error('Only draft entries can be edited');
+  // R-120: this UPDATE sets hours and rate but never applied_rate or
+  // line_total, so on a practice entry it left a line WIP billing then refuses
+  // — and once approved the entry can no longer be edited at all. The
+  // practice path (updatePracticeEntry) re-resolves the rate and recomputes.
+  // Only a CHANGE is refused: the time-tracking form sends hours on every save.
+  const changes = (next: unknown, prev: unknown): boolean =>
+    next != null && (prev == null || Number(next) !== Number(prev));
+  const prev = existing[0]!;
+  if (prev.practice_client_id != null && (changes(input.hours, prev.hours) || changes(input.rate, prev.rate))) {
+    throw new TimeEntryEditRefusal(
+      'This is a practice time entry: change its hours or rate on the practice timesheet, '
+      + 'which recomputes its billable amount.',
+    );
+  }
+  await assertCustomerInCompany(companyId, input.customerId);
 
   const rows = (await sql`
     UPDATE time_entries SET
@@ -211,8 +239,9 @@ export async function submitEntries(
     WHERE company_id = ${companyId}::UUID
       AND id = ANY(${ids}::UUID[])
       AND status = 'draft'
+    RETURNING id
   `) as DbRow[];
-  const count = Array.isArray(result) ? result.length : 0;
+  const count = result.length;
   log.info('Submitted time entries', { count, ids }, 'accounting');
   return count;
 }
@@ -221,14 +250,19 @@ export async function approveEntries(
   companyId: string,
   ids: string[],
 ): Promise<number> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   if (!ids.length) return 0;
   const result = (await sql`
-    UPDATE time_entries SET status = 'approved', updated_at = NOW()
+    -- approved_at: the date WIP is measured from (practice/wipAsOf). This path
+    -- used to leave it NULL, so an as-of WIP report could not tell when these
+    -- entries were approved; the practice approval path has always set it.
+    UPDATE time_entries SET status = 'approved', approved_at = NOW(), updated_at = NOW()
     WHERE company_id = ${companyId}::UUID
       AND id = ANY(${ids}::UUID[])
       AND status = 'submitted'
+    RETURNING id
   `) as DbRow[];
-  const count = Array.isArray(result) ? result.length : 0;
+  const count = result.length;
   log.info('Approved time entries', { count, ids }, 'accounting');
   return count;
 }

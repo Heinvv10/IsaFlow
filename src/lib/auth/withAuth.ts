@@ -1,3 +1,5 @@
+import { getCompanyMembership, type CompanyMembershipRow } from './companyMembership';
+import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 // src/lib/auth/withAuth.ts
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
@@ -5,11 +7,13 @@ import { verifyToken } from './gotrue';
 import { authenticatePrintToken } from './withAuthPrint';
 import { getAuthPool } from './authPool';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
-import { als } from '@/lib/als';
+import type { RequestContext } from '@/lib/als';
+import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR, type UserAccountRow } from './userAccountStatus';
+import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
+import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } from './deferredEnd';
 
 // Re-exported so every existing `import { withRole } from '@/lib/auth/withAuth'`
 // keeps working; the implementation moved to withRole.ts (300-line ceiling).
@@ -57,7 +61,7 @@ export function withAuth(handler: Handler): NextApiHandler {
 
     let claims;
     try {
-      claims = await verifyToken(token);
+      claims = await verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]);
     } catch (err) {
       // Print-pipeline fallback (src/lib/pdf/renderPagePdf.ts): a headless
       // Chromium request carries a short-lived print token instead of a
@@ -94,6 +98,7 @@ export function withAuth(handler: Handler): NextApiHandler {
 
     const startedAt = Date.now();
     const client = await getAuthPool().connect();
+    let deferred: DeferredEnd | null = null;
     try {
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE app_user');
@@ -114,21 +119,9 @@ export function withAuth(handler: Handler): NextApiHandler {
       // (company_users.user_id has no FK to users) is denied by the predicate
       // rather than silently disappearing into the membership-missing branch.
       // Neither user_id nor users.id is cast: both are TEXT columns.
-      type MembershipRow = UserAccountRow & { role: string; account_user_id: string | null };
-      let membership: { rows: MembershipRow[] };
+      let membership: { rows: CompanyMembershipRow[] };
       try {
-        membership = await client.query<MembershipRow>(
-          `SELECT cu.role,
-                  u.id AS account_user_id,
-                  u.is_active,
-                  u.status,
-                  u.suspended_at
-             FROM company_users cu
-             LEFT JOIN users u ON u.id = cu.user_id
-            WHERE cu.user_id = $1 AND cu.company_id = $2::uuid
-            LIMIT 1`,
-          [claims.sub, activeCompanyId]
-        );
+        membership = await getCompanyMembership(client, claims.sub, activeCompanyId);
       } catch {
         await client.query('ROLLBACK');
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
@@ -200,22 +193,13 @@ export function withAuth(handler: Handler): NextApiHandler {
       // (api-utils/node sendData/sendJson), so patching res.end captures every
       // apiResponse.* helper plus the xlsx/pdf buffer routes. We buffer the
       // single final end(), COMMIT/ROLLBACK on the resolved status, then replay.
-      let bufferedEndArgs: unknown[] | null = null;
-      let handlerEnded = false;
-      const realEnd = res.end.bind(res) as (...a: unknown[]) => unknown;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (res as any).end = (...args: unknown[]) => {
-        if (handlerEnded) return res; // double-end guard — flush exactly once
-        handlerEnded = true;
-        bufferedEndArgs = args;
-        return res;
-      };
+      const flush = deferEnd(res);
+      deferred = flush;
 
-      const runHandler = async () =>
-        als.run(
-          { client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown> },
-          async () => { await handler(req, res); }
-        );
+      const ctx: RequestContext = {
+        client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown>, afterCommit: [],
+      };
+      const runHandler = async () => runOwnedContext(ctx, async () => { await handler(req, res); });
 
       if (process.env.SENTRY_ENABLED === 'true') {
         await Sentry.withIsolationScope(async () => {
@@ -252,10 +236,10 @@ export function withAuth(handler: Handler): NextApiHandler {
         if (res.headersSent) {
           // A streaming/redirect route already flushed headers before COMMIT
           // (e.g. an xlsx export that pipes via res.write, or res.redirect's
-          // writeHead) — the status can't be rewritten, so just complete the
-          // response. Always replay so the socket is closed, never hung, even
-          // if the handler wrote bytes without calling end (bufferedEndArgs null).
-          realEnd(...(bufferedEndArgs ?? []));
+          // writeHead) — the status can't be rewritten. Abort rather than
+          // complete it: a clean close reads as a 2xx for a write that did not
+          // land (R-159). Never hung either way.
+          abortResponse(res);
         } else {
           const body = JSON.stringify({
             success: false,
@@ -266,7 +250,7 @@ export function withAuth(handler: Handler): NextApiHandler {
           res.statusCode = 500;
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
           res.setHeader('Content-Length', Buffer.byteLength(body));
-          realEnd(body);
+          flush.realEnd(body);
         }
         return; // finally still runs (release + slow-request log)
       }
@@ -274,10 +258,17 @@ export function withAuth(handler: Handler): NextApiHandler {
       // Transaction durable — now replay the buffered flush. If the handler
       // never responded there is nothing to replay (Next surfaces its own
       // "resolved without sending a response" path, unchanged from before).
-      if (handlerEnded) realEnd(...(bufferedEndArgs ?? []));
+      // replayEnd never throws: past COMMIT, the catch below must not ROLLBACK or answer 500.
+      replayEnd(res, flush, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub });
+      // Only now may background work start: its rows are visible, and it gets its
+      // own connection instead of this one (R-075). Never after a ROLLBACK.
+      if (!handlerFailed) drainAfterCommit(ctx);
     } catch (err) {
-      try { await client.query('ROLLBACK'); } catch { /* secondary */ }
-      throw err;
+      // R-159: answer the throw here. Rethrowing left res.end swapped, so any later 500 was
+      // buffered and never sent; routes without an inner withErrorHandler hung the client.
+      let rolledBack = true;
+      try { await client.query('ROLLBACK'); } catch { rolledBack = false; }
+      answerThrow(req, res, deferred, err, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub, rolledBack });
     } finally {
       client.release();
       const ms = Date.now() - startedAt;

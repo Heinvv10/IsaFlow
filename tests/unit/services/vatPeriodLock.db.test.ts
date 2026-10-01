@@ -32,6 +32,7 @@ import {
   isVatPeriodLocked,
   lockVatPeriod,
   listVatPeriodLocks,
+  unlockVatPeriod,
 } from '@/modules/accounting/services/reports/vatPeriodLockService';
 
 const USER = '00000000-0000-0000-0000-0000000000aa';
@@ -148,6 +149,50 @@ describe('lockVatPeriod', () => {
       await lockVatPeriod(companyId, START, END, figures, actor);
       const locks = await listVatPeriodLocks(companyId);
       expect(locks.map((l) => l.periodStart)).toEqual(['2026-07-01', '2026-05-01']);
+    });
+  });
+
+  it('resolves locked_by/unlocked_by to a display name, falling back to the raw id with no user row', async () => {
+    if (!dbUp) return;
+    await withCompany(async (companyId, client) => {
+      const { rows: [locker] } = await client.query<{ id: string }>(
+        `INSERT INTO users (email, first_name, last_name)
+         VALUES ('locker@example.com', 'Jane', 'Doe') RETURNING id`,
+      );
+      const { rows: [unlocker] } = await client.query<{ id: string }>(
+        `INSERT INTO users (email, first_name, last_name)
+         VALUES ('unlocker@example.com', 'John', 'Smith') RETURNING id`,
+      );
+      // approval_company_member_name (mig 714) only resolves a name for a
+      // target who is ALSO a member of the calling company — same bound as
+      // the approvals list it was built for.
+      await client.query('INSERT INTO company_users (company_id, user_id) VALUES ($1,$2),($1,$3)',
+        [companyId, locker!.id, unlocker!.id]);
+      // No user row for this actor — an agent lock, or a human whose account
+      // was since removed. Its name must fall back to the raw id, not blank.
+      const agentActor = { userId: 'agent-nobody-42', actorType: 'agent' as const };
+
+      await lockVatPeriod(companyId, START, END, figures, { ...actor, userId: locker!.id });
+      await lockVatPeriod(companyId, '2026-05-01', '2026-06-30', figures, agentActor);
+
+      // approval_company_member_name reads auth.uid()/app.current_company_id
+      // (the GUCs withAuth sets for a real request) rather than relying on
+      // the connection's RLS bypass — set them here as the locker, a member
+      // of this company, viewing its own company's locks.
+      await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: locker!.id })]);
+      await client.query("SELECT set_config('app.current_company_id', $1, true)", [companyId]);
+
+      const beforeUnlock = await listVatPeriodLocks(companyId);
+      const filed = beforeUnlock.find((l) => l.periodStart === START)!;
+      const agentLock = beforeUnlock.find((l) => l.periodStart === '2026-05-01')!;
+      expect(filed.lockedByName).toBe('Jane Doe');
+      expect(agentLock.lockedByName).toBe('agent-nobody-42');
+
+      await unlockVatPeriod(companyId, filed.id, unlocker!.id, 'Amending the return');
+      const afterUnlock = await listVatPeriodLocks(companyId);
+      const unlocked = afterUnlock.find((l) => l.id === filed.id)!;
+      expect(unlocked.lockedByName).toBe('Jane Doe');
+      expect(unlocked.unlockedByName).toBe('John Smith');
     });
   });
 });

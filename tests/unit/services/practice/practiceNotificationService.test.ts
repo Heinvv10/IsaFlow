@@ -9,20 +9,20 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 vi.mock('@/modules/accounting/services/practice/practiceUsersService', () => ({
-  listCompanyUsers: vi.fn(),
+  listCompanyUsersForSystem: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/core/emailService', () => ({
   sendEmail: vi.fn(),
 }));
 
 import { sql } from '@/lib/neon';
-import { listCompanyUsers } from '@/modules/accounting/services/practice/practiceUsersService';
+import { listCompanyUsersForSystem } from '@/modules/accounting/services/practice/practiceUsersService';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 
 import { runDailyDigest } from '@/modules/accounting/services/practice/practiceNotificationService';
 
 const sqlMock = sql as unknown as ReturnType<typeof vi.fn>;
-const listUsersMock = listCompanyUsers as ReturnType<typeof vi.fn>;
+const listUsersMock = listCompanyUsersForSystem as ReturnType<typeof vi.fn>;
 const sendEmailMock = sendEmail as ReturnType<typeof vi.fn>;
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -76,8 +76,8 @@ describe('runDailyDigest', () => {
     listUsersMock.mockResolvedValueOnce([makeUser()]);
     // overdue tasks: empty
     sqlMock.mockResolvedValueOnce([]);
-    // timesheet check: submitted (row found)
-    sqlMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+    // timesheet check: practice user, submitted yesterday
+    sqlMock.mockResolvedValueOnce([{ submitted: true }]);
 
     const result = await runDailyDigest();
     restore();
@@ -97,8 +97,8 @@ describe('runDailyDigest', () => {
     listUsersMock.mockResolvedValueOnce([makeUser()]);
     // overdue tasks: one row
     sqlMock.mockResolvedValueOnce([makeOverdueTask()]);
-    // timesheet check: submitted
-    sqlMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+    // timesheet check: practice user, submitted yesterday
+    sqlMock.mockResolvedValueOnce([{ submitted: true }]);
 
     const result = await runDailyDigest();
     restore();
@@ -120,8 +120,8 @@ describe('runDailyDigest', () => {
     listUsersMock.mockResolvedValueOnce([makeUser()]);
     // overdue tasks: empty
     sqlMock.mockResolvedValueOnce([]);
-    // timesheet check: not found
-    sqlMock.mockResolvedValueOnce([]);
+    // timesheet check: practice user (entries in the last 30 days), none yesterday
+    sqlMock.mockResolvedValueOnce([{ submitted: false }]);
 
     const result = await runDailyDigest();
     restore();
@@ -142,8 +142,8 @@ describe('runDailyDigest', () => {
     listUsersMock.mockResolvedValueOnce([makeUser()]);
     // overdue tasks: two rows
     sqlMock.mockResolvedValueOnce([makeOverdueTask(), makeOverdueTask({ id: 'task-2', title: 'Submit VAT' })]);
-    // timesheet check: not found
-    sqlMock.mockResolvedValueOnce([]);
+    // timesheet check: practice user (entries in the last 30 days), none yesterday
+    sqlMock.mockResolvedValueOnce([{ submitted: false }]);
 
     const result = await runDailyDigest();
     restore();
@@ -154,6 +154,23 @@ describe('runDailyDigest', () => {
     expect(call.subject).toContain('2 overdue');
     expect(call.subject).toContain('timesheet missing');
     expect(call._log.emailType).toBe('practice_digest');
+  });
+
+  it('does not nag a user with no practice time entries in the last 30 days', async () => {
+    // Tuesday — yesterday = Monday (weekday)
+    const restore = stubDateNow('2026-04-21T10:00:00Z');
+    sqlMock.mockResolvedValueOnce([{ id: COMPANY_ID }]);
+    listUsersMock.mockResolvedValueOnce([makeUser()]);
+    // overdue tasks: empty
+    sqlMock.mockResolvedValueOnce([]);
+    // timesheet check: bool_or over no rows is NULL (not a practice time user)
+    sqlMock.mockResolvedValueOnce([{ submitted: null }]);
+
+    const result = await runDailyDigest();
+    restore();
+
+    expect(result.recipientsSkipped).toBe(1);
+    expect(sendEmailMock).not.toHaveBeenCalled();
   });
 
   it('weekend skip: when yesterday was Sunday, missingTimesheetDate is null even if no entry', async () => {
@@ -173,7 +190,7 @@ describe('runDailyDigest', () => {
     expect(sendEmailMock).not.toHaveBeenCalled();
   });
 
-  it('continues processing on per-user email failure', async () => {
+  it('continues processing on per-user email failure, and does not count it as notified', async () => {
     // Tuesday — yesterday = Monday (weekday)
     const restore = stubDateNow('2026-04-21T10:00:00Z');
     // companies
@@ -181,8 +198,8 @@ describe('runDailyDigest', () => {
     listUsersMock.mockResolvedValueOnce([makeUser()]);
     // overdue tasks: one row
     sqlMock.mockResolvedValueOnce([makeOverdueTask()]);
-    // timesheet check: submitted
-    sqlMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+    // timesheet check: practice user, submitted yesterday
+    sqlMock.mockResolvedValueOnce([{ submitted: true }]);
     // email fails
     sendEmailMock.mockResolvedValueOnce({ success: false, error: 'SMTP timeout' });
 
@@ -192,6 +209,45 @@ describe('runDailyDigest', () => {
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]!.error).toContain('SMTP timeout');
     expect(result.companiesProcessed).toBe(1);
+    // R-171: a failed send is not "notified".
+    expect(result.recipientsNotified).toBe(0);
+    expect(result.recipientsFailed).toBe(1);
+  });
+
+  it('a send that throws is counted as failed, not notified (R-171)', async () => {
+    // Tuesday — yesterday = Monday (weekday)
+    const restore = stubDateNow('2026-04-21T10:00:00Z');
+    sqlMock.mockResolvedValueOnce([{ id: COMPANY_ID }]);
+    listUsersMock.mockResolvedValueOnce([makeUser()]);
+    sqlMock.mockResolvedValueOnce([makeOverdueTask()]);
+    sqlMock.mockResolvedValueOnce([{ submitted: true }]);
+    sendEmailMock.mockRejectedValueOnce(new Error('SMTP crash'));
+
+    const result = await runDailyDigest();
+    restore();
+
+    expect(result.recipientsNotified).toBe(0);
+    expect(result.recipientsFailed).toBe(1);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]!.error).toContain('SMTP crash');
+  });
+
+  it('a query error before any send lands in errors but is not a failed send (R-171 review LOW)', async () => {
+    // Tuesday — yesterday = Monday (weekday)
+    const restore = stubDateNow('2026-04-21T10:00:00Z');
+    sqlMock.mockResolvedValueOnce([{ id: COMPANY_ID }]);
+    listUsersMock.mockResolvedValueOnce([makeUser()]);
+    // overdue-tasks query throws before sendEmail is ever reached
+    sqlMock.mockRejectedValueOnce(new Error('connection terminated'));
+
+    const result = await runDailyDigest();
+    restore();
+
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(result.recipientsFailed).toBe(0);
+    expect(result.recipientsNotified).toBe(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]!.error).toContain('connection terminated');
   });
 
   it('returns zeros when no companies exist', async () => {
@@ -202,6 +258,7 @@ describe('runDailyDigest', () => {
     expect(result).toEqual({
       companiesProcessed: 0,
       recipientsNotified: 0,
+      recipientsFailed: 0,
       recipientsSkipped: 0,
       errors: [],
     });

@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { canonicalSubtype } from '../gl/accountSubtypes';
 import {
   getGroupMembers,
   getCoaMappingsForCompanies,
@@ -96,7 +97,7 @@ export async function getConsolidatedIncomeStatement(
         const subtype = r.account_subtype ? String(r.account_subtype) : '';
         const debit = Number(r.total_debit); const credit = Number(r.total_credit);
         const amount = type === 'revenue' ? credit - debit : debit - credit;
-        const category = type === 'revenue' ? 'revenue' : subtype === 'cost_of_sales' ? 'costOfSales' : 'operatingExpenses';
+        const category = type === 'revenue' ? 'revenue' : canonicalSubtype(subtype) === 'cost_of_sales' ? 'costOfSales' : 'operatingExpenses';
         if (Math.abs(amount) < 0.001) continue;
 
         let entry = lineMap.get(mapping.groupAccountId);

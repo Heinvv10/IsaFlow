@@ -9,7 +9,9 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
+import { claimInputVatWarnings } from '@/modules/accounting/services/expense/claimVatAdvice';
 import { deleteLine, getClaim } from '@/modules/accounting/services/expense/expenseClaimService';
+import { DocumentLineAccountRefusal, assertDocumentLineAccounts } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -38,6 +40,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (req.method === 'PATCH') {
     const body = (req.body ?? {}) as PatchBody;
+    // Before the UPDATE, and only when the caller is actually naming an
+    // account: a line whose EXISTING account went inactive under it must
+    // still take an edit that leaves that column alone (`COALESCE` below).
+    if (body.glAccountId) {
+      try {
+        await assertDocumentLineAccounts(companyId, [body.glAccountId]);
+      } catch (err) {
+        if (err instanceof DocumentLineAccountRefusal) return apiResponse.badRequest(res, err.message);
+        throw err;
+      }
+    }
     const rows = (await sql`
       UPDATE expense_claim_lines
       SET gl_account_id  = COALESCE(${body.glAccountId ?? null}::uuid, gl_account_id),
@@ -51,12 +64,19 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     `) as Array<{ id: string }>;
     if (rows.length === 0) return apiResponse.notFound(res, 'Expense claim line', lineId);
     const refreshed = await getClaim(id, companyId);
-    return apiResponse.success(res, { claim: refreshed });
+    // Restoring the VAT on a line coded to a flagged account is exactly the
+    // edit the s17(2)(a) denial exists for, and it used to happen in silence.
+    const warnings = await claimInputVatWarnings(id, companyId);
+    return apiResponse.success(res, { claim: refreshed, warnings });
   }
 
   if (req.method === 'DELETE') {
+    // The advice query stays on this branch. Deleting a line cannot INTRODUCE a
+    // denied-VAT claim, but the lines that remain can still carry one, so
+    // answering `[]` here would let a client clear a warning that is still
+    // true. One indexed query per DELETE is the cheaper of the two mistakes.
     const refreshed = await deleteLine(lineId, id, companyId);
-    return apiResponse.success(res, { claim: refreshed });
+    return apiResponse.success(res, { claim: refreshed, warnings: await claimInputVatWarnings(id, companyId) });
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? '', ['PATCH', 'DELETE']);

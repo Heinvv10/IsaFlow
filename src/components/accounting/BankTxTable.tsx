@@ -9,7 +9,11 @@ import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { Check, X, Undo2, Search, Scissors, SearchCheck, RotateCcw, Paperclip, BookmarkPlus, Plus, Clock, MessageCircle } from 'lucide-react';
 import { useBankTxKeyboardNav } from '@/components/accounting/useBankTxKeyboardNav';
+import {
+  NON_SUPPLY_ADVICE, NON_SUPPLY_LABEL, shouldWarnOnNonSupply,
+} from '@/modules/accounting/services/gl/nonSupplyAccounts';
 import { AllocatedAccountCell } from './BankTxAllocatedAccountCell';
+import { isPendingFeedRow, PendingFeedBadge, PendingFeedNotice } from './bank-transactions/pendingFeedRow';
 
 export type AllocType = 'account' | 'supplier' | 'customer' | 'transfer';
 export type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
@@ -29,6 +33,8 @@ export interface BankTx {
   bankReference?: string;
   amount: number;
   status: string;
+  /** Feed ingestion state — a 'pending' row has not posted at the bank yet and is read-only. */
+  feedState?: 'pending' | 'posted' | 'removed';
   /** Reason recorded when this transaction was excluded */
   excludeReason?: string;
   /** User-editable memo field from bank_transactions.notes */
@@ -207,6 +213,9 @@ export function BankTxTable(props: Props) {
     transactions, rowSelections, onAccept, onExclude, onSplit,
   });
   const kbdEnabled = tab === 'new';
+  // Select-all is meaningless when every visible row is pending at the bank —
+  // there is nothing actionable to select.
+  const allRowsPending = transactions.length > 0 && transactions.every(isPendingFeedRow);
   const [openSel, setOpenSel] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [dropUp, setDropUp] = useState(false);
@@ -289,7 +298,7 @@ export function BankTxTable(props: Props) {
           <thead>
             <tr className="border-b border-[var(--ff-border-light)] text-[var(--ff-text-tertiary)] text-xs">
               <th className="py-2 px-2 w-8">
-                <input type="checkbox" checked={allSelected} onChange={onSelectAll} className="accent-teal-500" />
+                <input type="checkbox" checked={allSelected} disabled={allRowsPending} onChange={onSelectAll} className="accent-teal-500" />
               </th>
               <th className={`${TH} w-24`}>Date</th>
               <th className={TH}>Description</th>
@@ -327,6 +336,16 @@ export function BankTxTable(props: Props) {
               const vatDenied = rowType === 'account' && !!sel?.entityId
                 && getOptionsForType('account').find(o => o.id === sel.entityId)?.vatInputDenied === true;
               const vatWarn = vatDenied && (sel?.vatCode || 'none') === 'standard';
+              // Second guard, different statute: no supply arises on this
+              // account at all. Classified on NAME, in the browser, from the
+              // same pure module the report and the posting guard use — so a
+              // pattern change cannot make the screen and the ledger disagree.
+              const nonSupply = rowType === 'account' && !!sel?.entityId
+                ? shouldWarnOnNonSupply(
+                    getOptionsForType('account').find(o => o.id === sel.entityId)?.name,
+                    sel?.vatCode,
+                  )
+                : null;
               const options = (isOpen && !search) ? sortByDescriptionMatch(rawOptions, tx.description || '') : rawOptions;
   
               const isExcluded = tx.status === 'excluded';
@@ -341,6 +360,7 @@ export function BankTxTable(props: Props) {
                 >
                   <td className="py-2 px-2">
                     <input type="checkbox" checked={selectedIds.has(tx.id)}
+                      disabled={isPendingFeedRow(tx)}
                       onChange={() => onToggleSelect(tx.id)} className="accent-teal-500" />
                   </td>
                   <td className="py-2 px-2 font-mono text-xs text-[var(--ff-text-secondary)]">
@@ -348,6 +368,7 @@ export function BankTxTable(props: Props) {
                   </td>
                   <td className="py-2 px-2 text-[var(--ff-text-primary)]">
                     <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
+                    {isPendingFeedRow(tx) && <PendingFeedBadge />}
                     {tx.status === 'provisional' && (
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/40 text-amber-300 ml-1"
                         title="Posted by AI — needs evidence">
@@ -550,6 +571,14 @@ export function BankTxTable(props: Props) {
                             ⚠ Entertainment — input tax normally denied
                           </span>
                         )}
+                        {!vatWarn && nonSupply && (
+                          <span
+                            className="mt-0.5 block text-[10px] leading-tight text-amber-500"
+                            title={NON_SUPPLY_ADVICE[nonSupply]}
+                          >
+                            ⚠ {NON_SUPPLY_LABEL[nonSupply]} — no supply, so no VAT
+                          </span>
+                        )}
                       </>
                     ) : (
                       // Allocated row: report what the JOURNAL did, never the
@@ -631,6 +660,9 @@ export function BankTxTable(props: Props) {
                     ) : (
                       <div className="flex items-center gap-0.5 justify-center">
                         {isNew ? (
+                          isPendingFeedRow(tx) ? (
+                            <PendingFeedNotice />
+                          ) : (
                           <>
                             <button onClick={() => onAccept(tx.id)} disabled={!sel?.entityId} title="Accept"
                               className="p-1 rounded hover:bg-teal-500/10 text-teal-400 disabled:opacity-30">
@@ -669,6 +701,7 @@ export function BankTxTable(props: Props) {
                               <X className="h-3.5 w-3.5" />
                             </button>
                           </>
+                          )
                         ) : isAllocated ? (
                           <>
                             {onReverse && (

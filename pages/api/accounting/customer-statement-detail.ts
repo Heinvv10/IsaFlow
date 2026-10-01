@@ -2,7 +2,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 /**
  * Customer Statement Detail API
- * GET /api/accounting/customer-statement-detail?client_id=UUID
+ * GET /api/accounting/customer-statement-detail?client_id=UUID[&as_at_date=YYYY-MM-DD]
  * Returns full transaction-level statement with running balance
  */
 
@@ -11,6 +11,12 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
+import {
+  CREDIT_NOTE_STATEMENT_VALUE, LIVE_CREDIT_NOTE_STATUSES, SETTLING_RECEIPT_STATUSES, applyRunningBalance,
+  resolveStatementAsAt, statementClosingBalance,
+} from '@/modules/accounting/services/ar/customerStatementRules';
 type Row = Record<string, unknown>;
 
 // P3.4: this endpoint has no offset-pagination UI (single full-history view
@@ -31,11 +37,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!clientId) {
     return apiResponse.badRequest(res, 'client_id is required');
   }
+  // The full history as at `as_at_date` (R-116: the batch PDFs print that
+  // date), or as at today when none is sent. It bounds every document date (a
+  // post-dated invoice or receipt is not on the emailed statement either) and
+  // is the date its soft-delete question is asked at.
+  const asAt = resolveStatementAsAt(req.query.as_at_date);
+  if ('error' in asAt) return apiResponse.badRequest(res, asAt.error);
+  const asAtStr = asAt.asAt;
 
   try {
     // Get client info
     const clientRows = (await sql`
       SELECT id, name, email, phone FROM customers WHERE id = ${clientId}::UUID AND company_id = ${companyId}
+        -- No statement for a soft-deleted customer, as fetchStatementData.
+        AND deleted_at IS NULL
     `) as Row[];
     if (clientRows.length === 0) {
       return apiResponse.notFound(res, 'Client', clientId);
@@ -45,29 +60,57 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Get invoices
     const invoicesRaw = (await sql`
       SELECT id, invoice_number, invoice_date, notes, total_amount, status
-      FROM customer_invoices
-      WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID AND company_id = ${companyId} AND status != 'cancelled'
-      ORDER BY invoice_date, id
+      FROM customer_invoices ci
+      WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID AND ci.company_id = ${companyId}
+        -- Hein decided 2026-09-11 (R-082): statements must not show draft
+        -- invoices, and must agree with the ageing on a null status. Routed
+        -- through the shared rule (R-059 round 6) instead of the bare
+        -- != 'cancelled', which kept drafts and dropped null-status rows.
+        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+      -- As at the as-at date, not undated: a document soft-deleted BEFORE the delete
+      -- began reversing its journal has a standing entry the control account
+      -- still carries, and a bare deleted_at IS NULL would drop it from this
+      -- figure while the GL keeps it. See shared/softDeleteLedgerPresence.
+        AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
+        AND ci.invoice_date <= ${asAtStr}::DATE
+      ORDER BY ci.invoice_date, ci.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
 
-    // Get confirmed payments — includes both allocated and unallocated (bank-sourced)
+    // Settled receipts at the cash received (R-112). COALESCE(SUM(allocated),
+    // total) fell back to the total only when nothing was allocated, so a
+    // partly allocated receipt lost its remainder — see customerStatementRules.
     const paymentsRaw = (await sql`
-      SELECT cp.id, cp.payment_number, cp.payment_date, cp.bank_reference,
-        COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS amount_allocated
+      SELECT cp.id, cp.payment_number, cp.payment_date, cp.bank_reference, cp.total_amount
       FROM customer_payments cp
-      LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
-      WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId} AND cp.status IN ('confirmed', 'reconciled')
-      GROUP BY cp.id, cp.payment_number, cp.payment_date, cp.bank_reference, cp.total_amount
+      WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId}
+        AND cp.status = ANY(${SETTLING_RECEIPT_STATUSES})
+        AND cp.payment_date <= ${asAtStr}::DATE
       ORDER BY cp.payment_date, cp.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
 
-    // Get approved customer credit notes
+    // Every LIVE credit note, valued the way the emailed statement values it.
+    //
+    // `status = 'approved'` alone was two omissions in one. It dropped every
+    // note that had been set against an invoice ('applied') — the same defect
+    // that once hid applied notes from every statement ever sent — and, since
+    // migration 677, every partly placed note ('partially_applied') too. This
+    // screen and `ar/statementEmailService` are the same document, so a note
+    // visible in one and absent from the other is a customer-facing
+    // contradiction.
+    //
+    // CREDIT_NOTE_STATEMENT_VALUE is the SQL twin of `shared/creditNoteAppliedAmount`: an 'applied'
+    // note credits what it CONSUMED, because its remainder is stranded and
+    // cannot be applied again; anything else credits its face value, because
+    // that credit is still the customer's to use. Keep the two in step.
     const creditNotesRaw = (await sql`
-      SELECT id, credit_note_number, credit_date, reason, total_amount
+      SELECT id, credit_note_number, credit_date, reason,
+             ${sql.unsafe(CREDIT_NOTE_STATEMENT_VALUE)} AS total_amount
       FROM credit_notes
-      WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer' AND status = 'approved'
+      WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer'
+        AND status = ANY(${LIVE_CREDIT_NOTE_STATUSES})
+        AND credit_date <= ${asAtStr}::DATE
       ORDER BY credit_date, id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
@@ -90,21 +133,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const [totalsRow] = (await sql`
       SELECT
         COALESCE((
-          SELECT SUM(total_amount::numeric) FROM customer_invoices
-          WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID AND company_id = ${companyId} AND status != 'cancelled'
+          SELECT SUM(ci.total_amount::numeric) FROM customer_invoices ci
+          WHERE COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID AND ci.company_id = ${companyId}
+            AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+            AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
+            AND ci.invoice_date <= ${asAtStr}::DATE
         ), 0) AS total_invoiced,
         COALESCE((
-          SELECT SUM(pmt_total) FROM (
-            SELECT COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS pmt_total
-            FROM customer_payments cp
-            LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
-            WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId} AND cp.status IN ('confirmed', 'reconciled')
-            GROUP BY cp.id, cp.total_amount
-          ) pmt
+          SELECT SUM(cp.total_amount::numeric) FROM customer_payments cp
+          WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId}
+            AND cp.status = ANY(${SETTLING_RECEIPT_STATUSES})
+            AND cp.payment_date <= ${asAtStr}::DATE
         ), 0) AS total_paid,
         COALESCE((
-          SELECT SUM(total_amount::numeric) FROM credit_notes
-          WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer' AND status = 'approved'
+          -- Same population and same valuation as the row list above; a total
+          -- the rows do not foot to is worse than no total.
+          SELECT SUM(${sql.unsafe(CREDIT_NOTE_STATEMENT_VALUE)}::numeric)
+          FROM credit_notes
+          WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer'
+            AND status = ANY(${LIVE_CREDIT_NOTE_STATUSES})
+            AND credit_date <= ${asAtStr}::DATE
         ), 0) AS total_credits
     `) as Row[];
 
@@ -153,7 +201,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         reference: String(pmt.payment_number),
         description: pmt.bank_reference ? String(pmt.bank_reference) : '',
         debit: 0,
-        credit: Number(pmt.amount_allocated),
+        credit: Number(pmt.total_amount),
         balance: 0,
       });
     }
@@ -179,11 +227,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
 
     // Running balance within the (possibly-capped) returned transaction list.
-    let runningBalance = 0;
-    for (const txn of transactions) {
-      runningBalance += txn.debit - txn.credit;
-      txn.balance = runningBalance;
-    }
+    applyRunningBalance(transactions);
 
     const totalInvoiced = Number(totalsRow?.total_invoiced ?? 0);
     const totalPaid = Number(totalsRow?.total_paid ?? 0);
@@ -201,7 +245,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         totalInvoiced,
         totalPaid,
         totalCredits,
-        balance: totalInvoiced - totalPaid - totalCredits,
+        balance: statementClosingBalance(0, totalInvoiced, totalPaid, totalCredits),
       },
     }, undefined, 200, { truncated });
   } catch (err) {

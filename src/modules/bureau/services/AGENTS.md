@@ -53,3 +53,9 @@ These services run on the RLS-bypassing `@/lib/neon` pool (no `SET LOCAL ROLE ap
 
 ## Tests
 `tests/unit/bureau/*` — pure shapers (`shapeUnreconciled`, `shapeBillsToApprove`, `shapeVatDue`, `reduceMonthEnd`), the VAT period helper, and tenant-guard cases (shapers drop unknown company_ids). No DB/RTL (repo vitest is `environment: 'node'`).
+
+## Company delegation authorization
+
+`linkCompanyToBureau({ bureauId, companyId, addedBy }): Promise<boolean>` is re-exported from `bureauCompanyLinkService.ts`. New links require both ownership of the bureau and owner/admin membership of the target company. The company must not be suspended/deleted or carry a suspension timestamp. One SQL statement checks these conditions and inserts; authorized repeated links return true without duplicating the row. False means no authority (the API returns403). A bureau membership or a company viewer/accountant role is insufficient to grant bureau-wide access.
+
+Existing links remain durable delegations until unlink; losing the grantor's direct company membership does not automatically remove the bureau. Historical links predating this check need consent review, not automatic deletion based on current membership. Bureau members can consume authorized links without their own company_users row. The trusted company-ID set on reads is unchanged.

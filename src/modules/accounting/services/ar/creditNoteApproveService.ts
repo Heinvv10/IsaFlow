@@ -16,9 +16,22 @@ import { getSystemAccount } from '../gl/systemAccountResolver';
 import type { CreditNote } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { lockCreditNoteForUpdate } from './creditNoteLock';
-import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
 import { mapRow } from './creditNoteMapper';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
+import {
+  applyCreditNote,
+  deriveCreditNoteStatus,
+  type CreditNoteAutoApply,
+} from '../shared/creditNoteFifo';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+
+/**
+ * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
+ * counterparty owes or is owed, and leaving it on account by default is what
+ * left credit sitting unconsumed while the same entity's oldest documents aged.
+ * 'none' keeps the pre-FIFO behaviour — the linked document only.
+ */
+export type ApproveCreditNoteOpts = PostingActorOpts & { autoApply?: CreditNoteAutoApply };
 
 export async function approveCreditNote(
   companyId: string,
@@ -29,8 +42,9 @@ export async function approveCreditNote(
   // defaultHumanMeta(userId) and an MCP-approved credit note posts labelled
   // `human:<userId>` — claiming the token owner did it by hand, and invisible
   // to list_agent_postings, which filters posting_agent LIKE 'mcp:%'.
-  opts?: PostingActorOpts,
+  opts?: ApproveCreditNoteOpts,
 ): Promise<CreditNote> {
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write
   try {
     // FOR UPDATE, not a plain SELECT: the status check below and the posting
     // that follows are a check-then-act pair. Two concurrent approvals of the
@@ -56,8 +70,10 @@ export async function approveCreditNote(
           description: `Credit note ${cn.credit_note_number}` },
       ];
       if (Number(cn.tax_amount) > 0 && vatAccount) {
+        // Coded 'standard' (2026-09-25): an uncoded VAT leg is a pre-filing
+        // exception, and 'standard' is what the VAT201 already read it as.
         lines.push({ glAccountId: vatAccount.id, debit: Number(cn.tax_amount), credit: 0,
-          description: `VAT reversal: ${cn.credit_note_number}` });
+          description: `VAT reversal: ${cn.credit_note_number}`, vatType: 'standard' });
       }
       lines.push({ glAccountId: arAccount.id, debit: 0, credit: Number(cn.total_amount),
         description: `AR credit: ${cn.credit_note_number}` });
@@ -73,7 +89,7 @@ export async function approveCreditNote(
       ];
       if (Number(cn.tax_amount) > 0 && vatAccount) {
         lines.push({ glAccountId: vatAccount.id, debit: 0, credit: Number(cn.tax_amount),
-          description: `VAT reversal: ${cn.credit_note_number}` });
+          description: `VAT reversal: ${cn.credit_note_number}`, vatType: 'standard' });
       }
       lines.push({ glAccountId: expenseAccount.id, debit: 0, credit: Number(cn.subtotal),
         description: `Expense credit: ${cn.credit_note_number}` });
@@ -102,81 +118,39 @@ export async function approveCreditNote(
     }, userId, actorMeta(opts));
     await postJournalEntry(companyId, je.id, userId);
 
-    // N6 (P2.1): approving a LINKED note auto-applies it, so it must land in
-    // 'applied' — leaving it 'approved' let the separate apply action credit
-    // the same invoice a SECOND time (applyCreditNoteToInvoice recomputes
-    // outstanding from the already-bumped row and happily double-credits).
-    // Auto-apply, CAPPED and VERIFIED.
+    // N6 (P2.1) and L2: approving a note APPLIES it. A linked note settles the
+    // document it names first, capped at that document's outstanding balance,
+    // and the REMAINDER then walks the same entity's other open documents
+    // oldest first. The arithmetic, the allocation rows and the status
+    // recompute all live in shared/creditNoteFifo — read its header before
+    // changing any of this.
     //
-    // This used to add the note's full total unconditionally and then set
-    // autoApplied = true without looking at the row count. Three consequences,
-    // all reachable: a note larger than the invoice drove amount_paid past
-    // total_amount (a 5,000 note on a 1,000 invoice left a 4,000 phantom
-    // overpayment netting against that customer's other real debt in aged
-    // debtors); a linked invoice that had since been deleted matched zero rows
-    // while the note still landed in 'applied', so approve_credit_note told the
-    // agent a receivable had been reduced when nothing was written; and the
-    // invoice's status was never recomputed, so an invoice fully covered by a
-    // note kept status 'approved' with amount_paid >= total_amount — while
-    // cancel DID recompute, making the two non-inverse.
-    //
-    // Capping rather than refusing when the invoice is already settled is
+    // Capping rather than refusing when a document is already settled is
     // deliberate: a credit note against a paid invoice is an ordinary event (a
-    // return after payment), and the excess stays as unallocated credit the
-    // note still carries. applied_amount reports exactly what was consumed, so
-    // the difference is visible rather than silently lost.
-    const applyTarget = String(cn.type) === 'customer'
-      ? { table: 'customer' as const, id: cn.customer_invoice_id }
-      : { table: 'supplier' as const, id: cn.supplier_invoice_id };
+    // return after payment). What CHANGED with the FIFO walk is where the
+    // excess goes — it used to be stranded on a note at 'applied' that could
+    // never be applied again; it now settles the next open document, and
+    // whatever is still left is on-account credit the aged reports net.
+    const side = String(cn.type) === 'customer' ? 'customer' as const : 'supplier' as const;
+    const application = await applyCreditNote({
+      companyId,
+      creditNoteId: id,
+      side,
+      entityId: side === 'customer'
+        ? (cn.client_id ? String(cn.client_id) : null)
+        : (cn.supplier_id ? String(cn.supplier_id) : null),
+      totalAmount: Number(cn.total_amount),
+      linkedInvoiceId: side === 'customer'
+        ? (cn.customer_invoice_id ? String(cn.customer_invoice_id) : null)
+        : (cn.supplier_invoice_id ? String(cn.supplier_invoice_id) : null),
+      autoApply: opts?.autoApply ?? 'fifo',
+    });
+    const appliedAmount = application.appliedAmount;
 
-    let appliedAmount = 0;
-    if (applyTarget.id) {
-      const invRows = (applyTarget.table === 'customer'
-        ? await sql`
-            SELECT total_amount, amount_paid FROM customer_invoices
-            WHERE id = ${applyTarget.id}::UUID AND company_id = ${companyId}::UUID`
-        : await sql`
-            SELECT total_amount, amount_paid FROM supplier_invoices
-            WHERE id = ${applyTarget.id}::UUID AND company_id = ${companyId}::UUID`
-      ) as Record<string, unknown>[];
-
-      // The link was validated at create time, so a miss here means the invoice
-      // was removed afterwards. Refusing beats reporting an application that
-      // never happened.
-      if (invRows.length === 0) {
-        throw new Error(
-          `Credit note ${id} is linked to invoice ${String(applyTarget.id)}, which no longer exists in this company.`,
-        );
-      }
-      const inv = invRows[0]!;
-      const outstanding = Math.max(0, Number(inv.total_amount) - Number(inv.amount_paid));
-      appliedAmount = Math.round(Math.min(Number(cn.total_amount), outstanding) * 100) / 100;
-
-      if (appliedAmount > 0) {
-        const applied = (applyTarget.table === 'customer'
-          ? await sql`
-              UPDATE customer_invoices SET amount_paid = amount_paid + ${appliedAmount}
-              WHERE id = ${applyTarget.id}::UUID AND company_id = ${companyId}::UUID
-              RETURNING id`
-          : await sql`
-              UPDATE supplier_invoices SET amount_paid = amount_paid + ${appliedAmount}
-              WHERE id = ${applyTarget.id}::UUID AND company_id = ${companyId}::UUID
-              RETURNING id`
-        ) as Record<string, unknown>[];
-        if (applied.length !== 1) {
-          throw new Error(`Credit note ${id}: applying to invoice ${String(applyTarget.id)} wrote no row.`);
-        }
-        await recomputeInvoiceStatus(companyId, applyTarget.table, String(applyTarget.id));
-      }
-    }
-    const autoApplied = appliedAmount > 0;
-
-    // applied_amount records what was ACTUALLY added above, so cancel reverses
-    // the recorded figure instead of re-deriving one. It is MIN(total,
-    // outstanding), NOT the face value — the cap a few lines up is the whole
-    // reason this column exists separately from total_amount, and anything
-    // reporting the credit a customer received must read this one.
-    const finalStatus = autoApplied ? 'applied' : 'approved';
+    // DERIVED from what was consumed, never chosen: 'partially_applied' is the
+    // state a note spread across some but not all of its face value is in, and
+    // it is the state every statement and ledger reader now distinguishes.
+    const finalStatus = deriveCreditNoteStatus(appliedAmount, Number(cn.total_amount));
     const updatedRows = (await sql`
       UPDATE credit_notes SET status = ${finalStatus}, approved_by = ${userId}::UUID,
         approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID,
@@ -194,7 +168,10 @@ export async function approveCreditNote(
     }
     const updated = updatedRows[0] as Record<string, unknown>;
 
-    log.info('Approved credit note', { id, journalEntryId: je.id }, 'accounting');
+    log.info('Approved credit note', {
+      id, journalEntryId: je.id, status: finalStatus,
+      appliedAmount, lines: application.lines.length, remainder: application.remainder,
+    }, 'accounting');
     return mapRow(updated);
   } catch (err) {
     log.error('Failed to approve credit note', { id, error: err }, 'accounting');

@@ -25,7 +25,38 @@ export interface MappedColumns {
   descriptions: number[];
   amount: number;
   balance: number | null;
+  /**
+   * The statement reference column, or null when the layout has none.
+   *
+   * It used to have no mapping at all, so a `Reference` column was read and
+   * discarded and every imported row carried a null reference. That is the only
+   * stable key the CALLER controls — it is what `bank_reference` resolves a
+   * transaction by — so losing it forces an importer to re-list every row and
+   * rebuild an id map on (date, amount, description) instead.
+   */
+  reference: number | null;
 }
+
+/**
+ * Header names that carry a statement reference.
+ *
+ * Matched EXACTLY, not by prefix, unlike `description`. `reference` sits next
+ * to columns whose names contain it — "reference number" is one, but so is
+ * ABSA's "account reference" — and a prefix rule that swallowed a second one
+ * would silently pick whichever came first.
+ */
+const REFERENCE_HEADERS = [
+  'reference',
+  'ref',
+  'ref no',
+  'ref number',
+  'reference no',
+  'reference number',
+  'payment reference',
+  'transaction reference',
+  'statement reference',
+  'your reference',
+] as const;
 
 /**
  * Map column indices from a header row, or null when the row is not a usable
@@ -46,8 +77,15 @@ export function mapCsvColumns(header: string[]): MappedColumns | null {
   if (descriptions.length === 0) return null;
 
   const balance = cols.findIndex(c => c === 'balance' || c === 'running balance');
+  const reference = cols.findIndex(c => (REFERENCE_HEADERS as readonly string[]).includes(c));
 
-  return { date, descriptions, amount, balance: balance === -1 ? null : balance };
+  return {
+    date,
+    descriptions,
+    amount,
+    balance: balance === -1 ? null : balance,
+    reference: reference === -1 ? null : reference,
+  };
 }
 
 /** True when the row is padding rather than data: blank, or a trailing total. */
@@ -135,6 +173,14 @@ export function parseHeaderMappedCsv(
       .trim();
 
     const tx: ParsedBankTransaction = { transactionDate: date, amount, description };
+
+    // Left UNSET rather than set to '' when the cell is blank. The column is
+    // written straight through to `bank_transactions.reference`, and an empty
+    // string there is a value that resolves nothing while reading as present.
+    if (columns.reference !== null && fields.length > columns.reference) {
+      const reference = fields[columns.reference]!.trim();
+      if (reference !== '') tx.reference = reference;
+    }
 
     if (columns.balance !== null && fields.length > columns.balance) {
       const balance = parseAmount(fields[columns.balance]!);

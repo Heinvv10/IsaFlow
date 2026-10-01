@@ -11,6 +11,12 @@
  * against a Sage book showing every one of them paid, with AP overstated by
  * R613,642.
  *
+ * THAT NARRATIVE IS HISTORY FOR THE NO-INVOICE PATH. `allocateTransaction` no
+ * longer guesses a bill: it creates the payment document and applies it only on
+ * the supplier's `auto_allocate_strategy` (migration 614), through this very
+ * service. `recordPaymentMatch` now runs only when the caller NAMED the bill.
+ * This service is still what clears a payment that was left unapplied.
+ *
  * So, like its AR twin, this posts NO JOURNAL. The cash has already left the
  * bank; posting again would double the payment. It moves the subledger into
  * agreement with the GL: allocation rows, `amount_paid`, status, and
@@ -41,6 +47,7 @@ import {
   type SupplierAllocationInput,
   type SupplierApplicationLine,
 } from './supplierAllocationLines';
+import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 
 export type { SupplierAllocationInput, SupplierApplicationLine };
 
@@ -63,22 +70,32 @@ export interface SupplierPaymentApplicationPlan {
   postsJournal: false;
 }
 
+/**
+ * Plan an application. Every refusal is a `SupplierPaymentRefusal`, and nothing
+ * else is — `supplier-allocations.ts` and the MCP tool both classify on that
+ * class, so a bare `Error` here would put a driver's raw text in front of the
+ * user on a status `withAuth` COMMITs. A contended payment row leaves as
+ * `PaymentLockTimeoutError` and a contended BILL as a retryable refusal; both
+ * are raised before the first write.
+ */
 export async function planSupplierPaymentApplication(
   companyId: string,
   paymentId: string,
   allocations: readonly SupplierAllocationInput[],
 ): Promise<SupplierPaymentApplicationPlan> {
-  if (allocations.length === 0) throw new Error('Provide at least one allocation.');
+  if (allocations.length === 0) {
+    throw new SupplierPaymentRefusal('Provide at least one allocation.');
+  }
 
   const payment = await lockSupplierPaymentForUpdate(companyId, paymentId);
-  if (!payment) throw new Error(`Supplier payment ${paymentId} not found`);
+  if (!payment) throw new SupplierPaymentRefusal(`Supplier payment ${paymentId} not found`);
 
   const status = String(payment.status);
   if (status === 'cancelled') {
-    throw new Error('Cannot apply a cancelled payment.');
+    throw new SupplierPaymentRefusal('Cannot apply a cancelled payment.');
   }
   if (!POSTED_STATUSES.has(status)) {
-    throw new Error(
+    throw new SupplierPaymentRefusal(
       `This payment has not been processed (status "${status}"), so no journal has posted for it `
       + 'and there is no cash to apply. Approve and process it first '
       + '(POST /api/accounting/supplier-payments-action), which posts DR Accounts Payable / '
@@ -93,7 +110,7 @@ export async function planSupplierPaymentApplication(
 
   const requested = round2(allocations.reduce((s, a) => s + a.amount, 0));
   if (requested > unappliedBefore + EPS) {
-    throw new Error(
+    throw new SupplierPaymentRefusal(
       `Allocations total R${requested.toFixed(2)} but only R${unappliedBefore.toFixed(2)} of this `
       + `payment is unapplied (R${paymentTotal.toFixed(2)} paid, `
       + `R${allocatedBefore.toFixed(2)} already applied).`,

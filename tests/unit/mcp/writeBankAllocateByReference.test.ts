@@ -88,7 +88,7 @@ beforeEach(() => {
   vi.mocked(allocateTransaction).mockResolvedValue({
     journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '8102aa5c-6c28-4c30-8ae4-cbb89c5467a9' },
   } as never);
-  vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined as never);
+  vi.mocked(reverseReconciledTransaction).mockResolvedValue({ invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0 } as never);
   mockRefMatches([MATCH_A]);
 });
 

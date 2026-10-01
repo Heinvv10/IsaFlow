@@ -15,6 +15,9 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
+import {
+  SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag,
+} from '@/modules/accounting/services/core/duplicateMergeService';
 
 const MergeBodySchema = z.object({
   source_id: UUID,
@@ -29,7 +32,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
   const parsed = MergeBodySchema.safeParse(req.body);
   if (!parsed.success) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
@@ -37,6 +40,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { source_id, target_id } = parsed.data;
 
   try {
+    // Before the transaction: a refusal moves nothing.
+    await assertSupplierMergeKeepsDrcFlag(companyId, source_id, target_id);
     await withTransaction(async (tx) => {
       // 1. Validate both suppliers belong to this company and are active
       const suppliers = await tx`
@@ -51,10 +56,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         throw new Error('One or both suppliers not found or do not belong to this company');
       }
 
-      // 2. Re-parent supplier_invoices
+      // 2. Re-parent supplier_invoices. supplier_id is approval content (R-035):
+      // the merging user becomes an author of every bill it moves.
       await tx`
         UPDATE supplier_invoices
-        SET supplier_id = ${target_id}
+        SET supplier_id = ${target_id},
+            content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
       `;
@@ -100,7 +107,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const message = err instanceof Error ? err.message : String(err);
     log.error('supplier-merge POST failed', { error: message, module: 'accounting' });
 
-    if (message.includes('not found or do not belong')) {
+    if (err instanceof SupplierMergeRefusal || message.includes('not found or do not belong')) {
       return apiResponse.badRequest(res, message);
     }
     return apiResponse.internalError(res, err, 'Failed to merge suppliers');

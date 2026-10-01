@@ -18,6 +18,7 @@ vi.mock('@/lib/neon', () => {
   return {
     sql: sqlMock,
     withTransaction: vi.fn((cb: (tx: typeof sqlMock) => unknown) => cb(sqlMock)),
+    withSavepoint: vi.fn((_name: string, fn: () => unknown) => fn()),
   };
 });
 

@@ -13,6 +13,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+// R-032 L5: the Login-as guard runs its own query first; it is covered by
+// tests/unit/auth/impersonationGuard.test.ts and the r-032 integration suites.
+vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
+  assertNotImpersonating: async () => undefined,
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({
   withAuth: (fn: unknown) => fn,
@@ -113,8 +119,8 @@ describe('customer-invoices-detail POST action guards', () => {
 
     const result = await call({ id: INV_ID, action: 'send' });
 
-    const updateText = (sqlMock.mock.calls[0]![0] as readonly string[]).join(' ');
-    expect(updateText).toMatch(/status != 'cancelled'/i);
+    // The status guard itself is proven by outcome on real PostgreSQL in
+    // tests/integration/r086-send-status-guard-route.int.test.ts.
     expect(result.kind).toBe('badRequest');
     expect(result.error).toMatch(/cannot send a cancelled invoice/i);
   });

@@ -25,6 +25,7 @@ import {
   submitVATReturn,
   listVATReturns,
 } from '@/modules/accounting/services/reports/vatSubmissionService';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -59,6 +60,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       );
       return apiResponse.success(res, record);
     } catch (err) {
+      if (respondIfImpersonationForbidden(res, err)) return;
       log.error('VAT return submission failed', { error: err, companyId }, 'accounting-api');
       return apiResponse.badRequestFromError(res, err, 'VAT submission failed');
     }
