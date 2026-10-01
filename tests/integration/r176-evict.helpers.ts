@@ -8,9 +8,11 @@ export type Statement = 'ROLLBACK' | 'COMMIT';
 /** What one run saw: its backend, how often each statement was refused, and the disarm. */
 export interface Seen {
   pid: number; refused: Record<Statement, number>; beginFailed: number; disarm: () => void;
+  /** armAllCheckouts only: every pool a client was checked out of. */
+  pools: Pool[];
 }
 export const seen = (): Seen =>
-  ({ pid: 0, refused: { ROLLBACK: 0, COMMIT: 0 }, beginFailed: 0, disarm: () => undefined });
+  ({ pid: 0, refused: { ROLLBACK: 0, COMMIT: 0 }, beginFailed: 0, disarm: () => undefined, pools: [] });
 
 export interface ArmOptions {
   /** Refuse each statement at most this many times; later ones go through. */
@@ -76,12 +78,23 @@ export function armAllCheckouts(fail: Statement[], s: Seen, opts: ArmOptions = {
   proto.connect = function armed(this: unknown, ...a: unknown[]) {
     const out = before.apply(this, a);
     if (a.length > 0) return out;
+    if (!s.pools.includes(this as Pool)) s.pools.push(this as Pool);
     return (out as Promise<PoolClient>).then((client) => {
       s.pid = (client as unknown as { processID: number }).processID;
       arm(client, fail, s, opts);
       return client;
     });
   };
+}
+
+/**
+ * pg-pool re-emits an idle or removed client's 'error' on the pool (index.js makeIdleListener).
+ * A pool with no 'error' listener turns that into an uncaught exception.
+ */
+export function survivesClientError(pool: Pool): boolean {
+  if (pool.listenerCount('error') === 0) return false;
+  pool.emit('error', new Error('R-176 probe: a destroyed client reported an error'), {} as PoolClient);
+  return true;
 }
 
 /** The backend's state in pg_stat_activity, or null once it is gone. Waits up to `ms` for `want`. */

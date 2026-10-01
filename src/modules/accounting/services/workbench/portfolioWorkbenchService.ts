@@ -99,7 +99,6 @@ async function buildOneClientRow(
   cu: CompanyMembership,
   userId: string,
   period: string,
-  tx: { unusable: boolean },
 ): Promise<PortfolioRow> {
   // Wrap the iteration in a real transaction. Without BEGIN, set_config
   // with is_local=true reverts immediately on the implicit single-statement
@@ -110,40 +109,36 @@ async function buildOneClientRow(
   // RLS-aware sub-query inside getMonthEndWorkbench inherits the right
   // tenant context. Also gives us transactional rollback if mid-iteration
   // queries fail.
-  try {
-    // Inside the try (R-176): a BEGIN that reached the server but failed here must be rolled back too.
-    await client.query('BEGIN READ ONLY');
-    await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [cu.companyId]);
+  // No ROLLBACK here: any throw, a failed BEGIN included, is rolled back by the caller, which
+  // also releases the connection and so needs the outcome (R-176).
+  await client.query('BEGIN READ ONLY');
+  await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [cu.companyId]);
 
-    // Run the workbench for this company under an ALS context that points at
-    // this iteration's client, so the inner sql tagged template routes through
-    // the right transaction.
-    const wb = await runOwnedContext(
-      { client, userId, companyId: cu.companyId, claims: {} },
-      () => getMonthEndWorkbench(cu.companyId, period),
-    );
+  // Run the workbench for this company under an ALS context that points at
+  // this iteration's client, so the inner sql tagged template routes through
+  // the right transaction.
+  const wb = await runOwnedContext(
+    { client, userId, companyId: cu.companyId, claims: {} },
+    () => getMonthEndWorkbench(cu.companyId, period),
+  );
 
-    await client.query('COMMIT');
+  await client.query('COMMIT');
 
-    const readyCount = wb.cards.filter(c => c.status === 'ready').length;
-    const attentionCount = wb.cards.filter(c => c.status === 'attention').length;
-    const blockedCount = wb.cards.filter(c => c.status === 'blocked').length;
-    return {
-      companyId: cu.companyId,
-      companyName: cu.companyName,
-      isDefault: cu.isDefault,
-      role: cu.role,
-      trialBalanceBalanced: wb.trialBalanceBalanced,
-      cards: wb.cards,
-      readyCount,
-      attentionCount,
-      blockedCount,
-      failed: false,
-    };
-  } catch (err) {
-    tx.unusable = await rollbackFailed(client, 'portfolioWorkbench');
-    throw err;
-  }
+  const readyCount = wb.cards.filter(c => c.status === 'ready').length;
+  const attentionCount = wb.cards.filter(c => c.status === 'attention').length;
+  const blockedCount = wb.cards.filter(c => c.status === 'blocked').length;
+  return {
+    companyId: cu.companyId,
+    companyName: cu.companyName,
+    isDefault: cu.isDefault,
+    role: cu.role,
+    trialBalanceBalanced: wb.trialBalanceBalanced,
+    cards: wb.cards,
+    readyCount,
+    attentionCount,
+    blockedCount,
+    failed: false,
+  };
 }
 
 function classifyError(err: unknown): string {
@@ -181,10 +176,11 @@ export async function getPortfolioWorkbench(
     memberships,
     async (cu): Promise<PortfolioRow> => {
       const client = await adminPool.connect();
-      const tx = { unusable: false };
+      let unusable = false;
       try {
-        return await buildOneClientRow(client, cu, userId, period, tx);
+        return await buildOneClientRow(client, cu, userId, period);
       } catch (err) {
+        unusable = await rollbackFailed(client, 'portfolioWorkbench');
         log.error('Portfolio workbench: client failed',
           { error: err, userId, companyId: cu.companyId, period }, 'workbench');
         return {
@@ -201,7 +197,7 @@ export async function getPortfolioWorkbench(
           failedReason: classifyError(err),
         };
       } finally {
-        client.release(tx.unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
+        client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
       }
     },
     PARALLEL_LIMIT,

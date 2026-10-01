@@ -34,6 +34,8 @@ function adminPool(): pg.Pool {
           ? false
           : { rejectUnauthorized: false },
   });
+  // pg-pool re-emits a pooled or removed client's 'error' on the pool; unlistened, that is an uncaught exception.
+  _adminPool.on('error', (err) => log.warn('invite accept pool error', { message: err.message }, 'Auth'));
   return _adminPool;
 }
 

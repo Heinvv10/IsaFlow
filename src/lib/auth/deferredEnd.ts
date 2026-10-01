@@ -71,6 +71,40 @@ export function abortResponse(res: NextApiResponse): void {
 }
 
 /**
+ * Reports a transaction that could not be finalised after the handler responded: a COMMIT that
+ * failed, or (handlerFailed) the ROLLBACK of a request the handler had already answered 5xx.
+ * One log line with the request and its tenant, under the message alerts watch, and a Sentry
+ * capture. It never throws: the caller still has a response to send.
+ */
+export function reportFinalizeFailure(
+  req: NextApiRequest,
+  res: NextApiResponse,
+  err: unknown,
+  ctx: ThrowContext & { handlerFailed: boolean; connectionDestroyed: boolean; component?: string },
+): void {
+  log.error(`${ctx.source}: transaction finalize failed after handler responded`, {
+    url: req.url,
+    status: res.statusCode,
+    handlerFailed: ctx.handlerFailed, // distinguishes a failed COMMIT (2xx) from a failed ROLLBACK (5xx)
+    connectionDestroyed: ctx.connectionDestroyed,
+    companyId: ctx.companyId,
+    userId: ctx.userId,
+    ...ctx.extra,
+    message: describe(err).message,
+  }, ctx.component ?? 'Auth');
+  if (process.env.SENTRY_ENABLED !== 'true') return;
+  const route = sanitizeRoute(req.url);
+  try {
+    Sentry.captureException(err, {
+      tags: { ...(ctx.companyId && { company_id: ctx.companyId }), ...(route && { route }) },
+      ...(ctx.userId && { user: { id: ctx.userId } }),
+    });
+  } catch (sentryErr) {
+    log.warn(`${ctx.source}: Sentry capture failed`, describe(sentryErr), 'Auth');
+  }
+}
+
+/**
  * Answers a COMMIT that failed. The buffered 2xx must not go out: the write did not land, or its
  * outcome is unknown. 500 COMMIT_FAILED replaces it; a response whose status line is already on
  * the wire is aborted, because a clean close would read as success.
