@@ -1,0 +1,78 @@
+R-175 mutation log. Base commit d039dfd89. Each mutant is one edit to src/lib/rateLimit.ts,
+run against: the R-175 integration file, the new mocked unit file, and the two pre-existing DB-backed unit files.
+The file is restored with git checkout after each mutant.
+
+M1 | restore origin/master's src/lib/rateLimit.ts (the LRU short-circuit that admits locally)
+int: Tests  7 failed | 4 passed (11)
+unit(mocked): Tests  4 failed | 2 passed (6)
+unit(db, pre-existing): Tests  23 passed (23)
+
+M2 | return rows[0]!.count <= max; => return rows[0]!.count < max;
+int: Tests  8 failed | 3 passed (11)
+unit(mocked): Tests  2 failed | 4 passed (6)
+unit(db, pre-existing): Tests  1 failed | 22 passed (23)
+
+M3 | return rows[0]!.count <= max; => return rows[0]!.count <= max + 1;
+int: Tests  9 failed | 2 passed (11)
+unit(mocked): Tests  3 failed | 3 passed (6)
+unit(db, pre-existing): Tests  23 passed (23)
+
+M4 | VALUES (${key}, ${cost}, NOW()) => VALUES (${key}, 1, NOW())
+int: Tests  1 failed | 10 passed (11)
+unit(mocked): Tests  3 failed | 3 passed (6)
+unit(db, pre-existing): Tests  4 failed | 19 passed (23)
+
+M5 | ELSE rate_limit_counters.count + ${cost} => ELSE rate_limit_counters.count + 1
+int: Tests  2 failed | 9 passed (11)
+unit(mocked): Tests  6 passed (6)
+unit(db, pre-existing): Tests  2 failed | 21 passed (23)
+
+M6 | THEN ${cost} => THEN rate_limit_counters.count + ${cost}
+int: Tests  1 failed | 10 passed (11)
+unit(mocked): Tests  6 passed (6)
+unit(db, pre-existing): Tests  1 failed | 22 passed (23)
+
+M7 | THEN NOW() => THEN rate_limit_counters.window_start
+int: Tests  1 failed | 10 passed (11)
+unit(mocked): Tests  6 passed (6)
+unit(db, pre-existing): Tests  23 passed (23)
+
+M8 | WHEN rate_limit_counters.window_start < NOW() - make_interval(secs => ${windowSecs}) /           THEN ${cost} => WHEN rate_limit_counters.window_start > NOW() - make_interval(secs => ${windowSecs}) /           THEN ${cost}
+int: Tests  10 failed | 1 passed (11)
+unit(mocked): Tests  6 passed (6)
+unit(db, pre-existing): Tests  4 failed | 19 passed (23)
+
+M9 | WHEN rate_limit_counters.window_start < NOW() - make_interval(secs => ${windowSecs}) /           THEN ${cost} => WHEN rate_limit_counters.window_start < NOW() - make_interval(secs => 880) /           THEN ${cost}
+int: Tests  1 failed | 10 passed (11)
+unit(mocked): Tests  6 passed (6)
+unit(db, pre-existing): Tests  1 failed | 22 passed (23)
+
+M10 | const cost = clampCost(opts.cost); => const cost = opts.cost ?? 1;
+int: Tests  11 passed (11)
+unit(mocked): Tests  1 failed | 5 passed (6)
+unit(db, pre-existing): Tests  23 passed (23)
+
+M11 | SET count = GREATEST(count - ${cost}, 0) => SET count = count - ${cost}
+int: Tests  1 failed | 10 passed (11)
+unit(mocked): Tests  6 passed (6)
+unit(db, pre-existing): Tests  23 passed (23)
+
+M12 | SET count = GREATEST(count - ${cost}, 0) => SET count = GREATEST(count - ${cost}, 0), window_start = NOW()
+int: Tests  1 failed | 10 passed (11)
+unit(mocked): Tests  6 passed (6)
+unit(db, pre-existing): Tests  23 passed (23)
+
+M13 | SET count = GREATEST(count - ${cost}, 0) => SET count = GREATEST(count - 1, 0)
+int: Tests  2 failed | 9 passed (11)
+unit(mocked): Tests  1 failed | 5 passed (6)
+unit(db, pre-existing): Tests  23 passed (23)
+
+M14 | WHERE key = ${key} => WHERE key <> ${key}
+int: Tests  2 failed | 9 passed (11)
+unit(mocked): Tests  6 passed (6)
+unit(db, pre-existing): Tests  23 passed (23)
+
+BASELINE after the last mutant (git status: ' M docs/audits/remediation/R-175/green.log')
+int: Tests  11 passed (11)
+unit(mocked): Tests  6 passed (6)
+unit(db, pre-existing): Tests  23 passed (23)

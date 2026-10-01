@@ -128,3 +128,16 @@ AssertionError: expected [ { owner: 'postgres', …(2) } ] to deeply equal [ { o
  Test Files  7 failed | 16 passed (23)
       Tests  15 failed | 167 passed | 33 skipped (215)
 exit=1
+
+### Attribution of the 7 failing integration files above (15 tests)
+The same 7 files were run twice on this fixture harness: once with origin/master's
+src/lib/rateLimit.ts swapped in, once with the fix. Both runs: 7 files failed,
+15 failed | 13 passed | 32 skipped, and the set of FAIL lines is identical.
+Causes, none in the limiter: the harness points GOTRUE_URL at a closed port
+("fetch failed" in gotrueFetch: 2fa-login-gate, mfa-impersonation-postgres,
+k-041 x2, k-042); tests/integration/api/zod-validation.test.ts refuses any
+database but isaflow_dev / isaflow_test; k104-k105 expects a function owned by
+migration_admin and the fixture has it owned by postgres.
+Not verified here because of that: k-041 "L4: the accept endpoint caps password
+attempts per invitation token" and "L7 ... is refunded too", the two existing
+tests that drive checkRateLimit / refundRateLimit through a route.

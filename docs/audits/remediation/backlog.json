@@ -14671,6 +14671,48 @@
       "historicalDataImpact": "None known.",
       "processNotes": "2026-09-30: Noted by the R-168 fixer and its blind reviewer; not verified under RLS. Census the callers first.",
       "reportedSeverity": "low"
+    },
+    {
+      "id": "R-175",
+      "sourceIds": [
+        "R-167"
+      ],
+      "correctedTrigger": null,
+      "auditedSha": "090497265",
+      "currentSha": "090497265",
+      "status": "in-progress",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/r175-rate-limit-admits-over-max.int.test.ts",
+        "tests/unit/lib/rateLimitEveryCallCounted.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-175/fix.md",
+        "docs/audits/remediation/R-175/red.int.log",
+        "docs/audits/remediation/R-175/red.unit.log",
+        "docs/audits/remediation/R-175/green.log",
+        "docs/audits/remediation/R-175/mutations.log"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "branch": "fix/r175-rate-limiter-20261001",
+      "area": "lib",
+      "severity": "medium",
+      "title": "checkRateLimit admits about three times its limit: calls admitted from the in-process LRU are never written to rate_limit_counters",
+      "affectedPaths": [
+        "src/lib/rateLimit.ts",
+        "src/lib/rateLimit.claude.md",
+        "pages/api/invitations/[token]/accept.ts",
+        "pages/api/mcp/index.ts"
+      ],
+      "sourceLabel": "R-167 review round 2 (observed, pre-existing), 2026-09-30",
+      "claim": "checkRateLimit admits a cost-1 call from a 5-second in-process LRU copy while that copy is below floor(max * 0.5), and increments only the copy. The count is never written to rate_limit_counters. Each call that does reach the database overwrites the copy with the lower database count, so the copy falls back under the threshold and admits again. Measured on origin/master 090497265 against PostgreSQL: a limit of 20 admits 65 of 100 sequential calls on one process, and 65 across two module instances sharing the table. Every rate-limited route is affected.",
+      "severityRationale": "Every limit in the product is about three times looser than written, per process, including the brute-force limits on login, 2FA and invite-accept password attempts. It weakens a control; it does not bypass authentication and it loses no data. Invite-accept already charged cost 2 to avoid the short-circuit.",
+      "historicalDataImpact": "None. rate_limit_counters holds only short-lived counters; no ledger or customer data is involved.",
+      "processNotes": "2026-10-01: Reproduced with a failing test first (integration RED 7/11, mocked unit RED 4/6 on origin/master 090497265). Fix on the branch: the LRU short-circuit is removed, every call does the atomic upsert, clearRateLimitCache is kept as a no-op. GREEN 11/11 and 6/6; 47 unit files that mention the limiter pass (539 tests); mutants 14/14 RED. Argument against: one upsert per rate-limited request, and inside a withAuth transaction the key's row lock is now held from the first call rather than from half the limit (K-103, still open) — not measured. Not verified on this harness: the k-041 invite-accept limiter tests, which need GoTrue. Awaiting blind review, CI and PR by the team lead.",
+      "reportedSeverity": "medium"
     }
   ],
   "sourceInventory": [
