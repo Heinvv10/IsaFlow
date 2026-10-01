@@ -60,6 +60,9 @@ function filenameFromDisposition(header: string | null): string | null {
   return name === '' ? null : name;
 }
 
+/** How long the object URL stays valid after the click. */
+const REVOKE_DELAY_MS = 1000;
+
 function safeDecode(value: string): string {
   try {
     return decodeURIComponent(value);
@@ -88,8 +91,13 @@ async function downloadFile(url: string, fallbackName: string, failure: string):
   const a = document.createElement('a');
   a.href = objectUrl;
   a.download = served ?? fallbackName;
+  // ATTACHED FOR THE CLICK, REVOKED AFTER IT. Some browsers start the download
+  // asynchronously and only from an anchor that is in the document; revoking
+  // synchronously after `click()` cancels it before it has begun.
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(objectUrl);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), REVOKE_DELAY_MS);
 }
 
 export function usePackDownload(request: PackDownloadRequest): PackDownload {
