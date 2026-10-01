@@ -62,16 +62,35 @@ describe('cancelBackend', () => {
     expect(packet.subarray(12).equals(key)).toBe(true);
   });
 
-  it('a negative 32-bit key (pg reads it signed) goes out as the same four bytes', async () => {
-    expect(cancelBackend({ processID: 7, secretKey: -1, host: '127.0.0.1', port })).toBe(true);
+  it.each([
+    [-1, 'ffffffff'], [-2147483648, '80000000'], [-559038737, 'deadbeef'], [4294967295, 'ffffffff'], [0, '00000000'],
+  ])('a 32-bit key %d (pg reads it signed) goes out as exactly %s', async (key, hex) => {
+    expect(cancelBackend({ processID: 7, secretKey: key, host: '127.0.0.1', port })).toBe(true);
     expect(await until(() => Buffer.concat(received).length >= 16)).toBe(true);
-    expect(Buffer.concat(received).subarray(12).toString('hex')).toBe('ffffffff');
+    expect(Buffer.concat(received).toString('hex')).toBe(`00000010${(80877102).toString(16).padStart(8, '0')}00000007${hex}`);
+  });
+
+  it.each([['4 bytes', 4], ['256 bytes', 256]])('a Buffer key of %s, the bounds, is sent', async (_what, n) => {
+    expect(cancelBackend({ processID: 7, secretKey: Buffer.alloc(n, 1), host: '127.0.0.1', port })).toBe(true);
+    expect(await until(() => Buffer.concat(received).length >= 12 + n)).toBe(true);
   });
 
   it.each([
     ['a mock client', { query: async () => ({}) }],
     ['a client that never connected', { processID: null, secretKey: null, host: '127.0.0.1', port: 0 }],
     ['a key of another type', { processID: 1, secretKey: 'abc', host: '127.0.0.1', port: 1 }],
+    // Malformed fields are refused, not coerced into a cancel that silently does nothing (R-176).
+    ['a NaN pid', { processID: Number.NaN, secretKey: 1, host: '127.0.0.1', port: 1 }],
+    ['a fractional pid', { processID: 1.5, secretKey: 1, host: '127.0.0.1', port: 1 }],
+    ['a pid above 32 bits', { processID: 2 ** 32, secretKey: 1, host: '127.0.0.1', port: 1 }],
+    ['a pid below int32', { processID: -(2 ** 31) - 1, secretKey: 1, host: '127.0.0.1', port: 1 }],
+    ['a NaN key', { processID: 1, secretKey: Number.NaN, host: '127.0.0.1', port: 1 }],
+    ['a fractional key', { processID: 1, secretKey: 0.5, host: '127.0.0.1', port: 1 }],
+    ['a key above 32 bits', { processID: 1, secretKey: 2 ** 32, host: '127.0.0.1', port: 1 }],
+    ['a key below int32', { processID: 1, secretKey: -(2 ** 31) - 1, host: '127.0.0.1', port: 1 }],
+    ['an empty Buffer key', { processID: 1, secretKey: Buffer.alloc(0), host: '127.0.0.1', port: 1 }],
+    ['a 3-byte Buffer key', { processID: 1, secretKey: Buffer.alloc(3), host: '127.0.0.1', port: 1 }],
+    ['a 257-byte Buffer key', { processID: 1, secretKey: Buffer.alloc(257), host: '127.0.0.1', port: 1 }],
     ['null', null],
   ])('opens no socket for %s, and says so', async (_what, client) => {
     expect(cancelBackend(client)).toBe(false);
