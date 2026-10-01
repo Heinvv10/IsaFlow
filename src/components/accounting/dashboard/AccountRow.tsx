@@ -3,6 +3,7 @@
  */
 
 import { useState } from 'react';
+import { systemAccountNote } from './systemAccountNote';
 import { Loader2, Pencil, Trash2, Save, X, Lock } from 'lucide-react';
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
 import { apiFetch } from '@/lib/apiFetch';
@@ -263,7 +264,9 @@ export function AccountRow({
             : <span className="text-[var(--ff-text-tertiary)] text-xs">—</span>}
         </td>
         <td className="px-6 py-3 text-center">
-          {account.isSystemAccount && <Lock className="h-4 w-4 text-[var(--ff-text-tertiary)] mx-auto" />}
+          {account.isSystemAccount && (
+            <span title={systemAccountNote(account.accountSubtype)} className="inline-flex"><Lock className="h-4 w-4 text-[var(--ff-text-tertiary)] mx-auto" role="img" aria-label={systemAccountNote(account.accountSubtype)} /></span>
+          )}
         </td>
         <td className="px-6 py-3 text-right">
           {account.isSystemAccount ? null : isEditing ? (

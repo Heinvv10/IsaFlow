@@ -54,6 +54,9 @@ export default function DefaultAccountsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  // A failed load leaves nothing true to show: the form is not rendered (twelve
+  // selects reading "Not configured" beside the error looked like the real state).
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -62,6 +65,7 @@ export default function DefaultAccountsPage() {
         apiFetch('/api/accounting/chart-of-accounts?level=3'),
         apiFetch('/api/accounting/default-accounts'),
       ]);
+      if (!acctRes.ok || !mapRes.ok) throw new Error('load failed');   // apiFetch resolves on 4xx/5xx
       const acctJson = await acctRes.json();
       const mapJson = await mapRes.json();
       const acctData = acctJson.data ?? acctJson;
@@ -69,7 +73,9 @@ export default function DefaultAccountsPage() {
       const shown = (mapJson.data || mapJson).mappings || {};
       setMappings(shown);
       setLoaded(shown);
+      setLoadFailed(false);
     } catch {
+      setLoadFailed(true);
       setMessage({ type: 'error', text: 'Failed to load configuration' });
     } finally {
       setIsLoading(false);
@@ -102,6 +108,9 @@ export default function DefaultAccountsPage() {
         const json = await res.json();
         setMessage({ type: 'error', text: json.error?.message || json.message || 'Failed to save' });
         if (res.status === 409) await loadData();
+        // Refused: nothing was saved, so the rows go back to the holders the page loaded —
+        // a select still naming the refused account read as if it had been accepted.
+        if (res.status === 400) setMappings((prev) => ({ ...prev, ...pick(loaded) }));
       }
     } catch {
       setMessage({ type: 'error', text: 'Save request failed' });
@@ -131,7 +140,7 @@ export default function DefaultAccountsPage() {
               </div>
               <button
                 onClick={handleSave}
-                disabled={isSaving}
+                disabled={isSaving || isLoading || loadFailed}
                 className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm"
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -157,7 +166,16 @@ export default function DefaultAccountsPage() {
                 </div>
               )}
 
-              {categories.map(cat => (
+              {loadFailed && (
+                <button
+                  onClick={() => { setMessage({ type: '', text: '' }); void loadData(); }}
+                  className="px-4 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-secondary)]"
+                >
+                  Try again
+                </button>
+              )}
+
+              {!loadFailed && categories.map(cat => (
                 <div key={cat}>
                   <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-3">{cat}</h2>
                   <div className="space-y-3">

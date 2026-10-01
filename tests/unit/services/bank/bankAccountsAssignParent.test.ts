@@ -47,7 +47,9 @@ vi.mock('@/modules/accounting/services/gl/systemRoleInvariant', () => ({
   snapshotRoles: vi.fn(async () => ({})), assertRolesKept: vi.fn(async () => undefined),
   rolesNotKept: vi.fn(() => []), SystemRoleInvariantError: class extends Error {},
 }));
-vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', () => ({ lockSystemRoleWrites: vi.fn(async () => undefined) }));
+vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', () => ({
+  lockSystemRoleWrites: vi.fn(async () => undefined), boundedRowWait: <T>(take: () => PromiseLike<T>) => take(),
+}));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ clearSystemAccountCacheAfterCommit: vi.fn() }));
 
 import { apiResponse } from '@/lib/apiResponse';

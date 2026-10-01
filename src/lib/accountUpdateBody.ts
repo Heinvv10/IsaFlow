@@ -8,6 +8,7 @@
  * switched off. Types only; every business rule stays in the service.
  */
 import { UUID_RE } from '@/lib/validation';
+import { ChartRefusal } from '@/modules/accounting/services/gl/chartRefusal';
 
 const VAT_CODES = ['none', 'standard', 'zero_rated', 'exempt'];
 const isText = (v: unknown) => v === undefined || v === null || typeof v === 'string';
@@ -35,13 +36,10 @@ export function accountUpdateBodyError(body: unknown): string | null {
 }
 
 /**
- * Is this the service saying no, rather than something breaking?
- *
- * The chart services refuse with a bare `Error`. A driver error carries a
- * SQLSTATE `code`, and a bug is a TypeError/RangeError subclass — neither may
- * be answered 4xx, because `withAuth` COMMITS below 500.
+ * Is this the service saying no, rather than something breaking? By TYPE, never
+ * by "it has no code": node-postgres raises code-less Errors for a dropped
+ * connection or a read timeout, and answering those 4xx would COMMIT.
  */
-export function isServiceRefusal(err: unknown): err is Error {
-  return err instanceof Error && Object.getPrototypeOf(err) === Error.prototype
-    && (err as { code?: unknown }).code === undefined;
+export function isServiceRefusal(err: unknown): err is ChartRefusal {
+  return err instanceof ChartRefusal;
 }

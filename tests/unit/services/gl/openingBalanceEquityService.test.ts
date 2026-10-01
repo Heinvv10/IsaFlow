@@ -8,7 +8,9 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ clearSystemAccountCacheAfterCommit: vi.fn() }));
 // The role-write lock is its own statements; its behaviour is proven against Postgres
 // in tests/integration/w2-28-system-role-writers*.int.test.ts.
-vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', () => ({ lockSystemRoleWrites: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', () => ({
+  lockSystemRoleWrites: vi.fn(), boundedRowWait: <T>(take: () => PromiseLike<T>) => take(),
+}));
 vi.mock('@/modules/accounting/services/gl/systemRoleInvariant', () => ({
   snapshotRoles: vi.fn(async () => ({})), assertRolesKept: vi.fn(async () => undefined),
 }));

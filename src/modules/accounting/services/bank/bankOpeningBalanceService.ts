@@ -15,7 +15,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
+import { boundedRowWait, lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 
 export interface OpeningBalanceMeta {
   amount: number | null;
@@ -56,12 +56,12 @@ async function write(
   // The role-write lock first, as every gl_accounts writer takes it: the row
   // may be the bank holder a Default Accounts save is waiting for.
   await lockSystemRoleWrites(companyId);
-  await sql`
+  await boundedRowWait(() => sql`
     UPDATE gl_accounts
        SET bank_opening_balance = ${amount},
            bank_opening_balance_date = ${asAt}::DATE
      WHERE id = ${accountId}::UUID AND company_id = ${companyId}::UUID
-  `;
+  `);
 }
 
 /**

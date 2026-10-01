@@ -17,9 +17,17 @@ vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', async (orig) 
       await sql`UPDATE gl_accounts SET is_active = false WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
       throw new SystemRoleInvariantError(['bank']);
     },
+    // A driver failure AFTER a write: node-postgres raises a plain Error with no code for a dropped connection.
+    updateAccount: async (companyId: string, id: string, input: { accountName?: string }) => {
+      if (input.accountName !== 'driver failure') return actual.updateAccount(companyId, id, input);
+      await sql`UPDATE gl_accounts SET account_name = 'half written' WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
+      throw new Error('Connection terminated unexpectedly');
+    },
   };
 });
 import { McpRegistry } from '../../src/lib/mcp/registry';
+import chartOfAccounts from '../../pages/api/accounting/chart-of-accounts';
+import chartOfAccountsDetail from '../../pages/api/accounting/chart-of-accounts-detail';
 import { createGlAccountTool, deactivateGlAccountTool } from '../../src/lib/mcp/tools/writeGlAccounts';
 import { mergeGlAccountsTool } from '../../src/lib/mcp/tools/writeMergeGlAccounts';
 import { lockSystemRoleWrites } from '../../src/modules/accounting/services/gl/systemRoleWriteLock';
@@ -69,4 +77,16 @@ describeIfDb('W2-28 deactivate_gl_account and the role post-condition', () => {
       expect({ retry: /retry in a moment/.test(out), isError: /"isError":true/.test(out), usable }).toEqual({ retry: true, isError: true, usable: 1 });
     } finally { await batch.rollback(); await holder.rollback(); }
   }, 30_000);
+
+  it('a driver error with no code is a 500 that rolls the write back, not a 400 that commits it (both chart PUTs)', async () => {
+    const answers = [
+      await fx.call(chartOfAccountsDetail, 'PUT', '/api/accounting/chart-of-accounts-detail', { id: A, accountName: 'driver failure' }),
+      await fx.call(chartOfAccounts, 'PUT', '/api/accounting/chart-of-accounts', { id: A, accountName: 'driver failure' }),
+    ];
+    const name = (await fx.query('SELECT account_name FROM gl_accounts WHERE id = $1', [A])).rows[0].account_name;
+    expect({ statuses: answers.map((a) => a.statusCode), leaked: JSON.stringify(answers.map((a) => a.body)).includes('Connection terminated'), name })
+      .toEqual({ statuses: [500, 500], leaked: process.env.NODE_ENV !== 'production', name: 'W228R9M 1190' });
+    // A refusal is still a 400.
+    expect((await fx.call(chartOfAccountsDetail, 'PUT', '/api/accounting/chart-of-accounts-detail', { id: randomUUID(), accountName: 'x' })).statusCode).toBe(400);
+  });
 });

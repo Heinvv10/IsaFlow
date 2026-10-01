@@ -10,7 +10,7 @@ import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationPa
 import type { DbRow } from '@/types/db';
 import { defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
-import { lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
+import { boundedRowWait, isRetryableLockError, lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 import { assertAccountChangesKeepVatLocks, type AccountAttributeChange } from '../gl/vatLockLineClassification';
 
 // Rollback lives in its own file for the 300-line cap; re-exported so the API
@@ -37,7 +37,15 @@ export interface VerifyEntry {
 
 // ── Execute ──────────────────────────────────────────────────────────────────
 
-export async function executeMigration(
+/** Bounded: every statement it runs while it holds the role lock waits at most 5s for any lock. */
+export function executeMigration(
+  companyId: string, userId: string, source: MigrationSource,
+  accounts: ParsedAccount[], customers: ParsedEntity[], suppliers: ParsedEntity[],
+): Promise<ExecuteMigrationResult> {
+  return boundedRowWait(() => executeUnderLock(companyId, userId, source, accounts, customers, suppliers));
+}
+
+async function executeUnderLock(
   companyId: string,
   userId: string,
   source: MigrationSource,
@@ -139,6 +147,7 @@ export async function executeMigration(
         );
       });
     } catch (err) {
+      if (isRetryableLockError(err)) throw err;   // not a batch to report and skip: the whole request retries (503)
       errors.push(`Accounts batch: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
