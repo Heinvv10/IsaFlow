@@ -211,6 +211,32 @@ describe('usage-quota: charged minus used comes back (R-175)', () => {
     expect(logError.mock.calls[0]![1]).toMatchObject({ key: 'a', units: 1, error: 'pool timeout' });
   });
 
+  // Review round 4: a call the daily bucket refuses consumes nothing.
+  it('when the daily bucket refuses, the 15-minute company charge goes back into its window; the per-IP one never does', async () => {
+    queryMock.mockImplementation(async (text: string, params: unknown[]) => {
+      if (!isCharge(text)) return { rows: [] };
+      const admitted = !String(params[0]).endsWith(':day');
+      return { rows: [{ admitted, count: 1, window_start: WINDOW, remaining_ms: 60_000 }] };
+    });
+    const ctx = request();
+    expect(await als.run(ctx, () => checkSendRateLimit(req, CO, 'bulk', { count: 7, companyMax: 50, refundUnused: true }))).toBe(false);
+    expect(await als.run(ctx, () => checkAiRateLimit(req, CO, 'nl-query', { refundUnused: true }))).toBe(false);
+
+    expect(refunds()).toEqual([[`send:bulk:co:${CO}`, 7, WINDOW], [`ai:nl-query:co:${CO}`, 1, WINDOW]]);
+    expect(ctx.quotaCharges).toEqual([]);
+  });
+
+  it('when the 15-minute company bucket refuses, nothing is charged to the day and nothing is given back', async () => {
+    queryMock.mockImplementation(async (text: string, params: unknown[]) => {
+      if (!isCharge(text)) return { rows: [] };
+      const admitted = String(params[0]).includes(':ip:');
+      return { rows: [{ admitted, count: 1, window_start: WINDOW, remaining_ms: 60_000 }] };
+    });
+    expect(await checkSendRateLimit(req, CO, 'bulk', { count: 7, companyMax: 50 })).toBe(false);
+
+    expect(queryMock.mock.calls.map((c) => (c[1] as unknown[])[0])).toEqual(['send:bulk:ip:10.0.0.9', `send:bulk:co:${CO}`]);
+  });
+
   // Review round 3.
   it('work handed to runAfterCommit forfeits the refund: use recorded there would never be seen', async () => {
     const { runAfterCommit } = await import('@/lib/afterCommit');

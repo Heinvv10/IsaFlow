@@ -1,0 +1,17 @@
+### Round-4 integration tests run against 84bcca1b8's sources
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts (12 tests | 2 failed) 932ms
+     × send: a batch the daily bucket refuses takes nothing from the 15-minute company bucket; the per-IP attempt stays 109ms
+     × AI: a call the daily bucket refuses takes nothing from the 15-minute company bucket 140ms
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts (16 tests | 1 failed) 3261ms
+     × floors a fractional max and refuses an impossible one as a programming error 5ms
+error: invalid input syntax for type integer: "2.9"
+ ❯ node_modules/pg-pool/index.js:45:11
+ ❯ chargeRateLimit src/lib/rateLimitCore.ts:112:20
+ ❯ checkRateLimit src/lib/rateLimitCore.ts:151:11
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:235:13
+AssertionError: expected { ip: 2, company: 200, day: 100 } to deeply equal { ip: 2, company: 100, day: 100 }
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts:190:40
+AssertionError: expected { ip: 3, company: 3, day: 1 } to deeply equal { ip: 3, company: 1, day: 1 }
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts:202:38
+ Test Files  2 failed | 4 passed (6)
+      Tests  3 failed | 54 passed (57)

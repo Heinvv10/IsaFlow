@@ -56,10 +56,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const { companyId, user } = req as CompanyAuthedRequest;
 
-  // Abuse limit: every attempt counts, per user, and is never given back. The
-  // company's send bucket below is shared by every colleague, so it is charged
-  // only once the request is known to be well formed (R-175).
-  if (!(await checkRateLimit(`customer-statements:attempts:${user.id}`, { max: 30, windowSecs: 900 }))) {
+  // Abuse limit: every attempt counts, per user and company, and is never given
+  // back. The company's send bucket below is shared by every colleague, so it
+  // is charged only once the request is well formed and names records the
+  // company owns (R-175).
+  if (!(await checkRateLimit(`customer-statements:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))) {
     return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
 
@@ -96,11 +97,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const asAtDate = body.as_at_date;
   const message = typeof body.message === 'string' ? body.message : undefined;
 
-  const sendAllowed = await checkSendRateLimit(req, companyId, 'customer-statements', { refundUnused: true });
-  if (!sendAllowed) {
-    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
-  }
-
   // Verify all requested customer IDs belong to this company (IDOR guard)
   const owned = await sql`
     SELECT id FROM customers
@@ -116,6 +112,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       sample: unauthorized.slice(0, 3),
     }, 'customer-statements-send');
     return apiResponse.forbidden(res, 'One or more customer IDs do not belong to this company');
+  }
+
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'customer-statements', { refundUnused: true });
+  if (!sendAllowed) {
+    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
 
   const { name: companyName, statementSignature } = await getCompanyMeta(companyId);

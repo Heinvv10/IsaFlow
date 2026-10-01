@@ -31,10 +31,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId, user } = req as CompanyAuthedRequest;
 
-  // Abuse limit: every attempt counts, per user, and is never given back. The
-  // company's send bucket below is shared by every colleague, so it is charged
-  // only once the request is known to be well formed (R-175).
-  if (!(await checkRateLimit(`afs-signing:attempts:${user.id}`, { max: 30, windowSecs: 900 }))) {
+  // Abuse limit: every attempt counts, per user and company, and is never given
+  // back. The company's send bucket below is shared by every colleague, so it
+  // is charged only once the request is well formed and names records the
+  // company owns (R-175).
+  if (!(await checkRateLimit(`afs-signing:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))) {
     return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
 
@@ -44,11 +45,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const parsed = BodySchema.safeParse(req.body);
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   const { signerContactIds } = parsed.data;
-
-  const sendAllowed = await checkSendRateLimit(req, companyId, 'afs-signing', { refundUnused: true });
-  if (!sendAllowed) {
-    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
-  }
 
   // 1. Load and verify the document
   const docs = (await sql`
@@ -108,6 +104,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   `) as Array<{ name: string }>;
   const companyName = companies.length > 0 ? companies[0]!.name : 'Company';
   const title = `Annual Financial Statements — ${companyName}`;
+
+  // Charged only now: the document and every signer belong to the company and
+  // there is something to send.
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'afs-signing', { refundUnused: true });
+  if (!sendAllowed) {
+    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
+  }
 
   // 5. Send to Signum (JSON body — real API uses /documents/from-html)
   const signers = contacts.map((c) => ({ email: c.email, name: c.name }));

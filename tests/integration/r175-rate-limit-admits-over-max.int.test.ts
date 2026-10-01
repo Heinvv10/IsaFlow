@@ -184,9 +184,11 @@ describe('R-175 — checkRateLimit never admits more than max per window', () =>
     expect(await checkRateLimit(key, { ...volume, cost: 100 })).toBe(false);
     expect(await storedCount(key)).toBe(9_950);
 
-    // The 50 real units left are still spendable, by this process and by another.
-    clearRateLimitCache();
-    expect(await checkRateLimit(key, { ...volume, cost: 49 })).toBe(true);
+    // The 50 real units left are still spendable, at once and by this same
+    // process: the refused large call is not remembered against smaller ones.
+    expect(await checkRateLimit(key, volume)).toBe(true);
+    expect(await checkRateLimit(key, { ...volume, cost: 100 })).toBe(false);
+    expect(await checkRateLimit(key, { ...volume, cost: 48 })).toBe(true);
     expect(await checkRateLimit(key, { ...volume, cost: 2 })).toBe(false);
     expect(await checkRateLimit(key, volume)).toBe(true);
     expect(await checkRateLimit(key, volume)).toBe(false);
@@ -208,5 +210,34 @@ describe('R-175 — checkRateLimit never admits more than max per window', () =>
 
     expect(verdicts.filter(Boolean).length).toBe(6);
     expect(await storedCount(key)).toBe(18);
+  });
+
+  // Review round 4.
+  it('a row the old code left above max is refused until its window ends, then starts again', async () => {
+    const key = newKey();
+    // The old statement counted refused calls too, so a busy key could sit above its limit.
+    await pool.query('INSERT INTO rate_limit_counters (key, count, window_start) VALUES ($1, 25, NOW())', [key]);
+
+    expect(await checkRateLimit(key, opts)).toBe(false);
+    expect(await checkRateLimit(key, opts)).toBe(false);
+    expect(await storedCount(key)).toBe(25);
+
+    await pool.query(`UPDATE rate_limit_counters SET window_start = NOW() - INTERVAL '901 seconds' WHERE key = $1`, [key]);
+    clearRateLimitCache();
+
+    expect(await admittedSequentially(key, 30)).toBe(MAX);
+    expect(await storedCount(key)).toBe(MAX);
+  });
+
+  it('floors a fractional max and refuses an impossible one as a programming error', async () => {
+    const key = newKey();
+    const fractional = { max: 2.9, windowSecs: 900 };
+    expect([await checkRateLimit(key, fractional), await checkRateLimit(key, fractional), await checkRateLimit(key, fractional)])
+      .toEqual([true, true, false]);
+    expect(await storedCount(key)).toBe(2);
+
+    await expect(checkRateLimit(key, { max: Number.NaN, windowSecs: 900 })).rejects.toThrow(RangeError);
+    await expect(checkRateLimit(key, { max: 3_000_000_000, windowSecs: 900 })).rejects.toThrow(RangeError);
+    expect(await storedCount(key)).toBe(2);
   });
 });

@@ -9,7 +9,7 @@ import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteT
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/gotrue';
 import { sql } from '@/lib/neon';
-import { checkRateLimit, refundRateLimit } from '@/lib/rateLimit';
+import { chargeRateLimit, refundRateLimit } from '@/lib/rateLimit';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 
@@ -118,16 +118,17 @@ const handler: NextApiHandler = async (req, res) => {
   // not held across the two GoTrue round-trips.
   const ATTEMPT_COST = 2;
   const ATTEMPTS_PER_HOUR = 10;
-  const admitted = await checkRateLimit(`invite-accept:${tokenHash}`, {
+  const charge = await chargeRateLimit(`invite-accept:${tokenHash}`, {
     max: ATTEMPTS_PER_HOUR * ATTEMPT_COST, windowSecs: 3600, cost: ATTEMPT_COST,
   });
-  if (!admitted) {
+  if (!charge.admitted) {
     return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts for this invitation. Try again later.' } });
   }
   // Hand the units back on the two verdicts below that are reachable ONLY
   // after signIn has already succeeded, so no unauthenticated caller can spend
-  // the counter down.
-  const refund = () => refundRateLimit(`invite-accept:${tokenHash}`, ATTEMPT_COST);
+  // the counter down. Into the window that was charged: after a rollover the
+  // units belong to a count that is gone, and the refund is a no-op.
+  const refund = () => refundRateLimit(`invite-accept:${tokenHash}`, ATTEMPT_COST, charge.windowStart);
 
 
   // 2-4 run on the BYPASSRLS admin role: RLS would refuse the company_users

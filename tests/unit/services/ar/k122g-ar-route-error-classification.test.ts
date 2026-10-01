@@ -64,6 +64,9 @@ const sendDunning = vi.fn();
 const renderTemplate = vi.fn();
 vi.mock('@/modules/accounting/services/ar/dunningService', () => ({
   sendDunning: (...a: unknown[]) => sendDunning(...a),
+  // The route's ownership checks before it charges (R-175): both records exist.
+  loadInvoiceCtx: async () => ({ invoice_id: 'x' }),
+  getTemplateById: async () => ({ id: 'x' }),
   renderTemplate: (...a: unknown[]) => renderTemplate(...a),
 }));
 

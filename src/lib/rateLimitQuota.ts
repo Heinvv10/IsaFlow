@@ -4,8 +4,10 @@
  * The limiter charges on its own connection, so a charge survives a request
  * that fails (K-103). That is right for an abuse limit: a failed login is still
  * an attempt. It is wrong for a usage quota, which bounds work actually done.
- * The daily AI bucket is 300 a day: with the provider down, 300 retries would
- * lock a company out for a day having received nothing.
+ * The daily AI bucket is 300 a day: with the provider refusing connections or
+ * answering with errors, 300 retries would lock a company out for a day having
+ * received nothing. (An outage that shows as HANGS still does that: a timeout
+ * counts as use, because the provider may have done and billed the work.)
  *
  * The rule is one line: when the request ends, however it ends, each noted
  * charge gets back `charged - used`, never less than zero.

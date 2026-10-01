@@ -52,7 +52,7 @@ export interface RateLimitOptions {
  */
 export const REFUSAL_TTL_MS = 5_000;
 
-/** key -> the count the database held when it last refused a call on the key. */
+/** key -> the count the database held when it last reported the key FULL (no unit left). */
 const refused = new LRUCache<string, number>({ max: 10_000 });
 
 /** Forgets every remembered refusal. For tests, and safe anywhere: it can only cause a database call. */
@@ -75,6 +75,23 @@ export function clampCost(cost: number | undefined): number {
   return Number.isFinite(t) && t > 0 ? t : 1;
 }
 
+/** The largest `max` the counter column and the statement's integer arithmetic can hold. */
+const MAX_LIMIT = 1_000_000_000;
+
+/**
+ * `max` is bound as a SQL integer. A fractional one is floored: a limit of 2.5
+ * admits 2, the safe reading. NaN, Infinity, a negative or a value the column
+ * cannot hold is a programming error, and says so here rather than as a
+ * PostgreSQL error on every request.
+ */
+function clampMax(max: number): number {
+  const m = Math.floor(max);
+  if (!Number.isFinite(m) || m < 0 || m > MAX_LIMIT) {
+    throw new RangeError(`rate limit max must be a number from 0 to ${MAX_LIMIT}, got ${String(max)}`);
+  }
+  return m;
+}
+
 /** `windowStart` names the window that was charged; a refund quotes it (see refundRateLimit). */
 export interface RateLimitCharge { admitted: boolean; windowStart: string | null }
 
@@ -95,18 +112,21 @@ const expired = 'rate_limit_counters.window_start < NOW() - make_interval(secs =
  * and is refused. So the count never passes `max`, and a refused 100-unit call
  * does not use up room a 1-unit call could still have. An admitted charge is
  * committed before this returns, whatever the caller's transaction later does.
- * A key refused in the last few seconds is refused again from memory, while
- * the call still would not fit.
+ * A key the database reported full in the last few seconds is refused again
+ * from memory.
  */
 export async function chargeRateLimit(key: string, opts: RateLimitOptions): Promise<RateLimitCharge> {
-  const { max, windowSecs } = opts;
+  const { windowSecs } = opts;
+  const max = clampMax(opts.max);
   const cost = clampCost(opts.cost);
   // More than the whole allowance can never fit, in any window.
   if (cost > max) return REFUSED;
 
   // Refuse-only: the remembered count can turn a call away, never let one in.
-  const refusedAt = refused.get(key);
-  if (refusedAt !== undefined && refusedAt + cost > max) return REFUSED;
+  // Only a FULL key is remembered, so nothing the database would admit is
+  // refused here because someone else's larger call did not fit.
+  const fullAt = refused.get(key);
+  if (fullAt !== undefined && fullAt >= max) return REFUSED;
 
   const asked = Date.now();
   const { rows } = await getRateLimitPool().query<{ admitted: boolean; count: number; window_start: string; remaining_ms: number }>(
@@ -140,9 +160,12 @@ export async function chargeRateLimit(key: string, opts: RateLimitOptions): Prom
   const row = rows[0];
   if (!row) return REFUSED;
   if (row.admitted) return { admitted: true, windowStart: row.window_start };
+  // Remember it only if no unit is left. A refused 100-unit call at 9,950 of
+  // 10,000 says nothing about a 1-unit call. (The count comes from this
+  // statement's snapshot; if it is stale it is low, and then nothing is remembered.)
   // Measured from before the round-trip, so the refusal never outlives the window.
   const ttl = Math.min(REFUSAL_TTL_MS, row.remaining_ms - (Date.now() - asked));
-  if (ttl >= 1) refused.set(key, row.count, { ttl });
+  if (row.count >= max && ttl >= 1) refused.set(key, row.count, { ttl });
   return REFUSED;
 }
 

@@ -59,7 +59,7 @@ describe('customer-statements-send — id and logging guards (R-175)', () => {
     expect(sendStatementEmail).not.toHaveBeenCalled();
     // Review round 3: a malformed request counts against its user, never
     // against the company bucket every colleague shares.
-    expect(checkAttempts.mock.calls).toEqual([['customer-statements:attempts:u1', { max: 30, windowSecs: 900 }]]);
+    expect(checkAttempts.mock.calls).toEqual([[`customer-statements:attempts:${COMPANY}:u1`, { max: 30, windowSecs: 900 }]]);
     expect(checkSend).not.toHaveBeenCalled();
   });
 
@@ -89,13 +89,25 @@ describe('customer-statements-send — id and logging guards (R-175)', () => {
     expect(apiResponse.forbidden).toHaveBeenCalledTimes(1);
     expect(vi.mocked(log.warn).mock.calls[0]![1]).toEqual({ companyId: COMPANY, count: 40, sample: foreign.slice(0, 3) });
     expect(sendStatementEmail).not.toHaveBeenCalled();
+    // Review round 4: a request refused at the ownership guard leaves the
+    // company's shared bucket untouched.
+    expect(checkSend).not.toHaveBeenCalled();
   });
 
-  it('is limited before the ownership query, asks for refundUnused, and sends when all checks pass', async () => {
+  it('charges the company bucket after the ownership query, asks for refundUnused, and sends when all checks pass', async () => {
     await call([id(1), id(2)]);
 
     expect(checkSend.mock.calls[0]!.slice(1)).toEqual([COMPANY, 'customer-statements', { refundUnused: true }]);
-    expect(checkSend.mock.invocationCallOrder[0]!).toBeLessThan(sqlMock.mock.invocationCallOrder[0]!);
+    expect(checkAttempts.mock.invocationCallOrder[0]!).toBeLessThan(sqlMock.mock.invocationCallOrder[0]!);
+    expect(sqlMock.mock.invocationCallOrder[0]!).toBeLessThan(checkSend.mock.invocationCallOrder[0]!);
     expect(sendStatementEmail).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses, and sends nothing, when the company bucket is full', async () => {
+    checkSend.mockResolvedValue(false);
+    await call([id(1)]);
+
+    expect(apiResponse.tooManyRequests).toHaveBeenCalledTimes(1);
+    expect(sendStatementEmail).not.toHaveBeenCalled();
   });
 });

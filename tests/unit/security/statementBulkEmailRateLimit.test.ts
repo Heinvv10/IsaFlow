@@ -149,7 +149,8 @@ describe('statement-bulk-email — checkSendRateLimit gate', () => {
 
     await (statementBulkEmail as Handler)(request([C1, C2]), makeRes());
 
-    expect(checkRateLimitMock.mock.calls).toEqual([['statement-bulk-email:attempts:u1', { max: 30, windowSecs: 900 }]]);
+    // Keyed by company and user: a bureau user has one allowance per client.
+    expect(checkRateLimitMock.mock.calls).toEqual([[`statement-bulk-email:attempts:${COMPANY}:u1`, { max: 30, windowSecs: 900 }]]);
     expect(apiResponse.tooManyRequests).toHaveBeenCalledTimes(1);
     expect(sqlMock).not.toHaveBeenCalled();
     expect(checkSendRateLimitMock).not.toHaveBeenCalled();
