@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const logError = vi.fn();
 const logInfo = vi.fn();
 vi.mock('@/lib/logger', () => ({
-  log: { error: (...a: unknown[]) => logError(...a), info: (...a: unknown[]) => logInfo(...a) },
+  log: { error: (...a: unknown[]) => logError(...a), info: (...a: unknown[]) => logInfo(...a), warn: vi.fn() },
 }));
 
 import { gotenbergTransport } from '@/lib/pdf/transports/gotenbergTransport';
@@ -19,6 +19,13 @@ const request: PdfRenderRequest = {
 };
 
 const originalEnv = { ...process.env };
+
+/** A PDF the writer can amend: a classic cross-reference table and a literal
+ *  trailer, the shape Gotenberg's output has after its exiftool pass. */
+const AMENDABLE_PDF =
+  '%PDF-1.4\n1 0 obj\n<< /Producer (Skia/PDF) >>\nendobj\n' +
+  'xref\n0 1\n0000000000 65535 f \n' +
+  'trailer\n<</Size 2\n/Root 1 0 R\n/Info 1 0 R>>\nstartxref\n60\n%%EOF\n';
 
 function pdfBytes(): ArrayBuffer {
   return new TextEncoder().encode('%PDF-1.7 fake pdf body').buffer;
@@ -89,13 +96,39 @@ describe('gotenbergTransport.render', () => {
 });
 
 describe('gotenbergTransport — capabilities', () => {
-  it('claims the metadata capability it actually has', () => {
-    // Load-bearing metadata (PDF/A for archival retention) must be enforced at
-    // the CALL SITE by reading this flag, not hoped for.
-    // `guaranteed`, not merely truthy: Gotenberg's Chromium route takes the
-    // Info dictionary as a form field, so a successful render IS a file with
-    // the metadata in it. The Playwright transport post-processes the bytes
-    // and can decline, which is `best-effort`.
-    expect(gotenbergTransport.capabilities.metadata).toBe('guaranteed');
+  it('claims best-effort metadata: the custom keys are added after the render, by the writer', () => {
+    // Gotenberg writes the standard Info keys from the form field but drops
+    // the custom `IsaFlow…` ones (measured: `pdfinfo` read `Custom Metadata:
+    // no`). Those are post-processed here, which can decline — `best-effort`.
+    expect(gotenbergTransport.capabilities.metadata).toBe('best-effort');
+  });
+});
+
+describe('gotenbergTransport — the custom Info keys Gotenberg drops', () => {
+  const metadata = {
+    title: 'Demo — Board Pack', author: 'Demo', subject: 'Board Pack', creator: 'IsaFlow',
+    custom: { IsaFlowPack: 'Board Pack', IsaFlowStatus: 'DRAFT' },
+  };
+
+  it('writes them into the PDF it returns', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(Buffer.from(AMENDABLE_PDF, 'latin1'), { status: 200 })));
+    const out = await gotenbergTransport.render({ ...request, metadata });
+    const text = out.toString('latin1');
+    expect(text).toContain('/IsaFlowPack (Board Pack)');
+    expect(text).toContain('/IsaFlowStatus (DRAFT)');
+    // An incremental update: the original bytes are untouched.
+    expect(text.startsWith(AMENDABLE_PDF)).toBe(true);
+  });
+
+  it('returns a PDF it cannot amend unchanged rather than failing the render', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(pdfBytes(), { status: 200 })));
+    const out = await gotenbergTransport.render({ ...request, metadata });
+    expect(out.toString('latin1')).toBe('%PDF-1.7 fake pdf body');
+  });
+
+  it('writes nothing when the caller supplied no metadata', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(Buffer.from(AMENDABLE_PDF, 'latin1'), { status: 200 })));
+    const out = await gotenbergTransport.render(request);
+    expect(out.toString('latin1')).toBe(AMENDABLE_PDF);
   });
 });
