@@ -44,14 +44,11 @@ export const TERMS: PackDefinition[] = [
     // column and unambiguous, and it was the one convention in the pack that
     // page 12 applied without declaring.
     //
-    // THE NOUN IS "VALUE", AND THE ROUND THAT WROTE "CHANGE" GOT THE PACK'S
-    // OWN PRACTICE WRONG. A + is not confined to a change column: page 6's
-    // % of revenue column prints +100.0%, +1410.8%, +223.7% and +11.6%, and
-    // page 9 prints a target of +35.0% — five signed figures on two sheets,
-    // none of them a change, each disproving the sentence that was meant to
-    // describe them. The practice itself never wavered, which is why eleven
-    // gates read the column and the clause and only the fourteenth put them
-    // side by side.
+    // THE NOUN IS "CHANGE" AGAIN, AND NOW IT IS TRUE. For a while page 6's
+    // % of revenue column printed "+100.0%" and page 9 a target of "+35.0%",
+    // so the clause said "value". Those are levels, and a "+" on a level
+    // claims a movement nobody measured: they print unsigned now
+    // (`formatFigureText`), and only the change column takes the sign.
     //
     // The clause is an EXCLUSION and stays one: it says a + never sits on a
     // figure that is not positive, not that every positive figure takes one
@@ -97,7 +94,7 @@ export const TERMS: PackDefinition[] = [
     // the word this pack uses for the thing "currency" named (four). The
     // scope — a PERCENTAGE, in PROSE — is the whole of the correction and
     // both halves of it survive.
-    definition: 'In brackets — (12 345) — for money, percentages and ratios; a percentage in prose, in words. No minus sign is used in this pack. Only a positive value takes a +.',
+    definition: 'In brackets — (12 345) — for money, percentages and ratios; a percentage in prose, in words. No minus sign is used in this pack. Only a positive change takes a +.',
   },
   {
     // THE DASH MEANT TWO THINGS AND THIS PAGE DEFINED NEITHER. `formatMoney`

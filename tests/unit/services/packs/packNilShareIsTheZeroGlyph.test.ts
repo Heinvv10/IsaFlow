@@ -80,7 +80,8 @@ describe('a nil share of a positive base', () => {
     }
     // And a figure that is NOT nil still prints its own unit, so the rule
     // cannot be satisfied by returning the dash for everything.
-    expect(formatFigureText(p.figure('t.live', 12.3, 'pct'), PACK_SCALE)).toBe('+12.3%');
+    expect(formatFigureText(p.figure('t.live', 12.3, 'pct'), PACK_SCALE)).toBe('12.3%');
+    expect(formatFigureText(p.figure('t.change', 12.3, 'pct'), PACK_SCALE, 'change')).toBe('+12.3%');
   });
 
   it('holds on both companies of the composed pack', () => {

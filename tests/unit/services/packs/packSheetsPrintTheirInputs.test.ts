@@ -330,34 +330,31 @@ describe('two conventions the pack applied and did not declare', () => {
     expect(money(1_000_000)).not.toContain('+');
 
     expect(proseOf(pageNamed(liveDemoRenderedInput, 'Basis of preparation')))
-      .toContain('Only a positive value takes a +.');
+      .toContain('Only a positive change takes a +.');
   });
 
   /**
-   * THE NOUN, HELD TO THE SHEETS THAT DISPROVED THE OLD ONE.
-   *
-   * "Only a positive CHANGE takes a +" was written to describe a practice it
-   * got wrong: page 6's `% of revenue` column and page 9's target both print
-   * signed positives and neither is a change. This is that condition, taken
-   * off the composed pages rather than off a belief about them — so the day
-   * a signed non-change stops printing, the assertion says so instead of
-   * quietly licensing the narrower word again.
+   * THE NOUN, HELD TO THE SHEETS. "Only a positive CHANGE takes a +" was once
+   * false — page 6's `% of revenue` column and page 9's target printed signed
+   * positives that are not changes, and the clause said "value" to match.
+   * They are levels and print unsigned now; this holds that, off the composed
+   * pages, and holds the clause to the narrower word it can now afford.
    */
-  it('the pack signs positive percentages that are not changes', () => {
+  it('a positive percentage that is not a change prints unsigned', () => {
     const doc = buildBoardPackPages(liveDemoRenderedInput);
-    const signedNonChange = [...doc.provenance.all().entries()]
+    const levels = [...doc.provenance.all().entries()]
       .filter(([source]) => source.includes('pctOfRevenue') || source.includes('target'))
       .flatMap(([source, list]) => list.map((f) => ({ source, f })))
       .filter(({ f }) => f.format === 'pct' && (f.value ?? 0) > 0);
 
-    expect(signedNonChange.length, 'no positive percentage that is not a change').toBeGreaterThan(0);
-    for (const { f } of signedNonChange) {
-      expect(formatFigureText(f), `${f.source} prints unsigned`).toContain('+');
+    expect(levels.length, 'no positive percentage that is not a change').toBeGreaterThan(0);
+    for (const { source, f } of levels) {
+      expect(formatFigureText(f, PACK_SCALE), `${source} prints signed`).not.toContain('+');
     }
 
     const basis = proseOf(pageNamed(liveDemoRenderedInput, 'Basis of preparation'));
-    expect(basis, 'the noun is disproved by the figures above').not.toContain('positive change takes');
-  });
+    expect(basis).toContain('Only a positive change takes a +.');
+});
 });
 
 /**
