@@ -18,6 +18,9 @@ import type { PackBlock, PackDocumentSection } from '@/modules/accounting/servic
 import { formatPackKv, scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 import { PackChart } from './PackChart';
 
+/** The legacy bridge's box, handed to the option as well as to the chart. */
+const LEGACY_WATERFALL_PX = 320;
+
 const NO_COMPARATORS = { prior: false, budget: false, variance: false, trend: false } as const;
 
 // `formatPackKv` is re-exported so the page keeps its existing import path
@@ -67,7 +70,15 @@ function Block({ block }: { block: PackBlock }) {
       );
 
     case 'waterfall':
-      return <PackChart option={waterfallOption(block.steps, LEGACY_PACK_SCALE)} />;
+      // WITH ITS BOX, so the plot is exact and every figure has room on its
+      // own side — see `waterfallLayout`. Without one, a short bar at the
+      // edge of the domain lost its figure to the chart's clip.
+      return (
+        <PackChart
+          height={LEGACY_WATERFALL_PX}
+          option={waterfallOption(block.steps, LEGACY_PACK_SCALE, undefined, undefined, false, undefined, LEGACY_WATERFALL_PX)}
+        />
+      );
 
     case 'trend':
       // Revenue is the series a reader quotes off a twelve-month page; the

@@ -13,7 +13,10 @@ import { describe, expect, it } from 'vitest';
 import { buildProfitWaterfallChart } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
-import { makeWaterfallRenderItem } from '@/modules/accounting/services/packs/packWaterfallBars';
+import { labelInkOn, waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
+import { waterfallLayout } from '@/modules/accounting/services/packs/packWaterfallDomain';
+import { PX_PER_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
+import { barOf, clipRect, figures, outsideClip, wrongSide } from './support/bridgeSvg';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { liveDemoSet } from './fixtures/liveDemoBoardPack';
 import { yAxisTicks } from './support/svgTicks';
@@ -61,31 +64,97 @@ describe("the demo's page 6 bridge", () => {
   });
 });
 
-/** One bar through the renderer, on a plot of 100px from y=10 (`max`) down. */
-function place(step: WaterfallStep, domain: { min: number; max: number }) {
-  const render = makeWaterfallRenderItem([step], DEFAULT_CHART_PALETTE, PACK_SCALE, domain, undefined);
-  const px = (v: number) => 10 + ((domain.max - v) / (domain.max - domain.min)) * 100;
-  const api = { coord: ([, v]: number[]) => [40, px(v!)], size: () => [60, 0] };
-  const group = render({ dataIndex: 0 } as never, api as never) as unknown as {
-    children: Array<{ type: string; name?: string; shape?: { y: number; height: number }; style: { y?: number; verticalAlign?: string } }>;
-  };
-  const bar = group.children.find((c) => c.name === 'bar')!;
-  const text = group.children.find((c) => c.type === 'text')!;
-  return { top: bar.shape!.y, bottom: bar.shape!.y + bar.shape!.height, y: text.style.y!, align: text.style.verticalAlign! };
+/**
+ * THE REVIEWER'S TWO CASES, THROUGH ECHARTS ITSELF. A long category name made
+ * ECharts shrink the plot under a domain chosen for the taller one, and a
+ * short bar at the extreme lost its figure to the clip — which a mock of the
+ * coordinate system cannot show, because it does not clip.
+ */
+const LONG = 'Other, not separately captured';
+const HEIGHT_MM = 66.56;
+
+function render(steps: WaterfallStep[], boxed = true): string {
+  const boxPx = Math.round(HEIGHT_MM * PX_PER_MM);
+  return String(renderChartSvg(
+    waterfallOption(steps, PACK_SCALE, undefined, 5, false, undefined, boxed ? boxPx : undefined),
+    { widthMm: 174, heightMm: HEIGHT_MM },
+  ));
 }
 
-describe('the two mirror cases, with no room on the correct side', () => {
-  it('keeps a short rising bar\'s figure above it when the plot ends at its top', () => {
-    // 10px of bar with 2px of plot above it: no room, and too short to hold it.
-    const at = place({ label: 'Up', start: 0, end: 10, value: 10, isSubtotal: false, color: 'green' }, { min: -88, max: 12 });
-    // Bottom-anchored above the bar, never top-anchored under it.
-    expect(at.align).toBe('bottom');
-    expect(at.y).toBeLessThanOrEqual(at.top);
+function expectOnItsSide(svg: string, step: WaterfallStep, text: string): void {
+  const figure = figures(svg).find((f) => f.text === text);
+  expect(figure, `"${text}" is not drawn at all`).toBeDefined();
+  const clip = clipRect(svg);
+  expect(outsideClip(figure!, clip), `"${text}" at ${figure!.y} leaves the plot ${clip.top}–${clip.bottom}`).toBe(false);
+  const bar = barOf(svg, figure!)!;
+  expect(wrongSide(figure!, bar, step.end > step.start), `"${text}" is on the wrong side of its bar`).toBe(false);
+}
+
+const RISING: WaterfallStep[] = [
+  { label: 'Revenue', start: 0, end: 1_030_000, value: 1_030_000, isSubtotal: false, color: 'green' },
+  { label: LONG, start: 1_030_000, end: 1_200_000, value: 170_000, isSubtotal: false, color: 'green' },
+  { label: 'Operating Expenses', start: 1_200_000, end: 300_000, value: -900_000, isSubtotal: false, color: 'red' },
+  { label: 'Net Profit', start: 0, end: 300_000, value: 300_000, isSubtotal: true, color: 'teal' },
+];
+const FALLING: WaterfallStep[] = [
+  { label: 'Revenue', start: 0, end: -1_030_000, value: -1_030_000, isSubtotal: true, color: 'blue' },
+  { label: LONG, start: -1_030_000, end: -1_200_000, value: -170_000, isSubtotal: false, color: 'red' },
+  { label: 'Operating Expenses', start: -1_200_000, end: -300_000, value: 900_000, isSubtotal: false, color: 'green' },
+  { label: 'Net Profit', start: 0, end: -300_000, value: -300_000, isSubtotal: true, color: 'teal' },
+];
+
+describe('a short bar at the edge of the domain, under a long category name', () => {
+  it('prints a rising 1 030 000 → 1 200 000 bar\'s 170 inside the plot, above its base', () => {
+    expectOnItsSide(render(RISING), RISING[1]!, '170');
   });
 
-  it('keeps a short falling same-ink bar\'s figure below it when the plot ends at its foot', () => {
-    const at = place({ label: 'Down', start: 0, end: -10, value: -10, isSubtotal: true, color: 'teal' }, { min: -12, max: 88 });
-    expect(at.align).toBe('top');
-    expect(at.y).toBeGreaterThanOrEqual(at.bottom);
+  it('prints a falling −1 030 000 → −1 200 000 bar\'s (170) inside the plot, below its head', () => {
+    expectOnItsSide(render(FALLING), FALLING[1]!, '(170)');
+  });
+
+  it('draws the plot the domain was chosen for', () => {
+    const svg = render(RISING);
+    const layout = waterfallLayout(RISING, Math.round(HEIGHT_MM * PX_PER_MM), false, 5);
+    expect(clipRect(svg).height).toBeCloseTo(layout.plotPx, 6);
+  });
+
+  it('keeps both figures on the plot with no box at all — the renderer is the last guard', () => {
+    // 170 000 of 1 200 000 is a bar tall enough to carry its figure inside,
+    // and that is where it goes when its own side has no room.
+    for (const [steps, text] of [[RISING, '170'], [FALLING, '(170)']] as const) {
+      const svg = render(steps, false);
+      expectOnItsSide(svg, steps[1]!, text);
+      const figure = figures(svg).find((f) => f.text === text)!;
+      const bar = barOf(svg, figure)!;
+      expect(figure.y - 6, `"${text}" is not inside its bar`).toBeGreaterThanOrEqual(bar.top - 0.01);
+      expect(figure.y + 6, `"${text}" is not inside its bar`).toBeLessThanOrEqual(bar.bottom + 0.01);
+      // In the ink that reads on the bar's fill, not the ink it would wear
+      // standing on paper beside the bar.
+      const fill = steps[1]!.color === 'green' ? DEFAULT_CHART_PALETTE.fav : DEFAULT_CHART_PALETTE.unfav;
+      expect(figure.fill).toBe(labelInkOn(fill, DEFAULT_CHART_PALETTE).toLowerCase());
+    }
+  });
+
+  it('holds a figure too big for its bar to the plot\'s edge, on its own side, with no box', () => {
+    // 10 000 of 1 200 000 is a bar of a pixel or two: nothing fits inside it.
+    const thin = (steps: WaterfallStep[], from: number, to: number): WaterfallStep[] => steps.map((s, i) => (i === 0
+      ? { ...s, end: from, value: from }
+      : i === 1 ? { ...s, start: from, end: to, value: to - from } : i === 2 ? { ...s, start: to, value: s.end - to } : s));
+    const rising = thin(RISING, 1_190_000, 1_200_000);
+    const falling = thin(FALLING, -1_190_000, -1_200_000);
+    expectOnItsSide(render(rising, false), rising[1]!, '10');
+    expectOnItsSide(render(falling, false), falling[1]!, '(10)');
+  });
+
+  it('keeps both figures on the plot the way the on-screen pack draws them', () => {
+    // `PackSectionView` hands the option the 320px box `PackChart` draws.
+    for (const [steps, text] of [[RISING, '170'], [FALLING, '(170)']] as const) {
+      const svg = String(renderChartSvg(
+        waterfallOption(steps, PACK_SCALE, undefined, undefined, false, undefined, 320),
+        { widthMm: 174, heightMm: 320 / PX_PER_MM },
+      ));
+      expectOnItsSide(svg, steps[1]!, text);
+    }
   });
 });
+

@@ -69,7 +69,7 @@ export const LABEL_INSIDE_PX = LABEL_LINE_PX + LABEL_GAP_PX * 2;
  * the label placement and the plot-top test are unchanged, and a rule cannot
  * shift a step that has real height: `Math.max` is a no-op above one pixel.
  */
-const NIL_STEP_RULE_PX = 1;
+export const NIL_STEP_RULE_PX = 1;
 
 /**
  * A GRIDLINE MAY NOT RUN THROUGH A FIGURE.
@@ -140,7 +140,13 @@ export function makeWaterfallRenderItem(
     // The top of the plot, asked of the coordinate system rather than assumed
     // from `grid.top`: `containLabel` and the axis name both move it, and the
     // domain's own maximum is where the plot ends.
-    const [, plotTop = 0] = api.coord([params.dataIndex, domain.max]);
+    // THE RECTANGLE ECHARTS ACTUALLY DREW, from the coordinate system it
+    // hands this function — not the domain's ends mapped through `coord`,
+    // which is the same thing only when nothing shrank the grid. Where it is
+    // absent, the domain's ends.
+    const rect = (params as { coordSys?: { y?: number; height?: number } }).coordSys;
+    const [, domainTop = 0] = api.coord([params.dataIndex, domain.max]);
+    const plotTop = rect?.y ?? domainTop;
     const above = y - LABEL_GAP_PX;
     const noRoomAbove = above - LABEL_LINE_PX < plotTop;
     // Inside the bar only if the bar is tall enough to hold a line of type.
@@ -171,31 +177,40 @@ export function makeWaterfallRenderItem(
     // AND A SAME-INK BAR TOO SHORT TO HOLD ITS LABEL keeps it on its own
     // side like any other bar, set in the axis ink where that side is above
     // it, so the type and the fill do not merge into one mark.
-    const [, plotBottom = Infinity] = api.coord([params.dataIndex, domain.min]);
+    const [, domainBottom = Infinity] = api.coord([params.dataIndex, domain.min]);
+    const plotBottom = rect?.y !== undefined && rect.height !== undefined ? rect.y + rect.height : domainBottom;
     const roomBelow = y + drawnHeight + LABEL_GAP_PX + LABEL_LINE_PX <= plotBottom;
     // AND NEVER ON THE WRONG SIDE OF ITS BASE. A rising bar's figure is set
     // above it and a falling bar's below it: the side reads as the sign. The
     // demo's Revenue of 101, a short bar with the domain ending a few pixels
     // over it, hung its figure under the zero line. Where the correct side has
-    // no room the plot is given room (`labelledDomain`) and the label keeps its
+    // no room the plot is given room (`waterfallLayout`) and the label keeps its
     // side; a bar tall enough takes it inside instead. A NIL step has no side
     // and takes whichever has room.
     const falls = step.end < step.start;
     const rises = step.end > step.start;
     const noRoomOnItsSide = falls ? !roomBelow : noRoomAbove;
     const inside = fitsInside && (noRoomOnItsSide || sameInkAsFill);
-    const below = !inside && (falls || (!rises && noRoomAbove));
-    const aboveInOwnInk = !inside && !below && sameInkAsFill;
+    // AND IF ITS SIDE STILL HAS NO ROOM — the layout could not settle, or a
+    // caller gave no box — the figure is never moved to the other side and
+    // never clipped out: inside a bar that holds a line of type, in
+    // contrasting ink, or else on its own side held to the plot's edge.
+    const tight = !fitsInside && noRoomOnItsSide && (rises || falls) && height >= LABEL_LINE_PX;
+    const below = !inside && !tight && (falls || (!rises && noRoomAbove));
+    const aboveInOwnInk = !inside && !tight && !below && sameInkAsFill;
 
     const text = formatMoney(step.labelValue ?? step.value, { scale });
     // `drawnHeight`, not `height`: a floored bar is drawn a rule's width
     // taller than its figure, and the gap is kept from what is drawn.
-    const textY = inside ? y + LABEL_GAP_PX : below ? y + drawnHeight + LABEL_GAP_PX : above;
+    const textY = inside ? y + LABEL_GAP_PX
+      : tight ? y + (height - LABEL_LINE_PX) / 2
+      : below ? Math.min(y + drawnHeight + LABEL_GAP_PX, plotBottom - LABEL_LINE_PX)
+      : Math.max(above, plotTop + LABEL_LINE_PX);
     // THE GROUND UNDER A LABEL THAT IS NOT ON ITS BAR — see
     // `LABEL_KNOCKOUT_PAD_PX`. Inside the bar the fill is the ground already,
     // and a paper rect there would punch a hole in the bar.
     const knockoutW = labelWidthPx(text, LABEL_LINE_PX) + LABEL_KNOCKOUT_PAD_PX * 2;
-    const knockout = inside ? [] : [{
+    const knockout = inside || tight ? [] : [{
       type: 'rect' as const,
       // NAMED, because the bar is a rect too and a reader of this group —
       // `packChartOptions.test.ts` reads it by name — must not take the
@@ -251,7 +266,7 @@ export function makeWaterfallRenderItem(
             // the pack — carrying no value at all, which left red/green hue
             // as the only thing separating an increase from a decrease on
             // them. The label was being drawn the whole time.
-            fill: inside ? labelInkOn(stepColour(step, palette), palette) : aboveInOwnInk ? palette.axis : palette.ink,
+            fill: inside || tight ? labelInkOn(stepColour(step, palette), palette) : aboveInOwnInk ? palette.axis : palette.ink,
             // AND THE PACK'S FACE, NAMED HERE BECAUSE THIS IS A RAW ZRENDER
             // TEXT AND NOT AN ECHARTS LABEL.
             //
@@ -266,7 +281,7 @@ export function makeWaterfallRenderItem(
             // of sales row, once on its own bar a centimetre below.
             fontFamily: PACK_FONT_STACK,
             align: 'center',
-            verticalAlign: inside || below ? 'top' : 'bottom',
+            verticalAlign: inside || tight || below ? 'top' : 'bottom',
           },
         },
       ],

@@ -225,7 +225,7 @@ export function buildProfitWaterfallChart(
   const floored = new Set<string>();
   const svg = renderChartSvg(
     waterfallOption(bridged, scale, undefined, intervalsFor(box), isCompact(box), (label) => floored.add(label),
-      plot.heightMm * PX_PER_MM),
+      Math.round(plot.heightMm * PX_PER_MM)),
     plot,
   );
   return {

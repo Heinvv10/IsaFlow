@@ -174,7 +174,7 @@ export function buildCashWaterfallChart(
       kind: 'waterfall',
       svg: renderChartSvg(waterfallOption(
         steps, scale, undefined, cashBridgeIntervals(steps, box, cashBridgePlot.heightMm), isCompact(box),
-        undefined, cashBridgePlot.heightMm * PX_PER_MM,
+        undefined, Math.round(cashBridgePlot.heightMm * PX_PER_MM),
       ), cashBridgePlot),
       heightMm: box.heightMm,
       plotMm: cashBridgePlot.heightMm,

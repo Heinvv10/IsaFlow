@@ -51,7 +51,7 @@ import {
 } from './packChartAxes';
 import { CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
 import { makeWaterfallRenderItem } from './packWaterfallBars';
-import { labelledDomain } from './packWaterfallDomain';
+import { WATERFALL_CHROME, waterfallLayout } from './packWaterfallDomain';
 
 export { labelInkOn, stepPaint } from './packWaterfallPaint';
 export { AXIS_END_LABEL_RESERVE_PX, CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
@@ -67,30 +67,8 @@ export interface TrendPoint {
   value: number;
 }
 
-/**
- * THE AXIS CHROME IS NOT A CONSTANT, BECAUSE THE BOX IS NOT.
- *
- * `top: 32, bottom: 72` is what seven category names rotated thirty degrees
- * need at 12px, and it is right on the 110mm rung. On the 48mm rung — which
- * is where a page carrying a negative-revenue disclosure, a sign-flip
- * footnote and a three-line caption puts the bridge — the box is 181px and
- * that chrome takes 104 of them, so the BARS get 77px. The demo pack's
- * bridge draws its bars over 168px on the same sheet number. The ninth gate
- * read the two side by side and called the short one squashed enough to
- * crowd its own labels, which it is: it is the same chart at 43% plot
- * against 75%.
- *
- * The compact rung gives the labels 56px and sets them at 10px. "Operating
- * Expenses" at 10px is about 92px wide, so rotated thirty degrees it stands
- * 46px tall plus its line — inside 56 with room, and measured on the printed
- * SVG by `packChartAxisLegibility`. What that buys the plot is 28px, better
- * than a third more bar on the rung that needed it most.
- */
-const WATERFALL_CHROME = {
-  full: { top: 32, bottom: 72, labelPx: 12 },
-  compact: { top: 20, bottom: 56, labelPx: 10 },
-} as const;
-
+/** The rungs' chrome lives with the layout that sizes the plot from it —
+ *  see `packWaterfallDomain.ts`. */
 /** The pixels of a waterfall's box its axis chrome takes, for a caller
  *  choosing how many gridlines the rest of it can hold. */
 export function waterfallChromePx(compact: boolean): number {
@@ -116,17 +94,24 @@ export function waterfallOption(
    *  the sheet can declare the rule; a bar may be reported more than once,
    *  because ECharts may call `renderItem` more than once per datum. */
   onFloored?: (label: string) => void,
-  /** The SVG box's height in pixels. Given, the axis is extended so a short
-   *  bar's figure has room on its own side — see `labelledDomain`. */
+  /** The SVG box's height in pixels. Given, the plot rectangle is exact and
+   *  the axis is chosen to give every figure room — see `waterfallLayout`. */
   boxPx?: number,
 ): EChartsCoreOption {
   const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
-  const domain = boxPx === undefined
-    ? axisDomain(steps.flatMap((s) => [s.start, s.end]), intervals)
-    : labelledDomain(steps, intervals, boxPx - chrome.top - chrome.bottom);
+  const layout = boxPx === undefined
+    ? { top: chrome.top, bottom: chrome.bottom, domain: axisDomain(steps.flatMap((s) => [s.start, s.end]), intervals) }
+    : waterfallLayout(steps, boxPx, compact, intervals);
+  const domain = layout.domain;
   return {
     animation: false,
-    grid: { left: CHART_GUTTER_PX, right: CHART_GUTTER_RIGHT_PX, top: chrome.top, bottom: chrome.bottom },
+    // `outerBoundsMode: 'none'`: ECharts may not shrink the plot to fit the
+    // rotated names — the bottom margin is already sized for them — so the
+    // rectangle the domain was chosen for is the one drawn.
+    grid: {
+      left: CHART_GUTTER_PX, right: CHART_GUTTER_RIGHT_PX, top: layout.top, bottom: layout.bottom,
+      ...(boxPx === undefined ? {} : { outerBoundsMode: 'none' as const }),
+    },
     tooltip: {
       // Same figure the bar prints — see `WaterfallStep.labelValue`.
       formatter: labelTooltipFormatter(steps.map((s) => s.label), steps.map((s) => s.labelValue ?? s.value), scale),
