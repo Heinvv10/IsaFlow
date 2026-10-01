@@ -204,7 +204,7 @@ export async function getAccountLedger(
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
             AND je.status        = 'posted'
-          ORDER BY je.entry_date ASC, je.created_at ASC, jl.id ASC
+          ORDER BY je.entry_date ASC, COALESCE(je.created_at, 'epoch'::timestamptz) ASC, jl.id ASC
           LIMIT  ${plan.lineLimit}
           OFFSET ${plan.lineOffset}
         `) as Row[]
@@ -228,7 +228,7 @@ export async function getAccountLedger(
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
-          ORDER BY je.entry_date ASC, je.created_at ASC, jl.id ASC
+          ORDER BY je.entry_date ASC, COALESCE(je.created_at, 'epoch'::timestamptz) ASC, jl.id ASC
           LIMIT  ${plan.lineLimit}
           OFFSET ${plan.lineOffset}
         `) as Row[];

@@ -12,11 +12,13 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { hasNul, NUL_MESSAGE } from '@/lib/validation';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { getGeneralLedgerReport } from '@/modules/accounting/services/gl/generalLedgerReportService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
+  if (hasNul(req.query)) return apiResponse.badRequest(res, NUL_MESSAGE);
   const { companyId } = req as CompanyAuthedRequest;
   try {
     const { period_start, period_end } = req.query;

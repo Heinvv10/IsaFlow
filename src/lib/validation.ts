@@ -73,3 +73,12 @@ export function safeInt(value: unknown, fallback: number, max = 1000): number {
   const n = parseInt(String(value), 10);
   return isNaN(n) ? fallback : Math.min(Math.max(n, 1), max);
 }
+
+/** True when a string, or any string inside an array/object, contains a NUL byte (Postgres text cannot hold one: 22021). */
+export function hasNul(value: unknown, depth = 0): boolean {
+  if (typeof value === 'string') return value.includes('\u0000');
+  if (depth > 6 || value === null || typeof value !== 'object') return false;
+  return Object.values(value as Record<string, unknown>).some(v => hasNul(v, depth + 1));
+}
+
+export const NUL_MESSAGE = 'text parameters must not contain a NUL (\\u0000) character';

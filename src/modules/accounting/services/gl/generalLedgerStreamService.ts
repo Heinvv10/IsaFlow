@@ -99,11 +99,11 @@ export async function getGeneralLedgerLines(
                ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
                je.entry_date, je.entry_number, je.description, je.source,
                jl.debit, jl.credit, je.created_at,
-               to_char(je.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS created_key,
+               to_char(COALESCE(je.created_at, 'epoch'::timestamptz) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS created_key,
                SUM(CASE WHEN ga.normal_balance = 'debit'
                         THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END)
                  OVER (PARTITION BY ga.id
-                       ORDER BY je.entry_date, je.created_at, jl.id
+                       ORDER BY je.entry_date, COALESCE(je.created_at, 'epoch'::timestamptz), jl.id
                        ROWS UNBOUNDED PRECEDING) AS cumulative,
                -- The window's order and the page's order MUST be the same, or
                -- the running balance does not follow the rows it is printed

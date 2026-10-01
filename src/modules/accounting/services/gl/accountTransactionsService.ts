@@ -118,7 +118,7 @@ export async function getAccountTransactions(
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND ga.account_code = ${accountCode}
-      ORDER BY je.entry_date, je.created_at, jl.id
+      ORDER BY je.entry_date, COALESCE(je.created_at, 'epoch'::timestamptz), jl.id
     `) as Row[];
 
     const lines = txnRows.map((r: Row) => ({

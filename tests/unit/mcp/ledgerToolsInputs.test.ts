@@ -54,3 +54,32 @@ describe('an inverted range is a tool error', () => {
     expect(getAccountLedger).not.toHaveBeenCalled();
   }, 5000);
 });
+
+describe('a NUL byte in any string argument is a tool error before any query (Postgres 22021 poisons the read transaction)', () => {
+  const NUL = '50\u000000';
+  it.each([
+    ['search_gl account_code', () => searchGlTool.handler({ account_code: NUL, from_date: '2026-03-01', to_date: '2026-09-30' }, CTX), getAccountLedger],
+    ['general_ledger account_codes', () => generalLedgerTool.handler({ ...base, account_codes: [NUL] }, CTX), getGeneralLedgerLines],
+    ['general_ledger search', () => generalLedgerTool.handler({ ...base, search: NUL }, CTX), getGeneralLedgerLines],
+    ['general_ledger sources', () => generalLedgerTool.handler({ ...base, sources: [NUL] }, CTX), getGeneralLedgerLines],
+    ['general_ledger cursor account part', () => generalLedgerTool.handler({ ...base, cursor: cursor([NUL, GOOD[1], GOOD[2], GOOD[3]]) }, CTX), getGeneralLedgerLines],
+  ])('%s', async (_n, run, service) => {
+    const r = await run();
+    expect(r.isError).toBe(true);
+    expect(service).not.toHaveBeenCalled();
+  }, 5000);
+});
+
+describe('the date error states the allowed range, as the routes do', () => {
+  it('names the format and years', async () => {
+    const a = await searchGlTool.handler({ account_code: '5000', from_date: '0001-01-01', to_date: '2026-09-30' }, CTX);
+    const b = await generalLedgerTool.handler({ period_start: '2026-01-01', period_end: '1899-01-01' }, CTX);
+    for (const r of [a, b]) {
+      expect(r.content[0]!.text).toMatch(/YYYY-MM-DD/);
+      expect(r.content[0]!.text).toMatch(/1900/);
+    }
+    expect(a.content[0]!.text).toMatch(/^from_date /);
+    expect(b.content[0]!.text).toMatch(/^period_end /);
+  }, 5000);
+});
+

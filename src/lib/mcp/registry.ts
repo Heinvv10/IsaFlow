@@ -33,6 +33,7 @@ import { insufficientScopeMessage } from './scopeRemediation';
  */
 import { COMPANY_ASSERT_PROPERTY, assertCompanyMatches } from './companyAssert';
 import { isRefusalCoded } from './tools/toolHelpers';
+import { hasNul, NUL_MESSAGE } from '@/lib/validation';
 
 export function savepointNameFor(toolName: string): string {
   return `mcp_${toolName}`.slice(0, 31);
@@ -108,6 +109,10 @@ export class McpRegistry {
     if (tool.requiresScope && !ctx.scopes.includes(tool.requiresScope)) {
       return reject(insufficientScopeMessage(tool.requiresScope), null);
     }
+
+    // A NUL byte reaches Postgres as 22021 and aborts the request transaction (reads have no
+    // savepoint), so the registry/audit writes after it fail. Refuse before any handler.
+    if (hasNul(args)) return reject(`invalid arguments: ${NUL_MESSAGE}`, null);
 
     // Assert-only company guard. Runs before the idempotency-key check so a
     // mismatch never burns a key, and before any handler so nothing is

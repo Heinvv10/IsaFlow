@@ -18,7 +18,7 @@ import {
 } from '@/modules/accounting/services/gl/generalLedgerStreamService';
 import { GL_ACCOUNT_TYPES } from '@/modules/accounting/types/gl.types';
 import { UUID_RE } from '@/lib/validation';
-import { isLedgerDate } from '@/modules/accounting/services/gl/ledgerDateRange';
+import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import {
   buildEnvelope,
   decodeCursor,
@@ -26,7 +26,7 @@ import {
   isDetailLevel,
   type DetailLevel,
 } from '@/lib/mcp/contracts';
-import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { clampLimit, guardCastableArgs, nulArgError, ok, strArg, toolError } from './toolHelpers';
 
 /** A read that consumed no ledger row has no `posted_through`. */
 const NO_LEDGER_READ = '1970-01-01T00:00:00.000Z';
@@ -35,7 +35,7 @@ const CURSOR_PARTS = 4;
 
 const CREATED_KEY_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/;
 function isCursorKey(p: readonly string[]): boolean {
-  return isLedgerDate(p[1]) && CREATED_KEY_RE.test(p[2]!) && UUID_RE.test(p[3]!);
+  return isLedgerDate(p[1]) && !p[0]!.includes('\u0000') && CREATED_KEY_RE.test(p[2]!) && UUID_RE.test(p[3]!);
 }
 
 /** Every element of a string-array argument, or undefined when absent. */
@@ -104,6 +104,8 @@ export const generalLedgerTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    const nul = nulArgError(args);
+    if (nul) return nul;
     const periodStart = strArg(args, 'period_start');
     const periodEnd = strArg(args, 'period_end');
     if (!periodStart || !periodEnd) {
@@ -115,8 +117,8 @@ export const generalLedgerTool: McpTool = {
     const bad = guardCastableArgs(args, { date: ['period_start', 'period_end'] });
     if (bad) return bad;
     // isRealCalendarDate allows years 1-9999; the ledger's FY floor does not survive year 0.
-    if (!isLedgerDate(periodStart)) return toolError('invalid period_start');
-    if (!isLedgerDate(periodEnd)) return toolError('invalid period_end');
+    if (!isLedgerDate(periodStart)) return toolError(`period_start ${LEDGER_DATE_MESSAGE}`);
+    if (!isLedgerDate(periodEnd)) return toolError(`period_end ${LEDGER_DATE_MESSAGE}`);
     if (periodStart > periodEnd) return toolError('period_start must not be after period_end');
     if (accountIds?.some((id) => guardCastableArgs({ id }, { uuid: ['id'] }) !== null)) {
       return toolError('invalid account_ids');
