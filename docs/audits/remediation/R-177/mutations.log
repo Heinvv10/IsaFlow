@@ -1,5 +1,7 @@
-# Mutations on 69d614ba0 (final code). Each integration mutant: r177-pay-now-standing-link + r178-r180-portal-link-rules + r167-link-charges-link-amount (54 cases). M25 is a unit mutant.
-M1 no invoice lock in ensureStandingLink: RED | 3 failed | 51 passed
+# Mutations on f72734030 (final code). Each integration mutant: r177-pay-now-standing-link + r178-r180-portal-link-rules + r167-link-charges-link-amount (54 cases). M25 is a unit mutant.
+# An earlier run of this list was discarded: a test left a fixed-token row behind, which failed every later run. The test now uses a token unique per run.
+# M24 fails 20 cases, not only its two targeted ones, so it is not an isolated proof of them; M20 and M22 cover the lock timeout and the bare-service case is asserted directly.
+M1 no invoice lock in ensureStandingLink: RED | 2 failed | 52 passed
 M2 invoice lock is FOR UPDATE (blocks rows referencing the invoice): RED | 1 failed | 53 passed
 M3 lookup ignores link status: RED | 1 failed | 53 passed
 M4 lookup adopts an explicit-amount link: RED | 1 failed | 53 passed
@@ -8,25 +10,25 @@ M6 no lookup: always mint: RED | 5 failed | 49 passed
 M7 ensureStandingLink allows an unapproved invoice: RED | 2 failed | 52 passed
 M8 NaN balance owes: RED | 1 failed | 53 passed
 M9 minted with the 30-day default expiry: RED | 2 failed | 52 passed
-M10 payment_url not updated on mint: RED | 7 failed | 47 passed
-M11 lock query without the company predicate: RED | 2 failed | 52 passed
-M12 online_payment_enabled not restored on a found link: RED | 2 failed | 52 passed
-M13 a link on an unapproved invoice is payable (resolveLinkCharge): RED | 3 failed | 51 passed
-M14 the named standing link expires like any other: RED | 2 failed | 52 passed
-M15 a named explicit-amount link never expires: RED | 2 failed | 52 passed
+M10 payment_url not updated on mint: RED | 6 failed | 48 passed
+M11 lock query without the company predicate: RED | 1 failed | 53 passed
+M12 online_payment_enabled not restored on a found link: RED | 1 failed | 53 passed
+M13 a link on an unapproved invoice is payable (resolveLinkCharge): RED | 2 failed | 52 passed
+M14 the named standing link expires like any other: RED | 1 failed | 53 passed
+M15 a named explicit-amount link never expires: RED | 1 failed | 53 passed
 M16 any standing link never expires, named or not: RED | 2 failed | 52 passed
-M17 payment-link POST mints for an unapproved invoice: RED | 3 failed | 51 passed
-M18 verify writes cancelled on abandoned (old behaviour): RED | 2 failed | 52 passed
-M19 verify abandoned: no re-read of the stored status: RED | 3 failed | 51 passed
-M20 pay-now does not map the lock timeout: RED | 2 failed | 52 passed
-M22 the enable route does not map the lock timeout: RED | 2 failed | 52 passed
-M23 the enable route answers 404 for an unapproved invoice: RED | 3 failed | 51 passed
+M17 payment-link POST mints for an unapproved invoice: RED | 2 failed | 52 passed
+M18 verify writes cancelled on abandoned (old behaviour): RED | 1 failed | 53 passed
+M19 verify abandoned: no re-read of the stored status: RED | 2 failed | 52 passed
+M20 pay-now does not map the lock timeout: RED | 1 failed | 53 passed
+M22 the enable route does not map the lock timeout: RED | 1 failed | 53 passed
+M23 the enable route answers 404 for an unapproved invoice: RED | 2 failed | 52 passed
 M24 the invoice lock runs without withCustomerInvoiceLock (no transaction needed, no bound): RED | 20 failed | 34 passed
 M26 the token is matched as a LIKE pattern (lookup): RED | 1 failed | 53 passed
 M27 the token is matched as a LIKE pattern (expiry exemption): RED | 1 failed | 53 passed
-M28 the enable service falls back to localhost: RED | 3 failed | 51 passed
-M29 pay-now accepts a localhost origin: RED | 3 failed | 51 passed
-M30 portalAppUrl accepts localhost: RED | 2 failed | 52 passed
-M21 GET shows a link whatever resolveLinkCharge says: RED | 7 failed | 47 passed
-BASELINE after: 1 failed | 53 passed
+M28 the enable service falls back to localhost: RED | 2 failed | 52 passed
+M29 pay-now accepts a localhost origin: RED | 2 failed | 52 passed
+M30 portalAppUrl accepts localhost: RED | 1 failed | 53 passed
+M21 GET shows a link whatever resolveLinkCharge says: RED | 6 failed | 48 passed
+BASELINE after: 0 failed | 54 passed
 M25 Pay Now button offered for pending_approval (unit): RED | Tests 1 failed | 8 passed (9)
