@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, CheckCircle2, AlertCircle, AlertTriangle, Loader2, ShieldCheck, PartyPopper } from 'lucide-react';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 interface ValidationCheck {
   id: string;
@@ -37,8 +38,9 @@ export default function ValidatePage() {
       setSessionId(session.id);
       if (session.status === 'completed') setCompleted(true);
       return session.id;
-    } catch {
-      setError('Failed to load session');
+    } catch (err) {
+      log.error('Failed to load migration session', { error: err }, 'accounting-ui');
+      setError(apiErrorMessage(err, 'Failed to load session'));
     }
     return null;
   }, []);
