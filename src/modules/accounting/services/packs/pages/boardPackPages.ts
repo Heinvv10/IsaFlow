@@ -26,9 +26,6 @@
 import { PACK_LABELS } from '@/modules/accounting/services/packs/packSections';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
-import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
-import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
-import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
 import {
   highlightsTitle,
   narrativeTitle,
@@ -66,7 +63,6 @@ import {
   impossibleBalanceLines,
   buildTrendBlocks,
 } from './packPageBlocks';
-import type { PackMatter } from './packMatters';
 import { withDerivedMatters } from './packDerivedMatters';
 import { partialMonthClauseFor, partialMonthOf } from './packPartialMonth';
 import { selectPrintedMatters } from './packMattersPrinted';
@@ -104,9 +100,9 @@ import { shortenedPanelsNote } from './packShortenedPanels';
 import {
   receivablesBaseNote,
   receivablesReconciliationNote,
-  type PackReceivablesRead,
 } from './packReceivablesReconciliation';
-import type { PackDraftReason } from './packDraftStatus';
+import type { BoardPackInput } from './packBoardPackInput';
+import { printedStrings } from './packPrintedStrings';
 import type {
   PackChartSpec,
   PackComparativePeriod,
@@ -115,77 +111,12 @@ import type {
   PackPagesDocument,
 } from './packPageModel';
 
-export interface BoardPackInput {
-  /** Page 1's headline — the company's legal name, exempt from the message rule. */
-  companyLegalName: string;
-  /** Human-readable period, e.g. '1 March 2026 to 31 August 2026'. */
-  period: string;
-  generatedAt: string;
-  /**
-   * Every reason this pack is not final, from `draftReasons(...)`. Empty
-   * means final.
-   *
-   * NOT a boolean. "The fiscal period is closed" and "a human approved the
-   * commentary" are two facts, and one flag carrying both is how the
-   * Brightsphere pack — no approved commentary, inverted colours, three panel
-   * titles reading "rose from – to –" — told a board it was FINAL while the
-   * demo pack, from the same command on the same day, said DRAFT.
-   */
-  draftReasons: PackDraftReason[];
-  preparedBy: string;
-  brand: PackBrand;
-  set: PackFigureSet;
-  trend: PackTrendPoint[];
-  matters: PackMatter[];
-  /**
-   * What the pack knows about its own receivables: the aged debtors total
-   * where a sheet prints it, the full open subledger, and
-   * `reconcileSubledger`'s decomposition of the difference between the
-   * subledger and the control account. Page 11 reconciles the two printed
-   * debtors figures from it and page 4 discloses which of them debtor days
-   * is measured on. See `packReceivablesReconciliation.ts`.
-   */
-  receivables: PackReceivablesRead;
-  /** Page 4's board commentary. Null renders the pending placeholder (R7),
-   *  and is also one of the two things that keep a pack a DRAFT — see
-   *  `draftReasons`. */
-  commentary: PackNarrative | null;
-  /** Page 11's commentary on the matters. Null renders the placeholder. */
-  mattersCommentary: PackNarrative | null;
-  /** `getLedgerPostedThrough(...)`. Null renders explicit unavailable text (R-P46). */
-  ledgerVersion: string | null;
-}
+/** The composer's input and the printed-strings walk live in
+ *  `packBoardPackInput.ts` and `packPrintedStrings.ts`, split out for the
+ *  300-line cap. Re-exported because every existing caller imports it here. */
+export type { BoardPackInput };
 
 const pending: PackNarrative = { status: 'pending', body: null, actions: [] };
-
-/**
- * Every string a composed page PRINTS, so a term can be asked whether the
- * document carries it.
- *
- * A recursive walk rather than a per-block reader, for the reason
- * `packReportingEntity.test.ts` gives about the same shape: the word that
- * reached paper last time did so through `navLabel`, which no collector was
- * reading, and the next one will reach it through whichever field the next
- * collector forgets. Chart SVG is excluded because serialised markup is not
- * words a reader reads, and the model's own vocabulary (`kind`, `type`, `id`)
- * because a zrender element is literally `{ type: 'group' }`.
- */
-function printedStrings(page: UnnumberedPage): string[] {
-  const out: string[] = [];
-  const skip = new Set(['svg', 'sparklineSvg', 'trendSvg', 'bulletSvg', 'kind', 'type', 'id']);
-  const walk = (value: unknown): void => {
-    if (typeof value === 'string') { out.push(value); return; }
-    if (Array.isArray(value)) { value.forEach(walk); return; }
-    if (value !== null && typeof value === 'object') {
-      for (const [key, inner] of Object.entries(value)) {
-        if (skip.has(key)) continue;
-        walk(inner);
-      }
-    }
-  };
-  walk({ title: page.title, navLabel: page.navLabel, blocks: page.blocks, footnotes: page.footnotes });
-  return out;
-}
 
 export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const { set, trend, generatedAt } = input;
