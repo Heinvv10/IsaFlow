@@ -188,20 +188,26 @@ export async function lockJournalChain(tx: TxSql, companyId: string, rootId: str
 }
 
 /**
- * True when the run's lines were written after its journal was posted — the
- * run was recalculated since. calculatePayrollRun deletes and re-inserts the
- * lines, stamping them with the clock at the insert, which is after it holds
- * the run's header lock; the journal carries its approval's transaction start.
- * A calculation can therefore only ever look LATER than it was, which errs
- * toward the stricter comparison.
+ * True when the run's lines were written after it was last approved onto its
+ * journal — the run was recalculated since. Both sides are CLOCK times taken
+ * under the run's header lock: calculatePayrollRun stamps each line with
+ * clock_timestamp() at the insert, and approvePayrollRun stamps the header's
+ * approved_at with clock_timestamp() after its gate confirmed the lines match
+ * the journal. Only a calculation that took the lock after that approval
+ * committed (which needs a reopen) can write a later line.
+ *
+ * The journal's created_at is the approving transaction's START, so an
+ * approval that waited behind a calculation looked older than the lines it
+ * was built from and the run read as recalculated for good (round 6, breaker
+ * P2-A). It is used only for a run approved before approved_at was written.
  */
 export async function runRecalculatedSince(companyId: string, runId: string, journalId: string): Promise<boolean> {
   const rows = (await sql`
-    SELECT (SELECT max(prl.created_at) FROM payroll_run_lines prl
-              JOIN payroll_run_headers h ON h.id = prl.run_id
-             WHERE prl.run_id = ${runId}::uuid AND h.company_id = ${companyId}::uuid) > e.created_at AS recalculated
-      FROM gl_journal_entries e
-     WHERE e.id = ${journalId}::uuid AND e.company_id = ${companyId}::uuid
+    SELECT (SELECT max(prl.created_at) FROM payroll_run_lines prl WHERE prl.run_id = h.id)
+             > COALESCE(h.approved_at, e.created_at) AS recalculated
+      FROM payroll_run_headers h
+      JOIN gl_journal_entries e ON e.id = ${journalId}::uuid AND e.company_id = h.company_id
+     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
   `) as DbRow[];
   return rows[0]?.recalculated === true;
 }

@@ -147,6 +147,19 @@ describe('payroll run page — approve (PAY-01)', () => {
     expect(screen.queryByRole('button', { name: /review & approve/i })).toBeNull();
   });
 
+  // Round 6: the calculate route is withWriteAccess (a viewer gets 403), so the page must not offer it.
+  it.each(['viewer', null])('role %s is offered neither Calculate nor Recalculate', async (role) => {
+    company.role = role;
+    for (const status of ['draft', 'calculated']) {
+      cleanup();
+      fetchMock.mockImplementation(async () => ok(runBody({ status, lines: [] })));
+      render(<PayrollRunDetailPage />);
+      await screen.findByText(/no lines yet/i);
+      expect(screen.queryByRole('button', { name: /calculate/i })).toBeNull();
+      expect(screen.queryByText(/press/i)).toBeNull();
+    }
+  });
+
   it('an approved run links the journal it posted (PAY-24)', async () => {
     fetchMock.mockImplementation(async () => ok(runBody({ status: 'approved', journalEntryId: 'je-77' })));
     render(<PayrollRunDetailPage />);

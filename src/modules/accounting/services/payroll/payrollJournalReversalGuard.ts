@@ -28,12 +28,28 @@ import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { MAX_CHAIN_JOURNALS, findChainRoot, lockJournalChain, readJournalChain } from './payrollJournalChain';
 import { lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
+import { PayrollLoanLockTimeoutError } from './payrollRunLoanApplication';
 
 /** Raised before the reversal writes anything; its message is for the caller. */
 export class PayrollJournalReversalRefusedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'PayrollJournalReversalRefusedError';
+  }
+}
+
+/**
+ * The guard's 5s wait for the run header or the journal's reversal chain ran
+ * out: another request (an approve, a reopen, a calculation, another reversal)
+ * is changing the run. Raised before anything is written; retryable. Its own
+ * class — the loan-lock error it replaced said "being calculated" whoever held
+ * the run (W3-01 round 6).
+ */
+export class PayrollRunBusyError extends Error {
+  readonly code = 'PAYROLL_RUN_LOCK_TIMEOUT';
+  constructor(runId: string) {
+    super(`Payroll run ${runId} is being changed by another request — retry in a moment.`);
+    this.name = 'PayrollRunBusyError';
   }
 }
 
@@ -98,7 +114,8 @@ export async function payrollReversalRefusal(companyId: string, entry: { id: str
 /**
  * Called by reverseJournalEntry before it claims the entry. Takes the run
  * header, then the chain (LOCK ORDER: payrollJournalChain), with a 5s wait,
- * and judges inside them. Throws PayrollJournalReversalRefusedError.
+ * and judges inside them. Throws PayrollJournalReversalRefusedError, or
+ * PayrollRunBusyError when the wait runs out.
  */
 export async function refuseReversalAgainstPayRun(companyId: string, entry: { id: string; source?: string }): Promise<void> {
   if (entry.source !== 'auto_payroll') return;
@@ -110,8 +127,13 @@ export async function refuseReversalAgainstPayRun(companyId: string, entry: { id
   const run = await payRunOf(companyId, rootId, root.description, sql);
   if (!run) return;
 
-  await lockPayrollRunHeader(run.id, companyId);
-  await withBoundedLockWait(run.id, (tx) => lockJournalChain(tx, companyId, rootId));
+  try {
+    await lockPayrollRunHeader(run.id, companyId);
+    await withBoundedLockWait(run.id, (tx) => lockJournalChain(tx, companyId, rootId));
+  } catch (err) {
+    if (err instanceof PayrollLoanLockTimeoutError) throw new PayrollRunBusyError(run.id);
+    throw err;
+  }
   const refusal = await judge(companyId, rootId, sql);
   if (refusal) throw new PayrollJournalReversalRefusedError(refusal);
 }
