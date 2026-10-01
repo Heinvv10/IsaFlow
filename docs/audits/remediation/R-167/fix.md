@@ -130,7 +130,7 @@ Two suites share `tests/integration/r167-portal-links.helpers.ts`. In both, Pays
 signed, and `verifyTransaction` is stubbed. Each run uses a fresh client IP, because verify
 rate-limits per IP and that counter persists between runs.
 
-`r167-link-charges-link-amount.int.test.ts` covers explicit links, 21 cases:
+`r167-link-charges-link-amount.int.test.ts` covers explicit links, 26 cases:
 
 - **`create` charges:**
   - 4050 for R40.50 on an unpaid invoice;
@@ -156,7 +156,7 @@ rate-limits per IP and that counter persists between runs.
 - **The GET** shows 30 for a R40.50 link with R30 left. It says "This invoice has no
   outstanding balance" on a paid invoice, and answers 404 on a cancelled one.
 
-`r167-standing-links-and-checkout.int.test.ts` covers the other rules, 16 cases:
+`r167-standing-links-and-checkout.int.test.ts` covers the other rules, 18 cases:
 
 - **A standing link:**
   - charges the live balance: 3000 when minted at 115 with R30 owed, and 15000 after the
@@ -199,7 +199,7 @@ Evidence:
   - r158, r166, k101, r155-157, r157 and the r159 suites;
   - the k122 suites and the three r095 portal suites;
   - customer-ownership-fence-routes, on an `isaflow_test` copy of the fixture.
-- `mutations.log`: every mutant is RED. That is 47 in round 2; in round 3, Q50–Q52 are added, Q39 is re-pointed and Q40 is removed with the dead code, 49 in all; the re-confirmation round adds Q53 and the /review round adds Q54, 51 in all. Each run used both suites plus the
+- `mutations.log`: every mutant is RED. That is 47 in round 2; in round 3, Q50–Q52 are added, Q39 is re-pointed and Q40 is removed with the dead code, 49 in all; the re-confirmation round adds Q53, the /review round adds Q54, and the fresh-review round adds Q55–Q60, 57 in all. Each run used both suites plus the
   `paystackClient` unit test. They cover:
   - every filter and each arm of the charge, both link kinds, and the clamp;
   - every refusal and its HTTP mapping, including the 409;
@@ -285,6 +285,40 @@ APPROVED with six LOWs. Posted to the PR; all are fixed:
 - **"Before any DB work" was wrong:** the limiter writes its own counter. Reworded.
 - **The green log** now re-runs every regression suite on the final code.
 - **The register** has the PR and the fix commits.
+
+## Fresh reviewers after a host reboot (round 5)
+
+The host rebooted during the last push, and the reviewer agents were lost with it. Two new
+blind reviewers read the whole range at `6b244289f`. Both returned SHIP with LOWs.
+
+**Fixed:**
+
+- **The starting check filtered on amount.** If the balance moved while a checkout was at the
+  gateway, a second could start beside it. Any URL-less pending checkout on the link now answers
+  409 (Q55). A truly concurrent case runs two clicks at once: one 200, one 409, one charge (Q38).
+- **The spend trusted the request's link id.** It now also requires the link to belong to the
+  request's invoice (Q56).
+- **`verify` could overwrite a request the webhook had completed** with a stale `abandoned` or
+  `failed`, and then reported that stale result. It now moves only a request that is not
+  completed. A real success still completes one swept to `failed`. When it moves nothing, it
+  reports the stored status (Q57, Q58, Q60).
+- **The GET refused a link with no expiry while create charged it.** `getPaymentLink` now treats
+  a NULL expiry as not expired, as create does (Q59).
+- **A payment on a checkout already swept to `failed`** is banked and spends the link. This was a
+  test gap; the behaviour was already right.
+- **Migration 717 now sets `lock_timeout = '5s'`**, as migration 660 does. If it queues behind a
+  long transaction it fails instead of blocking webhooks.
+
+**Recorded, not changed:**
+
+- An explicit link clicked again after 30 minutes can open a second payable checkout (accepted
+  above).
+- `pay-now` still calls the gateway inside its `withAuth` transaction, with a float balance and
+  no reuse (follow-up).
+- `verify` maps `abandoned` to a terminal `cancelled`, which stops that checkout being reused
+  (follow-up).
+- Standing links still expire after 30 days (follow-up).
+- The register's `fixCommit` and status are set after merge, in the register PR.
 
 ## Migration / rollback
 

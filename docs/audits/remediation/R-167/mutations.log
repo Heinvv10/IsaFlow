@@ -1,3 +1,14 @@
+# Round 5 (fresh reviewers): on 3915b9497. Each: both r167 suites; baseline after the run 44 passed (44). The mutation scripts of earlier rounds were lost in a host reboot; these were re-written.
+Q55 starting check only for the same amount: RED | 3 failed | 40 passed (43)
+Q56 spend not bound to the request invoice: RED | 1 failed | 42 passed (43)
+Q57 verify overwrites a completed request: RED | 1 failed | 42 passed (43)
+Q58 verify reports its stale result: RED | 1 failed | 42 passed (43)
+Q59 GET refuses a link with no expiry: RED | 1 failed | 42 passed (43)
+Q38 no link lock: RED | 8 failed | 35 passed (43)
+Q21 no reuse at all: RED | 3 failed | 40 passed (43)
+Q50 abandoned starts never failed: RED | 1 failed | 42 passed (43)
+Q60 verify cannot complete a failed request: RED | Tests 1 failed | 43 passed (44)
+
 # /review round: on 76d88acb2. Q54 (the payer join's company predicate removed) is new: RED | 1 failed | 36 passed (37) — 'an invoice naming another company's customer is paid as Customer'. Baseline after it: 37 passed (37).
 
 # Re-confirmation round: on 44202201e. Q53 (a swept checkout's URL handed out) is new; Q42 was re-pointed at the checked URL write; Q21 and Q41 were re-run. Each: both r167 suites + paystackClient unit test.
