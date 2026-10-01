@@ -101,11 +101,11 @@ describe('a negative percentage keeps its direction in the sentence', () => {
 
   it('says the operating margin is NEGATIVE, not just how large it is', () => {
     const title = highlightsTitle(negativeMargin(), "R'000");
-    expect(title).toContain('1564.3%');
-    expect(title).toMatch(/negative 1564\.3%/);
+    expect(title).toContain('1\u00a0564.3%');
+    expect(title).toMatch(/negative 1\u00a0564\.3%/);
     // And the failure the fixture reproduces: the magnitude alone, with the
     // sentence saying "is" and nothing else.
-    expect(title).not.toMatch(/margin is 1564\.3%/);
+    expect(title).not.toMatch(/margin is 1\u00a0564\.3%/);
   });
 
   it('says the gross margin is NEGATIVE on page 6', () => {
@@ -113,8 +113,8 @@ describe('a negative percentage keeps its direction in the sentence', () => {
       { current: { revenue: 100_000, costOfSales: 1_448_000, operatingExpenses: 226_000 } } as never,
       "R'000",
     );
-    expect(title).toMatch(/negative 1348\.0%/);
-    expect(title).not.toMatch(/margin of 1348\.0%/);
+    expect(title).toMatch(/negative 1\u00a0348\.0%/);
+    expect(title).not.toMatch(/margin of 1\u00a0348\.0%/);
   });
 });
 

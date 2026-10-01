@@ -79,6 +79,20 @@ function separated(formatted: string): string {
   return formatted.replace(/[\x20\xa0\u202f]/g, GROUP_SEPARATOR).replace(/,/g, '.');
 }
 
+/**
+ * A magnitude to `dp` places with its integer part grouped like money.
+ * `toFixed` prints `1310.8` beside rand figures that read `1 310`; in the
+ * pack every four-digit figure carries the one separator, whatever its unit.
+ * Pack path only — screens keep what they printed.
+ */
+const fixedPlain = (magnitude: number, dp: number): string => magnitude.toFixed(dp);
+
+function groupedFixed(magnitude: number, dp: number): string {
+  const [int = '', frac] = magnitude.toFixed(dp).split('.');
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, GROUP_SEPARATOR);
+  return frac === undefined ? grouped : `${grouped}.${frac}`;
+}
+
 /** What every screen printed before the board pack existed: an ASCII space. */
 function separatedLegacy(formatted: string): string {
   return formatted.replace(/[\xa0\u202f]/g, ' ').replace(/,/g, '.');
@@ -173,7 +187,7 @@ export function formatPct(n: number, dp = 1, opt: PackFormatOpt = {}): string {
   // as a percentage of zero.
   if (!Number.isFinite(n)) return ZERO_DASH;
   const s = signOf(n);
-  const body = `${Math.abs(n).toFixed(dp)}%`;
+  const body = `${(opt.pack ? groupedFixed : fixedPlain)(Math.abs(n), dp)}%`;
   if (s === 'zero') return opt.pack ? `${(0).toFixed(dp)}%` : `0.${'0'.repeat(dp)}%`;
   if (!opt.pack) return s === 'neg' ? `${MINUS}${body}` : `+${body}`;
   // `signOf`'s threshold is half a cent and this carries a `dp`, so a change
@@ -199,7 +213,7 @@ export function formatPct(n: number, dp = 1, opt: PackFormatOpt = {}): string {
  */
 export function formatPctLevel(n: number, dp = 1): string {
   if (!Number.isFinite(n)) return ZERO_DASH;
-  const body = `${Math.abs(n).toFixed(dp)}%`;
+  const body = `${groupedFixed(Math.abs(n), dp)}%`;
   // Not `n < 0`: a level of −0.001% is `0.0%` at one decimal, and a bracketed
   // zero is a negative figure to a reader. See `bracketed`.
   return bracketed(n, dp) ? `(${body})` : body;
@@ -215,7 +229,7 @@ export function formatPctLevel(n: number, dp = 1): string {
  */
 export function formatRatio(n: number, dp = 2): string {
   if (!Number.isFinite(n)) return ZERO_DASH;
-  const body = Math.abs(n).toFixed(dp);
+  const body = groupedFixed(Math.abs(n), dp);
   // Not `signOf`: a ratio of 0.00 is a MEASURED ratio, and the en dash is
   // this module's word for a figure that is not there at all. Only the sign
   // is decided here — and only where the printed digits still carry it, so
@@ -274,7 +288,7 @@ export type ProsePct = string & { readonly __prosePct: unique symbol };
 
 /** The magnitude, deliberately NOT exported. See `ProsePct`. */
 function formatPctMagnitude(n: number, dp = 1): string {
-  return `${Math.abs(n).toFixed(dp)}%`;
+  return `${groupedFixed(Math.abs(n), dp)}%`;
 }
 
 export function pctWithWord(n: number, up: string, down: string, dp = 1): ProsePct {

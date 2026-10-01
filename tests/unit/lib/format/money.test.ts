@@ -144,7 +144,7 @@ describe('formatRatio and formatDays', () => {
 describe('formatPctLevel', () => {
   it('states a level with no leading plus, and a negative in brackets', () => {
     expect(formatPctLevel(63.7)).toBe('63.7%');
-    expect(formatPctLevel(-1348)).toBe('(1348.0%)');
+    expect(formatPctLevel(-1348)).toBe('(1\u00a0348.0%)');
     expect(formatPctLevel(NaN)).toBe('–');
   });
 });
@@ -157,7 +157,7 @@ describe('pctWithWord', () => {
   // it. There is now no exported way to obtain an undirected percentage, so
   // the word and the number come out together.
   it('carries the direction of a NEGATIVE value into the string', () => {
-    expect(pctWithWord(-1348, 'a positive', 'a negative')).toBe('a negative 1348.0%');
+    expect(pctWithWord(-1348, 'a positive', 'a negative')).toBe('a negative 1\u00a0348.0%');
     expect(pctWithWord(-8.1, 'up', 'down')).toBe('down 8.1%');
   });
   it('matches formatPct rounding, and reads zero as the positive word', () => {
@@ -273,5 +273,26 @@ describe('formatMoney scaling', () => {
   it('narrows a known scale string and refuses an unknown one', () => {
     expect(toMoneyScale("R'000")).toBe("R'000");
     expect(toMoneyScale('thousands')).toBeNull();
+  });
+});
+
+describe('four-digit percentages and ratios', () => {
+  const G = '\u00a0';
+  it('group the integer part on the pack path', () => {
+    expect(formatPct(1310.8, 1, PACK)).toBe(`+1${G}310.8%`);
+    expect(formatPct(-1310.8, 1, PACK)).toBe(`(1${G}310.8%)`);
+    expect(formatPctLevel(5323.5)).toBe(`5${G}323.5%`);
+    expect(formatPctLevel(-1522.9)).toBe(`(1${G}522.9%)`);
+    expect(formatRatio(1234.56)).toBe(`1${G}234.56`);
+    expect(formatRatio(-1234.56)).toBe(`(1${G}234.56)`);
+    expect(formatDays(1035)).toBe(`1${G}035 days`);
+    expect(pctWithWord(-1348, 'up', 'down')).toBe(`down 1${G}348.0%`);
+  });
+  it('leave a three-digit percentage alone', () => {
+    expect(formatPct(310.8, 1, PACK)).toBe('+310.8%');
+  });
+  it('are untouched on the legacy path', () => {
+    expect(formatPct(1310.8)).toBe('+1310.8%');
+    expect(formatPct(-1310.8)).toBe('\u22121310.8%');
   });
 });
