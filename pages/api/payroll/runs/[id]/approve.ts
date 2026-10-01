@@ -4,8 +4,9 @@
  * Body: { expectedPlanHash } — REQUIRED (BRK-596 R2-4): the planHash the
  * caller previewed (GET …/journal-plan). Without it an HTTP caller would
  * approve whatever the run holds now, not what anyone reviewed. A run that no
- * longer hashes the same is refused 409 before anything is written. (MCP calls
- * the service directly, behind its own dry run, so the service keeps it optional.)
+ * longer hashes the same is refused 409 before anything is written. (The MCP
+ * tool approve_pay_run requires the hash of its own dry run in its handler;
+ * the service keeps it optional only for the seed and simulation scripts.)
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';

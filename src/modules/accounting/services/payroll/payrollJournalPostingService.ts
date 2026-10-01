@@ -17,7 +17,7 @@ import { log } from '@/lib/logger';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
-import { buildPayrollJournalPlan } from './payrollJournalBuilder';
+import { buildPayrollJournalPlan, type PayrollJournalPlan } from './payrollJournalBuilder';
 
 type Row = DbRow;
 
@@ -40,14 +40,19 @@ const BLOCKER_MESSAGES: Record<string, (detail: string) => string> = {
  * is stamped `mcp:<tool>:v1` rather than falling back to `defaultHumanMeta`,
  * which would label agent work as human and hide it from `list_agent_postings`.
  * Omitted by the UI caller, which keeps human attribution.
+ *
+ * `opts.plan` is the plan to post instead of building one. approvePayrollRun
+ * passes the plan its gate judged and its caller's hash described: a plan
+ * rebuilt here could differ (a cost-centre mapping committed in between), and
+ * would be posted under a hash that never described it (W3-01 breaker D).
  */
 export async function postPayrollRunJournal(
   companyId: string,
   runId: string,
   userId: string,
-  opts?: { postingAgent?: string },
+  opts?: { postingAgent?: string; plan?: PayrollJournalPlan },
 ): Promise<string> {
-  const plan = await buildPayrollJournalPlan(companyId, runId);
+  const plan = opts?.plan ?? await buildPayrollJournalPlan(companyId, runId);
   if (!plan) throw new Error(`Payroll run ${runId} not found`);
 
   // Already posted is not an error — the approval path re-runs on retry and

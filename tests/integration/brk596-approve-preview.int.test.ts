@@ -162,37 +162,46 @@ describe('BRK-596', () => {
     expect(await payrollJournals(companyA, 'Payroll run 2026-10')).toBe(1);
   });
 
-  it('REPRO 4c: a reopened run whose journal was reversed in the GL cannot be re-locked onto it', async () => {
+  // Breaker round 3 (A): refusing here left the month a dead end — nothing
+  // reachable unlinked the reversed journal. It is replaced instead; only a
+  // reversal that was itself reversed (amounts re-booked) is still refused.
+  it('REPRO 4c: a reopened run whose journal was reversed in the GL is never re-locked onto it', async () => {
     const id = await calculatedRun(call, 11);
     const je = (await doApprove(id)).body.data!.journalEntryId;
     expect((await doReopen(id)).statusCode).toBe(200);
     const contra = await reverseJournalEntry(companyA, je, admin); // the GL's own reversal: status stays 'posted'
     const p = await preview(id);
-    const a = await doApprove(id);
-    expect(p.body.data!.blocker!.code).toBe('posted_journal_not_live');
-    expect(a.statusCode).toBe(400);
-    expect(a.body.error!.message).toBe(p.body.data!.blocker!.detail);
-    expect((await header(id)).status).toBe('calculated');
+    expect(p.body.data!.blocker).toBeNull();
+    expect(p.body.data!.posted).toBeNull();
+    expect(p.body.data!.replaces).toMatchObject({ journalEntryId: je });
 
     // Reversing the reversal re-books the amounts under a NEW journal; the one
-    // the run carries is still marked reversed, so the run still may not
-    // re-lock onto it.
+    // the run carries is still marked reversed. Neither re-locking onto it nor
+    // posting a fresh journal beside the re-booked amounts is right.
     await reverseJournalEntry(companyA, contra.id, admin);
-    expect((await preview(id)).body.data!.blocker!.code).toBe('posted_journal_not_live');
-    expect((await doApprove(id)).statusCode).toBe(400);
+    const q = await preview(id);
+    const a = await doApprove(id);
+    expect(q.body.data!.blocker!.code).toBe('posted_journal_not_live');
+    expect(a.statusCode).toBe(400);
+    expect(a.body.error!.message).toBe(q.body.data!.blocker!.detail);
+    expect(await header(id)).toMatchObject({ status: 'calculated', journal_entry_id: je });
+    expect(await payrollJournals(companyA, 'Payroll run 2026-11')).toBe(1);
   });
 
-  it('R2-1: a journal reversed through POST /api/accounting/journal-entries-action is not live', async () => {
+  it('R2-1: a journal reversed through POST /api/accounting/journal-entries-action is not live, and is replaced', async () => {
     const id = await calculatedRun(call, 12);
     const je = (await doApprove(id)).body.data!.journalEntryId;
     expect((await doReopen(id)).statusCode).toBe(200);
     const rev = await call(jeAction as Route, 'POST', '/api/accounting/journal-entries-action', undefined, { body: { id: je, action: 'reverse' } });
     expect(rev.statusCode).toBe(200);
     const p = await preview(id);
-    expect(p.body.data!.blocker!.code).toBe('posted_journal_not_live');
+    expect(p.body.data!.blocker).toBeNull();
+    expect(p.body.data!.replaces).toMatchObject({ journalEntryId: je });
     const again = await doApprove(id);
-    expect(again.statusCode).toBe(400);
-    expect(await header(id)).toMatchObject({ status: 'calculated', journal_entry_id: je });
+    expect(again.statusCode).toBe(200);
+    expect(again.body.data!.journalEntryId).not.toBe(je);
+    expect(await header(id)).toMatchObject({ status: 'approved', journal_entry_id: again.body.data!.journalEntryId });
+    expect(await payrollJournals(companyA, 'Payroll run 2026-12')).toBe(2); // the reversed one and its replacement
   });
 
   it('REPRO 5: cross-tenant and malformed ids', async () => {

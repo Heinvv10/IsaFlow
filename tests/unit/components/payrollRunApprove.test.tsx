@@ -121,6 +121,16 @@ describe('payroll run page — approve (PAY-01)', () => {
     expect(screen.queryByText(/approved and journal posted/i)).toBeNull();
   });
 
+  it('a run whose journal was reversed says a new one replaces it, and approving posts it', async () => {
+    serve(() => approvedResult('je-new'), {
+      preview: planBody(null, { plan: { alreadyPostedJournalId: 'je-old' }, replaces: postedJournal('je-old') }),
+    });
+    const dialog = await openAndConfirm(/approve and post journal/i);
+    expect(within(dialog).getByText(/was reversed, so a new one is posted in its place/i).textContent).toContain('JE-000042');
+    expect(within(dialog).queryByText(/already posted: journal/i)).toBeNull();
+    expect(await screen.findByText(/approved and journal posted/i)).toBeTruthy();
+  });
+
   it('a draft run has nothing to approve', async () => {
     serve(() => approvedResult('je-1'));
     fetchMock.mockImplementation(async () => ok(runBody({ status: 'draft', lines: [] })));

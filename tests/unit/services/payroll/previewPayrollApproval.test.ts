@@ -40,7 +40,7 @@ describe('previewPayrollApproval', () => {
   it('passes the plan through and does not count run_not_approved as a blocker', async () => {
     const p = plan([notApproved]);
     vi.mocked(buildPayrollJournalPlan).mockResolvedValue(p);
-    expect(await previewPayrollApproval('c1', 'r1')).toEqual({ plan: p, blocker: null, posted: null, planHash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(await previewPayrollApproval('c1', 'r1')).toEqual({ plan: p, blocker: null, posted: null, replaces: null, planHash: expect.stringMatching(/^[0-9a-f]{64}$/) });
     expect(buildPayrollJournalPlan).toHaveBeenCalledWith('c1', 'r1');
   });
 

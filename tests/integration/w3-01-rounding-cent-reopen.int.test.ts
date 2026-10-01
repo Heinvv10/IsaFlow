@@ -36,6 +36,8 @@ let salary = '';
 let employee = '';
 let acctA = '';
 let acctB = '';
+/** The third employee's pay in the tie-cent company: chosen so the split leaves one cent to place. */
+const TIE_BREAKER = 10000.01;
 
 const url = (id: string, action: string) => `/api/payroll/runs/${id}/${action}`;
 const preview = (id: string) => call(journalPlan as Route, 'GET', url(id, 'journal-plan'), id);
@@ -105,32 +107,96 @@ describe('a reopened run and the labour split\'s rounding cent (W3-01 round 3)',
       "SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id = $1 AND description = 'Payroll run 2026-08'", [company])).rows[0]!.n).toBe(1);
   });
 
-  it('still refuses a split that really moved, and a real one-cent change', async () => {
+  it('an allocation changed after posting is not a recalculation; a real one-cent change still is (breaker B)', async () => {
     const id = await calculatedRun(call, 9);
-    expect((await doApprove(id)).statusCode).toBe(200);
+    const journalId = String((await doApprove(id)).body.data!.journalEntryId);
     expect((await doReopen(id)).statusCode).toBe(200);
 
-    // 60/40 instead of 50/50: thousands of rand between the two accounts.
+    // 60/40 instead of 50/50 — thousands of rand between the two accounts in
+    // TODAY's split, but the run was never recalculated and its journal is
+    // what was approved: it re-locks onto it.
     await pool.query('UPDATE payroll_employee_cost_allocations SET percentage = 60 WHERE employee_id = $1 AND cost_centre_id = $2', [employee, ccLow]);
     await pool.query('UPDATE payroll_employee_cost_allocations SET percentage = 40 WHERE employee_id = $1 AND cost_centre_id = $2', [employee, ccHigh]);
-    expect((await preview(id)).body.data!.blocker).toMatchObject({ code: 'recalculated_after_posting' });
-    expect((await doApprove(id)).statusCode).toBe(400);
+    const p = await preview(id);
+    expect(p.body.data!.blocker).toBeNull();
+    expect(p.body.data!.posted).toMatchObject({ journalEntryId: journalId });
+    const again = await doApprove(id);
+    expect(again.statusCode).toBe(200);
+    expect(again.body.data).toMatchObject({ journalEntryId: journalId });
     await pool.query('UPDATE payroll_employee_cost_allocations SET percentage = 50 WHERE employee_id = $1', [employee]);
-    expect((await preview(id)).body.data!.blocker).toBeNull();
+    expect((await doReopen(id)).statusCode).toBe(200);
 
-    // One cent more salary, recalculated: a cent on net pay, not a placement.
+    // One cent more salary, recalculated: the labour total and net pay move.
     await pool.query('UPDATE payroll_employee_components SET amount = 20000.02 WHERE id = $1', [salary]);
     expect((await call(calculate as Route, 'POST', url(id, 'calculate'), id)).statusCode).toBe(200);
     expect((await preview(id)).body.data!.blocker).toMatchObject({ code: 'recalculated_after_posting' });
+    expect((await doApprove(id)).statusCode).toBe(400);
+  });
+});
 
-    // The same again where the split DOES leave a cent over (R20 177.15), so a
-    // cent of drift is within what rounding could explain — but it sits on
-    // net pay, and only a cent between labour accounts is a placement.
-    const next = await calculatedRun(call, 10);
-    expect((await doApprove(next)).statusCode).toBe(200);
-    expect((await doReopen(next)).statusCode).toBe(200);
-    await pool.query('UPDATE payroll_employee_components SET amount = 20000.03 WHERE id = $1', [salary]);
-    expect((await call(calculate as Route, 'POST', url(next, 'calculate'), next)).statusCode).toBe(200);
-    expect((await preview(next)).body.data!.blocker).toMatchObject({ code: 'recalculated_after_posting' });
+/**
+ * Breaker C: the rounding the split cannot place evenly goes on the largest
+ * line, and before round 2 a TIE between largest lines went to whichever the
+ * heap returned first. Two employees on the same pay in different cost
+ * centres, and a third whose pay makes the total not divide: the tie cent sits
+ * on one of the two centres' accounts. Swapping those accounts puts it on the
+ * other — the journal an old read order would have posted.
+ */
+describe('the tie cent on the other cost-centre account (W3-01 breaker C)', () => {
+  const other = crypto.randomUUID();
+  const call2 = routeCaller(tokens, { user: admin, company: other });
+  const [c1, c2] = [crypto.randomUUID(), crypto.randomUUID()];
+  let a1 = '';
+  let a2 = '';
+
+  beforeAll(async () => {
+    await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [other, 'W301 tie cent']);
+    await seedPayrollCompany(pool, other, 20000);
+    await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [other, admin]);
+    const comp = (await pool.query('SELECT id FROM payroll_components WHERE company_id = $1', [other])).rows[0]!.id;
+    const account = async (code: string) => (await pool.query(
+      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
+       VALUES ($1,$2,$3,'expense','debit',1) RETURNING id`, [other, code, `W301 labour ${code}`])).rows[0]!.id as string;
+    a1 = await account('5210');
+    a2 = await account('5220');
+    await pool.query('INSERT INTO cost_centres (id, company_id, code, name) VALUES ($1,$2,$3,$3), ($4,$2,$5,$5)', [c1, other, 'TIE-1', c2, 'TIE-2']);
+    await pool.query('INSERT INTO cost_centre_gl_mappings (company_id, cost_centre_id, expense_account_id) VALUES ($1,$2,$3), ($1,$4,$5)', [other, c1, a1, c2, a2]);
+    // Wanda (seeded, R20 000) in centre 1; a twin on R20 000 in centre 2; a third on TIE_BREAKER with no centre.
+    await pool.query('UPDATE payroll_employees SET cost_centre_id = $1 WHERE company_id = $2', [c1, other]);
+    for (const [n, amount, centre, tax] of [['W301-2', 20000, c2, '0123456788'], ['W301-3', TIE_BREAKER, null, '0123456787']] as const) {
+      const emp = (await pool.query(
+        `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number, cost_centre_id)
+         VALUES ($1, $2, 'Twin', $2, '2020-01-01', '1980-01-01', $3, $4) RETURNING id`, [other, n, tax, centre])).rows[0]!.id;
+      await pool.query("INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1,$2,$3,'2020-01-01')", [emp, comp, amount]);
+    }
+  });
+
+  afterAll(async () => {
+    await pool.query('DELETE FROM cost_centre_gl_mappings WHERE company_id = $1', [other]);
+    await cleanPayrollCompanies(pool, [other]);
+  });
+
+  it('re-approves onto a journal whose tie cent sits on the other cost centre', async () => {
+    const id = await calculatedRun(call2, 8, { company: other });
+    const o = { company: other };
+    const pre = async () => call2(journalPlan as Route, 'GET', url(id, 'journal-plan'), id, o);
+    const appr = async () => call2(approve as Route, 'POST', url(id, 'approve'), id, { ...o, body: { expectedPlanHash: (await pre()).body.data?.planHash } });
+    const first = await appr();
+    expect(first.statusCode).toBe(200);
+    expect((await call2(reopen as Route, 'POST', url(id, 'reopen'), id, { ...o, body: { reason: 'w301 tie cent' } })).statusCode).toBe(200);
+
+    await pool.query('UPDATE cost_centre_gl_mappings SET expense_account_id = CASE WHEN cost_centre_id = $1 THEN $2::uuid ELSE $3::uuid END WHERE company_id = $4', [c1, a2, a1, other]);
+    const p = await pre();
+    const plan = p.body.data!.plan.lines as Line[];
+    const posted = p.body.data!.posted.lines as Line[];
+    // The state under test: equal pay, so the two centres differ by the tie cent alone — now the other way round.
+    expect(Math.abs(cents(posted, a1) - cents(posted, a2))).toBe(1);
+    expect(cents(plan, a1)).toBe(cents(posted, a2));
+    expect(cents(plan, a2)).toBe(cents(posted, a1));
+
+    expect(p.body.data!.blocker).toBeNull();
+    const again = await appr();
+    expect(again.statusCode).toBe(200);
+    expect(again.body.data).toMatchObject({ status: 'approved', journalEntryId: first.body.data!.journalEntryId });
   });
 });

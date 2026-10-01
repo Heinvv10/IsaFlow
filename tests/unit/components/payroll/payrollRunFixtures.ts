@@ -46,12 +46,13 @@ export const PLAN_LINES = [
 
 export function planBody(
   blocker: Note | null = null,
-  opts: { plan?: Record<string, unknown>; posted?: Record<string, unknown> | null } = {},
+  opts: { plan?: Record<string, unknown>; posted?: Record<string, unknown> | null; replaces?: Record<string, unknown> | null } = {},
 ) {
   return {
     blocker,
     planHash: PLAN_HASH,
     posted: opts.posted ?? null,
+    replaces: opts.replaces ?? null,
     plan: {
       runId: RUN_ID, status: 'calculated', periodMonth: 9, periodYear: 2026, employeeCount: 1,
       alreadyPostedJournalId: null, entryDate: '2026-09-30', description: 'Payroll run 2026-09', reference: 'PAY-2026-09',
