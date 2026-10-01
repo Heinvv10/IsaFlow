@@ -1,0 +1,10 @@
+# GREEN on the working tree over 090497265 (2026-10-01T10:34:23Z); fixture isaflow-fixture-r175.
+# unit: files 65 passed (65); tests 496 passed (496) | int: files 5 passed (5); tests 88 passed | 2 skipped (90)
+# tsc --noEmit -p .: clean. eslint on the three changed src files: clean.
+# NOT in the set: tests/integration/withAuth.test.ts fails 2 of 2 (401, token verification) on unchanged source too in this fixture environment.
+## integration
+ Test Files  5 passed (5)
+      Tests  88 passed | 2 skipped (90)
+## unit
+ Test Files  65 passed (65)
+      Tests  496 passed (496)

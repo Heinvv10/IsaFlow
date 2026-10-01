@@ -99,6 +99,7 @@ export function withAuth(handler: Handler): NextApiHandler {
     const startedAt = Date.now();
     const client = await getAuthPool().connect();
     let deferred: DeferredEnd | null = null;
+    let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
     try {
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE app_user');
@@ -223,11 +224,12 @@ export function withAuth(handler: Handler): NextApiHandler {
         // Best-effort rollback, then (for the common deferred-flush case where
         // headers have NOT yet been sent) replace the buffered 2xx flush with an
         // honest 500 — today that is a silent lie (a committed-failed 200).
-        try { await client.query('ROLLBACK'); } catch { /* secondary */ }
+        try { await client.query('ROLLBACK'); } catch { unusable = true; }
         log.error('withAuth: transaction finalize failed after handler responded', {
           url: req.url,
           status: res.statusCode,
           handlerFailed, // distinguishes a failed COMMIT (2xx) from a failed ROLLBACK (5xx)
+          connectionDestroyed: unusable,
           message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
         }, 'Auth');
         if (process.env.SENTRY_ENABLED === 'true' && finalizeErr instanceof Error) {
@@ -266,11 +268,10 @@ export function withAuth(handler: Handler): NextApiHandler {
     } catch (err) {
       // R-159: answer the throw here. Rethrowing left res.end swapped, so any later 500 was
       // buffered and never sent; routes without an inner withErrorHandler hung the client.
-      let rolledBack = true;
-      try { await client.query('ROLLBACK'); } catch { rolledBack = false; }
-      answerThrow(req, res, deferred, err, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub, rolledBack });
+      try { await client.query('ROLLBACK'); } catch { unusable = true; }
+      answerThrow(req, res, deferred, err, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub, rolledBack: !unusable });
     } finally {
-      client.release();
+      client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
       const ms = Date.now() - startedAt;
       if (ms > 100) log.info('withAuth slow request', { ms, url: req.url }, 'Auth');
       if (process.env.SENTRY_ENABLED === 'true') {

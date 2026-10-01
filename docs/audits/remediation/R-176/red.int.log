@@ -1,0 +1,32 @@
+# RED on origin/master 090497265 + the new suite only; fixture isaflow-fixture-r175 (2026-10-01T10:32:18Z).
+# The 4 'COMMIT fails but ROLLBACK succeeds' cases are red only on the new connectionDestroyed log field; their outcome assertions (state idle, same pid, no row) pass on unchanged code.
+# withPublicRouteTransaction: all 5 cases pass on unchanged code (it already evicts).
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1239ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1050ms
+     × a 500 answer whose ROLLBACK fails twice: the connection is destroyed 1049ms
+     × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 12ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1057ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1056ms
+     × a 500 answer whose ROLLBACK fails twice: the connection is destroyed 1055ms
+     × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 19ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1047ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1046ms
+     × a 500 answer whose ROLLBACK fails twice: the connection is destroyed 1054ms
+     × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 16ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1050ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1047ms
+     × a 500 answer whose ROLLBACK fails twice: the connection is destroyed 1041ms
+     × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 10ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 16 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected 1 to be +0 // Object.is equality
+AssertionError: expected 'idle in transaction' to be null
+AssertionError: expected 'idle in transaction' to be null
+AssertionError: expected { …(4) } to match object { handlerFailed: false, …(1) }
+AssertionError: expected { status: 200, …(3) } to match object { handlerFailed: false, …(1) }
+ Test Files  1 failed (1)
+      Tests  16 failed | 13 passed | 1 skipped (30)
+# Census (b), unchanged matcher 090497265 + the new fixture cases:
+     × the matcher flags Reflect.defineProperty(res, 'end', { value: f }); 4ms
+AssertionError: expected false to be true // Object.is equality
+ Test Files  1 failed (1)
+      Tests  1 failed | 24 passed (25)
