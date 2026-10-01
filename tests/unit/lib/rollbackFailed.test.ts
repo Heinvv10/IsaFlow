@@ -15,7 +15,6 @@ import { ROLLBACK_TIMEOUT_MS, rollbackError, rollbackFailed, setRollbackBoundFor
 const logged = () => vi.mocked(log.error).mock.calls;
 const usual = ROLLBACK_TIMEOUT_MS;
 let restore = () => undefined as void;
-const warned = () => vi.mocked(log.warn).mock.calls;
 
 beforeEach(() => { vi.useFakeTimers(); vi.mocked(log.error).mockClear(); h.cancelBackend.mockReset(); h.cancelBackend.mockReturnValue(true); });
 afterEach(() => { vi.useRealTimers(); restore(); restore = () => undefined; vi.unstubAllEnvs(); });
@@ -97,18 +96,32 @@ describe('rollbackFailed', () => {
     expect(() => { (mod as { ROLLBACK_TIMEOUT_MS: number }).ROLLBACK_TIMEOUT_MS = 1; }).toThrow();
   });
 
-  it('a timed-out ROLLBACK whose backend cannot be cancelled is said once, at warn', async () => {
+  it('a timed-out ROLLBACK whose backend cannot be cancelled is said once, at warn; a refused one is not', async () => {
+    // A fresh module, so "once per process" starts from nothing said.
+    vi.resetModules();
+    const fresh = await import('@/lib/rollbackFailed');
+    const freshLog = (await import('@/lib/logger')).log;
+    const cannot = () => vi.mocked(freshLog.warn).mock.calls.filter((c) => String(c[0]).includes('cannot cancel')).length;
     h.cancelBackend.mockReturnValue(false);
-    vi.mocked(log.warn).mockClear();
+    // Refused outright: nothing is known to be in flight, so there is nothing to warn about.
+    await fresh.rollbackFailed({ query: async () => { throw new Error('reset'); } }, 'owner');
+    expect(cannot()).toBe(0);
     for (let i = 0; i < 2; i += 1) {
-      const result = rollbackFailed({ query: () => new Promise<never>(() => undefined) }, 'owner');
+      const result = fresh.rollbackFailed({ query: () => new Promise<never>(() => undefined) }, 'owner');
       await vi.advanceTimersByTimeAsync(usual);
       await expect(result).resolves.toBe(true);
     }
-    expect(warned().filter((c) => String(c[0]).includes('cannot cancel'))).toHaveLength(1);
-    // A ROLLBACK that was refused outright had nothing known to be in flight: not worth a warning.
-    await rollbackFailed({ query: async () => { throw new Error('reset'); } }, 'owner');
-    expect(warned().filter((c) => String(c[0]).includes('cannot cancel'))).toHaveLength(1);
+    expect(cannot()).toBe(1);
+    // And not at all when the cancel could be sent.
+    vi.resetModules();
+    const again = await import('@/lib/rollbackFailed');
+    const againLog = (await import('@/lib/logger')).log;
+    const saidBefore = vi.mocked(againLog.warn).mock.calls.length;
+    h.cancelBackend.mockReturnValue(true);
+    const result = again.rollbackFailed({ query: () => new Promise<never>(() => undefined) }, 'owner');
+    await vi.advanceTimersByTimeAsync(usual);
+    await expect(result).resolves.toBe(true);
+    expect(vi.mocked(againLog.warn).mock.calls.length).toBe(saidBefore);
   });
 
   it('a cancel that throws does not escape: the owner still gets its answer', async () => {
