@@ -40,7 +40,7 @@
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import type { MoneyScale } from '@/lib/format/money';
+import { formatMoney, type MoneyScale } from '@/lib/format/money';
 import {
   axisDomain,
   compositionTooltip,
@@ -52,7 +52,9 @@ import {
 import { CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
 import { makeWaterfallRenderItem } from './packWaterfallBars';
 import { packTextMeasure, WATERFALL_CHROME, waterfallLayout, type TextMeasure } from './packWaterfallDomain';
-import { BAR_SHARE_OF_BAND, figureText } from './packWaterfallFit';
+import { figureText, LABEL_LINE_PX } from './packWaterfallFit';
+import { waterfallFrame } from './packWaterfallFrame';
+import { packFigureWidthPx } from '@/lib/charts/packFigureWidth';
 
 export { labelInkOn, stepPaint } from './packWaterfallPaint';
 export { AXIS_END_LABEL_RESERVE_PX, CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
@@ -67,6 +69,9 @@ export interface TrendPoint {
   label: string;
   value: number;
 }
+
+/** The size a value axis sets its ticks at. */
+const TICK_PX = 12;
 
 /** The rungs' chrome lives with the layout that sizes the plot from it —
  *  see `packWaterfallDomain.ts`. */
@@ -106,31 +111,29 @@ export function waterfallOption(
 ): EChartsCoreOption {
   const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
   const boxPx = typeof box === 'number' ? box : box?.heightPx;
-  // The bar's width is exact only where nothing narrows the plot: the print
-  // face, whose gutters are fixed (`outerBoundsMode: 'none'` below).
-  const barWidthPx = typeof box === 'object' && measure === packTextMeasure
-    ? ((box.widthPx - CHART_GUTTER_PX - CHART_GUTTER_RIGHT_PX) / Math.max(1, steps.length)) * BAR_SHARE_OF_BAND
-    : undefined;
-  const fit = { texts: steps.map((s) => figureText(s, scale)), barWidthPx };
-  const layout = boxPx === undefined
-    ? { top: chrome.top, bottom: chrome.bottom, domain: axisDomain(steps.flatMap((s) => [s.start, s.end]), intervals) }
-    : waterfallLayout(steps, boxPx, compact, intervals, measure, fit);
-  const domain = layout.domain;
+  const texts = steps.map((s) => figureText(s, scale));
+  // Ticks are figures: in the print face, the face's own advances.
+  const tickWidthPx = (value: number) => {
+    const text = formatMoney(value, { scale });
+    return measure === packTextMeasure ? packFigureWidthPx(text, TICK_PX) : measure(text, TICK_PX).width;
+  };
+  const frame = boxPx === undefined
+    ? { top: chrome.top, bottom: chrome.bottom, domain: axisDomain(steps.flatMap((s) => [s.start, s.end]), intervals), fontPx: LABEL_LINE_PX, left: CHART_GUTTER_PX }
+    : typeof box === 'object'
+      ? waterfallFrame(steps, box, compact, intervals, measure, texts, tickWidthPx)
+      : { ...waterfallLayout(steps, boxPx, compact, intervals, measure, { texts }), left: CHART_GUTTER_PX };
+  const domain = frame.domain;
+  // NOTHING MAY MOVE THE PLOT where the box is known: the rectangle the
+  // domain was chosen for is the one drawn, in either face. A bare height in
+  // another face (a chart drawn at its container's width, in Plex Mono) is
+  // the one case left to ECharts, which narrows the plot from the left for
+  // wide ticks; its HEIGHT is still held.
+  const exact = typeof box === 'object' || measure === packTextMeasure;
   return {
     animation: false,
-    // `outerBoundsMode: 'none'`: ECharts may not shrink the plot to fit the
-    // rotated names — the bottom margin is already sized for them — so the
-    // rectangle the domain was chosen for is the one drawn.
     grid: {
-      left: CHART_GUTTER_PX, right: CHART_GUTTER_RIGHT_PX, top: layout.top, bottom: layout.bottom,
-      // In the print face nothing may move the plot. In another face (the
-      // management pack's screen, in Plex Mono) ECharts still keeps wide
-      // ticks and a long first name inside the chart by narrowing the plot
-      // from the left; its HEIGHT — the one the axis was chosen for, the
-      // bottom margin measured in that face — is held.
-      ...(boxPx === undefined ? {} : measure === packTextMeasure
-        ? { outerBoundsMode: 'none' as const }
-        : { outerBoundsClampHeight: '100%' }),
+      left: frame.left, right: CHART_GUTTER_RIGHT_PX, top: frame.top, bottom: frame.bottom,
+      ...(boxPx === undefined ? {} : exact ? { outerBoundsMode: 'none' as const } : { outerBoundsClampHeight: '100%' }),
     },
     tooltip: {
       // Same figure the bar prints — see `WaterfallStep.labelValue`.
@@ -147,7 +150,7 @@ export function waterfallOption(
       {
         name: 'waterfall',
         type: 'custom',
-        renderItem: makeWaterfallRenderItem(steps, palette, scale, domain, onFloored),
+        renderItem: makeWaterfallRenderItem(steps, palette, scale, domain, onFloored, frame.fontPx),
         clip: true,
         data: steps.map((s) => [s.start, s.end]),
       },

@@ -28,6 +28,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
+import { FIGURE_HALO_PX } from '@/modules/accounting/services/packs/packWaterfallPlace';
 import { textWidthEms } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { brightsphereLiveInput } from './fixtures/boardPackInputs';
 import { liveDemoShortPanelsInput } from './fixtures/liveDemoBoardPack';
@@ -54,8 +55,7 @@ const GRID = new RegExp(
 );
 const RECT = /<path d="M([-\d.]+) ([-\d.]+)l([-\d.]+) 0l0 ([-\d.]+)l[-\d.]+ 0Z"[^>]*fill="(#[0-9a-f]{6})"/gi;
 const TEXT = /<text\b[^>]*\bx="([-\d.]+)"\s+y="([-\d.]+)"([^>]*)>([^<]*)<\/text>/gi;
-/** The narrowest stroke that closes the gaps between a 12px figure's glyphs. */
-const MIN_HALO_PX = 3;
+
 
 /** The line box a 12px label occupies — the size `renderItem` sets its ground
  *  from, and the same em table the page composer measures prose with. */
@@ -77,16 +77,20 @@ function labels(svg: string): Label[] {
   const marks = [...plot.matchAll(RECT)].map((m) => ({
     at: m.index, rect: { x: Number(m[1]), y: Number(m[2]), w: Number(m[3]), h: Number(m[4]), fill: m[5]!.toLowerCase() },
   }));
-  return [...plot.matchAll(TEXT)].map((m) => {
-    const stroke = /\bstroke="(#[0-9a-f]{6})"/i.exec(m[3]!)?.[1]?.toLowerCase();
-    const width = Number(/\bstroke-width="([\d.]+)"/.exec(m[3]!)?.[1] ?? 0);
-    const under = /\bpaint-order="stroke"/.test(m[3]!);
+  const texts = [...plot.matchAll(TEXT)].map((m) => ({
+    at: m.index, text: m[4] ?? '', cx: Number(m[1]), cy: Number(m[2]),
+    fill: /\bfill="([^"]+)"/i.exec(m[3]!)?.[1]?.toLowerCase() ?? '',
+    stroke: /\bstroke="(#[0-9a-f]{6})"/i.exec(m[3]!)?.[1]?.toLowerCase(),
+    width: Number(/\bstroke-width="([\d.]+)"/.exec(m[3]!)?.[1] ?? 0),
+  }));
+  // The halo is a pass of its own: the same text at the same place, stroked
+  // and unfilled, painted BEFORE the figure — under every figure's fill.
+  return texts.filter((t) => t.fill !== 'none').map((t) => {
+    const halo = texts.find((h) => h.fill === 'none' && h.at < t.at && h.text === t.text && h.cx === t.cx && h.cy === t.cy && h.stroke !== undefined);
     return {
-      text: m[4] ?? '',
-      cx: Number(m[1]),
-      cy: Number(m[2]),
-      ground: marks.filter((r) => r.at < m.index).map((r) => r.rect),
-      halo: stroke !== undefined && under ? { colour: stroke, width } : null,
+      text: t.text, cx: t.cx, cy: t.cy,
+      ground: marks.filter((r) => r.at < t.at).map((r) => r.rect),
+      halo: halo === undefined ? null : { colour: halo.stroke!, width: halo.width },
     };
   });
 }
@@ -127,7 +131,7 @@ describe('no gridline is drawn through a figure', () => {
             // it, which is the same strike in a smaller place.
             const covered = label.ground.some((r) => r.y <= rule.y && r.y + r.h >= rule.y
               && r.x <= box.left && r.x + r.w >= box.right)
-              || (label.halo !== null && label.halo.colour === PAPER && label.halo.width >= MIN_HALO_PX);
+              || (label.halo !== null && label.halo.colour === PAPER && label.halo.width === FIGURE_HALO_PX);
             expect(
               covered,
               `${company} ${bridge.page}: the gridline at y=${rule.y} runs through "${label.text}" `
@@ -156,7 +160,6 @@ describe('no gridline is drawn through a figure', () => {
       .toBeGreaterThan(0);
     // And it is its own PAPER halo rather than the bar: this label sits clear
     // of its own bar, which is the half of the defect paint order does not save.
-    expect(label!.halo).toEqual({ colour: PAPER, width: expect.any(Number) });
-    expect(label!.halo!.width).toBeGreaterThanOrEqual(MIN_HALO_PX);
+    expect(label!.halo).toEqual({ colour: PAPER, width: FIGURE_HALO_PX });
   });
 });

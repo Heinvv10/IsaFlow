@@ -5,10 +5,13 @@
  * reads on the fill, or wholly outside it on its own side in ordinary ink.
  * The layout asks this function which, so it can give every figure that will
  * be set outside the room it needs; the renderer asks it again when it draws.
- * They may not disagree — a figure the renderer turned out of a bar the
- * layout thought held it has nowhere to go but back onto the bar, half on
- * and half off, which printed "226 871" with the lower half of every digit
- * white on white.
+ * Where the layout knows the chart's width they are asked of the same bar and
+ * cannot disagree — a figure the renderer turned out of a bar the layout
+ * thought held it has nowhere to go but back onto the bar, half on and half
+ * off, which printed "226 871" with the lower half of every digit white on
+ * white. Where it does not (a caller that gives a bare height) the layout
+ * takes nothing to fit and reserves room for every figure, which is the one
+ * disagreement that is safe.
  *
  * Both dimensions, padded: the bar must be as tall as a line of type with
  * its padding and as wide as the figure with its own, the figure measured by
@@ -43,9 +46,16 @@ export function figureText(step: WaterfallStep, scale: MoneyScale): string {
  *  plot's edge. */
 const FIGURE_SIDE_PAD_PX = 1;
 
-/** How wide a figure is drawn, with its side padding. */
-export function figureWidthPx(text: string): number {
-  return packFigureWidthPx(text, LABEL_LINE_PX) + FIGURE_SIDE_PAD_PX * 2;
+/**
+ * The sizes a chart's figures are set at, largest first. Twelve, unless the
+ * figures of a crowded bridge cannot be kept clear of one another at it —
+ * see `waterfallLayout`. One size for every figure on a chart.
+ */
+export const FIGURE_SIZES_PX = [12, 10, 9] as const;
+
+/** How wide a figure is drawn at `fontPx`, with its side padding. */
+export function figureWidthPx(text: string, fontPx: number = LABEL_LINE_PX): number {
+  return packFigureWidthPx(text, fontPx) + FIGURE_SIDE_PAD_PX * 2;
 }
 
 /**
@@ -53,6 +63,8 @@ export function figureWidthPx(text: string): number {
  *   drawn at whatever width its container has. Nothing is taken to fit a bar
  *   of unknown width, so the layout gives every figure room outside.
  */
-export function figureFitsInside(text: string, barHeightPx: number, barWidthPx: number | undefined): boolean {
-  return barWidthPx !== undefined && barHeightPx >= LABEL_INSIDE_PX && figureWidthPx(text) <= barWidthPx;
+export function figureFitsInside(
+  text: string, barHeightPx: number, barWidthPx: number | undefined, fontPx: number = LABEL_LINE_PX,
+): boolean {
+  return barWidthPx !== undefined && barHeightPx >= fontPx + LABEL_GAP_PX * 2 && figureWidthPx(text, fontPx) <= barWidthPx;
 }

@@ -15,7 +15,7 @@ export function renderLegacyBridge(steps: WaterfallStep[], width: number, height
   echarts.registerTheme(THEME, buildTheme((name: string) => (name === '--ff-fig-font' ? MONO : '')));
   const chart = echarts.init(null, THEME, { renderer: 'svg', ssr: true, width, height });
   try {
-    chart.setOption(legacyWaterfallOption(steps, height));
+    chart.setOption(legacyWaterfallOption(steps, { heightPx: height, widthPx: width }));
     return chart.renderToSVGString();
   } finally {
     chart.dispose();

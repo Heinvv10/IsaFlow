@@ -10,9 +10,8 @@ import { PACK_FONT_STACK } from '@/lib/charts/packFont';
 import type { MoneyScale } from '@/lib/format/money';
 import type { ChartPalette } from './packChartAxes';
 import { labelInkOn, stepColour } from './packWaterfallPaint';
-import {
-  BAR_SHARE_OF_BAND, figureFitsInside, figureText, figureWidthPx, LABEL_GAP_PX, LABEL_LINE_PX,
-} from './packWaterfallFit';
+import { BAR_SHARE_OF_BAND, figureText, LABEL_LINE_PX } from './packWaterfallFit';
+import { FIGURE_HALO_PX, placeFigures, type BarPx } from './packWaterfallPlace';
 
 export { LABEL_CLEARANCE_PX, LABEL_INSIDE_PX } from './packWaterfallFit';
 
@@ -23,7 +22,8 @@ export { LABEL_CLEARANCE_PX, LABEL_INSIDE_PX } from './packWaterfallFit';
  * figure (`figureFitsInside` — tall enough AND wide enough). Otherwise wholly
  * OUTSIDE it on its own side — above a rising bar, below a falling one, the
  * side reads as the sign — in ordinary ink, in room `waterfallLayout` reserved
- * by asking the same question. Never part on and part off:
+ * by asking the same function this renderer asks (`placeFigures`), which also
+ * keeps every figure clear of every other. Never part on and part off:
  *
  *   - Off the top, `clip: true` cuts the figure in half. Brightsphere's cash
  *     bridge printed `(3 186)` with its lower half missing.
@@ -72,12 +72,18 @@ export const NIL_STEP_RULE_PX = 1;
  * A halo and not a paper rectangle, because a rectangle as wide as a long
  * figure reached over the neighbouring bars and their figures and painted
  * them out. The halo follows the glyphs and covers nothing else.
+ *
+ * AND EVERY HALO IS PAINTED UNDER EVERY FIGURE. The halo is a pass of its
+ * own — the same text, stroked in paper with no fill — below all the fills
+ * (`z2`), so no figure's halo can erase another figure's digits whatever the
+ * layout did.
  */
-const LABEL_HALO_PX = 4;
 /** The paper kept round a figure that has to sit on a bar. */
 const GROUND_PAD_PX = 2;
-/** Figures over grounds over bars, whichever bar they belong to. */
-const FIGURE_Z2 = 2;
+/** Fills over halos over grounds over bars, whichever bar they belong to. */
+const GROUND_Z2 = 1;
+const HALO_Z2 = 2;
+const FIGURE_Z2 = 3;
 
 export function makeWaterfallRenderItem(
   steps: WaterfallStep[],
@@ -85,27 +91,37 @@ export function makeWaterfallRenderItem(
   scale: MoneyScale,
   domain: { min: number; max: number },
   onFloored: ((label: string) => void) | undefined,
+  /** The size the layout chose for this chart's figures. */
+  fontPx: number = LABEL_LINE_PX,
 ): CustomSeriesRenderItem {
   return function renderItem(params: CustomSeriesRenderItemParams, api: CustomSeriesRenderItemAPI) {
     const step = steps[params.dataIndex];
     if (!step) return undefined;
 
-    const [x1 = 0, y1 = 0] = api.coord([params.dataIndex, step.start]);
-    const [, y2 = 0] = api.coord([params.dataIndex, step.end]);
     const bandRaw = api.size ? api.size([1, 0]) : undefined;
     const band = (Array.isArray(bandRaw) ? bandRaw[0] : typeof bandRaw === 'number' ? bandRaw : 20) ?? 20;
     const width = band * BAR_SHARE_OF_BAND;
-    const x = x1 - width / 2;
-    const y = Math.min(y1, y2);
-    const height = Math.abs(y1 - y2);
-    // See `NIL_STEP_RULE_PX`: a zero-height step paints a rule on its running
-    // total rather than nothing at all.
-    const drawnHeight = Math.max(height, NIL_STEP_RULE_PX);
+    // EVERY BAR, because where a figure goes depends on its neighbours'.
+    const bars: BarPx[] = steps.map((other, j) => {
+      const [centre = 0, y1 = 0] = api.coord([j, other.start]);
+      const [, y2 = 0] = api.coord([j, other.end]);
+      const height = Math.abs(y1 - y2);
+      return {
+        centre, top: Math.min(y1, y2), height, width,
+        // See `NIL_STEP_RULE_PX`: a zero-height step paints a rule on its
+        // running total rather than nothing at all.
+        drawnHeight: Math.max(height, NIL_STEP_RULE_PX),
+        rises: other.end > other.start, falls: other.end < other.start, subtotal: other.isSubtotal,
+        text: figureText(other, scale),
+      };
+    });
+    const bar = bars[params.dataIndex]!;
+    const x = bar.centre - width / 2;
     // AND THE SHEET IS TOLD WHICH BAR THAT WAS. A bar drawn taller than its
     // own figure is the one mark on a bridge a reader cannot check against
     // the axis, so the rule has to be declared where it fired — and the only
     // place the firing is known is here, where the pixels are.
-    if (height < NIL_STEP_RULE_PX) onFloored?.(step.label);
+    if (bar.height < NIL_STEP_RULE_PX) onFloored?.(step.label);
 
     // THE RECTANGLE ECHARTS ACTUALLY DREW, from the coordinate system it
     // hands this function — not the domain's ends mapped through `coord`,
@@ -114,60 +130,46 @@ export function makeWaterfallRenderItem(
     const rect = (params as { coordSys?: { x?: number; y?: number; width?: number; height?: number } }).coordSys;
     const [, domainTop = 0] = api.coord([params.dataIndex, domain.max]);
     const [, domainBottom = Infinity] = api.coord([params.dataIndex, domain.min]);
-    const plotTop = rect?.y ?? domainTop;
-    const plotBottom = rect?.y !== undefined && rect.height !== undefined ? rect.y + rect.height : domainBottom;
-
-    const text = figureText(step, scale);
+    const plot = {
+      left: rect?.x ?? -Infinity,
+      right: rect?.x !== undefined && rect.width !== undefined ? rect.x + rect.width : Infinity,
+      top: rect?.y ?? domainTop,
+      bottom: rect?.y !== undefined && rect.height !== undefined ? rect.y + rect.height : domainBottom,
+    };
+    // WHERE IT GOES — see `placeFigures`. `hold`: with no box the layout
+    // reserved nothing, and the figure is still never clipped out.
+    const spot = placeFigures(bars, plot, fontPx, true)[params.dataIndex]!;
     const fill = stepColour(step, palette);
-    const falls = step.end < step.start;
-    const rises = step.end > step.start;
-    const roomAbove = y - LABEL_GAP_PX - LABEL_LINE_PX >= plotTop;
-    const roomBelow = y + drawnHeight + LABEL_GAP_PX + LABEL_LINE_PX <= plotBottom;
-    // A NIL step has no side and takes whichever has room.
-    const noRoomOnItsSide = falls ? !roomBelow : !roomAbove;
     // A LABEL SET IN THE BAR'S OWN INK NEVER SITS ABOVE IT. A subtotal is
     // filled with `palette.ink`, and its figure four pixels above it in the
     // same ink made the type and the fill one mark — a blind gate measured
     // the demo's Gross Profit bar as 7.6% overstated, which was exactly the
-    // label's line plus its gap. So a bar whose fill IS the figure's ink
-    // carries it inside wherever it fits, and where it does not the figure
-    // above is set in the axis ink.
-    const sameInkAsFill = fill === palette.ink;
-    // THE TWO STATES. Inside only where the bar holds the whole figure, and
-    // then only where it has to be (no room on its side) or reads better
-    // (the same-ink bar). Everything else is outside, on its own side.
-    const inside = figureFitsInside(text, height, width) && (noRoomOnItsSide || sameInkAsFill);
-    const below = !inside && (falls || (!rises && !roomAbove));
-    // `drawnHeight`, not `height`: a floored bar is drawn a rule's width
-    // taller than its figure, and the gap is kept from what is drawn.
-    //
-    // THE CLAMPS ARE A SAFETY NET. With a box the layout has reserved the
-    // room and neither fires. Without one — or if the layout could not
-    // settle — the figure is still never moved to the other side and never
-    // clipped out: it is held at the plot's edge on its own side.
-    const textTop = inside ? y + LABEL_GAP_PX
-      : below ? Math.min(y + drawnHeight + LABEL_GAP_PX, plotBottom - LABEL_LINE_PX)
-      : Math.max(y - LABEL_GAP_PX, plotTop + LABEL_LINE_PX) - LABEL_LINE_PX;
-    // AND SIDEWAYS IT STAYS ON THE PLOT TOO. A figure wider than its bar, on
-    // the first or last bar, ran past the plot's edge and the clip took its
-    // bracket — a negative read as a positive. It is moved along until it is
-    // whole; one wider than the whole plot is centred on it.
-    const half = figureWidthPx(text) / 2;
-    const centre = inside || rect?.x === undefined || rect.width === undefined ? x + width / 2
-      : rect.width < half * 2 ? rect.x + rect.width / 2
-      : Math.min(Math.max(x + width / 2, rect.x + half), rect.x + rect.width - half);
+    // label's line plus its gap. So a subtotal carries its figure inside
+    // wherever it fits, and where it does not the figure above is set in the
+    // axis ink.
+    const ink = spot.inside ? labelInkOn(fill, palette) : !spot.below && fill === palette.ink ? palette.axis : palette.ink;
     // AND WHERE IT STILL LANDS ON A BAR — a neighbour's, under a figure wider
-    // than its own band, or its own where the clamps above fired — it keeps
-    // its ordinary ink on a paper ground cut to the figure. Never the bar's
-    // contrasting ink with part of the figure off the bar. Figures and
-    // grounds are painted over every bar (`z2`), so no later bar hides one.
-    const onABar = !inside && steps.some((other, j) => {
-      const [ox = 0, oy1 = 0] = api.coord([j, other.start]);
-      const [, oy2 = 0] = api.coord([j, other.end]);
-      const top = Math.min(oy1, oy2);
-      return ox - width / 2 < centre + half && ox + width / 2 > centre - half
-        && top < textTop + LABEL_LINE_PX && top + Math.max(Math.abs(oy1 - oy2), NIL_STEP_RULE_PX) > textTop;
-    });
+    // than its own band, or its own where the hold fired — it keeps its
+    // ordinary ink on a paper ground cut to the figure. Never the bar's
+    // contrasting ink with part of the figure off the bar.
+    const onABar = !spot.inside && bars.some((other) => other.width !== undefined
+      && other.centre - other.width / 2 < spot.centre + spot.halfWidth && other.centre + other.width / 2 > spot.centre - spot.halfWidth
+      && other.top < spot.top + fontPx && other.top + other.drawnHeight > spot.top);
+    const type = {
+      text: bar.text,
+      x: spot.centre,
+      y: spot.top,
+      fontSize: fontPx,
+      // THE PACK'S FACE, NAMED HERE BECAUSE THIS IS A RAW ZRENDER TEXT AND NOT
+      // AN ECHARTS LABEL. A zrender text takes its font from `style.font`,
+      // whose default is the literal `12px sans-serif` — it does not read
+      // `option.textStyle` — so the family stamped on the option reached
+      // every label on the sheet EXCEPT these, and the demo printed `1 431`
+      // twice in two typefaces.
+      fontFamily: PACK_FONT_STACK,
+      align: 'center' as const,
+      verticalAlign: 'top' as const,
+    };
 
     return {
       type: 'group',
@@ -175,36 +177,26 @@ export function makeWaterfallRenderItem(
         {
           type: 'rect',
           name: 'bar',
-          shape: { x, y, width, height: drawnHeight },
+          shape: { x, y: bar.top, width, height: bar.drawnHeight },
           style: { fill },
         },
         ...(onABar ? [{
           type: 'rect' as const,
           name: 'labelGround',
-          z2: FIGURE_Z2 - 1,
-          shape: { x: centre - half - GROUND_PAD_PX, y: textTop - GROUND_PAD_PX, width: (half + GROUND_PAD_PX) * 2, height: LABEL_LINE_PX + GROUND_PAD_PX * 2 },
+          z2: GROUND_Z2,
+          shape: {
+            x: spot.centre - spot.halfWidth - GROUND_PAD_PX, y: spot.top - GROUND_PAD_PX,
+            width: (spot.halfWidth + GROUND_PAD_PX) * 2, height: fontPx + GROUND_PAD_PX * 2,
+          },
           style: { fill: palette.paper },
         }] : []),
-        {
-          type: 'text',
-          z2: FIGURE_Z2,
-          style: {
-            text,
-            x: centre,
-            y: textTop,
-            fill: inside ? labelInkOn(fill, palette) : !below && sameInkAsFill ? palette.axis : palette.ink,
-            ...(inside ? {} : { stroke: palette.paper, lineWidth: LABEL_HALO_PX }),
-            // THE PACK'S FACE, NAMED HERE BECAUSE THIS IS A RAW ZRENDER TEXT
-            // AND NOT AN ECHARTS LABEL. A zrender text takes its font from
-            // `style.font`, whose default is the literal `12px sans-serif` —
-            // it does not read `option.textStyle` — so the family stamped on
-            // the option reached every label on the sheet EXCEPT these, and
-            // the demo printed `1 431` twice in two typefaces.
-            fontFamily: PACK_FONT_STACK,
-            align: 'center',
-            verticalAlign: 'top',
-          },
-        },
+        ...(spot.inside ? [] : [{
+          type: 'text' as const,
+          name: 'labelHalo',
+          z2: HALO_Z2,
+          style: { ...type, fill: 'none', stroke: palette.paper, lineWidth: FIGURE_HALO_PX },
+        }]),
+        { type: 'text', z2: FIGURE_Z2, style: { ...type, fill: ink } },
       ],
     };
   };

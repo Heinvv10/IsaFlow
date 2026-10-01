@@ -12,14 +12,23 @@
  * The checks here do not know that rule. `lostGlyphs` reads, per glyph, what
  * the SVG paints under and over it in document order and what the plot's clip
  * cuts, and asks for 3:1 against whatever that is.
+ *
+ * AND NO FIGURE MEETS ANOTHER. On a bridge ending on a falling movement into
+ * a negative closing balance the last two figures stood at one height in
+ * adjacent bands, and the later one's halo erased the earlier one's digits:
+ * "(54 884 558)" printed as "(54 884 5". `textOnText` holds every pair of
+ * glyph boxes apart by more than a halo.
+ *
+ * The print bridges are drawn with the arguments their two callers pass
+ * (`bridgeFuzz().print`), not a narrower set of this file's own.
  */
 import { describe, expect, it } from 'vitest';
 import { waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
-import { svgBoxFor } from '@/modules/accounting/services/packs/pages/packChartBox';
-import { intervalsFor, isCompact } from '@/modules/accounting/services/packs/pages/packWaterfallBars';
-import { PX_PER_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
+import { MIN_TICK_PITCH_PX } from '@/modules/accounting/services/packs/packChartAxes';
+import { renderChartSvg } from '@/lib/charts/ssrSvg';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { bars, clipRect, figures, illegible, outsideClip, straddlesOwnBar } from './support/bridgeSvg';
+import { bars, clipRect, figures, haloOrder, illegible, outsideClip, straddlesOwnBar, textOnText, wrongSide } from './support/bridgeSvg';
+import { yAxisTicks } from './support/svgTicks';
 import { bridgeFuzz } from './support/bridgeFuzz';
 import { renderLegacyBridge } from './support/legacyBridge';
 
@@ -34,65 +43,94 @@ const DEMO: WaterfallStep[] = [
   { label: 'Net Profit', start: 0, end: -1_544_240, value: -1_544_240, isSubtotal: true, color: 'red' },
 ];
 
-/** What is wrong with a drawn bridge's figures, as sentences. */
+/** What is wrong with a drawn bridge, as sentences. */
 function faults(svg: string, steps: WaterfallStep[]): string[] {
   const clip = clipRect(svg);
   const drawn = figures(svg);
   const own = bars(svg);
+  // A count that is off is itself the fault: every check below pairs the
+  // k-th figure with the k-th bar.
+  if (drawn.length !== steps.length || own.length !== steps.length) return [`${drawn.length} figures and ${own.length} bars for ${steps.length} steps`];
+  const ticks = yAxisTicks(svg).map((t) => t.y).sort((a, b) => a - b);
+  const pitch = Math.min(Infinity, ...ticks.slice(1).map((y, i) => y - ticks[i]!));
   return [
-    ...(drawn.length === steps.length ? [] : [`${drawn.length} figures for ${steps.length} bars`]),
     ...drawn.filter((f) => outsideClip(f, clip)).map((f) => `"${f.text}" leaves the plot`),
     // In a box the layout reserved the room: no figure is left across its bar.
-    ...(drawn.length === own.length ? drawn.filter((f, k) => straddlesOwnBar(f, own[k]!)).map((f) => `"${f.text}" is part on its bar and part off`) : []),
+    ...drawn.filter((f, k) => straddlesOwnBar(f, own[k]!)).map((f) => `"${f.text}" is part on its bar and part off`),
+    ...drawn.filter((f, k) => steps[k]!.end !== steps[k]!.start && wrongSide(f, own[k]!, steps[k]!.end > steps[k]!.start)).map((f) => `"${f.text}" is on the wrong side of its bar`),
+    ...textOnText(svg),
     ...illegible(svg),
+    ...(pitch < MIN_TICK_PITCH_PX - 0.01 ? [`value ticks ${pitch.toFixed(1)}px apart`] : []),
   ];
 }
 
-const TITLES = ['Short title.', 'Cash moved from R 1 234 567 to R 2 345 678 over the period.',
-  'Revenue of R 123 456 789 bridges to net profit of R 12 345 678, a long sentence that wraps onto a second line of the figure caption for certain.'];
-const SEEDS = [424_242, 777_001, 13_579, 20_260_930];
-const PER_SEED = 1_500;
+const SEEDS = [424_242, 777_001, 13_579, 20_260_930, 5_550_123];
+const PER_SEED = 1_200;
+const LEGACY_WIDTHS = [700, 900, 1100];
 
 describe('a bridge figure is whole and legible', () => {
-  it.each([700, 900, 1100])('the Demo management pack at %ipx: "226 871" is whole', (width) => {
+  it.each(LEGACY_WIDTHS)('the Demo management pack at %ipx: "226 871" is whole', (width) => {
     const svg = renderLegacyBridge(DEMO, width, 320);
     expect(figures(svg).map((f) => f.text.replace(/\s/g, ' '))).toContain('226 871');
     expect(faults(svg, DEMO)).toEqual([]);
   });
 
-  it.each(SEEDS)('print, in thousands, up to eight bars, every rung — seed %i', (seed) => {
-    const fuzz = bridgeFuzz(seed);
-    const found: string[] = [];
-    let drawn = 0;
-    for (let i = 0; i < PER_SEED; i += 1) {
-      const { steps } = fuzz.next();
-      const box = { widthMm: 174, heightMm: fuzz.pick([110, 110, 72, 72, 48]) };
-      const plot = svgBoxFor(box, fuzz.pick(TITLES));
-      if (steps.length > 8) continue;
-      const size = { heightPx: Math.round(plot.heightMm * PX_PER_MM), widthPx: Math.round(plot.widthMm * PX_PER_MM) };
-      const svg = String(renderChartSvg(
-        waterfallOption(steps, "R'000", undefined, intervalsFor(box, plot.heightMm), isCompact(box), undefined, size), plot,
-      ));
-      drawn += 1;
-      for (const fault of faults(svg, steps)) found.push(`#${i} ${box.heightMm}mm ${JSON.stringify(steps.map((s) => [s.start, s.end]))}: ${fault}`);
-    }
-    expect(drawn).toBeGreaterThan(PER_SEED / 2);
-    expect(found.slice(0, 5), `${found.length} faults in ${drawn} charts`).toEqual([]);
-  }, 120_000);
+  it('the reviewer\'s falling movement into a negative closing balance: neither figure meets the other', () => {
+    const steps: WaterfallStep[] = [[0, -48_010_562], [-48_010_562, -96_755_403], [-96_755_403, -137_618_153], [-137_618_153, -174_428_941],
+      [-174_428_941, -238_593_828], [-238_593_828, -244_179_812], [-244_179_812, -299_064_370], [0, -299_064_370]]
+      .map(([start, end], i, all) => ({ label: `Step ${i + 1}`, start: start!, end: end!, value: end! - start!, isSubtotal: i === 0 || i === all.length - 1, color: 'red' }));
+    expect(faults(renderLegacyBridge(steps, 700, 320), steps)).toEqual([]);
+  });
 
-  it.each(SEEDS)('the management pack, up to eight bars, 700 and 900px — seed %i', (seed) => {
+  it('paints every halo beneath every figure, so no halo can erase a digit', () => {
+    const svg = renderLegacyBridge(DEMO, 700, 320);
+    const order = haloOrder(svg);
+    expect(order.halos, 'no figure outside its bar, so no halo is under test').toBeGreaterThan(2);
+    expect(order.allBeneath).toBe(true);
+  });
+
+  // Whole-rand figures in the billions on a 480px chart: clearing them at
+  // twelve would stagger one more than two lines out.
+  const CROWDED: Array<[number, Array<[number, number, boolean]>]> = [
+    [10, [[0, 1_670_538_542, true], [1_670_538_542, 4_464_739_702, false], [4_464_739_702, 5_406_775_803, false], [5_406_775_803, 7_671_208_553, false],
+      [7_671_208_553, 9_906_482_643, false], [9_906_482_643, 11_429_121_317, false], [11_429_121_317, 11_561_392_675, false], [0, 11_561_392_675, true]]],
+    [9, [[0, 39_809_131_502, true], [39_809_131_502, 47_160_985_871, false], [47_160_985_871, -61_412_785_201, false], [-61_412_785_201, -55_552_989_645, false],
+      [-55_552_989_645, 443_737_210_049, false], [443_737_210_049, 452_015_167_830, false], [452_015_167_830, 463_558_329_639, false], [0, 463_558_329_639, true]]],
+  ];
+  it.each(CROWDED)('a crowded bridge sets every figure at %ipx rather than stagger them past two lines', (px, shape) => {
+    const steps: WaterfallStep[] = shape.map(([start, end, isSubtotal], i) => ({ label: `Step ${i + 1}`, start, end, value: end - start, isSubtotal, color: end >= start ? 'green' : 'red' }));
+    const svg = renderLegacyBridge(steps, 480, 320);
+    expect([...new Set(figures(svg).map((f) => f.px))]).toEqual([px]);
+    expect(faults(svg, steps)).toEqual([]);
+  });
+
+  it('and an ordinary bridge keeps twelve', () => {
+    expect([...new Set(figures(renderLegacyBridge(DEMO, 700, 320)).map((f) => f.px))]).toEqual([12]);
+  });
+
+  it.each(SEEDS)('print, as the profit and cash callers draw it, every rung — seed %i', (seed) => {
     const fuzz = bridgeFuzz(seed);
     const found: string[] = [];
-    let drawn = 0;
     for (let i = 0; i < PER_SEED; i += 1) {
-      const { steps } = fuzz.next();
-      const width = fuzz.pick([700, 900]);
-      if (steps.length > 8) continue;
-      const svg = renderLegacyBridge(steps, width, 320);
-      drawn += 1;
-      for (const fault of faults(svg, steps)) found.push(`#${i} ${width}px ${JSON.stringify(steps.map((s) => [s.start, s.end]))}: ${fault}`);
+      const c = fuzz.print();
+      const svg = String(renderChartSvg(waterfallOption(c.steps, "R'000", undefined, c.ask, c.compact, undefined, c.box), c.plot));
+      for (const fault of faults(svg, c.steps)) found.push(`#${i} ${c.tag} ${JSON.stringify(c.steps.map((s) => [s.start, s.end]))}: ${fault}`);
     }
-    expect(drawn).toBeGreaterThan(PER_SEED / 2);
-    expect(found.slice(0, 5), `${found.length} faults in ${drawn} charts`).toEqual([]);
-  }, 120_000);
+    expect(found.slice(0, 5), `${found.length} faults in ${PER_SEED} charts`).toEqual([]);
+  }, 180_000);
+
+  it.each(SEEDS)('the management pack, profit and random shapes, 700 to 1100px — seed %i', (seed) => {
+    const fuzz = bridgeFuzz(seed);
+    const found: string[] = [];
+    for (let i = 0; i < PER_SEED; i += 1) {
+      // Revenue from a hundred thousand to two billion; random shapes from a
+      // thousand to a billion. Whole rands, as the management pack prints.
+      const profit = fuzz.rnd() < 0.6;
+      const steps = profit ? fuzz.profit(Math.pow(10, 5 + fuzz.rnd() * 4.3)) : fuzz.random(Math.pow(10, 3 + fuzz.rnd() * 6));
+      const width = fuzz.pick(LEGACY_WIDTHS);
+      const svg = renderLegacyBridge(steps, width, 320);
+      for (const fault of faults(svg, steps)) found.push(`#${i} ${profit ? 'profit' : 'random'} ${width}px ${JSON.stringify(steps.map((s) => [s.start, s.end]))}: ${fault}`);
+    }
+    expect(found.slice(0, 5), `${found.length} faults in ${PER_SEED} charts`).toEqual([]);
+  }, 180_000);
 });

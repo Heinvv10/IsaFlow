@@ -19,16 +19,31 @@ import { formatPackKv, scorecardFigure } from '@/modules/accounting/services/pac
 import { PackChart } from './PackChart';
 import { monospaceMeasure } from '@/modules/accounting/services/packs/packWaterfallDomain';
 
-/** The height `PackChart` draws this view's bridge at. */
-const LEGACY_WATERFALL_PX = 320;
+/**
+ * THE BOX THIS VIEW'S BRIDGE IS DRAWN IN, AND IT IS A FIXED ONE.
+ *
+ * The only caller is `PackPrintView`, whose root is `max-w-[190mm]`, and the
+ * waterfall section is a LANDSCAPE sheet (`isLandscapeSection`) — 261mm of
+ * measure — so the chart's container is 190mm wide in every render the PDF
+ * transport makes. 190mm is 718 CSS pixels. `PackChart` is given that width
+ * outright rather than `100%`, so it is 718 on a narrow browser window too:
+ * the layout below is chosen for one known rectangle and that is the
+ * rectangle drawn. A bridge in a container narrower than its own axis labels
+ * — measured at 360px, where ECharts squeezed the plot to nothing — cannot
+ * occur. `packLegacyBridgeWidth.dom.test.tsx` pins the two together.
+ */
+export const LEGACY_WATERFALL_BOX = { heightPx: 320, widthPx: 718 } as const;
 
 /**
  * The bridge option this view draws — exported so a test renders exactly it.
  * The same exact-plot layout as the board pack, measured in the face this
  * view's theme draws chart text in: IBM Plex Mono (`lib/charts/theme.ts`).
  */
-export function legacyWaterfallOption(steps: Parameters<typeof waterfallOption>[0], boxPx = LEGACY_WATERFALL_PX) {
-  return waterfallOption(steps, LEGACY_PACK_SCALE, undefined, undefined, false, undefined, boxPx, monospaceMeasure());
+export function legacyWaterfallOption(
+  steps: Parameters<typeof waterfallOption>[0],
+  box: { heightPx: number; widthPx: number } = LEGACY_WATERFALL_BOX,
+) {
+  return waterfallOption(steps, LEGACY_PACK_SCALE, undefined, undefined, false, undefined, box, monospaceMeasure());
 }
 
 const NO_COMPARATORS = { prior: false, budget: false, variance: false, trend: false } as const;
@@ -80,7 +95,7 @@ function Block({ block }: { block: PackBlock }) {
       );
 
     case 'waterfall':
-      return <PackChart height={LEGACY_WATERFALL_PX} option={legacyWaterfallOption(block.steps)} />;
+      return <PackChart height={LEGACY_WATERFALL_BOX.heightPx} width={LEGACY_WATERFALL_BOX.widthPx} option={legacyWaterfallOption(block.steps)} />;
 
     case 'trend':
       // Revenue is the series a reader quotes off a twelve-month page; the

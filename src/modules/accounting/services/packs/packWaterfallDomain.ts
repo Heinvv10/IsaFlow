@@ -12,9 +12,9 @@
  *      its rotation, and the option turns ECharts' shrinking off
  *      (`outerBoundsMode: 'none'`), so the plot ECharts draws IS
  *      `boxPx - top - bottom`. Held by a test that reads the clip rect.
- *   2. The tick count and the label headroom are chosen JOINTLY: the axis is
- *      extended by a label's height past the end of every bar that does not
- *      hold its own figure (`figureFitsInside`, the renderer's test), the step
+ *   2. The tick count and the label headroom are chosen JOINTLY: every
+ *      figure is placed by the renderer's own function (`placeFigures`), the
+ *      axis is extended to hold whichever run past the plot, the step
  *      count is held to the pitch budget, and the two are iterated to a
  *      fixed point where both hold. Bounded; the renderer checks the result
  *      against the real rectangle and has a fallback for the rare state that
@@ -25,7 +25,8 @@ import { format } from 'echarts/core';
 import { PACK_FONT_STACK } from '@/lib/charts/packFont';
 import { axisDomain, MIN_TICK_PITCH_PX, TICK_PITCH_PX, type AxisDomain } from './packChartAxes';
 import { NIL_STEP_RULE_PX } from './packWaterfallBars';
-import { figureFitsInside, LABEL_CLEARANCE_PX } from './packWaterfallFit';
+import { BAR_SHARE_OF_BAND, FIGURE_SIZES_PX, LABEL_LINE_PX } from './packWaterfallFit';
+import { placeFigures, type BarPx } from './packWaterfallPlace';
 
 /**
  * The axis chrome, at the two rungs. `bottom` is the floor for the category
@@ -79,37 +80,68 @@ export interface WaterfallLayout {
   /** The plot's height — exactly the clip rect ECharts draws. */
   plotPx: number;
   domain: AxisDomain;
+  /** The size every figure on the chart is set at — see `FIGURE_SIZES_PX`. */
+  fontPx: number;
 }
 
 const MAX_PASSES = 16;
+/** How many lines out a figure may be staggered before the type is set a
+ *  size smaller instead. */
+const MAX_STAGGER = 2;
+/** Bars of unknown width are placed this far apart: no two figures meet. */
+const FAR_APART_PX = 1e6;
 
 /**
- * What the layout knows of the figures: the text each bar prints, and how
- * wide a bar is drawn where that is known. See `figureFitsInside`.
+ * What the layout knows of the figures: the text each bar prints, and the
+ * plot's horizontal extent where the chart's width is known. Without it no
+ * bar's width is known, nothing is taken to fit inside, and every figure is
+ * given room outside — see `figureFitsInside`.
  */
-export interface FigureFit { texts: readonly string[]; barWidthPx?: number }
+export interface FigureFit { texts: readonly string[]; plotLeftPx?: number; plotWidthPx?: number }
 
-/** The pixels each figure set OUTSIDE its bar needs past the bar's end, as
- *  user values. A figure that fits inside needs none. */
-function reachFor(steps: WaterfallStep[], domain: AxisDomain, plotPx: number, fit?: FigureFit): number[] {
-  const unitsPerPx = (domain.max - domain.min) / plotPx;
-  if (!(unitsPerPx > 0)) return [];
-  const clearance = (LABEL_CLEARANCE_PX + NIL_STEP_RULE_PX) * unitsPerPx;
-  return steps.flatMap((step, i) => {
-    if (figureFitsInside(fit?.texts[i] ?? '', Math.abs(step.end - step.start) / unitsPerPx, fit?.barWidthPx)) return [];
-    return step.end < step.start
-      ? [Math.min(step.start, step.end) - clearance]
-      : [Math.max(step.start, step.end) + clearance];
+/** The bars in pixels, on a plot `plotPx` tall with its top at zero. */
+function barsPx(steps: WaterfallStep[], domain: AxisDomain, plotPx: number, fit?: FigureFit): BarPx[] {
+  const perUnit = plotPx / (domain.max - domain.min);
+  const band = fit?.plotWidthPx === undefined ? undefined : fit.plotWidthPx / Math.max(1, steps.length);
+  return steps.map((step, i) => {
+    const height = Math.abs(step.end - step.start) * perUnit;
+    return {
+      centre: band === undefined ? i * FAR_APART_PX : (fit?.plotLeftPx ?? 0) + band * (i + 0.5),
+      top: (domain.max - Math.max(step.start, step.end)) * perUnit,
+      height,
+      drawnHeight: Math.max(height, NIL_STEP_RULE_PX),
+      width: band === undefined ? undefined : band * BAR_SHARE_OF_BAND,
+      rises: step.end > step.start,
+      falls: step.end < step.start,
+      subtotal: step.isSubtotal,
+      text: fit?.texts[i] ?? '',
+    };
   });
 }
 
+/**
+ * Where the figures run past the plot, as the user values the axis must
+ * reach to hold them, and how far out the furthest was staggered.
+ */
+function overrun(steps: WaterfallStep[], domain: AxisDomain, plotPx: number, fit: FigureFit | undefined, fontPx: number) {
+  if (!(domain.max > domain.min)) return { reach: [] as number[], level: 0 };
+  const left = fit?.plotWidthPx === undefined ? -Infinity : fit.plotLeftPx ?? 0;
+  const plot = { left, right: fit?.plotWidthPx === undefined ? Infinity : left + fit.plotWidthPx, top: 0, bottom: plotPx };
+  const placed = placeFigures(barsPx(steps, domain, plotPx, fit), plot, fontPx, false);
+  const valueAt = (px: number) => domain.max - (px / plotPx) * (domain.max - domain.min);
+  // In pixels, so float residue at a domain of a trillion is not a reach.
+  const slack = 1e-6;
+  const reach = placed.flatMap((p) => {
+    if (p.inside) return [];
+    const far = p.below ? p.top + fontPx + NIL_STEP_RULE_PX : p.top - NIL_STEP_RULE_PX;
+    return (p.below ? far > plotPx + slack : far < -slack) ? [valueAt(far)] : [];
+  });
+  return { reach, level: Math.max(0, ...placed.map((p) => p.level)) };
+}
+
 /** Whether every outside figure has room on its own side of its bar. */
-export function labelsFit(steps: WaterfallStep[], domain: AxisDomain, plotPx: number, fit?: FigureFit): boolean {
-  const reach = reachFor(steps, domain, plotPx, fit);
-  // Relative to the span: at a domain of a trillion, float residue in the
-  // reach is far larger than an absolute billionth.
-  const tolerance = (domain.max - domain.min) * 1e-9;
-  return reach.every((v) => v <= domain.max + tolerance && v >= domain.min - tolerance);
+export function labelsFit(steps: WaterfallStep[], domain: AxisDomain, plotPx: number, fit?: FigureFit, fontPx: number = LABEL_LINE_PX): boolean {
+  return overrun(steps, domain, plotPx, fit, fontPx).reach.length === 0;
 }
 
 /**
@@ -135,24 +167,40 @@ export function waterfallLayout(
   const budget = Math.max(1, Math.floor(plotPx / MIN_TICK_PITCH_PX));
   const ends = steps.flatMap((step) => [step.start, step.end]);
 
-  let ask = Math.min(askHint ?? Math.max(2, Math.floor(plotPx / TICK_PITCH_PX)), budget);
-  let reach: number[] = [];
-  let domain = axisDomain(ends, ask);
-  for (let pass = 0; pass < MAX_PASSES; pass += 1) {
-    domain = axisDomain([...ends, ...reach], ask);
-    if (domain.splitNumber > budget && ask > 1) {
-      // Rounding the step and the bounds drew more steps than the plot holds:
-      // ask for one fewer and start the headroom again on the coarser axis.
-      ask -= 1;
-      reach = [];
-      continue;
+  const settle = (fontPx: number) => {
+    let ask = Math.min(askHint ?? Math.max(2, Math.floor(plotPx / TICK_PITCH_PX)), budget);
+    let reach: number[] = [];
+    let domain = axisDomain(ends, ask);
+    let settled = false;
+    let level = 0;
+    for (let pass = 0; pass < MAX_PASSES && !settled; pass += 1) {
+      domain = axisDomain([...ends, ...reach], ask);
+      if (domain.splitNumber > budget && ask > 1) {
+        // Rounding the step and the bounds drew more steps than the plot holds:
+        // ask for one fewer and start the headroom again on the coarser axis.
+        ask -= 1;
+        reach = [];
+        continue;
+      }
+      const over = overrun(steps, domain, plotPx, fit, fontPx);
+      level = over.level;
+      settled = over.reach.length === 0;
+      reach = [...reach, ...over.reach];
     }
-    if (labelsFit(steps, domain, plotPx, fit)) break;
-    reach = [...reach, ...reachFor(steps, domain, plotPx, fit)];
-  }
+    return { domain, fontPx, clear: settled && level <= MAX_STAGGER };
+  };
+  // THE TYPE IS SET A SIZE SMALLER ONLY WHERE THE FIGURES CANNOT BE KEPT
+  // APART AT TWELVE — a bridge of nine-digit figures on narrow bars, where
+  // clearing them would stagger one more than two lines out, or the axis
+  // will not settle. Every figure on the chart takes the one size. Only
+  // where the bars' widths are known: without them no two figures meet.
+  const sizes = fit?.plotWidthPx === undefined ? [LABEL_LINE_PX] : FIGURE_SIZES_PX;
+  let chosen = settle(sizes[0]!);
+  for (const size of sizes.slice(1)) if (!chosen.clear) chosen = settle(size);
+  let domain = chosen.domain;
   // A PLOT TOO SHORT FOR TWO LEGIBLE STEPS draws one. The ask cannot go
   // below one, and the rounding can still return two or three; the bounds
   // stay, and the axis labels its two ends only.
   if (domain.splitNumber > budget) domain = { ...domain, splitNumber: budget, interval: domain.max - domain.min };
-  return { top: chrome.top, bottom, plotPx, domain };
+  return { top: chrome.top, bottom, plotPx, domain, fontPx: chosen.fontPx };
 }
