@@ -15,6 +15,7 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
+import { toMoney } from '@/lib/money/decimalSum';
 import { DEFAULT_FY_START_MONTH, fiscalYearStart, resolveFiscalYearStartMonth } from './fiscalYearBasis';
 import { broughtForwardLine, getRetainedEarningsBroughtForward, INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
 import { withYearEndCloses } from './generalLedgerReportYearEnd';
@@ -204,7 +205,15 @@ export async function getGeneralLedgerReport(
       accounts, periodStart, periodEnd, fyStartMonth,
       retainedEarnings: { ...broughtForwardLine(fyStart), openingBalance: retainedBf },
     });
-    return reports.sort((a, b) => a.accountCode.localeCompare(b.accountCode));
+    // Money leaves the service rounded to cents, as the sibling listings do (toMoney).
+    return reports
+      .map(r => ({
+        ...r,
+        openingBalance: toMoney(r.openingBalance), closingBalance: toMoney(r.closingBalance),
+        totalDebit: toMoney(r.totalDebit), totalCredit: toMoney(r.totalCredit),
+        transactions: r.transactions.map(t => ({ ...t, balance: toMoney(t.balance) })),
+      }))
+      .sort((a, b) => a.accountCode.localeCompare(b.accountCode));
   } catch (err) {
     log.error('Failed to generate general ledger report', { error: err }, 'accounting');
     throw err;
