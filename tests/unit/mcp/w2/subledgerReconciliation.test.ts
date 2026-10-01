@@ -277,6 +277,30 @@ describe('reconcileSubledger — AR', () => {
     expect(rec.reconcilingItems.some((i) => i.type === 'document_after_as_at')).toBe(false);
   });
 
+  it('splits a document dated AFTER as_at with settlement before it into settlement_before_document', async () => {
+    // Velocity Fibre, 32 month-ends: every document_not_on_control_account item
+    // was a bill dated after the month-end with a payment dated on or before it
+    // applied FIFO — a prepayment, not a cut-off error. The close gate must be
+    // able to tell the two apart, so the builder names them apart. A document
+    // dated IN the period keeps its original reason.
+    vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl({ balance: 1000 })]);
+    vi.mocked(getARSubledger).mockResolvedValue(arSnapshot({ subledgerTotal: 1000 + 300 - 200 }) as never);
+    vi.mocked(getAgedReportTotal).mockResolvedValue(1100);
+    vi.mocked(getUnpostedSubledgerDocuments).mockResolvedValue([
+      { id: 'inv-late', documentNumber: 'INV-LATE', entityName: 'A', documentDate: '2026-09-10',
+        amount: -200, gross: 500, reason: 'document_not_on_control_account' },
+      { id: 'inv-cut', documentNumber: 'INV-CUT', entityName: 'B', documentDate: AS_AT,
+        amount: 300, gross: 300, reason: 'document_not_on_control_account' },
+    ] as never);
+
+    const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
+    const prepay = rec.reconcilingItems.find((i) => i.type === 'settlement_before_document');
+    const cut = rec.reconcilingItems.find((i) => i.type === 'document_not_on_control_account');
+    expect(prepay).toMatchObject({ bridge: 'subledger_to_control', amount: -200, documentIds: ['inv-late'] });
+    expect(cut).toMatchObject({ amount: 300, documentIds: ['inv-cut'] });
+    expect(rec.unexplainedDifference).toBe(0);
+  });
+
   it('reports EVERY control account and flags the ambiguity rather than picking one', async () => {
     // FINDINGS C1: no canonical control account exists. Ambiguity now means
     // exactly one thing — more than one account CARRIES THE CONTROL SUBTYPE —
