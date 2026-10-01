@@ -23,6 +23,11 @@ export async function autoMatchTransactions(
   companyId: string, bankAccountId: string, reconciliationId?: string
 ): Promise<AutoMatchResult> {
   try {
+    // Inside a session, only what that session may reconcile: lines dated on or
+    // before its statement date that are unclaimed or its own, against GL lines
+    // inside the balance it compares with. A missing session (wrong id or
+    // company) makes the date NULL, so nothing matches — fail closed.
+    const sessionId = reconciliationId ?? null;
     const bankTxRows = (await sql`
       SELECT id, amount, transaction_date, reference, description
       FROM bank_transactions
@@ -30,6 +35,10 @@ export async function autoMatchTransactions(
         AND company_id = ${companyId}::UUID
         AND status = 'imported'
         AND feed_state = 'posted'
+        AND (${sessionId}::UUID IS NULL OR (
+          (reconciliation_id IS NULL OR reconciliation_id = ${sessionId}::UUID)
+          AND transaction_date <= (SELECT r.statement_date FROM bank_reconciliations r
+            WHERE r.id = ${sessionId}::UUID AND r.company_id = ${companyId}::UUID)))
       ORDER BY transaction_date`) as DbRow[];
     if (bankTxRows.length === 0) return { matched: 0, unmatched: 0, candidates: [] };
     const glRows = (await sql`
@@ -45,6 +54,9 @@ export async function autoMatchTransactions(
           SELECT matched_journal_line_id FROM bank_transactions
           WHERE matched_journal_line_id IS NOT NULL
             AND company_id = ${companyId}::UUID)
+        AND (${sessionId}::UUID IS NULL OR je.entry_date <= (SELECT r.statement_date
+          FROM bank_reconciliations r
+          WHERE r.id = ${sessionId}::UUID AND r.company_id = ${companyId}::UUID))
       ORDER BY je.entry_date`) as DbRow[];
     const bankTxs = bankTxRows.map((r: DbRow) => ({
       id: String(r.id), amount: Number(r.amount), transactionDate: String(r.transaction_date),

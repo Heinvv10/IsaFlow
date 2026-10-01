@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { localISODate } from '@/lib/dateUtils';
 
 // ---------------------------------------------------------------------------
 // Dynamic Recharts imports (SSR disabled)
@@ -54,12 +55,11 @@ function fmtCurrency(n: number): string {
   return 'R\u00a0' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
 
-function buildLast12Months(): string[] {
+export function buildLast12Months(now: Date = new Date()): string[] {
   const months: string[] = [];
-  const now = new Date();
   for (let i = 11; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push(d.toISOString().slice(0, 7)); // "YYYY-MM"
+    months.push(localISODate(d).slice(0, 7)); // "YYYY-MM"
   }
   return months;
 }

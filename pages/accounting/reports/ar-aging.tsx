@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { ArrowLeft, Users, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatOverdueDaysCompact } from '@/lib/format/aging';
+import { localISODate } from '@/lib/dateUtils';
 
 type Bucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
 
@@ -73,7 +74,7 @@ const fmtDate = (s: string) => {
 const BUCKETS: Bucket[] = ['current', '1-30', '31-60', '61-90', '90+'];
 
 export default function ARAgingPage() {
-  const [asAtDate, setAsAtDate] = useState(() => new Date().toISOString().split('T')[0] as string);
+  const [asAtDate, setAsAtDate] = useState(() => localISODate());
   const [hasMore, setHasMore] = useState(false);
   const [data, setData] = useState<ARAgingData | null>(null);
   const [loading, setLoading] = useState(false);

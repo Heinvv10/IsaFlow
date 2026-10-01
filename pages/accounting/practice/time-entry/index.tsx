@@ -14,13 +14,11 @@ import { DayTotalsBar } from '@/components/practice/DayTotalsBar';
 import { BulkRangeModal } from '@/components/practice/BulkRangeModal';
 import type { PracticeTimeEntry, PracticeTimeEntryInput } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
 import type { BulkFromTemplateResult } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
+import { addDaysISO, localISODate } from '@/lib/dateUtils';
 
 // ---------- helpers ----------
 
-function todayIso() { return new Date().toISOString().slice(0, 10); }
-function offsetDate(iso: string, d: number): string {
-  const dt = new Date(iso); dt.setDate(dt.getDate() + d); return dt.toISOString().slice(0, 10);
-}
+function todayIso() { return localISODate(); }
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-ZA', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
 }
@@ -163,9 +161,9 @@ export default function TimeEntryPage() {
 
           {/* Day nav */}
           <div className="flex items-center gap-2">
-            <button onClick={() => setSelectedDate((d) => offsetDate(d, -1))} className="p-1.5 rounded-lg hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors"><ChevronLeft className="h-5 w-5" /></button>
+            <button onClick={() => setSelectedDate((d) => addDaysISO(d, -1))} className="p-1.5 rounded-lg hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors"><ChevronLeft className="h-5 w-5" /></button>
             <span className="text-sm font-medium text-[var(--ff-text-primary)] min-w-[210px] text-center">{fmtDate(selectedDate)}</span>
-            <button onClick={() => setSelectedDate((d) => offsetDate(d, 1))} className="p-1.5 rounded-lg hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors"><ChevronRight className="h-5 w-5" /></button>
+            <button onClick={() => setSelectedDate((d) => addDaysISO(d, 1))} className="p-1.5 rounded-lg hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors"><ChevronRight className="h-5 w-5" /></button>
             <button onClick={() => setSelectedDate(todayIso())} className="ml-2 px-3 py-1.5 rounded-lg text-xs font-medium border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] transition-colors">Today</button>
           </div>
 

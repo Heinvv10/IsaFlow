@@ -39,10 +39,9 @@ import {
   getCloseReadiness,
   type ChecklistItem,
 } from './periodCloseReadinessService';
+import { UNCOMPUTED_REASON_PREFIX } from './closeReadinessChecks/uncomputedReason';
 import type { FiscalPeriod } from '../../types/gl.types';
 
-/** The exact reason `getCloseReadiness` substitutes for a check that threw. */
-const UNCOMPUTED_REASON = 'Could not compute — check the relevant module.';
 
 /** The period cannot be closed at all: it is missing, locked, or already closed. */
 export class PeriodNotCloseableError extends Error {
@@ -85,9 +84,15 @@ export interface ClosePeriodResult {
   warnings: ChecklistItem[];
 }
 
-/** A `warn` that means "this check did not run" blocks; an ordinary warn does not. */
+/**
+ * A `warn` that means "this check did not run" blocks; an ordinary warn does
+ * not. Matched on the PREFIX: `getCloseReadiness` substitutes a fixed reason
+ * for a check that threw, while the AR / AP tie catches its own reconciliation
+ * failure and names the cause after the same prefix.
+ */
 function isBlocker(item: ChecklistItem): boolean {
-  return item.status === 'fail' || (item.status === 'warn' && item.reason === UNCOMPUTED_REASON);
+  return item.status === 'fail'
+    || (item.status === 'warn' && item.reason.startsWith(UNCOMPUTED_REASON_PREFIX));
 }
 
 export async function closePeriodWithReadiness(
