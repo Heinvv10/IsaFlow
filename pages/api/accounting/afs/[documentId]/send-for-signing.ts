@@ -14,6 +14,7 @@ import { UUID, requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { checkRateLimit, checkSendRateLimit } from '@/lib/rateLimit';
+import { markQuotaUsed, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
 import { sendForSigning } from '@/modules/accounting/services/afs/signumIntegrationService';
 import { notifySigningRequested } from '@/modules/accounting/services/afs/portalNotificationService';
 import type { PortalRole } from '@/modules/accounting/services/afs/afsTypes';
@@ -123,13 +124,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // 5. Send to Signum (JSON body — real API uses /documents/from-html)
   const signers = contacts.map((c) => ({ email: c.email, name: c.name }));
-  const { signumDocumentId, signingTokens } = await sendForSigning(
-    documentId,
-    companyId,
-    html,
-    title,
-    signers,
-  );
+  let signum: Awaited<ReturnType<typeof sendForSigning>>;
+  try {
+    signum = await sendForSigning(documentId, companyId, html, title, signers);
+  } catch (err) {
+    // A timeout may still have created the document; a refusal did nothing (R-175).
+    markQuotaUsedUnlessNoWork('send', err);
+    throw err;
+  }
+  // The Signum document is the work this route's daily unit bounds: it is
+  // spent now, whether or not the signer emails below go out (R-175).
+  markQuotaUsed('send');
+  const { signumDocumentId, signingTokens } = signum;
 
   // 6. Notify each signer with their individual signing URL
   const callbackBaseUrl =

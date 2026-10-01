@@ -58,19 +58,20 @@ const user = { id: 'u1', email: 'admin@co.test' };
 
 const ROUTES = [
   {
-    name: 'dunning', handler: dunningSend as unknown as H, mails: 1,
+    name: 'dunning', handler: dunningSend as unknown as H, mails: 1, signum: 0,
     ok: { method: 'POST', body: { invoiceId: ID(1), templateId: ID(2) } },
     malformed: { method: 'POST', body: { invoiceId: 'nope' } },
     notOwned: ['FROM customer_invoices ci', 'dunning_templates'],
   },
   {
-    name: 'company-invitations', handler: companyInvitations as unknown as H, mails: 1,
+    name: 'company-invitations', handler: companyInvitations as unknown as H, mails: 1, signum: 0,
     ok: { method: 'POST', body: { email: 'new@co.test', role: 'viewer' }, companyRole: 'owner' },
     malformed: { method: 'POST', body: { role: 'viewer' }, companyRole: 'owner' },
     notOwned: [],
   },
   {
-    name: 'afs-signing', handler: sendForSigningRoute as unknown as H, mails: 1,
+    // The Signum document is work of its own: one unit used before any email (see sendForSigningQuotaUse).
+    name: 'afs-signing', handler: sendForSigningRoute as unknown as H, mails: 1, signum: 1,
     ok: { method: 'POST', query: { documentId: ID(3) }, body: { signerContactIds: [ID(4)] } },
     malformed: { method: 'POST', query: { documentId: ID(3) }, body: { signerContactIds: [] } },
     notOwned: ['FROM afs_documents', 'FROM portal_contacts'],
@@ -128,23 +129,24 @@ describe.each(ROUTES)('$name — daily send unit and abuse limit (R-175)', (rout
   afterEach(() => vi.unstubAllEnvs());
 
   it('keeps its unit after the mail server accepted the email', async () => {
-    expect(await unitsUsed(route, 'ok')).toBe(route.mails);
+    expect(await unitsUsed(route, 'ok')).toBe(route.mails + route.signum);
     expect(sendMail).toHaveBeenCalledTimes(route.mails);
     expect(checkSend.mock.calls[0]![2]).toBe(route.name);
     expect(checkSend.mock.calls[0]![3]).toMatchObject({ refundUnused: true });
   });
 
   it('leaves its unit unused when the mail server is down', async () => {
-    sendMail.mockRejectedValue(new Error('ECONNREFUSED'));
+    // As nodemailer reports a refused connection: ESOCKET, with Node's syscall kept.
+    sendMail.mockRejectedValue(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ESOCKET', syscall: 'connect' }));
 
-    expect(await unitsUsed(route, 'ok')).toBe(0);
+    expect(await unitsUsed(route, 'ok')).toBe(route.signum);
     expect(sendMail).toHaveBeenCalledTimes(route.mails);
   });
 
   it('leaves its unit unused when SMTP is not configured', async () => {
     vi.stubEnv('SMTP_HOST', '');
 
-    expect(await unitsUsed(route, 'ok')).toBe(0);
+    expect(await unitsUsed(route, 'ok')).toBe(route.signum);
     expect(sendMail).not.toHaveBeenCalled();
   });
 });
@@ -155,7 +157,7 @@ describe.each(ROUTES)('$name — daily send unit and abuse limit (R-175)', (rout
 const LIMITED = [
   ...ROUTES.filter((r) => r.name !== 'company-invitations'),
   {
-    name: 'invoice-email', handler: invoiceEmail as unknown as H, mails: 0,
+    name: 'invoice-email', handler: invoiceEmail as unknown as H, mails: 0, signum: 0,
     ok: { method: 'POST', body: { invoiceId: ID(1), recipientEmail: 'a@b.co' } },
     malformed: { method: 'POST', body: { invoiceId: ID(1), recipientEmail: 'not-an-email' } },
     notOwned: ['FROM customer_invoices'],

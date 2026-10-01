@@ -69,7 +69,7 @@ describe('where usage-quota use is recorded (R-175)', () => {
     });
 
     it('records nothing when the mail server refuses or is down', async () => {
-      sendMail.mockRejectedValue(new Error('ECONNREFUSED'));
+      sendMail.mockRejectedValue(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ESOCKET', syscall: 'connect' }));
       expect(await used(async () => {
         expect((await sendEmail(mail)).success).toBe(false);
       })).toEqual({ ai: 0, send: 0 });

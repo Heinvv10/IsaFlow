@@ -7,7 +7,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { log } from '@/lib/logger';
-import { markQuotaUsed } from '@/lib/quotaUse';
+import { markQuotaUsed, markSendUsedUnlessNotSent } from '@/lib/quotaUse';
 import { sql, withSavepoint } from '@/lib/neon';
 
 // Resolve the logo once at module load — path works in both dev and production standalone
@@ -217,6 +217,8 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
       messageId: info.messageId,
     };
   } catch (err) {
+    // A timeout after the server took the message still sent it (R-175).
+    markSendUsedUnlessNotSent(err);
     const message = err instanceof Error ? err.message : 'Unknown email error';
     log.error('Failed to send email', { error: message, to: options.to }, 'emailService');
 
