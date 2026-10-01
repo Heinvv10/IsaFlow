@@ -10,7 +10,12 @@ export interface CompanyContext {
   fiscalYear: number;
 }
 
-const client = new Anthropic();
+// No SDK retries (its default is 2, on 408/409/429/5xx/529). An attempt that did
+// the work followed by a final 529 would otherwise be judged by the 529 alone
+// and the daily AI unit given back (R-175), and the SDK's errors do not say
+// whether a retry happened. The one caller (the AFS section ai-narrative route)
+// reports the failure and the user can try again.
+const client = new Anthropic({ maxRetries: 0 });
 
 export async function generateNoteNarrative(
   sectionType: SectionType,
