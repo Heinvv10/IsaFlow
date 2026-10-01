@@ -731,6 +731,14 @@ export const brightsphereReceivablesGapInput: BoardPackInput = {
   // between them being two documents with no due date), a control account at
   // (329 700), and two reconciling items that close the 4 494 421.50 between
   // subledger and control to NOTHING unexplained.
+  //
+  // `citedGross` AND `citedAbsAmount` WERE NOT READ OFF THAT DATABASE — the
+  // fields did not exist when the figures above were measured. They are set to
+  // the FLOOR the type allows: Σ|member| can never be less than |net|, and the
+  // documents cited can never be worth less than Σ|member|, so |amount| is the
+  // least either can be and satisfies `item_within_cited_gross`. The true
+  // values are higher on the second item at least (98 postings that net to
+  // 319 700 offset one another). The pack reads neither field.
   receivables: {
     agedDebtorsTotal: 4_145_971.5,
     subledgerTotal: 4_164_721.5,
@@ -743,6 +751,8 @@ export const brightsphereReceivablesGapInput: BoardPackInput = {
         amount: 4_174_721.5,
         documentIds: Array.from({ length: 29 }, (unused, i) => `doc-${i}`),
         documentNumbers: [],
+        citedGross: 4_174_721.5,
+        citedAbsAmount: 4_174_721.5,
       },
       {
         bridge: 'subledger_to_control' as const,
@@ -751,6 +761,8 @@ export const brightsphereReceivablesGapInput: BoardPackInput = {
         amount: 319_700,
         documentIds: Array.from({ length: 98 }, (unused, i) => `je-${i}`),
         documentNumbers: [],
+        citedGross: 319_700,
+        citedAbsAmount: 319_700,
       },
     ],
     unexplained: 0,
