@@ -166,16 +166,17 @@ export function trendWindowNote(
   // has no comparative column on any sheet, and "against the comparative,
   // except" followed by every measure on the page is a sentence about a
   // period the pack does not have.
+  //
+  // AND THE CLAUSE SITS ON THE PAGES IT IS TRUE OF. It trailed the list —
+  // "…debtor days on the scorecard page — against the comparative, except…" —
+  // and a reader took it for a statement about THIS sheet's panels, which
+  // show no comparative. It is said of the other pages now, before they are
+  // listed; the exception keeps its own verb ("except", not "but").
   const comparative = without.length === counterparts.length
     ? ''
     : without.length === 0
-    ? ' against the comparative'
-    // "BUT" READ AS A CONJUNCTION AND LEFT THE CLAUSE WITHOUT A VERB.
-    // "…on the scorecard page — against the comparative but gross margin and
-    // debtor days." parses as a sentence that stops mid-thought; the reading
-    // meant was "except". Brightsphere's copy is complete only because it
-    // needs no exception at all, which is how it survived a gate.
-    : ` — against the comparative, except ${inWords(without)}`;
+    ? ', with a comparative'
+    : `, with a comparative except ${inWords(without)}`;
   // Debtor days is measured differently as well as over a different window,
   // and a note that named only the window would be doing to that measure what
   // this whole file used to do to revenue.
@@ -252,11 +253,11 @@ export function trendWindowNote(
     heading: 'Period',
     body:
       // "the WHOLE period", not "the WHOLE reporting period": the contrast in
-      // this sentence is with a MONTH, which the clause before it states, and
-      // the ten characters are what carry "except" in place of the "but" that
-      // left the exception clause without a verb.
-      'Each panel plots one MONTH. The same measures print for the WHOLE period — '
-      + `${inWords(where)}${comparative}. Different windows: the two `
+      // this sentence is with a MONTH, which the clause before it states. The
+      // frame is character-for-character the length of the one it replaces —
+      // this note has no slack on the live demo sheet.
+      'Each panel plots one MONTH. The WHOLE period\'s figures print on other pages'
+      + `${comparative} — ${inWords(where)}. Different windows: the two `
       + `need not agree.${debtorDays}${partRatios}`,
   };
 }

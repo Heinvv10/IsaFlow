@@ -62,7 +62,8 @@ describe('page 10 excepts every measure whose comparative cell is empty', () => 
       if (note === '' || !note.includes('debtor days')) return; // no panel, nothing claimed
 
       const printed = scorecardPrior(doc, 'debtor days');
-      const excepted = /except [^.]*debtor days/.test(note);
+      // The exception clause ends at the dash; the list of pages follows it.
+      const excepted = /except [^—]*debtor days/.test(note);
       expect(
         excepted,
         printed
@@ -90,7 +91,7 @@ describe('page 10 excepts every measure whose comparative cell is empty', () => 
     const allPrinted = measures.every((m) => note.includes(m));
     if (!allPrinted) return;
     expect(note, 'Brightsphere excepts a measure its own sheets print a prior for')
-      .not.toMatch(/except [^.]*(revenue|operating expenses|net profit)/);
+      .not.toMatch(/except [^—]*(revenue|operating expenses|net profit)/);
   });
 });
 
@@ -127,6 +128,6 @@ describe('page 10 on a pack with no comparative period', () => {
   });
 
   it('and says it again as soon as there is one', () => {
-    expect(periodNote(buildBoardPackPages(demoInput))).toMatch(/against the comparative/);
+    expect(periodNote(buildBoardPackPages(demoInput))).toMatch(/with a comparative/);
   });
 });

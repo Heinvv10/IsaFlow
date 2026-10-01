@@ -51,15 +51,20 @@ describe('the comparative list accounts for every panel on the sheet', () => {
     // measure's absence — BOTH of them. The demo pack's page 9 prints Debtor
     // days PRIOR as `n/m`, the same state as gross margin's, and the sentence
     // named gross margin alone: a list disproved by the sheet it points at.
-    expect(body).toMatch(/against the comparative, except gross margin and debtor days/);
+    expect(body).toMatch(/with a comparative except gross margin and debtor days — /);
+    // AND THE COMPARATIVE IS SAID OF THE OTHER PAGES, not of this one. It
+    // trailed the list — "…on the scorecard page — against the comparative" —
+    // where a reader took it to describe the trend panels, which show none.
+    expect(body).toMatch(/The WHOLE period's figures print on other pages, with a comparative/);
+    expect(body).not.toMatch(/page — against the comparative/);
   });
 
   it('claims the comparative without exception where every measure has one', () => {
     // Brightsphere draws four panels and all four print against a
     // comparative, so the sentence carries no exception clause at all.
     const body = periodNote(brightsphereReceivablesGapInput)!;
-    expect(body).toMatch(/against the comparative/);
-    expect(body).not.toMatch(/but gross margin/);
+    expect(body).toMatch(/print on other pages, with a comparative — revenue/);
+    expect(body).not.toMatch(/except/);
   });
 
   it('and page 6 really does print gross margin without one', () => {
