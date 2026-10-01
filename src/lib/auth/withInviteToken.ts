@@ -7,6 +7,7 @@ import pg from 'pg';
 import '@/lib/pgTypes';
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 import { hashInviteToken } from './inviteToken';
 
 let _pool: pg.Pool | null = null;
@@ -49,6 +50,7 @@ export function withInviteToken(handler: Handler): NextApiHandler {
     (req as InviteTokenRequest).inviteTokenHash = tokenHash;
 
     const client = await pool().connect();
+    let unusable = false;
     try {
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE app_user');
@@ -60,10 +62,10 @@ export function withInviteToken(handler: Handler): NextApiHandler {
       await client.query('COMMIT');
       drainAfterCommit(ctx);
     } catch (err) {
-      try { await client.query('ROLLBACK'); } catch { /* secondary */ }
+      unusable = await rollbackFailed(client, 'withInviteToken');
       throw err;
     } finally {
-      client.release();
+      client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
     }
   };
 }

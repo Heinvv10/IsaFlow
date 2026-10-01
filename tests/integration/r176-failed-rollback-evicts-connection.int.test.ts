@@ -13,11 +13,12 @@
  * is not there after that request commits. The healthy paths must still reuse the connection.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { Pool, type PoolClient } from 'pg';
+import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { SignJWT } from 'jose';
 import { assertDisposable, request } from './mfa-impersonation-postgres.helpers';
 import { call, type TestResponse } from './r159-auth-wrapper.helpers';
+import { arm, backendState, seen, type Seen, type Statement } from './r176-evict.helpers';
 import { sql } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
@@ -40,25 +41,6 @@ let pat = '';
 let extToken = '';
 
 type Outcome = 'throw' | 'ok' | 'answer-500';
-type Statement = 'ROLLBACK' | 'COMMIT';
-/** What one request saw: its backend, how often each statement was refused, and the disarm. */
-interface Seen { pid: number; refused: Record<Statement, number>; disarm: () => void }
-const seen = (): Seen => ({ pid: 0, refused: { ROLLBACK: 0, COMMIT: 0 }, disarm: () => undefined });
-
-/** Refuses the given statements on this client before they reach Postgres, as a client-side timeout does. */
-function arm(client: PoolClient, fail: Statement[], s: Seen): void {
-  const real = client.query.bind(client) as (...a: unknown[]) => unknown;
-  const patched = (...a: unknown[]) => {
-    const text = a[0];
-    if ((text === 'ROLLBACK' || text === 'COMMIT') && fail.includes(text)) {
-      s.refused[text] += 1;
-      return Promise.reject(new Error(`R-176 forced: ${text} never reached the server`));
-    }
-    return real(...a);
-  };
-  Object.assign(client, { query: patched });
-  s.disarm = () => { Object.assign(client, { query: real }); };
-}
 
 /** The work inside the owner's transaction: note the backend, write a row, arm the failure. */
 async function work(name: string, fail: Statement[], s: Seen): Promise<void> {
@@ -78,18 +60,6 @@ function handler(name: string, outcome: Outcome, fail: Statement[], s: Seen) {
 
 const customers = async (name: string) =>
   Number((await pool.query('SELECT count(*) AS n FROM customers WHERE company_id = $1 AND name = $2', [CO, name])).rows[0].n);
-
-/** The backend's state in pg_stat_activity, or null once it is gone. Waits for `want`. */
-async function backendState(pid: number, want: 'gone' | 'idle'): Promise<string | null> {
-  let state: string | null = null;
-  for (let i = 0; i < 40; i += 1) {
-    const rows = (await pool.query('SELECT state FROM pg_stat_activity WHERE pid = $1', [pid])).rows;
-    state = rows.length === 0 ? null : String(rows[0].state);
-    if ((want === 'gone') === (state === null) && state !== 'active') return state;
-    await new Promise((done) => setTimeout(done, 25));
-  }
-  return state;
-}
 
 const cookieReq = () => request({ 'sb-access-token': cookieJwt, active_company_id: CO }, 'POST');
 const bearerReq = (token: string) => ({ ...cookieReq(), headers: { authorization: `Bearer ${token}` } });
@@ -173,7 +143,7 @@ async function requestThenNext(run: Run, outcome: Outcome, fail: Statement[], wa
   const throwLog = logged.mock.calls.find((c) => String(c[0]).includes('request threw inside its transaction'))?.[1];
   logged.mockRestore();
   first.disarm();
-  const state = await backendState(first.pid, want);
+  const state = await backendState(pool, first.pid, want);
   const next = seen();
   const nextAnswer = await run(`${name}-next`, 'ok', [], next);
   next.disarm();

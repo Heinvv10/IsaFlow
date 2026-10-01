@@ -18,6 +18,7 @@
 
 import pg from 'pg';
 import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 // Static, not the `await import` used elsewhere in this file. assertTxUsable
 // must be synchronous, and it lives in als.ts because the flag it reads is on
 // RequestContext — keeping it there also keeps it out of every test's
@@ -255,6 +256,7 @@ function createSql(client?: pg.PoolClient): SqlFunction {
 
     const pool = getPool();
     const txClient = await pool.connect();
+    let unusable = false;
     try {
       const clauses: string[] = ['BEGIN'];
       const iso = isolationClause(options.isolationLevel);
@@ -275,11 +277,7 @@ function createSql(client?: pg.PoolClient): SqlFunction {
       await txClient.query('COMMIT');
       return results;
     } catch (err) {
-      try {
-        await txClient.query('ROLLBACK');
-      } catch {
-        // ROLLBACK failure is secondary to the original error; swallow.
-      }
+      unusable = await rollbackFailed(txClient, 'sql.transaction');
       log.error(
         'sql.transaction rolled back',
         err instanceof Error ? { message: err.message } : { error: err },
@@ -287,7 +285,7 @@ function createSql(client?: pg.PoolClient): SqlFunction {
       );
       throw err;
     } finally {
-      txClient.release();
+      txClient.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
     }
   };
 
@@ -373,6 +371,7 @@ export async function withTransaction<T>(
 
   const pool = getPool();
   const client = await pool.connect();
+  let unusable = false;
   try {
     await client.query('BEGIN');
 
@@ -386,11 +385,7 @@ export async function withTransaction<T>(
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    try {
-      await client.query('ROLLBACK');
-    } catch {
-      // ROLLBACK failure is secondary to the original error; swallow.
-    }
+    unusable = await rollbackFailed(client, 'withTransaction');
     log.error(
       'withTransaction rolled back',
       err instanceof Error ? { message: err.message } : { error: err },
@@ -398,7 +393,7 @@ export async function withTransaction<T>(
     );
     throw err;
   } finally {
-    client.release();
+    client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
   }
 }
 

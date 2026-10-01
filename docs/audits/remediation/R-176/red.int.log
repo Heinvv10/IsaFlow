@@ -30,3 +30,43 @@ AssertionError: expected { status: 200, …(3) } to match object { handlerFailed
 AssertionError: expected false to be true // Object.is equality
  Test Files  1 failed (1)
       Tests  1 failed | 24 passed (25)
+
+# Round 2 (all owners). RED on f3d3f6262 + the two new suites; source unchanged since f3d3f6262 (2026-10-01T10:46:09Z).
+# withAlsTransaction passes all 5 (it already evicts). Every healthy-path case passes.
+## tests/integration/r176-other-owners-evict-connection.int.test.ts
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write 1551ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1045ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write 1201ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1048ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write 1065ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1044ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write 1039ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1050ms
+     × a gate COMMIT that fails, and then its ROLLBACK: the connection is destroyed 1043ms
+     × a COMMIT that fails, and then its ROLLBACK: destroyed, so the next admin write is not read-only 1056ms
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withInviteToken > a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withPlatformAdmin (handler transaction) > a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withTransaction > a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write
+AssertionError: expected 1 to be +0 // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withInviteToken > a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withPlatformAdmin (handler transaction) > a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withTransaction > a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > sql.transaction > a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands
+AssertionError: expected 1 to be +0 // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > sql.transaction > a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write
+AssertionError: expected true to be false // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withPlatformAdmin (role gate) > a gate COMMIT that fails, and then its ROLLBACK: the connection is destroyed
+AssertionError: expected 2221 not to be 2221 // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > portfolio workbench (one READ ONLY transaction per client company) > a COMMIT that fails, and then its ROLLBACK: destroyed, so the next admin write is not read-only
+AssertionError: expected true to be false // Object.is equality
+ Test Files  1 failed (1)
+      Tests  10 failed | 19 passed (29)
+## tests/integration/r176-invite-accept-evicts-connection.int.test.ts
+   × EMAIL_IN_USE whose ROLLBACK fails: the connection is destroyed and the next invitee is still served 1151ms
+   × a COMMIT that fails, and then its ROLLBACK: the next accept cannot commit the failed membership 1132ms
+ FAIL  tests/integration/r176-invite-accept-evicts-connection.int.test.ts > EMAIL_IN_USE whose ROLLBACK fails: the connection is destroyed and the next invitee is still served
+AssertionError: expected 500 to be 200 // Object.is equality
+ FAIL  tests/integration/r176-invite-accept-evicts-connection.int.test.ts > a COMMIT that fails, and then its ROLLBACK: the next accept cannot commit the failed membership
+AssertionError: expected 1 to be +0 // Object.is equality
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)

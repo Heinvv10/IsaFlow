@@ -10,6 +10,7 @@ import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } 
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
@@ -224,7 +225,7 @@ export function withAuth(handler: Handler): NextApiHandler {
         // Best-effort rollback, then (for the common deferred-flush case where
         // headers have NOT yet been sent) replace the buffered 2xx flush with an
         // honest 500 — today that is a silent lie (a committed-failed 200).
-        try { await client.query('ROLLBACK'); } catch { unusable = true; }
+        unusable = await rollbackFailed(client, 'withAuth');
         log.error('withAuth: transaction finalize failed after handler responded', {
           url: req.url,
           status: res.statusCode,
@@ -268,7 +269,7 @@ export function withAuth(handler: Handler): NextApiHandler {
     } catch (err) {
       // R-159: answer the throw here. Rethrowing left res.end swapped, so any later 500 was
       // buffered and never sent; routes without an inner withErrorHandler hung the client.
-      try { await client.query('ROLLBACK'); } catch { unusable = true; }
+      unusable = (await rollbackFailed(client, 'withAuth')) || unusable;
       answerThrow(req, res, deferred, err, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub, rolledBack: !unusable });
     } finally {
       client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
