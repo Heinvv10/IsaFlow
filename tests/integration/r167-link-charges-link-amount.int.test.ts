@@ -176,6 +176,42 @@ describe('a completed payment spends the link it came from', () => {
     expect((await linkRow(linkId)).status).toBe('active');
   });
 
+  it('a payment on a checkout already marked failed (swept while starting) is still banked, and spends the link', async () => {
+    const { invoiceId, linkId, token } = await invoiceWithLink(0, 20);
+    expect((await create(token)).statusCode).toBe(200);
+    const [req] = await requests(invoiceId);
+    await pool.query("UPDATE paystack_payment_requests SET status = 'failed' WHERE paystack_reference = $1", [req!.ref]);
+    expect((await deliver(req!.ref, 2000)).statusCode).toBe(200);
+    expect(await banked(req!.ref)).toEqual([{ t: '20.00' }]);
+    expect((await linkRow(linkId)).status).toBe('paid');
+  });
+
+  it('verify never overwrites a request the webhook completed while Paystack was being asked', async () => {
+    const { invoiceId, token } = await invoiceWithLink(0, 20);
+    expect((await create(token)).statusCode).toBe(200);
+    const [req] = await requests(invoiceId);
+    h.verifyTransaction.mockImplementation(async () => { // the webhook lands first; Paystack's answer is stale
+      await pool.query("UPDATE paystack_payment_requests SET status = 'completed' WHERE paystack_reference = $1", [req!.ref]);
+      return { status: 'abandoned', id: 1672 };
+    });
+    const r = await verify(req!.ref);
+    expect(r.body.data?.status).toBe('completed');
+    expect((await pool.query('SELECT status FROM paystack_payment_requests WHERE paystack_reference = $1', [req!.ref])).rows)
+      .toEqual([{ status: 'completed' }]);
+  });
+
+  it('a request naming a link of another invoice does not spend that link', async () => {
+    const mine = await invoiceWithLink(0, 20);
+    const other = await invoiceWithLink(0, 20);
+    const ref = `r167_cross_${randomUUID().slice(0, 8)}`;
+    await pool.query(`INSERT INTO paystack_payment_requests (company_id, purpose, customer_invoice_id, paystack_reference,
+      amount_cents, status, portal_payment_link_id) VALUES ($1, 'customer_invoice', $2, $3, 2000, 'pending', $4)`,
+      [CO, mine.invoiceId, ref, other.linkId]);
+    expect((await deliver(ref, 2000)).statusCode).toBe(200);
+    expect(await banked(ref)).toEqual([{ t: '20.00' }]);
+    expect((await linkRow(other.linkId)).status).toBe('active');
+  });
+
   it('the spend needs a completed request in the same company', async () => {
     const { invoiceId, linkId, token } = await invoiceWithLink(0, 20);
     expect((await create(token)).statusCode).toBe(200);
@@ -203,6 +239,13 @@ describe('the pay page shows what will be charged', () => {
     const r = await getLink(token);
     expect(r.statusCode).toBe(400);
     expect(r.body.error?.message).toBe('This invoice has no outstanding balance');
+  });
+
+  it('a link with no expiry is offered and chargeable alike', async () => {
+    const { linkId, token } = await invoiceWithLink(0, 10);
+    await pool.query('UPDATE portal_payment_links SET expires_at = NULL WHERE id = $1', [linkId]);
+    expect((await getLink(token)).statusCode).toBe(200);
+    expect((await create(token)).statusCode).toBe(200);
   });
 
   it('a link on a cancelled invoice is not found', async () => {

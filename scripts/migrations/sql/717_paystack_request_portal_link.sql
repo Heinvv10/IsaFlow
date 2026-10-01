@@ -8,6 +8,11 @@
 -- Nullable, no backfill: requests created before this, and every non-portal
 -- purpose, have no link. ON DELETE SET NULL keeps a request (money record) when
 -- its link row goes.
+--
+-- Both ALTERs take a brief ACCESS EXCLUSIVE lock. Queued behind a long transaction they
+-- would block every webhook and checkout behind them, so fail the migration instead (as 660).
+SET LOCAL lock_timeout = '5s';
+
 ALTER TABLE paystack_payment_requests
   ADD COLUMN IF NOT EXISTS portal_payment_link_id UUID
     REFERENCES portal_payment_links(id) ON DELETE SET NULL;

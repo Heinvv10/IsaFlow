@@ -115,20 +115,27 @@ export async function existingCheckout(charge: LinkCharge): Promise<ExistingChec
       AND status = 'pending' AND authorization_url IS NULL
       AND created_at <= NOW() - make_interval(secs => ${CHECKOUT_STARTING_SECONDS})
   `;
+  // Any checkout from this link still waiting for its URL, whatever its amount: the balance can
+  // move while one is at the gateway, and a second must not start beside it.
+  const starting = (await sql`
+    SELECT 1 FROM paystack_payment_requests
+    WHERE company_id = ${charge.companyId}::UUID AND portal_payment_link_id = ${charge.linkId}::UUID
+      AND status = 'pending' AND authorization_url IS NULL
+    LIMIT 1
+  `) as unknown[];
+  if (starting.length > 0) return { kind: 'starting' };
+
   const rows = (await sql`
     SELECT authorization_url, paystack_reference
     FROM paystack_payment_requests
     WHERE company_id = ${charge.companyId}::UUID AND portal_payment_link_id = ${charge.linkId}::UUID
-      AND status = 'pending' AND amount_cents = ${charge.chargeCents}
+      AND status = 'pending' AND amount_cents = ${charge.chargeCents} AND authorization_url IS NOT NULL
       AND created_at > NOW() - make_interval(mins => ${CHECKOUT_REUSE_MINUTES})
     ORDER BY created_at DESC
     LIMIT 1
-  `) as { authorization_url: string | null; paystack_reference: string }[];
+  `) as { authorization_url: string; paystack_reference: string }[];
   const row = rows[0];
-  if (!row) return { kind: 'none' };
-  if (row.authorization_url) return { kind: 'reuse', checkoutUrl: row.authorization_url, reference: row.paystack_reference };
-  // Any URL-less row still pending is inside the starting window: older ones were failed above.
-  return { kind: 'starting' };
+  return row ? { kind: 'reuse', checkoutUrl: row.authorization_url, reference: row.paystack_reference } : { kind: 'none' };
 }
 
 /** Record a checkout before the gateway is called, so a second click finds it (see create). */
@@ -170,8 +177,8 @@ export async function checkoutFailed(companyId: string, reference: string, reaso
 
 /**
  * Spend the explicit-amount link a completed Paystack request came from, so it cannot be paid
- * again. Idempotent: only an `active` link moves. A standing link (`charges_balance`), a request
- * with no link (every request made before migration 717, and every non-portal purpose), or a
+ * again. Idempotent: only an `active` link moves, and only the link of the request's own invoice.
+ * A standing link (`charges_balance`), a request with no link (every request made before migration 717, and every non-portal purpose), or a
  * request that is not completed touches nothing. Runs inside the settlement transaction.
  */
 export async function spendPaymentLinkOfRequest(companyId: string, reference: string): Promise<void> {
@@ -181,6 +188,7 @@ export async function spendPaymentLinkOfRequest(companyId: string, reference: st
     FROM paystack_payment_requests pr
     WHERE pr.paystack_reference = ${reference} AND pr.company_id = ${companyId}::UUID
       AND pr.status = 'completed' AND l.id = pr.portal_payment_link_id
+      AND l.invoice_id = pr.customer_invoice_id
       AND l.status = 'active' AND NOT l.charges_balance
   `;
 }
