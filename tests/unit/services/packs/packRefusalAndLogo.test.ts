@@ -32,7 +32,7 @@ import {
   UNEXPLAINED_FAILURE,
 } from '@/modules/accounting/services/packs/packRefusal';
 import { resolvePackBrand } from '@/modules/accounting/services/packs/packBrand';
-import { LOGO_MAX_BYTES, resolvePackBrandForRender } from '@/modules/accounting/services/packs/packBrandForRender';
+import { LOGO_MAX_BYTES, LOGO_TIMEOUT_MS, resolvePackBrandForRender } from '@/modules/accounting/services/packs/packBrandForRender';
 import type { BrandProfile } from '@/modules/accounting/services/afs/afsTypes';
 
 describe('what a failed pack render is allowed to tell its caller', () => {
@@ -138,6 +138,30 @@ describe('the logo is fetched by the server, never by the headless browser', () 
     const brand = await resolvePackBrandForRender(profile('https://cdn.example.com/logo.png'));
     expect(brand.logoUrl).toBeNull();
     expect(warn).toHaveBeenCalled();
+  });
+
+  it('drops a logo whose body stalls past the deadline instead of embedding the part that arrived', async () => {
+    vi.useFakeTimers();
+    try {
+      const stalled = new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(PNG); /* and never closes */ },
+      });
+      safeFetchMock.mockResolvedValue(new Response(stalled, { status: 200, headers: { 'content-type': 'image/png' } }));
+      const pending = resolvePackBrandForRender(profile('https://cdn.example.com/logo.png'));
+      await vi.advanceTimersByTimeAsync(LOGO_TIMEOUT_MS + 1);
+      const brand = await pending;
+      expect(brand.logoUrl).toBeNull();
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fetches under the stated timeout and asks for raster images only', async () => {
+    await resolvePackBrandForRender(profile('https://cdn.example.com/logo.png'));
+    const [, init, opts] = safeFetchMock.mock.calls[0]!;
+    expect(opts).toEqual({ timeoutMs: LOGO_TIMEOUT_MS });
+    expect((init as { headers: Record<string, string> }).headers.Accept).toBe('image/png,image/jpeg,image/gif,image/webp');
   });
 
   it('accepts a body exactly at the cap', async () => {

@@ -51,7 +51,10 @@ async function readCapped(res: Response): Promise<Uint8Array> {
   if (!reader) throw new Error('the response has no body');
   const chunks: Uint8Array[] = [];
   let total = 0;
-  const deadline = setTimeout(() => { void reader.cancel(); }, LOGO_TIMEOUT_MS);
+  let expired = false;
+  // Cancelling makes the pending `read()` return `done`, which is
+  // indistinguishable from a body that ended — so the flag says which it was.
+  const deadline = setTimeout(() => { expired = true; void reader.cancel(); }, LOGO_TIMEOUT_MS);
   try {
     for (;;) {
       const { done, value } = await reader.read();
@@ -66,6 +69,9 @@ async function readCapped(res: Response): Promise<Uint8Array> {
   } finally {
     clearTimeout(deadline);
   }
+  // A truncated logo is a broken picture on a board pack's cover: dropped,
+  // never embedded partial.
+  if (expired) throw new Error(`the logo body did not arrive within ${LOGO_TIMEOUT_MS} ms`);
   return Buffer.concat(chunks);
 }
 
