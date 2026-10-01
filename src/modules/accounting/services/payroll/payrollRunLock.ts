@@ -106,12 +106,17 @@ export async function reopenPayrollRun(opts: {
     throw new Error(`Cannot reopen run in status '${previousStatus}' — only 'approved' is reopenable.`);
   }
 
-  await sql`
+  // Predicated on the status just judged: a run that left 'approved' between
+  // the read above and this write (paid, say) must not be reopened by it.
+  const reopened = (await sql`
     UPDATE payroll_run_headers
        SET status = 'calculated',
            updated_at = NOW()
      WHERE id = ${opts.runId}::uuid AND company_id = ${opts.companyId}::uuid
-  `;
+       AND status = 'approved'
+     RETURNING id
+  `) as DbRow[];
+  if (!reopened[0]) throw new Error('Payroll run changed while it was being reopened — it is no longer approved.');
 
   log.info(
     'Payroll run reopened',

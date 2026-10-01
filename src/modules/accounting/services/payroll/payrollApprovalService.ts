@@ -11,7 +11,7 @@ import { log } from '@/lib/logger';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunService';
 import { postPayrollRunJournal } from './payrollJournalPostingService';
 import { PayrollApprovalConflictError, PayrollApprovalRefusedError } from './payrollApprovalRefusal';
-import type { PayrollJournalNote } from './payrollJournalBuilder';
+import type { PayrollJournalNote, PayrollJournalPlan } from './payrollJournalBuilder';
 import { judgePayrollApproval, type PayrollApprovalGate } from './payrollApprovalGate';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
@@ -23,18 +23,6 @@ export interface ApprovePayrollRunResult extends PayrollRunSummary {
   journalEntryId: string;
   /** The journal plan's advisories (e.g. `eti_beyond_paye`), for the caller to show. */
   advisories: PayrollJournalNote[];
-}
-
-/**
- * The first reason approval would refuse this run — the approval gate's
- * blocker (payrollApprovalGate.ts), exactly what approvePayrollRun refuses
- * with. Null when the run is approvable or is not in this company.
- */
-export async function findApprovalBlocker(
-  companyId: string,
-  runId: string,
-): Promise<PayrollJournalNote | null> {
-  return (await judgePayrollApproval(companyId, runId))?.blocker ?? null;
 }
 
 /**
@@ -59,10 +47,12 @@ export async function previewPayrollApproval(companyId: string, runId: string): 
  * as-is and must roll the request back. An 'approved' run with no journal
  * (stranded before this fix) is re-approvable and posts; a reopened run that
  * still carries its journal is re-approved onto that journal, but only while
- * its figures still match it (payrollApprovalGate).
+ * its figures still match it (payrollApprovalGate). One whose journal was
+ * reversed (and the reversal stands) is unlinked from it and posts a FRESH
+ * journal, here, under the header lock.
  *
  * `expectedPlanHash` is the hash the caller previewed (mandatory on the HTTP
- * route; optional here for MCP, which runs its own dry run). When given and
+ * route and in the MCP tool's handler; optional here only for scripts). When given and
  * the run no longer hashes the same, approval is refused with
  * PayrollApprovalConflictError (409) before anything is written.
  *
@@ -96,7 +86,27 @@ export async function approvePayrollRun(
   if (opts?.expectedPlanHash !== undefined && opts.expectedPlanHash !== gate.planHash) {
     throw new PayrollApprovalConflictError('Payroll run changed while you were reviewing it');
   }
-  const plan = gate.plan;
+
+  // A reversed journal is unlinked so a fresh one can post (breaker A). The
+  // predicate repeats the gate's judgement in the write itself: the link goes
+  // only while that journal is reversed and its reversal stands, so a run can
+  // never be given a second journal beside a live one. Zero rows writes
+  // nothing, so it is still a refusal.
+  if (gate.replaces) {
+    const unlinked = (await sql`
+      UPDATE payroll_run_headers h
+      SET journal_entry_id = NULL
+      WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
+        AND h.journal_entry_id = ${gate.replaces.journalEntryId}::uuid
+        AND EXISTS (SELECT 1 FROM gl_journal_entries e
+                     WHERE e.id = h.journal_entry_id AND e.company_id = h.company_id AND e.reversed_at IS NOT NULL)
+        AND EXISTS (SELECT 1 FROM gl_journal_entries c
+                     WHERE c.reversal_of_id = h.journal_entry_id AND c.company_id = h.company_id
+                       AND c.status = 'posted' AND c.reversed_at IS NULL)
+      RETURNING h.id
+    `) as Row[];
+    if (!unlinked[0]) throw new PayrollApprovalConflictError('Payroll run changed while you were reviewing it');
+  }
 
   const updatedRows = (await sql`
     UPDATE payroll_run_headers
@@ -107,13 +117,24 @@ export async function approvePayrollRun(
   `) as Row[];
   if (!updatedRows[0]) throw new Error('Status update returned no row');
 
+  // The plan the gate judged and the hash described is the plan that posts —
+  // the poster does not build its own (breaker D). Its blockers were judged
+  // above; what remains on it ('run_not_approved', the unlinked journal) has
+  // just been resolved by the two writes.
+  const plan: PayrollJournalPlan = {
+    ...gate.plan,
+    status: 'approved',
+    alreadyPostedJournalId: gate.posted?.journalEntryId ?? null,
+    blockers: [],
+  };
+
   // Idempotent — skips posting if journal_entry_id is already set.
   //
   // `opts` is forwarded so an automated caller can attribute its own posting.
   // Omitting it leaves the journal on `defaultHumanMeta(userId)`, which labels
   // agent work as the token owner's own and hides it from list_agent_postings —
   // the same reason postPayrollRunJournal takes the stamp at all.
-  const journalEntryId = await postPayrollRunJournal(companyId, runId, userId, opts);
+  const journalEntryId = await postPayrollRunJournal(companyId, runId, userId, { postingAgent: opts?.postingAgent, plan });
 
   log.info('Payroll run approved and journal posted', { companyId, runId, journalEntryId }, 'payrollApproval');
 

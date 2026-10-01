@@ -3,7 +3,8 @@
  *
  * Shows what approval will do, exactly as the server's approval gate judged it
  * (GET …/journal-plan): the journal it will post, or — for a reopened run —
- * the journal it already posted and will re-lock onto. No amount is derived
+ * the journal it already posted and will re-lock onto, or that the reversed
+ * one is being replaced. No amount is derived
  * here. A blocker disables approval with its reason.
  *
  * The POST carries the planHash previewed; a run changed since answers 409.
@@ -83,6 +84,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
 
   const plan = preview?.plan;
   const posted = preview?.posted ?? null;
+  const replaces = preview?.replaces ?? null;
   const blocker = preview?.blocker ?? null;
   const shown = posted && !blocker ? posted : plan;
   const canApprove = !!preview && !blocker && !approving;
@@ -101,6 +103,11 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
                 {posted
                   ? <>Already posted: journal <span className="font-mono">{posted.entryNumber}</span>. Approving locks this run again and posts nothing new.</>
                   : <>Approving locks this run and posts journal <span className="font-mono">{plan.reference}</span> dated {plan.entryDate} for {plan.employeeCount} employee{plan.employeeCount === 1 ? '' : 's'}:</>}
+              </p>
+            )}
+            {!blocker && replaces && (
+              <p className="text-gray-600 dark:text-gray-300">
+                The journal this run posted before (<span className="font-mono">{replaces.entryNumber}</span>) was reversed, so a new one is posted in its place.
               </p>
             )}
             <table className="w-full">
