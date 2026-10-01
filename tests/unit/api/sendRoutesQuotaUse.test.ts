@@ -71,7 +71,7 @@ const ROUTES = [
     name: 'afs-signing', handler: sendForSigningRoute as unknown as H, mails: 1,
     ok: { method: 'POST', query: { documentId: ID(3) }, body: { signerContactIds: [ID(4)] } },
     malformed: { method: 'POST', query: { documentId: ID(3) }, body: { signerContactIds: [] } },
-    notOwned: ['FROM afs_documents', 'FROM portal_contacts'],
+    notOwned: ['FROM afs_documents'],
   },
 ] as const;
 
@@ -175,7 +175,7 @@ describe.each(LIMITED)('$name — abuse limit before the shared bucket (R-175)',
     await unitsUsed(route, 'ok');
 
     expect(sqlMock).toHaveBeenCalled();
-    expect(checkAttempts).toHaveBeenCalledTimes(1);
+    expect(checkAttempts).toHaveBeenCalledTimes(2);
     expect(checkSend).not.toHaveBeenCalled();
     expect(sendMail).not.toHaveBeenCalled();
   });
@@ -192,7 +192,11 @@ describe.each(LIMITED)('$name — abuse limit before the shared bucket (R-175)',
     await unitsUsed(route, 'malformed');
 
     // Keyed by company and user: a bureau user has one allowance per client.
-    expect(checkAttempts.mock.calls).toEqual([[`${route.name}:attempts:${COMPANY}:u1`, { max: 30, windowSecs: 900 }]]);
+    // Per company (30), and across all the user's companies (90).
+    expect(checkAttempts.mock.calls).toEqual([
+      [`${route.name}:attempts:${COMPANY}:u1`, { max: 30, windowSecs: 900 }],
+      [`${route.name}:user-attempts:u1`, { max: 90, windowSecs: 900 }],
+    ]);
     expect(checkSend).not.toHaveBeenCalled();
     expect(sendMail).not.toHaveBeenCalled();
   });
@@ -222,4 +226,42 @@ it('invoice-email answers 400, before any query or charge, for an invoice id tha
   expect(badRequest).toHaveBeenCalledWith(expect.anything(), 'invoiceId must be a UUID');
   expect(sqlMock).not.toHaveBeenCalled();
   expect(checkSend).not.toHaveBeenCalled();
+});
+
+it('send-for-signing charges the company bucket after the document check and before the contact query and the file read (R-175)', async () => {
+  vi.clearAllMocks();
+  checkAttempts.mockResolvedValue(true);
+  checkSend.mockResolvedValue(false);
+  sqlMock.mockImplementation(database());
+  const fs = (await import('fs/promises')).default;
+
+  await (sendForSigningRoute as unknown as H)(
+    { method: 'POST', query: { documentId: ID(3) }, body: { signerContactIds: [ID(4)] }, companyId: COMPANY, user } as unknown as NextApiRequest,
+    res(),
+  );
+
+  const texts = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join(' '));
+  expect(texts).toHaveLength(1);
+  expect(texts[0]).toContain('FROM afs_documents');
+  expect(checkSend).toHaveBeenCalledTimes(1);
+  expect(fs.readFile).not.toHaveBeenCalled();
+});
+
+it('invoice-email: a deleted invoice is refused before the company bucket (R-175)', async () => {
+  vi.clearAllMocks();
+  checkAttempts.mockResolvedValue(true);
+  checkSend.mockResolvedValue(true);
+  // A table of one deleted invoice: the guard finds it only if it ignores deleted_at.
+  sqlMock.mockImplementation(async (strings: TemplateStringsArray) =>
+    (strings.join(' ').includes('deleted_at IS NULL') ? [] : [{ ok: 1 }]));
+  const notFound = vi.spyOn(apiResponse, 'notFound');
+
+  await (invoiceEmail as unknown as H)(
+    { method: 'POST', query: {}, body: { invoiceId: ID(1), recipientEmail: 'a@b.co' }, companyId: COMPANY, user } as unknown as NextApiRequest,
+    res(),
+  );
+
+  expect(notFound).toHaveBeenCalledWith(expect.anything(), 'Invoice', ID(1));
+  expect(checkSend).not.toHaveBeenCalled();
+  expect(sendMail).not.toHaveBeenCalled();
 });

@@ -21,11 +21,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
-  // Abuse limit: every attempt counts, per user and company, and is never given
-  // back. The company's send bucket below is shared by every colleague, so it
+  // Abuse limit: every attempt counts, per user and company (30), and per user
+  // across all their companies (90), and is never given back. The company's send bucket below is shared by every colleague, so it
   // is charged only once the request is well formed and names records the
   // company owns (R-175).
-  if (!(await checkRateLimit(`invoice-email:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))) {
+  if (!(await checkRateLimit(`invoice-email:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))
+    || !(await checkRateLimit(`invoice-email:user-attempts:${user.id}`, { max: 90, windowSecs: 900 }))) {
     return apiResponse.tooManyRequests(res, 'Email send limit reached. Please try again later.');
   }
 
@@ -48,11 +49,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Invalid email address');
   }
 
-  // An invoice the company does not own sends nothing, so it must not spend
-  // the company's shared allowance either: answer before the charge.
+  // An invoice the company does not own, or has deleted, must not spend the
+  // company's shared allowance: answer before the charge. (sendInvoiceEmail
+  // itself does not exclude a deleted invoice; this guard now does.)
   const owned = (await sql`
     SELECT 1 FROM customer_invoices
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+      AND deleted_at IS NULL
     LIMIT 1
   `) as unknown[];
   if (owned.length === 0) return apiResponse.notFound(res, 'Invoice', invoiceId);

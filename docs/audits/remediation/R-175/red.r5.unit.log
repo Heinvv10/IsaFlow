@@ -1,0 +1,48 @@
+### Round-5 unit tests run against 85b2cd6fd's sources (7 changed src/pages files swapped back)
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts (8 tests | 4 failed) 10ms
+     × answers 400, before any query, for an id that is a plain word 5ms
+     × answers 400, before any query, for an id that is a uuid with trailing SQL 1ms
+     × answers 400, before any query, for an id that is an empty string 1ms
+     × an empty body costs the company bucket nothing 0ms
+ ❯ tests/unit/security/statementBulkEmailRateLimit.test.ts (9 tests | 1 failed) 12ms
+     × counts the attempt even for a request it then rejects as malformed 5ms
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts (25 tests | 9 failed) 85ms
+     × a request refused because nothing matches "FROM customer_invoices ci" leaves the company bucket untouched 3ms
+     × a request refused because nothing matches "dunning_templates" leaves the company bucket untouched 1ms
+     × counts the attempt against the user, and a malformed request never reaches the company bucket 4ms
+     × a request refused because nothing matches "FROM afs_documents" leaves the company bucket untouched 1ms
+     × counts the attempt against the user, and a malformed request never reaches the company bucket 1ms
+     × a request refused because nothing matches "FROM customer_invoices" leaves the company bucket untouched 0ms
+     × counts the attempt against the user, and a malformed request never reaches the company bucket 1ms
+   × send-for-signing charges the company bucket after the document check and before the contact query and the file read (R-175) 1ms
+   × invoice-email: a deleted invoice is refused before the company bucket (R-175) 48ms
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts (23 tests | 3 failed) 1214ms
+     × a refusal that read full from a stale snapshot is not remembered when the latest row has room 3ms
+     × re-reads only when the refusal looked full, and remembers the latest count 1ms
+     × remembers nothing when the row is gone by the re-read 0ms
+AssertionError: expected "vi.fn()" to be called 2 times, but got 1 times
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:178:27
+AssertionError: expected [ [ …(2) ] ] to deeply equal [ [ …(2) ], [ …(2) ] ]
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:196:38
+AssertionError: expected [ [ …(2) ] ] to deeply equal [ [ …(2) ], [ …(2) ] ]
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:196:38
+AssertionError: expected [ [ …(2) ] ] to deeply equal [ [ …(2) ], [ …(2) ] ]
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:196:38
+AssertionError: expected [ …(3) ] to have a length of 1 but got 3
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:244:17
+AssertionError: expected "bound notFound" to be called with arguments: [ Anything, 'Invoice', …(1) ]
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:264:20
+AssertionError: expected false to be true // Object.is equality
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:136:46
+AssertionError: expected "vi.fn()" to be called 1 times, but got 0 times
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:147:24
+AssertionError: expected false to be true // Object.is equality
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:158:46
+AssertionError: expected [ [ …(2) ] ] to deeply equal [ [ …(2) ], [ …(2) ] ]
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts:62:38
+AssertionError: expected "vi.fn()" to be called 2 times, but got 1 times
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts:73:27
+AssertionError: expected [ [ …(2) ] ] to deeply equal [ [ …(2) ], [ …(2) ] ]
+ ❯ tests/unit/security/statementBulkEmailRateLimit.test.ts:164:43
+ Test Files  4 failed | 1 passed (5)
+      Tests  17 failed | 53 passed (70)

@@ -59,7 +59,10 @@ describe('customer-statements-send — id and logging guards (R-175)', () => {
     expect(sendStatementEmail).not.toHaveBeenCalled();
     // Review round 3: a malformed request counts against its user, never
     // against the company bucket every colleague shares.
-    expect(checkAttempts.mock.calls).toEqual([[`customer-statements:attempts:${COMPANY}:u1`, { max: 30, windowSecs: 900 }]]);
+    expect(checkAttempts.mock.calls).toEqual([
+      [`customer-statements:attempts:${COMPANY}:u1`, { max: 30, windowSecs: 900 }],
+      [`customer-statements:user-attempts:u1`, { max: 90, windowSecs: 900 }],
+    ]);
     expect(checkSend).not.toHaveBeenCalled();
   });
 
@@ -67,7 +70,7 @@ describe('customer-statements-send — id and logging guards (R-175)', () => {
     await call([]);
 
     expect(apiResponse.badRequest).toHaveBeenCalledTimes(1);
-    expect(checkAttempts).toHaveBeenCalledTimes(1);
+    expect(checkAttempts).toHaveBeenCalledTimes(2);
     expect(checkSend).not.toHaveBeenCalled();
   });
 

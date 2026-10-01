@@ -161,12 +161,34 @@ export async function chargeRateLimit(key: string, opts: RateLimitOptions): Prom
   if (!row) return REFUSED;
   if (row.admitted) return { admitted: true, windowStart: row.window_start };
   // Remember it only if no unit is left. A refused 100-unit call at 9,950 of
-  // 10,000 says nothing about a 1-unit call. (The count comes from this
-  // statement's snapshot; if it is stale it is low, and then nothing is remembered.)
-  // Measured from before the round-trip, so the refusal never outlives the window.
-  const ttl = Math.min(REFUSAL_TTL_MS, row.remaining_ms - (Date.now() - asked));
-  if (row.count >= max && ttl >= 1) refused.set(key, row.count, { ttl });
+  // 10,000 says nothing about a 1-unit call.
+  //
+  // The refused row above is read from this statement's snapshot, which can be
+  // stale in EITHER direction: a refund that committed while the upsert waited
+  // for the row lock is not in it, so it can read "full" when it is not. Before
+  // remembering, re-read the latest committed count in a statement of its own.
+  if (row.count < max) return REFUSED;
+  const { rows: latest } = await getRateLimitPool().query<{ count: number; window_start: string; remaining_ms: number }>(
+    `SELECT count, window_start::text,
+      (EXTRACT(EPOCH FROM (window_start + make_interval(secs => $2) - NOW())) * 1000)::float8 AS remaining_ms
+    FROM rate_limit_counters WHERE key = $1`,
+    [key, windowSecs],
+  );
+  const now = latest[0];
+  // Measured from before the round-trips, so the refusal never outlives the window.
+  const ttl = now ? Math.min(REFUSAL_TTL_MS, now.remaining_ms - (Date.now() - asked)) : 0;
+  if (now && now.count >= max && ttl >= 1) refused.set(key, now.count, { ttl });
   return REFUSED;
+}
+
+/**
+ * True when `key` was reported full in the last few seconds for a limit of
+ * `max` or less. Memory only: it never admits, it can only save a call that
+ * would be refused anyway.
+ */
+export function isKnownFull(key: string, max: number): boolean {
+  const fullAt = refused.get(key);
+  return fullAt !== undefined && fullAt >= max;
 }
 
 /** Returns true if the request is allowed, false if it is rate-limited. See chargeRateLimit. */

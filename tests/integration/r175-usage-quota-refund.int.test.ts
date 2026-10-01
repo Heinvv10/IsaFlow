@@ -11,11 +11,12 @@
 import { randomUUID } from 'node:crypto';
 import type { NextApiRequest } from 'next';
 import { Pool } from 'pg';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { als, type RequestContext } from '@/lib/als';
 import { markQuotaUsed } from '@/lib/quotaUse';
 import { chargeRateLimit, checkAiRateLimit, checkSendRateLimit, refundRateLimit } from '@/lib/rateLimit';
+import { getRateLimitPool } from '@/lib/rateLimitPool';
 import { settleQuotaCharges } from '@/lib/rateLimitQuota';
 
 assertDisposable();
@@ -199,7 +200,9 @@ describe('R-175 — charged minus used comes back, on every exit', () => {
     expect(await checkAiRateLimit(req, CO, name, { dailyMax: 1 })).toBe(false);
     expect(await checkAiRateLimit(req, CO, name, { dailyMax: 1 })).toBe(false);
 
-    expect(await counts('ai', name)).toEqual({ ip: 3, company: 1, day: 1 });
+    // The third call is refused from memory: the daily key is known full, so
+    // not even the per-IP bucket is written.
+    expect(await counts('ai', name)).toEqual({ ip: 2, company: 1, day: 1 });
   });
 
   it('a call the 15-minute company bucket refuses never reaches the daily bucket', async () => {
@@ -208,5 +211,26 @@ describe('R-175 — charged minus used comes back, on every exit', () => {
     expect(await checkAiRateLimit(req, CO, name, { companyMax: 1 })).toBe(false);
 
     expect(await counts('ai', name)).toEqual({ ip: 2, company: 1, day: 1 });
+  });
+
+  // Review round 5.
+  it('a company whose daily bucket is known full costs no limiter statement at all', async () => {
+    const name = `${RUN}-known-full`;
+    expect(await checkSendRateLimit(req, CO, name, { dailyMax: 1 })).toBe(true);
+    expect(await checkSendRateLimit(req, CO, name, { dailyMax: 1 })).toBe(false);
+    const before = await counts('send', name);
+
+    const limiterPool = getRateLimitPool();
+    const query = vi.spyOn(limiterPool, 'query');
+    try {
+      for (let i = 0; i < 25; i++) expect(await checkSendRateLimit(req, CO, name, { dailyMax: 1 })).toBe(false);
+      expect(query).not.toHaveBeenCalled();
+      // The spy does see limiter statements: an AI key with room costs three.
+      expect(await checkAiRateLimit(req, CO, name, { dailyMax: 100 })).toBe(true);
+      expect(query).toHaveBeenCalledTimes(3);
+    } finally {
+      query.mockRestore();
+    }
+    expect(await counts('send', name)).toEqual(before);
   });
 });

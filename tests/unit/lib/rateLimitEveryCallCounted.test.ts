@@ -7,16 +7,24 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
+const { sqlMock, latestMock } = vi.hoisted(() => ({ sqlMock: vi.fn(), latestMock: vi.fn() }));
 vi.mock('@/lib/rateLimitPool', () => ({
-  getRateLimitPool: () => ({ query: async (...args: unknown[]) => ({ rows: await sqlMock(...args) }) }),
+  // The charge statement goes to sqlMock; the re-read of a refused key's latest count to latestMock.
+  getRateLimitPool: () => ({
+    query: async (text: string, params: unknown[]) =>
+      ({ rows: await (text.trimStart().startsWith('SELECT count') ? latestMock : sqlMock)(text, params) }),
+  }),
 }));
 
 import { chargeRateLimit, checkRateLimit, clearRateLimitCache, refundRateLimit } from '@/lib/rateLimit';
 
 const WINDOW = '2026-10-01 10:00:00.123456+00';
 const admitted = (count: number) => [{ admitted: true, count, window_start: WINDOW, remaining_ms: 60_000 }];
-const refusedAt = (count: number, remaining_ms = 60_000) => [{ admitted: false, count, window_start: WINDOW, remaining_ms }];
+/** A refusal, and by default the latest committed row agrees with it. */
+function refusedAt(count: number, remaining_ms = 60_000) {
+  latestMock.mockResolvedValue([{ count, window_start: WINDOW, remaining_ms }]);
+  return [{ admitted: false, count, window_start: WINDOW, remaining_ms }];
+}
 
 /** A counter that behaves like the table row: a charge is added only when it fits. */
 function countingDb(): void {
@@ -33,6 +41,8 @@ const limit = { max: 20, windowSecs: 60 };
 describe('checkRateLimit — only the database admits (R-175)', () => {
   beforeEach(() => {
     sqlMock.mockReset();
+    latestMock.mockReset();
+    latestMock.mockResolvedValue([]);
     clearRateLimitCache();
   });
 
@@ -113,6 +123,39 @@ describe('checkRateLimit — only the database admits (R-175)', () => {
     expect(sqlMock).toHaveBeenCalledTimes(1);
     expect(await checkRateLimit('k', { max: 100, windowSecs: 60, cost: 10 })).toBe(true);
     expect(sqlMock).toHaveBeenCalledTimes(2);
+  });
+
+  // Review round 5: the refused row comes from the statement's snapshot.
+  it('a refusal that read full from a stale snapshot is not remembered when the latest row has room', async () => {
+    sqlMock.mockResolvedValueOnce(refusedAt(20));
+    // A refund of 2 committed while the statement waited for the row lock.
+    latestMock.mockResolvedValue([{ count: 18, window_start: WINDOW, remaining_ms: 60_000 }]);
+    expect(await checkRateLimit('k', { ...limit, cost: 5 })).toBe(false);
+
+    sqlMock.mockResolvedValueOnce(admitted(19));
+    expect(await checkRateLimit('k', limit)).toBe(true);
+    expect(sqlMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-reads only when the refusal looked full, and remembers the latest count', async () => {
+    sqlMock.mockResolvedValueOnce(refusedAt(15));
+    expect(await checkRateLimit('a', { ...limit, cost: 10 })).toBe(false);
+    expect(latestMock).not.toHaveBeenCalled();
+
+    sqlMock.mockResolvedValueOnce(refusedAt(20));
+    expect(await checkRateLimit('b', limit)).toBe(false);
+    expect(latestMock).toHaveBeenCalledTimes(1);
+    expect(latestMock.mock.calls[0]![1]).toEqual(['b', 60]);
+    expect(await checkRateLimit('b', limit)).toBe(false);
+    expect(sqlMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('remembers nothing when the row is gone by the re-read', async () => {
+    sqlMock.mockResolvedValueOnce(refusedAt(20));
+    latestMock.mockResolvedValue([]);
+    expect(await checkRateLimit('k', limit)).toBe(false);
+    sqlMock.mockResolvedValueOnce(admitted(1));
+    expect(await checkRateLimit('k', limit)).toBe(true);
   });
 
   // Review round 4: `max` is a SQL integer parameter.

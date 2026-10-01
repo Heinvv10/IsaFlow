@@ -31,11 +31,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId, user } = req as CompanyAuthedRequest;
 
-  // Abuse limit: every attempt counts, per user and company, and is never given
-  // back. The company's send bucket below is shared by every colleague, so it
+  // Abuse limit: every attempt counts, per user and company (30), and per user
+  // across all their companies (90), and is never given back. The company's send bucket below is shared by every colleague, so it
   // is charged only once the request is well formed and names records the
   // company owns (R-175).
-  if (!(await checkRateLimit(`afs-signing:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))) {
+  if (!(await checkRateLimit(`afs-signing:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))
+    || !(await checkRateLimit(`afs-signing:user-attempts:${user.id}`, { max: 90, windowSecs: 900 }))) {
     return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
 
@@ -65,6 +66,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   if (doc.signing_requested_at) {
     return apiResponse.badRequest(res, 'Signing has already been requested for this document');
+  }
+
+  // Charged once the document is known to be the company's and ready, before
+  // the heavier contact queries and the file read.
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'afs-signing', { refundUnused: true });
+  if (!sendAllowed) {
+    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
 
   // 2. Load and verify signer contacts (IDOR guard: must belong to this company)
@@ -104,13 +112,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   `) as Array<{ name: string }>;
   const companyName = companies.length > 0 ? companies[0]!.name : 'Company';
   const title = `Annual Financial Statements — ${companyName}`;
-
-  // Charged only now: the document and every signer belong to the company and
-  // there is something to send.
-  const sendAllowed = await checkSendRateLimit(req, companyId, 'afs-signing', { refundUnused: true });
-  if (!sendAllowed) {
-    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
-  }
 
   // 5. Send to Signum (JSON body — real API uses /documents/from-html)
   const signers = contacts.map((c) => ({ email: c.email, name: c.name }));
