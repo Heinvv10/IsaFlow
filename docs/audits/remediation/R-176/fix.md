@@ -53,7 +53,7 @@ and cross-checked against every `BEGIN` in the same trees. "Before" is `09049726
 | 16 | `pages/api/auth/verify-email.ts` (pool per request, ended in the same `finally`) | yes | logged; bare release | destroyed (/review round) |
 | 17a | `scripts/auto-apply-unapplied-dryrun.ts`, `r088-posted-receipt-key-census.ts` (pool per run) | yes | swallowed or unbounded; bare release, then `pool.end()` | destroyed (/review round) |
 | 17b | `scripts/apply-migrations.ts`, `migrations/resolve-checksum-conflicts.ts` (pool per run) | yes | ROLLBACK in a helper (`applyOne`, `processOne`); bare release in `main`, then `pool.end()` | unchanged, pinned |
-| 17c | `scripts/ap-backfill-supplier-payments.ts` (pool per run) | yes | two bare ROLLBACKs; bare release, then `pool.end()` | unchanged, pinned: it runs `main()` on import, so no test can drive a conversion |
+| 17c | `scripts/ap-backfill-supplier-payments.ts` (pool per run) | yes | two bare ROLLBACKs; bare release, then `pool.end()` | unchanged, pinned: two ROLLBACK paths the census cannot tell apart, in a script no test can drive |
 | 18a | `scripts/fixes/backfill-je-fiscal-periods.ts`, `repairs/2026-07-05-p1-1-reverse-je-2026-00927.ts` | yes, on a `pg.Client` of their own, ended with `client.end()`; no pool | bare ROLLBACK: unbounded, and a failure threw over the original error | through `rollbackFailed` (/review round) |
 | 18b | `scripts/run-sql.mjs`, `seed-historical-data.mjs`, `seed-prd05-qa-data.ts` | a `pg.Client` of their own; no ROLLBACK sent | n/a | out of scope |
 | 19 | `src/lib/auth/impersonationSessions.ts` (`client.connect()`) | no: one autocommit INSERT on its own `pg.Client`, then `end()` | n/a | out of scope |
@@ -454,8 +454,11 @@ owner used the helper. Fixed:
   `r088-posted-receipt-key-census.ts` are converted (row 17a): one `rollbackFailed` call each,
   whose result the release takes, which the release census proves. `ap-backfill-supplier-payments.ts`
   was converted, then reverted and pinned (row 17c): it has two ROLLBACK paths, the census cannot
-  tell one dropped, and the script runs `main()` on import, so no test can drive that path. `apply-migrations.ts` and `migrations/resolve-checksum-conflicts.ts`
-  are left and named, with the reason, here and in `src/lib/auth/.claude.md`.
+  tell one dropped, and no test can drive the script, so the conversion could not be proved.
+  (Running `main()` on import is not the reason on its own: the converted scripts do too, and
+  their single ROLLBACK is proved by the census.) `apply-migrations.ts` and
+  `migrations/resolve-checksum-conflicts.ts` are left and named, with the reason, here and in
+  `src/lib/auth/.claude.md`.
 - The docs say plainly that the 5 s bound covers ROLLBACK only.
 - Addendum: the reviewer also named `scripts/fixes/backfill-je-fiscal-periods.ts` and
   `scripts/repairs/2026-07-05-p1-1-reverse-je-2026-00927.ts`. They were not pinned, and the census
@@ -464,14 +467,34 @@ owner used the helper. Fixed:
   get the connection, but their bare ROLLBACK still waited without bound, sent no cancel, and
   threw over the original error when it failed. Both now roll back through `rollbackFailed` (row
   18a). The gap is closed by `tests/unit/lib/rollbackCensus.test.ts`: every `.query('ROLLBACK')`
-  in the tracked tree must be the one in `rollbackFailed.ts`, or pinned with its reason. Only
-  `apply-migrations.ts` and `resolve-checksum-conflicts.ts` are pinned. It does not see a ROLLBACK
-  whose text is built at run time or sent other than through `.query(`.
+  in the tracked tree must be the one in `rollbackFailed.ts`, or pinned with its reason. Three
+  scripts are pinned for their ROLLBACKs: `apply-migrations.ts`, `resolve-checksum-conflicts.ts` and
+  `ap-backfill-supplier-payments.ts`. See /review round 2 for what it reads.
 
 Mutants: the census, wrapper and new-guard mutants (95), first run: 94 RED; the survivor was
 the dropped result of `ap-backfill-supplier-payments.ts`'s dry-run ROLLBACK. That script's
 conversion is reverted and it is pinned in both censuses (row 17c); the census mutants were
 re-run after (round 10 in `mutations.log`).
+
+## /review round 2
+
+Both reviewers and /review said SHIP on `ed3edf2cf` with four LOWs, all fixed:
+
+1. `verify-email.ts`: after its early ROLLBACK had failed, the `catch` sent a second one on the
+   same stuck client, which queued behind the first (a 10 s answer) and sent the backend a second
+   cancel. It now skips the second ROLLBACK when the first failed. Unit case: one ROLLBACK sent,
+   released with `true`, the pool still ended.
+2. `rollbackCensus.test.ts` read only `ROLLBACK;?`. It now counts every spelling that ends a
+   transaction (`ROLLBACK`, `ABORT`, with `WORK` or `TRANSACTION`, and `AND [NO] CHAIN`, any case),
+   reads a `{ text }` config and a template's leading words, and keeps `ROLLBACK TO SAVEPOINT` out.
+   In a file that owns a transaction (it sends `BEGIN` or `START TRANSACTION`), a first argument
+   whose text it cannot read fails closed and must be pinned. Pinned for that: `neon.ts` (8) and
+   `scripts/_pg.ts` (3), which send their callers' text, and the three scripts that run a SQL file.
+   A fixture case for each spelling and each unreadable form.
+3. `ap-backfill-supplier-payments.ts`'s pin reason now names the real reason (row 17c), in both
+   census files.
+4. The docs named two exceptions where there are three; corrected here and in
+   `src/lib/auth/.claude.md`.
 
 ## Migration / rollback
 
