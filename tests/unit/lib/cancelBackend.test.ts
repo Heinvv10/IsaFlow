@@ -17,7 +17,8 @@ let closed = 0;
 
 beforeEach(async () => {
   received = []; sockets = []; closed = 0;
-  server = net.createServer((socket) => {
+  // allowHalfOpen: like a server that never closes its end, so only the client's own bound ends the socket.
+  server = net.createServer({ allowHalfOpen: true }, (socket) => {
     sockets.push(socket);
     socket.on('data', (d) => received.push(d));
     socket.on('close', () => { closed += 1; });
@@ -86,15 +87,25 @@ describe('cancelBackend', () => {
   });
 
   it('its socket is torn down at the bound when the server never closes it', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    cancelBackend({ processID: 1, secretKey: 2, host: '127.0.0.1', port });
-    expect(await until(() => sockets.length === 1)).toBe(true);
-    expect(closed).toBe(0);
-    vi.advanceTimersByTime(1999);
-    await new Promise((done) => setImmediate(done));
-    expect(closed).toBe(0);
-    vi.advanceTimersByTime(1);
-    expect(await until(() => closed === 1)).toBe(true);
+    // The client's own socket: after it has sent the request it waits for the server's end, which
+    // this server (allowHalfOpen) never sends. Only the bound closes it.
+    const real = net.connect.bind(net) as (...a: unknown[]) => net.Socket;
+    let client: net.Socket | undefined;
+    const spy = vi.spyOn(net, 'connect').mockImplementation(((...a: unknown[]) => { client = real(...a); return client; }) as never);
+    let clientClosed = false;
+    try {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      cancelBackend({ processID: 1, secretKey: 2, host: '127.0.0.1', port });
+      client!.on('close', () => { clientClosed = true; });
+      expect(await until(() => Buffer.concat(received).length >= 16)).toBe(true);
+      vi.advanceTimersByTime(1999);
+      for (let i = 0; i < 20; i += 1) await new Promise((done) => setImmediate(done));
+      expect(clientClosed).toBe(false);
+      vi.advanceTimersByTime(1);
+      expect(await until(() => clientClosed)).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('a refused connection raises nothing', async () => {
