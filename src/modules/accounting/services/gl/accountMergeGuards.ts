@@ -22,6 +22,8 @@ import { reportingClassFor } from './accountReportingClass';
 import { isBankSubtype } from './accountSubtypes';
 import { hasChildAccounts, isSubjectToLeafRule } from './isReportVisibleLeaf';
 import { openBillLinesRefusal } from './accountMergeBillLines';
+import { AccountMergeError } from './accountMergeError';
+import { assertTargetMayTakeChildren } from './accountMergeRoleGuard';
 import {
   CONFIGURATION_REFERENCE_EXCLUSIONS,
   findConfigurationReferences,
@@ -43,17 +45,7 @@ export {
  * forever while holding its row locks. Observed once; it wedged the dev
  * database until the backend was terminated by hand.
  */
-/** Every refusal, so a caller can map the whole class to one toolError / 400. */
-export class AccountMergeError extends Error {
-  constructor(
-    message: string,
-    readonly code: MergeRefusalCode,
-    readonly references: ConfigurationReference[] = [],
-  ) {
-    super(message);
-    this.name = 'AccountMergeError';
-  }
-}
+export { AccountMergeError };
 
 export interface MergeAccount {
   id: string;
@@ -269,6 +261,7 @@ export async function assertMergeable(
     );
   }
   await assertTargetStaysOnTheReports(companyId, source, target);
+  await assertTargetMayTakeChildren(companyId, source, target);
   if (isBankSubtype(source.accountSubtype)) {
     const count = await countBankTransactions(companyId, source.id);
     if (count > 0) {

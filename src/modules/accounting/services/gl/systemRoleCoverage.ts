@@ -15,7 +15,7 @@
  * are the point — the near-miss classification is exactly the rows the
  * resolver's cache excludes.
  */
-import { sql } from '@/lib/neon';
+import { sql, type TxSql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
 import {
   SYSTEM_ACCOUNT_KEYS,
@@ -104,9 +104,12 @@ export function classifyRole(key: SystemAccountKey, claimants: NearMissClaimant[
  *
  * Scoped by `company_id` in the WHERE clause; the subtype list is bound as a
  * single array parameter rather than interpolated.
+ *
+ * `q` lets a writer read coverage on its own transaction (the Default Accounts
+ * save compares before and after its writes); everyone else uses `sql`.
  */
-export async function getSystemRoleCoverage(companyId: string): Promise<SystemRoleCoverageReport> {
-  const rows = (await sql`
+export async function getSystemRoleCoverage(companyId: string, q: TxSql = sql): Promise<SystemRoleCoverageReport> {
+  const rows = (await q`
     SELECT id::TEXT AS id, account_code, account_name, account_type, account_subtype,
            created_at, is_active, is_system_account
     FROM gl_accounts

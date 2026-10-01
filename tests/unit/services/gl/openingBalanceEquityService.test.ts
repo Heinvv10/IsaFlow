@@ -5,10 +5,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
-vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ clearSystemAccountCache: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ clearSystemAccountCacheAfterCommit: vi.fn() }));
+// The role-write lock is its own statements; its behaviour is proven against Postgres
+// in tests/integration/w2-28-system-role-writers*.int.test.ts.
+vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', () => ({
+  lockSystemRoleWrites: vi.fn(), boundedRowWait: <T>(take: () => PromiseLike<T>) => take(),
+}));
+vi.mock('@/modules/accounting/services/gl/systemRoleInvariant', () => ({
+  snapshotRoles: vi.fn(async () => ({})), assertRolesKept: vi.fn(async () => undefined),
+}));
 
 import { sql } from '@/lib/neon';
-import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { ensureOpeningBalanceEquityAccount } from '@/modules/accounting/services/gl/openingBalanceEquityService';
 import { GL_ACCOUNT_SUBTYPES_BY_TYPE, SYSTEM_RESERVED_SUBTYPES } from '@/modules/accounting/types/glAccountSubtypes';
 import { subtypeErrorFor } from '@/modules/accounting/services/gl/accountSubtypeRules';
@@ -40,7 +48,7 @@ describe('ensureOpeningBalanceEquityAccount', () => {
     const insert = mockSql.mock.calls[3]!;
     expect(textOf(3)).toContain('INSERT INTO gl_accounts');
     expect(insert.slice(1)).toEqual(expect.arrayContaining([COMPANY, '3300', 'opening_balance_equity', 2, 'hdr']));
-    expect(clearSystemAccountCache).toHaveBeenCalledWith(COMPANY);
+    expect(clearSystemAccountCacheAfterCommit).toHaveBeenCalledWith(COMPANY);
   });
 
   it('skips a taken code and creates at level 1 with no parent when there is no 3000 header', async () => {

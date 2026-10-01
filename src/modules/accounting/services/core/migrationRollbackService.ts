@@ -15,6 +15,8 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { boundedRowWait, lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
+import { MAX_ROLLBACK_LOOP_ACCOUNTS } from './migrationRowCaps';
 import type { MigrationSource } from './migrationParserService';
 import type { DbRow } from '@/types/db';
 
@@ -27,6 +29,8 @@ export interface RollbackResult {
   deleted: number;
   retained: number;
   retainedCodes: string[];
+  /** Only when this request did not get to every account (MAX_ROLLBACK_LOOP_ACCOUNTS): how many are still tagged. Running the rollback again continues. */
+  remaining?: number;
 }
 
 /** Postgres foreign_key_violation: something still points at the account. */
@@ -36,16 +40,28 @@ function isFkViolation(err: unknown): boolean {
   return (err as { code?: string }).code === FK_VIOLATION;
 }
 
-export async function rollbackMigration(
+/** Bounded: every statement it runs while it holds the role lock waits at most 5s for any lock. */
+export function rollbackMigration(companyId: string, source: MigrationSource): Promise<RollbackResult> {
+  return boundedRowWait(() => rollbackUnderLock(companyId, source));
+}
+
+async function rollbackUnderLock(
   companyId: string,
   source: MigrationSource,
 ): Promise<RollbackResult> {
   const retained: { id: string; code: string }[] = [];
   let deleted = 0;
+  let remaining = 0;
 
   try {
+    // A system account is a role holder (or a seeded header): posting resolves
+    // the role to it, so it is RETAINED like an account something still
+    // references — never deleted. Under the role-write lock, taken first, so a
+    // Default Accounts save cannot make a candidate a holder mid-rollback and
+    // the loop below takes its row locks with no save in flight.
+    await lockSystemRoleWrites(companyId);
     const candidates = (await sql`
-      SELECT id, account_code FROM gl_accounts
+      SELECT id, account_code, is_system_account FROM gl_accounts
       WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
       ORDER BY account_code
     `) as DbRow[];
@@ -57,7 +73,7 @@ export async function rollbackMigration(
     // the loop is paid for only when it is actually needed.
     const bulk = candidates.length === 0 ? [] : await withSavepoint('mig_rb_bulk', async () => (await sql`
       DELETE FROM gl_accounts
-      WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
+      WHERE company_id = ${companyId}::UUID AND imported_from = ${source} AND is_system_account IS NOT TRUE
       RETURNING id
     `) as DbRow[]).catch((err: unknown) => {
       if (!isFkViolation(err)) throw err;
@@ -78,8 +94,12 @@ export async function rollbackMigration(
       }
     } else {
       for (const [i, row] of candidates.entries()) {
+        // One at a time is three round trips an account, under the role lock:
+        // capped per request. The rest keep their tag and are reported.
+        if (i >= MAX_ROLLBACK_LOOP_ACCOUNTS) { remaining = candidates.length - i; break; }
         const id = String(row.id);
         const code = String(row.account_code);
+        if (row.is_system_account === true) { retained.push({ id, code }); continue; }
         try {
           // RETURNING, not the absence of a throw: a candidate the SELECT saw
           // can be gone by now, or invisible to an RLS USING clause, and
@@ -108,11 +128,11 @@ export async function rollbackMigration(
       `;
     }
 
-    log.info('Rollback complete', { companyId, source, deleted, retained: retained.length }, 'migration');
+    log.info('Rollback complete', { companyId, source, deleted, retained: retained.length, remaining }, 'migration');
   } catch (err) {
     log.error('Rollback failed', { companyId, source, error: err }, 'migration');
     throw err;
   }
 
-  return { deleted, retained: retained.length, retainedCodes: retained.map(r => r.code) };
+  return { deleted, retained: retained.length, retainedCodes: retained.map(r => r.code), ...(remaining > 0 ? { remaining } : {}) };
 }
