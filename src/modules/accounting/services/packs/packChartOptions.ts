@@ -127,7 +127,7 @@ export function waterfallOption(
   const domain = frame.domain;
   // NOTHING MAY MOVE THE PLOT where the box is known: the rectangle the
   // domain was chosen for is the one drawn, in either face. A bare height in
-  // another face (a chart drawn at its container's width, in Plex Mono) is
+  // another face (a caller that measures with something else) is
   // the one case left to ECharts, which narrows the plot from the left for
   // wide ticks; its HEIGHT is still held.
   const exact = typeof box === 'object' || measure === packTextMeasure;

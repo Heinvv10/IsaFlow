@@ -1,22 +1,33 @@
 /**
- * THE MANAGEMENT PACK'S BRIDGE, ON THE EXACT-PLOT LAYOUT, IN ITS OWN FACE.
+ * THE MANAGEMENT PACK'S BRIDGE, ON THE EXACT-PLOT LAYOUT, IN THE PRINT FACE.
  *
- * The legacy view's theme sets chart text in IBM Plex Mono, wider than the
- * print face, so a layout measured in Plex Sans ran ticks like "(4 000 000)"
- * off the left edge and "Operating Expenses" past the bottom. The layout now
- * takes the measurer of the face the chart is drawn in; this renders with the
- * theme registered, as the screen does, and measures in Plex Mono — a fixed
- * 0.6em advance, so the widths are exact. Every axis label lies inside the
- * SVG, every figure on the plot and legible, and no two ticks stand closer
- * than 18px, at the heights the view is drawn at.
+ * The view's chart theme sets text in IBM Plex Mono, a face the print page
+ * does not load: every axis label fell back to DejaVu Sans Mono in the
+ * Gotenberg image — a second typeface embedded in the PDF — and the layout
+ * was measuring a 0.6em advance for a face that was not there. The view's
+ * options now state the pack's own print face, IBM Plex Sans, over the
+ * theme's, and the layout measures that face's advances. This renders with
+ * the theme registered, as `EChart` does: every text is in the print face,
+ * every axis label lies inside the SVG, every figure on the plot and
+ * legible, and no two ticks stand closer than 18px.
+ *
+ * Tick widths are the face's own advances (`glyphCells`); category names are
+ * measured by zrender's table, which is not the ruler production uses and
+ * reads this face to within three pixels — the tolerance below.
  */
 import { describe, expect, it } from 'vitest';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { clipRect, figures, illegible, outsideClip } from './support/bridgeSvg';
-import { renderLegacyBridge as render } from './support/legacyBridge';
+import { format } from 'echarts/core';
+import { PACK_FONT_STACK } from '@/lib/charts/packFont';
+import { legacyTrendOption } from '@/components/accounting/packs/PackSectionView';
+import { clipRect, figures, glyphCells, illegible, outsideClip } from './support/bridgeSvg';
+import { DEMO_MANAGEMENT_BRIDGE, fontFamilies, renderLegacyBridge as render, renderLegacyOption } from './support/legacyBridge';
 
-const MONO_EM = 0.6;
 const PX = 12;
+/** How far zrender's table reads a category name from the face's own width. */
+const NAME_RULER_PX = 3;
+const tickWidth = (text: string): number => { const cells = glyphCells(text, 0); return cells[cells.length - 1]!.right - cells[0]!.left; };
+const nameWidth = (text: string): number => format.getTextRect(text, `${PX}px ${PACK_FONT_STACK}`).width;
 
 const unesc = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&#39;/g, "'");
 
@@ -28,16 +39,16 @@ function breaches(svg: string, steps: WaterfallStep[], height: number): string[]
   // would pass every check below by having nothing to check.
   if (ticks.length < 2) out.push(`only ${ticks.length} value ticks were read`);
   for (const m of ticks) {
-    const left = Number(m[1]) - unesc(m[3]!).length * MONO_EM * PX;
+    const left = Number(m[1]) - tickWidth(unesc(m[3]!));
     if (left < -0.5) out.push(`tick "${m[3]}" starts at ${left.toFixed(1)}`);
   }
   const names = [...svg.matchAll(/transform="matrix\(0.866,-0.5,0.5,0.866,([-\d.]+),([-\d.]+)\)"[^>]*>([^<]*)<\/text>/g)];
   if (names.length !== steps.length) out.push(`${names.length} category names were read for ${steps.length} bars`);
   for (const m of names) {
-    const w = unesc(m[3]!).length * MONO_EM * PX;
+    const w = nameWidth(unesc(m[3]!));
     const bottom = Number(m[2]) + 0.5 * w + 0.65 * PX * 0.866;
     const left = Number(m[1]) - 0.866 * w - 0.5 * PX * 0.5;
-    if (bottom > height + 0.5 || left < -0.5) out.push(`name "${m[3]}" reaches ${bottom.toFixed(1)}/${height}, left ${left.toFixed(1)}`);
+    if (bottom > height + NAME_RULER_PX / 2 || left < -NAME_RULER_PX) out.push(`name "${m[3]}" reaches ${bottom.toFixed(1)}/${height}, left ${left.toFixed(1)}`);
   }
   const clip = clipRect(svg);
   const drawn = figures(svg);
@@ -83,7 +94,7 @@ function* bridges(seedValue: number, n: number): Generator<WaterfallStep[]> {
   }
 }
 
-describe('the legacy bridge, in the screen\'s own face', () => {
+describe('the legacy bridge, in the print face', () => {
   for (const [rev, net] of [[2_500_000, 300_000], [12_000_000, -3_000_000], [25_000_000, 2_000_000], [140_000_000, -30_000_000]]) {
     it(`keeps every axis label inside the chart at revenue ${rev}`, () => {
       const steps = bridge(rev, net);
@@ -103,4 +114,21 @@ describe('the legacy bridge, in the screen\'s own face', () => {
     }
     expect(failures.slice(0, 6), `${failures.length} breaches`).toEqual([]);
   }, 180_000);
+});
+
+describe('the management pack\'s charts are set in the pack\'s print face', () => {
+  const PRINT_FACE = PACK_FONT_STACK;
+
+  it('the bridge: every text, over a theme that asks for IBM Plex Mono', () => {
+    const svg = render(DEMO_MANAGEMENT_BRIDGE, 718, 320);
+    expect((svg.match(/<text\b/g) ?? []).length, 'no text was drawn, so no face is under test').toBeGreaterThan(15);
+    expect(fontFamilies(svg)).toEqual([PRINT_FACE]);
+  });
+
+  it('the twelve-month trend: every text', () => {
+    const points = Array.from({ length: 12 }, (_, i) => ({ label: `M${i + 1} 2026`, revenue: 100_000 + i * 12_500 }));
+    const svg = renderLegacyOption(legacyTrendOption(points), 718, 320);
+    expect((svg.match(/<text\b/g) ?? []).length, 'no text was drawn, so no face is under test').toBeGreaterThan(12);
+    expect(fontFamilies(svg)).toEqual([PRINT_FACE]);
+  });
 });

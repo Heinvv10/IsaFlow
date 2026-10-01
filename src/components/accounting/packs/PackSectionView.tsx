@@ -17,7 +17,7 @@ const LEGACY_PACK_SCALE: MoneyScale = 'R';
 import type { PackBlock, PackDocumentSection } from '@/modules/accounting/services/packs/packDocument';
 import { formatPackKv, scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 import { PackChart } from './PackChart';
-import { monospaceMeasure } from '@/modules/accounting/services/packs/packWaterfallDomain';
+import { PACK_FONT_STACK } from '@/lib/charts/packFont';
 
 /**
  * THE BOX THIS VIEW'S BRIDGE IS DRAWN IN, AND IT IS A FIXED ONE.
@@ -35,15 +35,35 @@ import { monospaceMeasure } from '@/modules/accounting/services/packs/packWaterf
 export const LEGACY_WATERFALL_BOX = { heightPx: 320, widthPx: 718 } as const;
 
 /**
+ * THIS VIEW'S CHARTS ARE SET IN THE PACK'S PRINT FACE, NOT THE SCREEN'S.
+ *
+ * `EChart` registers the app's chart theme, whose text face is
+ * `--ff-fig-font` — IBM Plex Mono. The print page loads no such face (it
+ * self-hosts IBM Plex Sans, the face the readiness gate waits for), so every
+ * axis label on these charts fell back to whatever monospace the renderer
+ * had: DejaVu Sans Mono in the Gotenberg image, a second typeface embedded in
+ * a pack that declares one. An option's own `textStyle` overrides a theme's,
+ * so the family is stated here, on every chart this view draws.
+ */
+function inPrintFace<T extends object>(option: T): T & { textStyle: { fontFamily: string } } {
+  return { ...option, textStyle: { fontFamily: PACK_FONT_STACK } };
+}
+
+/**
  * The bridge option this view draws — exported so a test renders exactly it.
- * The same exact-plot layout as the board pack, measured in the face this
- * view's theme draws chart text in: IBM Plex Mono (`lib/charts/theme.ts`).
+ * The same exact-plot layout as the board pack, in the same face.
  */
 export function legacyWaterfallOption(
   steps: Parameters<typeof waterfallOption>[0],
   box: { heightPx: number; widthPx: number } = LEGACY_WATERFALL_BOX,
 ) {
-  return waterfallOption(steps, LEGACY_PACK_SCALE, undefined, undefined, false, undefined, box, monospaceMeasure());
+  return inPrintFace(waterfallOption(steps, LEGACY_PACK_SCALE, undefined, undefined, false, undefined, box));
+}
+
+/** The twelve-month trend this view draws — revenue, the series a reader
+ *  quotes off the page; the other two are on the statements a page earlier. */
+export function legacyTrendOption(points: Array<{ label: string; revenue: number }>) {
+  return inPrintFace(trendOption(points.map((p) => ({ label: p.label, value: p.revenue })), LEGACY_PACK_SCALE));
 }
 
 const NO_COMPARATORS = { prior: false, budget: false, variance: false, trend: false } as const;
@@ -98,9 +118,7 @@ function Block({ block }: { block: PackBlock }) {
       return <PackChart height={LEGACY_WATERFALL_BOX.heightPx} width={LEGACY_WATERFALL_BOX.widthPx} option={legacyWaterfallOption(block.steps)} />;
 
     case 'trend':
-      // Revenue is the series a reader quotes off a twelve-month page; the
-      // other two are on the statements a page earlier.
-      return <PackChart option={trendOption(block.points.map((p) => ({ label: p.label, value: p.revenue })), LEGACY_PACK_SCALE)} />;
+      return <PackChart option={legacyTrendOption(block.points)} />;
 
     case 'text':
       return <p className="text-sm text-[var(--ff-text-secondary)]">{block.text}</p>;

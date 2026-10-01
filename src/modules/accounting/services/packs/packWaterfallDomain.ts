@@ -21,8 +21,7 @@
  *      does not settle.
  */
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { format } from 'echarts/core';
-import { PACK_FONT_STACK } from '@/lib/charts/packFont';
+import { packFigureWidthPx } from '@/lib/charts/packFigureWidth';
 import { axisDomain, MIN_TICK_PITCH_PX, TICK_PITCH_PX, type AxisDomain } from './packChartAxes';
 import { NIL_STEP_RULE_PX } from './packWaterfallBars';
 import { BAR_SHARE_OF_BAND, FIGURE_SIZES_PX, LABEL_LINE_PX } from './packWaterfallFit';
@@ -52,16 +51,9 @@ const MEASURE_SLACK_PX = 2;
 /** The box a line of text takes, in the face the chart draws it in. */
 export type TextMeasure = (text: string, fontPx: number) => { width: number; height: number };
 
-/** The pack's print face, measured by zrender — the measurer ECharts lays
- *  the print charts out with. */
-export const packTextMeasure: TextMeasure = (text, fontPx) => format.getTextRect(text, `${fontPx}px ${PACK_FONT_STACK}`);
-
-/** A monospaced face: every glyph the same advance. The management pack's
- *  screen theme sets chart text in IBM Plex Mono (`lib/charts/theme.ts`),
- *  whose advance is 0.6em. */
-export function monospaceMeasure(em = 0.6): TextMeasure {
-  return (text, fontPx) => ({ width: text.length * em * fontPx, height: fontPx });
-}
+/** The pack's print face, IBM Plex Sans, by its own advances — the widths
+ *  the browser sets it at (`packFigureWidthPx`). */
+export const packTextMeasure: TextMeasure = (text, fontPx) => ({ width: packFigureWidthPx(text, fontPx), height: fontPx });
 
 /**
  * How far below the plot the rotated category names reach, measured in the
