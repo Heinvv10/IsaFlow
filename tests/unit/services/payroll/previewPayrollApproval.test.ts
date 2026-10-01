@@ -15,7 +15,11 @@ vi.mock('@/lib/auth/impersonationGuard', () => ({ assertNotImpersonating: async 
 // Every sql call answers this row: the approve path's FOR UPDATE, and the posted journal's
 // head (a live journal with no lines, matching the empty plans below).
 const headerRow = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => [headerRow.current]) }));
+// approvePayrollRun takes its header lock through withTransaction (payrollRunLock).
+vi.mock('@/lib/neon', () => {
+  const sql = vi.fn(async () => [headerRow.current]);
+  return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
+});
 
 import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
 import { approvePayrollRun, previewPayrollApproval } from '@/modules/accounting/services/payroll/payrollApprovalService';

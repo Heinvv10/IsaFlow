@@ -29,6 +29,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', async (o
   };
 });
 
+import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
@@ -98,5 +99,32 @@ describe('calculate vs approve (W3-01 round 2, R2-2)', () => {
     expect(hdr).toMatchObject({ status: 'calculated', journal_entry_id: null, gross: 30000 });
     expect((await pool.query(
       "SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id = $1 AND description = 'Payroll run 2026-04'", [company])).rows[0]!.n).toBe(0);
+  });
+
+  // Round 4. The seed and simulation scripts call calculatePayrollRun with NO
+  // transaction open, so its header lock lasts one statement and an approve
+  // can commit while it costs the run. The status predicate on its final
+  // header UPDATE is then the only thing that stops that approval being
+  // reverted to 'calculated' under its own posted journal.
+  it('with no request transaction, a calculate cannot revert an approve that committed meanwhile', async () => {
+    await pool.query('UPDATE payroll_employee_components SET amount = 20000 WHERE id = $1', [salary]);
+    const id = await calculatedRun(call, 5);
+    const url = (a: string) => `/api/payroll/runs/${id}/${a}`;
+    const p = await call(journalPlan as Route, 'GET', url('journal-plan'), id);
+    await pool.query('UPDATE payroll_employee_components SET amount = 30000 WHERE id = $1', [salary]);
+
+    let release!: () => void;
+    gate.hold = new Promise<void>((r) => { release = r; });
+    const entered = new Promise<void>((r) => { gate.entered = r; });
+    const calcP = calculatePayrollRun(id, company).then(() => 'saved', (e: Error) => e.message); // as a script calls it
+    await entered; // past its status check; its row lock already released
+    const appr = await call(approve as Route, 'POST', url('approve'), id, { body: { expectedPlanHash: p.body.data!.planHash } });
+    expect(appr.statusCode).toBe(200);
+    release();
+
+    expect(await calcP).toMatch(/locked while it was being calculated/);
+    expect((await pool.query(
+      'SELECT status, journal_entry_id, total_gross::float8 AS gross FROM payroll_run_headers WHERE id = $1', [id])).rows[0])
+      .toEqual({ status: 'approved', journal_entry_id: appr.body.data!.journalEntryId, gross: 20000 });
   });
 });

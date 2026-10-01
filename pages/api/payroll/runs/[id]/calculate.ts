@@ -20,6 +20,8 @@ import {
   PayrollRunJournalPostedError,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function handler(
   req: AuthenticatedNextApiRequest,
   res: NextApiResponse
@@ -31,7 +33,7 @@ async function handler(
   const { companyId } = req as CompanyAuthedRequest;
   const { id } = req.query;
 
-  if (typeof id !== 'string') {
+  if (typeof id !== 'string' || !UUID_RE.test(id)) {
     return apiResponse.badRequest(res, 'Invalid run ID');
   }
 

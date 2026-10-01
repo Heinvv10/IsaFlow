@@ -25,9 +25,10 @@ import {
   type AuthenticatedNextApiRequest,
   type CompanyAuthedRequest,
 } from '@/lib/auth';
-import { reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { PayrollRunReopenRefusedError, reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { log } from '@/lib/logger';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const Body = z.object({ reason: z.string().min(5).max(500) }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
@@ -36,8 +37,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 
   const { companyId, companyRole, user } = req as CompanyAuthedRequest;
-  const id = String(req.query.id ?? '');
-  if (!id) return apiResponse.badRequest(res, 'Missing run id');
+  const id = req.query.id;
+  if (typeof id !== 'string' || !UUID_RE.test(id)) return apiResponse.badRequest(res, 'Invalid payroll run ID');
 
   // Only owners / admins / managers can reopen — same gate as approve.
   // withAuth sets the per-company role on req.companyRole (not on user);
@@ -63,7 +64,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     }, 'payroll-api');
     return apiResponse.success(res, result);
   } catch (err) {
-    return apiResponse.badRequestFromError(res, err, 'Reopen failed');
+    // Only the service's own refusals, raised before its one write, are a 400.
+    // withAuth COMMITs a 4xx, so anything else is rethrown: a 500 rolls back.
+    if (err instanceof PayrollRunReopenRefusedError) return apiResponse.badRequestFromError(res, err, 'Reopen failed');
+    throw err;
   }
 }
 

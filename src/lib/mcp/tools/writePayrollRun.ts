@@ -270,6 +270,8 @@ export const approvePayRunTool: McpTool = {
       });
     } catch (err) {
       if (err instanceof PayrollApprovalRefusedError) return toolError(`Not approved: ${err.message}`);
+      // The bounded wait for the run or its journal ran out — before any write.
+      if (err instanceof PayrollLoanLockTimeoutError) return toolError(err.message);
       throw err;
     }
     return ok({

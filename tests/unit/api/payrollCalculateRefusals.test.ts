@@ -102,6 +102,18 @@ describe('POST /api/payroll/runs/[id]/calculate — loan refusals', () => {
   });
 });
 
+describe('POST /api/payroll/runs/[id]/calculate — run id', () => {
+  // It reached `::uuid` and came back a 500 carrying the driver's message.
+  it.each([['not-a-uuid'], ["x' OR 1=1--"], [['22222222-2222-4222-8222-222222222222', 'x']], [undefined]])(
+    'answers a malformed id %j with 400 before anything is calculated', async (id) => {
+      const { req, res } = mockReqRes();
+      (req as unknown as { query: Record<string, unknown> }).query = { id };
+      await handler(req, res);
+      expect(res.statusCode).toBe(400);
+      expect(calculatePayrollRun).not.toHaveBeenCalled();
+    });
+});
+
 describe('POST /api/payroll/runs/[id]/calculate — role gate', () => {
   it('refuses a viewer with 403 before anything is calculated', async () => {
     const { req, res } = mockReqRes('viewer');

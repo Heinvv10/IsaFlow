@@ -13,6 +13,7 @@ import { postPayrollRunJournal } from './payrollJournalPostingService';
 import { PayrollApprovalConflictError, PayrollApprovalRefusedError } from './payrollApprovalRefusal';
 import type { PayrollJournalNote, PayrollJournalPlan } from './payrollJournalBuilder';
 import { judgePayrollApproval, type PayrollApprovalGate } from './payrollApprovalGate';
+import { lockPayrollRunHeader, lockRunJournalForApproval } from './payrollRunLock';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
@@ -56,8 +57,10 @@ export async function previewPayrollApproval(companyId: string, runId: string): 
  * the run no longer hashes the same, approval is refused with
  * PayrollApprovalConflictError (409) before anything is written.
  *
- * The header row is locked FOR UPDATE first. calculatePayrollRun takes the
- * same lock before its status check, so the two serialise on the row: a
+ * The header row is locked FOR UPDATE first (5s wait, then
+ * PayrollLoanLockTimeoutError — nothing written; the route answers 400, the
+ * MCP tool a tool error), then the linked journal and its reversal.
+ * calculatePayrollRun takes the same header lock before its status check, so the two serialise on the row: a
  * calculate already in flight finishes (and commits) before this gate reads
  * the run — the new figures then fail a stale hash — and a calculate arriving
  * after this approval commits reads 'approved' and refuses. calculate's own
@@ -73,12 +76,14 @@ export async function approvePayrollRun(
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   log.info('Approving payroll run', { companyId, runId }, 'payrollApproval');
 
-  const locked = (await sql`
-    SELECT id FROM payroll_run_headers
-    WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
-    FOR UPDATE
-  `) as Row[];
-  if (locked.length === 0) throw new PayrollApprovalRefusedError('Payroll run not found');
+  // Header first, then the journal it links and that journal's reversal — in
+  // that order, each with a 5s wait (payrollRunLock). The gate below reads
+  // them inside these locks, so what it judges cannot change before the writes.
+  const locked = await lockPayrollRunHeader(runId, companyId);
+  if (!locked) throw new PayrollApprovalRefusedError('Payroll run not found');
+  if (locked.journal_entry_id != null) {
+    await lockRunJournalForApproval(runId, companyId, String(locked.journal_entry_id));
+  }
 
   const gate = await judgePayrollApproval(companyId, runId);
   if (!gate) throw new PayrollApprovalRefusedError('Payroll run not found');

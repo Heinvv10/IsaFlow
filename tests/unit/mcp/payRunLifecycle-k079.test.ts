@@ -49,6 +49,7 @@ import {
   previewPayrollApproval,
 } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { PayrollApprovalConflictError, PayrollApprovalRefusedError } from '@/modules/accounting/services/payroll/payrollApprovalRefusal';
+import { PayrollLoanLockTimeoutError } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { approvePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
@@ -166,6 +167,13 @@ describe('approve_pay_run — the live call approves what the dry run showed', (
     expect(approvePayrollRun).toHaveBeenCalledWith(
       COMPANY, RUN, ctx().userId, { postingAgent: 'mcp:approve_pay_run:v1', expectedPlanHash: 'hash-9' },
     );
+  });
+
+  // Round 4: approval waits at most 5s for the run and its journal. Raised
+  // before any write, so it is returned for the agent to retry, not thrown.
+  it('returns the lock timeout so the agent can retry', async () => {
+    vi.mocked(approvePayrollRun).mockRejectedValue(new PayrollLoanLockTimeoutError(RUN));
+    expect(errText(await approvePayRunTool.handler({ run_id: RUN, ...LIVE }, ctx()))).toContain('retry in a moment');
   });
 
   it('the dry run of a run whose journal was reversed says a new one is posted in its place', async () => {

@@ -1,7 +1,7 @@
 /**
  * The approval gate — ONE judgement of whether a pay run may be approved,
- * used by approvePayrollRun (live), by its preview (the run page's
- * confirmation) and by findApprovalBlocker (the MCP dry run), so none of them
+ * used by approvePayrollRun (live) and by previewPayrollApproval (the run
+ * page's confirmation and the MCP dry run), so none of them
  * can greenlight what another refuses (W3-01 review).
  *
  * In order:

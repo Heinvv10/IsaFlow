@@ -7,7 +7,7 @@ import { calculatePayrollLine } from './payrollCalculator';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear } from './taxTables';
-import { isPayrollRunLocked, lockPayrollRunHeader, PayrollRunLockedError } from './payrollRunLock';
+import { isPayrollRunLocked, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals } from './payrollRunLock';
 import type { EmployeeComponent, PayrollComponent, PayrollPeriod, ValidationResult } from './payrollTypes';
 import {
   buildTerminationComponents,
@@ -113,13 +113,7 @@ export async function calculatePayrollRun(
 ): Promise<PayrollRunSummary> {
   log.info('Calculating payroll run', { runId, companyId }, 'payrollRunService');
 
-  // Locked for the whole calculation (W3-01, BRK-596 R2-2): an approve that
-  // arrives meanwhile waits, then judges the new figures; one that got here
-  // first makes this read 'approved' and refuse. Unlocked, an approve that
-  // committed between this status check and the header UPDATE below was
-  // silently undone — back to 'calculated', new totals, old journal.
-  // The wait is bounded (5s → PayrollLoanLockTimeoutError, raised before
-  // anything is written); see lockPayrollRunHeader.
+  // Locked for the whole calculation, with a bounded wait: see lockPayrollRunHeader.
   const run = await lockPayrollRunHeader(runId, companyId);
   if (!run) throw new Error('Payroll run not found');
 
@@ -276,39 +270,17 @@ export async function calculatePayrollRun(
     }
   });
 
-  const updated = (await sql`
-    UPDATE payroll_run_headers SET
-      status         = 'calculated',
-      total_gross    = ${r(totalGross)},
-      total_taxable  = ${r(totalGross)},
-      total_paye     = ${r(totalPaye)},
-      total_uif      = ${r(totalUifEmployee + totalUifEmployer)},
-      total_sdl      = ${r(totalSdl)},
-      total_eti      = ${r(totalEti)},
-      total_net      = ${r(totalNet)},
-      employee_count = ${employees.length},
-      updated_at     = NOW()
-    WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
-      AND status NOT IN ('approved', 'paid', 'cancelled')
-    RETURNING *
-  `) as Row[];
-
-  // Under a request transaction (withAuth, the MCP registry) the header lock
-  // above is held to the end of it, so no peer can have changed the status
-  // and this never fires. A caller with NO transaction open (the seed and
-  // simulation scripts) keeps that lock only for its own statement: there the
-  // status predicate is what stops an approve committed meanwhile from being
-  // reverted, and the lines rewritten above are ALREADY committed — the
-  // message cannot promise otherwise. A plain Error, not a refusal, so that
-  // under a request it is a 500 and rolls back (withAuth COMMITs a 4xx).
-  if (!updated[0]) throw new Error('Payroll run was locked while it was being calculated — its totals were not saved');
+  const updated = await saveCalculatedRunTotals(runId, companyId, {
+    gross: r(totalGross), paye: r(totalPaye), uif: r(totalUifEmployee + totalUifEmployer),
+    sdl: r(totalSdl), eti: r(totalEti), net: r(totalNet), employeeCount: employees.length,
+  });
 
   log.info(
     'Payroll run calculated',
     { runId, employeeCount: employees.length, totalGross },
     'payrollRunService',
   );
-  return mapRunRow(updated[0]);
+  return mapRunRow(updated);
 }
 
 export interface PayrollRunLine {

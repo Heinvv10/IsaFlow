@@ -16,6 +16,8 @@ import { SignJWT } from 'jose';
 import { als } from '@/lib/als';
 import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
+import approve from '../../pages/api/payroll/runs/[id]/approve';
+import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 
@@ -83,6 +85,38 @@ describe('calculate — the run header lock is bounded (W3-01 round 3)', () => {
     const again = await call(calculate as Route, 'POST', `/api/payroll/runs/${id}/calculate`, id);
     expect(again.statusCode).toBe(200);
     expect(again.body.data).toMatchObject({ totalGross: 30000 });
+  }, 30000);
+
+  // Round 4: approve took the same row lock with no budget at all.
+  it('an approve that cannot get the run row within 5s is refused the same way, and writes nothing', async () => {
+    const id = await calculatedRun(call, 7);
+    const url = (a: string) => `/api/payroll/runs/${id}/${a}`;
+    const body = { expectedPlanHash: (await call(journalPlan as Route, 'GET', url('journal-plan'), id)).body.data!.planHash };
+
+    const peer = await pool.connect();
+    const letGo = setTimeout(() => { void peer.query('ROLLBACK'); }, 9000);
+    let res: Awaited<ReturnType<typeof call>>;
+    let waitedMs: number;
+    try {
+      await peer.query('BEGIN');
+      await peer.query('SELECT id FROM payroll_run_headers WHERE id = $1 FOR UPDATE', [id]);
+      const started = Date.now();
+      res = await call(approve as Route, 'POST', url('approve'), id, { body });
+      waitedMs = Date.now() - started;
+    } finally {
+      clearTimeout(letGo);
+      await peer.query('ROLLBACK');
+      peer.release();
+    }
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toMatchObject({ details: { code: 'PAYROLL_LOAN_LOCK_TIMEOUT' } });
+    expect(waitedMs).toBeGreaterThanOrEqual(4500);
+    expect(waitedMs).toBeLessThan(8500);
+    expect((await pool.query('SELECT status, journal_entry_id FROM payroll_run_headers WHERE id = $1', [id])).rows[0])
+      .toEqual({ status: 'calculated', journal_entry_id: null });
+    // The row is free again and the same approval goes through.
+    expect((await call(approve as Route, 'POST', url('approve'), id, { body })).statusCode).toBe(200);
   }, 30000);
 
   it('the 5s budget does not stay on the transaction once the lock is granted', async () => {
