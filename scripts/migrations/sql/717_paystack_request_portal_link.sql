@@ -20,7 +20,9 @@ CREATE INDEX IF NOT EXISTS idx_paystack_pr_portal_link
 -- the one customer_invoices.payment_url names, minted by pay-now and
 -- enableOnlinePayment — charges the LIVE balance and is never spent. An
 -- explicit-amount link (portal payment-link POST) charges its own amount, capped
--- at the balance, and one payment spends it. `amount` on a standing link is only
+-- at the balance, and its first completed payment spends it, so no new checkout can
+-- start from it. A checkout already opened from it stays payable; any excess it
+-- brings is banked as an unapplied receipt. `amount` on a standing link is only
 -- the balance when it was minted, so it must not be what it charges.
 --
 -- DEFAULT true, not a backfill: every link that exists today, and any link the

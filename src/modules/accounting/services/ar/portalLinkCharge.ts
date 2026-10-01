@@ -56,7 +56,9 @@ export async function resolveLinkCharge(
     FROM portal_payment_links l
     LEFT JOIN customer_invoices ci
       ON ci.id = l.invoice_id AND ci.status <> 'cancelled' AND ci.deleted_at IS NULL
-    LEFT JOIN clients c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+    -- customers, not the clients view, so the payer is read with the invoice's own company_id: this
+    -- runs on a public path with RLS bypassed, where the predicate is the isolation.
+    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     CROSS JOIN LATERAL (SELECT ci.total_amount - GREATEST(ci.amount_paid, 0) AS balance) b
     WHERE l.token = ${token}
     LIMIT 1

@@ -44,7 +44,8 @@ Hein decided on 2026-09-30:
     `paid_at` and stores the reference. It acts only on a `completed` request of that company,
     only while the link is `active`, and never on a standing link.
 - **`paystack/create`** is rate-limited per client IP (60 per 15 minutes) and per link (20 per 15
-  minutes, keyed by a hash of the token) before any DB work. Then it runs in three phases, so no
+  minutes, keyed by a hash of the token). The limiter writes its own counter, but nothing touches
+  a payment table until it passes. Then it runs in three phases, so no
   connection or lock is held while Paystack answers (review round 2):
   1. **A short `withPublicRouteTransaction`, with the link row locked.** It resolves the charge
      and then does one of three things:
@@ -153,7 +154,7 @@ rate-limits per IP and that counter persists between runs.
 - **The GET** shows 30 for a R40.50 link with R30 left. It says "This invoice has no
   outstanding balance" on a paid invoice, and answers 404 on a cancelled one.
 
-`r167-standing-links-and-checkout.int.test.ts` covers the other rules, 14 cases:
+`r167-standing-links-and-checkout.int.test.ts` covers the other rules, 16 cases:
 
 - **A standing link:**
   - charges the live balance: 3000 when minted at 115 with R30 owed, and 15000 after the
@@ -173,7 +174,9 @@ rate-limits per IP and that counter persists between runs.
     foreign-key lock the INSERT takes;
   - while the gateway is answering, the link can be locked `NOWAIT`, the checkout is already
     recorded, and the call carries the 10-second bound;
-  - a checkout still starting gets 409, and one abandoned while starting is replaced;
+  - a checkout still starting gets 409, and one abandoned while starting is marked failed and
+    replaced, while a started checkout minutes old is still handed out;
+  - a checkout swept while the gateway was answering never has its URL handed out (500);
   - a gateway failure marks the checkout `failed`, and the next click starts afresh;
   - an address or a link past its limit gets 429 before anything is written. The test seeds the
     limiter's shared counter.
@@ -262,6 +265,21 @@ Re-confirmation on `5c6a9dc98`: both SHIP. The adversarial reviewer added an opt
 checkout swept during a stall still had its URL handed out. Now the URL write reports whether it
 stored anything, and create answers 500 when it did not (Q53). The general reviewer noted that
 the old-links rule named no decider, so it went to Hein, who confirmed it on 2026-10-01.
+
+## /review (fresh blind Opus agent, on #599)
+
+APPROVED with six LOWs. Posted to the PR; all are fixed:
+
+- **"Spent" overstated:** "one payment spends it" said more than the code enforces. The first
+  completed payment stops any new checkout, but one already opened stays payable, and any excess
+  is banked unapplied (see Not changed). `.claude.md` and the migration comment now say so.
+- **The payer lookup had no company predicate:** it joined the `clients` view, which has no
+  `company_id`. It now joins `customers` with `c.company_id = ci.company_id`. It is not
+  mutation-tested: customer ids are primary keys, so another company's row cannot share one.
+- **Stale test count:** the suite count was 14; it is 16, with both round-3 cases listed.
+- **"Before any DB work" was wrong:** the limiter writes its own counter. Reworded.
+- **The green log** now re-runs every regression suite on the final code.
+- **The register** has the PR and the fix commits.
 
 ## Migration / rollback
 
