@@ -37,9 +37,10 @@ import {
 } from '@/modules/accounting/services/gl/financialFiguresService';
 import { log } from '@/lib/logger';
 import { withSavepoint } from '@/lib/neon';
-import { isFailedRead } from '@/modules/accounting/services/packs/packFailedRead';
+import { failedReadLabel, isFailedRead } from '@/modules/accounting/services/packs/packFailedRead';
 import { getCashFlowDirect } from '@/modules/accounting/services/afs/cashFlowDirectService';
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
+import { readLedgerRatioInputs, type LedgerRatioInputs } from './extendedRatioInputs';
 import type { ReportPackInput } from './reportPackService';
 
 export interface ReportPackFigures extends ReportPackInput {
@@ -128,6 +129,37 @@ async function readCashFlows(companyId: string, from: string, to: string): Promi
   return { operatingCashFlow, investingCashFlow, financingCashFlow, cashFlowUnavailable: null };
 }
 
+/** What a reader is told of each ratio whose inputs could not be read. */
+export const RATIO_INPUTS_NOT_READ =
+  'Not stated: the interest, tax and employee figures could not be read for this period.';
+
+/**
+ * INTEREST, TAX, EMPLOYEE COST AND HEAD COUNT, FROM THE READ FINANCIAL
+ * ANALYSIS USES. The pack carried none of them, so its interest cover, tax
+ * rate and per-employee rows said "not captured in this report" beside a
+ * screen that printed each as a figure for the same company and period.
+ *
+ * Degrades like the cash flows above and for the same reasons: its own
+ * savepoint, only a failed read is an absence, and then all six are absent —
+ * the reason is one sentence, and half a set of inputs would state a tax rate
+ * on a profit before tax that never had its interest taken off.
+ */
+async function readRatioInputs(
+  companyId: string, from: string, to: string,
+): Promise<LedgerRatioInputs | { ratioInputsUnavailable: string }> {
+  try {
+    return await withSavepoint('pack_ratio_inputs', () => readLedgerRatioInputs(companyId, from, to));
+  } catch (error) {
+    if (!isFailedRead(error)) throw error;
+    log.warn(
+      'getReportPackInput: interest, tax and employee figures could not be read, those ratios omitted',
+      { companyId, from, to, error: failedReadLabel(error) },
+      'packs',
+    );
+    return { ratioInputsUnavailable: RATIO_INPUTS_NOT_READ };
+  }
+}
+
 /**
  * The pack input, for a caller that needs nothing else from the ledger read.
  * See `readReportPackInput`, which every caller goes through.
@@ -163,6 +195,7 @@ export async function readReportPackInput(
   const data = toFinancialData(figures);
 
   const cashFlows = await readCashFlows(companyId, from, to);
+  const ratioInputs = await readRatioInputs(companyId, from, to);
 
   const inventory = inventoryWarning(figures);
   const unclassified = unclassifiedWarning(figures.cumulative);
@@ -198,6 +231,7 @@ export async function readReportPackInput(
     accountsPayable: data.accountsPayable,
     inventory: data.inventory,
     ...cashFlows,
+    ...ratioInputs,
     // `.board`, NOT `.message`: these two strings reach a board pack's basis
     // page, and the operator wording names a database column and tells the
     // reader to go and set it. See `FigureCaveat`.

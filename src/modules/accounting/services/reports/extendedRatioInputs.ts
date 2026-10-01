@@ -14,6 +14,9 @@
  * (dividends, cash flows, capital expenditure) is left undefined, which the
  * engine reports as "not captured in this report". See `ratioBasis.ts`.
  *
+ * The report pack takes the same inputs from `readLedgerRatioInputs`, so a
+ * ratio it prints is the one this screen prints.
+ *
  * One query after another: under `withAuth` the request holds one pg client.
  */
 import { sql } from '@/lib/neon';
@@ -31,14 +34,20 @@ const amount = (value: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export async function readExtendedRatioInputs(
-  companyId: string,
-  from: string,
-  to: string,
-): Promise<{ data: FinancialData; figures: PeriodFigures }> {
-  // Balance sheet + P&L come from the shared classification resolver; the AFS
-  // Master v15 amounts below are subtype-specific and stay a separate query.
-  const figures = await getFinancialFigures(companyId, from, to);
+/** What only the subtype read and the payroll head count supply. */
+export type LedgerRatioInputs = Required<Pick<
+  FinancialData,
+  'employeeCount' | 'interestExpense' | 'interestIncome' | 'employeeCosts' | 'taxExpense' | 'directMaterialCosts'
+>>;
+
+/**
+ * Head count and the period's interest, tax, employee cost and direct
+ * materials, by account subtype. On its own because the report pack has
+ * already read the ledger figures and must not read them twice
+ * (`reportPackDataService`); the Financial Analysis endpoints get both
+ * through `readExtendedRatioInputs`.
+ */
+export async function readLedgerRatioInputs(companyId: string, from: string, to: string): Promise<LedgerRatioInputs> {
   const [headCount] = (await sql`
     SELECT COUNT(*)::int AS count
     FROM payroll_employees
@@ -70,8 +79,7 @@ export async function readExtendedRatioInputs(
       AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
   `) as Row[];
 
-  const data: FinancialData = {
-    ...toFinancialData(figures),
+  return {
     employeeCount: amount(headCount?.count),
     interestExpense: amount(subtypeTotals?.interest_expense),
     interestIncome: amount(subtypeTotals?.interest_income),
@@ -79,5 +87,16 @@ export async function readExtendedRatioInputs(
     taxExpense: amount(subtypeTotals?.tax_expense),
     directMaterialCosts: amount(subtypeTotals?.direct_materials),
   };
-  return { data, figures };
+}
+
+export async function readExtendedRatioInputs(
+  companyId: string,
+  from: string,
+  to: string,
+): Promise<{ data: FinancialData; figures: PeriodFigures }> {
+  // Balance sheet + P&L come from the shared classification resolver; the AFS
+  // Master v15 amounts are subtype-specific and stay a separate query.
+  const figures = await getFinancialFigures(companyId, from, to);
+  const ledger = await readLedgerRatioInputs(companyId, from, to);
+  return { data: { ...toFinancialData(figures), ...ledger }, figures };
 }

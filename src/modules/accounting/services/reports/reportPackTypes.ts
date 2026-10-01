@@ -49,6 +49,21 @@ export interface ReportPackInput {
    * stays unpopulated, as it was.
    */
   investingCashFlow?: number;
+  /**
+   * Interest, tax, employee cost, head count and direct materials for the
+   * window, off the ledger (`extendedRatioInputs.readLedgerRatioInputs` via
+   * `readReportPackInput`) — the inputs the Financial Analysis screen's
+   * ratios use, so the pack states the same figures. All six or none: where
+   * the read failed none is set and `ratioInputsUnavailable` says so.
+   */
+  interestExpense?: number;
+  interestIncome?: number;
+  employeeCosts?: number;
+  employeeCount?: number;
+  taxExpense?: number;
+  directMaterialCosts?: number;
+  /** Set only when those six were asked for and could not be read. */
+  ratioInputsUnavailable?: string;
 }
 
 export type PackType = 'board' | 'management' | 'monthly';

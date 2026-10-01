@@ -162,14 +162,20 @@ describe('the shared link (buildSharedPack)', () => {
     expect((await buildSharedPack(LINK)).unclassifiedAccounts).toMatchObject({ accounts: 3, amount: 5_000 });
   });
 
-  it('reads one thing at a time: the ledger, then the cash flows, then the commentary', async () => {
+  it('reads one thing at a time: the ledger, the cash flows, the ratio inputs, then the commentary', async () => {
     const order: string[] = [];
     getFinancialFiguresMock.mockImplementation(async () => { order.push('figures:start'); await null; order.push('figures:end'); return FIGURES; });
     getCashFlowDirectMock.mockImplementation(async () => { order.push('cash:start'); await null; order.push('cash:end'); return CASH_FLOW; });
-    sqlMock.mockImplementation(async () => { order.push('commentary:start'); await null; order.push('commentary:end'); return []; });
+    sqlMock.mockImplementation(async (strings: unknown) => {
+      const text = (strings as readonly string[]).join('?');
+      const what = text.includes('payroll_employees') ? 'headcount' : text.includes('interest_expense') ? 'subtypes' : 'commentary';
+      order.push(`${what}:start`); await null; order.push(`${what}:end`); return [];
+    });
     await buildSharedPack(LINK);
     expect(order).toEqual([
-      'figures:start', 'figures:end', 'cash:start', 'cash:end', 'commentary:start', 'commentary:end',
+      'figures:start', 'figures:end', 'cash:start', 'cash:end',
+      'headcount:start', 'headcount:end', 'subtypes:start', 'subtypes:end',
+      'commentary:start', 'commentary:end',
     ]);
   });
 });

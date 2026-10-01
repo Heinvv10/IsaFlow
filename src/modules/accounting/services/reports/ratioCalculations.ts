@@ -90,8 +90,10 @@ export function calculateFinancialRatios(data: FinancialData): RatioResult {
  * can be used. `undefined` is the REPORT not having captured it; a supplied
  * nil is the LEDGER having none — see `ratioBasis.notCaptured`.
  */
-function unusable(value: number | undefined, captured: string, recorded: string): string | null {
-  if (value === undefined) return notCaptured(captured);
+function unusable(
+  value: number | undefined, captured: string, recorded: string, notRead?: string,
+): string | null {
+  if (value === undefined) return notRead ?? notCaptured(captured);
   return value > 0 ? null : noneRecorded(recorded);
 }
 
@@ -99,6 +101,7 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   const base = calculateFinancialRatios(data);
   const equityFailure = equityBasisFailure(data.totalEquity);
   const { why, on, given } = ledger(base.notMeaningful);
+  const notRead = data.ledgerInputsNotRead;
   // EBIT is the operating line: earnings before interest and tax, so other
   // income is in and finance cost and tax are out.
   const ebit = operatingProfitOf(data);
@@ -129,9 +132,9 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   const { debtorDays, creditorDays } = base;
   const cycleParts = debtorDays === null || creditorDays === null || inventoryDays === null;
 
-  const noHeadCount = unusable(data.employeeCount, 'The employee count', 'employees');
-  const noEmployeeCost = unusable(data.employeeCosts, 'Employee cost', 'employee cost');
-  const noInterest = unusable(data.interestExpense, 'Interest expense', 'interest expense');
+  const noHeadCount = unusable(data.employeeCount, 'The employee count', 'employees', notRead);
+  const noEmployeeCost = unusable(data.employeeCosts, 'Employee cost', 'employee cost', notRead);
+  const noInterest = unusable(data.interestExpense, 'Interest expense', 'interest expense', notRead);
   // Cover on NET interest: no base where nothing was paid, and none either
   // where more was earned than paid — which is not "no interest recorded".
   const noNetInterest = noInterest ?? (netInterest > 0 ? null : NET_INTEREST_IS_INCOME);
@@ -150,7 +153,7 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
     roce: on('roce', capitalEmployed, 'Capital employed', () => pct(ebit, capitalEmployed)),
     pbitMargin: on('pbitMargin', data.revenue, 'Revenue', () => pct(ebit, data.revenue)),
     directMaterialMargin: given('directMaterialMargin',
-      onRevenue(unusable(data.directMaterialCosts, 'Direct material cost', 'direct material cost')),
+      onRevenue(unusable(data.directMaterialCosts, 'Direct material cost', 'direct material cost', notRead)),
       () => pct(data.revenue - directMaterials, data.revenue)),
     // Leverage
     interestCoverage: given('interestCoverage', noInterest, () => r2(safeDiv(ebit, interestExp))),
@@ -201,7 +204,7 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
         : data.netProfit > 0 ? null : notPositive('Net profit'),
       () => pct(data.netProfit - dividendsPaid, data.netProfit)),
     effectiveTaxRate: given('effectiveTaxRate',
-      data.taxExpense === undefined ? notCaptured('Tax expense')
+      data.taxExpense === undefined ? notRead ?? notCaptured('Tax expense')
         : pbt > 0 ? null : notPositive('Profit before tax'),
       () => pct(data.taxExpense ?? 0, pbt)),
     // DuPont Decomposition

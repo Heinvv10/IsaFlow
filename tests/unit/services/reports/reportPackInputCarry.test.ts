@@ -24,7 +24,7 @@ vi.mock('@/modules/accounting/services/afs/cashFlowDirectService', () => ({
 }));
 // `withSavepoint` is the real one: outside a request transaction it runs the
 // read as it stands.
-vi.mock('@/lib/neon', async (orig) => ({ ...(await orig<Record<string, unknown>>()), sql: vi.fn() }));
+vi.mock('@/lib/neon', async (orig) => ({ ...(await orig<Record<string, unknown>>()), sql: vi.fn(async () => []) }));
 const warnMock = vi.fn();
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: (...a: unknown[]) => warnMock(...a) } }));
 

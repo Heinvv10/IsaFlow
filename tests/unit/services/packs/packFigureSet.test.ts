@@ -35,6 +35,15 @@ vi.mock('@/modules/accounting/services/gl/financialFiguresService', async (orig)
 vi.mock('@/modules/accounting/services/afs/cashFlowDirectService', () => ({
   getCashFlowDirect,
 }));
+// The ledger ratio inputs `getReportPackInput` carries (interest, tax, head
+// count) are pinned in `reportPackLedgerRatios.test.ts` and
+// `packRatioInputsFailedRead.test.ts`. Stood in for here: left real, the read
+// goes to whatever database the environment names.
+vi.mock('@/modules/accounting/services/reports/extendedRatioInputs', () => ({
+  readLedgerRatioInputs: async () => ({
+    employeeCount: 0, interestExpense: 0, interestIncome: 0, employeeCosts: 0, taxExpense: 0, directMaterialCosts: 0,
+  }),
+}));
 vi.mock('@/modules/accounting/services/reports/budgetVarianceService', () => ({
   getBudgetVariance,
 }));

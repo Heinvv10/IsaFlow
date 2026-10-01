@@ -46,6 +46,13 @@ export interface FinancialData {
   dividendsPaid?: number;
   nonCurrentAssets?: number;
   nonCurrentLiabilities?: number;
+  /**
+   * Set by a caller that TRIED to read interest, tax, employee cost, head
+   * count and direct materials and could not. The ratios that need them are
+   * then unstated with this sentence rather than "not captured in this
+   * report", which is true only of a caller that never reads them.
+   */
+  ledgerInputsNotRead?: string;
 }
 
 /**

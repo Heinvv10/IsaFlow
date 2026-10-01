@@ -243,6 +243,15 @@ export function buildReportPack(
     // The add-back that makes EBITDA a measure rather than a second name for
     // operating profit. The board pack has always passed it.
     depreciation: data.depreciation,
+    // Off the ledger, as on Financial Analysis. Absent where the read failed,
+    // and then the engine gives that as the reason.
+    interestExpense: data.interestExpense,
+    interestIncome: data.interestIncome,
+    employeeCosts: data.employeeCosts,
+    employeeCount: data.employeeCount,
+    taxExpense: data.taxExpense,
+    directMaterialCosts: data.directMaterialCosts,
+    ledgerInputsNotRead: data.ratioInputsUnavailable,
   };
 
   const sections: PackSection[] = template.map(config => ({
