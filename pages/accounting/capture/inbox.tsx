@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { log } from '@/lib/logger';
 import { apiFetch, apiJson } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, Mail, Copy, Check, ChevronRight, RefreshCw, X } from 'lucide-react';
 import {
@@ -54,7 +55,10 @@ export default function CaptureInboxPage() {
     try {
       const { inbox } = await apiJson('/api/accounting/capture/inbox-address');
       setInboxAddr(inbox);
-    } catch { /* non-critical */ }
+    } catch (err) {
+      log.error('Failed to load capture inbox address', { error: err }, 'accounting-ui');
+      showToast('Failed to load inbox address', false);
+    }
   }, []);
 
   useEffect(() => {
