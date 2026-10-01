@@ -15,7 +15,7 @@ interface Props {
   closedToRetainedEarnings: number;
   /** Opening + periodNet + closedToRetainedEarnings — the balance as at the range end. */
   periodClosingBalance: number;
-  /** Total number of transactions (for the label). */
+  /** Number of posted journal lines in the range (derived close rows excluded), for the label. */
   total: number;
 }
 

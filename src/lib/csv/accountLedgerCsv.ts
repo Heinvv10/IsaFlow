@@ -42,7 +42,7 @@ export function buildAccountLedgerCsv(
 ): string {
   const headers = [
     'Date', 'Entry #', 'Description', 'Reference', 'Source',
-    'Debit', 'Credit', 'Balance',
+    'Debit', 'Credit', 'Balance', 'Derived',
   ];
 
   const first = rows[0];
@@ -66,6 +66,7 @@ export function buildAccountLedgerCsv(
       '', // Debit
       '', // Credit
       pageOpening.toFixed(2),
+      '', // Derived
     ].join(','),
   );
 
@@ -80,6 +81,7 @@ export function buildAccountLedgerCsv(
         r.debit > 0 ? r.debit.toFixed(2) : '',
         r.credit > 0 ? r.credit.toFixed(2) : '',
         r.runningBalance.toFixed(2),
+        r.derived ? 'derived' : '',
       ].join(','),
     );
   }
@@ -94,6 +96,7 @@ export function buildAccountLedgerCsv(
       '', // Debit
       '', // Credit
       pageClosing.toFixed(2),
+      '', // Derived
     ].join(','),
   );
 

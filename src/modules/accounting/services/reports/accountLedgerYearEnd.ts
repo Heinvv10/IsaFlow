@@ -49,46 +49,48 @@ function signed(scope: LedgerScope, debit: number, credit: number): number {
  * [boundary k-1, boundary k), with boundary 0 = the opening floor — so the
  * first close includes the pre-fromDate year-to-date carried in the opening.
  *
- * COST: one aggregate query per fiscal-year boundary inside the range, run
- * sequentially on every page request (not cached across pages). Each aggregates
- * the account's lines from the previous boundary (or the opening floor). Left as is: a range
- * rarely spans more than a few boundaries, and folding them into one grouped
- * query would change how positions and the pre-fromDate carry are derived.
+ * COST: ONE aggregate query however many boundaries the range crosses. Lines are
+ * bucketed by how many boundaries are on or before their date (bucket k = the
+ * year closing at boundary k), the grouped sums are read back, and positions are
+ * accumulated here from the per-bucket in-range line counts.
  */
 export async function loadYearEndCloses(
   scope: LedgerScope,
   openingFloor: string,
   boundaries: readonly string[],
 ): Promise<YearEndClose[]> {
+  if (boundaries.length === 0) return [];
   const { companyId, accountId, cc, bu, postedOnly, fromDate } = scope;
+  const bounds = [...boundaries];
+  const rows = (await sql`
+    SELECT
+      (SELECT COUNT(*) FROM unnest(${bounds}::date[]) b WHERE b <= je.entry_date)::int AS bucket,
+      COALESCE(SUM(jl.debit), 0)  AS d,
+      COALESCE(SUM(jl.credit), 0) AS c,
+      COUNT(*) FILTER (WHERE je.entry_date >= ${fromDate}::date) AS n
+    FROM gl_journal_lines jl
+    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+    WHERE jl.company_id    = ${companyId}::UUID
+      AND je.company_id    = ${companyId}::UUID
+      AND jl.gl_account_id = ${accountId}::UUID
+      AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
+        OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+      AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
+      AND (${postedOnly}::boolean = false OR je.status = 'posted')
+      AND je.entry_date >= ${openingFloor}::date
+      AND je.entry_date <  ${bounds[bounds.length - 1]}::date
+    GROUP BY 1
+  `) as DbRow[];
+  const byBucket = new Map(rows.map(r => [Number(r.bucket), r]));
   const closes: YearEndClose[] = [];
-  let prev = openingFloor;
-  for (const boundary of boundaries) {
-    const rows = (await sql`
-      SELECT
-        COALESCE(SUM(jl.debit)  FILTER (WHERE je.entry_date >= ${prev}::date), 0) AS d,
-        COALESCE(SUM(jl.credit) FILTER (WHERE je.entry_date >= ${prev}::date), 0) AS c,
-        COUNT(*) FILTER (WHERE je.entry_date >= ${fromDate}::date) AS n
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      WHERE jl.company_id    = ${companyId}::UUID
-        AND je.company_id    = ${companyId}::UUID
-        AND jl.gl_account_id = ${accountId}::UUID
-        AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-          OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
-        AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
-        AND (${postedOnly}::boolean = false OR je.status = 'posted')
-        AND je.entry_date >= LEAST(${prev}::date, ${fromDate}::date)
-        AND je.entry_date <  ${boundary}::date
-    `) as DbRow[];
-    const r = rows[0];
+  let linesSoFar = 0;
+  boundaries.forEach((boundary, k) => {
+    const r = byBucket.get(k);
+    linesSoFar += Number(r?.n ?? 0);
     const balanceBefore = toMoney(signed(scope, Number(r?.d ?? 0), Number(r?.c ?? 0)));
     // A zero balance has nothing to close; no row, as in runWithYearEndCloses.
-    if (balanceBefore !== 0) {
-      closes.push({ boundary, balanceBefore, position: Number(r?.n ?? 0) + closes.length });
-    }
-    prev = boundary;
-  }
+    if (balanceBefore !== 0) closes.push({ boundary, balanceBefore, position: linesSoFar + closes.length });
+  });
   return closes;
 }
 

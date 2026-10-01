@@ -172,6 +172,22 @@ describe('ledger listings agree with the trial balance (Postgres)', async () => 
     });
   });
 
+  it.skipIf(!reachable)('general_ledger stream across an FY start: P&L balance is null from the boundary, bank is not', async () => {
+    await withLedger(3, async () => {
+      // FY containing 2024-06-01 starts 2024-03-01, so the first boundary in range is 2025-03-01.
+      const page = await getGeneralLedgerLines({ companyId: company, periodStart: '2024-06-01', periodEnd: '2026-09-30', limit: 100 });
+      expect(page.incomeStatementBalanceNullFrom).toBe('2025-03-01');
+      const labour = page.lines.filter(l => l.accountCode === '5200');
+      expect(labour.filter(l => l.date < '2025-03-01').map(l => l.runningBalance)).toEqual([7]);
+      expect(labour.filter(l => l.date >= '2025-03-01').map(l => l.runningBalance)).toEqual([null, null, null, null]);
+      expect(page.lines.filter(l => l.accountCode === '1100').every(l => typeof l.runningBalance === 'number')).toBe(true);
+      // Inside one fiscal year nothing is nulled.
+      const inYear = await getGeneralLedgerLines({ companyId: company, periodStart: '2026-03-01', periodEnd: '2026-09-30', limit: 100 });
+      expect(inYear.incomeStatementBalanceNullFrom).toBeNull();
+      expect(inYear.lines.every(l => typeof l.runningBalance === 'number')).toBe(true);
+    });
+  }, 30000);
+
   it.skipIf(!reachable)('non-March FY (July) ties to the TB; another tenant’s FY is not used', async () => {
     await withLedger(7, async () => {
       expect(tbClosing(await getTrialBalance(company, SEPT), '5200')).toBe(50);

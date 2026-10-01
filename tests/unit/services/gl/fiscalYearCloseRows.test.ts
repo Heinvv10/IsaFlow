@@ -22,8 +22,10 @@ describe('fiscalYearStartsWithin', () => {
 
   // A leading-space date used to loop forever: the space sorts below every digit, so the
   // string compare never went false while the year kept decrementing into garbage.
-  it.each([' 2025-03-01', 'garbage', '', '2025-3-1', '20250301'])(
-    'rejects the odd date %j instead of looping',
+  it.each([
+    ' 2025-03-01', 'garbage', '', '2025-3-1', '2026-1-15', '20250301', '2025-02-31', '2025-13-01',
+    '2025-03-01T00:00:00Z', '2025-03-01 ', '1000-01-01', '9999-12-31', '0000-01-01', '1899-12-31', '2201-01-01',
+  ])('rejects the odd date %j instead of looping',
     (bad) => {
       expect(() => fiscalYearStartsWithin(bad, '2026-06-30', 3)).toThrow(/invalid date/);
       expect(() => fiscalYearStartsWithin('2024-01-01', bad, 3)).toThrow(/invalid date/);
@@ -31,12 +33,20 @@ describe('fiscalYearStartsWithin', () => {
     5000,
   );
 
-  it('accepts an ISO timestamp, as fiscalYearStart does', () => {
-    expect(fiscalYearStartsWithin('2024-05-01T00:00:00.000Z', '2025-06-30T12:00:00Z', 3)).toEqual(['2025-03-01']);
-  });
+  it.each([undefined, null, 20250301, ['2025-03-01'], {}])('rejects the non-string %j', (bad) => {
+    expect(() => fiscalYearStartsWithin(bad as unknown as string, '2026-06-30', 3)).toThrow(/invalid date/);
+    expect(() => fiscalYearStartsWithin('2024-01-01', bad as unknown as string, 3)).toThrow(/invalid date/);
+  }, 5000);
 
-  it('terminates at year 0001 for the widest legal range', () => {
-    expect(fiscalYearStartsWithin('0000-01-01', '0003-06-30', 3).length).toBeLessThanOrEqual(4);
+  it('walks the widest legal range in one bounded pass', () => {
+    const all = fiscalYearStartsWithin('1900-01-01', '2200-12-31', 3);
+    expect(all).toHaveLength(301);
+    expect(all[0]).toBe('1900-03-01');
+    expect(all[all.length - 1]).toBe('2200-03-01');
+  }, 5000);
+
+  it('rejects a month outside 1-12 rather than walking', () => {
+    expect(() => fiscalYearStartsWithin('2024-01-01', '2026-06-30', 13)).toThrow();
   }, 5000);
 });
 

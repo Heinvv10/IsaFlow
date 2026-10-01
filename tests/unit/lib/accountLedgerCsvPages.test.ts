@@ -22,12 +22,14 @@ const all: AccountLedgerRow[] = [
 ];
 const pages = [all.slice(0, 2), all.slice(2, 4), all.slice(4, 6)];
 
+function fields(line: string) { return line.split(',').map(f => f.replace(/"/g, '')); }
+
 /** First field after the (empty) date/entry columns: label, and last field: balance. */
 function sentinel(csv: string, which: 'first' | 'last') {
   const lines = csv.split('\n');
   const l = which === 'first' ? lines[1]! : lines[lines.length - 1]!;
   const parts = l.split(',');
-  return { label: parts[2]!.replace(/"/g, ''), balance: Number(parts[parts.length - 1]) };
+  return { label: parts[2]!.replace(/"/g, ''), balance: Number(parts[7]) };
 }
 
 describe('buildAccountLedgerCsv across pages', () => {
@@ -52,6 +54,17 @@ describe('buildAccountLedgerCsv across pages', () => {
 
   it('the last page closes at the true period closing balance', () => {
     expect(sentinel(csv[2]!, 'last')).toEqual({ label: 'Closing Balance', balance: 12 });
+  });
+
+  it('marks derived rows in their own column, keeps them out of Debit/Credit semantics for posted rows', () => {
+    const lines = csv[1]!.split('\n');
+    expect(fields(lines[0]!)).toContain('Derived');
+    const derived = lines.find(l => l.includes('year_end_close'))!;
+    expect(fields(derived)[8]).toBe('derived');
+    const posted = lines.find(l => l.includes('JE'))!;
+    expect(fields(posted)[8]).toBe('');
+    // Every row, sentinels included, has the same column count.
+    expect(new Set(lines.map(l => l.split(',').length)).size).toBe(1);
   });
 
   it('every page opening is the previous page closing', () => {

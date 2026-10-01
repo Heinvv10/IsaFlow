@@ -24,6 +24,8 @@ export interface AccountLedgerResult {
   rows: AccountLedgerRow[];
   /** Rows across all pages: journal lines plus any derived year-end close rows. */
   total: number;
+  /** How many of `total` are derived year-end close rows (the rest are posted journal lines). */
+  derivedRows: number;
   openingBalance: number;
   /**
    * Movement for the period: posted lines only, over the FULL date range — server-computed,

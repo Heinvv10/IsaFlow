@@ -21,6 +21,7 @@
  */
 
 import { fiscalYearStart } from './fiscalYearBasis';
+import { isLedgerDate, LEDGER_MAX_YEAR, LEDGER_MIN_YEAR } from './ledgerDateRange';
 import { INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
 
 export function isIncomeStatementType(accountType: string): boolean {
@@ -36,24 +37,28 @@ export function incomeStatementOpeningFloor(
   return isIncomeStatementType(accountType) ? fiscalYearStart(fromDate, fyStartMonth) : null;
 }
 
-const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}/;
+/** More boundaries than the legal year range can hold; a walk that reaches it is a bug. */
+const MAX_BOUNDARIES = LEDGER_MAX_YEAR - LEDGER_MIN_YEAR + 2;
 
 /**
  * Fiscal-year start dates strictly after `fromDate` and on or before `toDate`, ascending.
- * Both dates must start 'YYYY-MM-DD': the walk below compares strings, and an odd one
- * (a leading space sorts below every digit) would never end.
+ * Both must be real 'YYYY-MM-DD' dates (ledgerDateRange): the walk compares strings, so an
+ * odd one (a leading space sorts below every digit) used to never end. Bounded three ways:
+ * validated input, integer years stepping down, and an iteration cap that throws.
  */
 export function fiscalYearStartsWithin(fromDate: string, toDate: string, fyStartMonth: number): string[] {
   for (const d of [fromDate, toDate]) {
-    if (!ISO_DATE_PREFIX.test(d)) throw new Error(`fiscalYearStartsWithin: invalid date '${d}'`);
+    if (!isLedgerDate(d)) throw new Error(`fiscalYearStartsWithin: invalid date '${String(d)}'`);
   }
   const out: string[] = [];
-  const from = fromDate.slice(0, 10);
   let boundary = fiscalYearStart(toDate, fyStartMonth);
-  // Year 0000 is the floor: past it the year would pad into a non-date.
-  while (boundary > from && boundary >= '0001') {
+  let year = Number(boundary.slice(0, 4));
+  while (boundary > fromDate) {
+    if (out.length >= MAX_BOUNDARIES || !Number.isInteger(year)) {
+      throw new Error('fiscalYearStartsWithin: fiscal-year walk did not terminate');
+    }
     out.unshift(boundary);
-    const year = Number(boundary.slice(0, 4)) - 1;
+    year -= 1;
     boundary = `${String(year).padStart(4, '0')}${boundary.slice(4)}`;
   }
   return out;
