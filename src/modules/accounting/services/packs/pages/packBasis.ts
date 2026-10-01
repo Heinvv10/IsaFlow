@@ -40,6 +40,7 @@ import type { PeriodWindow } from '@/modules/accounting/services/reports/priorPe
 import { draftStatusSentence, type PackDraftReason } from './packDraftStatus';
 import { ledgerStalenessCaveat } from './packLedgerCurrency';
 import { buildDefinitions } from './packDefinitions';
+import { PACK_SCALE } from './packScale';
 import { liquidityMetricNames, NO_INVENTORY_CLASSIFIED } from './packScorecard';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { MoneyScale } from '@/lib/format/money';
@@ -154,14 +155,10 @@ const STANDARD = 'IFRS for SMEs';
 const SOURCE_SYSTEM = 'IsaFlow general ledger';
 const CURRENCY = 'ZAR';
 
-/**
- * The pack's ONE scale, exported so a statement table's own header and the
- * document's `numberConvention` cannot state different ones — two constants
- * spelling "R'000" is one edit away from a table headed in thousands whose
- * cells are formatted in rands. Typed `MoneyScale` so `formatMoney` accepts
- * it without a cast at the render boundary.
- */
-export const PACK_SCALE: MoneyScale = "R'000";
+/** The pack's one scale lives in `packScale.ts` — a leaf, so the glossary
+ *  this file builds can read it without importing this file back. Re-exported
+ *  because every existing caller imports it from here. */
+export { PACK_SCALE };
 
 /**
  * Every statement stated in a scale needs this, and none of the pack's pages

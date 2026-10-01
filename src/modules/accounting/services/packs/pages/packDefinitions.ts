@@ -43,7 +43,7 @@
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import { OPERATING_PROFIT_SOURCE, operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import { formatMoney, MONEY_SCALES } from '@/lib/format/money';
-import { PACK_SCALE } from './packBasis';
+import { PACK_SCALE } from './packScale';
 import { toFinancialData } from './packScorecard';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';

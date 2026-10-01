@@ -44,7 +44,7 @@
  * panels are drawn from, so this note cannot name a panel whose title says
  * twelve.
  */
-import { mustDisclose, note } from './packPageBlocks';
+import { mustDisclose, note } from './packBlockBuilders';
 import type { PackPageBlock } from './packPageModel';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
