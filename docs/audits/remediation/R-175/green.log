@@ -422,3 +422,231 @@ int: Tests  75 passed (75)
 unit: Tests  249 passed (249)
 
 DONE BASELINE MB1 MB2 SK1 BASELINE
+
+==================================================================
+### /review round on PR #604 (head 7b253521f)
+Whole unit suite:
+ Test Files  1135 passed (1135)
+      Tests  15124 passed | 6 skipped (15130)
+exit=0
+Red on 064a895f1's sources: red.review.unit.log.
+
+Pool measurement (fixture, load average 3.5-6 on a 32-core host), every call admitted:
+pool 3:
+  one call at a time: p50 5.4 ms, p99 136.6 ms
+  50 one key: p50 127 ms, p99 253 ms | 50 many keys: p50 85 ms, p99 170 ms
+  200 one key: p50 521 ms, p99 1017 ms | 200 many keys: p50 335 ms, p99 673 ms
+  1000 one key: p50 2.6 s, p99 5.0 s, 30-56 calls failed with "timeout exceeded when trying to connect" | 1000 many keys: p50 0.6-1.7 s, p99 1.2-3.4 s
+pool 10:
+  one call at a time: p50 2.2 ms, p99 11.1 ms
+  50 one key: p50 48 ms, p99 97 ms | 50 many keys: p50 11 ms, p99 19 ms
+  200 one key: p50 190 ms, p99 378 ms | 200 many keys: p50 38 ms, p99 75 ms
+  1000 one key: p50 0.9-1.0 s, p99 1.8-1.9 s, no failures | 1000 many keys: p50 187 ms, p99 370-421 ms
+
+Mutants (new: SG1-SG3 Signum use, SM1-SM8 SMTP classifier, AC1 after-commit census; re-run: X1, X2, E1-E3, HT1, H6-H8, MB1, MB2). Baseline green before and after; 23 of 23 RED:
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  291 passed (291)
+
+SG1 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | signing: no use marked after Signum created the document
+int: Tests  75 passed (75)
+unit: × Signum created the document and every email failed: the unit stays spent 6ms
+unit: × accounting/afs/[documentId]/send-for-signing.ts asks for refundUnused and can reach where its use is recorded 4ms
+unit: × use is recorded only in the places listed above 62ms
+unit: × keeps its unit after the mail server accepted the email 4ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × leaves its unit unused when SMTP is not configured 1ms
+unit: Tests  6 failed | 285 passed (291)
+
+SG2 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | signing: a failed Signum call is never classified (a timeout uses nothing)
+int: Tests  75 passed (75)
+unit: × the Signum call timed out: it may have created the document, so the unit is spent 3ms
+unit: Tests  1 failed | 290 passed (291)
+
+SG3 | src/modules/accounting/services/afs/signumIntegrationService.ts | Signum refusal without its status (looks like a timeout)
+int: Tests  75 passed (75)
+unit: × a non-2xx carries its status, so the caller knows Signum did no work (R-175) 4ms
+unit: Tests  1 failed | 290 passed (291)
+
+SM1 | src/modules/accounting/services/core/emailService.ts | sendEmail: a failed send is never classified (nothing is ever used)
+int: Tests  75 passed (75)
+unit: × connection dropped after the message was sent, before any reply: used, the server may have it 48ms
+unit: Tests  1 failed | 290 passed (291)
+
+SM2 | src/lib/quotaUse.ts | classifier ignores the SMTP reply code
+int: Tests  75 passed (75)
+unit: × the classifier: a connection closed with a 421 reply (ECONNECTION) 3ms
+unit: Tests  1 failed | 290 passed (291)
+
+SM3 | src/lib/quotaUse.ts | classifier: every error is use
+int: Tests  75 passed (75)
+unit: × records nothing when the mail server refuses or is down 5ms
+unit: × leaves its unit unused when the mail server is down 4ms
+unit: × leaves its unit unused when the mail server is down 2ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × login refused (EAUTH 535): not used, the server said no 5ms
+unit: × sender refused (EENVELOPE 550 to MAIL): not used, the server said no 3ms
+unit: × recipient refused (EENVELOPE 550 to RCPT): not used, the server said no 4ms
+unit: × DATA refused (EENVELOPE 554 to DATA): not used, the server said no 3ms
+unit: × message refused at the end of DATA (EMESSAGE 554): not used, the server said no 45ms
+unit: × message deferred at the end of DATA (EMESSAGE 451): not used, the server said no 44ms
+unit: × connection refused (ESOCKET from connect): not used 2ms
+unit: × the classifier: DNS failure (EDNS) 0ms
+unit: × the classifier: a TLS set-up failure (ETLS) 0ms
+unit: × the classifier: no credentials (ENOAUTH) 0ms
+unit: × the classifier: an envelope nodemailer rejects itself (EENVELOPE, no reply) 0ms
+unit: × the classifier: an empty or oversize message (EMESSAGE, no reply) 0ms
+unit: × the classifier: missing credentials (EAUTH, no reply) 0ms
+unit: × the classifier: an OAuth2 token failure (EOAUTH2) 0ms
+unit: × the classifier: a bad configuration (ECONFIG) 0ms
+unit: × the classifier: REQUIRETLS refused (EREQUIRETLS) 0ms
+unit: × the classifier: a name lookup at connect (ESOCKET getaddrinfo) 0ms
+unit: × the classifier: a connection closed with a 421 reply (ECONNECTION) 0ms
+unit: Tests  22 failed | 269 passed (291)
+
+SM4 | src/lib/quotaUse.ts | classifier: a socket error while connecting is use
+int: Tests  75 passed (75)
+unit: × records nothing when the mail server refuses or is down 4ms
+unit: × leaves its unit unused when the mail server is down 5ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × connection refused (ESOCKET from connect): not used 6ms
+unit: × the classifier: a name lookup at connect (ESOCKET getaddrinfo) 0ms
+unit: Tests  6 failed | 285 passed (291)
+
+SM5 | src/lib/quotaUse.ts | classifier: nothing is ever use
+int: Tests  75 passed (75)
+unit: × connection dropped after the message was sent, before any reply: used, the server may have it 49ms
+unit: × the classifier: a timeout (nodemailer uses ETIMEDOUT/CONN for connect, greeting and an idle socket mid-message) 1ms
+unit: × the classifier: a socket reset after connecting 0ms
+unit: × the classifier: an unknown error 0ms
+unit: × the classifier: a non-error value 0ms
+unit: × the classifier: a 2xx reply on a failure (never a refusal) 0ms
+unit: Tests  6 failed | 285 passed (291)
+
+SM6 | src/lib/quotaUse.ts | classifier: a timeout is not use
+int: Tests  75 passed (75)
+unit: × the classifier: a timeout (nodemailer uses ETIMEDOUT/CONN for connect, greeting and an idle socket mid-message) 3ms
+unit: Tests  1 failed | 290 passed (291)
+
+SM7 | src/lib/quotaUse.ts | classifier: EENVELOPE missing from the not-sent codes
+int: Tests  75 passed (75)
+unit: × the classifier: an envelope nodemailer rejects itself (EENVELOPE, no reply) 3ms
+unit: Tests  1 failed | 290 passed (291)
+
+SM8 | src/lib/quotaUse.ts | classifier: any reply code counts as a refusal, even 2xx
+int: Tests  75 passed (75)
+unit: × the classifier: a 2xx reply on a failure (never a refusal) 3ms
+unit: Tests  1 failed | 290 passed (291)
+
+AC1 | pages/api/accounting/invoice-email.ts | a refundable route gains an after-commit hook
+int: Tests  75 passed (75)
+unit: × accounting/invoice-email.ts asks for refundUnused and can reach where its use is recorded 10ms
+unit: Tests  1 failed | 290 passed (291)
+
+DONE BASELINE SG1 SG2 SG3 SM1 SM2 SM3 SM4 SM5 SM6 SM7 SM8 AC1
+X1 | src/lib/afterCommit.ts | runAfterCommit does not forfeit the refund
+int: Tests  75 passed (75)
+unit: × work handed to runAfterCommit forfeits the refund: use recorded there would never be seen 26ms
+unit: × the context check goes red on exited-context code and stays green without it 5ms
+unit: Tests  2 failed | 289 passed (291)
+
+X2 | src/lib/quotaUse.ts | forfeitQuotaRefund keeps nothing
+int: Tests  75 passed (75)
+unit: × work handed to runAfterCommit forfeits the refund: use recorded there would never be seen 20ms
+unit: Tests  1 failed | 290 passed (291)
+
+E1 | src/modules/accounting/services/core/emailService.ts | sendEmail records no use
+int: Tests  75 passed (75)
+unit: × accounting/invoice-email.ts asks for refundUnused and can reach where its use is recorded 4ms
+unit: × accounting/statement-bulk-email.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × accounting/customer-statements-send.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × accounting/company-invitations.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × accounting/ar/dunning/send.ts asks for refundUnused and can reach where its use is recorded 0ms
+unit: × use is recorded only in the places listed above 63ms
+unit: × records one send per message the mail server accepts 6ms
+unit: × keeps its unit after the mail server accepted the email 15ms
+unit: × keeps its unit after the mail server accepted the email 1ms
+unit: × keeps its unit after the mail server accepted the email 1ms
+unit: × accepted: used 73ms
+unit: Tests  11 failed | 280 passed (291)
+
+E2 | src/modules/accounting/services/core/emailService.ts | sendEmail records use before the mail server answers
+int: Tests  75 passed (75)
+unit: × records nothing when the mail server refuses or is down 4ms
+unit: × leaves its unit unused when the mail server is down 4ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × login refused (EAUTH 535): not used, the server said no 6ms
+unit: × sender refused (EENVELOPE 550 to MAIL): not used, the server said no 3ms
+unit: × recipient refused (EENVELOPE 550 to RCPT): not used, the server said no 3ms
+unit: × DATA refused (EENVELOPE 554 to DATA): not used, the server said no 3ms
+unit: × message refused at the end of DATA (EMESSAGE 554): not used, the server said no 45ms
+unit: × message deferred at the end of DATA (EMESSAGE 451): not used, the server said no 45ms
+unit: × connection refused (ESOCKET from connect): not used 2ms
+unit: × connection dropped after the message was sent, before any reply: used, the server may have it 45ms
+unit: Tests  12 failed | 279 passed (291)
+
+E3 | src/modules/accounting/services/core/emailService.ts | sendEmail records AI use
+int: Tests  75 passed (75)
+unit: × accounting/invoice-email.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × accounting/statement-bulk-email.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × accounting/customer-statements-send.ts asks for refundUnused and can reach where its use is recorded 0ms
+unit: × accounting/company-invitations.ts asks for refundUnused and can reach where its use is recorded 0ms
+unit: × accounting/ar/dunning/send.ts asks for refundUnused and can reach where its use is recorded 0ms
+unit: × records one send per message the mail server accepts 5ms
+unit: × keeps its unit after the mail server accepted the email 16ms
+unit: × keeps its unit after the mail server accepted the email 1ms
+unit: × keeps its unit after the mail server accepted the email 1ms
+unit: × accepted: used 76ms
+unit: Tests  10 failed | 281 passed (291)
+
+HT1 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: no HTML existence check before the charge
+int: Tests  75 passed (75)
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 2ms
+unit: Tests  1 failed | 290 passed (291)
+
+H6 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged before the document and contact checks
+int: Tests  75 passed (75)
+unit: × a request refused because nothing matches "FROM afs_documents" leaves the company bucket untouched 3ms
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 1ms
+unit: × charges the company bucket once every check has passed 1ms
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 1ms
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 1ms
+unit: Tests  5 failed | 286 passed (291)
+
+H7 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged before the signer check again (round-5 position)
+int: Tests  75 passed (75)
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 3ms
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 2ms
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 1ms
+unit: Tests  3 failed | 288 passed (291)
+
+H8 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged after the company query and file read again
+int: Tests  75 passed (75)
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 4ms
+unit: Tests  1 failed | 290 passed (291)
+
+MB1 | pages/api/mcp/index.ts | mcp: batch charged one unit only
+int: Tests  75 passed (75)
+unit: × a batch larger than what is left is refused: nothing charged, nothing run 5ms
+unit: × the units left are still there for a batch that fits, which is charged its full count once 3ms
+unit: × a batch charges the per-company limiter its call count, once (R-175; more in transportBatchCharge) 4ms
+unit: × a batch stops running tool calls after the first role-lock refusal: the rest are answered at once as not run 1ms
+unit: Tests  4 failed | 287 passed (291)
+
+MB2 | pages/api/mcp/index.ts | mcp: batch charged one call at a time again, stopping at the first refusal
+int: Tests  75 passed (75)
+unit: × a batch larger than what is left is refused: nothing charged, nothing run 7ms
+unit: × the units left are still there for a batch that fits, which is charged its full count once 1ms
+unit: × per-company rate limit 120/min → -32000 when exceeded 5ms
+unit: × a batch charges the per-company limiter its call count, once (R-175; more in transportBatchCharge) 1ms
+unit: × a batch stops running tool calls after the first role-lock refusal: the rest are answered at once as not run 1ms
+unit: Tests  5 failed | 286 passed (291)
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  291 passed (291)
+
+DONE X1 X2 E1 E2 E3 HT1 H6 H7 H8 MB1 MB2 BASELINE
