@@ -2,20 +2,22 @@
  * R-175: every checkRateLimit call must reach the shared counter. The verdict
  * comes from the count the database returns, never from process-local state.
  *
- * `sql` is mocked here; the real proof against PostgreSQL is
+ * The limiter's pool is mocked here; the real proof against PostgreSQL is
  * tests/integration/r175-rate-limit-admits-over-max.int.test.ts.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
-vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+vi.mock('@/lib/rateLimitPool', () => ({
+  getRateLimitPool: () => ({ query: async (...args: unknown[]) => ({ rows: await sqlMock(...args) }) }),
+}));
 
 import { checkRateLimit, clearRateLimitCache, refundRateLimit } from '@/lib/rateLimit';
 
 /** A counter that behaves like the table row: each upsert adds its cost. */
 function countingDb(): void {
   let count = 0;
-  sqlMock.mockImplementation(async (_strings: TemplateStringsArray, _key: string, cost: number) => {
+  sqlMock.mockImplementation(async (_text: string, [, cost]: [string, number, number]) => {
     count += cost;
     return [{ count, window_start: new Date() }];
   });
@@ -54,7 +56,7 @@ describe('checkRateLimit — every call is counted (R-175)', () => {
     await checkRateLimit('k', { max: 100, windowSecs: 60, cost: 7 });
     await checkRateLimit('k', { max: 100, windowSecs: 60, cost: -3 });
 
-    expect(sqlMock.mock.calls.map((call) => call[2])).toEqual([7, 1]);
+    expect(sqlMock.mock.calls.map((call) => call[1][1])).toEqual([7, 1]);
   });
 
   it('a refusal is not remembered: the next call asks the database again', async () => {
@@ -69,7 +71,7 @@ describe('checkRateLimit — every call is counted (R-175)', () => {
     sqlMock.mockResolvedValue([]);
     await refundRateLimit('k', 2);
     expect(sqlMock).toHaveBeenCalledTimes(1);
-    expect(sqlMock.mock.calls[0]![1]).toBe(2);
+    expect(sqlMock.mock.calls[0]![1]).toEqual(['k', 2]);
     expect(() => clearRateLimitCache()).not.toThrow();
   });
 });

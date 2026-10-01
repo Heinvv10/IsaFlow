@@ -8,10 +8,15 @@
  * The old LRU short-circuit admitted calls it never wrote to the table, so a
  * limit of 20 admitted about 65 calls per window on one process. Do not add a
  * cache that can ADMIT a call; the only safe cache is one that refuses early.
+ *
+ * K-103: the counter is written on the limiter's own pool (`@/lib/rateLimitPool`),
+ * never on the request's transaction. The charge commits at once, survives a
+ * request that rolls back, and holds no row lock past its own statement. Do not
+ * route these statements through `sql`: inside a request it joins the request.
  */
 
 import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
-import { sql } from '@/lib/neon';
+import { getRateLimitPool } from '@/lib/rateLimitPool';
 import { log } from '@/lib/logger';
 
 // ---------------------------------------------------------------------------
@@ -50,7 +55,9 @@ export function clearRateLimitCache(): void {
  * Returns true if the request is allowed, false if it is rate-limited.
  *
  * The counter is persisted in `rate_limit_counters` (migration 331) so it is
- * shared across all pods. Every call charges it, admitted or not.
+ * shared across all pods. Every call charges it, admitted or not, and the
+ * charge is committed before this returns, whatever the caller's transaction
+ * later does.
  */
 /**
  * Clamp a rate-limit `cost` to a positive integer. A shared primitive must never
@@ -67,22 +74,23 @@ export async function checkRateLimit(key: string, opts: RateLimitOptions): Promi
   const { max, windowSecs } = opts;
   const cost = clampCost(opts.cost);
 
-  const rows = (await sql`
-    INSERT INTO rate_limit_counters (key, count, window_start)
-    VALUES (${key}, ${cost}, NOW())
+  const { rows } = await getRateLimitPool().query<{ count: number }>(
+    `INSERT INTO rate_limit_counters (key, count, window_start)
+    VALUES ($1, $2, NOW())
     ON CONFLICT (key) DO UPDATE
       SET count = CASE
-        WHEN rate_limit_counters.window_start < NOW() - make_interval(secs => ${windowSecs})
-          THEN ${cost}
-        ELSE rate_limit_counters.count + ${cost}
+        WHEN rate_limit_counters.window_start < NOW() - make_interval(secs => $3)
+          THEN $2
+        ELSE rate_limit_counters.count + $2
       END,
       window_start = CASE
-        WHEN rate_limit_counters.window_start < NOW() - make_interval(secs => ${windowSecs})
+        WHEN rate_limit_counters.window_start < NOW() - make_interval(secs => $3)
           THEN NOW()
         ELSE rate_limit_counters.window_start
       END
-    RETURNING count
-  `) as { count: number }[];
+    RETURNING count`,
+    [key, cost, windowSecs],
+  );
 
   return rows[0]!.count <= max;
 }
@@ -102,11 +110,12 @@ export async function checkRateLimit(key: string, opts: RateLimitOptions): Promi
  */
 export async function refundRateLimit(key: string, units: number): Promise<void> {
   const cost = clampCost(units);
-  await sql`
-    UPDATE rate_limit_counters
-    SET count = GREATEST(count - ${cost}, 0)
-    WHERE key = ${key}
-  `;
+  await getRateLimitPool().query(
+    `UPDATE rate_limit_counters
+    SET count = GREATEST(count - $2, 0)
+    WHERE key = $1`,
+    [key, cost],
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -113,11 +113,11 @@ const handler: NextApiHandler = async (req, res) => {
   // what proves the key names a real invitation, and this still precedes every
   // GoTrue call, which is what the cap exists to bound.
   //
-  // als.exit: checkRateLimit goes through `sql`, which routes onto the
-  // invite-token transaction whenever one is in flight. Any thrown path below
-  // (a GoTrue outage) ROLLBACKs that transaction and would discard the attempt
-  // with it, and the counter would also hold this key's row lock across two
-  // GoTrue round-trips. Run it on the module pool so the count survives.
+  // als.exit: written when checkRateLimit went through `sql` and so joined the
+  // invite-token transaction, where a thrown path below (a GoTrue outage) would
+  // discard the attempt and the key's row lock would be held across two GoTrue
+  // round-trips. Since K-103 the limiter writes on its own pool whatever the
+  // caller's context, so the als.exit is no longer needed; it is harmless.
   const ATTEMPT_COST = 2;
   const ATTEMPTS_PER_HOUR = 10;
   const admitted = await als.exit(() => checkRateLimit(`invite-accept:${tokenHash}`, {
