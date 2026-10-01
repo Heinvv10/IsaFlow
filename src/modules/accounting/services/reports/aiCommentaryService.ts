@@ -43,6 +43,19 @@ export interface ExecutiveSummary {
   netProfitAmount: number;
 }
 
+/**
+ * A key driver in words. It was `toFixed` — "decreased by 1523.4%", no
+ * grouping — and "remained flat by 0.4%"; on a nil prior every change read
+ * "remained flat by 0.0%". The percentage goes through `pctWithWord`.
+ */
+function driverSentence(
+  label: string, prior: number, change: number, changePercent: number, direction: KeyDriver['direction'],
+): string {
+  if (prior === 0 && change !== 0) return `${label} ${change > 0 ? 'increased' : 'decreased'} from nil`;
+  if (direction === 'flat') return `${label} remained flat`;
+  return `${label} ${pctWithWord(changePercent, 'increased by', 'decreased by')}`;
+}
+
 export function identifyKeyDrivers(
   current: ManagementPackData['incomeStatement'],
   prior: ManagementPackData['incomeStatement'],
@@ -65,7 +78,7 @@ export function identifyKeyDrivers(
       change,
       changePercent,
       direction,
-      explanation: `${m.label} ${direction === 'up' ? 'increased' : direction === 'down' ? 'decreased' : 'remained flat'} by ${Math.abs(changePercent).toFixed(1)}%`,
+      explanation: driverSentence(m.label, m.prior, change, changePercent, direction),
     };
   });
 
