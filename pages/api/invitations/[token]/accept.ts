@@ -13,6 +13,7 @@ import { sql } from '@/lib/neon';
 import { checkRateLimit, refundRateLimit } from '@/lib/rateLimit';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 
 // Memoised, like every other pool in the repo (src/lib/neon.ts,
 // src/lib/auth/withInviteToken.ts). Building one per request cost a TCP + TLS
@@ -140,6 +141,7 @@ const handler: NextApiHandler = async (req, res) => {
   const client = await adminPool().connect();
   let tok: GoTrueTokenResponse;
   let opened = false;
+  let unusable = false;
   try {
     // 2. Does this address already hold an established IsaFlow login? A `users`
     //    row is written only by tenant provisioning (after email verification)
@@ -263,16 +265,10 @@ const handler: NextApiHandler = async (req, res) => {
     // The GoTrue calls above run before BEGIN. Rolling back a client with no
     // open transaction only logs `WARNING: there is no transaction in progress`
     // on every GoTrue failure, so ask first.
-    if (opened) await client.query('ROLLBACK').catch((rollbackErr: unknown) =>
-      log.error(
-        'ROLLBACK failed after transaction error',
-        { error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr) },
-        'auth',
-      ),
-    );
+    if (opened) unusable = await rollbackFailed(client, 'invite accept');
     throw err;
   } finally {
-    client.release();
+    client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
   }
 
   // 5. Set cookies

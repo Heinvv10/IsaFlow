@@ -22,6 +22,7 @@ import '@/lib/pgTypes';
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 import { extractBearerToken } from './captureApiKeyAuth';
 import { verifyExtensionToken } from './extensionJwt';
 import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } from './deferredEnd';
@@ -156,7 +157,7 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
       try {
         await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
       } catch (finalizeErr) {
-        try { await client.query('ROLLBACK'); } catch { unusable = true; }
+        unusable = await rollbackFailed(client, 'withExtensionToken');
         log.error('withExtensionToken: transaction finalize failed after handler responded', {
           status: res.statusCode, handlerFailed, connectionDestroyed: unusable, connectionId: claims.connectionId,
           message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
@@ -180,7 +181,7 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
       if (!handlerFailed) drainAfterCommit(ctx);
     } catch (err) {
       // R-159: answer the throw here; see withAuth.
-      try { await client.query('ROLLBACK'); } catch { unusable = true; }
+      unusable = (await rollbackFailed(client, 'withExtensionToken')) || unusable;
       answerThrow(req, res, deferred, err, {
         source: 'withExtensionToken', companyId: claims.companyId, userId: claims.userId,
         extra: { connectionId: claims.connectionId }, rolledBack: !unusable,

@@ -16,6 +16,7 @@ import '@/lib/pgTypes';
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { validatePat } from './personalAccessTokens';
@@ -257,7 +258,7 @@ export async function runBearerRequest(
     try {
       await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
     } catch (finalizeErr) {
-      try { await client.query('ROLLBACK'); } catch { unusable = true; }
+      unusable = await rollbackFailed(client, 'bearerPipeline');
       log.error('bearerPipeline: transaction finalize failed after handler responded', {
         url: req.url,
         status: res.statusCode,
@@ -288,7 +289,7 @@ export async function runBearerRequest(
     if (!handlerFailed) drainAfterCommit(txCtx);
   } catch (err) {
     // R-159: answer the throw here; see withAuth.
-    try { await client.query('ROLLBACK'); } catch { unusable = true; }
+    unusable = (await rollbackFailed(client, 'bearerPipeline')) || unusable;
     answerThrow(req, res, deferred, err, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId, rolledBack: !unusable });
   } finally {
     client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it

@@ -30,6 +30,7 @@
 import type { PoolClient } from 'pg';
 import { runOwnedContext } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
 import { getMonthEndWorkbench, type WorkbenchCard, type CardStatus } from './monthEndWorkbenchService';
@@ -98,6 +99,7 @@ async function buildOneClientRow(
   cu: CompanyMembership,
   userId: string,
   period: string,
+  tx: { unusable: boolean },
 ): Promise<PortfolioRow> {
   // Wrap the iteration in a real transaction. Without BEGIN, set_config
   // with is_local=true reverts immediately on the implicit single-statement
@@ -138,7 +140,7 @@ async function buildOneClientRow(
       failed: false,
     };
   } catch (err) {
-    try { await client.query('ROLLBACK'); } catch { /* secondary */ }
+    tx.unusable = await rollbackFailed(client, 'portfolioWorkbench');
     throw err;
   }
 }
@@ -178,8 +180,9 @@ export async function getPortfolioWorkbench(
     memberships,
     async (cu): Promise<PortfolioRow> => {
       const client = await adminPool.connect();
+      const tx = { unusable: false };
       try {
-        return await buildOneClientRow(client, cu, userId, period);
+        return await buildOneClientRow(client, cu, userId, period, tx);
       } catch (err) {
         log.error('Portfolio workbench: client failed',
           { error: err, userId, companyId: cu.companyId, period }, 'workbench');
@@ -197,7 +200,7 @@ export async function getPortfolioWorkbench(
           failedReason: classifyError(err),
         };
       } finally {
-        client.release();
+        client.release(tx.unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
       }
     },
     PARALLEL_LIMIT,
