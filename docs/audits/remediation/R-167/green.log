@@ -1,4 +1,4 @@
-# GREEN on 37d2b39ca (review round 3), fixture clone at 717 (2026-09-30T21:18:04Z); the fence suite on an isaflow_test clone of it. 64-hex tokens redacted.
+# GREEN on e4aafa03f (final code, after /review), fixture clone at 717 (2026-10-01T01:58:30Z); the fence suite on an isaflow_test clone of it. 64-hex tokens redacted.
 ## k-033-subscription-period-advances-before-settlement.int.test.ts
  Test Files  1 passed (1)
       Tests  20 passed (20)
@@ -88,7 +88,7 @@
       Tests  20 passed (20)
 ## r167-standing-links-and-checkout.int.test.ts
  Test Files  1 passed (1)
-      Tests  15 passed (15)
+      Tests  16 passed (16)
 ## customer-ownership-fence-routes (isaflow_test clone)
  Test Files  1 passed (1)
       Tests  32 passed (32)
@@ -96,9 +96,3 @@
  Test Files  1 passed (1)
       Tests  16 passed (16)
 ## k-035-webhook-redelivery-discarded: 4 failed | 2 passed here AND on clean origin/master 66e776d81 (pre-existing; the mandate branch, untouched)
-## r167-link-charges-link-amount (re-run on 44202201e)
- Test Files  1 passed (1)
-      Tests  20 passed (20)
-## r167-standing-links-and-checkout (re-run on 44202201e)
- Test Files  1 passed (1)
-      Tests  16 passed (16)
