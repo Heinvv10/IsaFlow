@@ -32,6 +32,7 @@ Most files below exist only for the 300-line cap and are re-exported from the or
 - Prose claims about another page are derived from what that page drew (`packTrendCrossReference`, `packWindowFootnotes`, `packDisownedBases`, `packPrintsComparative`); never hard-code a pointer or an enumeration. Lists of checks render from `MATTER_SOURCES`.
 - A sentence that states a relation takes its result as an input (`narrative/statedRelation.ts`).
 - `anchorRow`/`anchorColumn` throw when nothing matches: a footnote with no anchor is a defect.
+- Render each chart SVG at `svgBoxFor`'s plot box and pass that same measure to the stylesheet (`--pack-chart-plot-mm`); an SVG whose viewBox mismatches its box is letterboxed (`preserveAspectRatio` meet) and the chart silently shrinks.
 - Tables on one page share one column grid (`packScorecardColumns`, `packMattersColumns`).
 - Draft status comes only from `packDraftState`; a part month is marked only through `packPartialMonth`; the comparative label comes from `comparativePeriod` via `packPeriodLabel`, never re-formatted.
 - A bridge that foots to the cent draws no plug bar; compare floats with `MONEY_TOLERANCE`. A mid-statement subtotal bar is `kind: 'subtotal'`.

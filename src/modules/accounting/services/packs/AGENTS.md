@@ -28,13 +28,14 @@ Pure composition except the readers named below. No React.
 - **Statements:** page 7 prints equity before liabilities and closes on `Total equity and liabilities` (held to the two totals by a statement identity). The pack's cash flows come from the direct-method statement; investing is NET investing and `capitalExpenditure` stays unpopulated, so free cash flow is marked not meaningful.
 - **A change in a percentage is stated in points** (`PackKpiDelta.unit`), worded by `deltaWithWord` ("pp" on tiles).
 - **Charts:** SVG is rendered by `renderChartSvg` and branded `TrustedChartSvg` only through the two guards in `lib/charts/trustedChartSvg.ts`; the JSON boundary (`pages/packDocumentWire.ts`) re-adopts every SVG field and must never `as TrustedChartSvg`. Pack charts use `packChartOptions.ts` (browser/PDF); the deck uses native PowerPoint charts (`packDeckModel.ts`), so a look change touches both on purpose. `afs/serverChartSvg.ts` serves the AFS PDF only and takes `DEFAULT_CHART_PALETTE` from here. Plot inset is `CHART_GUTTER_PX`, symmetric, `containLabel` unset.
+- Chart ink and label colours are held to WCAG 4.5:1 by `packInkContrast.test.ts` and `packChartOptions.test.ts`; do not change a colour without them.
 - **One typeface, no font CDN.** Fonts are self-hosted (`fontsSelfHosted.test.ts`); chart text carries `PACK_FONT_STACK`. Page margins come only from `PDF_MARGIN_MM`; never add a CSS `@page` margin.
 - **Page height model must never under-estimate** Chromium (`pages/packTextMetrics.ts`, `WIDTH_SAFETY`). A page that does not fit drops content and says so; it never starts a second sheet. Details in `pages/.claude.md`.
 - **Logo:** the server fetches the tenant logo once (`packBrandForRender.ts`, `safeFetch`, size/type/time caps) and the cover carries a `data:` URI. An unusable logo is dropped, not refused. Nothing client-side may import that file (`node:dns`).
 - **Commentary is deterministic or signed.** Commentary is `approved` or `derived`; draft renders nothing. Draft status is read once, in `pages/packDraftState.ts`, and a pack is FINAL only on positive evidence (closed period AND an approval).
 
-## Known duplication
-`escapeHtml.ts` duplicates WS1's helper in `src/components/accounting/charts/chartTypes.ts` (ECharts renders tooltip returns as HTML). Unify after WS1 merges; whoever merges second owns the deletion.
+## Open follow-up
+`escapeHtml.ts` here duplicates `src/components/accounting/charts/escapeHtml.ts` (same five-entity escape; ECharts renders tooltip returns as HTML). Unify to one definition and point both chart surfaces at it: two escapers is two chances for one to be relaxed.
 
 ## Related files
 - `reports/reportPackService.ts`, `reportPackDataService.ts`, `statementRows/packMappers.ts`: figures and section blobs.
