@@ -9,7 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { randomUUID } from 'crypto';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { CO, CUSTOMER, SECRET, USER, addLink, cleanupCompany, create, pool, requests, seedCompany } from './r167-portal-links.helpers';
-import { enableOnlinePayment, invoice, links, payNow, signIn, tokenOf } from './r177-portal-followups.helpers';
+import { enableOnlinePayment, enableRoute, invoice, links, payNow, signIn, tokenOf } from './r177-portal-followups.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -137,6 +137,10 @@ describe('R-177: Pay Now hands out the standing link and never calls the gateway
            subtotal, tax_amount, total_amount, amount_paid, status, created_by)
          VALUES ($1, $2, $3, $3, 'R177-OTHER', CURRENT_DATE, 100, 15, 115, 0, 'sent', $4)`, [id, other, CUSTOMER, USER]);
       expect((await payNow(id)).statusCode).toBe(404);
+      await pool.query("UPDATE customer_invoices SET status = 'draft' WHERE id = $1", [id]);
+      expect((await payNow(id)).statusCode).toBe(404); // not "not approved": that would confirm the invoice exists
+      expect((await enableRoute(id)).statusCode).toBe(404);
+      await pool.query("UPDATE customer_invoices SET status = 'sent' WHERE id = $1", [id]);
       expect(await enableOnlinePayment(CO, id)).toBeNull(); // no RLS on this call: the predicate alone
       expect(await links(id)).toEqual([]);
     } finally {

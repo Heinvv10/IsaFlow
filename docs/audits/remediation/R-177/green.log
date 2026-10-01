@@ -92,6 +92,6 @@
 ## r178-r180-portal-link-rules.int.test.ts
  Test Files  1 passed (1)
       Tests  14 passed (14)
-## unit: payNowCheckout, useCustomerInvoiceActionsPayNow, paystackClient
+## unit: every file under tests/unit/accounting (includes payNowCheckout and useCustomerInvoiceActionsPayNow) plus tests/unit/services/billing/paystackClient.test.ts
  Test Files  13 passed (13)
       Tests  162 passed (162)
