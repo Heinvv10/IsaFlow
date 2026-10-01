@@ -126,8 +126,9 @@ describe('report drill cost centre selection', () => {
   it('shows transaction and evidence API failures instead of treating error envelopes as data', async () => {
     vi.mocked(apiFetch).mockImplementation(async () => response({message:'Unavailable'}, 503));
     const drill = render(<AccountDrillDown accountCode="5000" {...dates} />);
-    // apiJson/apiErrorMessage: a failure is shown (this body has no error message, so the request-failed fallback).
-    expect(await screen.findByText(/^Request to \/api\/accounting\/reports-account-transactions.* failed$/)).toBeInTheDocument();
+    // A failure with no server message shows a plain sentence, never the request URL.
+    expect(await screen.findByText('Could not load the transactions - try again')).toBeInTheDocument();
+    expect(screen.queryByText(/\/api\//)).not.toBeInTheDocument();
     drill.unmount();
 
     render(<EvidenceDrillModal accountId="5000" accountName="Expense" {...dates} onClose={vi.fn()} />);

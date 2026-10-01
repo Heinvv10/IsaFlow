@@ -83,11 +83,11 @@ export default function AccountDetailPage() {
       }
 
       // Endpoint is now under /api/accounting/reports- prefix for auto-rate-limiting.
-      const result = await apiJson(`/api/accounting/reports-account-ledger?${params}`, { credentials: 'include' });
+      const result = await apiJson(`/api/accounting/reports-account-ledger?${params}`, { credentials: 'include' }, 'Could not load the ledger - try again');
       if (requestId === requestRef.current) setData(result);
     } catch (err) {
       // The server's own 400/404 message (apiErrorMessage), not a generic line.
-      if (requestId === requestRef.current) setError(apiErrorMessage(err, 'Failed to load ledger'));
+      if (requestId === requestRef.current) setError(apiErrorMessage(err, 'Could not load the ledger - try again'));
     } finally {
       if (requestId === requestRef.current) setLoading(false);
     }
@@ -176,6 +176,7 @@ export default function AccountDetailPage() {
                 openingBalance={data.openingBalance}
                 periodNet={data.periodNet}
                 closedToRetainedEarnings={data.closedToRetainedEarnings}
+                closedYears={data.derivedRows}
                 periodClosingBalance={data.periodClosingBalance}
                 total={data.total - data.derivedRows}
               />

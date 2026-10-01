@@ -54,6 +54,16 @@ describe('the server message reaches the user', () => {
     expect(await screen.findByText(/from must be a real date, YYYY-MM-DD/)).toBeTruthy();
   }, 10000);
 
+  it('a failure without a server message, or a 2xx that is not the envelope, shows a plain sentence and never a URL', async () => {
+    for (const response of [new Response('', { status: 503 }), new Response('<html>proxy</html>', { status: 200 }), new Response('{"nodata":1}', { status: 200 })]) {
+      serve(response);
+      const view = render(<AccountTransactionsPage />);
+      expect(await screen.findByText('Could not load the account transactions - try again')).toBeTruthy();
+      expect(view.container.textContent).not.toContain('/api/');
+      view.unmount();
+    }
+  }, 15000);
+
   it('Account Detail page: 404 Account not found', async () => {
     router.query = { accountId: '5000', from: '2026-01-01', to: '2026-09-30' };
     serve(envelope(404, 'NOT_FOUND', 'Account not found'));

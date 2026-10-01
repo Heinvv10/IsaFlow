@@ -3,7 +3,7 @@
  * Shows every GL account with its debit/credit entries and running balance
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
@@ -63,8 +63,14 @@ export default function GeneralLedgerPage() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
 
+  const requestRef = useRef(0);
+
   const load = useCallback(async () => {
     if (!periodStart || !periodEnd) return;
+    // Only the latest request may set state (same pattern as the account detail page).
+    const requestId = ++requestRef.current;
+    const latest = () => requestId === requestRef.current;
+    const failure = 'Could not load the general ledger - try again';
     setLoading(true);
     setError('');
     try {
@@ -72,14 +78,16 @@ export default function GeneralLedgerPage() {
       // ONE request for every account. The previous version fanned out one
       // request per account from the browser and capped the list at 20, which
       // silently truncated the report (issue #287).
-      const data = await apiJson(`/api/accounting/reports-general-ledger?${params}`, { credentials: 'include' });
-      setReports(data.accounts ?? []);
+      const data = await apiJson(`/api/accounting/reports-general-ledger?${params}`, { credentials: 'include' }, failure);
+      if (latest()) setReports(data.accounts ?? []);
     } catch (err) {
-      // The server's own 400 message (bad date, inverted range), not a generic line.
-      setError(apiErrorMessage(err, 'Failed to load the general ledger'));
-      setReports([]);
+      if (latest()) {
+        // The server's own 400 message (bad date, inverted range); nothing stale stays on screen.
+        setError(apiErrorMessage(err, failure));
+        setReports([]);
+      }
     } finally {
-      setLoading(false);
+      if (latest()) setLoading(false);
     }
   }, [periodStart, periodEnd]);
 

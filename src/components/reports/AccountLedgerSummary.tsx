@@ -13,6 +13,8 @@ interface Props {
   periodNet: number;
   /** Derived year-end closes inside the range (income-statement accounts only; else 0). */
   closedToRetainedEarnings: number;
+  /** How many derived year-end close rows there are (the net can be zero while closes exist). */
+  closedYears: number;
   /** Opening + periodNet + closedToRetainedEarnings — the balance as at the range end. */
   periodClosingBalance: number;
   /** Number of posted journal lines in the range (derived close rows excluded), for the label. */
@@ -23,6 +25,7 @@ export function AccountLedgerSummary({
   openingBalance,
   periodNet,
   closedToRetainedEarnings,
+  closedYears,
   periodClosingBalance,
   total,
 }: Props) {
@@ -48,10 +51,11 @@ export function AccountLedgerSummary({
         <p className="font-mono font-medium text-[var(--ff-text-primary)]">
           {fmt(periodClosingBalance)}
         </p>
-        {closedToRetainedEarnings !== 0 && (
+        {closedYears > 0 && (
           <p className="text-xs text-[var(--ff-text-tertiary)]">
-            {/* closedToRetainedEarnings is the negated normal-side balance that was closed: show it unsigned. */}
-            {fmt(Math.abs(closedToRetainedEarnings))}{closedToRetainedEarnings > 0 ? ' (abnormal-side balance)' : ''} closed to retained earnings at year end (derived)
+            {/* closedToRetainedEarnings is the negated NET of the normal-side balances closed: show it unsigned, direction in words. */}
+            {closedYears} year-end close{closedYears === 1 ? '' : 's'} (derived): net {fmt(Math.abs(closedToRetainedEarnings))}
+            {closedToRetainedEarnings > 0 ? ' returned from' : ' closed to'} retained earnings
           </p>
         )}
       </div>

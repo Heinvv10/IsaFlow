@@ -91,7 +91,7 @@ export function AccountDrillDown({
     if (costCentreId) params.set('cost_centre_id', costCentreId);
     if (businessUnitId) params.set('business_unit_id', businessUnitId);
 
-    apiJson(`/api/accounting/reports-account-transactions?${params}`)
+    apiJson(`/api/accounting/reports-account-transactions?${params}`, undefined, 'Could not load the transactions - try again')
       .then(d => {
         if (cancelled) return;
         if (!d || !Array.isArray(d.transactions)) throw new Error('Invalid transaction response');
@@ -99,7 +99,7 @@ export function AccountDrillDown({
       })
       .catch(err => {
         // The server's own 400/404 message, not a generic line.
-        if (!cancelled) setError(apiErrorMessage(err, 'Failed to load transactions'));
+        if (!cancelled) setError(apiErrorMessage(err, 'Could not load the transactions - try again'));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
