@@ -26,6 +26,7 @@ import { als } from '@/lib/als';
 import { autoApplyUnapplied } from '@/modules/accounting/services/shared/autoApplyBackfillService';
 import { SUBLEDGERS, type Subledger } from '@/modules/accounting/services/shared/autoApplyBackfillPlan';
 import { assertBackfillDryRunDb } from './lib/assertBackfillDryRunDb';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 
 const argv = process.argv.slice(2);
 
@@ -122,8 +123,8 @@ async function main(): Promise<void> {
     console.log(`\nPlan written to ${out}`);
   } finally {
     // UNCONDITIONAL. There is no path through this script that commits.
-    await client.query('ROLLBACK').catch(() => undefined);
-    client.release();
+    const unusable = await rollbackFailed(client, 'auto-apply-unapplied-dryrun');
+    client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
     await pool.end();
   }
 }

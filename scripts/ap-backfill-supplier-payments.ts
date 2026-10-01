@@ -82,6 +82,7 @@ import { reconcileSubledger } from '@/modules/accounting/services/reconciliation
 import { getUnappliedPayments } from '@/modules/accounting/services/ap/unappliedPaymentService';
 import { getBankStatementCoverage } from '@/modules/accounting/services/bank/bankStatementCoverageService';
 import { fmtDate } from '@/lib/fmtDate';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 
 const args = process.argv.slice(2);
 /**
@@ -213,6 +214,7 @@ async function main(): Promise<void> {
 
   const pool = new pg.Pool({ connectionString: url, ssl: { rejectUnauthorized: false } });
   const client = await pool.connect();
+  let unusable = false;
   let healthy = true;
 
   try {
@@ -413,16 +415,16 @@ async function main(): Promise<void> {
       await client.query('COMMIT');
       console.log('\nCOMMITTED.');
     } else {
-      await client.query('ROLLBACK');
+      unusable = await rollbackFailed(client, 'ap-backfill-supplier-payments');
       console.log(`\nROLLED BACK${COMMIT ? ' (invariant broken)' : ' (dry run — pass --commit to keep it)'}.`);
     }
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => undefined);
+    unusable = (await rollbackFailed(client, 'ap-backfill-supplier-payments')) || unusable;
     console.error('\nFAILED — rolled back.');
     console.error(err instanceof Error ? err.message : err);
     process.exitCode = 1;
   } finally {
-    client.release();
+    client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
     await pool.end();
   }
 }

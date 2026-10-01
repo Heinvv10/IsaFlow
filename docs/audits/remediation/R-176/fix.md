@@ -50,15 +50,25 @@ and cross-checked against every `BEGIN` in the same trees. "Before" is `09049726
 | 13 | `scripts/_pg.ts`, `withTransactionPg` (memoised pool) | yes | swallowed; pooled | destroyed |
 | 14 | `scripts/simulate-fy2026-loans.ts` (module pool) | yes | swallowed; pooled | destroyed |
 | 15 | `scripts/simulate-fy2026-workflows.ts` (memoised pool) | yes | swallowed; pooled | destroyed |
-| 16 | `pages/api/auth/verify-email.ts` | yes | logged; bare release, then `admin.end()` in the same `finally` | unchanged, pinned |
-| 17 | `scripts/ap-backfill-supplier-payments.ts`, `apply-migrations.ts`, `auto-apply-unapplied-dryrun.ts`, `migrations/resolve-checksum-conflicts.ts`, `r088-posted-receipt-key-census.ts` | yes | bare release, then `pool.end()` in the same `finally` | unchanged, pinned |
+| 16 | `pages/api/auth/verify-email.ts` (pool per request, ended in the same `finally`) | yes | logged; bare release | destroyed (/review round) |
+| 17a | `scripts/ap-backfill-supplier-payments.ts`, `auto-apply-unapplied-dryrun.ts`, `r088-posted-receipt-key-census.ts` (pool per run) | yes | swallowed or unbounded; bare release, then `pool.end()` | destroyed (/review round) |
+| 17b | `scripts/apply-migrations.ts`, `migrations/resolve-checksum-conflicts.ts` (pool per run) | yes | ROLLBACK in a helper (`applyOne`, `processOne`); bare release in `main`, then `pool.end()` | unchanged, pinned |
 | 18 | `scripts/fixes/backfill-je-fiscal-periods.ts`, `repairs/2026-07-05-p1-1-reverse-je-2026-00927.ts`, `run-sql.mjs`, `seed-historical-data.mjs`, `seed-prd05-qa-data.ts` | a `pg.Client` of their own, ended with `client.end()`; no pool | n/a | out of scope |
 | 19 | `src/lib/auth/impersonationSessions.ts` (`client.connect()`) | no: one autocommit INSERT on its own `pg.Client`, then `end()` | n/a | out of scope |
 | 20 | `sentMirrorService.ts`, `imapMirrorService.ts` (`client.connect()`, `lock.release()`) | no: an IMAP client and a mailbox lock | n/a | out of scope, pinned |
 
 Rows 16 and 17 build a pool for one request or one run and end it in the `finally` that
-releases the client, so no later caller can receive that connection. They keep their bare
-release and are pinned in `tests/unit/lib/releaseCensus.test.ts`. No test drives them. The ALS
+releases the client, so no later caller can receive that connection. They kept a bare release
+until the /review round. Rows 16 and 17a now roll back through `rollbackFailed` (bounded, with a
+cancel) and release with its result: before, a ROLLBACK there that never answered hung the
+request or the run with no bound, and the pool was never ended. Rows 17b are left, pinned in
+`tests/unit/lib/releaseCensus.test.ts`: their ROLLBACK sits in a helper and the release in `main`,
+so converting them means threading the outcome through. `apply-migrations.ts` stops at the first
+failure; `resolve-checksum-conflicts.ts` catches each file's error and goes on to the next file on
+the same client, so after a failed ROLLBACK its later files run on that connection. Both are
+operator-run one-off tools whose pool ends with the run.
+
+The ALS
 branches of `sql.transaction` and `withTransaction` use a SAVEPOINT on the request's client and
 own no transaction.
 
@@ -262,8 +272,10 @@ ran 179 mutants on `f13aeedef` with the baseline green three times before and on
 
 ## Not covered
 
-- `verify-email.ts` and the five per-run-pool scripts (rows 16–17): not changed. The census
-  asserts that each ends its pool in the same `finally`; nothing drives them.
+- `verify-email.ts` (row 16) is tested at unit level only, with pg mocked.
+- The three converted scripts (row 17a) are type-checked ad hoc and their imports resolve under
+  `bun build`; they run their `main` on import and were not executed. The two left (row 17b) are
+  not changed; the census asserts each ends its pool in the same `finally`.
 - The two simulate scripts (rows 14–15): changed, never executed. The loans script's imports
   resolve under `bun build`. The workflows script does not resolve on unchanged code
   (`markUifDeclarationPaid` is not exported) and runs `main` on import, so it is type-checked
@@ -294,7 +306,8 @@ ran 179 mutants on `f13aeedef` with the baseline green three times before and on
 
 ## Accepted, with the reason
 
-- `BEGIN` and `COMMIT` stay unbounded, as does every handler query. Abandoning a COMMIT leaves
+- The 5 s bound covers the ROLLBACK only. `BEGIN` and `COMMIT` stay unbounded, as they were
+  before this change, as does every handler query. Abandoning a COMMIT leaves
   its outcome unknown, which is worse than waiting; a `BEGIN` that hangs has written nothing and
   the request's own timeout is the caller's. Only the ROLLBACK is bounded, because it is the one
   statement whose loss the owner can make safe by destroying the connection.
@@ -422,6 +435,24 @@ Both reviewers said SHIP on `058e40913`. Fixed in `f13aeedef`:
 2. The exact packet for 32-bit keys is pinned: -1, -2^31, 0xdeadbeef as a negative, 2^32-1
    and 0. (A case for -1 → `ffffffff` already existed; it now asserts the whole packet.)
 3. Three limits are recorded under Accepted.
+
+## /review round
+
+A fresh blind /review on PR #603 returned FIX with one MEDIUM: `verify-email.ts` still sent two
+bare ROLLBACKs and released bare, pinned as a per-run pool, so a ROLLBACK that never answered hung
+the request with no bound or cancel and `admin.end()` never ran; and the module doc said every
+owner used the helper. Fixed:
+
+- `verify-email.ts` rolls back through `rollbackFailed` on both paths, keeps the first failure
+  (`||`), releases with the result and still ends its pool in the same `finally`. Its pin is
+  gone. Unit cases: a failed ROLLBACK after a provisioning error, and on an unknown token (still
+  410), each release with `true` and still call `admin.end()`; the healthy paths release with
+  `false`.
+- Of the scripts the census pinned, `ap-backfill-supplier-payments.ts`,
+  `auto-apply-unapplied-dryrun.ts` and `r088-posted-receipt-key-census.ts` were cheap to convert
+  and are converted (row 17a). `apply-migrations.ts` and `migrations/resolve-checksum-conflicts.ts`
+  are left and named, with the reason, here and in `src/lib/auth/.claude.md`.
+- The docs say plainly that the 5 s bound covers ROLLBACK only.
 
 ## Migration / rollback
 

@@ -306,3 +306,14 @@ AssertionError: expected +0 to be 1 // Object.is equality
      × opens no socket for a 257-byte Buffer key, and says so 0ms
  Test Files  1 failed (1)
       Tests  11 failed | 17 passed (28)
+
+# Round 8 (/review on PR #603). RED on bf07cf80b + the new verify-email cases; source unchanged (2026-10-01T19:59:21Z).
+     × provisioning throws, its ROLLBACK fails: released with true, the pool still ended, the error rethrown 4ms
+     × an unknown token whose ROLLBACK fails: still 410, released with true, the pool still ended 1ms
+     × provisioning throws, ROLLBACK succeeds: released with false (the connection is reused) 1ms
+     × an unknown token, ROLLBACK succeeds: released with false (the connection is reused) 1ms
+     × success: released with false (the connection is reused) 0ms
+AssertionError: expected [ [] ] to deeply equal [ [ true ] ]
+AssertionError: expected [ [] ] to deeply equal [ [ false ] ]
+ Test Files  1 failed (1)
+      Tests  5 failed | 13 passed (18)
