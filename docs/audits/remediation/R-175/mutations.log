@@ -2674,3 +2674,43 @@ int: Tests  51 passed (51)
 unit: Tests  196 passed (196)
 
 DONE R2 F1 F2 O1 O2 O3 O4 B1 B2 B3 B4 B5 B6 S1 S2 S3 S4 S5 I1 I2 D1 D2 G1 G2 U1 U2 U3 P1 P2 P3 BASELINE
+
+------------------------------------------------------------------
+After the key census parser was split into rateLimitKeyCensus.helpers.ts (commit 43957476d), the census mutants again:
+
+BASELINE (git status of src and pages: '')
+int: Tests  51 passed (51)
+unit: Tests  196 passed (196)
+
+P1 | pages/api/accounting/portal/auth.ts | AFS magic-link route shares portal-auth: again
+int: Tests  51 passed (51)
+unit: × finds the call sites, including the keys the wrappers build 7ms
+unit: × no key pattern is held to two different limits 1ms
+unit: Tests  2 failed | 194 passed (196)
+
+P2 | pages/api/accounting/invoice-email.ts | a route holds an attempts key at another limit
+int: Tests  51 passed (51)
+unit: × no key pattern is held to two different limits 5ms
+unit: × counts the attempt against the user, and a malformed request never reaches the company bucket 6ms
+unit: Tests  2 failed | 194 passed (196)
+
+P3 | pages/api/accounting/ar/dunning/send.ts | a limiter is passed as a value
+int: Tests  51 passed (51)
+unit: × no file reaches the limiter under another name 5ms
+unit: Tests  1 failed | 195 passed (196)
+
+U3 | src/lib/auth/bearerPipeline.ts | bearer pipeline keeps its own copy of the table again
+int: Tests  51 passed (51)
+unit: × is the only table: both wrappers call it and neither keeps a copy 13ms
+unit: Tests  1 failed | 195 passed (196)
+
+O4 | pages/api/accounting/invoice-email.ts | a refundable route sends under als.exit
+int: Tests  51 passed (51)
+unit: × accounting/invoice-email.ts asks for refundUnused and can reach where its use is recorded 11ms
+unit: Tests  1 failed | 195 passed (196)
+
+BASELINE (git status of src and pages: '')
+int: Tests  51 passed (51)
+unit: Tests  196 passed (196)
+
+DONE BASELINE P1 P2 P3 U3 O4 BASELINE
