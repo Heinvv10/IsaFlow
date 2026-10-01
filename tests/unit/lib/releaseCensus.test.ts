@@ -114,7 +114,17 @@ function releases(file: string, text: string): Finding[] {
   }
   return out;
 }
+/** Rule 2: the release sits in a `finally` block that also ends a pool (`x.end()`), exactly once. */
+function endsItsPoolInTheSameFinally(release: ts.Node): boolean {
+  let block: ts.Node | undefined = release;
+  const isFinally = (n: ts.Node) => n.parent !== undefined && ts.isTryStatement(n.parent) && n.parent.finallyBlock === n;
+  while (block && !isFinally(block)) block = block.parent;
+  if (!block) return false;
+  return find(block, (n) => ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)
+    && n.expression.name.text === 'end' && n.arguments.length === 0).length === 1;
+}
 const kinds = (snippet: string) => releases('s.ts', snippet).map((f) => f.kind);
+const endsPool = (snippet: string) => releases('s.ts', snippet).map((f) => endsItsPoolInTheSameFinally(f.node));
 const inFn = (body: string) => `async function f(c) { let u = false; ${body} }`;
 
 const scanned: Record<string, Finding[]> = {};
@@ -137,7 +147,8 @@ describe('R-176: no transaction owner releases its connection bare', () => {
     'bare: %s', (snippet) => { expect(kinds(snippet)).toEqual(['bare']); });
 
   it.each(['c.release.call(c);', 'c.release.apply(c, []);', 'c.release.bind(c)();', 'c.release(...[]);', 'c.release(...args);',
-    'const done = c.release; done();', 'const { release } = c; release();', 'const { release: done } = c; done();'])(
+    'const done = c.release; done();', 'const { release } = c; release();', 'const { release: done } = c; done();',
+    'setImmediate(c.release);', 'later(c.release, 0);'])(
     'indirect, fails closed: %s', (snippet) => { expect(kinds(snippet)).toContain('indirect'); });
 
   it.each([
@@ -145,7 +156,8 @@ describe('R-176: no transaction owner releases its connection bare', () => {
     inFn('u = true; c.release(u);'),
     'function f(c, unusable) { c.release(unusable); }',
     'c.release(true);', 'c.release(err);', "c.release(new Error('x'));",
-    inFn('const other = async () => { u = await rollbackFailed(c, "s"); }; c.release(v);'),
+    // the outcome belongs to another function's ROLLBACK, on another client
+    'async function a(d) { const u = await rollbackFailed(d, "s"); return u; } async function f(c) { let u = false; c.release(u); }',
   ])('unproven, fails closed: %s', (snippet) => { expect(kinds(snippet)).toEqual(['unproven']); });
 
   it.each([
@@ -171,15 +183,20 @@ describe('R-176: no transaction owner releases its connection bare', () => {
       .toEqual(Object.fromEntries(Object.entries(BARE).map(([file, entry]) => [file, entry.calls])));
   });
 
+  it.each([
+    ['try { await work(); } finally { c.release(); await pool.end(); }', true],
+    ['try { await work(); } finally { c.release(); }', false], // the pool lives on
+    ['await work(); c.release(); await pool.end();', false], // not in a finally: a throw skips both
+    ['try { try { await work(); } finally { c.release(); } } finally { await pool.end(); }', false], // another finally
+    ['try { await work(); } finally { c.release(); await pool.query("x"); }', false],
+  ] as const)('a per-run pool is ended in the same finally: %s -> %s', (snippet, expected) => {
+    expect(endsPool(snippet)).toEqual([expected]);
+  });
+
   it.each(Object.entries(BARE).filter(([, e]) => e.reason === PER_RUN_POOL).map(([file]) => file))(
     '%s: the pinned release sits in a finally that also ends its pool', (file) => {
       const bare = scanned[file]!.filter((f) => f.kind === 'bare');
       expect(bare).toHaveLength(1);
-      let block: ts.Node | undefined = bare[0]!.node;
-      while (block && !(ts.isTryStatement(block.parent) && block.parent.finallyBlock === block)) block = block.parent;
-      expect(block, 'the release must be inside a finally block').toBeDefined();
-      const ends = find(block!, (n) => ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)
-        && n.expression.name.text === 'end' && n.arguments.length === 0);
-      expect(ends.map((n) => n.getText()), 'a pool that outlives this finally can hand the connection out again').toHaveLength(1);
+      expect(endsItsPoolInTheSameFinally(bare[0]!.node), 'a pool that outlives this finally can hand the connection out again').toBe(true);
     });
 });
