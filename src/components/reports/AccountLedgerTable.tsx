@@ -4,6 +4,7 @@
  */
 
 import type { AccountLedgerRow } from '@/modules/accounting/services/reports/accountLedgerService';
+import { ledgerPageBoundaries } from '@/lib/csv/ledgerPageBoundaries';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 const fmt = (n: number) =>
@@ -22,6 +23,7 @@ interface Props {
   openingBalance: number;
   /** True period closing balance (server-returned). */
   periodClosingBalance: number;
+  normalBalance: string;
   page: number;
   totalPages: number;
   onPageChange: (p: number) => void;
@@ -31,10 +33,12 @@ export function AccountLedgerTable({
   rows,
   openingBalance,
   periodClosingBalance,
+  normalBalance,
   page,
   totalPages,
   onPageChange,
 }: Props) {
+  const b = ledgerPageBoundaries(normalBalance, rows, openingBalance, periodClosingBalance, page, totalPages);
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -53,10 +57,10 @@ export function AccountLedgerTable({
         <tbody>
           <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]/40">
             <td colSpan={7} className="px-4 py-2 text-xs text-[var(--ff-text-tertiary)] font-medium">
-              Opening Balance
+              {b.openingLabel}
             </td>
             <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-secondary)]">
-              {fmt(openingBalance)}
+              {fmt(b.opening)}
             </td>
           </tr>
 
@@ -92,10 +96,10 @@ export function AccountLedgerTable({
 
           <tr className="border-t border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]/40 font-medium">
             <td colSpan={7} className="px-4 py-2 text-xs text-[var(--ff-text-tertiary)]">
-              Closing Balance (period)
+              {b.closingLabel}
             </td>
             <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)]">
-              {fmt(periodClosingBalance)}
+              {fmt(b.closing)}
             </td>
           </tr>
         </tbody>

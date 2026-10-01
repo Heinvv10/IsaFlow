@@ -191,6 +191,7 @@ export default function AccountDetailPage() {
                 rows={data.rows}
                 openingBalance={data.openingBalance}
                 periodClosingBalance={data.periodClosingBalance}
+                normalBalance={data.meta.normalBalance}
                 page={page}
                 totalPages={totalPages}
                 onPageChange={goPage}

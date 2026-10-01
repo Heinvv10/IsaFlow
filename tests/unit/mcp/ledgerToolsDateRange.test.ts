@@ -31,7 +31,7 @@ const tools = [
   ['search_gl', searchGlTool, getAccountLedger, (a: string, b: string) => ({ account_code: '5200', from_date: a, to_date: b })],
 ] as const;
 
-const BAD = ['0001-01-01', '0099-12-31', '1899-12-31', '2201-01-01', '9999-12-31'];
+const BAD = ['0001-01-01', '0099-12-31', '1850-01-01', '1899-12-31', '2201-01-01', '9999-12-31'];
 
 describe.each(tools)('%s refuses a non-ledger year before any service call', (_n, tool, service, args) => {
   beforeEach(() => { vi.mocked(service).mockClear(); });
