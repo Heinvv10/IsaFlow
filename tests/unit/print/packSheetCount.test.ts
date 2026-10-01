@@ -104,6 +104,9 @@ const FIXTURES = {
   // Brightsphere's long window with a reason in both columns already.
   'the dense pack with its ratio inputs unread': withRatioInputs(denseInput, 'unread'),
   'Brightsphere, live, with its ratio inputs unread': withRatioInputs(brightsphereLiveInput, 'unread'),
+  // And the fourth interest-cover reason, a net credit, on the same two.
+  'the dense pack with interest a net credit': withRatioInputs(denseInput, 'netCredit'),
+  'Brightsphere, live, with interest a net credit': withRatioInputs(brightsphereLiveInput, 'netCredit'),
 } as const;
 
 let browser: Browser;

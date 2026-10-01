@@ -26,7 +26,7 @@ import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
 import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
-import { brightsphereInput, brightsphereLiveInput, demoInput, ratioInputsUnreadInput } from './fixtures/boardPackInputs';
+import { brightsphereInput, brightsphereLiveInput, demoInput, ratioInputsUnreadInput, withRatioInputs } from './fixtures/boardPackInputs';
 import {
   liveDemoBridgeInput,
   liveDemoInput,
@@ -54,6 +54,7 @@ const FIXTURES: [string, BoardPackInput][] = [
   ['the live demo company', liveDemoInput],
   ['the demo company', demoInput],
   ['the demo company with its ratio inputs unread', ratioInputsUnreadInput],
+  ['the demo company with interest a net credit', withRatioInputs(demoInput, 'netCredit')],
   ['Brightsphere', brightsphereInput],
   // The live tenant's own sheet 6, which refused to compose at all rather
   // than apologising — see `brightsphereLiveInput`.

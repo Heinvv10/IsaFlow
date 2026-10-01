@@ -22,10 +22,11 @@ import type { PackMatter } from '@/modules/accounting/services/packs/pages/packM
 import { BOARD_DECISIONS } from '@/modules/accounting/services/packs/pages/packMatterDecisions';
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
 
-/** The six ledger ratio inputs of a company that was read and records none
- *  of them in the window — a different state from a read that failed. */
+/** The five ledger ratio inputs of a company that was read and records none
+ *  of them in the window — a different state from a read that failed. (Five:
+ *  the reader supplies no direct-materials figure — `ledgerRatioLines`.) */
 export const NO_LEDGER_RATIO_INPUTS = {
-  interestExpense: 0, interestIncome: 0, taxExpense: 0, employeeCosts: 0, employeeCount: 0, directMaterialCosts: 0,
+  interestExpense: 0, interestIncome: 0, taxExpense: 0, employeeCosts: 0, employeeCount: 0,
 } as const;
 
 export function figures(overrides: Partial<ReportPackFigures>): ReportPackFigures {
@@ -61,7 +62,7 @@ export function figures(overrides: Partial<ReportPackFigures>): ReportPackFigure
     // than a nil one that any implementation would satisfy.
     depreciation: 96_000,
     // THE LEDGER'S INTEREST, TAX AND EMPLOYEE FIGURES, which the figure set
-    // reads for every window (`readReportPackInput`) — all six or none. They
+    // reads for every window (`readReportPackInput`) — all five or none. They
     // are the demo company's own: operating profit of 750 000 less other
     // expenses of 15 000, net interest of 42 000 and tax of 181 000 is the
     // 512 000 above. A company whose ledger holds none spreads
@@ -71,7 +72,6 @@ export function figures(overrides: Partial<ReportPackFigures>): ReportPackFigure
     taxExpense: 181_000,
     employeeCosts: 640_000,
     employeeCount: 9,
-    directMaterialCosts: 1_650_000,
     inventoryCaveat: null,
     classificationCaveat: null,
     cashFlowUnavailable: null,
@@ -256,20 +256,23 @@ export const noRatioPanelsInput: BoardPackInput = { ...demoInput, trend: zeroRev
 
 /**
  * Any fixture in another state of its ledger ratio inputs, both periods:
- * `'none'` — read, and the ledger records none of the six; `'unread'` — the
- * read FAILED, so `readReportPackInput` set none and said so. Three states
- * with three different sentences under page 9's scorecard, and the unread
- * one is the longest.
+ * `'none'` — read, and the ledger records none of the five; `'unread'` — the
+ * read FAILED, so `readReportPackInput` set none and said so; `'netCredit'`
+ * — interest expense is a net CREDIT in the window, a reversal or refund
+ * larger than the period's charge. Each puts a different sentence under page
+ * 9's scorecard.
  */
-export function withRatioInputs(input: BoardPackInput, state: 'none' | 'unread'): BoardPackInput {
-  const to = (f: ReportPackFigures): ReportPackFigures => (state === 'none'
-    ? { ...f, ...NO_LEDGER_RATIO_INPUTS, ratioInputsUnavailable: undefined }
-    : {
-        ...f,
-        interestExpense: undefined, interestIncome: undefined, taxExpense: undefined,
-        employeeCosts: undefined, employeeCount: undefined, directMaterialCosts: undefined,
-        ratioInputsUnavailable: RATIO_INPUTS_NOT_READ,
-      });
+export function withRatioInputs(input: BoardPackInput, state: 'none' | 'unread' | 'netCredit'): BoardPackInput {
+  const to = (f: ReportPackFigures): ReportPackFigures => {
+    if (state === 'none') return { ...f, ...NO_LEDGER_RATIO_INPUTS, ratioInputsUnavailable: undefined };
+    if (state === 'netCredit') return { ...f, ...NO_LEDGER_RATIO_INPUTS, interestExpense: -12_400, ratioInputsUnavailable: undefined };
+    return {
+      ...f,
+      interestExpense: undefined, interestIncome: undefined, taxExpense: undefined,
+      employeeCosts: undefined, employeeCount: undefined,
+      ratioInputsUnavailable: RATIO_INPUTS_NOT_READ,
+    };
+  };
   return { ...input, set: { ...input.set, current: to(input.set.current), prior: input.set.prior === null ? null : to(input.set.prior) } };
 }
 

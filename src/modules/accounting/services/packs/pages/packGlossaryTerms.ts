@@ -193,7 +193,7 @@ export const TERMS: PackDefinition[] = [
   },
   {
     term: 'Interest cover',
-    definition: 'Operating profit divided by interest expense for the period — gross finance costs, before any interest earned. Not stated where the ledger records no interest expense in the period.',
+    definition: 'Operating profit divided by interest expense: the period\'s interest and similar finance costs, excluding bank charges, gross of interest earned. Not stated where none is recorded.',
   },
   {
     term: 'Debtor days',

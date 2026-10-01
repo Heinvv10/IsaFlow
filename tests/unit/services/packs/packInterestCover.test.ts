@@ -9,13 +9,14 @@
  *
  * One ratio under one name: operating profit over interest EXPENSE, gross of
  * any interest earned — `calculateExtendedRatios.interestCoverage`. Where it
- * is not stated the reason is the engine's own, and there are three, each a
- * different fact: the ledger records none; the figures could not be read; the
- * report never read them.
+ * is not stated the reason is the engine's own, and there are four, each a
+ * different fact: the ledger records none; interest is a net credit; the
+ * figures could not be read; the report never read them.
  */
 import { describe, expect, it } from 'vitest';
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import { RATIO_INPUTS_NOT_READ } from '@/modules/accounting/services/reports/reportPackDataService';
+import { INTEREST_IS_NET_CREDIT } from '@/modules/accounting/services/reports/ratioBasis';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { buildScorecardGroups, packFiguresToFinancialData } from '@/modules/accounting/services/packs/pages/packScorecard';
@@ -27,7 +28,16 @@ import { liveDemoInput } from './fixtures/liveDemoBoardPack';
 
 const row = (set: typeof demoSet) => buildScorecardGroups(set, new PackFigureProvenance())
   .flatMap((g) => g.rows).find((r) => r.metric === 'Interest cover')!;
-const NONE_RECORDED = 'No interest expense recorded in the period, so this ratio cannot be stated.';
+/**
+ * THE ENGINE'S OWN SENTENCES, asked of the engine. Page 9 prints them
+ * unworded, so pinning a copy here would only be a second place to edit when
+ * one is reworded — and the fit checks below would go on fitting the old
+ * line. Each is asserted non-trivially once, in its own test.
+ */
+const reasonFor = (interestExpense: number): string =>
+  calculateExtendedRatios(packFiguresToFinancialData(figures({ ...NO_LEDGER_RATIO_INPUTS, interestExpense }))).notMeaningful.interestCoverage!;
+const NONE_RECORDED = reasonFor(0);
+const NET_CREDIT = reasonFor(-12_400);
 
 /** Everything a composed pack prints, as one string per page. */
 const printed = (input: BoardPackInput): string[] => buildBoardPackPages(input).pages.map((page) => JSON.stringify(page));
@@ -63,6 +73,7 @@ describe('the scorecard\'s interest cover', () => {
     expect(cover.actual.value).toBeNull();
     expect(cover.status).toBe('notMeaningful');
     expect(cover.actual.unavailable).toBe(NONE_RECORDED);
+    expect(NONE_RECORDED).toMatch(/^No interest expense .*recorded in the period/);
     expect(cover.actual.unavailable).toBe(calculateExtendedRatios(packFiguresToFinancialData(current)).notMeaningful.interestCoverage);
     // The comparative is stated; only the current period's reason prints.
     expect(cover.prior?.value).toBe(10.77);
@@ -72,6 +83,17 @@ describe('the scorecard\'s interest cover', () => {
     const cover = row({ ...demoSet, prior: figures({ ...NO_LEDGER_RATIO_INPUTS }) });
     expect(cover.actual.value).toBe(15.63);
     expect(cover.prior?.unavailable).toBe(`In the comparative period: n${NONE_RECORDED.slice(1)}`);
+  });
+
+  it('says interest is a net credit where a reversal outweighs the period\'s charge — not that none is recorded', () => {
+    const cover = row(withRatioInputs(demoInput, 'netCredit').set);
+    expect(cover.actual.value).toBeNull();
+    expect(cover.status).toBe('notMeaningful');
+    expect(cover.actual.unavailable).toBe(NET_CREDIT);
+    expect(NET_CREDIT).toBe(INTEREST_IS_NET_CREDIT);
+    expect(NET_CREDIT).not.toBe(NONE_RECORDED);
+    // A negative cover is never printed.
+    expect(cover.prior?.value ?? null).toBeNull();
   });
 
   it('says the figures could not be read where the read failed — not that there are none', () => {
@@ -102,6 +124,11 @@ describe('page 9, composed', () => {
     ['the read failed — the dense pack', withRatioInputs(denseInput, 'unread'), RATIO_INPUTS_NOT_READ],
     ['the read failed — Brightsphere, long window', withRatioInputs(brightsphereLiveInput, 'unread'), RATIO_INPUTS_NOT_READ],
     ['the read failed — the live demo company, long window', withRatioInputs(liveDemoInput, 'unread'), RATIO_INPUTS_NOT_READ],
+    // The fourth state: interest a net credit, on the same four shapes.
+    ['a net credit — the demo company', withRatioInputs(demoInput, 'netCredit'), NET_CREDIT],
+    ['a net credit — the dense pack', withRatioInputs(denseInput, 'netCredit'), NET_CREDIT],
+    ['a net credit — Brightsphere, long window', withRatioInputs(brightsphereLiveInput, 'netCredit'), NET_CREDIT],
+    ['a net credit — the live demo company, long window', withRatioInputs(liveDemoInput, 'netCredit'), NET_CREDIT],
   ])('prints the engine\'s reason and still fits its sheet: %s', (_name, input, reason) => {
     // `buildBoardPackPages` refuses a pack whose page does not fit its box or
     // fails an integrity gate, so composing at all is the fit and the gates.
@@ -109,7 +136,7 @@ describe('page 9, composed', () => {
   });
 
   it('never says the pack does not capture interest, on any fixture', () => {
-    for (const input of [demoInput, denseInput, brightsphereLiveInput, liveDemoInput, ratioInputsUnreadInput]) {
+    for (const input of [demoInput, denseInput, brightsphereLiveInput, liveDemoInput, ratioInputsUnreadInput, withRatioInputs(demoInput, 'netCredit')]) {
       expect(printed(input).join('\n')).not.toMatch(/not captured in (the pack figure set|this report)|captures no interest/i);
     }
   });
@@ -118,12 +145,14 @@ describe('page 9, composed', () => {
     const term = GLOSSARY_TERMS.find((t) => t.term === 'Interest cover')!;
     expect(term.definition).toMatch(/divided by interest expense/);
     expect(term.definition).toMatch(/gross/);
+    // And what the denominator is: finance costs, not bank charges.
+    expect(term.definition).toMatch(/finance costs, excluding bank charges/);
     expect(term.definition).not.toMatch(/net interest|captures no/);
   });
 
   it('changes nothing else the pack prints: only page 9 differs when the ledger inputs arrive', () => {
     const without = (f: typeof demoSet.current) => ({ ...f, interestExpense: undefined, interestIncome: undefined, taxExpense: undefined,
-      employeeCosts: undefined, employeeCount: undefined, directMaterialCosts: undefined });
+      employeeCosts: undefined, employeeCount: undefined });
     const bare: BoardPackInput = { ...demoInput, set: { ...demoSet, current: without(demoSet.current), prior: without(demoSet.prior!) } };
     const [a, b] = [printed(bare), printed(demoInput)];
     expect(a.length).toBe(b.length);
