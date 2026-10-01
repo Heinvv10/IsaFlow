@@ -6,6 +6,10 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { boundedRowWait, lockSystemRoleWrites } from './systemRoleWriteLock';
+import { isSystemAccountKey, SYSTEM_ACCOUNT_KEYS } from './systemAccountKeys';
+import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
+import { HOLDER_NO_CHILDREN_TYPES } from './roleTargetRules';
 import type { GLAccountType } from '../../types/gl.types';
 
 export type CoaTemplate = 'isaflow_standard' | 'xero_compatible' | 'sage_compatible' | 'blank';
@@ -152,47 +156,70 @@ export function getTemplateLines(template: CoaTemplate): readonly TemplateLine[]
  * Seed a Chart of Accounts for a newly-created company from the chosen template.
  * Two-pass insert: first without parent_account_id, then wire up parents.
  */
-export async function seedChartOfAccountsFromTemplate(
-  companyId: string,
-  template: CoaTemplate,
-): Promise<void> {
+export function seedChartOfAccountsFromTemplate(companyId: string, template: CoaTemplate): Promise<void> {
+  // Bounded: every statement it runs while it holds the role lock waits at most 5s for any lock.
+  return boundedRowWait(() => seedUnderLock(companyId, template));
+}
+
+async function seedUnderLock(companyId: string, template: CoaTemplate): Promise<void> {
   const lines = getTemplateLines(template);
   if (lines.length === 0) return; // 'blank' — no seeding
+  // The template flags system accounts: serialise with every writer of role flags.
+  await lockSystemRoleWrites(companyId);
+  // A role the company already holds is not seeded again: the template's row
+  // for it is SKIPPED (as a row whose code is taken is), never added as a
+  // second holder for the resolver to choose between.
+  const isRoleRow = (acc: TemplateLine) => acc.isSystem === true && isSystemAccountKey(acc.subtype);
+
+  // Two statements, not two per account: the lock above is exclusive for the
+  // company, so the seed holds it for as short a time as it can.
+  const rows = JSON.stringify(lines.map((acc) => ({
+    code: acc.code, name: acc.name, type: acc.type, subtype: acc.subtype ?? null,
+    normal_balance: acc.normalBalance, level: acc.level, display_order: acc.displayOrder,
+    is_system: acc.isSystem ?? false, is_role: isRoleRow(acc), parent_code: acc.parentCode ?? null,
+  })));
 
   // Pass 1: insert all accounts (no parent yet)
-  for (const acc of lines) {
-    await sql`
-      INSERT INTO gl_accounts (
-        company_id, account_code, account_name, account_type, account_subtype,
-        normal_balance, level, display_order, is_system_account
-      )
-      SELECT
-        ${companyId}, ${acc.code}, ${acc.name}, ${acc.type},
-        ${acc.subtype ?? null}, ${acc.normalBalance}, ${acc.level},
-        ${acc.displayOrder}, ${acc.isSystem ?? false}
-      -- One late-claim clearing account per company: migration 701 may have
-      -- given it one already, under another code (a second system account with
-      -- the subtype would leave the resolver choosing by heap order).
-      WHERE ${acc.subtype ?? null}::TEXT IS DISTINCT FROM 'vat_input_late_claim'
-         OR NOT EXISTS (SELECT 1 FROM gl_accounts WHERE company_id = ${companyId}::UUID
-                          AND account_subtype = 'vat_input_late_claim')
-      ON CONFLICT (company_id, account_code) DO NOTHING
-    `;
-  }
+  await sql`
+    INSERT INTO gl_accounts (
+      company_id, account_code, account_name, account_type, account_subtype,
+      normal_balance, level, display_order, is_system_account
+    )
+    SELECT ${companyId}::UUID, t.code, t.name, t.type, t.subtype, t.normal_balance, t.level, t.display_order, t.is_system
+    FROM jsonb_to_recordset(${rows}::jsonb) AS t(
+      code TEXT, name TEXT, type TEXT, subtype TEXT, normal_balance TEXT,
+      level INT, display_order INT, is_system BOOLEAN, is_role BOOLEAN)
+    -- One late-claim clearing account per company: migration 701 may have
+    -- given it one already, under another code (a second system account with
+    -- the subtype would leave the resolver choosing by heap order).
+    WHERE (t.subtype IS DISTINCT FROM 'vat_input_late_claim'
+       OR NOT EXISTS (SELECT 1 FROM gl_accounts WHERE company_id = ${companyId}::UUID
+                        AND account_subtype = 'vat_input_late_claim'))
+      AND (NOT t.is_role
+       OR NOT EXISTS (SELECT 1 FROM gl_accounts WHERE company_id = ${companyId}::UUID
+                        AND account_subtype = t.subtype AND is_system_account AND is_active))
+    ON CONFLICT (company_id, account_code) DO NOTHING
+  `;
 
-  // Pass 2: wire up parent_account_id
-  const withParent = lines.filter(a => a.parentCode);
-  for (const acc of withParent) {
-    await sql`
-      UPDATE gl_accounts
-      SET parent_account_id = (
-        SELECT id FROM gl_accounts
-        WHERE company_id = ${companyId} AND account_code = ${acc.parentCode!}
-      )
-      WHERE company_id = ${companyId} AND account_code = ${acc.code}
-    `;
-  }
+  // Pass 2: wire up parent_account_id (NULL when the parent's code is absent —
+  // or is held by a balance-sheet account with a system role: the company's own
+  // bank on the template's "Current Assets" code must not become a header with
+  // sub-accounts. An income-statement holder may: `roleBarringChildren`).
+  await sql`
+    UPDATE gl_accounts c
+    SET parent_account_id = (
+      SELECT p.id FROM gl_accounts p
+      WHERE p.company_id = ${companyId}::UUID AND p.account_code = t.parent_code
+        -- COALESCE: with a NULL subtype the AND is NULL, NOT NULL is NULL, and
+        -- every sub-account of an unclassified system header lost its parent.
+        AND NOT COALESCE(p.is_system_account AND p.account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[])
+                         AND p.account_type = ANY(${[...HOLDER_NO_CHILDREN_TYPES]}::TEXT[]), false)
+    )
+    FROM jsonb_to_recordset(${rows}::jsonb) AS t(code TEXT, parent_code TEXT)
+    WHERE c.company_id = ${companyId}::UUID AND c.account_code = t.code AND t.parent_code IS NOT NULL
+  `;
 
+  clearSystemAccountCacheAfterCommit(companyId);
   log.info('COA seeded from template', { companyId, template, count: lines.length }, 'accounting');
 }
 

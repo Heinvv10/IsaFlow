@@ -143,7 +143,7 @@ export function VerifyTable({ results }: { results: VerifyEntry[] }) {
 
 export function RollbackButton({ source }: { source: MigrationSource }) {
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<RollbackResult | null>(null);
+  const [result, setResult] = useState<(RollbackResult & { runs: number }) | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleRollback = async () => {
@@ -157,8 +157,11 @@ export function RollbackButton({ source }: { source: MigrationSource }) {
         body: JSON.stringify({ source }),
       });
       await assertOk(res, 'Rollback failed');
-      const json = await res.json() as { data: RollbackResult };
-      setResult(json.data);
+      const { data } = await res.json() as { data: RollbackResult };
+      // Totals across "Continue rollback" passes: an account kept in an earlier
+      // pass is untagged, so no later answer mentions it — only this can.
+      setResult(prev => ({ ...data, deleted: (prev?.deleted ?? 0) + data.deleted, retained: (prev?.retained ?? 0) + data.retained,
+        retainedCodes: [...(prev?.retainedCodes ?? []), ...data.retainedCodes], runs: (prev?.runs ?? 0) + 1 }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Rollback failed');
     } finally {
@@ -168,13 +171,19 @@ export function RollbackButton({ source }: { source: MigrationSource }) {
 
   // A partial rollback must not read as a clean one: accounts other records
   // still point at are kept, and the operator is told which and why.
-  if (result) {
+  // `remaining`: a large rollback is done in more than one request, so until it
+  // is 0 the button stays and says what is left.
+  if (result && !result.remaining) {
+    // The totals are this page's own: after a reload between runs they start again, so a result
+    // that took more than one run says what it covers.
+    const several = result.runs > 1;
+    const scope = several ? ` These figures cover this session's ${result.runs} runs only — a run made before the page was reloaded is not counted.` : '';
     return result.retained === 0
-      ? <span className="text-xs text-teal-400">Rollback complete — {result.deleted} accounts removed</span>
+      ? <span className="text-xs text-teal-400">Rollback complete — {result.deleted} accounts removed{several ? ' in this session.' : ''}{scope}</span>
       : (
         <span className="text-xs text-amber-400">
-          {result.deleted} accounts removed; {result.retained} kept because they are in use
-          ({result.retainedCodes.join(', ')}). The imported opening-balance journal is not reversed.
+          {result.deleted} accounts removed{several ? ' in this session' : ''}; {result.retained} kept because they are in use
+          ({result.retainedCodes.join(', ')}). The imported opening-balance journal is not reversed.{scope}
         </span>
       );
   }
@@ -187,8 +196,13 @@ export function RollbackButton({ source }: { source: MigrationSource }) {
         className="flex items-center gap-1.5 text-xs text-[var(--ff-text-tertiary)] hover:text-red-400 disabled:opacity-50"
       >
         <RotateCcw className="h-3.5 w-3.5" />
-        {loading ? 'Rolling back...' : 'Rollback import'}
+        {loading ? 'Rolling back...' : result ? 'Continue rollback' : 'Rollback import'}
       </button>
+      {result && !loading && (
+        <span className="text-xs text-amber-400">
+          {result.deleted} accounts removed so far; {result.remaining} still to go — run it again to continue.
+        </span>
+      )}
       {error && <span className="text-xs text-red-400">{error}</span>}
     </div>
   );

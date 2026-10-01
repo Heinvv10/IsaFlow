@@ -108,7 +108,7 @@ describeIfDb('bulk account-attribute writers against a locked VAT period', () =>
     await lockedLine(card, 'standard');
     const req = request({ 'sb-access-token': token, active_company_id: fx.companyId }, 'POST') as never as
       { body: unknown; query: Record<string, string>; url: string };
-    req.body = { mappings: { primary_bank: card } };
+    req.body = { mappings: { primary_bank: card }, loaded: { primary_bank: fx.bankAccountId } };
     req.query = {};
     req.url = '/api/accounting/default-accounts';
     const out = response();
