@@ -61,20 +61,42 @@ export interface PackFurniture {
 
 export type { PdfMetadata };
 
+export const FOOTER_PT = 7.5;
+/** Gap between the title and the right block. */
+export const FOOTER_GAP_MM = 6;
+/** Wide enough for "NN / NN" at the footer's size, with tabular figures. */
+export const FOOTER_PAGE_BOX_MM = 14;
+/** The A4 sheet less the 18mm side margins the footer is padded by. */
+export const FOOTER_CONTENT_MM = 210 - 2 * 18;
+
+/** The two blocks' words, unescaped — what the width check measures. */
+export function footerTitleText(f: PackFurniture): string {
+  return [f.companyName, f.packLabel, f.period].join(' · ');
+}
+export function footerRightText(f: PackFurniture): string {
+  return f.draft ? `${f.confidentiality} · DRAFT` : f.confidentiality;
+}
+
 export function buildFooterHtml(f: PackFurniture): string {
   const left = [f.companyName, f.packLabel, f.period].map(escapeHtml).join(' · ');
-  const centre = escapeHtml(f.draft ? `${f.confidentiality} · DRAFT` : f.confidentiality);
-  // A GRID WITH EQUAL OUTER COLUMNS, NOT `space-between`. With space-between
-  // the centre sits wherever the two outer widths leave it, so it moved a few
-  // pixels when the page number grew from "9 / 12" to "10 / 12". `1fr auto 1fr`
-  // keeps the centre where the sheet's middle is whatever either side holds.
-  const cell = (align: string, html: string): string => `<span style="text-align:${align}">${html}</span>`;
+  const right = escapeHtml(footerRightText(f));
+  // TWO COLUMNS. The title takes whatever the right block leaves and never
+  // wraps across it (`min-width:0` lets it shrink, ellipsis is the last
+  // resort). The right block is `flex:none`: the confidentiality line and a
+  // page-number box of FIXED width and tabular figures, sized for "NN / NN",
+  // so nothing moves between page 9 and page 10. An earlier `space-between`
+  // moved the centre with the page number; `1fr auto 1fr` fixed that but
+  // squeezed the title onto two lines and broke it mid-date.
   return (
     footerStyleBlock() +
-    `<div style="font-family:'${PACK_FOOTER_FONT_FAMILY}';font-size:7.5pt;color:#8a8a8a;width:100%;` +
-    'padding:0 18mm;border-top:0.5pt solid #d8d8d8;display:grid;grid-template-columns:1fr auto 1fr">' +
-    cell('left', left) + cell('center', centre) +
-    cell('right', '<span class="pageNumber"></span> / <span class="totalPages"></span>') +
+    `<div style="font-family:'${PACK_FOOTER_FONT_FAMILY}';font-size:${FOOTER_PT}pt;color:#8a8a8a;width:100%;` +
+    `padding:0 18mm;border-top:0.5pt solid #d8d8d8;display:flex;align-items:baseline;gap:${FOOTER_GAP_MM}mm">` +
+    '<span style="flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
+    `${left}</span>` +
+    `<span style="flex:none;white-space:nowrap;display:flex;gap:${FOOTER_GAP_MM / 3}mm">` +
+    `<span>${right}</span>` +
+    `<span style="display:inline-block;width:${FOOTER_PAGE_BOX_MM}mm;text-align:right;font-variant-numeric:tabular-nums">` +
+    '<span class="pageNumber"></span> / <span class="totalPages"></span></span></span>' +
     '</div>'
   );
 }
