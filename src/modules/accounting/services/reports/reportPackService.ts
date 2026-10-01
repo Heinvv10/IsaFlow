@@ -7,6 +7,7 @@
 import { calculateExtendedRatios, type FinancialData } from './reportingEngineService';
 import { buildKPIScorecard, type KPITargetConfig, type ScorableRatios } from './kpiScorecardService';
 import { buildProfitWaterfall } from './waterfallDataService';
+import { formatMoney, inProse, pctWithWord } from '@/lib/format/money';
 import { marginPct, marginPct2dp } from './marginPct';
 import type { PackSection, PackType, ReportPack, ReportPackInput } from './reportPackTypes';
 import { getPackTemplate } from './reportPackTemplates';
@@ -196,14 +197,21 @@ function buildSectionData(
       // read "with a net profit margin of 0%" whenever turnover was zero or
       // negative — a claim of break-even on a page showing a loss, in prose a
       // director quotes verbatim.
+      //
+      // AND IN THE PACK'S NOTATION. It printed "R -5 535 000" and "-1523%":
+      // a hyphen in a pack with no minus sign, no cents beside tables that
+      // carry them, a whole percent beside "(1 522.9%)". Money is bracketed
+      // as in the tables; a percentage in a sentence carries its sign in a
+      // word, as the board pack's prose does.
       const margin = marginPct(input.netProfit, input.revenue);
-      const revenue = `R ${input.revenue.toLocaleString('en-ZA')}`;
+      const revenue = inProse(formatMoney(input.revenue, { cents: true, symbol: true, pack: true }));
       return {
         period: input.period,
         companyName: input.companyName,
         summary: margin === null
           ? `${input.companyName} reported revenue of ${revenue}. ${NO_MARGIN_SENTENCE}`
-          : `${input.companyName} reported revenue of ${revenue} with a net profit margin of ${Math.round(margin)}%.`,
+          : `${input.companyName} reported revenue of ${revenue}. `
+            + `Net profit margin is ${pctWithWord(margin, 'a positive', 'a negative')}.`,
       };
     }
 
