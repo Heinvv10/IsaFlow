@@ -135,6 +135,6 @@ export function waterfallLayout(
   // A PLOT TOO SHORT FOR TWO LEGIBLE STEPS draws one. The ask cannot go
   // below one, and the rounding can still return two or three; the bounds
   // stay, and the axis labels its two ends only.
-  if (domain.splitNumber > budget) domain = { ...domain, splitNumber: budget };
+  if (domain.splitNumber > budget) domain = { ...domain, splitNumber: budget, interval: domain.max - domain.min };
   return { top: chrome.top, bottom, plotPx, domain };
 }

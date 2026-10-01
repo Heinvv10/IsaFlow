@@ -117,6 +117,14 @@ describe('the layout at its edges', () => {
     const layout = waterfallLayout(steps, 134, false, 6);
     expect(layout.plotPx).toBeLessThan(2 * MIN_TICK_PITCH_PX);
     expect(layout.domain.splitNumber).toBe(1);
+    // And the DRAWN axis is that one step: two ticks, at the plot's ends.
+    const svg = String(renderChartSvg(
+      waterfallOption(steps, "R'000", undefined, 6, false, undefined, 134),
+      { widthMm: 120, heightMm: 134 / PX_PER_MM },
+    ));
+    const ticks = yAxisTicks(svg).map((t) => t.y).sort((a, b) => a - b);
+    expect(ticks).toHaveLength(2);
+    expect(ticks[1]! - ticks[0]!).toBeCloseTo(layout.plotPx, 0);
   });
 });
 

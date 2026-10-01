@@ -140,7 +140,7 @@ export const DEFAULT_CHART_PALETTE: ChartPalette = {
 /** A value axis's bounds and the number of gridline steps between them.
  *  Every field is an ECharts `yAxis` property, so `moneyValueAxis` spreads
  *  the whole object. */
-export interface AxisDomain { min: number; max: number; splitNumber: number }
+export interface AxisDomain { min: number; max: number; splitNumber: number; interval?: number }
 
 /**
  * A ROUND TICK STEP, chosen the way a hand-drawn axis chooses one: the
