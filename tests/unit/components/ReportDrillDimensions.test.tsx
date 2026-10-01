@@ -5,7 +5,7 @@ import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDri
 import { TrialBalanceRow } from '@/components/reports/TrialBalanceRow';
 import AccountDetailPage from '@/../pages/accounting/reports/account-detail/[accountId]';
 import { apiFetch } from '@/lib/apiFetch';
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/contexts/TableDensityContext', () => ({ useTableDensity: () => ({ rowClass: '' }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: {children: React.ReactNode}) => <>{children}</> }));
 const route = vi.hoisted(() => ({ query: {accountId: '5000', from: '2026-04-01', to: '2026-04-30', cost_centre_id: 'centre-a', business_unit_id: 'bu-a'}, pathname: '/accounting/reports/account-detail/[accountId]', push: vi.fn() }));
@@ -126,7 +126,8 @@ describe('report drill cost centre selection', () => {
   it('shows transaction and evidence API failures instead of treating error envelopes as data', async () => {
     vi.mocked(apiFetch).mockImplementation(async () => response({message:'Unavailable'}, 503));
     const drill = render(<AccountDrillDown accountCode="5000" {...dates} />);
-    expect(await screen.findByText('Failed to load transactions')).toBeInTheDocument();
+    // apiJson/apiErrorMessage: a failure is shown (this body has no error message, so the request-failed fallback).
+    expect(await screen.findByText(/^Request to \/api\/accounting\/reports-account-transactions.* failed$/)).toBeInTheDocument();
     drill.unmount();
 
     render(<EvidenceDrillModal accountId="5000" accountName="Expense" {...dates} onClose={vi.fn()} />);

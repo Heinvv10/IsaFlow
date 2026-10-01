@@ -19,7 +19,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeft, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { UUID_RE } from '@/lib/validation';
 import { downloadAccountLedgerCsv } from '@/lib/csv/accountLedgerCsv';
 import { AccountLedgerSummary } from '@/components/reports/AccountLedgerSummary';
@@ -83,19 +83,11 @@ export default function AccountDetailPage() {
       }
 
       // Endpoint is now under /api/accounting/reports- prefix for auto-rate-limiting.
-      const res = await apiFetch(
-        `/api/accounting/reports-account-ledger?${params}`,
-        { credentials: 'include' },
-      );
-      if (!res.ok) {
-        const json = (await res.json().catch(() => ({}))) as { message?: string };
-        throw new Error(json.message ?? 'Failed to load ledger');
-      }
-      const json = (await res.json()) as { data?: AccountLedgerResult };
-      if (requestId === requestRef.current) setData(json.data ?? null);
+      const result = await apiJson(`/api/accounting/reports-account-ledger?${params}`, { credentials: 'include' });
+      if (requestId === requestRef.current) setData(result);
     } catch (err) {
-      if (requestId === requestRef.current)
-        setError(err instanceof Error ? err.message : 'Failed to load ledger');
+      // The server's own 400/404 message (apiErrorMessage), not a generic line.
+      if (requestId === requestRef.current) setError(apiErrorMessage(err, 'Failed to load ledger'));
     } finally {
       if (requestId === requestRef.current) setLoading(false);
     }

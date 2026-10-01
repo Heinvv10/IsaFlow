@@ -290,11 +290,9 @@ export async function getAccountLedger(
     return { rows, total, derivedRows: closes.length, openingBalance, periodNet, closedToRetainedEarnings, periodClosingBalance, meta };
   } catch (err) {
     // companyId is already tagged on the Bugsink event via setTenantTags — omit here.
-    (err instanceof LedgerAccountNotFoundError ? log.warn : log.error)(
-      'getAccountLedger failed',
-      { error: err, accountId, accountCode },
-      'accounting',
-    );
+    const context = { error: err, accountId, accountCode };
+    if (err instanceof LedgerAccountNotFoundError) log.warn('getAccountLedger: account not found', context, 'accounting');
+    else log.error('getAccountLedger failed', context, 'accounting');
     throw err;
   }
 }

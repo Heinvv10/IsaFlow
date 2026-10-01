@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, apiJson } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { postedTotals } from '@/components/reports/generalLedgerRows';
 
@@ -78,11 +78,8 @@ export default function AccountTransactionsPage() {
         account_code: accountCode, period_start: periodStart, period_end: periodEnd,
       });
       if (costCentreFilter) params.set('cost_centre', costCentreFilter);
-      const res = await apiFetch(`/api/accounting/reports-account-transactions?${params}`, { credentials: 'include' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
-      setReport(json.data || null);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+      setReport(await apiJson(`/api/accounting/reports-account-transactions?${params}`, { credentials: 'include' }));
+    } catch (err) { setError(apiErrorMessage(err, 'Failed to load the account transactions')); }
     finally { setLoading(false); }
   }, [periodStart, periodEnd, accountCode, costCentreFilter]);
 

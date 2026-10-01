@@ -7,8 +7,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
-import { countPostedAccounts } from '@/components/reports/generalLedgerRows';
+import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
+import { countPostedAccounts, derivedAccountNote } from '@/components/reports/generalLedgerRows';
 
 interface AccountReport {
   accountCode: string;
@@ -72,13 +72,11 @@ export default function GeneralLedgerPage() {
       // ONE request for every account. The previous version fanned out one
       // request per account from the browser and capped the list at 20, which
       // silently truncated the report (issue #287).
-      const res = await apiFetch(`/api/accounting/reports-general-ledger?${params}`, { credentials: 'include' });
-      // apiFetch resolves on 4xx/5xx, so the status has to be checked explicitly.
-      if (!res.ok) throw new Error(`Report request failed (${res.status})`);
-      const json = await res.json();
-      setReports((json.data?.accounts ?? []) as AccountReport[]);
+      const data = await apiJson(`/api/accounting/reports-general-ledger?${params}`, { credentials: 'include' });
+      setReports(data.accounts ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load the general ledger');
+      // The server's own 400 message (bad date, inverted range), not a generic line.
+      setError(apiErrorMessage(err, 'Failed to load the general ledger'));
       setReports([]);
     } finally {
       setLoading(false);
@@ -127,7 +125,7 @@ export default function GeneralLedgerPage() {
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">General Ledger</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">
                   {reports.length > 0
-                    ? `${postedVisible === postedTotal ? postedTotal : `${postedVisible} of ${postedTotal}`} account${postedTotal === 1 ? '' : 's'} with activity in this period`
+                    ? `${postedVisible === postedTotal ? postedTotal : `${postedVisible} of ${postedTotal}`} account${postedTotal === 1 ? '' : 's'}${derivedAccountNote(reports)} with activity in this period`
                     : 'Account transactions for the selected period'}
                 </p>
               </div>
@@ -251,7 +249,7 @@ export default function GeneralLedgerPage() {
               })}
 
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border-2 border-[var(--ff-border-medium)] px-4 py-3 flex items-center justify-between font-bold text-sm">
-                <span className="text-[var(--ff-text-primary)]">GRAND TOTALS ({postedTotal} accounts)</span>
+                <span className="text-[var(--ff-text-primary)]">GRAND TOTALS ({postedTotal} accounts{derivedAccountNote(reports)})</span>
                 <div className="flex items-center gap-6 font-mono">
                   <span>Dr {fmt(grandTotalDebit)}</span>
                   <span>Cr {fmt(grandTotalCredit)}</span>
