@@ -205,9 +205,18 @@ gives up first. `query_timeout` is a client-side timer that abandons a query wit
 it, so it must be the longest of the three or the connection goes back to the pool still busy.
 
 They are sent as connection start-up parameters. This works against PostgreSQL directly (the
-fixture, and `isaflow_dev` on port 7772). A PgBouncer-style pooler can reject start-up parameters
-it does not know. If production's `DATABASE_URL` points at a pooler, check this before deploy:
-a rejected connection would make every limited route fail.
+fixture, and `isaflow_dev` on port 7772). A transaction pooler can reject start-up parameters it
+does not know, and a rejected connection would make every limited route fail.
+
+Verified by the team lead on 2026-10-01: production's `DATABASE_URL` targets port 7772, which is
+the `isaflow-supabase-db` container's PostgreSQL directly. The Supavisor pooler is on 7773 and
+7774 and is not used. So the start-up parameters are safe today. If the app is ever moved behind
+a pooler, change this pool first (set the timeouts another way, or confirm the pooler passes
+them).
+
+Post-deploy check: `POST /api/auth/login` with a wrong password must answer 401, not 500. It is
+unauthenticated and limited by `withRateLimit`, so a 500 there means the limiter pool cannot
+connect.
 
 A statement stalled on a locked row now fails with `55P03` after 2 seconds. The caller gets an
 error, never an admission, and the pool is usable afterwards.
@@ -217,7 +226,8 @@ error, never an admission, and the pool is usable afterwards.
 The limiter charges on its own connection, so a failed request keeps its charge. That is right
 for an abuse limit. It is wrong for a usage quota, which bounds work actually done.
 
-The mechanism, in `src/lib/rateLimitQuota.ts`:
+Review round 2 replaced the rule below with "charged minus used, on every exit". The mechanism
+as it stood after round 1, in `src/lib/rateLimitQuota.ts`:
 
 - `checkAiRateLimit` and `checkSendRateLimit` note what they charged the **daily** bucket on the
   request context.
@@ -360,6 +370,170 @@ Not verified in this round:
   wiring is unit-tested with a mocked client; the refund itself is tested against PostgreSQL.
 - Start-up-parameter timeouts behind a pooler.
 - Load. Nothing here was load-tested.
+
+## Review round 2
+
+Both blind reviewers said SHIP on a06b5cc8b. The cache and the timeouts held. Findings and fixes:
+
+### 1. The quota refund is net of work done, on every exit
+
+Round 1 gave back every noted unit on a 5xx and nothing otherwise. Both halves were wrong:
+
+- A 5xx after work was done got it all back. Bulk email throwing on recipient 60 of 100 sent 59
+  emails and got 100 units back.
+- A route that answered below 500 without doing the work kept the charge. `ai-narrative` and
+  `ai-forecast` answer 200 with a fallback when the provider is down; `invoice-email` answers 200
+  `sent: false` when SMTP is down.
+
+The rule now: the request's record holds, per charge, the units **charged** and the units
+**used**. When the request ends, on any status, a throw or a failed COMMIT, it gets back
+`charged - used`, never less than zero and never more than it charged.
+
+- `src/lib/quotaUse.ts`: `noteQuotaCharge` (called by the limiter) and `markQuotaUsed(kind)`
+  (called where the work happens). It depends only on `als`, so the shared clients can import it.
+- `src/lib/rateLimitQuota.ts`: `settleQuotaCharges`, the one refund path. `withAuth` calls it in
+  its `finally`, whatever the status.
+- The per-route refund calls from round 1 (`nl-query`, `statement-bulk-email`) are removed, so
+  nothing is refunded twice.
+- `markQuotaUsed` ignores a zero, negative or NaN count. The first version of the test for this
+  found that a negative count produced a refund larger than the charge.
+
+Where use is recorded. I read every quota caller and followed its imports to the call that does
+the work.
+
+Email has one chokepoint. All 6 send routes reach `sendEmail` in
+`src/modules/accounting/services/core/emailService.ts`, inside the request. It marks one unit
+used when `transporter.sendMail` resolves.
+
+AI has no single chokepoint. There are three shared clients and three routes that call the
+provider themselves. Five AI routes cannot be covered at all.
+
+| Caller (daily key) | What does the bounded work | Use recorded in | Unused unit |
+|---|---|---|---|
+| `invoice-email` | `sendInvoiceEmail` -> `sendEmail` | `emailService.sendEmail` | comes back |
+| `statement-bulk-email` | `sendStatementEmail` -> `sendEmail`, once per recipient | same | comes back, per email not accepted |
+| `customer-statements` | `sendStatementEmail` -> `sendEmail` | same | comes back (see note 1) |
+| `dunning` | `sendDunning` -> `sendEmail` | same | comes back |
+| `company-invitations` | `sendInviteEmail` -> `sendEmail` | same | comes back |
+| `afs-signing` | `notifySigningRequested` -> `sendEmail` | same | comes back |
+| `vlm-extract` | `ocrService` -> `vlmService` -> `callVlmChat` | `vlmCore.callVlmChat`, on an OK response | comes back |
+| `onboarding-extract` | `callVlmChat` | same | comes back |
+| `onboarding-extract-id` | `callVlmChat` | same | comes back |
+| `afs-ai-narrative` | `generateNoteNarrative` (Anthropic SDK) | `noteAiService`, after the provider answers | comes back |
+| `nl-query` | `fetch` to the provider, in the route | the route, after an OK response | comes back |
+| `ai-narrative` | `fetch` to the provider, in the route | the route, after an OK response | comes back |
+| `ai-forecast` | `fetch` to the provider, in the route | the route, after an OK response | comes back |
+| `ai-invoice-pipeline` | no AI provider is called | nowhere | **kept** |
+| `multi-doc-match` | no AI provider is called | nowhere | **kept** |
+| `verify-payslip` | no AI provider is called | nowhere | **kept** |
+| `document-validation` | no AI provider is called | nowhere | **kept** |
+| `smart-categorize` | the LLM pass runs after COMMIT, outside the request | nowhere reachable | **kept** |
+
+Fail safe: only a caller that passes `refundUnused: true` notes a charge. The five **kept**
+routes do not pass it, so they keep their charge on every exit, as before this branch.
+
+Note 1: `customer-statements` charges 1 unit per request and sends up to 100 emails. That is not
+new and not changed here. With one or more emails accepted the unit is used.
+
+Use is "the provider answered with an OK status" or "the mail server accepted the message". A
+provider that answers and then the route fails still costs the unit. A provider timeout costs
+nothing, although the provider may have done the work.
+
+`tests/unit/security/quotaCallerCensus.test.ts` lists every quota caller as refundable or as
+keeping its charge. It fails when a caller is in neither list, when a refundable caller cannot
+reach, through its imports, a file that calls `markQuotaUsed` for its kind, when a kept caller
+passes `refundUnused`, or when use is recorded in a file not listed. It is reachability read
+from source: it proves a path exists, not that every success path takes it.
+
+### 2. Bulk send routes
+
+`statement-bulk-email`, after the charge moved behind the ownership guard:
+
+- An abuse limit per user (`statement-bulk-email:attempts:<user>`, 30 per 15 minutes) now runs
+  first. It counts every attempt and is never given back.
+- Ids are checked with `isValidUUID` before any query. A non-UUID id answers 400, not 500.
+- The refusal log carries a count and at most three ids.
+
+`customer-statements-send` had two of the three shapes: the `::UUID[]` cast and the full-array
+log. Both are fixed the same way. Its limiter already ran before the ownership query.
+`ar/dunning/send`, `invoice-email`, `company-invitations` and `afs/send-for-signing` take single
+ids, validated or looked up by company, and log no id arrays. Nothing to change there.
+
+### 3. `remaining_ms` overflow
+
+The time left in the window was cast to `int`. A window above about 24.8 days overflowed and
+every call on such a key threw. It is `float8` now. A 30-day window is tested.
+
+### 4. Stale comments
+
+The header and doc comment said every call does the UPSERT and that there is no in-process copy.
+Corrected. The core moved to `src/lib/rateLimitCore.ts`, because `rateLimit.ts` was at 296
+lines; `rateLimit.ts` re-exports it and callers import from `@/lib/rateLimit` as before.
+
+### 5. Key census
+
+- Exceptions are pinned by file and by the text of the key, not by line number.
+- Any import of a limiter function under another name, a namespace import, a dynamic import or
+  an assignment of one to a variable fails the test.
+- Every call is resolved to the key pattern it produces, including the three keys each of
+  `checkAiRateLimit` and `checkSendRateLimit` builds and the one `checkReportRateLimit` and
+  `withRateLimit` build. A hand-written `report:reports-pdf:co:${id}` at another limit fails.
+- `refundRateLimit` calls are included: each must be on a key some call site charges.
+- Scope is every tracked `.ts`, `.tsx`, `.js` and `.mjs` file outside `tests/`. The app's runtime
+  code is all in `pages/` and `src/`; scanning the rest as well means a script that starts
+  calling the limiter is seen. One match outside them is prose in a string and is pinned.
+
+### 6. Production target
+
+Recorded under review round 1, item 2, with the post-deploy check.
+
+### 7. Unit tests wrote to the dev database
+
+`tests/unit/lib/rateLimit.test.ts` and `rateLimitSend.test.ts` ran their database cases against
+`isaflow_dev`, because `vitest.config.ts` loads `DATABASE_URL` from `.env.local`. Those cases
+moved to `tests/integration/rate-limit-counter-db.int.test.ts` and
+`rate-limit-send-db.int.test.ts`, which need the disposable fixture and use random keys. The
+unit file keeps the pure cases. Traced over the whole unit suite: the limiter pool is created 0
+times (2 before).
+
+`vitest.config.ts` was not changed. About 60 other unit files use the same
+`isDbReachable()` pattern and run against whatever `.env.local` names: the `*Db.test.ts` and
+`*.integration.test.ts` files under `tests/unit/mcp`, `tests/unit/services` and others, and
+`tests/unit/services/admin/rateLimitCleanupService.test.ts`. They were not touched.
+
+### Tests and mutants in this round
+
+- Integration, real PostgreSQL: 6 files, 44 tests, all pass. New: the usage-quota file rewritten
+  for the new rule (5), the 30-day case, the two moved files (11). Red on a06b5cc8b: 6 of 13
+  (`red.r2.int.log`).
+- Unit: 12 limiter files, 124 tests, all pass. New: `quotaUseChokepoints` (9), `aiRoutesQuotaUse`
+  (10), `quotaCallerCensus` (21), `customerStatementsSendGuards` (5); rewritten:
+  `rateLimitQuota`, `rateLimitKeyCensus`, and the quota cases in `withAuth-commit-order`,
+  `nlQueryQuotaRefund` and `statementBulkEmailRateLimit`. Red on a06b5cc8b's sources: 68 of 96
+  (`red.r2.unit.log`; many fail at import, because the functions they call did not exist).
+- Whole unit suite: 1123 files, 14963 pass, 6 skipped.
+- The 23 other integration files that mention the limiter: the same 15 tests fail as with
+  `origin/master`'s limiter.
+- Mutants on the final code: 78, all red, baseline green before and after (`mutations.log`,
+  round 4).
+
+Not verified in this round:
+
+- `invoice-email`, `dunning`, `company-invitations`, `afs-signing`, `vlm-extract`, the two
+  onboarding routes and `afs-ai-narrative` have no route-level test of their own for the quota.
+  They are covered by the test of the shared client they call and by the reachability census.
+- `withAuth` settling end to end over a real HTTP request. The wiring is unit-tested; the settle
+  is tested against PostgreSQL.
+- The k-041 and k-042 invite suites (no GoTrue on the harness).
+- Load.
+
+For a decision:
+
+- The five kept AI routes. Four call no AI provider, so their "AI" bucket is really a request
+  limit. `smart-categorize` runs its LLM after COMMIT. They keep their charge on every exit.
+- `customer-statements` charges 1 unit for up to 100 emails (note 1).
+- The hourly per-company quotas and `portal-chat` daily still keep a failed request's charge.
+- About 60 unit files still run against the database `.env.local` names.
 
 ## Rollback
 

@@ -725,3 +725,756 @@ int(usage-quota file): Tests  2 failed | 1 passed (3)
 
 BASELINE (git status of sources: '')
 int(usage-quota file): Tests  3 passed (3)
+
+==================================================================
+Round 4 (review round 2). Base commit eee0d61d1. 78 mutants on the final code: every earlier one repeated (M, K, C, T, P)
+plus the new guards: M15 = remaining_ms type, Q = quota bookkeeping and settle, E/V/A = the shared email, VLM and note clients,
+N/R/F = the three routes that call a provider themselves, O = opt-in census, B/S = the bulk send routes.
+Each is run against six integration files (44 tests) and twelve unit files (124 tests); restored with git checkout after each.
+The log opens and closes with a BASELINE run; both are green. 78 of 78 RED, no survivor, no failed apply.
+
+BASELINE (git status of src and pages: '')
+int: Tests  44 passed (44)
+unit: Tests  124 passed (124)
+
+M2 | src/lib/rateLimitCore.ts | verdict count <= max => count < max
+int: × returns false once the per-IP limit is exceeded 86ms
+int: × blocks the (N+1)-th request within the window 100ms
+int: × answers a flood on an over-limit key without writing to the database 280ms
+int: × never admits from memory: a deleted row is not noticed until the cache is cleared 223ms
+int: × a refund in this process drops the remembered refusal 226ms
+int: × re-admits when the window rolls over, without the cache being cleared 20ms
+int: × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 223ms
+int: × a remembered refusal for one limit does not refuse a caller with a higher limit 280ms
+int: × does not remember an admission: a key at its limit is still checked 209ms
+int: × a 30-day window does not overflow: it admits, refuses and remembers like any other 16ms
+int: × admits exactly max of 100 sequential calls, in order 298ms
+int: × admits exactly max of 100 concurrent calls 1139ms
+int: × counts cost-1 calls against a later weighted call 76ms
+int: × starts a fresh allowance of exactly max when the window rolls over 161ms
+int: × keeps counting inside a window that has not ended 160ms
+int: × a refund gives back exactly the refunded units 117ms
+int: × two module instances sharing the database together admit exactly max 151ms
+int: × two module instances called concurrently together admit exactly max 585ms
+int: × admits exactly max when 40 concurrent requests charge one key 347ms
+int: Tests  19 failed | 25 passed (44)
+unit: × admits exactly max of 70 calls on one process, and asks the database for every admission 6ms
+unit: × admits at max and refuses at max + 1 1ms
+unit: Tests  2 failed | 122 passed (124)
+
+DONE BASELINE M2
+M3 | src/lib/rateLimitCore.ts | verdict count <= max => count <= max + 1
+int: × blocks the (N+1)-th request within the window 35ms
+int: × a request refused by the daily bucket gets nothing back 31ms
+int: × answers a flood on an over-limit key without writing to the database 134ms
+int: × never admits from memory: a deleted row is not noticed until the cache is cleared 80ms
+int: × a refund in this process drops the remembered refusal 81ms
+int: × re-admits when the window rolls over, without the cache being cleared 12ms
+int: × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 119ms
+int: × a remembered refusal for one limit does not refuse a caller with a higher limit 84ms
+int: × a 30-day window does not overflow: it admits, refuses and remembers like any other 10ms
+int: × admits exactly max of 100 sequential calls, in order 131ms
+int: × admits exactly max of 100 concurrent calls 409ms
+int: × counts cost-1 calls against a later weighted call 54ms
+int: × admits weighted calls only while their running total stays within max 32ms
+int: × starts a fresh allowance of exactly max when the window rolls over 75ms
+int: × keeps counting inside a window that has not ended 73ms
+int: × a refund gives back exactly the refunded units 81ms
+int: × two module instances sharing the database together admit exactly max 73ms
+int: × two module instances called concurrently together admit exactly max 240ms
+int: × admits exactly max when 40 concurrent requests charge one key 128ms
+int: Tests  19 failed | 25 passed (44)
+unit: × denies once the default max (25) is exceeded 5ms
+unit: × forwards explicit max/windowSecs overrides to the underlying limiter 1ms
+unit: × admits exactly max of 70 calls on one process, and asks the database for every admission 6ms
+unit: × admits at max and refuses at max + 1 1ms
+unit: × remembers a refusal, and only a refusal: memory never admits 1ms
+unit: × does not remember a refusal whose window has already ended 1ms
+unit: × remembers a refusal no longer than the window has left 1ms
+unit: × clearRateLimitCache and refundRateLimit each forget a remembered refusal 1ms
+unit: Tests  8 failed | 116 passed (124)
+
+M4 | src/lib/rateLimitCore.ts | first call of a window charges 1, not cost
+int: × weights the company/day VOLUME buckets by count, but charges the per-IP RATE bucket 1 33ms
+int: × a batch whose count exceeds the company VOLUME budget is rejected in a single call 23ms
+int: × a single call with cost=N increments the DB counter by N 16ms
+int: × cumulative cost across calls blocks once the running total exceeds max 12ms
+int: × send: 59 of 100 accepted, then a throw, leaves 59 spent 32ms
+int: × send: SMTP down, answered 200, leaves nothing spent; a second request on the key is untouched 43ms
+int: × admits weighted calls only while their running total stays within max 29ms
+int: × a refund made by a request that rolls back still lands 20ms
+int: Tests  8 failed | 36 passed (44)
+unit: Tests  124 passed (124)
+
+M5 | src/lib/rateLimitCore.ts | later calls charge 1, not cost
+int: × send: SMTP down, answered 200, leaves nothing spent; a second request on the key is untouched 32ms
+int: × rejects a single call whose cost alone exceeds max, and stores the attempted charge 15ms
+int: × cumulative cost across calls blocks once the running total exceeds max 12ms
+int: × counts cost-1 calls against a later weighted call 37ms
+int: × admits weighted calls only while their running total stays within max 24ms
+int: Tests  5 failed | 39 passed (44)
+unit: Tests  124 passed (124)
+
+M6 | src/lib/rateLimitCore.ts | rollover does not reset the count
+int: × resets the window after expiry (simulated via DB update) 60ms
+int: × starts a fresh allowance of exactly max when the window rolls over 62ms
+int: × re-admits when the window rolls over, without the cache being cleared 2327ms
+int: Tests  3 failed | 41 passed (44)
+unit: Tests  124 passed (124)
+
+M7 | src/lib/rateLimitCore.ts | rollover does not reset window_start
+int: × starts a fresh allowance of exactly max when the window rolls over 135ms
+int: Tests  1 failed | 43 passed (44)
+unit: Tests  124 passed (124)
+
+M8 | src/lib/rateLimitCore.ts | window comparison flipped on the count
+int: × returns false once the per-IP limit is exceeded 85ms
+int: × blocks the (N+1)-th request within the window 58ms
+int: × two independent callers share the same counter (cross-pod) 47ms
+int: × cumulative cost across calls blocks once the running total exceeds max 15ms
+int: × AI: three requests, one used its unit, one fell back, one threw after the answer 89ms
+int: × send: SMTP down, answered 200, leaves nothing spent; a second request on the key is untouched 42ms
+int: × a request refused by the daily bucket gets nothing back 44ms
+int: × answers a flood on an over-limit key without writing to the database 141ms
+int: × never admits from memory: a deleted row is not noticed until the cache is cleared 132ms
+int: × a refund in this process drops the remembered refusal 104ms
+int: × re-admits when the window rolls over, without the cache being cleared 22ms
+int: × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 101ms
+int: × a remembered refusal for one limit does not refuse a caller with a higher limit 128ms
+int: × does not remember an admission: a key at its limit is still checked 99ms
+int: × a 30-day window does not overflow: it admits, refuses and remembers like any other 14ms
+int: × admits exactly max of 100 sequential calls, in order 577ms
+int: × admits exactly max of 100 concurrent calls 310ms
+int: × writes a call far below the limit to the shared counter 14ms
+int: × counts cost-1 calls against a later weighted call 26ms
+int: × admits weighted calls only while their running total stays within max 20ms
+int: × starts a fresh allowance of exactly max when the window rolls over 74ms
+int: × keeps counting inside a window that has not ended 54ms
+int: × a refund gives back exactly the refunded units 51ms
+int: × two module instances sharing the database together admit exactly max 298ms
+int: × two module instances called concurrently together admit exactly max 251ms
+int: × does not hold the counter row lock for the rest of the request 28ms
+int: × admits exactly max when 40 concurrent requests charge one key 235ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 2012ms
+int: Tests  28 failed | 16 passed (44)
+unit: Tests  124 passed (124)
+
+M9 | src/lib/rateLimitCore.ts | window length ignores windowSecs (880s) on the count
+int: × resets the window after expiry (simulated via DB update) 53ms
+int: × keeps counting inside a window that has not ended 65ms
+int: × re-admits when the window rolls over, without the cache being cleared 2324ms
+int: Tests  3 failed | 41 passed (44)
+unit: Tests  124 passed (124)
+
+M10 | src/lib/rateLimitCore.ts | clampCost bypassed on the charge
+int: Tests  44 passed (44)
+unit: × charges the clamped cost 4ms
+unit: Tests  1 failed | 123 passed (124)
+
+M11 | src/lib/rateLimitCore.ts | refund without the zero floor
+int: × a refund floors at zero, leaves the window alone and ignores an absent key 12ms
+int: Tests  1 failed | 43 passed (44)
+unit: Tests  124 passed (124)
+
+M12 | src/lib/rateLimitCore.ts | refund moves window_start
+int: × a refund floors at zero, leaves the window alone and ignores an absent key 14ms
+int: Tests  1 failed | 43 passed (44)
+unit: Tests  124 passed (124)
+
+M13 | src/lib/rateLimitCore.ts | refund always gives back 1
+int: × send: 59 of 100 accepted, then a throw, leaves 59 spent 32ms
+int: × send: SMTP down, answered 200, leaves nothing spent; a second request on the key is untouched 36ms
+int: × a refund gives back exactly the refunded units 61ms
+int: × a refund floors at zero, leaves the window alone and ignores an absent key 10ms
+int: × a refund in this process drops the remembered refusal 114ms
+int: × a refund made by a request that rolls back still lands 17ms
+int: Tests  6 failed | 38 passed (44)
+unit: × AI: no provider answer, then a 200 with a fallback, gives the unit back 4ms
+unit: × send: 59 of 100 accepted, then a throw, gives back 41 1ms
+unit: × send: nothing accepted (SMTP down), answered 200, gives every unit back 1ms
+unit: × a zero or NaN count records no use, and does not poison the record 1ms
+unit: × never gives back more than was charged, whatever the record holds 1ms
+unit: × use of one kind does not spend the other kind 1ms
+unit: × settles once: a second settle gives nothing back 1ms
+unit: × a refund that fails is logged, does not throw, and does not stop the next one 2ms
+unit: × refundRateLimit sends the clamped units 4ms
+unit: Tests  9 failed | 115 passed (124)
+
+M14 | src/lib/rateLimitCore.ts | refund hits the wrong key
+int: × AI: three requests, one used its unit, one fell back, one threw after the answer 97ms
+int: × send: 59 of 100 accepted, then a throw, leaves 59 spent 142ms
+int: × send: SMTP down, answered 200, leaves nothing spent; a second request on the key is untouched 138ms
+int: × admits exactly max of 100 sequential calls, in order 171ms
+int: × admits exactly max of 100 concurrent calls 1874ms
+int: × a refund gives back exactly the refunded units 1296ms
+int: × a refund floors at zero, leaves the window alone and ignores an absent key 420ms
+int: × answers a flood on an over-limit key without writing to the database 156ms
+int: × a refund in this process drops the remembered refusal 148ms
+int: × a refund made by a request that rolls back still lands 79ms
+int: × does not hold the counter row lock for the rest of the request 192ms
+int: × still answers while every request connection is held by an open request 4014ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 2007ms
+int: Tests  13 failed | 31 passed (44)
+unit: Tests  124 passed (124)
+
+M15 | src/lib/rateLimitCore.ts | time left in the window cast to int4 (overflows at 30 days)
+int: × a 30-day window does not overflow: it admits, refuses and remembers like any other 3ms
+int: Tests  1 failed | 43 passed (44)
+unit: Tests  124 passed (124)
+
+K1 | src/lib/rateLimitCore.ts | charge runs on the request transaction when one is open
+int: × AI: three requests, one used its unit, one fell back, one threw after the answer 16ms
+int: × send: 59 of 100 accepted, then a throw, leaves 59 spent 2ms
+int: × send: SMTP down, answered 200, leaves nothing spent; a second request on the key is untouched 2ms
+int: × a caller that did not ask for refundUnused keeps its charge, even when it fails 1ms
+int: × a request refused by the daily bucket gets nothing back 1ms
+int: × charges the counter even when the request transaction rolls back 18ms
+int: × charges a request whose handler throws inside withAlsTransaction 6ms
+int: × does not hold the counter row lock for the rest of the request 2004ms
+int: Tests  8 failed | 36 passed (44)
+unit: × notes the daily bucket only, and only when the caller asks for refundUnused 4ms
+unit: × AI: no provider answer, then a 200 with a fallback, gives the unit back 3ms
+unit: × send: 59 of 100 accepted, then a throw, gives back 41 1ms
+unit: × send: nothing accepted (SMTP down), answered 200, gives every unit back 1ms
+unit: × a zero or NaN count records no use, and does not poison the record 0ms
+unit: × use of one kind does not spend the other kind 1ms
+unit: × settles once: a second settle gives nothing back 1ms
+unit: × outside a request that keeps the list (bearer, cron, platform admin) nothing is noted, marked or given back 1ms
+unit: Tests  8 failed | 116 passed (124)
+
+K2 | src/lib/rateLimitCore.ts | refund runs on the request transaction when one is open
+int: × a refund made by a request that rolls back still lands 9ms
+int: × does not hold the counter row lock for the rest of the request 2013ms
+int: Tests  2 failed | 42 passed (44)
+unit: Tests  124 passed (124)
+
+K3 | src/lib/rateLimitCore.ts | charge takes its connection from the main request pool
+int: × admits exactly max when 40 concurrent requests charge one key 15003ms
+int: × still answers while every request connection is held by an open request 15006ms
+int: × fails, and does not admit, when the limiter cannot get a connection 5008ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 25001ms
+int: Tests  4 failed | 40 passed (44)
+unit: × namespaces the key as report:<name>:co:<companyId> 33ms
+unit: × denies once the default max (25) is exceeded 10ms
+unit: × forwards explicit max/windowSecs overrides to the underlying limiter 16ms
+unit: × scopes independent companies to independent keys 6ms
+unit: × send: 59 of 100 accepted, then a throw, gives back 41 14ms
+unit: × send: nothing accepted (SMTP down), answered 200, gives every unit back 10ms
+unit: × a zero or NaN count records no use, and does not poison the record 7ms
+unit: × a refused call notes nothing and gets nothing back 12ms
+unit: × sends one upsert per call, even far below the limit 88ms
+unit: × admits exactly max of 70 calls on one process, and asks the database for every admission 59ms
+unit: × admits at max and refuses at max + 1 9ms
+unit: × charges the clamped cost 13ms
+unit: × remembers a refusal, and only a refusal: memory never admits 6ms
+unit: × does not remember a refusal whose window has already ended 7ms
+unit: × remembers a refusal no longer than the window has left 1209ms
+unit: × clearRateLimitCache and refundRateLimit each forget a remembered refusal 6ms
+unit: Tests  16 failed | 108 passed (124)
+
+K4 | src/lib/rateLimitCore.ts | refund takes its connection from the main request pool
+int: × still answers while every request connection is held by an open request 15008ms
+int: × fails, and does not admit, when the limiter cannot get a connection 5009ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 25003ms
+int: Tests  3 failed | 41 passed (44)
+unit: × AI: no provider answer, then a 200 with a fallback, gives the unit back 21ms
+unit: × send: 59 of 100 accepted, then a throw, gives back 41 7ms
+unit: × send: nothing accepted (SMTP down), answered 200, gives every unit back 10ms
+unit: × a zero or NaN count records no use, and does not poison the record 9ms
+unit: × never gives back more than was charged, whatever the record holds 10ms
+unit: × use of one kind does not spend the other kind 10ms
+unit: × settles once: a second settle gives nothing back 9ms
+unit: × a refund that fails is logged, does not throw, and does not stop the next one 7ms
+unit: × clearRateLimitCache and refundRateLimit each forget a remembered refusal 12ms
+unit: × refundRateLimit sends the clamped units 6ms
+unit: Tests  10 failed | 114 passed (124)
+
+K5 | src/lib/rateLimitPool.ts | connect timeout 5000 => 60000
+int: × fails, and does not admit, when the limiter cannot get a connection 25012ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 25021ms
+int: Tests  2 failed | 42 passed (44)
+unit: Tests  124 passed (124)
+
+K6 | src/lib/rateLimitPool.ts | pool built without the connect timeout
+int: × fails, and does not admit, when the limiter cannot get a connection 25013ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 25021ms
+int: × bounds every statement on a limiter connection, server side first 25025ms
+int: Tests  3 failed | 41 passed (44)
+unit: Tests  124 passed (124)
+
+K7 | src/lib/rateLimitCore.ts | charge fails open: a database error admits
+int: × fails, and does not admit, when the limiter cannot get a connection 5007ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 2013ms
+int: Tests  2 failed | 42 passed (44)
+unit: Tests  124 passed (124)
+
+C1 | src/lib/rateLimitCore.ts | memory admits: a remembered key returns true
+int: × answers a flood on an over-limit key without writing to the database 144ms
+int: × never admits from memory: a deleted row is not noticed until the cache is cleared 137ms
+int: × re-admits when the window rolls over, without the cache being cleared 16ms
+int: × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 124ms
+int: × a 30-day window does not overflow: it admits, refuses and remembers like any other 15ms
+int: × admits exactly max of 100 sequential calls, in order 143ms
+int: × admits weighted calls only while their running total stays within max 38ms
+int: × starts a fresh allowance of exactly max when the window rolls over 82ms
+int: × a refund gives back exactly the refunded units 80ms
+int: × two module instances sharing the database together admit exactly max 127ms
+int: × admits exactly max when 40 concurrent requests charge one key 185ms
+int: Tests  11 failed | 33 passed (44)
+unit: × admits exactly max of 70 calls on one process, and asks the database for every admission 7ms
+unit: × remembers a refusal, and only a refusal: memory never admits 1ms
+unit: × remembers a refusal no longer than the window has left 1ms
+unit: Tests  3 failed | 121 passed (124)
+
+C2 | src/lib/rateLimitCore.ts | remembered refusal applies to any max
+int: × a remembered refusal for one limit does not refuse a caller with a higher limit 74ms
+int: Tests  1 failed | 43 passed (44)
+unit: Tests  124 passed (124)
+
+C3 | src/lib/rateLimitCore.ts | refusals are never remembered
+int: × answers a flood on an over-limit key without writing to the database 1208ms
+int: × never admits from memory: a deleted row is not noticed until the cache is cleared 132ms
+int: × re-admits when the window rolls over, without the cache being cleared 32ms
+int: × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 170ms
+int: × a 30-day window does not overflow: it admits, refuses and remembers like any other 22ms
+int: × admits exactly max of 100 sequential calls, in order 713ms
+int: × admits weighted calls only while their running total stays within max 40ms
+int: × starts a fresh allowance of exactly max when the window rolls over 414ms
+int: × two module instances sharing the database together admit exactly max 371ms
+int: Tests  9 failed | 35 passed (44)
+unit: × admits exactly max of 70 calls on one process, and asks the database for every admission 4ms
+unit: × remembers a refusal, and only a refusal: memory never admits 2ms
+unit: × remembers a refusal no longer than the window has left 1ms
+unit: Tests  3 failed | 121 passed (124)
+
+C4 | src/lib/rateLimitCore.ts | refusal outlives the window (TTL ignores the time left)
+int: × re-admits when the window rolls over, without the cache being cleared 2322ms
+int: Tests  1 failed | 43 passed (44)
+unit: × does not remember a refusal whose window has already ended 7ms
+unit: × remembers a refusal no longer than the window has left 1202ms
+unit: Tests  2 failed | 122 passed (124)
+
+C5 | src/lib/rateLimitCore.ts | refusal remembered to the end of the window (no 5s cap)
+int: × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 5381ms
+int: Tests  1 failed | 43 passed (44)
+unit: Tests  124 passed (124)
+
+DONE M3 M4 M5 M6 M7 M8 M9 M10 M11 M12 M13 M14 M15 K1 K2 K3 K4 K5 K6 K7 C1 C2 C3 C4 C5
+C6 | src/lib/rateLimitCore.ts | refund keeps the remembered refusal
+int: × a refund in this process drops the remembered refusal 115ms
+int: Tests  1 failed | 43 passed (44)
+unit: Tests  124 passed (124)
+
+C7 | src/lib/rateLimitCore.ts | clearRateLimitCache is a no-op
+int: × resets the window after expiry (simulated via DB update) 10ms
+int: × cumulative cost across calls blocks once the running total exceeds max 1ms
+int: × starts a fresh allowance of exactly max when the window rolls over 87ms
+int: × never admits from memory: a deleted row is not noticed until the cache is cleared 163ms
+int: Tests  4 failed | 40 passed (44)
+unit: × settles once: a second settle gives nothing back 6ms
+unit: × outside a request that keeps the list (bearer, cron, platform admin) nothing is noted, marked or given back 1ms
+unit: × admits at max and refuses at max + 1 5ms
+unit: × remembers a refusal, and only a refusal: memory never admits 1ms
+unit: × does not remember a refusal whose window has already ended 1ms
+unit: × remembers a refusal no longer than the window has left 1202ms
+unit: × clearRateLimitCache and refundRateLimit each forget a remembered refusal 1ms
+unit: Tests  7 failed | 117 passed (124)
+
+C8 | src/lib/rateLimitCore.ts | an admission is remembered as a refusal
+int: × answers a flood on an over-limit key without writing to the database 29ms
+int: × never admits from memory: a deleted row is not noticed until the cache is cleared 16ms
+int: × a refund in this process drops the remembered refusal 6ms
+int: × re-admits when the window rolls over, without the cache being cleared 4ms
+int: × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 9ms
+int: × a remembered refusal for one limit does not refuse a caller with a higher limit 10ms
+int: × does not remember an admission: a key at its limit is still checked 11ms
+int: × a 30-day window does not overflow: it admits, refuses and remembers like any other 6ms
+int: × blocks the (N+1)-th request within the window 24ms
+int: × resets the window after expiry (simulated via DB update) 26ms
+int: × two independent callers share the same counter (cross-pod) 25ms
+int: × rejects a single call whose cost alone exceeds max, and stores the attempted charge 12ms
+int: × AI: three requests, one used its unit, one fell back, one threw after the answer 54ms
+int: × send: SMTP down, answered 200, leaves nothing spent; a second request on the key is untouched 23ms
+int: × a request refused by the daily bucket gets nothing back 19ms
+int: × returns false once the per-IP limit is exceeded 40ms
+int: × admits exactly max of 100 sequential calls, in order 23ms
+int: × writes a call far below the limit to the shared counter 6ms
+int: × counts cost-1 calls against a later weighted call 6ms
+int: × admits weighted calls only while their running total stays within max 8ms
+int: × starts a fresh allowance of exactly max when the window rolls over 6ms
+int: × keeps counting inside a window that has not ended 6ms
+int: × a refund gives back exactly the refunded units 4ms
+int: × a refund floors at zero, leaves the window alone and ignores an absent key 6ms
+int: × two module instances sharing the database together admit exactly max 18ms
+int: × does not hold the counter row lock for the rest of the request 15ms
+int: × admits exactly max when 40 concurrent requests charge one key 22ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 2008ms
+int: Tests  28 failed | 16 passed (44)
+unit: × outside a request that keeps the list (bearer, cron, platform admin) nothing is noted, marked or given back 5ms
+unit: × sends one upsert per call, even far below the limit 6ms
+unit: × admits exactly max of 70 calls on one process, and asks the database for every admission 1ms
+unit: × charges the clamped cost 2ms
+unit: × remembers a refusal, and only a refusal: memory never admits 1ms
+unit: Tests  5 failed | 119 passed (124)
+
+T1 | src/lib/rateLimitPool.ts | no lock_timeout on limiter connections
+int: × gives up on a counter row another connection has locked, with an error and no admission 3017ms
+int: × bounds every statement on a limiter connection, server side first 3ms
+int: Tests  2 failed | 42 passed (44)
+unit: Tests  124 passed (124)
+
+T2 | src/lib/rateLimitPool.ts | no statement_timeout on limiter connections
+int: × bounds every statement on a limiter connection, server side first 5ms
+int: Tests  1 failed | 43 passed (44)
+unit: Tests  124 passed (124)
+
+T3 | src/lib/rateLimitPool.ts | query_timeout shorter than statement_timeout
+int: × bounds every statement on a limiter connection, server side first 6ms
+int: Tests  1 failed | 43 passed (44)
+unit: Tests  124 passed (124)
+
+T4 | src/lib/rateLimitPool.ts | no query_timeout
+int: × bounds every statement on a limiter connection, server side first 8ms
+int: Tests  1 failed | 43 passed (44)
+unit: Tests  124 passed (124)
+
+Q1 | src/lib/rateLimit.ts | checkAiRateLimit notes a charge without refundUnused
+int: × a caller that did not ask for refundUnused keeps its charge, even when it fails 22ms
+int: Tests  1 failed | 43 passed (44)
+unit: × notes the daily bucket only, and only when the caller asks for refundUnused 11ms
+unit: × a caller that did not ask for refundUnused keeps its charge whatever happens 2ms
+unit: Tests  2 failed | 122 passed (124)
+
+Q2 | src/lib/rateLimit.ts | checkAiRateLimit notes a refused call
+int: × a request refused by the daily bucket gets nothing back 34ms
+int: Tests  1 failed | 43 passed (44)
+unit: × a refused call notes nothing and gets nothing back 5ms
+unit: Tests  1 failed | 123 passed (124)
+
+Q3 | src/lib/rateLimit.ts | checkAiRateLimit never notes
+int: × AI: three requests, one used its unit, one fell back, one threw after the answer 64ms
+int: Tests  1 failed | 43 passed (44)
+unit: × notes the daily bucket only, and only when the caller asks for refundUnused 8ms
+unit: × AI: no provider answer, then a 200 with a fallback, gives the unit back 2ms
+unit: × use of one kind does not spend the other kind 1ms
+unit: × settles once: a second settle gives nothing back 1ms
+unit: Tests  4 failed | 120 passed (124)
+
+Q4 | src/lib/rateLimit.ts | checkSendRateLimit notes 1, not the recipient count
+int: × send: 59 of 100 accepted, then a throw, leaves 59 spent 25ms
+int: × send: SMTP down, answered 200, leaves nothing spent; a second request on the key is untouched 38ms
+int: Tests  2 failed | 42 passed (44)
+unit: × notes the daily bucket only, and only when the caller asks for refundUnused 8ms
+unit: × send: 59 of 100 accepted, then a throw, gives back 41 2ms
+unit: × send: nothing accepted (SMTP down), answered 200, gives every unit back 1ms
+unit: × a zero or NaN count records no use, and does not poison the record 1ms
+unit: Tests  4 failed | 120 passed (124)
+
+Q5 | src/lib/rateLimit.ts | checkSendRateLimit notes a charge without refundUnused
+int: Tests  44 passed (44)
+unit: × notes the daily bucket only, and only when the caller asks for refundUnused 9ms
+unit: × a caller that did not ask for refundUnused keeps its charge whatever happens 1ms
+unit: Tests  2 failed | 122 passed (124)
+
+Q6 | src/lib/rateLimit.ts | checkSendRateLimit notes the wrong bucket (15-minute company key)
+int: × send: 59 of 100 accepted, then a throw, leaves 59 spent 25ms
+int: × send: SMTP down, answered 200, leaves nothing spent; a second request on the key is untouched 32ms
+int: Tests  2 failed | 42 passed (44)
+unit: × notes the daily bucket only, and only when the caller asks for refundUnused 10ms
+unit: × send: 59 of 100 accepted, then a throw, gives back 41 1ms
+unit: × send: nothing accepted (SMTP down), answered 200, gives every unit back 1ms
+unit: × a zero or NaN count records no use, and does not poison the record 1ms
+unit: Tests  4 failed | 120 passed (124)
+
+Q7 | src/lib/quotaUse.ts | markQuotaUsed spends every kind
+int: Tests  44 passed (44)
+unit: × use of one kind does not spend the other kind 4ms
+unit: × records one send per message the mail server accepts 13ms
+unit: × records one AI use when the provider answers 1ms
+unit: × records one AI use when the provider answers 1ms
+unit: Tests  4 failed | 120 passed (124)
+
+Q8 | src/lib/quotaUse.ts | markQuotaUsed accepts zero, negative and NaN counts
+int: Tests  44 passed (44)
+unit: × use cannot be taken back: a negative count is ignored 6ms
+unit: × a zero or NaN count records no use, and does not poison the record 1ms
+unit: Tests  2 failed | 122 passed (124)
+
+Q9 | src/lib/quotaUse.ts | markQuotaUsed records nothing
+int: × AI: three requests, one used its unit, one fell back, one threw after the answer 183ms
+int: × send: 59 of 100 accepted, then a throw, leaves 59 spent 64ms
+int: × send: SMTP down, answered 200, leaves nothing spent; a second request on the key is untouched 98ms
+int: × a request refused by the daily bucket gets nothing back 95ms
+int: Tests  4 failed | 40 passed (44)
+unit: × AI: the provider answered, then the request threw, keeps the unit 10ms
+unit: × send: every email accepted keeps every unit 2ms
+unit: × send: 59 of 100 accepted, then a throw, gives back 41 2ms
+unit: × use cannot be taken back: a negative count is ignored 1ms
+unit: × never gives back more than was charged, whatever the record holds 1ms
+unit: × use of one kind does not spend the other kind 1ms
+unit: × uses the unit when the provider answers 26ms
+unit: × uses the unit when the provider answers 12ms
+unit: × records one send per message the mail server accepts 20ms
+unit: × records one AI use when the provider answers 6ms
+unit: × records one AI use when the provider answers 7ms
+unit: Tests  11 failed | 113 passed (124)
+
+Q10 | src/lib/rateLimitQuota.ts | settle is all-or-nothing: gives back the whole charge
+int: × AI: three requests, one used its unit, one fell back, one threw after the answer 158ms
+int: × send: 59 of 100 accepted, then a throw, leaves 59 spent 27ms
+int: × send: SMTP down, answered 200, leaves nothing spent; a second request on the key is untouched 53ms
+int: × a request refused by the daily bucket gets nothing back 55ms
+int: Tests  4 failed | 40 passed (44)
+unit: × AI: the provider answered, then the request threw, keeps the unit 6ms
+unit: × send: every email accepted keeps every unit 1ms
+unit: × send: 59 of 100 accepted, then a throw, gives back 41 1ms
+unit: × use cannot be taken back: a negative count is ignored 1ms
+unit: × never gives back more than was charged, whatever the record holds 1ms
+unit: × use of one kind does not spend the other kind 1ms
+unit: × a refund that fails is logged, does not throw, and does not stop the next one 1ms
+unit: Tests  7 failed | 117 passed (124)
+
+Q11 | src/lib/rateLimitQuota.ts | settle is not capped at the charge
+int: Tests  44 passed (44)
+unit: × never gives back more than was charged, whatever the record holds 4ms
+unit: Tests  1 failed | 123 passed (124)
+
+Q12 | src/lib/rateLimitQuota.ts | settle leaves the list in place (refunds twice)
+int: × send: SMTP down, answered 200, leaves nothing spent; a second request on the key is untouched 38ms
+int: Tests  1 failed | 43 passed (44)
+unit: × settles once: a second settle gives nothing back 10ms
+unit: Tests  1 failed | 123 passed (124)
+
+Q13 | src/lib/rateLimitQuota.ts | a failed refund throws
+int: Tests  44 passed (44)
+unit: × a refund that fails is logged, does not throw, and does not stop the next one 3ms
+unit: Tests  1 failed | 123 passed (124)
+
+Q14 | src/lib/rateLimitQuota.ts | settle refunds zero-unit records too (no >= 1 guard)
+int: × AI: three requests, one used its unit, one fell back, one threw after the answer 68ms
+int: × send: SMTP down, answered 200, leaves nothing spent; a second request on the key is untouched 33ms
+int: × a request refused by the daily bucket gets nothing back 31ms
+int: Tests  3 failed | 41 passed (44)
+unit: × AI: the provider answered, then the request threw, keeps the unit 4ms
+unit: × send: every email accepted keeps every unit 1ms
+unit: × use cannot be taken back: a negative count is ignored 1ms
+unit: × never gives back more than was charged, whatever the record holds 1ms
+unit: × use of one kind does not spend the other kind 1ms
+unit: Tests  5 failed | 119 passed (124)
+
+Q15 | src/lib/auth/withAuth.ts | withAuth settles only on a 5xx
+int: Tests  44 passed (44)
+unit: × settles the usage quota after a 200, with the use the request recorded 6ms
+unit: × settles the usage quota after a 400, with the use the request recorded 5ms
+unit: × settles the usage quota after a 429, with the use the request recorded 9ms
+unit: Tests  3 failed | 121 passed (124)
+
+Q16 | src/lib/auth/withAuth.ts | withAuth settles only below 500
+int: Tests  44 passed (44)
+unit: × settles the usage quota after a 500, with the use the request recorded 10ms
+unit: × settles the usage quota after a 503, with the use the request recorded 5ms
+unit: × settles when the handler throws, keeping what was used before the throw 5ms
+unit: × settles when the COMMIT fails after a 2xx: the work was done, the use stands 5ms
+unit: Tests  4 failed | 120 passed (124)
+
+Q17 | src/lib/auth/withAuth.ts | withAuth never hands its context to the settle
+int: Tests  44 passed (44)
+unit: × settles the usage quota after a 200, with the use the request recorded 10ms
+unit: × settles the usage quota after a 400, with the use the request recorded 8ms
+unit: × settles the usage quota after a 429, with the use the request recorded 6ms
+unit: × settles the usage quota after a 500, with the use the request recorded 4ms
+unit: × settles the usage quota after a 503, with the use the request recorded 3ms
+unit: × settles when the handler throws, keeping what was used before the throw 4ms
+unit: × settles when the COMMIT fails after a 2xx: the work was done, the use stands 3ms
+unit: Tests  7 failed | 117 passed (124)
+
+Q18 | src/lib/auth/withAuth.ts | withAuth context keeps no quota list
+int: Tests  44 passed (44)
+unit: × settles the usage quota after a 200, with the use the request recorded 7ms
+unit: × settles the usage quota after a 400, with the use the request recorded 4ms
+unit: × settles the usage quota after a 429, with the use the request recorded 4ms
+unit: × settles the usage quota after a 500, with the use the request recorded 4ms
+unit: × settles the usage quota after a 503, with the use the request recorded 4ms
+unit: × settles when the handler throws, keeping what was used before the throw 3ms
+unit: × settles when the COMMIT fails after a 2xx: the work was done, the use stands 3ms
+unit: Tests  7 failed | 117 passed (124)
+
+E1 | src/modules/accounting/services/core/emailService.ts | sendEmail records no use
+int: Tests  44 passed (44)
+unit: × accounting/invoice-email.ts asks for refundUnused and can reach where its use is recorded 4ms
+unit: × accounting/statement-bulk-email.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × accounting/customer-statements-send.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × accounting/company-invitations.ts asks for refundUnused and can reach where its use is recorded 0ms
+unit: × accounting/ar/dunning/send.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × accounting/afs/[documentId]/send-for-signing.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × use is recorded only in the places listed above 85ms
+unit: × records one send per message the mail server accepts 7ms
+unit: Tests  8 failed | 116 passed (124)
+
+E2 | src/modules/accounting/services/core/emailService.ts | sendEmail records use before the mail server answers
+int: Tests  44 passed (44)
+unit: × records nothing when the mail server refuses or is down 5ms
+unit: Tests  1 failed | 123 passed (124)
+
+E3 | src/modules/accounting/services/core/emailService.ts | sendEmail records AI use
+int: Tests  44 passed (44)
+unit: × accounting/invoice-email.ts asks for refundUnused and can reach where its use is recorded 5ms
+unit: × accounting/statement-bulk-email.ts asks for refundUnused and can reach where its use is recorded 9ms
+unit: × accounting/customer-statements-send.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × accounting/company-invitations.ts asks for refundUnused and can reach where its use is recorded 0ms
+unit: × accounting/ar/dunning/send.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × accounting/afs/[documentId]/send-for-signing.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × records one send per message the mail server accepts 13ms
+unit: Tests  7 failed | 117 passed (124)
+
+DONE C6 C7 C8 T1 T2 T3 T4 Q1 Q2 Q3 Q4 Q5 Q6 Q7 Q8 Q9 Q10 Q11 Q12 Q13 Q14 Q15 Q16 Q17 Q18 E1 E2 E3
+V1 | src/modules/accounting/services/bank/vlmCore.ts | callVlmChat records no use
+int: Tests  44 passed (44)
+unit: × accounting/vlm-extract.ts asks for refundUnused and can reach where its use is recorded 5ms
+unit: × onboarding/extract.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × onboarding/extract-id.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × use is recorded only in the places listed above 101ms
+unit: × records one AI use when the provider answers 7ms
+unit: Tests  5 failed | 119 passed (124)
+
+V2 | src/modules/accounting/services/bank/vlmCore.ts | callVlmChat records use before checking the provider status
+int: Tests  44 passed (44)
+unit: × records nothing on a provider error status 5ms
+unit: Tests  1 failed | 123 passed (124)
+
+A1 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative records no use
+int: Tests  44 passed (44)
+unit: × accounting/afs/[documentId]/sections/[sectionId]/ai-narrative.ts asks for refundUnused and can reach where its use is recorded 6ms
+unit: × use is recorded only in the places listed above 108ms
+unit: × records one AI use when the provider answers 6ms
+unit: Tests  3 failed | 121 passed (124)
+
+A2 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative records use before the provider call
+int: Tests  44 passed (44)
+unit: × records nothing when the provider call fails 5ms
+unit: Tests  1 failed | 123 passed (124)
+
+N1 | pages/api/accounting/nl-query.ts | nl-query records no use
+int: Tests  44 passed (44)
+unit: × accounting/nl-query.ts asks for refundUnused and can reach where its use is recorded 12ms
+unit: × use is recorded only in the places listed above 98ms
+unit: × marks the unit used when the provider answered, even if its answer could not be used 6ms
+unit: × marks the unit used when the provider answered and the generated query then fails 14ms
+unit: × marks the unit used once on success 4ms
+unit: Tests  5 failed | 119 passed (124)
+
+N2 | pages/api/accounting/nl-query.ts | nl-query records use before checking the provider status
+int: Tests  44 passed (44)
+unit: × leaves the unit unused when the provider answers with an error status 3ms
+unit: Tests  1 failed | 123 passed (124)
+
+N3 | pages/api/accounting/nl-query.ts | nl-query does not ask for refundUnused
+int: Tests  44 passed (44)
+unit: × accounting/nl-query.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × asks for refundUnused, and does nothing more when the limiter refuses 8ms
+unit: Tests  2 failed | 122 passed (124)
+
+R1 | pages/api/accounting/ai-narrative.ts | ai-narrative records no use
+int: Tests  44 passed (44)
+unit: × uses the unit when the provider answers 3ms
+unit: × accounting/ai-narrative.ts asks for refundUnused and can reach where its use is recorded 5ms
+unit: × use is recorded only in the places listed above 71ms
+unit: Tests  3 failed | 121 passed (124)
+
+R2 | pages/api/accounting/ai-narrative.ts | ai-narrative records use whatever the provider status
+int: Tests  44 passed (44)
+unit: × answers 200 with its fallback and uses nothing when the provider answers with an error 3ms
+unit: Tests  1 failed | 123 passed (124)
+
+F1 | pages/api/accounting/ai-forecast.ts | ai-forecast records no use
+int: Tests  44 passed (44)
+unit: × uses the unit when the provider answers 4ms
+unit: × accounting/ai-forecast.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 71ms
+unit: Tests  3 failed | 121 passed (124)
+
+F2 | pages/api/accounting/ai-forecast.ts | ai-forecast records use whatever the provider status
+int: Tests  44 passed (44)
+unit: × answers 200 with its fallback and uses nothing when the provider answers with an error 3ms
+unit: Tests  1 failed | 123 passed (124)
+
+O1 | pages/api/accounting/invoice-email.ts | invoice-email does not ask for refundUnused
+int: Tests  44 passed (44)
+unit: × accounting/invoice-email.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: Tests  1 failed | 123 passed (124)
+
+O2 | pages/api/accounting/document-validation.ts | document-validation asks for refundUnused though nothing records its use
+int: Tests  44 passed (44)
+unit: × accounting/document-validation.ts keeps its charge: it does not ask for refundUnused 5ms
+unit: Tests  1 failed | 123 passed (124)
+
+O3 | pages/api/accounting/vlm-extract.ts | vlm-extract does not ask for refundUnused
+int: Tests  44 passed (44)
+unit: × accounting/vlm-extract.ts asks for refundUnused and can reach where its use is recorded 4ms
+unit: Tests  1 failed | 123 passed (124)
+
+B1 | pages/api/accounting/statement-bulk-email.ts | bulk email: no abuse limiter before the ownership query
+int: Tests  44 passed (44)
+unit: × counts every attempt against the user before the ownership query, and refuses when over 5ms
+unit: × counts the attempt even for a request it then rejects as malformed 1ms
+unit: × finds the call sites, including the keys the wrappers build 6ms
+unit: Tests  3 failed | 121 passed (124)
+
+B2 | pages/api/accounting/statement-bulk-email.ts | bulk email: no UUID check before the query
+int: Tests  44 passed (44)
+unit: × answers 400, before any query, for an id that is a plain word 9ms
+unit: × answers 400, before any query, for an id that is a uuid with trailing SQL 1ms
+unit: × answers 400, before any query, for an id that is an empty string 1ms
+unit: Tests  3 failed | 121 passed (124)
+
+B3 | pages/api/accounting/statement-bulk-email.ts | bulk email: logs every refused id
+int: Tests  44 passed (44)
+unit: × charges no volume when the ownership guard refuses, and logs a count and a sample, not every id 6ms
+unit: Tests  1 failed | 123 passed (124)
+
+B4 | pages/api/accounting/statement-bulk-email.ts | bulk email: volume charged before the ownership guard
+int: Tests  44 passed (44)
+unit: × charges no volume when the ownership guard refuses, and logs a count and a sample, not every id 10ms
+unit: Tests  1 failed | 123 passed (124)
+
+B5 | pages/api/accounting/statement-bulk-email.ts | bulk email: does not ask for refundUnused
+int: Tests  44 passed (44)
+unit: × returns 429 and does not send when over the limit 8ms
+unit: × weights the limiter cost by customerIds.length (cost-weighting fix) 2ms
+unit: × accounting/statement-bulk-email.ts asks for refundUnused and can reach where its use is recorded 4ms
+unit: Tests  3 failed | 121 passed (124)
+
+B6 | pages/api/accounting/statement-bulk-email.ts | bulk email: abuse limiter keyed without the user
+int: Tests  44 passed (44)
+unit: × counts every attempt against the user before the ownership query, and refuses when over 6ms
+unit: Tests  1 failed | 123 passed (124)
+
+S1 | pages/api/accounting/customer-statements-send.ts | customer statements: no UUID check before the query
+int: Tests  44 passed (44)
+unit: × answers 400, before any query, for an id that is a plain word 5ms
+unit: × answers 400, before any query, for an id that is a uuid with trailing SQL 1ms
+unit: × answers 400, before any query, for an id that is an empty string 1ms
+unit: Tests  3 failed | 121 passed (124)
+
+S2 | pages/api/accounting/customer-statements-send.ts | customer statements: logs every refused id
+int: Tests  44 passed (44)
+unit: × logs a count and a sample of the ids it refuses, not every id 4ms
+unit: Tests  1 failed | 123 passed (124)
+
+S3 | pages/api/accounting/customer-statements-send.ts | customer statements: does not ask for refundUnused
+int: Tests  44 passed (44)
+unit: × is limited before the ownership query, asks for refundUnused, and sends when all checks pass 5ms
+unit: × accounting/customer-statements-send.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: Tests  2 failed | 122 passed (124)
+
+P1 | pages/api/accounting/portal/auth.ts | AFS magic-link route shares portal-auth: again
+int: Tests  44 passed (44)
+unit: × finds the call sites, including the keys the wrappers build 6ms
+unit: × no key pattern is held to two different limits 1ms
+unit: Tests  2 failed | 122 passed (124)
+
+BASELINE (git status of src and pages: '')
+int: Tests  44 passed (44)
+unit: Tests  124 passed (124)
+
+DONE V1 V2 A1 A2 N1 N2 N3 R1 R2 F1 F2 O1 O2 O3 B1 B2 B3 B4 B5 B6 S1 S2 S3 P1 BASELINE
