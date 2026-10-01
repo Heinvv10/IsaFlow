@@ -111,6 +111,11 @@ const ROUND3: Array<[string, string]> = [
   ['url( in a style body declaration', svg('<style><![CDATA[.zr1-0:hover{background:url(x)}]]></style>')],
   ['an unterminated url( in a style body', svg('<style><![CDATA[.zr1-0:hover{background:url(#a}]]></style>')],
   ['a style attribute on the root', `<svg ${NS} style="position:fixed;inset:0"></svg>`],
+  ['a viewport-relative root width', `<svg ${NS} width="100vw" height="10"></svg>`],
+  ['a percentage root height', `<svg ${NS} width="10" height="100%"></svg>`],
+  ['an enormous root width', `<svg ${NS} width="100000" height="10"></svg>`],
+  ['a zero root width', `<svg ${NS} width="0" height="10"></svg>`],
+  ['a root width with an em unit', `<svg ${NS} width="10em" height="10"></svg>`],
   ['a class attribute on the root', `<svg ${NS} class="fixed inset-0"></svg>`],
 ];
 
@@ -121,6 +126,11 @@ describe('round 3 breakers', () => {
       expect(() => adoptTrustedChartSvg(markup)).toThrow();
     });
   }
+  it('admits a plain px root, and the largest size at the limit', () => {
+    expect(() => assertNoExternalReferences(`<svg ${NS} width="643" height="415.5"></svg>`)).not.toThrow();
+    expect(() => assertNoExternalReferences(`<svg ${NS} width="2000px" height="2000"></svg>`)).not.toThrow();
+    expect(() => assertNoExternalReferences(`<svg ${NS} width="2001" height="10"></svg>`)).toThrow();
+  });
   it('still admits url(#id) with its paren, in a value and in a style body', () => {
     expect(() => assertNoExternalReferences(svg('<g clip-path="url(#zr1-0)"><path d="M0 0"/></g>'))).not.toThrow();
     expect(() => assertNoExternalReferences(svg('<style><![CDATA[.zr1-0:hover{fill:url(#zr1-g0)}]]></style>'))).not.toThrow();

@@ -53,6 +53,11 @@ export const ROOT_ATTRIBUTES: ReadonlySet<string> = new Set([
   'width', 'height', 'xmlns', 'xmlns:xlink', 'version', 'baseProfile', 'viewBox',
 ]);
 
+/** The largest root width or height admitted, in px. The biggest real chart is
+ *  ~650 x 420; this leaves headroom without letting a chart size itself to the
+ *  page (`100vw`) or past it (`100000`). */
+export const ROOT_MAX_PX = 2000;
+
 const XMLNS: Readonly<Record<string, string>> = {
   xmlns: 'http://www.w3.org/2000/svg',
   'xmlns:xlink': 'http://www.w3.org/1999/xlink',
@@ -217,6 +222,10 @@ export function parseSvgGrammar(svg: string): SvgGrammarResult {
     if (!ELEMENTS.has(name)) fail(`an element outside the allow-list (<${name}>)`, tagStart);
     for (const [attr, value, at] of attrs) {
       if (name === 'svg' && !ROOT_ATTRIBUTES.has(attr)) fail(`an attribute "${attr}" on the root <svg>`, at);
+      if (name === 'svg' && (attr === 'width' || attr === 'height')
+        && !(/^\d+(\.\d+)?(px)?$/.test(value) && parseFloat(value) <= ROOT_MAX_PX && parseFloat(value) > 0)) {
+        fail(`a root ${attr} of ${JSON.stringify(value.slice(0, 20))}: a plain number of px, at most ${ROOT_MAX_PX}`, at);
+      }
       if (!ATTRIBUTES.has(attr)) fail(`an attribute "${attr}" outside the allow-list`, at);
       checkValue(attr, value, at);
     }
