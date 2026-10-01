@@ -94,8 +94,11 @@ export function mattersTitle(matters: PackMatter[], scale: MoneyScale): string {
  * matter — one source issued twice with two values is what `assertConsistent`
  * throws on, and it would take the render with it.
  */
-const NO_QUANTUM =
-  'This matter has no single rand amount — an overdue filing, or a check that found nothing to quantify.';
+// ONE SENTENCE, TRUE OF EVERY MATTER IT MARKS: an overdue filing, a failed
+// check, the clean-period line and a bank backlog whose items net to nil all
+// carry no amount. It named the first two, so the backlog printed as "an
+// overdue filing". Shorter than it was, so it cannot cost the table a row.
+const NO_QUANTUM = 'This matter has no single rand amount to state.';
 
 const OMITTED_NOT_QUANTIFIED =
   'None of the matters not printed here carries a single rand amount, so they have no total to state.';
