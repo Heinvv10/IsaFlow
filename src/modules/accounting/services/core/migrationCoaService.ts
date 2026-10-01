@@ -15,7 +15,7 @@ import type { DbRow } from '@/types/db';
 import { subtypeErrorFor } from '../gl/accountSubtypeRules';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { assertAccountChangesKeepVatLocks } from '../gl/vatLockLineClassification';
-import { lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
+import { boundedRowWait, isRetryableLockError, lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 import { accountAttributes, attributeChanges } from './migrationCoaVatLock';
 import { importRowSubtype } from './migrationCoaSubtype';
 import { mappedHolders, roleMapConflicts, validateSystemAccountMap } from './migrationCoaRoleMap';
@@ -84,7 +84,8 @@ export async function importChartOfAccounts(
     if (conflicts.length > 0) return conflicts;
     const roles = await snapshotRoles(companyId);
     try {
-      await withSavepoint('coa_import_vat_lock', async () => {
+      // Bounded: every statement below waits at most 5s for any lock while this import holds the role lock.
+      await boundedRowWait(() => withSavepoint('coa_import_vat_lock', async () => {
         const before = await accountAttributes(companyId);
         // Sort: accounts without parents first, then those with parents (preserves hierarchy)
         const sorted = [...accounts.filter(a => !a.parentCode), ...accounts.filter(a => a.parentCode)];
@@ -165,6 +166,8 @@ export async function importChartOfAccounts(
             }
             imported++;
           } catch (err) {
+            // A lock timeout or deadlock aborted the savepoint: not a row to skip — the whole import retries.
+            if (isRetryableLockError(err)) throw err;
             const msg = err instanceof Error ? err.message : String(err);
             errors.push({ step: 'coa', row: i, field: 'accountCode', message: msg });
             skipped++;
@@ -205,7 +208,7 @@ export async function importChartOfAccounts(
         // held before, or mapped, has exactly one usable holder — else the
         // savepoint is rolled back and the import refused whole.
         await assertRolesKept(companyId, roles, await mappedHolders(companyId, systemAccountMap));
-      });
+      }));
       return null;
     } catch (err) {
       if (err instanceof VatPeriodLockedError || err instanceof SystemRoleInvariantError) return err;

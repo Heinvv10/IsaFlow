@@ -14,7 +14,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { BANK_SUBTYPES, isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
-import { lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
+import { boundedRowWait, lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import { reactivationRefusal } from '@/modules/accounting/services/gl/systemRoleReactivation';
 import { assertRolesKept, snapshotRoles } from '@/modules/accounting/services/gl/systemRoleInvariant';
 import { holderAsParentRefusal, roleHeldBy } from '@/modules/accounting/services/gl/roleTargetRules';
@@ -81,10 +81,10 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
     `;
     if (parentTx) return 'Group account has its own bank transactions — pick an account without transactions as the group';
   }
-  await sql`
+  await boundedRowWait(() => sql`
     UPDATE gl_accounts SET parent_account_id = ${parentId}, updated_at = NOW()
     WHERE id = ${id} AND account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND company_id = ${companyId}
-  `;
+  `);
   return null;
 }
 
@@ -130,7 +130,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (parentError) return apiResponse.badRequest(res, parentError);
       }
 
-      await sql`
+      await boundedRowWait(() => sql`
         UPDATE gl_accounts SET
           bank_account_number = COALESCE(${s(b.bankAccountNumber)}, bank_account_number),
           bank_name = COALESCE(${s(b.bankName)}, bank_name),
@@ -146,7 +146,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           is_active = COALESCE(${bool(b.isActive)}, is_active),
           updated_at = NOW()
         WHERE id = ${id} AND account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND company_id = ${companyId}
-      `;
+      `);
       if (roles) await assertRolesKept(companyId, roles);
       clearSystemAccountCacheAfterCommit(companyId);   // the resolver caches the holder's name and active state
       return apiResponse.success(res, { updated: true });

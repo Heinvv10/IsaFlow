@@ -29,13 +29,22 @@ import type { SqlExec } from './journalVatLockGuard';
  * A deadlock victim is in the same position as a timed-out waiter — its
  * transaction is aborted, nothing it did stands, and a retry will succeed —
  * so both reach the caller as the same typed, retryable refusal (503), never
- * as a 500. A cycle can still form when an EARLIER statement of the same
- * transaction row-locked an account without the role lock (an MCP batch: a
- * bill line's FOR SHARE, then an account tool); the role lock taken first by
- * every gl_accounts writer removes the cycles the chart itself could make.
+ * as a 500.
+ *
+ * THE RESIDUAL ORDERING CASE (decided 2026-10-01, do not "fix" it in the line
+ * guards). The role lock taken first by every gl_accounts writer removes the
+ * cycles the chart itself could make. One remains: an EARLIER statement of the
+ * same transaction row-locked a role account WITHOUT the role lock — a
+ * bill / PO / expense-claim line guard takes FOR SHARE on its account — and a
+ * later statement of that transaction (an MCP batch) writes the chart. A save,
+ * or another batch, can then hold the role lock and wait for that row while
+ * this transaction waits for the role lock. The line guards run on every
+ * document line, so an exclusive company lock there would serialise ordinary
+ * document entry; instead the cycle is left to Postgres, which breaks it after
+ * `deadlock_timeout` (1s), and the victim is told to retry.
  */
 const RETRYABLE_LOCK_ERRORS = new Set(['55P03', '40P01']);
-const isRetryableLockError = (err: unknown) =>
+export const isRetryableLockError = (err: unknown): boolean =>
   RETRYABLE_LOCK_ERRORS.has(String((err as { code?: unknown } | null)?.code ?? ''));
 
 /** Another request held the company's role-write lock for longer than 5s. */
@@ -48,29 +57,34 @@ export class SystemRoleLockTimeoutError extends Error {
 }
 
 /**
- * Run a lock-taking statement under the 5s bound, restoring the caller's own
- * `lock_timeout` after. A timeout is 55P03 — the transaction (or the enclosing
- * savepoint) is aborted — and is rethrown typed, so callers answer 5xx/retry.
+ * Run `take` with every lock wait inside it bounded at 5s, restoring the
+ * caller's own `lock_timeout` after. Used for the statements a role writer
+ * runs WHILE IT HOLDS the role lock: an unbounded row wait there would hold the
+ * company's role lock for as long as the row's holder runs, and every other
+ * chart writer would time out behind it. A timeout (55P03) or a deadlock
+ * (40P01) is rethrown as the typed, retryable refusal; the statement's
+ * transaction or savepoint is aborted, so the caller must throw it on.
  */
 export async function withBoundedLockWait<T>(q: SqlExec, take: () => PromiseLike<T>): Promise<T> {
   const prev = (await q`SELECT current_setting('lock_timeout') AS v`) as { v?: unknown }[];
   await q`SELECT set_config('lock_timeout', '5s', true)`;
-  let failure: unknown = null;
   try {
     return await take();
   } catch (err) {
-    failure = err;
     if (isRetryableLockError(err)) throw new SystemRoleLockTimeoutError();
     throw err;
   } finally {
-    // A database error has aborted the transaction (or the enclosing
-    // savepoint, whose rollback restores the setting); anything else leaves
-    // it usable, and later waits of the request must not inherit the 5s.
-    const sqlState = typeof (failure as { code?: unknown } | null)?.code === 'string'
-      && /^[0-9A-Z]{5}$/.test((failure as { code: string }).code);
-    if (!sqlState) await q`SELECT set_config('lock_timeout', ${String(prev[0]?.v ?? '0')}, true)`;
+    // Later waits of the request must not inherit the 5s. After a database
+    // error the transaction may be aborted: this statement then fails too, and
+    // the rollback that must follow restores the setting.
+    try {
+      await q`SELECT set_config('lock_timeout', ${String(prev[0]?.v ?? '0')}, true)`;
+    } catch { /* aborted transaction — restored by its rollback */ }
   }
 }
+
+/** `withBoundedLockWait` on the request's own connection, for a chart writer's row-locking statements. */
+export const boundedRowWait = <T>(take: () => PromiseLike<T>): Promise<T> => withBoundedLockWait(sql, take);
 
 export async function lockSystemRoleWrites(companyId: string, q: SqlExec = sql): Promise<void> {
   const prev = (await q`SELECT current_setting('lock_timeout') AS v`) as { v?: unknown }[];

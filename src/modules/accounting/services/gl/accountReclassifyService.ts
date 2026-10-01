@@ -24,7 +24,7 @@ import type { GLAccount, GLAccountSubtype, GLAccountType } from '../../types/gl.
 import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { ParentAccountError, assertParentUsable } from './accountParentRules';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
-import { lockSystemRoleWrites } from './systemRoleWriteLock';
+import { boundedRowWait, lockSystemRoleWrites } from './systemRoleWriteLock';
 import { assertRolesKept, snapshotRoles } from './systemRoleInvariant';
 import { getAccountById } from './chartOfAccountsService';
 import { isBankSubtype } from './accountSubtypes';
@@ -183,7 +183,12 @@ async function assertParentAllowed(
   return childLevel;
 }
 
-export async function reclassifyAccount(
+/** Bounded: every statement it runs while it holds the role lock waits at most 5s for any lock (a timeout or deadlock is the retryable refusal). */
+export function reclassifyAccount(companyId: string, id: string, input: ReclassifyAccountInput): Promise<GLAccount> {
+  return boundedRowWait(() => reclassifyUnderLock(companyId, id, input));
+}
+
+async function reclassifyUnderLock(
   companyId: string,
   id: string,
   input: ReclassifyAccountInput,

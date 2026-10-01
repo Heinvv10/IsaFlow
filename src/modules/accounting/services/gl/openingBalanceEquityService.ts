@@ -36,7 +36,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
-import { lockSystemRoleWrites } from './systemRoleWriteLock';
+import { boundedRowWait, lockSystemRoleWrites } from './systemRoleWriteLock';
 import { assertRolesKept, snapshotRoles } from './systemRoleInvariant';
 import { roleHeldBy } from './roleTargetRules';
 
@@ -117,7 +117,7 @@ export async function ensureOpeningBalanceEquityAccount(
 
   let rows: DbRow[];
   try {
-    rows = (await sql`
+    rows = (await boundedRowWait(() => sql`
     INSERT INTO gl_accounts (
       company_id, account_code, account_name, account_type, account_subtype,
       normal_balance, level, display_order, is_system_account, parent_account_id, is_active, description
@@ -127,7 +127,7 @@ export async function ensureOpeningBalanceEquityAccount(
       'Clearing account for opening balances. Should net to zero once the full opening trial balance is captured.'
     )
     RETURNING id, account_code, account_name
-  `) as DbRow[];
+  `)) as DbRow[];
   } catch (err) {
     // Two first calls in flight: both saw no account and picked the same
     // code, and the unique index on (company_id, account_code) refused the

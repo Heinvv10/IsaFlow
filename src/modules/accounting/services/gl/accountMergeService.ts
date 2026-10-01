@@ -35,6 +35,7 @@ import {
 } from './accountMergeDocumentRows';
 import { lockGlAccountsForUpdate } from './glAccountLock';
 import { assertRolesKept, snapshotRoles } from './systemRoleInvariant';
+import { boundedRowWait } from './systemRoleWriteLock';
 import { openBillLinesRefusal } from './accountMergeBillLines';
 import { hasChildAccounts } from './isReportVisibleLeaf';
 import type { PostingActorOpts } from './journalEntryMeta';
@@ -98,7 +99,8 @@ export async function mergeAccounts(
   companyId: string, sourceId: string, targetId: string,
   userId?: string, actor?: PostingActorOpts,
 ): Promise<MergeAccountsResult> {
-  return withSavepoint('account_merge', () => mergeAccountsInner(companyId, sourceId, targetId, userId, actor));
+  // Bounded: every statement of the merge waits at most 5s for any lock while it holds the role lock.
+  return withSavepoint('account_merge', () => boundedRowWait(() => mergeAccountsInner(companyId, sourceId, targetId, userId, actor)));
 }
 
 async function mergeAccountsInner(

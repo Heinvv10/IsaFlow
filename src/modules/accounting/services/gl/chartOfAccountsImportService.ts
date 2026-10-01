@@ -6,7 +6,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { lockSystemRoleWrites } from './systemRoleWriteLock';
+import { boundedRowWait, lockSystemRoleWrites } from './systemRoleWriteLock';
 import { isSystemAccountKey, SYSTEM_ACCOUNT_KEYS } from './systemAccountKeys';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
 import type { GLAccountType } from '../../types/gl.types';
@@ -155,10 +155,12 @@ export function getTemplateLines(template: CoaTemplate): readonly TemplateLine[]
  * Seed a Chart of Accounts for a newly-created company from the chosen template.
  * Two-pass insert: first without parent_account_id, then wire up parents.
  */
-export async function seedChartOfAccountsFromTemplate(
-  companyId: string,
-  template: CoaTemplate,
-): Promise<void> {
+export function seedChartOfAccountsFromTemplate(companyId: string, template: CoaTemplate): Promise<void> {
+  // Bounded: every statement it runs while it holds the role lock waits at most 5s for any lock.
+  return boundedRowWait(() => seedUnderLock(companyId, template));
+}
+
+async function seedUnderLock(companyId: string, template: CoaTemplate): Promise<void> {
   const lines = getTemplateLines(template);
   if (lines.length === 0) return; // 'blank' — no seeding
   // The template flags system accounts: serialise with every writer of role flags.

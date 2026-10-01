@@ -12,7 +12,8 @@
  */
 import { sql } from '@/lib/neon';
 import { SYSTEM_ACCOUNT_KEYS } from './systemAccountKeys';
-import { lockSystemRoleWrites } from './systemRoleWriteLock';
+import { boundedRowWait, lockSystemRoleWrites } from './systemRoleWriteLock';
+import { ChartRefusal } from './chartRefusal';
 import { assertRolesKept, snapshotRoles, type RoleSnapshot } from './systemRoleInvariant';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
 
@@ -69,12 +70,12 @@ export async function guardActiveChange(
   companyId: string, id: string, input: { isActive?: unknown; vatInputDenied?: unknown },
 ): Promise<FinishRoleWrite> {
   for (const flag of ['isActive', 'vatInputDenied'] as const) {
-    if (input[flag] !== undefined && typeof input[flag] !== 'boolean') throw new Error(`${flag} must be true or false`);
+    if (input[flag] !== undefined && typeof input[flag] !== 'boolean') throw new ChartRefusal(`${flag} must be true or false`);
   }
   await lockSystemRoleWrites(companyId);
   if (input.isActive === undefined) return finishWith(companyId, null);
   const refusal = input.isActive === true ? await reactivationRefusal(companyId, id) : null;
-  if (refusal) throw new Error(refusal);
+  if (refusal) throw new ChartRefusal(refusal);
   return finishWith(companyId, await snapshotRoles(companyId));
 }
 
@@ -89,11 +90,11 @@ export async function refuseSystemAccountDelete(companyId: string, id: string): 
     SELECT account_name FROM gl_accounts
     WHERE id::TEXT = ${id} AND company_id = ${companyId}::UUID AND is_system_account
   `) as { account_name: string }[];
-  if (row) throw new Error(`Cannot delete "${row.account_name}" — it is a system account`);
+  if (row) throw new ChartRefusal(`Cannot delete "${row.account_name}" — it is a system account`);
   return finishWith(companyId, await snapshotRoles(companyId));
 }
 
-export { clearSystemAccountCacheAfterCommit };
+export { boundedRowWait, ChartRefusal, clearSystemAccountCacheAfterCommit };
 
 /** The role-write lock, first, for a chart write that changes no role (a code, a name, a bank field). */
 export async function lockBeforeChartWrite(companyId: string): Promise<void> {

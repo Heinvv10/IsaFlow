@@ -50,6 +50,7 @@ import {
   ReclassifyError,
 } from '@/modules/accounting/services/gl/accountReclassifyService';
 import handler from '../../../pages/api/accounting/chart-of-accounts';
+import { ChartRefusal } from '@/modules/accounting/services/gl/chartRefusal';
 
 const ACCOUNT = '22222222-2222-4222-8222-222222222222';
 const PARENT = '33333333-3333-4333-8333-333333333333';   // the route refuses a malformed id before any service call
@@ -90,13 +91,23 @@ describe('PUT /api/accounting/chart-of-accounts — partial-commit safety', () =
   });
 
   it('still answers a plain rename failure with 400 — nothing was written to unwind', async () => {
-    vi.mocked(updateAccount).mockRejectedValueOnce(new Error('Cannot deactivate a system account'));
+    vi.mocked(updateAccount).mockRejectedValueOnce(new ChartRefusal('Cannot deactivate a system account'));
     const { req, res } = mockReqRes({ id: ACCOUNT, isActive: false });
 
     await handler(req, res);
     expect(reclassifyAccount).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(400);
     expect(JSON.stringify(res.sent)).toContain('system account');
+  });
+
+  it('PROPAGATES a code-less Error that is not a refusal (a dropped connection), even with nothing written', async () => {
+    // node-postgres raises a plain Error with no `code` for "Connection terminated unexpectedly". Treating
+    // every code-less Error as a refusal answered it 400 with the driver's text — and a 4xx COMMITS.
+    vi.mocked(updateAccount).mockRejectedValueOnce(new Error('Connection terminated unexpectedly'));
+    const { req, res } = mockReqRes({ id: ACCOUNT, accountName: 'X' });
+
+    await expect(handler(req, res)).rejects.toThrow('Connection terminated unexpectedly');
+    expect(res.statusCode).not.toBe(400);
   });
 
   it('answers a reclassify REFUSAL with 400 and never runs the update', async () => {

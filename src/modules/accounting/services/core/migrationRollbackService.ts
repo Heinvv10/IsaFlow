@@ -15,7 +15,7 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
+import { boundedRowWait, lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 import type { MigrationSource } from './migrationParserService';
 import type { DbRow } from '@/types/db';
 
@@ -37,7 +37,12 @@ function isFkViolation(err: unknown): boolean {
   return (err as { code?: string }).code === FK_VIOLATION;
 }
 
-export async function rollbackMigration(
+/** Bounded: every statement it runs while it holds the role lock waits at most 5s for any lock. */
+export function rollbackMigration(companyId: string, source: MigrationSource): Promise<RollbackResult> {
+  return boundedRowWait(() => rollbackUnderLock(companyId, source));
+}
+
+async function rollbackUnderLock(
   companyId: string,
   source: MigrationSource,
 ): Promise<RollbackResult> {

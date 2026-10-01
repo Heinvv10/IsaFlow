@@ -74,3 +74,32 @@ it('when the reload after a save fails, says so instead of leaving "saved" over 
   expect(await screen.findByText('Failed to load configuration')).toBeTruthy();
   expect(screen.queryByText('Default accounts saved')).toBeNull();
 });
+
+it('when the page cannot load, shows the error and a retry — not twelve selects reading "Not configured"', async () => {
+  vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => (
+    String(url).startsWith('/api/accounting/chart-of-accounts') ? json({ data: ACCOUNTS }) : json({ success: false }, 500)));
+  render(<DefaultAccountsPage />);
+  expect(await screen.findByText('Failed to load configuration')).toBeTruthy();
+  expect(screen.queryAllByRole('combobox')).toEqual([]);
+  expect((screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement).disabled).toBe(true);
+  // Retry: the load now succeeds and the form appears.
+  answer();
+  fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+  expect(await screen.findByRole('combobox', { name: 'Accounts Receivable' })).toBeTruthy();
+  expect(screen.queryByText('Failed to load configuration')).toBeNull();
+});
+
+it('after a refused save (400) puts the row back to the holder it loaded and keeps the refusal on screen', async () => {
+  answer();
+  render(<DefaultAccountsPage />);
+  const select = await screen.findByRole('combobox', { name: 'Accounts Receivable' }) as HTMLSelectElement;
+  const answered = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => (init?.method === 'POST'
+    ? json({ success: false, error: { code: 'BAD_REQUEST', message: "Account 1121 is classified 'inventory'; it must be reclassified to 'other' first." } }, 400)
+    : answered(url, init)));
+  fireEvent.change(select, { target: { value: 'ar-2' } });
+  expect(select.value).toBe('ar-2');
+  fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+  expect(await screen.findByText(/is classified 'inventory'/)).toBeTruthy();
+  await waitFor(() => expect(select.value).toBe('ar-1'));
+});
