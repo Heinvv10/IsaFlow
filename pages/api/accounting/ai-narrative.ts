@@ -8,7 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { markQuotaUsed, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
+import { markQuotaUsed, markQuotaUsedForStatus, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
 import { checkAiRateLimit } from '@/lib/rateLimit';
 import {
   buildNarrativePrompt, parseNarrativeResponse, buildVarianceCommentary, buildTrendAnalysis,
@@ -53,6 +53,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         markQuotaUsed('ai'); // the provider answered: the daily unit is spent (R-175)
         const data = await response.json() as { content?: { text?: string }[] };
         narrative = parseNarrativeResponse(data.content?.[0]?.text || '');
+      } else {
+        markQuotaUsedForStatus('ai', response.status); // a 5xx may follow the work; a 4xx did none (R-175)
       }
     } catch (err) { markQuotaUsedUnlessNoWork('ai', err); log.error('Narrative generation failed', { error: err }, 'ai'); }
   }

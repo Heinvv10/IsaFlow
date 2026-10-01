@@ -57,16 +57,30 @@ export function markQuotaUsed(kind: QuotaKind, units = 1): void {
 const NEVER_SENT = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT']);
 
 /**
+ * Called with the HTTP status of a provider answer that was not a success.
+ * A 4xx is a refusal of the request itself (bad input, auth, 429 rate limit):
+ * no work was done. A 5xx proves nothing: a 502/503/504 can come from a proxy
+ * after the provider did the work. A 408 is a timeout. Both count as use.
+ */
+export function markQuotaUsedForStatus(kind: QuotaKind, status: number): void {
+  if (status >= 500 || status === 408) markQuotaUsed(kind);
+}
+
+/**
  * Called when a provider call THREW. The unit is used unless the error proves
  * no work was done: the request never reached the provider (NEVER_SENT), or
- * the provider answered with an error status (`err.status`, as the Anthropic
- * SDK reports a 4xx/5xx). A timeout or an abort proves nothing: the provider
- * may have done, and billed, the work, so it counts as use. Otherwise a tenant
- * whose prompts reliably time out would be bounded only by the 15-minute bucket.
+ * the provider refused it (`err.status`, as the Anthropic SDK and the Signum
+ * client report it, judged by `markQuotaUsedForStatus`). A timeout or an abort
+ * proves nothing: the provider may have done, and billed, the work, so it
+ * counts as use. Otherwise a tenant whose prompts reliably time out would be
+ * bounded only by the 15-minute bucket.
  */
 export function markQuotaUsedUnlessNoWork(kind: QuotaKind, err: unknown): void {
   const e = (err ?? {}) as { status?: unknown; code?: unknown; cause?: { code?: unknown } | null };
-  if (typeof e.status === 'number') return;
+  if (typeof e.status === 'number') {
+    markQuotaUsedForStatus(kind, e.status);
+    return;
+  }
   if (NEVER_SENT.has(String(e.cause?.code ?? e.code))) return;
   markQuotaUsed(kind);
 }

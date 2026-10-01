@@ -88,10 +88,10 @@ describe('nl-query — the daily AI unit is marked used only when the provider a
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('leaves the unit unused when the provider answers with an error status', async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 529 });
+  it.each([[400, 0], [429, 0], [408, 1], [503, 1], [529, 1]])('after a provider %i answer, uses %i unit (a 4xx refused it; a 5xx may follow the work)', async (status, units) => {
+    fetchMock.mockResolvedValue({ ok: false, status });
 
-    expect(await call('How many customers do we have?')).toBe(0);
+    expect(await call('How many customers do we have?')).toBe(units);
   });
 
   it('leaves the unit unused when the provider cannot be reached', async () => {

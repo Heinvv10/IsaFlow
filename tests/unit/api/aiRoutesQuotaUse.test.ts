@@ -63,10 +63,11 @@ describe.each(ROUTES)('$name — the daily AI unit is used only when the provide
     expect(checkAi.mock.calls[0]![3]).toMatchObject({ refundUnused: true });
   });
 
-  it('answers 200 with its fallback and uses nothing when the provider answers with an error', async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 529 });
+  it.each([[400, 0], [401, 0], [429, 0], [408, 1], [500, 1], [502, 1], [529, 1]])('answers 200 with its fallback after a provider %i, and uses %i unit', async (status, units) => {
+    fetchMock.mockResolvedValue({ ok: false, status });
 
-    expect(await unitsUsed(route)).toBe(0);
+    // A 4xx refused the request; a 5xx may follow the provider's work, a 408 is a timeout.
+    expect(await unitsUsed(route)).toBe(units);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(apiResponse.success).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ aiGenerated: false }));
   });

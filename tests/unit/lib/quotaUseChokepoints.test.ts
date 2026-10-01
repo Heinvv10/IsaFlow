@@ -92,11 +92,11 @@ describe('where usage-quota use is recorded (R-175)', () => {
       })).toEqual({ ai: 1, send: 0 });
     });
 
-    it('records nothing on a provider error status', async () => {
-      fetchMock.mockResolvedValue({ ok: false, status: 503, text: async () => 'overloaded' });
+    it.each([[400, 0], [429, 0], [408, 1], [503, 1]])('after a provider %i answer, records %i AI use', async (status, ai) => {
+      fetchMock.mockResolvedValue({ ok: false, status, text: async () => 'no' });
       expect(await used(async () => {
         expect(await callVlmChat(VLM, 'sys', [])).toBeNull();
-      })).toEqual({ ai: 0, send: 0 });
+      })).toEqual({ ai, send: 0 });
     });
 
     it('records one AI use when the call times out or is aborted: the provider may have done the work', async () => {
@@ -122,9 +122,14 @@ describe('where usage-quota use is recorded (R-175)', () => {
       })).toEqual({ ai: 1, send: 0 });
     });
 
-    it('records nothing when the provider answers with an error status', async () => {
-      createMessage.mockRejectedValue(Object.assign(new Error('529 overloaded'), { status: 529 }));
+    it('records nothing when the provider refuses the request (4xx)', async () => {
+      createMessage.mockRejectedValue(Object.assign(new Error('400 bad request'), { status: 400 }));
       expect(await used(() => generateNoteNarrative(...NOTE))).toEqual({ ai: 0, send: 0 });
+    });
+
+    it('records one AI use on a 5xx answer: it may come after the work', async () => {
+      createMessage.mockRejectedValue(Object.assign(new Error('529 overloaded'), { status: 529 }));
+      expect(await used(() => generateNoteNarrative(...NOTE))).toEqual({ ai: 1, send: 0 });
     });
 
     it('records nothing when the provider could not be reached', async () => {

@@ -10,7 +10,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkAiRateLimit } from '@/lib/rateLimit';
-import { markQuotaUsed, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
+import { markQuotaUsed, markQuotaUsedForStatus, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import {
   buildTextToSQLPrompt, parseSQLResponse, validateGeneratedSQL,
@@ -90,6 +90,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     if (!response.ok) {
+      // A 5xx may come after the provider did the work; a 4xx did none (R-175).
+      markQuotaUsedForStatus('ai', response.status);
       return apiResponse.success(res, { intent, message: 'AI service unavailable', rows: [], columns: [], summary: 'Service error' });
     }
     // The provider answered: the daily unit is spent. Every exit before this
