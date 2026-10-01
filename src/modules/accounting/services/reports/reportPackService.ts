@@ -41,6 +41,20 @@ export interface ReportPackInput {
   /** From the classifier. Falls back to the derived line when absent. */
   operatingProfit?: number;
   financingCashFlow?: number;
+  /**
+   * Net cash from investing activities over the window, signed as cash moved:
+   * an outflow is negative. From `getCashFlowDirect` via `getReportPackInput`,
+   * with the operating and financing figures beside it. Optional like those
+   * two: an input built without a cash flow statement carries none.
+   *
+   * ITS OWN FIELD, NOT `capitalExpenditure` NEGATED. The direct-method
+   * statement has one investing group — acquisitions net of disposals, and
+   * investments with them — and does not itemise purchases of assets apart.
+   * Carried as capex it would restate every Free Cash Flow that reads that
+   * field as "operating less net investing". `capitalExpenditure` therefore
+   * stays unpopulated, as it was.
+   */
+  investingCashFlow?: number;
 }
 
 export type PackType = 'board' | 'management' | 'monthly';
@@ -164,12 +178,16 @@ function buildSectionData(
 
     case 'cash_flow': {
       const opCF = input.operatingCashFlow ?? input.netProfit;
-      const capex = input.capitalExpenditure ?? 0;
+      // THE NET INVESTING FLOW WHERE ONE IS CARRIED, capex negated only where
+      // it is not. With real operating and financing figures and investing
+      // taken from an absent capex, this printed investing as nil and an
+      // opening cash wrong by the whole investing flow.
+      const invCF = input.investingCashFlow ?? -(input.capitalExpenditure ?? 0);
       const finCF = input.financingCashFlow ?? 0;
-      const netCF = opCF - capex + finCF;
+      const netCF = opCF + invCF + finCF;
       return {
         operatingCashFlow: opCF,
-        investingCashFlow: -capex,
+        investingCashFlow: invCF,
         financingCashFlow: finCF,
         netCashFlow: netCF,
         openingCash: input.cash - netCF,
