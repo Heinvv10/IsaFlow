@@ -172,7 +172,7 @@ files, with shared callers in `tests/integration/r177-portal-followups.helpers.t
 - The enable route: returns the standing link and still answers 404 for a paid invoice; a held
   invoice gives a retryable 400 after 5 seconds; the bare service refuses to run with no request
   transaction; with the public origin unset or on localhost both routes answer 500 and mint
-  nothing; a link whose token is `%` is not treated as named.
+  nothing; a link whose token would match the named one as a pattern is not treated as named.
 
 `tests/unit/accounting/utils/payNowCheckout.test.ts`, 5 cases: the two calls in order, and each
 refusal thrown with the server's message.
