@@ -80,6 +80,10 @@ export function smallMultipleOption(
   axis?: { unit: string; boxPx?: number } | { endpoints: true },
 ): EChartsCoreOption {
   const last = points[points.length - 1]?.value ?? 0;
+  // ONE PERIOD IS A POINT, drawn, at the plot's right end after a blank period —
+  // so its figure sits in its gutter as any line's does, not mid-plot unmarked.
+  const lone = axis !== undefined && 'unit' in axis && points.length === 1;
+  const drawn: Array<{ label: string; value: number | null }> = lone ? [{ label: '', value: null }, ...points] : points;
   const unit = axis !== undefined && 'unit' in axis ? axis.unit : null;
   const boxPx = axis !== undefined && 'unit' in axis ? axis.boxPx : undefined;
   const FULL_GRID = { top: 32, bottom: 32 };
@@ -144,7 +148,7 @@ export function smallMultipleOption(
       : { left, right: endLabelGutterPx(formatValue(last)), ...FULL_GRID, outerBoundsMode: 'none' as const },
     xAxis: {
       type: 'category',
-      data: points.map((p) => p.label),
+      data: drawn.map((p) => p.label),
       // THE SERIES ENDS AT THE EDGE OF THE PLOT, AND THAT IS WHAT KEEPS THE
       // GRIDLINES OFF THE END LABEL.
       //
@@ -241,7 +245,8 @@ export function smallMultipleOption(
       {
         name: 'Actual',
         type: 'line',
-        showSymbol: false,
+        showSymbol: lone,
+        symbol: 'circle',
         lineStyle: { color: palette.ink, width: 2 },
         itemStyle: { color: palette.ink },
         endLabel: {
@@ -259,7 +264,7 @@ export function smallMultipleOption(
           formatter: (param: LabelParam) => formatValue(Number(param.value ?? last)),
         },
         ...(unit === null ? {} : { labelLayout: end.labelLayout }),
-        data: points.map((p) => p.value),
+        data: drawn.map((p) => p.value),
         // A RULE AT ZERO, on the axis that has labels to read it against.
         // `sharedDomain` always puts zero inside the domain, but a gridline
         // is a gridline: on a series that is negative throughout, which is

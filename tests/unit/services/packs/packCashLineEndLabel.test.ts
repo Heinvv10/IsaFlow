@@ -48,7 +48,7 @@ function read(svg: string) {
   const H = Number(/<svg width="[\d.]+" height="([\d.]+)"/.exec(svg)![1]);
   const c = /<clipPath[^>]*>\s*<path d="M([-\d.]+) ([-\d.]+)l([-\d.]+) 0l0 ([-\d.]+)/.exec(svg)!;
   // The clip path is the grid grown by a pixel each side.
-  const plot = { top: +c[2]! + 1, bottom: +c[2]! + +c[4]! - 1, left: +c[1]! + 1 };
+  const plot = { top: +c[2]! + 1, bottom: +c[2]! + +c[4]! - 1, left: +c[1]! + 1, right: +c[1]! + +c[3]! - 1 };
   const d = /<path d="(M[^"]*)"[^>]*stroke="#15202b"[^>]*stroke-width="2"/.exec(svg)![1]!;
   const pts = [...d.matchAll(/[ML]([-\d.]+) ([-\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])] as [number, number]);
   const texts = [...svg.matchAll(/<text([^>]*)>([^<]*)<\/text>/g)].flatMap((m) => {
@@ -144,8 +144,11 @@ function check(closing: number[], heightMm: number, tag: string, failures: strin
   const printed = ticks.map((t) => t.text);
   if (new Set(printed).size !== printed.length) failures.push(`${tag}: ticks repeat — ${printed.join(' | ')}`);
   const spare = W - ground.right;
-  // (A single point is drawn mid-plot, not at its right edge.)
-  if (closing.length > 1 && spare > 4) failures.push(`${tag}: ${spare.toFixed(1)}px of gutter beyond "${ground.text}"`);
+  if (spare > 4) failures.push(`${tag}: ${spare.toFixed(1)}px of gutter beyond "${ground.text}"`);
+  // In its gutter, right of the plot — a one-period line put it mid-plot.
+  if (ground.left < plot.right - 0.11) failures.push(`${tag}: the closing figure starts inside the plot`);
+  // And a one-period line draws its point: a line of one point is nothing.
+  if (closing.length === 1 && !/<path d="M[^"]*A[^"]*"[^>]*fill="#15202b"/.test(svg)) failures.push(`${tag}: its one point is not drawn`);
   // What is held inside the plot is the label's box as zrender lays it out:
   // a 14px line and its halo, two pixels either side of the 12px type.
   const LEAD = 2;

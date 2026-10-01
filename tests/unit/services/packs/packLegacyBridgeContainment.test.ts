@@ -131,4 +131,16 @@ describe('the management pack\'s charts are set in the pack\'s print face', () =
     expect((svg.match(/<text\b/g) ?? []).length, 'no text was drawn, so no face is under test').toBeGreaterThan(12);
     expect(fontFamilies(svg)).toEqual([PRINT_FACE]);
   });
+
+  it.each([
+    ['a year of nil revenue', Array(12).fill(0)],
+    ['revenue under a rand a month', [0.4, 0.9, 0.2, 0.6, 0.8, 0.1, 0.3, 0.7, 0.5, 0.9, 0.2, 0.6]],
+    ['revenue of a few rand', [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8]],
+  ])('the twelve-month trend prints no figure on two ticks: %s', (_name, revenue) => {
+    const points = revenue.map((r, i) => ({ label: `M${i + 1} 2026`, revenue: r }));
+    const svg = renderLegacyOption(legacyTrendOption(points), 718, 320);
+    const ticks = [...svg.matchAll(/text-anchor="end"[^>]*transform="translate\([^>]*>([^<]*)<\/text>/g)].map((m) => m[1]!);
+    expect(ticks.length, 'no value ticks were read').toBeGreaterThan(0);
+    expect(ticks, ticks.join(' | ')).toEqual([...new Set(ticks)]);
+  });
 });

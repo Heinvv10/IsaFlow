@@ -40,7 +40,7 @@
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import type { MoneyScale } from '@/lib/format/money';
+import { formatMoney, type MoneyScale } from '@/lib/format/money';
 import {
   axisDomain,
   compositionTooltip,
@@ -151,6 +151,26 @@ export function waterfallOption(
   };
 }
 
+/**
+ * A money axis that prints no figure on two ticks. Left to ECharts, a year of
+ * nil revenue drew 0 to 1 in fifths and printed "– | <1 | <1 | 1 | 1 | 1".
+ * The step is coarsened until every tick is a figure of its own; an axis
+ * with nothing on it prints its zero alone.
+ */
+function distinctTicksAxis(values: number[], palette: ChartPalette, scale: MoneyScale) {
+  if (values.every((v) => v === 0)) {
+    const axis = moneyValueAxis(palette, scale, { min: 0, max: 1, splitNumber: 1, interval: 1 });
+    return { ...axis, axisLabel: { ...axis.axisLabel, showMaxLabel: false } };
+  }
+  let domain = axisDomain(values, 6);
+  for (let ask = 6; ask >= 1; ask -= 1) {
+    domain = axisDomain(values, ask);
+    const printed = Array.from({ length: domain.splitNumber + 1 }, (_, i) => formatMoney(domain.min + (i * (domain.max - domain.min)) / domain.splitNumber, { scale }));
+    if (new Set(printed).size === printed.length) break;
+  }
+  return moneyValueAxis(palette, scale, { ...domain, interval: (domain.max - domain.min) / domain.splitNumber });
+}
+
 export function trendOption(
   points: TrendPoint[],
   scale: MoneyScale,
@@ -168,7 +188,7 @@ export function trendOption(
       axisLabel: { color: palette.axis, interval: 0, rotate: 30 },
       axisLine: { lineStyle: { color: palette.axis } },
     },
-    yAxis: moneyValueAxis(palette, scale),
+    yAxis: distinctTicksAxis(points.map((p) => p.value), palette, scale),
     series: [
       {
         name: 'Actual',
