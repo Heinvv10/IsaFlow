@@ -28,6 +28,8 @@ Most files below exist only for the 300-line cap and are re-exported from the or
 - Page 11 spends its own budget first (`mattersBudgetMm`, `packMattersPrinted`); a matter with no rand amount is always kept. Pages 4 and 11 read ONE `SelectedMatters`.
 
 ## Rules for composing pages
+- A value axis's tick count comes from its plot's height (26px a step: `intervalsFor` for the bridges, `tickIntervals` in `packPositionChart`), never left to ECharts, which chooses by the data and prints the same ticks closer together on a shorter chart.
+- `kpiTileHeight` charges the delta line for the text the tile prints, wrapped at `KPI_DELTA_MEASURE_MM` (38mm), calibrated on 28 lines rendered through Chromium and pinned in `packKpiTileDeltaHeight.test.ts`. Re-render before changing the tile's wording, its basis or the formatter.
 - Every printed money/percentage figure is a `PackFigure` recorded in the provenance map with a unique source; one source printed twice must print the same value.
 - Prose claims about another page are derived from what that page drew (`packTrendCrossReference`, `packWindowFootnotes`, `packDisownedBases`, `packPrintsComparative`); never hard-code a pointer or an enumeration. Lists of checks render from `MATTER_SOURCES`.
 - A sentence that states a relation takes its result as an input (`narrative/statedRelation.ts`).
