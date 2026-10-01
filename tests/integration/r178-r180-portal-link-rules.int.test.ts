@@ -147,6 +147,28 @@ describe('the enable-online-payment route shares the standing link and its lock'
     expect(await links(id)).toEqual([]);
   }, 20_000);
 
+  it.each(['', 'http://localhost:3200'])('with the public origin set to "%s" it mints nothing and answers 500, on both routes', async (origin) => {
+    const id = await invoice();
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', origin);
+    try {
+      expect((await enableRoute(id)).statusCode).toBe(500);
+      expect((await payNow(id)).statusCode).toBe(500);
+    } finally { vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.r177.test'); }
+    expect(await links(id)).toEqual([]);
+    expect((await pool.query('SELECT payment_url FROM customer_invoices WHERE id = $1', [id])).rows).toEqual([{ payment_url: null }]);
+  });
+
+  it('a token is matched exactly, not as a pattern: a link whose token is "%" names nothing', async () => {
+    const id = await invoice();
+    const real = tokenOf(await payNow(id));
+    const wild = await pool.query<{ id: string }>(
+      "INSERT INTO portal_payment_links (invoice_id, client_id, amount, charges_balance, token, expires_at) SELECT invoice_id, client_id, amount, true, '%', NOW() - interval '1 day' FROM portal_payment_links WHERE token = $1 RETURNING id", [real]);
+    expect((await create('%')).statusCode).toBe(400); // expired: the invoice does not name it
+    await pool.query("UPDATE portal_payment_links SET status = 'cancelled' WHERE token = $1", [real]);
+    expect(tokenOf(await payNow(id))).not.toBe('%'); // and Pay Now does not adopt it
+    await pool.query('DELETE FROM portal_payment_links WHERE id = $1', [wild.rows[0]!.id]);
+  });
+
   it('the service refuses to run outside a request transaction, where its lock would hold nothing', async () => {
     const id = await invoice();
     await expect(enableOnlinePaymentBare(CO, id)).rejects.toThrow(/requires a request transaction/);

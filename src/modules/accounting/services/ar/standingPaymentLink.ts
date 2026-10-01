@@ -15,6 +15,15 @@ import { sql } from '@/lib/neon';
 import { documentInPopulation } from '@/modules/accounting/services/shared/documentPopulation';
 import { withCustomerInvoiceLock } from './customerInvoiceLock';
 
+/**
+ * The public origin payment links are built on, or null when it is missing or points at this
+ * machine: a link on localhost must never be stored on an invoice or emailed to a customer.
+ */
+export function portalAppUrl(): string | null {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  return !appUrl || /localhost|127\.0\.0\.1|\[::1\]/.test(appUrl) ? null : appUrl;
+}
+
 export type StandingLinkRefusal = 'invoice_not_found' | 'invoice_unapproved' | 'no_customer' | 'nothing_owed';
 
 interface InvoiceRow {
@@ -48,6 +57,7 @@ export async function ensureStandingLink(
 
   // A statement of its own, after the lock: a call that waited on the lock must see the link the
   // other one minted, and a subquery of the locking statement would still read its old snapshot.
+  // The URL's tail is compared exactly, not with LIKE: a token is not a pattern.
   // No expiry test: the standing link the invoice names does not expire (see resolveLinkCharge).
   const existing = (await sql`
     SELECT l.token, ci.online_payment_enabled AS enabled
@@ -55,7 +65,7 @@ export async function ensureStandingLink(
     JOIN customer_invoices ci ON ci.id = l.invoice_id
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
       AND l.status = 'active' AND l.charges_balance
-      AND ci.payment_url LIKE '%/portal/pay/' || l.token
+      AND right(ci.payment_url, 12 + length(l.token)) = '/portal/pay/' || l.token
     LIMIT 1
   `) as { token: string; enabled: boolean | null }[];
   if (existing[0]) {

@@ -5,7 +5,7 @@
  */
 
 import { log } from '@/lib/logger';
-import { ensureStandingLink } from '@/modules/accounting/services/ar/standingPaymentLink';
+import { ensureStandingLink, portalAppUrl } from '@/modules/accounting/services/ar/standingPaymentLink';
 
 /** A draft, or an invoice awaiting approval, cannot be paid online yet (R-180). */
 export class InvoiceNotApprovedError extends Error {
@@ -24,7 +24,9 @@ export class InvoiceNotApprovedError extends Error {
  * for a draft or an invoice awaiting approval (R-180). Needs the request transaction.
  */
 export async function enableOnlinePayment(companyId: string, invoiceId: string): Promise<string | null> {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3101';
+  // It used to fall back to http://localhost:3101, which was then stored on the invoice and emailed.
+  const appUrl = portalAppUrl();
+  if (!appUrl) throw new Error('NEXT_PUBLIC_APP_URL is missing or points at localhost; refusing to mint a payment link');
   const link = await ensureStandingLink(companyId, invoiceId, appUrl);
   if (!link.ok && link.reason === 'invoice_unapproved') throw new InvoiceNotApprovedError();
   if (!link.ok) return null;

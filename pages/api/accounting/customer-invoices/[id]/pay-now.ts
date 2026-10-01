@@ -21,7 +21,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
-import { ensureStandingLink } from '@/modules/accounting/services/ar/standingPaymentLink';
+import { ensureStandingLink, portalAppUrl } from '@/modules/accounting/services/ar/standingPaymentLink';
 import { CustomerInvoiceLockTimeoutError } from '@/modules/accounting/services/ar/customerInvoiceLock';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -35,11 +35,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // R-158: type-checked, so neither 'x' nor ['<uuid>'] reaches the ::UUID cast.
   if (!isUuidParam(invoiceId)) return apiResponse.badRequest(res, 'invoice id must be a UUID');
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (!appUrl || /localhost|127\.0\.0\.1|\[::1\]/.test(appUrl)) {
+  const appUrl = portalAppUrl();
+  if (!appUrl) {
     log.error(
       'NEXT_PUBLIC_APP_URL missing or points at localhost — refusing to generate portal URL',
-      { appUrl },
+      { appUrl: process.env.NEXT_PUBLIC_APP_URL },
       'PayNow',
     );
     return apiResponse.internalError(res, 'Server URL misconfigured');
