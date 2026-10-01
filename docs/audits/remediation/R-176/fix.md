@@ -51,8 +51,9 @@ and cross-checked against every `BEGIN` in the same trees. "Before" is `09049726
 | 14 | `scripts/simulate-fy2026-loans.ts` (module pool) | yes | swallowed; pooled | destroyed |
 | 15 | `scripts/simulate-fy2026-workflows.ts` (memoised pool) | yes | swallowed; pooled | destroyed |
 | 16 | `pages/api/auth/verify-email.ts` (pool per request, ended in the same `finally`) | yes | logged; bare release | destroyed (/review round) |
-| 17a | `scripts/ap-backfill-supplier-payments.ts`, `auto-apply-unapplied-dryrun.ts`, `r088-posted-receipt-key-census.ts` (pool per run) | yes | swallowed or unbounded; bare release, then `pool.end()` | destroyed (/review round) |
+| 17a | `scripts/auto-apply-unapplied-dryrun.ts`, `r088-posted-receipt-key-census.ts` (pool per run) | yes | swallowed or unbounded; bare release, then `pool.end()` | destroyed (/review round) |
 | 17b | `scripts/apply-migrations.ts`, `migrations/resolve-checksum-conflicts.ts` (pool per run) | yes | ROLLBACK in a helper (`applyOne`, `processOne`); bare release in `main`, then `pool.end()` | unchanged, pinned |
+| 17c | `scripts/ap-backfill-supplier-payments.ts` (pool per run) | yes | two bare ROLLBACKs; bare release, then `pool.end()` | unchanged, pinned: it runs `main()` on import, so no test can drive a conversion |
 | 18a | `scripts/fixes/backfill-je-fiscal-periods.ts`, `repairs/2026-07-05-p1-1-reverse-je-2026-00927.ts` | yes, on a `pg.Client` of their own, ended with `client.end()`; no pool | bare ROLLBACK: unbounded, and a failure threw over the original error | through `rollbackFailed` (/review round) |
 | 18b | `scripts/run-sql.mjs`, `seed-historical-data.mjs`, `seed-prd05-qa-data.ts` | a `pg.Client` of their own; no ROLLBACK sent | n/a | out of scope |
 | 19 | `src/lib/auth/impersonationSessions.ts` (`client.connect()`) | no: one autocommit INSERT on its own `pg.Client`, then `end()` | n/a | out of scope |
@@ -449,9 +450,11 @@ owner used the helper. Fixed:
   gone. Unit cases: a failed ROLLBACK after a provisioning error, and on an unknown token (still
   410), each release with `true` and still call `admin.end()`; the healthy paths release with
   `false`.
-- Of the scripts the census pinned, `ap-backfill-supplier-payments.ts`,
-  `auto-apply-unapplied-dryrun.ts` and `r088-posted-receipt-key-census.ts` were cheap to convert
-  and are converted (row 17a). `apply-migrations.ts` and `migrations/resolve-checksum-conflicts.ts`
+- Of the scripts the census pinned, `auto-apply-unapplied-dryrun.ts` and
+  `r088-posted-receipt-key-census.ts` are converted (row 17a): one `rollbackFailed` call each,
+  whose result the release takes, which the release census proves. `ap-backfill-supplier-payments.ts`
+  was converted, then reverted and pinned (row 17c): it has two ROLLBACK paths, the census cannot
+  tell one dropped, and the script runs `main()` on import, so no test can drive that path. `apply-migrations.ts` and `migrations/resolve-checksum-conflicts.ts`
   are left and named, with the reason, here and in `src/lib/auth/.claude.md`.
 - The docs say plainly that the 5 s bound covers ROLLBACK only.
 - Addendum: the reviewer also named `scripts/fixes/backfill-je-fiscal-periods.ts` and
@@ -465,11 +468,10 @@ owner used the helper. Fixed:
   `apply-migrations.ts` and `resolve-checksum-conflicts.ts` are pinned. It does not see a ROLLBACK
   whose text is built at run time or sent other than through `.query(`.
 
-Mutants: the census, wrapper and new-guard mutants (95) on `33b294c90`, baseline green three times
-before and once after: 94 RED. One survives: dropping the result of
-`ap-backfill-supplier-payments.ts`'s dry-run ROLLBACK. No test executes that script, and the
-release census proves the released value derives from a ROLLBACK outcome, not that every path
-assigns it; its catch path still does. Accepted.
+Mutants: the census, wrapper and new-guard mutants (95), first run: 94 RED; the survivor was
+the dropped result of `ap-backfill-supplier-payments.ts`'s dry-run ROLLBACK. That script's
+conversion is reverted and it is pinned in both censuses (row 17c); the census mutants were
+re-run after (round 10 in `mutations.log`).
 
 ## Migration / rollback
 

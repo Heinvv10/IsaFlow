@@ -24,6 +24,9 @@ const HELPER_FILE = 'src/lib/rollbackFailed.ts';
 const IN_A_HELPER = 'a migration tool whose ROLLBACK sits in a helper and whose release is in main, on a pool ended with the run (R-176 fix.md)';
 const PINNED: Record<string, { count: number; reason: string }> = {
   [HELPER_FILE]: { count: 1, reason: 'the one ROLLBACK every owner goes through: bounded, logged, cancels the backend' },
+  'scripts/ap-backfill-supplier-payments.ts': {
+    count: 2, reason: 'an operator-run script that runs main() on import, so no test can drive a conversion of it (R-176 fix.md)',
+  },
   'scripts/apply-migrations.ts': { count: 1, reason: IN_A_HELPER },
   'scripts/migrations/resolve-checksum-conflicts.ts': { count: 1, reason: IN_A_HELPER },
 };
