@@ -167,3 +167,23 @@ export async function p18() {
   const bad = list.vendorName;
   return [name, bad] as const;
 }
+
+// 19. W1-02 LOW: the by-id key matches the `id` PARAMETER wherever it sits in
+//     the query string — by name, never by substring. `paid=`, `uid=` and an
+//     `id=` that is only text inside another parameter's value are not it.
+export async function p19() {
+  const second = await apiJson(`/api/accounting/document-capture?foo=1&id=${'x'}`);
+  const name: string | null = second.vendorName;   // must compile, no `in` narrowing
+  const middle = await apiJson(`/api/accounting/document-capture?a=1&id=${'x'}&b=2`);
+  const name2: string | null = middle.vendorName;
+  const paid = await apiJson(`/api/accounting/document-capture?paid=${'x'}`);
+  // @ts-expect-error `paid=` is a different parameter, so this is still the list shape
+  const bad1 = paid.vendorName;
+  const uid = await apiJson(`/api/accounting/document-capture?foo=1&uid=${'x'}`);
+  // @ts-expect-error `uid=` is a different parameter
+  const bad2 = uid.vendorName;
+  const inValue = await apiJson(`/api/accounting/document-capture?foo=id=${'x'}`);
+  // @ts-expect-error `id=` inside another parameter's value is not the id parameter
+  const bad3 = inValue.vendorName;
+  return [name, name2, bad1, bad2, bad3] as const;
+}

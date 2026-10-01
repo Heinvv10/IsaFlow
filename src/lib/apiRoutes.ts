@@ -186,10 +186,22 @@ type MatchDynamic<P extends string> = {
     : never;
 }[keyof DynamicRoutes];
 
+/** The value of query parameter `Name` in `Seg` (one `k=v` pair), else `never`. */
+type ParamValue<Seg extends string, Name extends string> = Seg extends `${Name}=${infer V}`
+  ? [Segment<V>] extends [never]
+    ? never
+    : V
+  : never;
+
+/** Parameter `Name` anywhere in a query string, matched by name per `&`-pair. */
+type QueryParam<Q extends string, Name extends string> = Q extends `${infer Seg}&${infer Rest}`
+  ? ParamValue<Seg, Name> | QueryParam<Rest, Name>
+  : ParamValue<Q, Name>;
+
 type MatchQuery<U extends string> = {
-  [K in keyof QueryRoutes]: K extends `${infer Pre}{}${infer Post}`
-    ? U extends `${Pre}${infer Bound}${Post}`
-      ? [Segment<Bound>] extends [never]
+  [K in keyof QueryRoutes]: K extends `${infer P}?${infer Name}={}`
+    ? U extends `${P}?${infer Q}`
+      ? [QueryParam<Q, Name>] extends [never]
         ? never
         : K
       : never
