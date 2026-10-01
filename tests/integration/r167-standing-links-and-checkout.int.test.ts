@@ -18,7 +18,6 @@ import { assertDisposable, request } from './mfa-impersonation-postgres.helpers'
 import {
   CO, CUSTOMER, SECRET, USER, call, cleanupCompany, create, deliver, freshIp, getLink, invoiceWithLink, linkRow, pool, requests, seedCompany,
 } from './r167-portal-links.helpers';
-import { enableOnlinePayment } from '@/modules/accounting/services/core/paymentGatewayPortalService';
 import { createPaymentLink } from '@/modules/accounting/services/ar/portalService';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
@@ -79,13 +78,8 @@ describe("the invoice's standing link charges the live balance and is never spen
     expect(h.charged).toEqual([2500]);
   });
 
-  it('enableOnlinePayment and pay-now mint standing links', async () => {
-    const a = await invoiceWithLink(0, 1);
-    const url = await enableOnlinePayment(CO, a.invoiceId);
-    const token = url!.split('/portal/pay/')[1]!;
-    expect((await pool.query('SELECT charges_balance FROM portal_payment_links WHERE token = $1', [token])).rows)
-      .toEqual([{ charges_balance: true }]);
-
+  // enableOnlinePayment's standing link is covered in r177-portal-payment-followups (it needs the request transaction).
+  it('pay-now mints a standing link', async () => {
     const b = await invoiceWithLink(0, 1);
     const jwt = await new SignJWT({ sub: USER, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
       .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));

@@ -44,7 +44,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     case 'link_not_active': return apiResponse.badRequest(res, 'Payment link not active');
     case 'link_expired': return apiResponse.badRequest(res, 'Payment link expired');
     case 'invoice_gone': return apiResponse.notFound(res, 'Invoice');
-    case 'invoice_draft': return apiResponse.badRequest(res, 'This invoice has not been issued yet');
+    case 'invoice_unapproved': return apiResponse.badRequest(res, 'This invoice has not been issued yet');
     case 'nothing_owed': return apiResponse.badRequest(res, 'Invoice already paid');
     case 'starting': return apiResponse.conflict(res, 'Your payment is being set up. Please retry in a moment.');
     case 'reuse': return apiResponse.success(res, { checkoutUrl: claim.checkoutUrl, reference: claim.reference });

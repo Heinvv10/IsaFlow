@@ -6,21 +6,22 @@
  *   the public create route (one checkout per click, bounded gateway call, numeric balance).
  * - R-178: Paystack's `abandoned` is not terminal. verify reports it as cancelled and leaves the
  *   checkout pending, so the next click gets the same checkout instead of a second payable one.
- * - R-179: a standing link does not expire. Migration 719 clears the expiry of the links invoices
- *   name; explicit-amount links keep their 30 days.
- * - R-180: a draft invoice gets no payment link, and a link on a draft cannot be paid.
+ * - R-179: the standing link an invoice names does not expire, whatever its stored expiry says;
+ *   every other link keeps its 30 days.
+ * - R-180: an invoice that is a draft or awaiting approval gets no payment link, and a link on one
+ *   cannot be paid.
  *
  * Real Postgres, real routes and wrappers; only the Paystack client is stubbed.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'crypto';
-import { readFileSync } from 'fs';
 import { SignJWT } from 'jose';
 import { assertDisposable, request } from './mfa-impersonation-postgres.helpers';
 import {
   CO, CUSTOMER, SECRET, USER, addLink, call, cleanupCompany, create, getLink, pool, requests, seedCompany, verify,
 } from './r167-portal-links.helpers';
-import { enableOnlinePayment } from '@/modules/accounting/services/core/paymentGatewayPortalService';
+import { als } from '@/lib/als';
+import { enableOnlinePayment as enableOnlinePaymentInTx } from '@/modules/accounting/services/core/paymentGatewayPortalService';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -64,6 +65,16 @@ const payNow = async (invoiceId: string) => call(
 const mintExplicit = async (invoiceId: string, amount = 10) => call(
   (await import('../../pages/api/portal/payment-link')).default as never,
   authed({ query: {}, body: { invoiceId, clientId: CUSTOMER, amount } }));
+/** The service in a transaction of its own, as the fixture's owner: no row security, so only its predicates isolate. */
+async function enableOnlinePayment(companyId: string, invoiceId: string): Promise<string | null> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const url = await als.run({ client, userId: USER, companyId, claims: {} } as never, () => enableOnlinePaymentInTx(companyId, invoiceId));
+    await client.query('COMMIT');
+    return url;
+  } catch (err) { await client.query('ROLLBACK'); throw err; } finally { client.release(); }
+}
 const links = async (invoiceId: string) => (await pool.query<{ token: string; expires_at: Date | null; charges_balance: boolean }>(
   'SELECT token, expires_at, charges_balance FROM portal_payment_links WHERE invoice_id = $1 ORDER BY created_at', [invoiceId])).rows;
 const tokenOf = (r: { body: { data?: Record<string, unknown> } }) => String(r.body.data?.token);
@@ -98,7 +109,7 @@ describe('R-177: Pay Now hands out the standing link and never calls the gateway
     expect(await links(id)).toHaveLength(1);
   });
 
-  it('mints a fresh standing link when the one the invoice names is cancelled or expired', async () => {
+  it('mints a fresh standing link when the one the invoice names is cancelled', async () => {
     const id = await invoice();
     const first = tokenOf(await payNow(id));
     await pool.query("UPDATE portal_payment_links SET status = 'cancelled' WHERE token = $1", [first]);
@@ -106,8 +117,6 @@ describe('R-177: Pay Now hands out the standing link and never calls the gateway
     expect(second).not.toBe(first);
     expect((await pool.query('SELECT payment_url FROM customer_invoices WHERE id = $1', [id])).rows)
       .toEqual([{ payment_url: `https://app.r177.test/portal/pay/${second}` }]);
-    await pool.query("UPDATE portal_payment_links SET expires_at = NOW() - interval '1 day' WHERE token = $1", [second]);
-    expect(tokenOf(await payNow(id))).not.toBe(second);
   });
 
   it('never adopts a link the invoice does not name, nor an explicit-amount link it does', async () => {
@@ -132,6 +141,21 @@ describe('R-177: Pay Now hands out the standing link and never calls the gateway
     expect((await create(tokenOf(await payNow(negative)))).statusCode).toBe(200);
     expect(h.charged).toEqual([11500]);
   });
+
+  it('waits at most 5s for an invoice another request holds, then answers a retryable 400 and mints nothing', async () => {
+    const id = await invoice();
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM customer_invoices WHERE id = $1 FOR UPDATE', [id]);
+      const started = Date.now();
+      const r = await payNow(id);
+      expect(Date.now() - started).toBeGreaterThan(4000);
+      expect(r.statusCode).toBe(400);
+      expect(JSON.stringify(r.body)).toContain('CUSTOMER_INVOICE_LOCK_TIMEOUT');
+    } finally { await holder.query('ROLLBACK'); holder.release(); }
+    expect(await links(id)).toEqual([]);
+  }, 20_000);
 
   it('an invoice of another company is not found', async () => {
     const other = randomUUID();
@@ -199,53 +223,60 @@ describe('R-179: a standing link does not expire', () => {
     expect(await links(id)).toHaveLength(1);
   });
 
-  it('migration 719 revives the expired link an invoice names, and nothing else', async () => {
+  it('the standing link an invoice names is payable past its stored expiry, and Pay Now still hands it out', async () => {
     const id = await invoice();
-    const named = await addLink(id, 115, true);
+    const token = tokenOf(await payNow(id));
+    await pool.query("UPDATE portal_payment_links SET expires_at = NOW() - interval '1 day' WHERE token = $1", [token]); // minted by the old code
+    expect((await getLink(token)).statusCode).toBe(200);
+    expect((await create(token)).statusCode).toBe(200);
+    expect(tokenOf(await payNow(id))).toBe(token);
+    expect(await links(id)).toHaveLength(1);
+  });
+
+  it('every other link still expires: one the invoice does not name, an explicit one it does, and a standing one on another invoice', async () => {
+    const id = await invoice();
     const unnamed = await addLink(id, 115, true); // e.g. an explicit-amount link from before 717
-    const explicit = await addLink(id, 10, false);
-    const cancelled = await invoice();
-    const dead = await addLink(cancelled, 115, true);
     const other = await invoice();
     const namedExplicit = await addLink(other, 10, false);
-    await pool.query("UPDATE portal_payment_links SET expires_at = NOW() - interval '1 day' WHERE invoice_id = ANY($1)", [[id, cancelled, other]]);
     await pool.query('UPDATE customer_invoices SET payment_url = $2 WHERE id = $1', [other, `https://app.r177.test/portal/pay/${namedExplicit.token}`]);
-    await pool.query("UPDATE portal_payment_links SET status = 'cancelled' WHERE id = $1", [dead.linkId]);
-    await pool.query('UPDATE customer_invoices SET payment_url = $2 WHERE id = $1', [id, `https://app.r177.test/portal/pay/${named.token}`]);
-    await pool.query('UPDATE customer_invoices SET payment_url = $2 WHERE id = $1', [cancelled, `https://app.r177.test/portal/pay/${dead.token}`]);
-    expect((await create(named.token)).statusCode).toBe(400);
+    const third = await invoice();
+    await pool.query('UPDATE customer_invoices SET payment_url = $2 WHERE id = $1', [third, `https://app.r177.test/portal/pay/${unnamed.token}`]);
+    await pool.query("UPDATE portal_payment_links SET expires_at = NOW() - interval '1 day' WHERE invoice_id = ANY($1)", [[id, other]]);
+    for (const t of [unnamed.token, namedExplicit.token]) {
+      const c = await create(t);
+      expect(c.statusCode).toBe(400);
+      expect(c.body.error?.message).toMatch(/expired/i);
+      expect((await getLink(t)).statusCode).toBe(404);
+    }
+    expect(h.charged).toEqual([]);
+  });
 
-    const migration = readFileSync('scripts/migrations/sql/719_standing_payment_links_do_not_expire.sql', 'utf8');
-    const client = await pool.connect();
-    try { await client.query('BEGIN'); await client.query(migration); await client.query('COMMIT'); } finally { client.release(); }
-
-    const expiry = async (linkId: string) =>
-      (await pool.query('SELECT expires_at FROM portal_payment_links WHERE id = $1', [linkId])).rows[0].expires_at as Date | null;
-    expect(await expiry(named.linkId)).toBeNull();
-    expect(await expiry(unnamed.linkId)).not.toBeNull();
-    expect(await expiry(explicit.linkId)).not.toBeNull();
-    expect(await expiry(dead.linkId)).not.toBeNull();
-    expect(await expiry(namedExplicit.linkId)).not.toBeNull();
-    expect((await create(named.token)).statusCode).toBe(200);
-    expect((await getLink(named.token)).statusCode).toBe(200);
+  it('a cancelled or paid link is not shown, even one the invoice names', async () => {
+    const id = await invoice();
+    const token = tokenOf(await payNow(id));
+    for (const status of ['cancelled', 'paid']) {
+      await pool.query('UPDATE portal_payment_links SET status = $2 WHERE token = $1', [token, status]);
+      expect((await getLink(token)).statusCode).toBe(404);
+      expect((await create(token)).statusCode).toBe(400);
+    }
   });
 });
 
-describe('R-180: a draft invoice is not payable through a link', () => {
-  it('no link is minted for a draft by Pay Now, enableOnlinePayment or the payment-link POST', async () => {
-    const id = await invoice('draft');
+describe('R-180: an invoice that is not approved is not payable through a link', () => {
+  it.each(['draft', 'pending_approval'])('no link is minted for a %s invoice by Pay Now, enableOnlinePayment or the payment-link POST', async (status) => {
+    const id = await invoice(status);
     const r = await payNow(id);
     expect(r.statusCode).toBe(400);
-    expect(r.body.error?.message).toMatch(/draft/i);
+    expect(r.body.error?.message).toMatch(/not approved/i);
     expect(await enableOnlinePayment(CO, id)).toBeNull();
     const m = await mintExplicit(id);
     expect(m.statusCode).toBe(400);
-    expect(m.body.error?.message).toMatch(/draft/i);
+    expect(m.body.error?.message).toMatch(/not approved/i);
     expect(await links(id)).toEqual([]);
   });
 
-  it('a link already on a draft cannot be shown or paid, and works once the invoice is approved', async () => {
-    const id = await invoice('draft');
+  it.each(['draft', 'pending_approval'])('a link already on a %s invoice cannot be shown or paid, and works once the invoice is approved', async (status) => {
+    const id = await invoice(status);
     const standing = await addLink(id, 115, true);
     const explicit = await addLink(id, 10, false);
     for (const t of [standing.token, explicit.token]) {
@@ -259,10 +290,5 @@ describe('R-180: a draft invoice is not payable through a link', () => {
     expect((await getLink(standing.token)).statusCode).toBe(200);
     expect((await create(explicit.token)).statusCode).toBe(200);
     expect(h.charged).toEqual([1000]);
-  });
-
-  it('an invoice awaiting approval is still payable (only a draft is refused)', async () => {
-    const id = await invoice('pending_approval');
-    expect((await payNow(id)).statusCode).toBe(200);
   });
 });
