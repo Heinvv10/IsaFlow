@@ -26,6 +26,8 @@ import { MONEY_SCALES, type MoneyScale } from './moneyScale';
 
 export { inScale, MONEY_SCALES, toMoneyScale } from './moneyScale';
 export type { MoneyScale } from './moneyScale';
+import type { PackFormatOpt } from './packFormatOpt';
+export type { PackFormatOpt } from './packFormatOpt';
 
 const ZERO_DASH = '–';
 const MINUS = '−';
@@ -96,23 +98,6 @@ function groupedFixed(magnitude: number, dp: number): string {
 /** What every screen printed before the board pack existed: an ASCII space. */
 function separatedLegacy(formatted: string): string {
   return formatted.replace(/[\xa0\u202f]/g, ' ').replace(/,/g, '.');
-}
-
-/**
- * THE BOARD PACK'S CONVENTIONS ARE OPT-IN, NOT SHARED.
- *
- * `formatMoney` and `formatPct` serve statement screens, KPI tiles, chart
- * tooltips and the management-accounts page as well as the pack. The pack's
- * non-breaking separator, bracketed negative percentage and `<1` bound were
- * first written into the shared path, which changed every one of those
- * screens. They are now taken only by a caller that asks: `pack: true`, or —
- * for money — a `scale`, which only the pack passes. Everything else prints
- * exactly what it printed before the pack: ASCII space, U+2212 minus, `0`.
- * `formatRatio`, `formatDays` and `formatPctLevel` are pack-only formatters
- * with no earlier behaviour, so they take no option.
- */
-export interface PackFormatOpt {
-  pack?: boolean;
 }
 
 const whole = new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 0 });
