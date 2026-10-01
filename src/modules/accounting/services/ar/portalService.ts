@@ -234,7 +234,7 @@ export async function getPaymentLink(token: string): Promise<{
   clientId: string;
   amount: number;
   status: string;
-  expiresAt: string;
+  expiresAt: string | null;
 } | null> {
   const rows = (await sql`
     SELECT * FROM portal_payment_links
@@ -246,7 +246,7 @@ export async function getPaymentLink(token: string): Promise<{
     clientId: String(rows[0].client_id),
     amount: Number(rows[0].amount),
     status: String(rows[0].status),
-    expiresAt: String(rows[0].expires_at),
+    expiresAt: rows[0].expires_at == null ? null : String(rows[0].expires_at),
   };
 }
 
