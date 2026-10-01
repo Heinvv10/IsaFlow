@@ -43,6 +43,8 @@ Review round 1 changed two of the designs below; the section after the fix says 
   `paystack/create` route. That route already gives one checkout per click, a 10-second gateway
   bound and the live balance (R-167).
 - **`enableOnlinePayment`** uses `ensureStandingLink`. It used to mint a new link on every call.
+  For an unapproved invoice it throws `InvoiceNotApprovedError`, and the enable route answers 400
+  with the reason. Its other refusals are still 404, as before.
 - **`verify`**: on `abandoned` it writes nothing and reports `cancelled` to the return page. It
   re-reads the stored status first, so a request the webhook settled meanwhile is reported as
   stored.
@@ -97,9 +99,33 @@ Recorded, not changed:
 - **Not fixed here (R-181, candidate):** settlement banks the request's `amount_cents` and never
   compares it with the amount Paystack reports.
 
+## Review round 2
+
+Both blind reviewers returned SHIP on `00ea768b5`, with LOWs. Fixed:
+
+- **The enable route answered 404 "Open invoice with a balance due" for an unapproved invoice.**
+  It now answers 400 with the reason.
+- **The enable route's lock-timeout mapping had no test.** It has one now, and a mutant.
+- **Nothing tested that the Pay Now button is hidden for `pending_approval`.** A unit test on
+  `useCustomerInvoiceActions` covers the statuses.
+- **Nothing tested `enableOnlinePayment` outside a request transaction.** It throws; tested.
+- **A stale comment** in the R-167 suite named a file this branch deleted.
+- **`red.int.log` was the red run of the first suite only.** `red.r1.int.log` is the final suites
+  on unchanged `origin/master` source: 19 of 23 fail.
+
+Recorded, not changed:
+
+- **A standing link has no revoke action.** Nothing in the app sets a link to `cancelled`. A link
+  forwarded to the wrong person used to die after 30 days. It now shows the invoice number,
+  company, customer and balance for as long as the invoice owes, and can only be stopped in SQL.
+  This follows from "never expires". A revoke button is a feature for Hein to decide.
+- **Links that come back to life on deploy.** Every expired standing link an invoice names
+  becomes payable again. Census below.
+- A stored `failed` request that Paystack calls `abandoned` stays `failed`. R-167's suite pins it.
+
 ## Tests
 
-Real Postgres, the real routes and wrappers; only the Paystack client is stubbed. 20 cases in two
+Real Postgres, the real routes and wrappers; only the Paystack client is stubbed. 23 cases in two
 files, with shared callers in `tests/integration/r177-portal-followups.helpers.ts`.
 
 `tests/integration/r177-pay-now-standing-link.int.test.ts`, 9 cases (R-177):
@@ -114,7 +140,7 @@ files, with shared callers in `tests/integration/r177-portal-followups.helpers.t
 - another company's invoice is 404 through the route and null through the service, which runs
   there with no row security.
 
-`tests/integration/r178-r180-portal-link-rules.int.test.ts`, 11 cases:
+`tests/integration/r178-r180-portal-link-rules.int.test.ts`, 14 cases:
 
 - R-178: `abandoned` reports cancelled, the request stays pending, the next click gets the same
   checkout, one charge. `failed` is still written.
@@ -124,12 +150,19 @@ files, with shared callers in `tests/integration/r177-portal-followups.helpers.t
   paid link is not shown.
 - R-180, for `draft` and for `pending_approval`: no link from any of the three mint points; a
   link already there is neither shown nor payable, and works once the invoice is approved.
+- The enable route: returns the standing link and still answers 404 for a paid invoice; a held
+  invoice gives a retryable 400 after 5 seconds; the bare service refuses to run with no request
+  transaction.
 
 `tests/unit/accounting/utils/payNowCheckout.test.ts`, 5 cases: the two calls in order, and each
 refusal thrown with the server's message.
 
+`tests/unit/accounting/hooks/useCustomerInvoiceActionsPayNow.test.ts`, 9 cases: the button is
+offered for approved, sent, overdue and partially paid invoices with a balance, and for nothing else.
+
 `red.int.log`: 11 of 14 failed on unchanged `origin/master` (the first version of the suite).
-`mutations.log`: 21 mutants on the final code, all RED.
+`red.r1.int.log`: the final suites on unchanged `origin/master` source, 19 of 23 failed.
+`mutations.log`: 25 mutants on the final code, all RED.
 
 **Browser proof (2026-10-01):** a dev server from this branch against the disposable fixture, a
 Playwright Chromium session signed in as a seeded user, and the public create route answered by
@@ -142,6 +175,13 @@ minted, with no expiry. Not exercised in a browser: the real Paystack page, and 
 
 There is no migration. To roll back, revert the PR. Standing links minted meanwhile have no
 expiry; the old code treats that as not expired.
+
+Census (read-only, for Hein), standing links that become payable again:
+`SELECT count(*) FROM portal_payment_links l JOIN customer_invoices ci ON ci.id = l.invoice_id
+ WHERE l.status = 'active' AND l.charges_balance AND l.expires_at < now()
+   AND ci.payment_url LIKE '%/portal/pay/' || l.token
+   AND ci.status NOT IN ('draft', 'pending_approval', 'cancelled') AND ci.deleted_at IS NULL
+   AND ci.total_amount - GREATEST(ci.amount_paid, 0) > 0;`
 
 Census (read-only, for Hein), links that stop being payable until their invoice is approved:
 `SELECT count(*) FROM portal_payment_links l JOIN customer_invoices ci ON ci.id = l.invoice_id
