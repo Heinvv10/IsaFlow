@@ -81,6 +81,13 @@ describe('lockGlAccountsForUpdate row-lock failures', () => {
     await expect(lockGlAccountsForUpdate(COMPANY, [A])).rejects.toMatchObject({ code: 'GL_ACCOUNT_LOCK_TIMEOUT' });
   });
 
+  it('gives the role lock\'s own wording when it was that lock, not a row, that timed out', async () => {
+    // The MCP batch loop stops a batch on that wording; "GL account <id> is being changed" would not.
+    const { lockSystemRoleWrites, SystemRoleLockTimeoutError } = await import('@/modules/accounting/services/gl/systemRoleWriteLock');
+    vi.mocked(lockSystemRoleWrites).mockRejectedValueOnce(new (SystemRoleLockTimeoutError as unknown as new (m: string) => Error)('the chart is busy — retry'));
+    await expect(lockGlAccountsForUpdate(COMPANY, [A])).rejects.toMatchObject({ code: 'GL_ACCOUNT_LOCK_TIMEOUT', message: 'the chart is busy — retry' });
+  });
+
   it('lets any other database error through unchanged', async () => {
     failWith = { code: '23505' };
     await expect(lockGlAccountsForUpdate(COMPANY, [A])).rejects.toMatchObject({ code: '23505' });

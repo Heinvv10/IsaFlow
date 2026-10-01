@@ -1,8 +1,23 @@
 // W2-28 round 5: the COA import's role map may not take an account from
 // another role or give one account two roles, and every role writer's
 // resolver-cache clear waits for its COMMIT. Disposable fixture only.
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { randomUUID } from 'crypto';
+
+// Round 12 put a refusal in the user's own terms IN FRONT of the role post-condition for the two cases a
+// user can cause. `lastLine.only` takes those two guards out, as a new writer that forgot them would be:
+// the post-condition must still roll the write back.
+const lastLine = vi.hoisted(() => ({ only: false }));
+vi.mock('@/modules/accounting/services/core/migrationCoaRoleMap', async (orig) => {
+  const actual = await orig<typeof import('../../src/modules/accounting/services/core/migrationCoaRoleMap')>();
+  return { ...actual, holderParentConflicts: (...args: Parameters<typeof actual.holderParentConflicts>) =>
+    (lastLine.only ? Promise.resolve([]) : actual.holderParentConflicts(...args)) };
+});
+vi.mock('@/modules/accounting/services/gl/accountMergeRoleGuard', async (orig) => {
+  const actual = await orig<typeof import('../../src/modules/accounting/services/gl/accountMergeRoleGuard')>();
+  return { ...actual, assertTargetMayTakeChildren: (...args: Parameters<typeof actual.assertTargetMayTakeChildren>) =>
+    (lastLine.only ? Promise.resolve() : actual.assertTargetMayTakeChildren(...args)) };
+});
 import { roleWriterFixture } from './w2-28-role-writers.helpers';
 import { getSystemAccount, clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
 import { importChartOfAccounts, type AccountImportRow } from '../../src/modules/accounting/services/core/migrationCoaService';
@@ -31,7 +46,7 @@ const names = async () => (await fx.query(
 
 describeIfDb('W2-28 the COA import role map, and after-commit cache clears', () => {
   beforeAll(fx.setup);
-  beforeEach(async () => { await fx.wipe(); clearSystemAccountCache(CO); });
+  beforeEach(async () => { lastLine.only = false; await fx.wipe(); clearSystemAccountCache(CO); });
   afterAll(fx.teardown);
 
   it('refuses a re-import that maps a role onto the account holding another role, writing nothing', async () => {
@@ -120,6 +135,10 @@ describeIfDb('W2-28 the COA import role map, and after-commit cache clears', () 
     await ins(AR, '1120', 'asset', 'receivable', true);
     const before = await names();
     // Nothing in the map: an ordinary row asks for the receivable holder as its parent, making it a header.
+    const refused = await importing([{ ...row('1121'), parentCode: '1120' }], {});
+    expect({ imported: refused.imported, error: refused.errors[0]?.message, names: await names() })
+      .toEqual({ imported: 0, error: expect.stringContaining('Account 1121 cannot go under 1120: Account 1120 holds the receivable role'), names: before });
+    lastLine.only = true;                              // without that refusal: the post-condition, after the writes
     const out = await importing([{ ...row('1121'), parentCode: '1120' }], {});
     expect({ imported: out.imported, error: out.errors[0]?.message, names: await names() })
       .toEqual({ imported: 0, error: expect.stringContaining('would leave receivable without exactly one usable account'), names: before });
@@ -187,11 +206,16 @@ describeIfDb('W2-28 the COA import role map, and after-commit cache clears', () 
     await ins(S, '1310', 'asset', null, false);
     await ins(randomUUID(), '1311', 'asset', null, false, { parent: S, level: 4 });
     await ins(T, '1120', 'asset', 'receivable', true);
-    const tx = await fx.openTx();
-    const merged = await tx.run(() => mergeAccounts(CO, S, T, USER)).then(() => 'merged', (e: { code?: string }) => e.code);
-    await tx.commit();                                                // the merge's own savepoint undid its writes
-    const parents = (await fx.query('SELECT account_code FROM gl_accounts WHERE company_id = $1 AND parent_account_id = $2', [CO, T])).rows;
-    expect({ merged, parents, ar: await holders('receivable') }).toEqual({ merged: 'SYSTEM_ROLE_INVARIANT', parents: [], ar: ['1120'] });
+    const attempt = async () => {
+      const tx = await fx.openTx();
+      const merged = await tx.run(() => mergeAccounts(CO, S, T, USER)).then(() => 'merged', (e: { code?: string }) => e.code);
+      await tx.commit();                                              // the merge's own savepoint undid its writes
+      const parents = (await fx.query('SELECT account_code FROM gl_accounts WHERE company_id = $1 AND parent_account_id = $2', [CO, T])).rows;
+      return { merged, parents, ar: await holders('receivable') };
+    };
+    expect(await attempt()).toEqual({ merged: 'target_becomes_header', parents: [], ar: ['1120'] });   // refused before any write
+    lastLine.only = true;                                             // without that guard: the post-condition, after the writes
+    expect(await attempt()).toEqual({ merged: 'SYSTEM_ROLE_INVARIANT', parents: [], ar: ['1120'] });
   });
 
   it('a reclassification clears the resolver cache after its request commits, not before', async () => {

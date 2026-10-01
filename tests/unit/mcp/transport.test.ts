@@ -60,6 +60,8 @@ import { mcpRegistry } from '@/lib/mcp/toolIndex';
 import { CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
 import type { McpToolContext } from '@/lib/mcp/types';
 import route from '../../../pages/api/mcp/index';
+import { SystemRoleLockTimeoutError } from '@/modules/accounting/services/gl/systemRoleWriteLock';
+import { GlAccountLockTimeoutError } from '@/modules/accounting/services/gl/glAccountLock';
 
 const COMPANY_ID = h.auth.companyId;
 
@@ -76,6 +78,16 @@ mcpRegistry.register({
     return { content: [{ type: 'text', text: JSON.stringify({ company: ctx.companyId }) }] };
   },
 });
+
+// Tools that fail in the ways a batch can meet (the role-lock one is the only one that stops it).
+const counts = { roleBusy: 0 };
+const failing = (name: string, handler: () => Promise<never> | Promise<{ content: { type: 'text'; text: string }[]; isError: boolean }>) =>
+  mcpRegistry.register({ name, description: 'test tool', inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    scope: 'read:reports', write: false, handler });
+failing('role_busy', async () => { counts.roleBusy += 1; throw new SystemRoleLockTimeoutError(); });
+failing('row_busy', async () => { throw new GlAccountLockTimeoutError('acct-1'); });
+failing('boom', async () => { throw new Error('Connection terminated unexpectedly'); });
+failing('refuses', async () => ({ content: [{ type: 'text', text: 'not allowed' }], isError: true }));
 
 interface FakeRes {
   statusCode: number;
@@ -114,6 +126,7 @@ function rpc(method: string, params?: Record<string, unknown>, id: number | unde
 beforeEach(() => {
   vi.clearAllMocks();
   seenContexts.length = 0;
+  counts.roleBusy = 0;
   vi.mocked(hasFeature).mockResolvedValue(true);
   vi.mocked(checkRateLimit).mockResolvedValue(true);
 });
@@ -280,6 +293,38 @@ describe('/api/mcp transport', () => {
     ]) as never, res);
     expect(seenContexts).toHaveLength(2);
     expect((res.body as Array<{ id: number }>).map((b) => b.id)).toEqual([1, 2]);
+  });
+
+  it('a batch stops running tool calls after the first role-lock refusal: the rest get the same refusal without waiting', async () => {
+    // Each call behind a held role lock would wait 5s on the request's one pooled connection (20 calls: 100s).
+    const res = makeRes();
+    await route(makeReq('POST', [
+      rpc('tools/call', { name: 'echo_ctx', arguments: {} }, 1),
+      rpc('tools/call', { name: 'role_busy', arguments: {} }, 2),
+      rpc('tools/call', { name: 'role_busy', arguments: {} }, 3),
+      rpc('ping', undefined, 4),
+      rpc('tools/call', { name: 'echo_ctx', arguments: {} }, 5),
+    ]) as never, res);
+    const body = res.body as Array<{ id: number; result: { isError?: boolean; content?: { text: string }[] } }>;
+    const retry = 'The chart of accounts is being changed by another request — retry in a moment.';
+    expect({ roleBusyRuns: counts.roleBusy, echoRuns: seenContexts.length, ids: body.map((b) => b.id), ping: body[3]!.result,
+      refused: [2, 3, 5].map((id) => { const r = body.find((b) => b.id === id)!.result; return `${r.isError}:${r.content?.[0]?.text}`; }) })
+      .toEqual({ roleBusyRuns: 1, echoRuns: 1, ids: [1, 2, 3, 4, 5], ping: {}, refused: Array(3).fill(`true:${retry}`) });
+  });
+
+  it('no other failure stops a batch: a thrown error, a returned tool error and a row-lock timeout each leave the later calls running', async () => {
+    const res = makeRes();
+    await route(makeReq('POST', [
+      rpc('tools/call', { name: 'boom', arguments: {} }, 1),
+      rpc('tools/call', { name: 'refuses', arguments: {} }, 2),
+      rpc('tools/call', { name: 'row_busy', arguments: {} }, 3),
+      rpc('tools/call', { name: 'echo_ctx', arguments: {} }, 4),
+      rpc('tools/call', { name: 'echo_ctx', arguments: {} }, 5),
+    ]) as never, res);
+    const body = res.body as Array<{ id: number; result: { isError?: boolean; content?: { text: string }[] } }>;
+    expect({ echoRuns: seenContexts.length, errors: body.map((b) => b.result.isError === true),
+      rowBusy: body[2]!.result.content?.[0]?.text })
+      .toEqual({ echoRuns: 2, errors: [true, true, true, false, false], rowBusy: 'GL account acct-1 is being changed by another request — retry in a moment.' });
   });
 
   it('non-GET/POST/OPTIONS → 405', async () => {

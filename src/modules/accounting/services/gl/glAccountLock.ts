@@ -47,8 +47,9 @@ import { isRetryableLockError, lockSystemRoleWrites, SystemRoleLockTimeoutError 
  */
 export class GlAccountLockTimeoutError extends Error {
   readonly code = 'GL_ACCOUNT_LOCK_TIMEOUT';
-  constructor(accountId: string) {
-    super(`GL account ${accountId} is being changed by another request — retry in a moment.`);
+  /** `message`: the role lock's own wording when it was that lock, not a row, that timed out. */
+  constructor(accountId: string, message = `GL account ${accountId} is being changed by another request — retry in a moment.`) {
+    super(message);
     this.name = 'GlAccountLockTimeoutError';
   }
 }
@@ -123,7 +124,7 @@ export async function lockGlAccountsForUpdate(
   try {
     await lockSystemRoleWrites(companyId);
   } catch (err) {
-    if (err instanceof SystemRoleLockTimeoutError) throw new GlAccountLockTimeoutError(ordered[0] ?? '');
+    if (err instanceof SystemRoleLockTimeoutError) throw new GlAccountLockTimeoutError(ordered[0] ?? '', err.message);
     throw err;
   }
   const rows: DbRow[] = [];

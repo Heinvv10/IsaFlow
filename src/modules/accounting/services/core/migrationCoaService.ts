@@ -18,7 +18,7 @@ import { assertAccountChangesKeepVatLocks } from '../gl/vatLockLineClassificatio
 import { boundedRowWait, isRetryableLockError, lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 import { accountAttributes, attributeChanges } from './migrationCoaVatLock';
 import { importRowSubtype } from './migrationCoaSubtype';
-import { mappedHolders, roleMapConflicts, validateSystemAccountMap } from './migrationCoaRoleMap';
+import { holderParentConflicts, mappedHolders, roleMapConflicts, validateSystemAccountMap } from './migrationCoaRoleMap';
 import { assertRolesKept, snapshotRoles, SystemRoleInvariantError } from '../gl/systemRoleInvariant';
 
 export { validateSystemAccountMap };
@@ -80,7 +80,7 @@ export async function importChartOfAccounts(
     // The role map below rewrites system-account flags: serialise with the
     // Default Accounts save, which takes the same lock.
     await lockSystemRoleWrites(companyId);
-    const conflicts = await roleMapConflicts(companyId, systemAccountMap, accounts);
+    const conflicts = [...await roleMapConflicts(companyId, systemAccountMap, accounts), ...await holderParentConflicts(companyId, systemAccountMap, accounts)];
     if (conflicts.length > 0) return conflicts;
     const roles = await snapshotRoles(companyId);
     try {

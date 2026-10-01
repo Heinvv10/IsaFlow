@@ -32,6 +32,7 @@ import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import { log } from '@/lib/logger';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
 import type { McpToolContext } from '@/lib/mcp/types';
+import { isRoleLockRefusal } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import {
   CLIENT_MCP_TOOL_NAMES,
   MCP_AUTH_SERVER_METADATA_PATH,
@@ -211,9 +212,15 @@ const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Prom
     // request's ALS-bound client); concurrent queries/savepoints on a single
     // connection corrupt each other (postgresql-gotchas §36).
     const responses: JsonRpcResponse[] = [];
+    // Once one call has waited out the company's role-write lock (5s), the tool
+    // calls after it are not run — each would wait 5s more on this one pooled
+    // connection — and get the same retryable refusal. No other error stops a batch.
+    let roleLockBusy: unknown = null;
     for (const r of body as JsonRpcRequest[]) {
+      if (roleLockBusy && r?.method === 'tools/call') { responses.push(rpcResult(r.id, roleLockBusy)); continue; }
       const resp = await handleRpc(r, ctx);
       if (resp !== null) responses.push(resp);
+      if (isRoleLockRefusal(resp?.result)) roleLockBusy = resp?.result;
     }
     if (responses.length === 0) {
       res.status(202).end();

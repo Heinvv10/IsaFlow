@@ -16,6 +16,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { boundedRowWait, lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
+import { MAX_ROLLBACK_LOOP_ACCOUNTS } from './migrationRowCaps';
 import type { MigrationSource } from './migrationParserService';
 import type { DbRow } from '@/types/db';
 
@@ -28,6 +29,8 @@ export interface RollbackResult {
   deleted: number;
   retained: number;
   retainedCodes: string[];
+  /** Only when this request did not get to every account (MAX_ROLLBACK_LOOP_ACCOUNTS): how many are still tagged. Running the rollback again continues. */
+  remaining?: number;
 }
 
 /** Postgres foreign_key_violation: something still points at the account. */
@@ -48,6 +51,7 @@ async function rollbackUnderLock(
 ): Promise<RollbackResult> {
   const retained: { id: string; code: string }[] = [];
   let deleted = 0;
+  let remaining = 0;
 
   try {
     // A system account is a role holder (or a seeded header): posting resolves
@@ -90,6 +94,9 @@ async function rollbackUnderLock(
       }
     } else {
       for (const [i, row] of candidates.entries()) {
+        // One at a time is three round trips an account, under the role lock:
+        // capped per request. The rest keep their tag and are reported.
+        if (i >= MAX_ROLLBACK_LOOP_ACCOUNTS) { remaining = candidates.length - i; break; }
         const id = String(row.id);
         const code = String(row.account_code);
         if (row.is_system_account === true) { retained.push({ id, code }); continue; }
@@ -121,11 +128,11 @@ async function rollbackUnderLock(
       `;
     }
 
-    log.info('Rollback complete', { companyId, source, deleted, retained: retained.length }, 'migration');
+    log.info('Rollback complete', { companyId, source, deleted, retained: retained.length, remaining }, 'migration');
   } catch (err) {
     log.error('Rollback failed', { companyId, source, error: err }, 'migration');
     throw err;
   }
 
-  return { deleted, retained: retained.length, retainedCodes: retained.map(r => r.code) };
+  return { deleted, retained: retained.length, retainedCodes: retained.map(r => r.code), ...(remaining > 0 ? { remaining } : {}) };
 }
