@@ -228,12 +228,6 @@ export function isCurrentSubtype(
 }
 
 /**
- * Every raw `account_subtype` spelling that canonicalises to one of the given
- * tokens. SQL that must filter on subtype (rather than aggregate through
- * `aggregateFigures`) passes this as a TEXT[] so the vocabulary stays defined
- * in exactly one place.
- */
-/**
  * Every raw spelling the alias table knows, so a test can walk the WHOLE
  * domain rather than a copy of it.
  *
@@ -244,6 +238,12 @@ export function isCurrentSubtype(
  */
 export const ALL_RAW_SUBTYPES: readonly string[] = Object.keys(SUBTYPE_ALIASES);
 
+/**
+ * Every raw `account_subtype` spelling that canonicalises to one of the given
+ * tokens. SQL that must filter on subtype (rather than aggregate through
+ * `aggregateFigures`) passes this as a TEXT[] so the vocabulary stays defined
+ * in exactly one place.
+ */
 export function rawSubtypesFor(...canonical: CanonicalSubtype[]): string[] {
   const wanted = new Set<CanonicalSubtype>(canonical);
   return Object.keys(SUBTYPE_ALIASES).filter((k) => wanted.has(SUBTYPE_ALIASES[k]!));
