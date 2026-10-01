@@ -167,4 +167,35 @@ describe('R-175 — an over-limit key is refused from memory', () => {
     expect(await checkRateLimit(key, month)).toBe(false);
     expect(await storedCount(key)).toBe(2);
   });
+
+  // Review round 5: the refused row is read from the statement's snapshot.
+  it('a refund that commits while a refused charge waits for the row lock does not get the key cached as full', async () => {
+    const key = newKey();
+    for (let i = 0; i < MAX; i++) expect(await checkRateLimit(key, opts)).toBe(true);
+    const holder = await pool.connect();
+    try {
+      // Another process's refund of 2, holding the row.
+      await holder.query('BEGIN');
+      await holder.query('UPDATE rate_limit_counters SET count = count - 2 WHERE key = $1', [key]);
+      // A 5-unit charge: its snapshot still says 20, and it waits for the lock.
+      const charge = checkRateLimit(key, { ...opts, cost: 5 });
+      await sleep(300);
+      expect(await transactionState(holder)).toBe('idle in transaction');
+      await holder.query('COMMIT');
+      // 18 + 5 does not fit: refused.
+      expect(await charge).toBe(false);
+    } finally {
+      holder.release();
+    }
+
+    // 18 + 1 fits. It must be asked of the database, not refused from memory.
+    expect(await checkRateLimit(key, opts)).toBe(true);
+    expect(await storedCount(key)).toBe(19);
+  });
 });
+
+async function transactionState(client: import('pg').PoolClient): Promise<string> {
+  const pid = (await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+  const { rows } = await pool.query('SELECT state FROM pg_stat_activity WHERE pid = $1', [pid]);
+  return rows[0].state as string;
+}

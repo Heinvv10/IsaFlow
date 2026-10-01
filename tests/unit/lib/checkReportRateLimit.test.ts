@@ -58,7 +58,8 @@ describe('checkReportRateLimit', () => {
     clearRateLimitCache();
     const deniedWithTighterMax = await checkReportRateLimit('company-abc', 'reports-pdf', { max: 5, windowSecs: 120 });
     expect(deniedWithTighterMax).toBe(false);
-    expect(sqlMock.mock.calls.map((c) => (c[1] as unknown[]).slice(2))).toEqual([[900, 10], [120, 5]]);
+    const charges = sqlMock.mock.calls.filter((c) => String(c[0]).startsWith('WITH charged'));
+    expect(charges.map((c) => (c[1] as unknown[]).slice(2))).toEqual([[900, 10], [120, 5]]);
   });
 
   it('scopes independent companies to independent keys', async () => {

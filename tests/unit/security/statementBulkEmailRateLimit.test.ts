@@ -150,6 +150,7 @@ describe('statement-bulk-email — checkSendRateLimit gate', () => {
     await (statementBulkEmail as Handler)(request([C1, C2]), makeRes());
 
     // Keyed by company and user: a bureau user has one allowance per client.
+    // Refused by the per-company key: the cross-company one is not reached.
     expect(checkRateLimitMock.mock.calls).toEqual([[`statement-bulk-email:attempts:${COMPANY}:u1`, { max: 30, windowSecs: 900 }]]);
     expect(apiResponse.tooManyRequests).toHaveBeenCalledTimes(1);
     expect(sqlMock).not.toHaveBeenCalled();
@@ -159,7 +160,11 @@ describe('statement-bulk-email — checkSendRateLimit gate', () => {
   it('counts the attempt even for a request it then rejects as malformed', async () => {
     await (statementBulkEmail as Handler)(request([]), makeRes());
 
-    expect(checkRateLimitMock).toHaveBeenCalledTimes(1);
+    // Per company (30) and across the user's companies (90).
+    expect(checkRateLimitMock.mock.calls).toEqual([
+      [`statement-bulk-email:attempts:${COMPANY}:u1`, { max: 30, windowSecs: 900 }],
+      [`statement-bulk-email:user-attempts:u1`, { max: 90, windowSecs: 900 }],
+    ]);
     expect(apiResponse.badRequest).toHaveBeenCalledTimes(1);
   });
 

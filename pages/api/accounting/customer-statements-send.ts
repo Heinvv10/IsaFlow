@@ -56,11 +56,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const { companyId, user } = req as CompanyAuthedRequest;
 
-  // Abuse limit: every attempt counts, per user and company, and is never given
-  // back. The company's send bucket below is shared by every colleague, so it
+  // Abuse limit: every attempt counts, per user and company (30), and per user
+  // across all their companies (90), and is never given back. The company's send bucket below is shared by every colleague, so it
   // is charged only once the request is well formed and names records the
   // company owns (R-175).
-  if (!(await checkRateLimit(`customer-statements:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))) {
+  if (!(await checkRateLimit(`customer-statements:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))
+    || !(await checkRateLimit(`customer-statements:user-attempts:${user.id}`, { max: 90, windowSecs: 900 }))) {
     return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
 

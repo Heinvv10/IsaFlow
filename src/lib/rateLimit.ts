@@ -10,7 +10,7 @@ import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
 import { log } from '@/lib/logger';
 import { noteQuotaCharge } from '@/lib/quotaUse';
 import {
-  chargeRateLimit, checkRateLimit, clampCost, refundRateLimit, type RateLimitCharge, type RateLimitOptions,
+  chargeRateLimit, checkRateLimit, clampCost, isKnownFull, refundRateLimit, type RateLimitCharge, type RateLimitOptions,
 } from '@/lib/rateLimitCore';
 
 export {
@@ -72,6 +72,8 @@ export async function checkAiRateLimit(
   const ipMax = opts.ipMax ?? 20;
   const companyMax = opts.companyMax ?? 40;
   const dailyMax = opts.dailyMax ?? 300;
+  // A company whose daily bucket is known to be full is refused with no write.
+  if (isKnownFull(`ai:${name}:co:${companyId}:day`, dailyMax)) return false;
   if (!(await checkRateLimit(`ai:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900 }))) return false;
   const day = await chargeUsageBuckets(`ai:${name}:co:${companyId}`, 1, companyMax, dailyMax);
   // The daily bucket is a budget for AI calls a provider answered, not an abuse
@@ -102,6 +104,8 @@ export async function checkSendRateLimit(
   // regardless of recipient count, so it is always charged 1. Charging the IP
   // bucket per-recipient would wrongly block a single legitimate large batch.
   const volumeCost = opts.count ?? 1;
+  // A company whose daily bucket is known to be full is refused with no write.
+  if (isKnownFull(`send:${name}:co:${companyId}:day`, dailyMax)) return false;
   if (!(await checkRateLimit(`send:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900, cost: 1 }))) return false;
   const day = await chargeUsageBuckets(`send:${name}:co:${companyId}`, volumeCost, companyMax, dailyMax);
   // As for AI: with `refundUnused` the daily bucket ends up holding the emails
