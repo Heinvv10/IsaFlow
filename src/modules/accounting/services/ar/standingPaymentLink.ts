@@ -8,7 +8,8 @@
  * out as the standing one.
  *
  * Needs the caller's request transaction (`withCustomerInvoiceLock` refuses without one): the
- * invoice row is locked, for at most 5s, so two calls cannot both mint.
+ * invoice row is locked, for at most 5s, so two calls cannot both mint. The lock is NO KEY, so it
+ * does not hold up a checkout or a receipt being recorded against the same invoice.
  */
 import { sql } from '@/lib/neon';
 import { documentInPopulation } from '@/modules/accounting/services/shared/documentPopulation';
@@ -36,7 +37,7 @@ export async function ensureStandingLink(
     CROSS JOIN LATERAL (SELECT ci.total_amount - GREATEST(ci.amount_paid, 0) AS balance) b
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
       AND ci.status <> 'cancelled' AND ci.deleted_at IS NULL
-    FOR UPDATE OF ci
+    FOR NO KEY UPDATE OF ci
   `) as InvoiceRow[]);
   const invoice = rows[0];
   if (!invoice) return { ok: false, reason: 'invoice_not_found' };
@@ -49,15 +50,24 @@ export async function ensureStandingLink(
   // other one minted, and a subquery of the locking statement would still read its old snapshot.
   // No expiry test: the standing link the invoice names does not expire (see resolveLinkCharge).
   const existing = (await sql`
-    SELECT l.token
+    SELECT l.token, ci.online_payment_enabled AS enabled
     FROM portal_payment_links l
     JOIN customer_invoices ci ON ci.id = l.invoice_id
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
       AND l.status = 'active' AND l.charges_balance
       AND ci.payment_url LIKE '%/portal/pay/' || l.token
     LIMIT 1
-  `) as { token: string }[];
-  if (existing[0]) return { ok: true, token: existing[0].token, paymentUrl: `${appUrl}/portal/pay/${existing[0].token}` };
+  `) as { token: string; enabled: boolean | null }[];
+  if (existing[0]) {
+    // A legacy row can name its link with the flag off; the invoice page shows the link by the flag.
+    if (existing[0].enabled !== true) {
+      await sql`
+        UPDATE customer_invoices SET online_payment_enabled = true, updated_at = NOW()
+        WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+      `;
+    }
+    return { ok: true, token: existing[0].token, paymentUrl: `${appUrl}/portal/pay/${existing[0].token}` };
+  }
 
   // `amount` is only the balance at minting; a standing link charges the live balance.
   const minted = (await sql`
