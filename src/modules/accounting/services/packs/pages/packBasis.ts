@@ -43,7 +43,6 @@ import { buildDefinitions } from './packDefinitions';
 import { PACK_SCALE } from './packScale';
 import { liquidityMetricNames, NO_INVENTORY_CLASSIFIED } from './packScorecard';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
-import type { MoneyScale } from '@/lib/format/money';
 import { partialMonthBasisNote, partialMonthOf } from './packPartialMonth';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
