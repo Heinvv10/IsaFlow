@@ -47,7 +47,7 @@ import {
   UNCAPTURED_SHARE_LIMIT,
   uncapturedShare,
 } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
-import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
+import { investingCashFlowOf, operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackChartSpec, PackWaterfallBar, PlugReason } from './packPageModel';
 
@@ -470,12 +470,17 @@ export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): 
   const opening = prior.cash;
   // Only categories the figure set actually CAPTURED get a bar. `?? 0` drew
   // a flat "Investing" bar for a company whose cash table one block above
-  // said capital expenditure was not captured — the same figure telling two
+  // said no investing figure was captured — the same figure telling two
   // stories on one page. An uncaptured category is absorbed by the named
   // residual below, which is honest about not knowing.
+  //
+  // Investing is the SAME reading the table's row takes — the cash flow
+  // statement's net figure, or capital expenditure negated where the pack
+  // has only that — see `investingCashFlowOf`.
   const movements: Array<{ label: string; value: number }> = [];
   if (current.operatingCashFlow !== undefined) movements.push({ label: 'Operating', value: current.operatingCashFlow });
-  if (current.capitalExpenditure !== undefined) movements.push({ label: 'Investing', value: -current.capitalExpenditure });
+  const investing = investingCashFlowOf(current);
+  if (investing !== null) movements.push({ label: 'Investing', value: investing });
   if (current.financingCashFlow !== undefined) movements.push({ label: 'Financing', value: current.financingCashFlow });
 
   if (movements.length === 0) {

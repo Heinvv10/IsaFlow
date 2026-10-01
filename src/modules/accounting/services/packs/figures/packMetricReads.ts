@@ -131,3 +131,20 @@ export const OPERATING_PROFIT_SOURCE = 'packMetricReads.operatingProfit';
 export function operatingProfitOf(f: ReportPackFigures): number {
   return f.operatingProfit ?? f.revenue - f.costOfSales + (f.otherIncome ?? 0) - f.operatingExpenses;
 }
+
+/**
+ * Net cash from investing activities, or null where the pack has no figure.
+ *
+ * The cash flow statement's own `investingCashFlow` where the figure set
+ * carries it — signed as cash moved, net of disposals. Where it does not,
+ * capital expenditure negated, which is what the row and the bar both were
+ * before that field existed. Null is NOT a zero: a company the pack has no
+ * investing figure for has not been shown to have bought nothing.
+ *
+ * One reading for page 8's table row and its bridge bar, so the two cannot
+ * state the investing flow at two values.
+ */
+export function investingCashFlowOf(f: ReportPackFigures): number | null {
+  if (f.investingCashFlow !== undefined) return f.investingCashFlow;
+  return f.capitalExpenditure === undefined ? null : -f.capitalExpenditure;
+}

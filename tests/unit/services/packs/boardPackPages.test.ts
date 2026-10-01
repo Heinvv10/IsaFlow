@@ -615,7 +615,7 @@ describe('buildBoardPackPages', () => {
   // a company that bought nothing, which is a statement about the business
   // rather than about our data — and the two cash rows beside it already say
   // "not captured" when their own figure is absent (R-P44/R-P45).
-  it('says capital expenditure was not captured rather than reporting zero investing', () => {
+  it('says no investing figure was captured rather than reporting zero investing', () => {
     const noCapex = buildBoardPackPages({
       ...demoInput,
       set: { ...demoSet, current: figures({ capitalExpenditure: undefined }) },
@@ -624,7 +624,8 @@ describe('buildBoardPackPages', () => {
       .flatMap((b) => (b.kind === 'table' ? [b.table] : []))[0]!;
     const investing = table.rows.find((r) => r.label === 'Investing cash flow')!.figures.actual!;
     expect(investing.value).toBeNull();
-    expect(investing.unavailable).toMatch(/capital expenditure/i);
+    // The row's own noun: it is net investing, with capex only the fallback.
+    expect(investing.unavailable).toMatch(/No investing cash flow figure was captured/);
   });
 
   // THE ASSERTION SHAPE NOTHING HAD: a page title read against the figure
@@ -676,7 +677,7 @@ describe('buildBoardPackPages', () => {
     const chart = noCapex.pages.find((p) => p.number === 8)!.blocks
       .flatMap((b) => (b.kind === 'chart' ? [b.chart] : []))[0]!;
     const labels = chart.waterfallBars!.map((b) => b.label);
-    // The table one block above says capital expenditure was not captured;
+    // The table one block above says no investing figure was captured;
     // a flat Investing bar here would be the same figure telling two stories.
     expect(labels).not.toContain('Investing');
     expect(labels).toContain('Unexplained movement');

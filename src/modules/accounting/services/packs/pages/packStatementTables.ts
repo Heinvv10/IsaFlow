@@ -33,7 +33,7 @@ import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
-import { OPERATING_PROFIT_SOURCE, operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
+import { investingCashFlowOf, OPERATING_PROFIT_SOURCE, operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import { PACK_SCALE } from './packBasis';
 // The n/m reason a cell prints, shared with page 3's tile captions — see
 // `NOT_A_POSITIVE_BASE`. Two wordings of it is how a tile and the table two
@@ -320,13 +320,11 @@ export function buildPositionTable(set: PackFigureSet, p: PackFigureProvenance):
  */
 export function buildCashTable(set: PackFigureSet, p: PackFigureProvenance): PackTable {
   const { current, prior } = set;
-  // Not `?? 0`: a missing capex figure is an ARTEFACT, not a period with no
-  // investing activity, and the two other cash rows already say "not
-  // captured" when their figure is absent. R-P44/R-P45's doctrine, applied
-  // consistently — a silent zero here would report a company that bought
-  // nothing.
-  const investing = (f: ReportPackFigures): number | null =>
-    f.capitalExpenditure === undefined ? null : -f.capitalExpenditure;
+  // Null, not `?? 0`, where the pack has no investing figure: that is an
+  // ARTEFACT, not a period with no investing activity, and the two other cash
+  // rows already say "not captured" when their figure is absent. R-P44/R-P45's
+  // doctrine, applied consistently — see `investingCashFlowOf`.
+  const investing = investingCashFlowOf;
   return buildTable(p, [
     {
       label: 'Opening cash',
@@ -347,13 +345,13 @@ export function buildCashTable(set: PackFigureSet, p: PackFigureProvenance): Pac
         + 'no earlier opening cash balance to measure this one against.',
     },
     { label: 'Operating cash flow', key: 'cash.operating', source: 'packFigureSet.current.operatingCashFlow', actual: current.operatingCashFlow ?? null, prior: prior?.operatingCashFlow ?? null, unavailable: 'No operating cash flow figure was captured for this period.' },
-    { label: 'Investing cash flow', key: 'cash.investing', source: 'packStatementTables.investingCashFlow', actual: investing(current), prior: prior ? investing(prior) : null, // AND THE REASON NAMES THIS ROW'S OWN NOUN FIRST. It read "No capital
-    // expenditure figure was captured" under a row labelled Investing cash
-    // flow — a reader looks up the marker on one measure and is told about
-    // another, and every other reason in the pack names the row it sits on.
-    // The capex clause stays because it is the actual cause: this row IS
-    // capital expenditure, negated, and nothing else.
-    unavailable: 'Investing cash flow is taken from capital expenditure, and no capital expenditure figure was captured for this period.' },
+    { label: 'Investing cash flow', key: 'cash.investing', source: 'packStatementTables.investingCashFlow', actual: investing(current), prior: prior ? investing(prior) : null, // THE REASON NAMES THIS ROW'S OWN NOUN, as the two beside it do. It read
+    // "Investing cash flow is taken from capital expenditure, and no capital
+    // expenditure figure was captured" — true while this row was capex
+    // negated and nothing else. It is net investing from the cash flow
+    // statement now, with capex as the fallback, so a sentence equating the
+    // two would be false on every pack that has the statement's figure.
+    unavailable: 'No investing cash flow figure was captured for this period.' },
     { label: 'Financing cash flow', key: 'cash.financing', source: 'packFigureSet.current.financingCashFlow', actual: current.financingCashFlow ?? null, prior: prior?.financingCashFlow ?? null, unavailable: 'No financing cash flow figure was captured for this period.' },
     { label: 'Closing cash', key: 'cash.closing', source: 'packFigureSet.current.cash', role: 'total', actual: current.cash, prior: prior?.cash ?? null },
   ], set, false);
