@@ -184,6 +184,8 @@ export async function reopenPayrollRun(opts: {
   const reopened = (await sql`
     UPDATE payroll_run_headers
        SET status = 'calculated',
+           approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)
+           approved_at = NULL,
            updated_at = NOW()
      WHERE id = ${opts.runId}::uuid AND company_id = ${opts.companyId}::uuid
        AND status = 'approved'
