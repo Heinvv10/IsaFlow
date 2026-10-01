@@ -72,8 +72,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // fall together, so a GL failure cannot leave the request completed
         // (and the invoice paid) with nothing in the books. On a throw the
         // catch below logs and the webhook remains free to apply it later.
-        await withPublicRouteTransaction('paystack-verify', async () => {
-          await sql`
+        status = await withPublicRouteTransaction('paystack-verify', async () => {
+          // A request the webhook completed while Paystack was being asked is never overwritten
+          // by a stale 'abandoned' or 'failed'; a real success still completes one that is not
+          // completed yet, as the webhook does (R-167).
+          const moved = await sql<{ id: string }>`
             UPDATE paystack_payment_requests
             SET status = ${mapped},
                 completed_at = CASE WHEN ${mapped} = 'completed' THEN COALESCE(completed_at, now()) ELSE completed_at END,
@@ -81,6 +84,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
                 paystack_authorization_code = COALESCE(${live.authorization?.authorizationCode ?? null}, paystack_authorization_code),
                 channel = COALESCE(${live.channel ?? null}, channel)
             WHERE id = ${pr.id} AND company_id = ${pr.company_id}
+              AND status <> 'completed' AND (${mapped} = 'completed' OR status = 'pending')
+            RETURNING id
           `;
           // If the webhook hasn't run yet, record the receipt so the return
           // page doesn't have to wait for it. Idempotent on the reference, so
@@ -97,8 +102,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               paidAt: live.paidAt ?? null,
             });
           }
+          if (moved.length > 0) return mapped;
+          // Not moved: report what is stored, not what this stale read would have written.
+          const current = await sql<{ status: string }>`
+            SELECT status FROM paystack_payment_requests WHERE id = ${pr.id} AND company_id = ${pr.company_id}
+          `;
+          return current[0]?.status ?? mapped;
         });
-        status = mapped;
       }
     } catch (err) {
       log.warn(

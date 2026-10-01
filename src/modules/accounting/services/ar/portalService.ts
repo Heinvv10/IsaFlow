@@ -237,7 +237,8 @@ export async function getPaymentLink(token: string): Promise<{
   expiresAt: string;
 } | null> {
   const rows = (await sql`
-    SELECT * FROM portal_payment_links WHERE token = ${token} AND status = 'active' AND expires_at > NOW()
+    SELECT * FROM portal_payment_links
+    WHERE token = ${token} AND status = 'active' AND (expires_at IS NULL OR expires_at > NOW())
   `) as DbRow[];
   if (!rows[0]) return null;
   return {

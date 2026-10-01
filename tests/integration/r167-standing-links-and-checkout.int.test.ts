@@ -220,6 +220,25 @@ describe('create holds nothing across the gateway call', () => {
       .toEqual([{ status: 'failed', authorization_url: null }]);
   });
 
+  it('a checkout still starting blocks a second one even when the balance has moved', async () => {
+    const { invoiceId, linkId, token } = await invoiceWithLink(0, 115, '', true);
+    await pool.query(`INSERT INTO paystack_payment_requests (company_id, purpose, customer_invoice_id, paystack_reference,
+      amount_cents, status, portal_payment_link_id) VALUES ($1, 'customer_invoice', $2, $3, 11500, 'pending', $4)`,
+      [CO, invoiceId, `r167_moved_${linkId.slice(0, 8)}`, linkId]);
+    await pool.query('UPDATE customer_invoices SET amount_paid = 15 WHERE id = $1', [invoiceId]); // now owes 100, not 115
+    expect((await create(token)).statusCode).toBe(409);
+    expect(h.charged).toEqual([]);
+  });
+
+  it('two clicks at the same moment start one checkout', async () => {
+    const { invoiceId, token } = await invoiceWithLink(0, 40.5);
+    h.during = () => new Promise((done) => setTimeout(done, 150)); // keep the first at the gateway
+    const codes = (await Promise.all([create(token), create(token)])).map((r) => r.statusCode).sort();
+    expect(codes).toEqual([200, 409]);
+    expect(h.charged).toEqual([4050]);
+    expect(await requests(invoiceId)).toHaveLength(1);
+  });
+
   it('a gateway failure marks the recorded checkout failed, and the next click starts afresh', async () => {
     const { invoiceId, token } = await invoiceWithLink(0, 40.5);
     h.during = async () => { throw new Error('gateway timed out'); };
