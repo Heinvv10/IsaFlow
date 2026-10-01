@@ -85,9 +85,15 @@ describe('the cash flow section where no cash flow statement was read', () => {
 
   it('does not print investing or financing as nil, or a net and an opening balance derived from them', () => {
     const { item } = printed(BASE, 'cash_flow');
-    for (const label of ['Investing Cash Flow', 'Financing Cash Flow', 'Net Cash Flow', 'Opening Cash']) {
+    const DEPENDS = 'Not stated: it depends on a cash flow figure that was not read for this period.';
+    for (const [label, reason] of [
+      ['Investing Cash Flow', 'No investing cash flow figure was read for this period.'],
+      ['Financing Cash Flow', 'No financing cash flow figure was read for this period.'],
+      ['Net Cash Flow', DEPENDS],
+      ['Opening Cash', DEPENDS],
+    ] as const) {
       expect(item(label).value, label).toBeNull();
-      expect(item(label).unavailable, label).toBeTruthy();
+      expect(item(label).unavailable, label).toBe(reason);
     }
   });
 
