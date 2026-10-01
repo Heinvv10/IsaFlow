@@ -35,6 +35,7 @@ vi.mock('pg', () => ({
     Pool: class {
       connect = async () => ({ query: clientQueryMock, release: releaseMock });
       end = endMock;
+      on = vi.fn(); // the route listens for pool errors (R-176)
     },
   },
 }));

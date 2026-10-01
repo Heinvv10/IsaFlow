@@ -3,11 +3,12 @@
  *
  * pg-pool re-emits a pooled or removed client's 'error' on the pool (index.js makeIdleListener).
  * With no listener that is an uncaught exception, which takes a server process down. So every
- * tracked file in src/, pages/ and scripts/ that constructs a Pool must register at least as
- * many `.on('error', …)` listeners as it constructs pools, or be pinned below with the reason.
+ * pool constructed in a tracked file in src/, pages/ and scripts/ must be assigned to a name that
+ * the same file calls `.on('error', …)` on, or the file is pinned below with the reason. A
+ * listener on a client, or on another pool, does not count.
  *
- * Limits: it counts within one file, so a pool built in one file and listened to in another is
- * reported, and a listener on something that is not the pool is counted. It reads
+ * Limits: names are matched within one file, not one scope, so two pools sharing a name in one
+ * file share a listener; a pool returned or passed without a name counts as unlistened. It reads
  * `git ls-files`, so an untracked file is not seen until it is added.
  */
 import { describe, expect, it } from 'vitest';
@@ -15,10 +16,9 @@ import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import ts from 'typescript';
 
-const ONE_RUN = 'a one-run pool in a script or a single request, ended by that run: an uncaught pool error ends the run, which is the wanted outcome';
+const ONE_RUN = 'a one-run pool in a script, ended by that run: an uncaught pool error ends the run, which is the wanted outcome';
 /** file -> pools constructed without a listener. */
 const UNLISTENED: Record<string, { pools: number; reason: string }> = {
-  'pages/api/auth/verify-email.ts': { pools: 1, reason: ONE_RUN },
   'scripts/ap-backfill-supplier-payments.ts': { pools: 1, reason: ONE_RUN },
   'scripts/apply-migrations.ts': { pools: 1, reason: ONE_RUN },
   'scripts/audit-schema-drift.ts': { pools: 1, reason: ONE_RUN },
@@ -31,20 +31,27 @@ const UNLISTENED: Record<string, { pools: number; reason: string }> = {
 const sources = execFileSync('git', ['ls-files', 'src', 'pages', 'scripts'], { encoding: 'utf8' })
   .trim().split('\n').filter((f) => /\.(tsx?|mjs|cjs|js)$/.test(f));
 
-function count(text: string): { pools: number; listeners: number } {
-  let pools = 0;
-  let listeners = 0;
+/** The pools a file constructs, and how many of them have no `error` listener on their own name. */
+function count(text: string): { pools: number; unlistened: number } {
+  const names: Array<string | null> = [];
+  const listened = new Set<string>();
   const visit = (n: ts.Node) => {
     if (ts.isNewExpression(n)) {
       const callee = n.expression;
-      if ((ts.isIdentifier(callee) && callee.text === 'Pool') || (ts.isPropertyAccessExpression(callee) && callee.name.text === 'Pool')) pools += 1;
+      if ((ts.isIdentifier(callee) && callee.text === 'Pool') || (ts.isPropertyAccessExpression(callee) && callee.name.text === 'Pool')) {
+        const p = n.parent;
+        names.push(ts.isVariableDeclaration(p) && p.initializer === n ? p.name.getText()
+          : ts.isBinaryExpression(p) && p.right === n ? p.left.getText() : null);
+      }
     }
     if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'on'
-      && n.arguments[0] !== undefined && ts.isStringLiteralLike(n.arguments[0]) && n.arguments[0].text === 'error') listeners += 1;
+      && n.arguments[0] !== undefined && ts.isStringLiteralLike(n.arguments[0]) && n.arguments[0].text === 'error') {
+      listened.add(n.expression.expression.getText());
+    }
     ts.forEachChild(n, visit);
   };
   visit(ts.createSourceFile('s.ts', text, ts.ScriptTarget.Latest, true));
-  return { pools, listeners };
+  return { pools: names.length, unlistened: names.filter((name) => name === null || !listened.has(name)).length };
 }
 
 describe('R-176: every long-lived pool listens for errors', () => {
@@ -54,11 +61,15 @@ describe('R-176: every long-lived pool listens for errors', () => {
   });
 
   it.each([
-    ["const p = new pg.Pool({}); p.on('error', log);", { pools: 1, listeners: 1 }],
-    ['const p = new Pool({});', { pools: 1, listeners: 0 }],
-    ["const p = new pg.Pool({}); p.on('connect', log);", { pools: 1, listeners: 0 }],
-    ["const a = new Pool({}); const b = new pg.Pool({}); a.on('error', log);", { pools: 2, listeners: 1 }],
-    ["const c = new pg.Client({}); c.on('error', log);", { pools: 0, listeners: 1 }],
+    ["const p = new pg.Pool({}); p.on('error', log);", { pools: 1, unlistened: 0 }],
+    ["_pool = new pg.Pool({}); _pool.on('error', log);", { pools: 1, unlistened: 0 }],
+    ['const p = new Pool({});', { pools: 1, unlistened: 1 }],
+    ["const p = new pg.Pool({}); p.on('connect', log);", { pools: 1, unlistened: 1 }],
+    ["const a = new Pool({}); const b = new pg.Pool({}); a.on('error', log);", { pools: 2, unlistened: 1 }],
+    // a client's listener does not cover the pool
+    ["const p = new pg.Pool({}); const c = new pg.Client({}); c.on('error', log);", { pools: 1, unlistened: 1 }],
+    ["const p = new pg.Pool({}); const c = await p.connect(); c.on('error', log);", { pools: 1, unlistened: 1 }],
+    ["function make() { return new pg.Pool({}); } other.on('error', log);", { pools: 1, unlistened: 1 }],
   ])('counts %s', (snippet, expected) => { expect(count(snippet)).toEqual(expected); });
 
   it('a file that constructs a pool listens for its errors, or is pinned with the reason', () => {
@@ -66,8 +77,8 @@ describe('R-176: every long-lived pool listens for errors', () => {
     for (const file of sources) {
       const text = readFileSync(file, 'utf8');
       if (!text.includes('Pool(')) continue;
-      const { pools, listeners } = count(text);
-      if (pools > listeners) found[file] = pools - listeners;
+      const { unlistened } = count(text);
+      if (unlistened > 0) found[file] = unlistened;
     }
     expect(found, "add pool.on('error', …), or pin the file in UNLISTENED with the reason an uncaught pool error is acceptable there")
       .toEqual(Object.fromEntries(Object.entries(UNLISTENED).map(([file, e]) => [file, e.pools])));
