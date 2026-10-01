@@ -115,6 +115,31 @@ describe.each(wrappers)('%s', (_label, wrap, normal, early, what) => {
   });
 });
 
+describe.each(wrappers)('%s', (_label, wrap, normal) => {
+  it('a COMMIT that fails after the headers were flushed is aborted as a COMMIT failure, not answered as a throw', async () => {
+    const name = `r176-${randomUUID()}`;
+    const s = seen();
+    const logged = vi.spyOn(log, 'error');
+    const r = await call(wrap(async (_req, res) => {
+      s.pid = (await sql<{ pid: number }>`SELECT pg_backend_pid() AS pid`)[0]!.pid;
+      await sql`INSERT INTO customers (id, company_id, name) VALUES (${randomUUID()}::uuid, ${CO}::uuid, ${name})`;
+      arm(als.getStore()!.client, ['COMMIT'], s);
+      res.writeHead(200); res.write('partial');
+      return res.end('rest');
+    }), normal());
+    const messages = logged.mock.calls.map((c) => String(c[0]));
+    logged.mockRestore();
+    s.disarm();
+    expect(s.refused).toEqual({ COMMIT: 1, ROLLBACK: 0 });
+    expect(r.destroyed).toBe(true);
+    expect(r.ends).toBe(0);
+    expect(messages.filter((m) => m.includes('transaction finalize failed'))).toHaveLength(1);
+    expect(messages.filter((m) => m.includes('request threw inside its transaction'))).toHaveLength(0);
+    expect(await customers(name)).toBe(0);
+    expect(await backendState(pool, s.pid, 'idle')).toBe('idle'); // its ROLLBACK worked: reused
+  });
+});
+
 describe('withAuth: a ROLLBACK that does not answer', () => {
   /** Leaves a query in flight on the request's connection, so everything after it queues behind it. */
   const busy = (client: PoolClient, seconds: number) => {
