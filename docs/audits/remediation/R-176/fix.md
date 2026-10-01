@@ -454,6 +454,12 @@ owner used the helper. Fixed:
   are left and named, with the reason, here and in `src/lib/auth/.claude.md`.
 - The docs say plainly that the 5 s bound covers ROLLBACK only.
 
+Mutants: the census, wrapper and new-guard mutants (95) on `33b294c90`, baseline green three times
+before and once after: 94 RED. One survives: dropping the result of
+`ap-backfill-supplier-payments.ts`'s dry-run ROLLBACK. No test executes that script, and the
+release census proves the released value derives from a ROLLBACK outcome, not that every path
+assigns it; its catch path still does. Accepted.
+
 ## Migration / rollback
 
 There is no migration. To roll back, revert the PR.
