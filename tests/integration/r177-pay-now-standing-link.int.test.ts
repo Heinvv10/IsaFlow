@@ -65,6 +65,12 @@ describe('R-177: Pay Now hands out the standing link and never calls the gateway
     await pool.query('UPDATE customer_invoices SET online_payment_enabled = false WHERE id = $1', [id]); // a legacy row
     expect(tokenOf(await payNow(id))).toBe(tokenOf(a!));
     expect((await pool.query('SELECT online_payment_enabled AS on FROM customer_invoices WHERE id = $1', [id])).rows).toEqual([{ on: true }]);
+    // a row whose link was stored on another origin (the old localhost fallback): same link, stored URL corrected
+    await pool.query('UPDATE customer_invoices SET payment_url = $2 WHERE id = $1', [id, `http://localhost:3101/portal/pay/${tokenOf(a!)}`]);
+    expect(tokenOf(await payNow(id))).toBe(tokenOf(a!));
+    expect((await pool.query('SELECT payment_url FROM customer_invoices WHERE id = $1', [id])).rows)
+      .toEqual([{ payment_url: `https://app.r177.test/portal/pay/${tokenOf(a!)}` }]);
+    expect(await links(id)).toHaveLength(1);
   });
 
   it('takes only a NO KEY lock on the invoice: it does not wait behind a row that references the invoice being written', async () => {
