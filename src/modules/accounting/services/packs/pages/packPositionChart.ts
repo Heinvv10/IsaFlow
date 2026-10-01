@@ -7,7 +7,11 @@
 import { svgBoxFor } from './packChartBox';
 import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
-import { compositionBarOption, type CompositionSeries } from '@/modules/accounting/services/packs/packChartOptions';
+import {
+  COMPOSITION_CHROME_PX,
+  compositionBarOption,
+  type CompositionSeries,
+} from '@/modules/accounting/services/packs/packChartOptions';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { CHART_MEASURE_MM, MID, type ChartBox } from './packChartRungs';
 import type { PackChartSpec } from './packPageModel';
@@ -40,6 +44,25 @@ function positionCompositionTitle(current: PackFigureSet['current'], scale: Mone
   return structural
     ? `Assets of ${money(current.totalAssets)} stand on ${funding}.`
     : `Assets of ${money(current.totalAssets)} are matched by ${funding}.`;
+}
+
+/**
+ * HOW MANY GRIDLINE STEPS THE PLOT HAS ROOM FOR, from its own height.
+ *
+ * ECharts chose the ticks, and it chooses by the data: 4 000 down to (5 000)
+ * at every 1 000 is ten labels whatever the box. At the middle rung they
+ * stood 16px apart in 12px type and at the 65mm the live sheets shorten this
+ * chart to, 13 — labels touching. The pitch is the bridges' own
+ * (`intervalsFor`): 26px a step, so a shorter chart draws FEWER ticks rather
+ * than the same ticks closer together. `axisDomain` may round the bounds out
+ * by a step, which is why the pitch is more than the 18px the gate asks for.
+ */
+const PX_PER_MM = 96 / 25.4;
+const TICK_PITCH_PX = 26;
+
+function tickIntervals(plotMm: number): number {
+  const plotPx = plotMm * PX_PER_MM - COMPOSITION_CHROME_PX.top - COMPOSITION_CHROME_PX.bottom;
+  return Math.max(2, Math.floor(plotPx / TICK_PITCH_PX));
 }
 
 /** Page 7 — assets beside the funding that stands behind them, per period. */
@@ -92,7 +115,10 @@ export function buildPositionCompositionChart(
     id: 'position-composition',
     title: compositionTitle,
     kind: 'bar',
-    svg: renderChartSvg(compositionBarOption(periods, series, scale), compositionPlot),
+    svg: renderChartSvg(
+      compositionBarOption(periods, series, scale, undefined, tickIntervals(compositionPlot.heightMm)),
+      compositionPlot,
+    ),
     heightMm: box.heightMm,
     plotMm: compositionPlot.heightMm,
   };

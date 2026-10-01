@@ -162,7 +162,12 @@ export function smallMultipleOption(
         color: palette.axis,
         interval: Math.max(points.length - 2, 0),
         showMaxLabel: true,
-        ...(unit === null ? {} : { alignMinLabel: 'left', alignMaxLabel: 'right' }),
+        // A PANEL'S MONTHS SIT A VALUE-LABEL'S HEIGHT BELOW THE PLOT. Its
+        // bottom value label is 8px type left of the plot, the first month is
+        // centred on the plot's left edge under it, and at the default 8px
+        // margin the two stood 4px apart. 12 clears it inside the 28px the
+        // grid already reserves below the plot.
+        ...(unit === null ? { margin: 12 } : { alignMinLabel: 'left', alignMaxLabel: 'right' }),
       },
       axisLine: { lineStyle: { color: palette.axis } },
       axisTick: { show: false },

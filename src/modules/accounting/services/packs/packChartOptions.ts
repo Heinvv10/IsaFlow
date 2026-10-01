@@ -205,15 +205,44 @@ export interface CompositionSeries {
  * a positive-or-negative magnitude measured from the same zero, and ECharts'
  * stacking hazard across zero bites a BRIDGE, not a composition.
  */
+/** The pixels of a composition chart's box its axis chrome takes — the
+ *  grid's top and bottom — for a caller choosing how many ticks fit. */
+export const COMPOSITION_CHROME_PX = { top: 40, bottom: 64 } as const;
+
+/**
+ * Where each category's stacks reach, either side of zero. ECharts stacks
+ * same-signed bands together, so a stack's top is the sum of its positive
+ * bands and its bottom the sum of its negative ones.
+ */
+function stackExtremes(categories: string[], series: CompositionSeries[]): number[] {
+  const stacks = [...new Set(series.map((band) => band.stack))];
+  return categories.flatMap((_category, i) => stacks.flatMap((stack) => {
+    const values = series.filter((band) => band.stack === stack).map((band) => band.values[i] ?? 0);
+    return [
+      values.filter((v) => v > 0).reduce((sum, v) => sum + v, 0),
+      values.filter((v) => v < 0).reduce((sum, v) => sum + v, 0),
+    ];
+  }));
+}
+
+/**
+ * @param intervals How many gridline steps the plot has ROOM for — see
+ *   `axisDomain`. Left to ECharts where the caller does not say, which is how
+ *   page 7 printed ten tick labels 13px apart on the chart it had shortened.
+ */
 export function compositionBarOption(
   categories: string[],
   series: CompositionSeries[],
   scale: MoneyScale,
   palette: ChartPalette = DEFAULT_CHART_PALETTE,
+  intervals?: number,
 ): EChartsCoreOption {
+  const domain = intervals === undefined
+    ? undefined
+    : axisDomain(stackExtremes(categories, series), intervals);
   return {
     animation: false,
-    grid: { left: CHART_GUTTER_PX, right: CHART_GUTTER_RIGHT_PX, top: 40, bottom: 64 },
+    grid: { left: CHART_GUTTER_PX, right: CHART_GUTTER_RIGHT_PX, ...COMPOSITION_CHROME_PX },
     tooltip: { formatter: compositionTooltip(scale) },
     legend: { bottom: 0, textStyle: { color: palette.axis } },
     xAxis: {
@@ -222,7 +251,7 @@ export function compositionBarOption(
       axisLabel: { color: palette.axis, interval: 0 },
       axisLine: { lineStyle: { color: palette.axis } },
     },
-    yAxis: moneyValueAxis(palette, scale),
+    yAxis: moneyValueAxis(palette, scale, domain),
     series: series.map((band, index) => ({
       name: band.name,
       type: 'bar',

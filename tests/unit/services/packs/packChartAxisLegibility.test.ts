@@ -128,6 +128,43 @@ describe("page 7's composition chart", () => {
     });
   }
 
+  /**
+   * NOT OVERLAPPING IS NOT THE SAME AS LEGIBLE. The checks above pass a tick
+   * column whose labels stand one type-size apart, which is labels TOUCHING:
+   * the demo's sheet 7 printed 4 000 down to (5 000) at every 1 000, ten
+   * labels in 135px, on the chart the page had shortened to 65mm. The tick
+   * count has to come from the plot's height, so a shorter chart draws fewer
+   * of them — half a type-size of air between neighbours at every height the
+   * page can take the chart to.
+   */
+  const HEIGHTS: Array<[string, number]> = [
+    ['the middle rung', CHART_HEIGHT_MM.half],
+    ['the 65mm the live sheets take it to', 65],
+    ['the floor', POSITION_CHART_FLOOR_MM],
+  ];
+  for (const [name, set] of CASES) {
+    for (const [rung, heightMm] of HEIGHTS) {
+      it(`keeps air between the ticks at ${rung} for ${name}`, () => {
+        const chart = positionCompositionChartAtHeight(set, PACK_SCALE, heightMm)!;
+        const ticks = yAxisTicks(String(chart.svg));
+        expect(ticks.length, 'an axis needs its ends and something between').toBeGreaterThanOrEqual(3);
+        const gap = tightestGap(ticks);
+        expect(
+          gap,
+          `ticks ${gap.toFixed(1)}px apart at ${ticks[0]!.size}px type — ${ticks.map((t) => t.text).join(' / ')}`,
+        ).toBeGreaterThanOrEqual(ticks[0]!.size * 1.5);
+      });
+    }
+  }
+
+  it('draws fewer ticks on the shorter chart, not the same ticks closer together', () => {
+    const tall = yAxisTicks(String(positionCompositionChartAtHeight(liveDemoSet, PACK_SCALE, CHART_HEIGHT_MM.half)!.svg));
+    const short = yAxisTicks(String(positionCompositionChartAtHeight(liveDemoSet, PACK_SCALE, POSITION_CHART_FLOOR_MM)!.svg));
+    expect(short.length).toBeLessThanOrEqual(tall.length);
+    // And the axis still contains its data: round bounds either side of zero.
+    expect(short[0]!.text).not.toBe(short[short.length - 1]!.text);
+  });
+
   it('refuses a height under the floor rather than drawing an axis that overprints', () => {
     expect(positionCompositionChartAtHeight(demoSet, PACK_SCALE, POSITION_CHART_FLOOR_MM - 1)).toBeNull();
   });
@@ -201,5 +238,44 @@ describe("page 8's closing-cash line", () => {
     expect(panels?.kind).toBe('smallMultiples');
     const panel = panels!.kind === 'smallMultiples' ? panels!.panels[0]! : null;
     expect(yAxisTicks(String(panel!.svg)).length).toBeLessThan(3);
+  });
+
+  /**
+   * AND THE LOWEST VALUE LABEL IS NOT SITTING ON THE FIRST MONTH. A panel
+   * prints its y-axis's two ends in 8px type to the left of the plot and its
+   * first month in 12px under the plot's left edge, so the two overlap
+   * horizontally — and stood 4px apart vertically: "(1 621)" on top of
+   * "Oct 2025". The month label is set a value-label's own height below it.
+   */
+  it('keeps the bottom value label clear of the month under it on every panel', () => {
+    const trends = buildBoardPackPages(liveDemoInput).pages.find((p) => p.navLabel === 'Trends');
+    const block = trends?.blocks.find((b) => b.kind === 'smallMultiples');
+    const panels = block?.kind === 'smallMultiples' ? block.panels : [];
+    expect(panels.length).toBeGreaterThan(3);
+    for (const panel of panels) {
+      const svg = String(panel.svg);
+      const height = Number(/viewBox="0 0 [\d.]+ ([\d.]+)"/.exec(svg)?.[1]);
+      const texts = [...svg.matchAll(/<text\b([^>]*)>([^<]*)<\/text>/g)].map((m) => {
+        const attrs = m[1] ?? '';
+        const at = /transform="translate\(([-\d.]+) ([-\d.]+)\)"/.exec(attrs)!;
+        return {
+          anchor: /text-anchor="(\w+)"/.exec(attrs)?.[1],
+          size: Number(/font-size:([\d.]+)px/.exec(attrs)![1]),
+          // zrender centres the glyphs on `translate` plus an optional `y`.
+          centre: Number(at[2]) + Number(/\sy="([-\d.]+)"/.exec(attrs)?.[1] ?? 0),
+        };
+      });
+      const values = texts.filter((t) => t.anchor === 'end');
+      const months = texts.filter((t) => t.anchor === 'middle');
+      expect(values.length, panel.id).toBe(2);
+      expect(months.length, panel.id).toBe(2);
+      const lowest = values.reduce((a, b) => (b.centre > a.centre ? b : a));
+      const month = months[0]!;
+      const clear = (month.centre - month.size / 2) - (lowest.centre + lowest.size / 2);
+      expect(clear, `${panel.id}: the value label ends ${clear.toFixed(1)}px above the month`)
+        .toBeGreaterThanOrEqual(lowest.size);
+      // And the month still prints inside the panel's own box.
+      expect(month.centre + month.size / 2, panel.id).toBeLessThanOrEqual(height);
+    }
   });
 });
