@@ -170,6 +170,7 @@ async function requestThenNext(run: Run, outcome: Outcome, fail: Statement[], wa
   const logged = vi.spyOn(log, 'error');
   const answer = await run(name, outcome, fail, first);
   const finalizeLog = logged.mock.calls.find((c) => String(c[0]).includes('transaction finalize failed'))?.[1];
+  const throwLog = logged.mock.calls.find((c) => String(c[0]).includes('request threw inside its transaction'))?.[1];
   logged.mockRestore();
   first.disarm();
   const state = await backendState(first.pid, want);
@@ -178,7 +179,7 @@ async function requestThenNext(run: Run, outcome: Outcome, fail: Statement[], wa
   next.disarm();
   return {
     answer, refused: first.refused, state, samePid: next.pid === first.pid, nextStatus: nextAnswer.status,
-    rows: await customers(name), nextRows: await customers(`${name}-next`), finalizeLog,
+    rows: await customers(name), nextRows: await customers(`${name}-next`), finalizeLog, throwLog,
   };
 }
 
@@ -194,6 +195,7 @@ describe.each(owners)('%s', (label, run) => {
     expect(r.nextRows).toBe(1);
     expect(r.samePid).toBe(false);
     expect(r.state).toBeNull(); // not 'idle in transaction' in the pool
+    if (isWrapper) expect(r.throwLog).toMatchObject({ rolledBack: false });
   });
 
   it('a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands', async () => {
