@@ -130,7 +130,7 @@ Two suites share `tests/integration/r167-portal-links.helpers.ts`. In both, Pays
 signed, and `verifyTransaction` is stubbed. Each run uses a fresh client IP, because verify
 rate-limits per IP and that counter persists between runs.
 
-`r167-link-charges-link-amount.int.test.ts` covers explicit links, 20 cases:
+`r167-link-charges-link-amount.int.test.ts` covers explicit links, 21 cases:
 
 - **`create` charges:**
   - 4050 for R40.50 on an unpaid invoice;
@@ -151,6 +151,8 @@ rate-limits per IP and that counter persists between runs.
   - a link cancelled after checkout stays cancelled;
   - a pre-717 request touches no link;
   - `spendPaymentLinkOfRequest` does nothing for a pending request or another company.
+- **The payer:** an invoice naming another company's customer is charged as "Customer" with the
+  synthetic payer email, never under that customer's name or email.
 - **The GET** shows 30 for a R40.50 link with R30 left. It says "This invoice has no
   outstanding balance" on a paid invoice, and answers 404 on a cancelled one.
 
@@ -197,7 +199,7 @@ Evidence:
   - r158, r166, k101, r155-157, r157 and the r159 suites;
   - the k122 suites and the three r095 portal suites;
   - customer-ownership-fence-routes, on an `isaflow_test` copy of the fixture.
-- `mutations.log`: every mutant is RED. That is 47 in round 2; in round 3, Q50–Q52 are added, Q39 is re-pointed and Q40 is removed with the dead code, 49 in all; the re-confirmation round adds Q53, 50 in all. Each run used both suites plus the
+- `mutations.log`: every mutant is RED. That is 47 in round 2; in round 3, Q50–Q52 are added, Q39 is re-pointed and Q40 is removed with the dead code, 49 in all; the re-confirmation round adds Q53 and the /review round adds Q54, 51 in all. Each run used both suites plus the
   `paystackClient` unit test. They cover:
   - every filter and each arm of the charge, both link kinds, and the clamp;
   - every refusal and its HTTP mapping, including the 409;

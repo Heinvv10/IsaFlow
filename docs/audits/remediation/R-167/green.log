@@ -96,3 +96,7 @@
  Test Files  1 passed (1)
       Tests  16 passed (16)
 ## k-035-webhook-redelivery-discarded: 4 failed | 2 passed here AND on clean origin/master 66e776d81 (pre-existing; the mandate branch, untouched)
+
+## r167 suites re-run on 76d88acb2 after the cross-tenant payer case (2026-10-01T02:12:06Z, after a host reboot; fixture container restarted)
+ Test Files  2 passed (2)
+      Tests  37 passed (37)

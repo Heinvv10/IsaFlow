@@ -1,3 +1,5 @@
+# /review round: on 76d88acb2. Q54 (the payer join's company predicate removed) is new: RED | 1 failed | 36 passed (37) — 'an invoice naming another company's customer is paid as Customer'. Baseline after it: 37 passed (37).
+
 # Re-confirmation round: on 44202201e. Q53 (a swept checkout's URL handed out) is new; Q42 was re-pointed at the checked URL write; Q21 and Q41 were re-run. Each: both r167 suites + paystackClient unit test.
 Q21 no reuse at all: RED | 3 failed | 33 passed (36)
 Q41 failed start not marked: RED | 1 failed | 35 passed (36)
