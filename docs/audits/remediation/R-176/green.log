@@ -1,15 +1,17 @@
-# GREEN on c04a52944 (2026-10-01T15:24:25Z); fixture isaflow-fixture-r175.
-# unit: files 130 passed (130); tests 1121 passed | 3 skipped (1124) | int: files 12 passed (12); tests 152 passed | 2 skipped (154) | int (invite, GoTrue origin): files 4 passed (4); tests 24 passed (24)
-# r176 integration suites: 29 passed | 1 skipped (30); 36 passed (36); 6 passed (6); wrapper edges 14 passed (14).
-# unit set: tests/unit/lib (incl. rollbackFailed, releaseCensus), tests/unit/auth, tests/unit/api/bankFeedExtensionIngestRoute.test.ts.
+# GREEN on 860cc7fd2 (2026-10-01T16:41:30Z); fixture isaflow-fixture-r175.
+# unit: files 131 passed (131); tests 1168 passed | 3 skipped (1171) | int: files 12 passed (12); tests 154 passed | 2 skipped (156) | int (invite, GoTrue origin): files 4 passed (4); tests 24 passed (24)
+# r176 integration suites: 29 passed | 1 skipped (30); 36 passed (36); 6 passed (6); wrapper edges 16 passed (16).
+# unit set: tests/unit/lib (incl. rollbackFailed, cancelBackend, releaseCensus), tests/unit/auth, tests/unit/api/bankFeedExtensionIngestRoute.test.ts.
 # int set: the four r176 suites, r159 (both), public-route-tx, r157-payment-link-throw-responds, k097, r-032 (both), k106.
 # int (invite) set, run with GOTRUE_URL=http://127.0.0.1:1: k-041 (three), k-042.
-# Whole unit suite (env -u DATABASE_URL vitest run tests/unit): Test Files  1118 passed (1118); Tests  14901 passed | 6 skipped (14907).
-# tsc --noEmit -p .: clean. eslint on the twelve changed src/pages files: clean. tests/** and scripts/** are outside both projects; the three changed scripts were type-checked ad hoc (one unrelated error in simulate-fy2026-workflows.ts, on unchanged code).
+# Whole unit suite (env -u DATABASE_URL vitest run tests/unit): Test Files  1119 passed (1119); Tests  14948 passed | 6 skipped (14954).
+# tsc --noEmit -p .: clean. eslint on the thirteen changed src/pages files: clean. tests/** and scripts/** are outside both projects.
+# scripts/_pg.ts and src/lib/rollbackFailed.ts imported and called under bun and under tsx 4.23.15, no database: both resolve @/lib/logger. scripts/simulate-fy2026-loans.ts bundles under bun (imports resolve). scripts/simulate-fy2026-workflows.ts does not resolve on unchanged code (markUifDeclarationPaid is not exported) and runs main on import.
+# Intermittent under machine load (load average ~31), seen once each in about 20 baseline runs: a unit file with 3 failing tests (not identified, not reproduced); an uncaught FATAL in public-route-tx (fixed in 860cc7fd2).
 # Fail on unchanged source too, outside the set: tests/integration/withAuth.test.ts (2), admin-forbidden (1), admin-rls-bypass (1), k104-k105 (1).
 # NOT run: bun run ci, the production build, the whole integration suite, the simulate scripts.
 ## integration
- Test Files  12 passed (12)
-      Tests  152 passed | 2 skipped (154)
  Test Files  4 passed (4)
       Tests  24 passed (24)
+ Test Files  12 passed (12)
+      Tests  154 passed | 2 skipped (156)
