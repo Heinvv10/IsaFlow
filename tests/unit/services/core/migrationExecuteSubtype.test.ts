@@ -53,7 +53,7 @@ describe('executeMigration — income-statement rows without a subtype', () => {
     expect(byCode('1500')).toContain(null);
     // A re-run fills a NULL subtype on an existing row but never overwrites one that is set.
     const text = (byCode('5900')[0] as TemplateStringsArray).join('?');
-    expect(text).toContain('account_subtype = COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype)');
+    expect(text).toContain('ELSE COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype) END');
   });
 
   it('counts only the rows the upsert actually wrote and names the ones it refused', async () => {

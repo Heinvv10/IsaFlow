@@ -7,6 +7,8 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { lockSystemRoleWrites } from './systemRoleWriteLock';
+import { isSystemAccountKey } from './systemAccountKeys';
+import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
 import type { GLAccountType } from '../../types/gl.types';
 
 export type CoaTemplate = 'isaflow_standard' | 'xero_compatible' | 'sage_compatible' | 'blank';
@@ -161,6 +163,10 @@ export async function seedChartOfAccountsFromTemplate(
   if (lines.length === 0) return; // 'blank' — no seeding
   // The template flags system accounts: serialise with every writer of role flags.
   await lockSystemRoleWrites(companyId);
+  // A role the company already holds is not seeded again: the template's row
+  // for it is SKIPPED (as a row whose code is taken is), never added as a
+  // second holder for the resolver to choose between.
+  const isRoleRow = (acc: TemplateLine) => acc.isSystem === true && isSystemAccountKey(acc.subtype);
 
   // Pass 1: insert all accounts (no parent yet)
   for (const acc of lines) {
@@ -176,9 +182,13 @@ export async function seedChartOfAccountsFromTemplate(
       -- One late-claim clearing account per company: migration 701 may have
       -- given it one already, under another code (a second system account with
       -- the subtype would leave the resolver choosing by heap order).
-      WHERE ${acc.subtype ?? null}::TEXT IS DISTINCT FROM 'vat_input_late_claim'
+      WHERE (${acc.subtype ?? null}::TEXT IS DISTINCT FROM 'vat_input_late_claim'
          OR NOT EXISTS (SELECT 1 FROM gl_accounts WHERE company_id = ${companyId}::UUID
-                          AND account_subtype = 'vat_input_late_claim')
+                          AND account_subtype = 'vat_input_late_claim'))
+        AND (NOT ${isRoleRow(acc)}::BOOLEAN
+         OR NOT EXISTS (SELECT 1 FROM gl_accounts WHERE company_id = ${companyId}::UUID
+                          AND account_subtype = ${acc.subtype ?? null}::TEXT
+                          AND is_system_account AND is_active))
       ON CONFLICT (company_id, account_code) DO NOTHING
     `;
   }
@@ -196,6 +206,7 @@ export async function seedChartOfAccountsFromTemplate(
     `;
   }
 
+  clearSystemAccountCacheAfterCommit(companyId);
   log.info('COA seeded from template', { companyId, template, count: lines.length }, 'accounting');
 }
 

@@ -92,16 +92,17 @@ async function loadAccount(companyId: string, id: string): Promise<AccountRow> {
  * a clear here would re-open the hole `createAccount` closes.
  */
 function assertSubtypeAllowed(account: AccountRow, subtype: GLAccountSubtype | null): void {
-  if (subtype === null) {
-    const missing = missingSubtypeError(account.account_type, null);
-    if (missing) throw new ReclassifyError(missing);
-    return;
-  }
+  // First, and for a clear too: clearing a role holder's subtype empties the role.
   if (account.is_system_account) {
     throw new ReclassifyError(
       `Cannot change the subtype of system account ${account.account_code} — ` +
         'auto-posting resolves this account by its subtype',
     );
+  }
+  if (subtype === null) {
+    const missing = missingSubtypeError(account.account_type, null);
+    if (missing) throw new ReclassifyError(missing);
+    return;
   }
   const error = subtypeErrorFor(
     { accountType: account.account_type, currentSubtype: account.account_subtype },

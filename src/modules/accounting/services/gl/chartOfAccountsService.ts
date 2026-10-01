@@ -11,6 +11,7 @@ import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { isBankSubtype } from './accountSubtypes';
 import { assertParentUsable } from './accountParentRules';
 import { lockSystemRoleWrites } from './systemRoleWriteLock';
+import { reactivationRefusal } from './systemRoleReactivation';
 
 export interface CreateAccountInput {
   accountCode: string;
@@ -342,10 +343,10 @@ export async function renameAccountCode(
 
 export async function updateAccount(companyId: string, id: string, input: UpdateAccountInput): Promise<GLAccount> {
   try {
-    // Deactivating could empty a system role: serialise with every writer of
-    // role flags (a Default Accounts save choosing this account) BEFORE the
-    // read below, so the system-account check judges the settled row.
-    if (input.isActive === false) await lockSystemRoleWrites(companyId);
+    // Deactivating could empty a system role and reactivating could double
+    // one: serialise with every writer of role flags (a Default Accounts save
+    // choosing this account) BEFORE the reads below, so they judge settled rows.
+    if (input.isActive !== undefined) await lockSystemRoleWrites(companyId);
     const account = await sql`SELECT * FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}` as {
       is_system_account: boolean;
       account_name: string;
@@ -354,6 +355,10 @@ export async function updateAccount(companyId: string, id: string, input: Update
 
     if (account[0]!.is_system_account && input.isActive === false) {
       throw new Error('Cannot deactivate a system account');
+    }
+    if (input.isActive === true) {
+      const refusal = await reactivationRefusal(companyId, id);
+      if (refusal) throw new Error(refusal);
     }
 
     // Money in the account blocks deactivation, the same rule deleteAccount

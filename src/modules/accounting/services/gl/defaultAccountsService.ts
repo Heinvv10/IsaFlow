@@ -121,12 +121,16 @@ export async function saveDefaultAccountMappings(
     .filter(([k, v]) => managedSubtype(k) && idOrNull(v)).map(([, v]) => v as string);
   // Role rows AND the chosen accounts, in ascending id — the order
   // lockGlAccountsForUpdate (account merge) takes them in, so the two cannot deadlock.
+  // NO KEY UPDATE, not UPDATE: it still excludes every UPDATE and DELETE of
+  // these rows (and the merge's FOR UPDATE), but not the FOR KEY SHARE a
+  // journal line's foreign key takes — a posting on the bank and receivable
+  // accounts neither waits for a save nor deadlocks with it (40P01).
   await tx`
     SELECT 1 FROM gl_accounts
     WHERE company_id = ${companyId}::UUID
       AND (account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[]) OR id::TEXT = ANY(${chosenIds}::TEXT[]))
     ORDER BY id
-    FOR UPDATE
+    FOR NO KEY UPDATE
   `;
   const { holders: before, contested } = await roleState(companyId, tx);
 
