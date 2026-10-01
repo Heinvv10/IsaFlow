@@ -26,8 +26,15 @@
  * was its own 30-second `waitForSelector` timeout, and the user received a
  * corrupt download named `.pdf` or a message naming no cause at all. So a
  * failed render is DIAGNOSED here, by composing the same document in this
- * process and reporting what it refuses on. Only on the failure path: the
- * happy path composes nothing extra.
+ * process. Only on the failure path: the happy path composes nothing extra.
+ *
+ * WHAT THAT DIAGNOSIS ANSWERS. A `PackRefusal` thrown by the compose is a 422
+ * carrying the refusal's `userMessage` — the sentence written for a reader —
+ * with its diagnostic logged. Anything else the compose throws is NOT a
+ * refusal: it is re-thrown and becomes a 500, after the render error has been
+ * logged. If the compose succeeds, the render error itself is re-thrown. So a
+ * gate reaches the user in its own words only where it throws a
+ * `PackRefusal`; a gate that throws a bare `Error` is a 500.
  *
  * THE FOOTER AND THE PDF METADATA COME FROM `buildPackFurniture`, which the
  * proof script `scripts/pdf/render-pack.ts` calls too. They were derived

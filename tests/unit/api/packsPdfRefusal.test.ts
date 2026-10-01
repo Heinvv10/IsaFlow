@@ -97,6 +97,30 @@ describe('GET /api/accounting/packs/board/pdf when the pack cannot be produced',
     expect(JSON.stringify(logMock.warn.mock.calls)).toContain('fitPageToBox: page 5 needs 264.9mm');
   });
 
+  it('answers 422 with the integrity gate\'s sentence, and keeps its diagnostic for the log', async () => {
+    // The gate refuses a pack whose own figures do not agree. What the
+    // reader is owed is the fact about their books; the figure keys and the
+    // spec reference are the engineer's.
+    renderPagePdfMock.mockRejectedValue(RENDER_TIMEOUT);
+    buildBoardPackDocumentMock.mockRejectedValue(new PackRefusal(
+      'Pack figure integrity failed, so this render is refused (spec §7.2). 1 problem:\n'
+        + '  sofp.totalAssets 3191945 != sofp.totalEquityAndLiabilities 3191495',
+      'This pack was not produced because its balance sheet does not balance: total assets and '
+        + 'total equity and liabilities differ by R450.',
+    ));
+    const res = mockRes();
+
+    await pdfRoute(req(), res);
+
+    expect(res.statusCode).toBe(422);
+    expect((res.body as { error: { message: string } }).error.message).toBe(
+      'This pack was not produced because its balance sheet does not balance: total assets and '
+        + 'total equity and liabilities differ by R450.',
+    );
+    expect(JSON.stringify(res.body)).not.toMatch(/spec §7\.2|sofp\./);
+    expect(JSON.stringify(logMock.warn.mock.calls)).toContain('sofp.totalAssets 3191945');
+  });
+
   it.each([
     ['a code bug', new TypeError("Cannot read properties of undefined (reading 'blocks')")],
     ['a database error', Object.assign(new Error('relation "afs_documents" does not exist'), { code: '42P01' })],
