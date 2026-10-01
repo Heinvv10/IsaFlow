@@ -1,7 +1,11 @@
-# GREEN on the working tree over 090497265 (2026-10-01T10:34:23Z); fixture isaflow-fixture-r175.
+# GREEN on 0c739e509 (2026-10-01T10:38:23Z); fixture isaflow-fixture-r175.
 # unit: files 65 passed (65); tests 496 passed (496) | int: files 5 passed (5); tests 88 passed | 2 skipped (90)
-# tsc --noEmit -p .: clean. eslint on the three changed src files: clean.
-# NOT in the set: tests/integration/withAuth.test.ts fails 2 of 2 (401, token verification) on unchanged source too in this fixture environment.
+# r176 suite alone: 29 passed | 1 skipped (30). The skip is the wrapper-only 500-answer case under withPublicRouteTransaction.
+# unit set: tests/unit/lib/auth, tests/unit/auth, afterCommit, afterCommitCensus, afterCommitTxOwners, withExtensionTokenFinalize, withTransactionRequestTx, bankFeedExtensionIngestRoute.
+# int set: r176, r159 (both), public-route-tx, r157-payment-link-throw-responds.
+# tsc --noEmit -p .: clean. eslint on the three changed src files: clean (tests/** is outside the eslint project).
+# NOT in the set: tests/integration/withAuth.test.ts fails 2 of 2 (401) on unchanged source too in this fixture environment.
+# NOT run: bun run ci, the production build, the full unit and integration suites.
 ## integration
  Test Files  5 passed (5)
       Tests  88 passed | 2 skipped (90)
