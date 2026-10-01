@@ -108,10 +108,17 @@ export async function approvePayrollRun(
     if (!unlinked[0]) throw new PayrollApprovalConflictError('Payroll run changed while you were reviewing it');
   }
 
+  // approved_at is the CLOCK, not the transaction's start (round 6, breaker
+  // P2-A): it marks the moment the run's lines were last confirmed to match its
+  // journal, taken under the header lock, so it is later than any line a
+  // calculation that finished before this approval wrote — even one this
+  // approval waited behind. runRecalculatedSince compares lines against it.
   const updatedRows = (await sql`
     UPDATE payroll_run_headers
-    SET status     = 'approved',
-        updated_at = NOW()
+    SET status      = 'approved',
+        approved_by = ${userId}::uuid,
+        approved_at = clock_timestamp(),
+        updated_at  = NOW()
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   `) as Row[];

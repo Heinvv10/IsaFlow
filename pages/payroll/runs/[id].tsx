@@ -231,12 +231,15 @@ export default function PayrollRunDetailPage() {
                   Reopen Period
                 </button>
               )}
-              <button onClick={calculate} disabled={calculating || !canCalculate}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium"
-                title={locked ? 'Run is locked — reopen first to edit' : ''}>
-                {calculating ? <Loader2 className="h-4 w-4 animate-spin" /> : locked ? <Lock className="h-4 w-4" /> : <Calculator className="h-4 w-4" />}
-                {locked ? 'Locked' : run.status === 'draft' ? 'Calculate' : 'Recalculate'}
-              </button>
+              {/* The calculate route is withWriteAccess: a viewer would only get a 403. */}
+              {canWrite(companyRole) && (
+                <button onClick={calculate} disabled={calculating || !canCalculate}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium"
+                  title={locked ? 'Run is locked — reopen first to edit' : ''}>
+                  {calculating ? <Loader2 className="h-4 w-4 animate-spin" /> : locked ? <Lock className="h-4 w-4" /> : <Calculator className="h-4 w-4" />}
+                  {locked ? 'Locked' : run.status === 'draft' ? 'Calculate' : 'Recalculate'}
+                </button>
+              )}
               {canApprove && (
                 <button onClick={() => setApproveOpen(true)}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium"
@@ -275,7 +278,9 @@ export default function PayrollRunDetailPage() {
             </div>
             {run.lines.length === 0 ? (
               <div className="p-8 text-center text-[var(--ff-text-tertiary)] text-sm">
-                No lines yet — press <span className="text-teal-400 font-medium">Calculate</span> to generate payroll for this period.
+                No lines yet{canWrite(companyRole)
+                  ? <> — press <span className="text-teal-400 font-medium">Calculate</span> to generate payroll for this period.</>
+                  : '.'}
               </div>
             ) : (
               <div className="overflow-x-auto"><PayrollRunLinesTable lines={run.lines} /></div>

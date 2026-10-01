@@ -15,7 +15,11 @@
  * reports while the contra stayed, driving the account to the NEGATIVE of the
  * original rather than to zero.
  */
-import { payrollReversalRefusal } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
+import {
+  PayrollJournalReversalRefusedError,
+  PayrollRunBusyError,
+  payrollReversalRefusal,
+} from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import type { McpTool } from '../types';
 import { MUTATION_ARG_SCHEMA, type DryRunResult } from '@/lib/mcp/contracts';
 import {
@@ -194,11 +198,19 @@ export const reverseJournalEntryTool: McpTool = {
       };
     }
 
-    // Nothing below is caught.
-    const reversal = await reverseJournalEntry(ctx.companyId, id, ctx.userId, {
-      postingAgent: mcpPostingAgent(TOOL),
-      ...(reversalDate ? { reversalDate } : {}),
-    });
+    // Only the payroll guard's two answers are caught: both are raised before
+    // the reversal writes anything, so returning them releases a savepoint
+    // with nothing in it. Everything else reaches the registry's savepoint.
+    let reversal;
+    try {
+      reversal = await reverseJournalEntry(ctx.companyId, id, ctx.userId, {
+        postingAgent: mcpPostingAgent(TOOL),
+        ...(reversalDate ? { reversalDate } : {}),
+      });
+    } catch (err) {
+      if (err instanceof PayrollRunBusyError || err instanceof PayrollJournalReversalRefusedError) return toolError(err.message);
+      throw err;
+    }
 
     return ok({
       reversed_entry_id: id,

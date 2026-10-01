@@ -8,9 +8,27 @@
  * 'approved' (the peer has not committed), blocks on its UPDATE, and the peer
  * commits only once it is seen waiting. Real route; disposable fixture DB.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+// Parks a caller right after its header lock's own transaction committed — what a caller
+// with NO request transaction (a script) does between the lock and its UPDATE.
+const gate = vi.hoisted(() => ({ hold: null as null | Promise<void>, entered: null as null | (() => void) }));
+vi.mock('@/lib/neon', async (orig) => {
+  const actual = await orig<typeof import('@/lib/neon')>();
+  return {
+    ...actual,
+    withTransaction: async <T>(fn: Parameters<typeof actual.withTransaction<T>>[0]) => {
+      const out = await actual.withTransaction(fn);
+      if (gate.hold) { const hold = gate.hold; gate.hold = null; gate.entered?.(); await hold; }
+      return out;
+    },
+  };
+});
+
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
+import { als } from '@/lib/als';
+import { reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunLock';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import reopen from '../../pages/api/payroll/runs/[id]/reopen';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
@@ -70,5 +88,54 @@ describe('reopen — the status write is predicated (W3-01 breaker LOW)', () => 
 
     expect(res.statusCode).toBe(400);
     expect((await pool.query('SELECT status FROM payroll_run_headers WHERE id = $1', [id])).rows[0]!.status).toBe('paid');
+  });
+
+  // Round 6. The route above ends 400 whether the header lock or the status predicate stopped
+  // it, and answers "Reopen failed" either way. These two pin each guard on its own.
+  const approvedRun = async (month: number) => {
+    const id = await calculatedRun(call, month);
+    const url = (a: string) => `/api/payroll/runs/${id}/${a}`;
+    const p = await call(journalPlan as Route, 'GET', url('journal-plan'), id);
+    expect((await call(approve as Route, 'POST', url('approve'), id, { body: { expectedPlanHash: p.body.data!.planHash } })).statusCode).toBe(200);
+    return id;
+  };
+  const status = async (id: string) => (await pool.query('SELECT status FROM payroll_run_headers WHERE id = $1', [id])).rows[0]!.status;
+  const reopenArgs = (id: string) => ({ runId: id, companyId: company, userId: admin, reason: 'w301 reopen guards' });
+
+  it('in a request transaction, reopen waits on the header lock and judges the committed status', async () => {
+    const id = await approvedRun(4);
+    const peer = await pool.connect();
+    const mine = await pool.connect();
+    let outcome: string;
+    try {
+      await peer.query('BEGIN');
+      await peer.query("UPDATE payroll_run_headers SET status = 'paid' WHERE id = $1", [id]);
+      await mine.query('BEGIN');
+      const p = als.run({ client: mine, userId: admin, companyId: company, claims: {} }, () => reopenPayrollRun(reopenArgs(id)))
+        .then(() => 'reopened', (e: Error) => e.message);
+      await new Promise((r) => setTimeout(r, 500));
+      await peer.query('COMMIT');
+      outcome = await p;
+      await mine.query('ROLLBACK');
+    } finally {
+      await peer.query('ROLLBACK');
+      peer.release(); mine.release();
+    }
+    // The status check read 'paid', after the lock — not the UPDATE's predicate.
+    expect(outcome).toMatch(/Paid runs cannot be reopened/);
+    expect(await status(id)).toBe('paid');
+  });
+
+  it('with no transaction open, the status predicate stops a reopen that read approved before the run was paid', async () => {
+    const id = await approvedRun(5);
+    let release!: () => void;
+    gate.hold = new Promise<void>((r) => { release = r; });
+    const entered = new Promise<void>((r) => { gate.entered = r; });
+    const p = reopenPayrollRun(reopenArgs(id)).then(() => 'reopened', (e: Error) => e.message);
+    await entered; // its lock's transaction committed; it read 'approved'
+    await pool.query("UPDATE payroll_run_headers SET status = 'paid' WHERE id = $1", [id]);
+    release();
+    expect(await p).toMatch(/changed while it was being reopened/);
+    expect(await status(id)).toBe('paid');
   });
 });
