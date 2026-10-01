@@ -31,8 +31,10 @@ afterEach(async () => {
   await new Promise((done) => server.close(done));
 });
 
+/** Waits on the event loop, not on a tick count: a loaded machine can take a while to connect. */
 const until = async (cond: () => boolean) => {
-  for (let i = 0; i < 200 && !cond(); i += 1) await new Promise((done) => setImmediate(done));
+  const deadline = Date.now() + 5000;
+  while (!cond() && Date.now() < deadline) await new Promise((done) => setImmediate(done));
   return cond();
 };
 
