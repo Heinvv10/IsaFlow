@@ -152,3 +152,62 @@ describe('getPackTrend', () => {
     expect(points[0]!.grossMarginPct).toBe(60); // (1000-400)/1000 * 100
   });
 });
+
+/**
+ * A SERIES RUN TO A DATE INSIDE A MONTH ENDS ON A PART MONTH, AND SAYS SO.
+ *
+ * `partial` and `daysCovered` were only ever injected by fixtures: nothing ran
+ * `getPackTrend` to a mid-month date and read them back, so the flag every
+ * part-month marking in the pack is taken from was untested at its source.
+ */
+describe('getPackTrend on a reporting date inside a month', () => {
+  beforeEach(() => sqlMock.mockReset());
+
+  it('marks the last month partial and counts the days it covers', async () => {
+    sqlMock.mockResolvedValue([]);
+    const points = await getPackTrend(COMPANY, '2026-09-07', 3);
+    expect(points.map((p) => [p.month, p.partial, p.daysCovered, p.daysInMonth])).toEqual([
+      ['2026-07', false, 31, 31],
+      ['2026-08', false, 31, 31],
+      ['2026-09', true, 7, 30],
+    ]);
+  });
+
+  it('marks nothing partial where the reporting date is the last day of its month', async () => {
+    sqlMock.mockResolvedValue([]);
+    const points = await getPackTrend(COMPANY, '2026-09-30', 2);
+    expect(points.map((p) => [p.partial, p.daysCovered])).toEqual([[false, 31], [false, 30]]);
+  });
+
+  it('counts a part February against the days February has that year', async () => {
+    sqlMock.mockResolvedValue([]);
+    const [leap] = await getPackTrend(COMPANY, '2028-02-10', 1);
+    expect([leap!.partial, leap!.daysCovered, leap!.daysInMonth]).toEqual([true, 10, 29]);
+  });
+
+  /**
+   * DEBTOR DAYS ON A PART MONTH IS MEASURED OVER THE DAYS THE REVENUE COVERS.
+   *
+   * Receivables over revenue is how many periods of sales are outstanding,
+   * and the period here is the seven days the revenue was earned in. Scaling
+   * by the thirty days of the calendar month presented a week's sales as a
+   * month's and overstated the figure by 30/7.
+   */
+  it('measures debtor days over the days covered, not the whole month', async () => {
+    sqlMock.mockResolvedValue([
+      { month: '2026-09', revenue_and_other_income: '7000', receivable_movement: '14000' },
+    ]);
+    const [stub] = await getPackTrend(COMPANY, '2026-09-07', 1);
+    // 14 000 owed against 7 000 earned in 7 days: 14 days of sales. Over the
+    // calendar month it read 60.
+    expect(stub!.debtorDays).toBe(14);
+  });
+
+  it('still measures a whole month over the whole month', async () => {
+    sqlMock.mockResolvedValue([
+      { month: '2026-09', revenue_and_other_income: '30000', receivable_movement: '15000' },
+    ]);
+    const [whole] = await getPackTrend(COMPANY, '2026-09-30', 1);
+    expect(whole!.debtorDays).toBe(15);
+  });
+});

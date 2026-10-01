@@ -107,8 +107,8 @@ export interface PackTrendPoint {
   accountsReceivable: number;
   /**
    * Days of sales outstanding for the month: `accountsReceivable ÷ that
-   * month's revenue × days in that month` — the days-in-month multiplier
-   * matches a MONTHLY revenue base, unlike `calculateExtendedRatios.debtorDays`
+   * month's revenue × the days that revenue covers` (`daysCovered` — the whole
+   * month unless `partial`). The multiplier matches a MONTHLY revenue base, unlike `calculateExtendedRatios.debtorDays`
    * which multiplies by 365 against a period revenue and would overstate a
    * month's figure roughly twelvefold if reused here unchanged.
    *
@@ -251,9 +251,7 @@ export async function getPackTrend(companyId: string, to: string, months = 12): 
     // and page 6's gross margin were quotients of different denominators.
     const grossMarginPct = marginPct2dp(revenue - costOfSales, revenue);
 
-    const debtorPct = marginPct(receivableRunning, revenue);
     const daysInMonth = Number(slot.to.slice(-2));
-    const debtorDays = debtorPct === null ? null : round2((debtorPct / 100) * daysInMonth);
 
     // A MONTH IS PARTIAL WHERE THE QUERY'S UPPER BOUND CUTS INTO IT — the
     // same `upperBound` the cumulative positions are clamped by, read against
@@ -263,6 +261,13 @@ export async function getPackTrend(companyId: string, to: string, months = 12): 
     // at all.
     const partial = upperBound < slot.to;
     const daysCovered = partial ? Number(upperBound.slice(-2)) : daysInMonth;
+
+    // OVER THE DAYS THE REVENUE COVERS. It was `× daysInMonth`, and on a part
+    // month the revenue beside it is `daysCovered` days of sales: seven days'
+    // turnover scaled by thirty overstated the stub about fourfold, on the
+    // point every debtor-days panel ends on.
+    const debtorPct = marginPct(receivableRunning, revenue);
+    const debtorDays = debtorPct === null ? null : round2((debtorPct / 100) * daysCovered);
 
     return {
       month: slot.month,
