@@ -27,6 +27,13 @@ export interface ReportPackInput {
   otherExpenses?: number;
   /** From the classifier. Falls back to the derived line when absent. */
   operatingProfit?: number;
+  /**
+   * The period's depreciation and amortisation charge. EBITDA is operating
+   * profit plus this; `buildReportPack` did not pass it on, so the management
+   * pack's "EBITDA" was operating profit to the rand. Optional only so a
+   * hand-built input need not supply it — `getReportPackInput` always does.
+   */
+  depreciation?: number;
   financingCashFlow?: number;
   /**
    * Net cash from investing activities over the window, signed as cash moved:

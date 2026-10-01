@@ -240,6 +240,9 @@ export function buildReportPack(
     cash: data.cash,
     operatingCashFlow: data.operatingCashFlow,
     capitalExpenditure: data.capitalExpenditure,
+    // The add-back that makes EBITDA a measure rather than a second name for
+    // operating profit. The board pack has always passed it.
+    depreciation: data.depreciation,
   };
 
   const sections: PackSection[] = template.map(config => ({
