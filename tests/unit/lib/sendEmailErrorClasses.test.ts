@@ -118,6 +118,14 @@ describe('sendEmail — which SMTP failures use the daily send unit (R-175)', ()
     ['DNS failure (EDNS)', { code: 'EDNS', command: 'CONN' }, 0],
     ['a TLS set-up failure (ETLS)', { code: 'ETLS', command: 'STARTTLS' }, 0],
     ['no credentials (ENOAUTH)', { code: 'ENOAUTH' }, 0],
+    // Raised before anything is sent, with no server reply to go on.
+    ['an envelope nodemailer rejects itself (EENVELOPE, no reply)', { code: 'EENVELOPE', command: 'API' }, 0],
+    ['an empty or oversize message (EMESSAGE, no reply)', { code: 'EMESSAGE', command: 'API' }, 0],
+    ['missing credentials (EAUTH, no reply)', { code: 'EAUTH', command: 'API' }, 0],
+    ['an OAuth2 token failure (EOAUTH2)', { code: 'EOAUTH2' }, 0],
+    ['a bad configuration (ECONFIG)', { code: 'ECONFIG' }, 0],
+    ['REQUIRETLS refused (EREQUIRETLS)', { code: 'EREQUIRETLS', command: 'MAIL FROM' }, 0],
+    ['a 2xx reply on a failure (never a refusal)', { code: 'ECONNECTION', responseCode: 250 }, 1],
     ['a name lookup at connect (ESOCKET getaddrinfo)', { code: 'ESOCKET', syscall: 'getaddrinfo' }, 0],
     ['a connection closed with a 421 reply (ECONNECTION)', { code: 'ECONNECTION', responseCode: 421 }, 0],
   ] as const)('the classifier: %s', async (_label, shape, expected) => {
