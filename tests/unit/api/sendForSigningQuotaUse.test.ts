@@ -65,10 +65,15 @@ describe('send-for-signing — the Signum document spends the unit (R-175)', () 
     expect(notify).toHaveBeenCalledTimes(1);
   });
 
-  it('Signum refused (it answered with an error status): nothing was done, the unit comes back', async () => {
-    sendForSigning.mockRejectedValue(Object.assign(new Error('Signum create failed: 503 busy'), { status: 503 }));
+  it.each([400, 401, 422, 429])('Signum refused the request (%i): nothing was done, the unit comes back', async (status) => {
+    sendForSigning.mockRejectedValue(Object.assign(new Error(`Signum create failed: ${status}`), { status }));
     expect(await run()).toEqual({ used: 0, threw: true });
     expect(notify).not.toHaveBeenCalled();
+  });
+
+  it.each([500, 502, 503, 504, 408])('Signum or a proxy answered %i: the document may exist, the unit is spent', async (status) => {
+    sendForSigning.mockRejectedValue(Object.assign(new Error(`Signum create failed: ${status}`), { status }));
+    expect(await run()).toEqual({ used: 1, threw: true });
   });
 
   it('Signum could not be reached: the unit comes back', async () => {

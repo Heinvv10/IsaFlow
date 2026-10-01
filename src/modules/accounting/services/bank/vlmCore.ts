@@ -4,7 +4,7 @@
  */
 
 import { log } from '@/lib/logger';
-import { markQuotaUsed, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
+import { markQuotaUsed, markQuotaUsedForStatus, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
 import type { ExtractedLineItem, VendorBankDetails } from '@/modules/accounting/types/documentCapture.types';
 
 // ---------------------------------------------------------------------------
@@ -80,6 +80,8 @@ export async function callVlmChat(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
+      // A 5xx may come after the provider did the work; a 4xx did none (R-175).
+      markQuotaUsedForStatus('ai', response.status);
       const errorText = await response.text().catch(() => 'unknown error');
       log.error('vLLM request failed', {
         status: response.status,

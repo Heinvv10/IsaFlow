@@ -276,6 +276,9 @@ describe('usage-quota: charged minus used comes back (R-175)', () => {
       ['a socket closed mid-response', fetchFailed('UND_ERR_SOCKET')],
       ['an SDK timeout (no status)', Object.assign(new Error('Request timed out.'), { name: 'APIConnectionTimeoutError' })],
       ['an unknown error', new Error('something else')],
+      ['a provider 529 answer (SDK): a 5xx may come after the work', Object.assign(new Error('overloaded'), { status: 529 })],
+      ['a 502 from a proxy in front of the provider', Object.assign(new Error('bad gateway'), { status: 502 })],
+      ['a 408 request timeout', Object.assign(new Error('timeout'), { status: 408 })],
       ['a non-error value', 'boom'],
     ])('counts as use after %s: the provider may have done the work', async (_label, err) => {
       expect(await afterThrow(err)).toEqual([]);
@@ -287,8 +290,9 @@ describe('usage-quota: charged minus used comes back (R-175)', () => {
       ['a DNS failure', fetchFailed('EAI_AGAIN')],
       ['a connect timeout', fetchFailed('UND_ERR_CONNECT_TIMEOUT')],
       ['a code on the error itself', Object.assign(new Error('connect'), { code: 'ECONNREFUSED' })],
-      ['a provider 529 answer (SDK)', Object.assign(new Error('overloaded'), { status: 529 })],
       ['a provider 400 answer (SDK)', Object.assign(new Error('bad request'), { status: 400 })],
+      ['a provider 401 answer (SDK)', Object.assign(new Error('unauthorised'), { status: 401 })],
+      ['a provider 429 rate-limit answer (SDK)', Object.assign(new Error('rate limited'), { status: 429 })],
     ])('is not use after %s: no work was done', async (_label, err) => {
       expect(await afterThrow(err)).toEqual([[AI_DAY, 1, WINDOW]]);
     });
