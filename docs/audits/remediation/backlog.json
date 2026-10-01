@@ -14698,7 +14698,7 @@
         "docs/audits/remediation/R-177/mutations.log"
       ],
       "fixCommit": null,
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/601",
       "deployedSha": null,
       "canonicalItem": null,
       "branch": "fix/r177-portal-followups-20261001",
@@ -14716,7 +14716,7 @@
       "claim": "pages/api/accounting/customer-invoices/[id]/pay-now.ts initialised a Paystack transaction inside withAuth's transaction: a connection and a transaction held across an unbounded gateway call. The balance was computed in float (a NaN amount_paid answered 500), each click inserted a new payable paystack_payment_requests row, and a cancelled link named by payment_url was reused.",
       "severityRationale": "Staff-only route. No money is lost: a second paid checkout is banked as an unapplied receipt. A slow gateway holds one pool connection per click.",
       "historicalDataImpact": "Unknown. Census (read-only, for Hein): invoices with more than one completed paystack_payment_requests row of purpose customer_invoice.",
-      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 25 mutants RED on the final code. pay-now now ensures the invoice's one standing link (ensureStandingLink, invoice row locked) and answers {token, paymentUrl}; the page starts the checkout through the public create route. Response contract changed; the invoice page is the only caller. Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link. Review round 2 (both SHIP on 00ea768b5): the enable route answers 400 with the reason for an unapproved invoice; tests for its lock timeout, the bare service and the Pay Now button; red.r1.int.log (19/23 red on master). Browser proof of the Pay Now button done on a local dev server against the fixture. Recorded for Hein: a standing link has no revoke action.",
+      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 30 mutants RED on the final code. pay-now now ensures the invoice's one standing link (ensureStandingLink, invoice row locked) and answers {token, paymentUrl}; the page starts the checkout through the public create route. Response contract changed; the invoice page is the only caller. Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link. Review round 2 (both SHIP on 00ea768b5): the enable route answers 400 with the reason for an unapproved invoice; tests for its lock timeout, the bare service and the Pay Now button; red.r1.int.log (19/23 red on master). Browser proof of the Pay Now button done on a local dev server against the fixture. Recorded for Hein: a standing link has no revoke action. /review (fresh blind agent, SHIP on aba4b1244, PR #601): fixed the localhost fallback in enableOnlinePayment (portalAppUrl) and the LIKE match on the token (exact now).",
       "reportedSeverity": "low"
     },
     {
@@ -14745,7 +14745,7 @@
         "docs/audits/remediation/R-177/mutations.log"
       ],
       "fixCommit": null,
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/601",
       "deployedSha": null,
       "canonicalItem": null,
       "branch": "fix/r177-portal-followups-20261001",
@@ -14759,7 +14759,7 @@
       "claim": "pages/api/portal/payments/paystack/verify.ts mapped Paystack's 'abandoned' (open, unpaid) to status 'cancelled'. The reuse lookup needs a pending request, so the next click started a second checkout while the first stayed payable at Paystack.",
       "severityRationale": "Two payable checkouts for one balance; the excess of a double payment is banked unapplied, not lost.",
       "historicalDataImpact": "Requests already marked cancelled stay cancelled; a payment on one is still completed by the webhook.",
-      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 25 mutants RED on the final code. verify writes nothing on 'abandoned', re-reads the stored status and reports cancelled to the page. Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link. Review round 2 (both SHIP on 00ea768b5): the enable route answers 400 with the reason for an unapproved invoice; tests for its lock timeout, the bare service and the Pay Now button; red.r1.int.log (19/23 red on master). Browser proof of the Pay Now button done on a local dev server against the fixture. Recorded for Hein: a standing link has no revoke action.",
+      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 30 mutants RED on the final code. verify writes nothing on 'abandoned', re-reads the stored status and reports cancelled to the page. Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link. Review round 2 (both SHIP on 00ea768b5): the enable route answers 400 with the reason for an unapproved invoice; tests for its lock timeout, the bare service and the Pay Now button; red.r1.int.log (19/23 red on master). Browser proof of the Pay Now button done on a local dev server against the fixture. Recorded for Hein: a standing link has no revoke action. /review (fresh blind agent, SHIP on aba4b1244, PR #601): fixed the localhost fallback in enableOnlinePayment (portalAppUrl) and the LIKE match on the token (exact now).",
       "reportedSeverity": "low"
     },
     {
@@ -14788,7 +14788,7 @@
         "docs/audits/remediation/R-177/mutations.log"
       ],
       "fixCommit": null,
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/601",
       "deployedSha": null,
       "canonicalItem": null,
       "branch": "fix/r177-portal-followups-20261001",
@@ -14804,7 +14804,7 @@
       "claim": "portal_payment_links.expires_at defaults to now() + 30 days and the standing link minted by pay-now and enableOnlinePayment took the default, so the link emailed with an invoice stopped working after 30 days while the invoice still owed money.",
       "severityRationale": "A customer paying late cannot pay online until staff press Pay Now again. No wrong figure.",
       "historicalDataImpact": "None written. The standing link an invoice names is payable again at read time, whatever its stored expiry.",
-      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 25 mutants RED on the final code. Hein: never expire. Standing links are minted with expires_at NULL. Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link. Review round 2 (both SHIP on 00ea768b5): the enable route answers 400 with the reason for an unapproved invoice; tests for its lock timeout, the bare service and the Pay Now button; red.r1.int.log (19/23 red on master). Browser proof of the Pay Now button done on a local dev server against the fixture. Recorded for Hein: a standing link has no revoke action.",
+      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 30 mutants RED on the final code. Hein: never expire. Standing links are minted with expires_at NULL. Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link. Review round 2 (both SHIP on 00ea768b5): the enable route answers 400 with the reason for an unapproved invoice; tests for its lock timeout, the bare service and the Pay Now button; red.r1.int.log (19/23 red on master). Browser proof of the Pay Now button done on a local dev server against the fixture. Recorded for Hein: a standing link has no revoke action. /review (fresh blind agent, SHIP on aba4b1244, PR #601): fixed the localhost fallback in enableOnlinePayment (portalAppUrl) and the LIKE match on the token (exact now).",
       "reportedSeverity": "low"
     },
     {
@@ -14833,7 +14833,7 @@
         "docs/audits/remediation/R-177/mutations.log"
       ],
       "fixCommit": null,
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/601",
       "deployedSha": null,
       "canonicalItem": null,
       "branch": "fix/r177-portal-followups-20261001",
@@ -14850,7 +14850,7 @@
       "claim": "The payment-link POST, pay-now and enableOnlinePayment refused only cancelled and soft-deleted invoices, and resolveLinkCharge charged a link on a draft. A draft is not posted to the ledger.",
       "severityRationale": "A receipt against an invoice that is not in the ledger. Needs a staff member to mint the link on a draft.",
       "historicalDataImpact": "Unknown. Census (read-only, for Hein) in R-177/fix.md: active links whose invoice is draft or pending_approval stop working until it is approved.",
-      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 25 mutants RED on the final code. Hein: refuse drafts. Hein was asked about drafts only; pending_approval is refused too after review (say if only drafts should be). Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link. Review round 2 (both SHIP on 00ea768b5): the enable route answers 400 with the reason for an unapproved invoice; tests for its lock timeout, the bare service and the Pay Now button; red.r1.int.log (19/23 red on master). Browser proof of the Pay Now button done on a local dev server against the fixture. Recorded for Hein: a standing link has no revoke action.",
+      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 30 mutants RED on the final code. Hein: refuse drafts. Hein was asked about drafts only; pending_approval is refused too after review (say if only drafts should be). Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link. Review round 2 (both SHIP on 00ea768b5): the enable route answers 400 with the reason for an unapproved invoice; tests for its lock timeout, the bare service and the Pay Now button; red.r1.int.log (19/23 red on master). Browser proof of the Pay Now button done on a local dev server against the fixture. Recorded for Hein: a standing link has no revoke action. /review (fresh blind agent, SHIP on aba4b1244, PR #601): fixed the localhost fallback in enableOnlinePayment (portalAppUrl) and the LIKE match on the token (exact now).",
       "reportedSeverity": "low"
     },
     {
