@@ -11,14 +11,14 @@
  *   - no figure sits on the wrong side of its bar's base;
  *   - no two value ticks stand closer than 18px, at 12px type;
  *   - the clip rectangle is the plot the layout chose the axis for;
- *   - a figure that sits over its own bar is set in the ink that reads on it.
+ *   - a figure over its own bar reads against what is under most of it.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CHART_PALETTE, labelInkOn, waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
+import { waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
 import { labelsFit, MIN_TICK_PITCH_PX, waterfallLayout } from '@/modules/accounting/services/packs/packWaterfallDomain';
 import { PX_PER_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { bars, clipRect, figures, outsideClip, overOwnBar, wrongSide } from './support/bridgeSvg';
+import { bars, clipRect, figures, legibleOnBar, outsideClip, overOwnBar, wrongSide } from './support/bridgeSvg';
 import { yAxisTicks } from './support/svgTicks';
 
 const BRIDGES = 20_000;
@@ -77,7 +77,7 @@ describe('bridge figures, fuzzed through the renderer', () => {
       steps.forEach((step, k) => {
         const figure = printed[k]!;
         if (outsideClip(figure, clip)) note('offPlot', `${tag} "${figure.text}" at ${figure.y} vs ${clip.top}–${clip.bottom}`);
-        if (overOwnBar(figure, drawn[k]!) && figure.fill !== labelInkOn(drawn[k]!.fill, DEFAULT_CHART_PALETTE).toLowerCase()) {
+        if (overOwnBar(figure, drawn[k]!) && !legibleOnBar(figure, drawn[k]!)) {
           note('illegibleOnBar', `${tag} "${figure.text}" in ${figure.fill} on ${drawn[k]!.fill}`);
         }
         if (step.end !== step.start && wrongSide(figure, drawn[k]!, step.end > step.start)) {

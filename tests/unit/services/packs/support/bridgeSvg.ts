@@ -3,10 +3,12 @@
  * bars, and the figures printed on or beside them. Shared by the tests that
  * hold bridge labels to the rectangle ECharts actually drew.
  */
-import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
+import { format } from 'echarts/core';
+import { DEFAULT_CHART_PALETTE, labelInkOn } from '@/modules/accounting/services/packs/packChartOptions';
+import { PACK_FONT_STACK } from '@/lib/charts/packFont';
 
 export interface ClipRect { top: number; bottom: number; height: number }
-export interface Bar { centre: number; top: number; bottom: number; fill: string }
+export interface Bar { centre: number; top: number; bottom: number; fill: string; left?: number; right?: number }
 /** A figure: zrender sets it on `dominant-baseline: central`, so `y` is its middle. */
 export interface Figure { x: number; y: number; text: string; fill: string }
 
@@ -40,7 +42,7 @@ export function bars(svg: string): Bar[] {
   const widest = Math.max(...all.map((r) => r.width));
   return all
     .filter((r) => r.fill !== DEFAULT_CHART_PALETTE.paper.toLowerCase() && r.width < widest)
-    .map(({ centre, top, bottom, fill }) => ({ centre, top, bottom, fill }));
+    .map(({ centre, top, bottom, fill, width }) => ({ centre, top, bottom, fill, left: centre - width / 2, right: centre + width / 2 }));
 }
 
 export function figures(svg: string): Figure[] {
@@ -73,4 +75,24 @@ export function outsideClip(figure: Figure, clip: ClipRect): boolean {
 /** Whether a figure sits over its own bar — any overlap with the fill. */
 export function overOwnBar(figure: Figure, bar: Bar): boolean {
   return Math.min(figure.y + FIGURE_PX / 2, bar.bottom) - Math.max(figure.y - FIGURE_PX / 2, bar.top) > 0.5;
+}
+
+/** The share of a figure's box that lies on its bar, by area. */
+export function shareOnBar(figure: Figure, bar: Bar & { left?: number; right?: number }): number {
+  const width = format.getTextRect(figure.text, `${FIGURE_PX}px ${PACK_FONT_STACK}`).width;
+  const v = Math.max(0, Math.min(figure.y + FIGURE_PX / 2, bar.bottom) - Math.max(figure.y - FIGURE_PX / 2, bar.top));
+  const left = bar.left ?? -Infinity;
+  const right = bar.right ?? Infinity;
+  const h = Math.max(0, Math.min(figure.x + width / 2, right) - Math.max(figure.x - width / 2, left));
+  return (v * h) / (FIGURE_PX * width);
+}
+
+/**
+ * Whether a figure's ink reads against what is under MOST of it: the
+ * contrasting ink on its bar where half or more of its box is on the fill,
+ * the ordinary ink (on its paper ground) where it is not.
+ */
+export function legibleOnBar(figure: Figure, bar: Bar & { left?: number; right?: number }): boolean {
+  if (shareOnBar(figure, bar) >= 0.5) return figure.fill === labelInkOn(bar.fill, DEFAULT_CHART_PALETTE).toLowerCase();
+  return figure.fill === DEFAULT_CHART_PALETTE.ink.toLowerCase() || figure.fill === DEFAULT_CHART_PALETTE.axis.toLowerCase();
 }

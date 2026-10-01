@@ -16,7 +16,7 @@ import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packC
 import { labelInkOn, waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
 import { waterfallLayout } from '@/modules/accounting/services/packs/packWaterfallDomain';
 import { PX_PER_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
-import { barOf, clipRect, figures, outsideClip, overOwnBar, wrongSide } from './support/bridgeSvg';
+import { barOf, clipRect, figures, legibleOnBar, outsideClip, overOwnBar, shareOnBar, wrongSide } from './support/bridgeSvg';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { liveDemoSet } from './fixtures/liveDemoBoardPack';
 import { yAxisTicks } from './support/svgTicks';
@@ -160,18 +160,21 @@ describe('a short bar at the edge of the domain, under a long category name', ()
 });
 
 /**
- * A FIGURE HELD ONTO ITS OWN BAR IS READ AS ONE SET INSIDE IT. The edge
- * clamp can leave a figure over its own fill; its paper ground went under
- * the bar and its ink matched the fill, so a subtotal's figure vanished.
+ * A FIGURE HELD ONTO ITS OWN BAR READS AGAINST WHAT IS UNDER MOST OF IT. The
+ * edge clamp can leave a figure over its own fill. Where half or more of its
+ * box is on the bar it takes the contrasting ink, with no ground; where less
+ * is, it keeps the ordinary ink on its paper ground, painted over the bar.
+ * Switching ink on any overlap set "(9)" in paper over a 1.4px bar — white
+ * on white.
  */
 describe('a figure that lands on its own bar', () => {
-  const onBar = (svg: string, text: string) => {
+  const legible = (svg: string, text: string) => {
     const figure = figures(svg).find((f) => f.text === text);
     expect(figure, `"${text}" is not drawn`).toBeDefined();
     const bar = barOf(svg, figure!)!;
     expect(overOwnBar(figure!, bar), `"${text}" is not over its bar — the case is not under test`).toBe(true);
-    expect(figure!.fill, `"${text}" in ${figure!.fill} on ${bar.fill}`)
-      .toBe(labelInkOn(bar.fill, DEFAULT_CHART_PALETTE).toLowerCase());
+    expect(legibleOnBar(figure!, bar), `"${text}" in ${figure!.fill} on ${bar.fill}, ${(shareOnBar(figure!, bar) * 100).toFixed(0)}% on it`).toBe(true);
+    return { figure: figure!, bar };
   };
 
   it('a short subtotal with no room on its side, drawn with no box', () => {
@@ -182,7 +185,26 @@ describe('a figure that lands on its own bar', () => {
       { label: 'Movement 3', start: -6212, end: -6069, value: 143, isSubtotal: false, color: 'green' },
       { label: 'Closing', start: 0, end: -6069, value: -6069, isSubtotal: true, color: 'teal' },
     ];
-    onBar(String(renderChartSvg(waterfallOption(steps, "R'000", undefined, 5, false), { widthMm: 174, heightMm: 60 })), '1');
+    legible(String(renderChartSvg(waterfallOption(steps, "R'000", undefined, 5, false), { widthMm: 174, heightMm: 60 })), '1');
+  });
+
+  it("the reviewer's (9): a 1.4px bar under a figure mostly off it", () => {
+    const steps: WaterfallStep[] = [
+      { label: 'Opening', start: 0, end: -960, value: -960, isSubtotal: true, color: 'blue' },
+      { label: 'Movement 1', start: -960, end: -990, value: -30, isSubtotal: false, color: 'green' },
+      { label: 'Movement 2', start: -990, end: -999, value: -9, isSubtotal: false, color: 'red' },
+      { label: 'Closing', start: 0, end: -999, value: -999, isSubtotal: true, color: 'teal' },
+    ];
+    const svg = String(renderChartSvg(waterfallOption(steps, 'R'), { widthMm: 454 / PX_PER_MM, heightMm: 265 / PX_PER_MM }));
+    const { figure, bar } = legible(svg, '(9)');
+    expect(shareOnBar(figure, bar)).toBeLessThan(0.5);
+    // And its ground is drawn OVER the bar, or the bar shows through the type.
+    const plotted = svg.slice(svg.indexOf('<g clip-path'));
+    const barAt = plotted.indexOf(`fill="${bar.fill}"`, plotted.indexOf(`l0 ${(bar.bottom - bar.top).toFixed(1)}`));
+    const groundAt = plotted.indexOf('fill="#ffffff"', barAt);
+    const textAt = plotted.indexOf('>(9)<');
+    expect(groundAt).toBeGreaterThan(barAt);
+    expect(groundAt).toBeLessThan(textAt);
   });
 
   it("the reviewer's red bar at nine decimal places, in a 320px box", () => {
@@ -200,10 +222,7 @@ describe('a figure that lands on its own bar', () => {
     ));
     for (const figure of figures(svg)) {
       const bar = barOf(svg, figure)!;
-      if (!overOwnBar(figure, bar)) continue;
-      expect(figure.fill, `"${figure.text}" in ${figure.fill} on ${bar.fill}`)
-        .toBe(labelInkOn(bar.fill, DEFAULT_CHART_PALETTE).toLowerCase());
+      if (overOwnBar(figure, bar)) expect(legibleOnBar(figure, bar), `"${figure.text}" in ${figure.fill} on ${bar.fill}`).toBe(true);
     }
   });
 });
-

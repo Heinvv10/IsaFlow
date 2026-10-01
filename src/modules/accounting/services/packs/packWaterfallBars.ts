@@ -206,16 +206,22 @@ export function makeWaterfallRenderItem(
       : tight ? y + (height - LABEL_LINE_PX) / 2
       : below ? Math.min(y + drawnHeight + LABEL_GAP_PX, plotBottom - LABEL_LINE_PX)
       : Math.max(above, plotTop + LABEL_LINE_PX);
-    // A figure held to the plot's edge can land on its own bar. It is then
-    // read like one set inside: no ground, in the ink that reads on the fill.
+    // A figure held to the plot's edge can land on its own bar. If MOST of
+    // its box is on the fill it is read like one set inside — no ground, the
+    // ink that reads on the fill. Otherwise it keeps its ink, and its paper
+    // ground is painted OVER the bar, knocking the bar out behind the type.
     const textTop = below ? textY : textY - LABEL_LINE_PX;
-    const onOwnBar = !inside && !tight
-      && Math.min(textTop + LABEL_LINE_PX, y + drawnHeight) - Math.max(textTop, y) > 0.5;
+    const labelW = labelWidthPx(text, LABEL_LINE_PX);
+    const vOn = Math.max(0, Math.min(textTop + LABEL_LINE_PX, y + drawnHeight) - Math.max(textTop, y));
+    const hOn = Math.max(0, Math.min(x + width / 2 + labelW / 2, x + width) - Math.max(x + width / 2 - labelW / 2, x));
+    const clamped = !inside && !tight;
+    const onOwnBar = clamped && vOn * hOn >= 0.5 * labelW * LABEL_LINE_PX;
+    const groundOverBar = clamped && !onOwnBar && vOn > 0.5 && hOn > 0.5;
     const onBar = inside || tight || onOwnBar;
     // THE GROUND UNDER A LABEL THAT IS NOT ON ITS BAR — see
     // `LABEL_KNOCKOUT_PAD_PX`. On the bar the fill is the ground already,
     // and a paper rect there would punch a hole in the bar.
-    const knockoutW = labelWidthPx(text, LABEL_LINE_PX) + LABEL_KNOCKOUT_PAD_PX * 2;
+    const knockoutW = labelW + LABEL_KNOCKOUT_PAD_PX * 2;
     const knockout = onBar ? [] : [{
       type: 'rect' as const,
       // NAMED, because the bar is a rect too and a reader of this group —
@@ -237,20 +243,18 @@ export function makeWaterfallRenderItem(
     return {
       type: 'group',
       children: [
-        // THE KNOCKOUT FIRST, AND THE BAR AFTER IT. It never overlaps its own
-        // bar — a figure that lands on the bar carries none — so the order
-        // between those two is free, and drawing it first keeps every bar's
-        // `<path>` immediately followed by its own `<text>` in the emitted
-        // SVG. `packWaterfallLegibility.test.ts` pairs a bar with its label by
-        // that adjacency, which is the renderer's own pairing rather than a
-        // guessed coordinate match, and an element between them breaks it.
-        ...knockout,
+        // THE KNOCKOUT FIRST, AND THE BAR AFTER IT, wherever the ground is
+        // clear of its own bar: that keeps every bar's `<path>` immediately
+        // followed by its own `<text>`, which `packWaterfallLegibility.test.ts`
+        // pairs them by. A ground partly over its bar goes after the bar.
+        ...(groundOverBar ? [] : knockout),
         {
           type: 'rect',
           name: 'bar',
           shape: { x, y, width, height: drawnHeight },
           style: { fill: stepColour(step, palette) },
         },
+        ...(groundOverBar ? knockout : []),
         {
           type: 'text',
           style: {
