@@ -222,6 +222,11 @@ export async function listCustomers(
   `) as Row[];
 }
 
+/** A user's search text as an ILIKE contains-pattern in which %, _ and \ match literally (backslash is ILIKE's default escape). */
+function containsPattern(term: string): string {
+  return `%${term.replace(/[\\%_]/g, '\\$&')}%`;
+}
+
 export interface SupplierListOptions {
   search?: string | null;
   limit?: number;
@@ -236,7 +241,7 @@ export async function listSuppliers(
   const offsetRaw = opts.offset;
   const limit = Number.isFinite(limitRaw) && (limitRaw as number) > 0 ? Math.min(limitRaw as number, 200) : 25;
   const offset = Number.isFinite(offsetRaw) && (offsetRaw as number) >= 0 ? Math.floor(offsetRaw as number) : 0;
-  const searchTerm = opts.search && opts.search.trim() ? `%${opts.search.trim()}%` : null;
+  const searchTerm = opts.search && opts.search.trim() ? containsPattern(opts.search.trim()) : null;
 
   if (searchTerm) {
     // Search queries are not cached — results change with every keystroke

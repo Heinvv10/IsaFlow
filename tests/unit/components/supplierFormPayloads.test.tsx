@@ -51,6 +51,17 @@ describe('supplier-invoices/new', () => {
     submit(container);
     await waitFor(() => expect(writesTo('/supplier-invoices')[0]?.body.supplierId).toBe(S26));
   });
+  it('a supplier the user picks again, equal to the one a scan set, is theirs: a later scan does not replace it', async () => {
+    const { container } = render(<NewSupplierInvoice />);
+    fireEvent.click(screen.getByText('scan-alpha'));
+    await waitFor(() => expect(supplierId(container)).toBe(SA), { timeout: 2000 });
+    fireEvent.click(screen.getByRole('button', { name: 'Clear supplier filter' }));
+    await pick(container, 'Alpha Traders');
+    expect(supplierId(container)).toBe(SA);
+    fireEvent.click(screen.getByText('scan-beta'));
+    await settle(); await settle();
+    expect(supplierId(container)).toBe(SA);
+  });
   it('an OCR match does not overwrite a supplier the user already picked', async () => {
     const { container } = render(<NewSupplierInvoice />);
     await pick(container);
@@ -95,6 +106,17 @@ describe('supplier-payments/new', () => {
     await pick(container);
     submit(container);
     await waitFor(() => expect(writesTo('/supplier-payments')[0]?.body.supplierId).toBe(S26));
+  });
+  it('a supplier the user picks again, equal to the one a scan set, is theirs: a later scan does not replace it', async () => {
+    const { container } = render(<NewSupplierPayment />);
+    fireEvent.click(screen.getByText('scan-alpha'));
+    await waitFor(() => expect(supplierId(container)).toBe(SA), { timeout: 2000 });
+    fireEvent.click(screen.getByRole('button', { name: 'Clear supplier filter' }));
+    await pick(container, 'Alpha Traders');
+    expect(supplierId(container)).toBe(SA);
+    fireEvent.click(screen.getByText('scan-beta'));
+    await settle(); await settle();
+    expect(supplierId(container)).toBe(SA);
   });
   it('an OCR match does not overwrite a supplier the user already picked', async () => {
     const { container } = render(<NewSupplierPayment />);

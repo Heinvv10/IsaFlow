@@ -50,7 +50,7 @@ export default function ApInvoicesPage() {
       return list;
     } catch (err) {
       log.warn('Failed to load suppliers for AP import', { error: err }, 'migration');
-      setError("Couldn't load suppliers — rows cannot be matched. Reload the page to retry.");
+      setError("Couldn't load suppliers — rows cannot be matched. Upload the file again to retry.");
       return [];
     }
   };

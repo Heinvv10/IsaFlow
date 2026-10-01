@@ -116,7 +116,7 @@ export default function SupplierStatementsIndexPage() {
       const res = await fetch('/api/accounting/supplier-statements', { method: 'POST', body: form, headers, credentials: 'include' });
       const json = await res.json() as { data?: SupplierStatementReconciliation; error?: string };
       if (!res.ok) { showToast(json.error ?? 'Upload failed', 'err'); return; }
-      setModalOpen(false); setModalFile(null);
+      setModalOpen(false); setModalFile(null); setModalSupplier('');
       if (json.data?.id) void router.push(`/accounting/ap/supplier-statements/${json.data.id}`);
     } catch { showToast('Network error during upload', 'err'); }
     finally { setUploading(false); }
@@ -201,7 +201,7 @@ export default function SupplierStatementsIndexPage() {
           <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-[var(--ff-text-primary)]">Upload Supplier Statement</h2>
-              <button onClick={() => { setModalOpen(false); setModalFile(null); }} className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"><X className="h-5 w-5" /></button>
+              <button onClick={() => { setModalOpen(false); setModalFile(null); setModalSupplier(''); }} className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"><X className="h-5 w-5" /></button>
             </div>
             <div>
               <label className="block text-sm font-medium text-[var(--ff-text-primary)] mb-1.5">Supplier</label>
@@ -220,7 +220,7 @@ export default function SupplierStatementsIndexPage() {
               <input ref={fileRef} type="file" accept="application/pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) setModalFile(f); }} />
             </div>
             <div className="flex gap-3 pt-1">
-              <button onClick={() => { setModalOpen(false); setModalFile(null); }}
+              <button onClick={() => { setModalOpen(false); setModalFile(null); setModalSupplier(''); }}
                 className="flex-1 py-2.5 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] transition-colors">Cancel</button>
               <button onClick={handleUpload} disabled={!modalFile || !modalSupplier || uploading}
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">
