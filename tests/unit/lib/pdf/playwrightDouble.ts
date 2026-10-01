@@ -20,10 +20,7 @@ export const pdfBytes = Buffer.from(
 );
 
 /** A Playwright double: a browser whose connection state we control. */
-export const waitCalls: Array<{ fn: (a: string[]) => boolean; arg: string[]; timeout: number }> = [];
-/** Called as each wait "happens", so a test can let time pass during it. */
-let duringWait: ((timeout: number) => void) | null = null;
-export function setDuringWait(fn: ((timeout: number) => void) | null): void { duringWait = fn; }
+export const waitCalls: Array<{ fn: (a: string[]) => unknown; arg: string[]; timeout: number }> = [];
 
 /** The attributes the print page would carry: `'fonts: …'` / `'pages: …'` land
  *  under their producer's own attribute name, as `markPrintError` writes them. */
@@ -35,10 +32,10 @@ function attributesFor(printError: string | string[] | null): Array<{ name: stri
 
 type PageState = { attrs: Array<{ name: string; value: string }>; ready: boolean };
 
-/** `script` is what the page looks like at each successive read after a wait;
- *  by default it is whatever `printError` implies, ready when nothing failed. */
+/** `script` is what the page looks like at each successive POLL of the wait;
+ *  by default it is whatever `printError` implies, ready when nothing failed.
+ *  A wait whose script runs out without a truthy result times out, as Playwright's does. */
 export function makeBrowser(printError: string | string[] | null = null, script?: PageState[]) {
-  let reads = 0;
   const contexts: Array<{ closed: boolean }> = [];
   const listeners: Array<() => void> = [];
   const browser = {
@@ -54,21 +51,21 @@ export function makeBrowser(printError: string | string[] | null = null, script?
         close: vi.fn(async () => { ctx.closed = true; }),
         newPage: vi.fn(async () => ({
           goto: vi.fn(async () => {}),
-          waitForFunction: vi.fn(async (fn: (a: string[]) => boolean, arg: string[], opts: { timeout: number }) => {
+          // Runs the transport's OWN predicate against a stub document at each
+          // poll, so reading any other attribute name finds nothing.
+          waitForFunction: vi.fn(async (fn: (a: string[]) => unknown, arg: string[], opts: { timeout: number }) => {
             waitCalls.push({ fn, arg, timeout: opts.timeout });
-            duringWait?.(opts.timeout);
-          }),
-          // Runs the transport's OWN function against a document that carries
-          // the markers under their real names only, so reading any other
-          // attribute name finds nothing and the render succeeds.
-          evaluate: vi.fn(async (fn: (a: string[]) => unknown, arg: string[]) => {
-            const state = script?.[Math.min(reads++, script.length - 1)]
-              ?? { attrs: attributesFor(printError), ready: printError === null };
-            vi.stubGlobal('document', {
-              querySelector: () => (state.ready ? {} : null),
-              documentElement: { attributes: state.attrs },
-            });
-            try { return fn(arg); } finally { vi.unstubAllGlobals(); }
+            const polls = script ?? [{ attrs: attributesFor(printError), ready: printError === null }];
+            for (const state of polls) {
+              vi.stubGlobal('document', {
+                querySelector: () => (state.ready ? {} : null),
+                documentElement: { attributes: state.attrs },
+              });
+              let value: unknown;
+              try { value = fn(arg); } finally { vi.unstubAllGlobals(); }
+              if (value) return { jsonValue: async () => value };
+            }
+            throw new Error(`page.waitForFunction: Timeout ${opts.timeout}ms exceeded.`);
           }),
           emulateMedia: vi.fn(async () => {}),
           pdf: vi.fn(async () => pdfBytes),

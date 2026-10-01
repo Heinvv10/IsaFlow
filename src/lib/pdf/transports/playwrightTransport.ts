@@ -86,40 +86,31 @@ export const playwrightTransport: PdfTransport = {
       // 'load', not 'networkidle': the app keeps background connections open
       // that never go quiet. waitForSelector is the real readiness gate.
       await page.goto(request.url, { waitUntil: 'load' });
-      // Ready OR failed: a print page that reports `data-print-error-*` will
-      // never become ready, so waiting out the timeout only delays the same
-      // failure and hides its reason.
-      //
-      // THE WAIT RESOLVES ON EITHER, SO WHAT HAPPENED IS READ AFTER IT, by
-      // COUNT: an attribute with an empty value, or one cleared between the
-      // wait and the read, must neither pass for ready nor be reported as
-      // nothing. A failure present is a failure; if none is left and the page
-      // is not ready, wait again, against the same overall deadline.
-      const deadline = Date.now() + PRINT_READY_TIMEOUT_MS;
-      for (;;) {
-        await page.waitForFunction(
-          ([ready, prefix]) => document.querySelector(ready!) !== null
-            || Array.from(document.documentElement.attributes).some((a) => a.name.startsWith(prefix!)),
-          [PRINT_READY_SELECTOR, PRINT_ERROR_ATTRIBUTE_PREFIX],
-          { timeout: Math.max(1, deadline - Date.now()) },
-        );
-        const state = await page.evaluate(
-          ([ready, prefix]) => ({
-            ready: document.querySelector(ready!) !== null,
-            errors: Array.from(document.documentElement.attributes)
-              .filter((a) => a.name.startsWith(prefix!))
-              .map((a) => a.value),
-          }),
-          [PRINT_READY_SELECTOR, PRINT_ERROR_ATTRIBUTE_PREFIX],
-        );
-        if (state.errors.length > 0) {
-          const reasons = state.errors.filter((e) => e !== '').join('; ') || 'no reason given';
-          throw new Error(`playwrightTransport: the print page reported it cannot render: ${reasons}`);
-        }
-        if (state.ready) break;
-        if (Date.now() >= deadline) {
-          throw new Error('playwrightTransport: the print page was neither ready nor failed within the timeout');
-        }
+      // Ready OR failed, decided in ONE page-side evaluation. A print page that
+      // reports `data-print-error-*` will never become ready, so waiting out
+      // the timeout only delays the same failure and hides its reason — and a
+      // page that reported it could not render must not be printed because the
+      // attribute was withdrawn afterwards (`clearPrintError`). The predicate
+      // therefore returns WHAT IT OBSERVED, in the same instant: any error
+      // attribute (even an empty-valued one, even alongside the ready marker)
+      // is a failure, exactly as under Gotenberg, whose wait expression throws
+      // on the first one it sees. Nothing is re-read after the wait.
+      const handle = await page.waitForFunction(
+        ([ready, prefix]) => {
+          const errors = Array.from(document.documentElement.attributes)
+            .filter((a) => a.name.startsWith(prefix!))
+            .map((a) => a.value);
+          if (errors.length > 0) return { ready: false, errors };
+          return document.querySelector(ready!) !== null ? { ready: true, errors: [] as string[] } : false;
+        },
+        [PRINT_READY_SELECTOR, PRINT_ERROR_ATTRIBUTE_PREFIX],
+        { timeout: PRINT_READY_TIMEOUT_MS },
+      );
+      // Truthy by construction: the wait only resolves on an object.
+      const observed = (await handle.jsonValue()) as { ready: boolean; errors: string[] };
+      if (observed.errors.length > 0) {
+        const reasons = observed.errors.filter((e) => e !== '').join('; ') || 'no reason given';
+        throw new Error(`playwrightTransport: the print page reported it cannot render: ${reasons}`);
       }
       await page.emulateMedia({ media: 'print' });
 
