@@ -46,6 +46,14 @@ export interface PackFootnote {
  *  comparison basis is not renderable. */
 export interface PackKpiDelta {
   value: number;
+  /**
+   * What `value` is counted in. `percent` is a relative change — revenue up
+   * 12.0% on the prior period. `points` is the difference of two PERCENTAGES:
+   * a margin of 30% that becomes 33% moved 3.0 points, and printing its
+   * relative change ("up 10.0%") tells a board the margin rose by ten.
+   * Rendered through `deltaWithWord`, by the tile and by its caption alike.
+   */
+  unit: 'percent' | 'points';
   /** e.g. 'prior period', 'budget' — what `value` is measured against. */
   basis: string;
   favourable: boolean;

@@ -10,7 +10,8 @@
  */
 import { lines, PAGE_WIDTH_MM, PT_MM, wrappedLines, type PageOrientation } from './packTextMetrics';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
-import type { PackDisclosure, PackNarrative, PackPageBlock } from './packPageModel';
+import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
+import type { PackDisclosure, PackKpiDelta, PackNarrative, PackPageBlock } from './packPageModel';
 
 /** `--pack-gutter`. */
 export const GUTTER_MM = 8;
@@ -258,6 +259,17 @@ const KPI_COLUMN_MM = 36;
  *  column, at 0.8 of the width across every column the fixtures produce. */
 const KPI_SPARKLINE_MM = 33;
 
+/**
+ * The words a tile's delta line is charged for. A percentage change is
+ * charged at the widest the formatter emits; a movement in POINTS is charged
+ * for what the tile prints, through the tile's own `deltaWithWord` call —
+ * `pp` is a wider pair of glyphs than `%`, and the line this is set on has
+ * no slack to assume it into.
+ */
+function deltaWords(delta: PackKpiDelta): string {
+  return delta.unit === 'percent' ? 'up 00.0%' : deltaWithWord(delta, 'up', 'down', 'pp');
+}
+
 export function kpiTileHeight(tile: KpiTile): number {
   const label = lines(wrappedLines(tile.label, 9, KPI_COLUMN_MM), 12);
   const figure = tile.figure.value === null
@@ -267,7 +279,7 @@ export function kpiTileHeight(tile: KpiTile): number {
   // against prior period". The words around the basis are the widest the
   // formatter emits.
   const delta = tile.delta === null ? 0
-    : 1 + lines(wrappedLines(`X up 00.0% ${tile.delta.basis}`, 9, KPI_COLUMN_MM), 12);
+    : 1 + lines(wrappedLines(`X ${deltaWords(tile.delta)} ${tile.delta.basis}`, 9, KPI_COLUMN_MM), 12);
   const spark = tile.sparklineSvg === null ? 0 : 1 + KPI_SPARKLINE_MM;
   return label + 1 + figure + delta + spark;
 }

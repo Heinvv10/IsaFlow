@@ -26,6 +26,7 @@ import type { PackMatter } from '@/modules/accounting/services/packs/pages/packM
 import type { SelectedMatters } from '@/modules/accounting/services/packs/pages/packMattersPrinted';
 import type {
   PackChartSpec,
+  PackKpiDelta,
   PackKpiDeltaAbsence,
   PackKpiTile,
   PackScorecardGroup,
@@ -194,6 +195,30 @@ export function scorecardScore(groups: PackScorecardGroup[]): { met: number; tot
 }
 
 /**
+ * A TILE'S MOVEMENT IN WORDS — "up 12.0%", or "up 3.0 points" where the
+ * figure is itself a percentage. See `PackKpiDelta.unit`.
+ *
+ * One function for the tile and its caption, so the two cannot state one
+ * movement in two units three centimetres apart. `up` and `down` are both
+ * required for the reason `pctWithWord` gives: the sign is carried by a word.
+ */
+export function deltaWithWord(
+  delta: PackKpiDelta,
+  up: string,
+  down: string,
+  /**
+   * How the unit is spelt. A sentence says "points"; the TILE passes `pp`,
+   * because its delta line is set across a quarter of the measure and has no
+   * room for the word — "up 1.0 points prior period" takes a second line,
+   * 4.2mm on a sheet that composes within half a millimetre of its box.
+   */
+  points: 'points' | 'pp' = 'points',
+): string {
+  if (delta.unit === 'percent') return pctWithWord(delta.value, up, down);
+  return `${delta.value < 0 ? down : up} ${Math.abs(delta.value).toFixed(1)} ${points}`;
+}
+
+/**
  * One derived line per highlight tile — spec §4.A page 3's "derived one-liner
  * per tile".
  *
@@ -224,7 +249,7 @@ export function tileCaption(tile: PackKpiTile): string {
     return DELTA_ABSENCE[tile.deltaAbsence];
   }
   const judgement = tile.delta.favourable ? 'a favourable' : 'an unfavourable';
-  return `${pctWithWord(tile.delta.value, 'Up', 'Down')} on the ${tile.delta.basis} — ${judgement} movement.`;
+  return `${deltaWithWord(tile.delta, 'Up', 'Down')} on the ${tile.delta.basis} — ${judgement} movement.`;
 }
 
 /**

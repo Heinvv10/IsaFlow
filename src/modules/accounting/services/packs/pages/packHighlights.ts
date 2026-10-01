@@ -77,14 +77,22 @@ function movementFor(
   prior: number | null,
   lowerIsBetter: boolean,
   hasComparativePeriod: boolean,
+  /** The figure IS a percentage, so its movement is a difference in points —
+   *  see `PackKpiDelta.unit`. A difference has no base to refuse. */
+  isPercentage: boolean,
 ): Pick<PackKpiTile, 'delta' | 'deltaAbsence'> {
   if (current === null) return { delta: null, deltaAbsence: 'noCurrentValue' };
   if (!hasComparativePeriod) return { delta: null, deltaAbsence: 'noComparativePeriod' };
   if (prior === null) return { delta: null, deltaAbsence: 'noPriorValue' };
-  const value = pctChange(current, prior);
+  const value = isPercentage ? current - prior : pctChange(current, prior);
   if (value === null) return { delta: null, deltaAbsence: 'unusableBase' };
   return {
-    delta: { value, basis: 'prior period', favourable: lowerIsBetter ? value < 0 : value > 0 },
+    delta: {
+      value,
+      unit: isPercentage ? 'points' : 'percent',
+      basis: 'prior period',
+      favourable: lowerIsBetter ? value < 0 : value > 0,
+    },
     deltaAbsence: null,
   };
 }
@@ -173,7 +181,7 @@ function buildTile(
   return {
     label,
     figure,
-    ...movementFor(figure.value, prior, lowerIsBetter, hasComparativePeriod),
+    ...movementFor(figure.value, prior, lowerIsBetter, hasComparativePeriod, figure.format === 'pct'),
     // No footnote index is allocated at this level — the page that assembles
     // this tile strip owns the page's `footnotes` array.
     trendFootnote: null,

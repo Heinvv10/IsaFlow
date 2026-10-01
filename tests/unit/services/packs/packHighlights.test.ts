@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildHighlightTiles } from '@/modules/accounting/services/packs/pages/packHighlights';
+import { deltaWithWord, tileCaption } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
@@ -229,5 +230,58 @@ describe('buildHighlightTiles', () => {
     const p = new PackFigureProvenance();
     buildHighlightTiles(setWithPrior, trend, p);
     for (const [source] of p.all()) expect(source).toContain('.');
+  });
+});
+
+/**
+ * A CHANGE IN A PERCENTAGE IS STATED IN POINTS.
+ *
+ * The Gross margin tile ran its delta through the same `marginPct(current −
+ * prior, prior)` as the money tiles, which for a percentage is the relative
+ * change OF a percentage: a margin moving from 30% to 33% printed "Up 10.0%
+ * on the prior period", and a board reads that as ten points of margin. The
+ * movement is three.
+ */
+describe('the gross margin tile states its movement in percentage points', () => {
+  const marginSet = (current: number, prior: number): PackFigureSet => ({
+    current: figures({ revenue: 1_000_000, costOfSales: 1_000_000 - current * 10_000 }),
+    currentWindow: { start: '2026-01-01', end: '2026-01-31' },
+    prior: figures({ revenue: 1_000_000, costOfSales: 1_000_000 - prior * 10_000 }),
+    priorWindow: { start: '2025-12-01', end: '2025-12-31' },
+    budget: null,
+  });
+  const marginTile = (current: number, prior: number) =>
+    buildHighlightTiles(marginSet(current, prior), trend, new PackFigureProvenance())
+      .find((t) => t.label === 'Gross margin')!;
+
+  it('30% to 33% is up 3.0 points, not up 10.0%', () => {
+    const tile = marginTile(33, 30);
+    expect(tile.figure.value).toBeCloseTo(33, 6);
+    expect(tile.delta?.unit).toBe('points');
+    expect(tile.delta?.value).toBeCloseTo(3, 6);
+    expect(tile.delta?.favourable).toBe(true);
+    expect(tileCaption(tile)).toBe('Up 3.0 points on the prior period — a favourable movement.');
+  });
+
+  it('33% to 30% is down 3.0 points, and unfavourable', () => {
+    const tile = marginTile(30, 33);
+    expect(tile.delta?.value).toBeCloseTo(-3, 6);
+    expect(tileCaption(tile)).toBe('Down 3.0 points on the prior period — an unfavourable movement.');
+  });
+
+  it('leaves a money tile as a percentage change', () => {
+    const tiles = buildHighlightTiles(setWithPrior, trend, new PackFigureProvenance());
+    const revenue = tiles.find((t) => t.label === 'Revenue')!;
+    expect(revenue.delta?.unit).toBe('percent');
+    expect(tileCaption(revenue)).toMatch(/^Up \d+\.\d% on the prior period/);
+  });
+
+  it('words one movement for the caption and for the tile', () => {
+    const up = { value: 3, unit: 'points', basis: 'prior period', favourable: true } as const;
+    expect(deltaWithWord(up, 'up', 'down')).toBe('up 3.0 points');
+    // The tile's line is a quarter of the measure wide: `pp`, not the word.
+    expect(deltaWithWord(up, 'up', 'down', 'pp')).toBe('up 3.0 pp');
+    expect(deltaWithWord({ value: -12.34, unit: 'percent', basis: 'prior period', favourable: false }, 'up', 'down'))
+      .toBe('down 12.3%');
   });
 });
