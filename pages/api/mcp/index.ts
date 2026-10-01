@@ -180,8 +180,12 @@ const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Prom
   }
 
   // A batch packs N JSON-RPC calls into one HTTP request. Cap the batch and
-  // charge the per-company limiter PER CALL so a batch can't bypass the
-  // 120/min budget (one request could otherwise pack hundreds of writes).
+  // charge the per-company limiter one unit PER CALL so a batch can't bypass
+  // the 120/min budget (one request could otherwise pack hundreds of writes).
+  // One atomic charge of N (R-175): the whole batch fits and is charged, or
+  // nothing is charged and the batch is refused. Charging a unit at a time
+  // spent what was left of the window on a batch that then ran nothing.
+  // Calls a role-lock skip later leaves unrun stay charged, as before.
   const rpcCount = Array.isArray(body) ? body.length : 1;
   if (rpcCount > MAX_BATCH_SIZE) {
     res.status(400).json(
@@ -189,14 +193,11 @@ const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Prom
     );
     return;
   }
-  for (let i = 0; i < rpcCount; i++) {
-    const allowed = await checkRateLimit(`mcp:${req.companyId}`, { max: 120, windowSecs: 60 });
-    if (!allowed) {
-      res.status(200).json(
-        rpcError(null, RPC_CODES.SERVER_ERROR, 'Rate limit exceeded. Slow down and retry.'),
-      );
-      return;
-    }
+  if (rpcCount > 0 && !(await checkRateLimit(`mcp:${req.companyId}`, { max: 120, windowSecs: 60, cost: rpcCount }))) {
+    res.status(200).json(
+      rpcError(null, RPC_CODES.SERVER_ERROR, 'Rate limit exceeded. Slow down and retry.'),
+    );
+    return;
   }
 
   const ctx: McpToolContext = {
