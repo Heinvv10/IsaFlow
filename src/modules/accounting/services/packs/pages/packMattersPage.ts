@@ -57,9 +57,10 @@ export function mattersTitle(matters: PackMatter[], scale: MoneyScale): string {
   const failedClause = failedChecksClause(matters);
 
   if (findings.length === 0) {
-    // "0 matters", not "No matter": `assertPageTitleIsAMessage` refuses a
-    // title with no figure and no direction word in it, and it is right to —
-    // a page that says nothing happened should say so with the count.
+    // "0 matters", not "No matter": the title rule (`assertPageTitleIsAMessage`,
+    // held by `boardPackPages.test.ts` over the fixtures — it is not called
+    // when a pack is composed) wants a figure or a direction word, and it is
+    // right to: a page that says nothing happened should say so with the count.
     return `0 matters require a board decision this period.${failedClause || ' Every check ran clean.'}`;
   }
   const quantified = findings.filter((m) => m.quantum !== null);
@@ -238,7 +239,11 @@ export function mattersBudgetMm(
  */
 function quantumNoteReserve(allMatters: readonly PackMatter[]): number {
   if (!allMatters.some((matter) => matter.quantum === null)) return 0;
-  const reasons: PackFigure[] = [{ value: null, unavailable: NO_QUANTUM } as PackFigure];
+  // Shaped as `buildMattersBlock` issues them, so the probe measures the
+  // figures the page will carry rather than two objects cast into the type.
+  const reasons: PackFigure[] = [
+    { value: null, format: 'money', source: 'buildMatters.quantum.0', unavailable: NO_QUANTUM },
+  ];
   // AND THE SECOND REASON, WHICH IS A DISTINCT NOTE AND WAS NOT RESERVED.
   //
   // `blockMm` collects reasons across the printed quanta AND the omitted
@@ -256,7 +261,9 @@ function quantumNoteReserve(allMatters: readonly PackMatter[]): number {
   // unquantified, and reserving this line in any other case would cost a row
   // to reserve nothing.
   if (allMatters.every((matter) => matter.quantum === null)) {
-    reasons.push({ value: null, unavailable: OMITTED_NOT_QUANTIFIED } as PackFigure);
+    reasons.push({
+      value: null, format: 'money', source: 'buildMatters.omittedQuantum', unavailable: OMITTED_NOT_QUANTIFIED,
+    });
   }
   return notMeaningfulNotesMm(reasons, PAGE_WIDTH_MM.portrait);
 }

@@ -36,6 +36,13 @@ const MOVEMENT_VERBS = [
  * judge whether an admitted title is actually a good conclusion. That
  * judgement is the visual gate's, applied to the rendered page, not this
  * function's.
+ *
+ * A TEST-TIME GUARD, NOT A RUNTIME REFUSAL. `boardPackPages.test.ts` runs it
+ * over every fixture's composed titles; `buildBoardPackPages` does not call
+ * it, and must not. A dormant company's titles are true and carry no digit —
+ * "Equity of nil.", "Cash stands at nil, with no comparative period." — so
+ * refusing on this heuristic would deny that company a pack for saying what
+ * its ledger says.
  */
 export function assertPageTitleIsAMessage(title: string, pageNumber: number): void {
   // Page 1's title is the company's legal name — arbitrary data we do not

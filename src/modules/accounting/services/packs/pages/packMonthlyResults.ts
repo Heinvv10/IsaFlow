@@ -207,8 +207,9 @@ export const MONTHLY_RESULTS_NAV_LABEL = 'Monthly results';
  * states the level instead, the same rule `movementSentence` follows.
  */
 export function monthlyResultsTitle(trend: PackTrendPoint[], scale: MoneyScale): string {
-  // A DIGIT, because `assertPageTitleIsAMessage` refuses a bare label — and
-  // the count is the fact anyway: none of the months could be built.
+  // A DIGIT, because the title rule (`assertPageTitleIsAMessage`, a test-time
+  // guard) fails a bare label — and the count is the fact anyway: none of the
+  // months could be built.
   if (trend.length === 0) return 'No monthly series covers this period, so 0 months are shown.';
   const money = (n: number) => inProse(formatMoney(n, { scale }));
   const best = trend.reduce((a, b) => (b.netProfit > a.netProfit ? b : a));
