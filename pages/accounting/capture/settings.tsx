@@ -6,7 +6,7 @@ import { WhatsAppVerificationSection } from '@/components/accounting/capture/Wha
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiJson, apiErrorMessage } from '@/lib/apiFetch';
 import {
   Mail, Smartphone, Server,
   Copy, Check, RefreshCw, AlertCircle, Loader2, X, Zap,
@@ -50,13 +50,11 @@ export default function CaptureSettingsPage() {
 
   const loadAddress = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/accounting/capture/inbox-address');
-      const json = await res.json();
-      if (!res.ok) { setError(json.error ?? 'Failed to load inbox address'); return; }
-      setInboxAddr(json.data ?? null);
+      const { inbox } = await apiJson('/api/accounting/capture/inbox-address');
+      setInboxAddr(inbox);
       setError('');
-    } catch {
-      setError('Network error loading inbox address');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to load inbox address'));
     } finally {
       setLoading(false);
     }
@@ -86,13 +84,11 @@ export default function CaptureSettingsPage() {
     setRegenerating(true);
     setConfirmRegen(false);
     try {
-      const res = await apiFetch('/api/accounting/capture/inbox-address', { method: 'POST', body: '{}' });
-      const json = await res.json();
-      if (!res.ok) { showToast(json.error ?? 'Regenerate failed', false); return; }
-      setInboxAddr(json.data ?? null);
+      const { inbox } = await apiJson('/api/accounting/capture/inbox-address', { method: 'POST', body: '{}' });
+      setInboxAddr(inbox);
       showToast('Inbox address regenerated', true);
-    } catch {
-      showToast('Network error', false);
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Regenerate failed'), false);
     } finally {
       setRegenerating(false);
     }

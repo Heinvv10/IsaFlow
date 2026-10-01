@@ -7,7 +7,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { BookOpen, Loader2, AlertCircle, Filter } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
+import { apiFetch, apiJson } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 const fmt = (n: number) =>
@@ -50,14 +51,17 @@ export default function CashbookPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    apiFetch('/api/accounting/bank-accounts', { credentials: 'include' })
-      .then(r => r.json())
-      .then(json => {
-        const list = Array.isArray(json.data || json) ? (json.data || json) : [];
+    apiJson('/api/accounting/bank-accounts')
+      .then(data => {
+        const list = Array.isArray(data) ? data : [];
         setBankAccounts(list);
-        if (list.length > 0 && !selectedBank) setSelectedBank(list[0].id);
+        if (list.length > 0 && !selectedBank) setSelectedBank(list[0]!.id);
       })
-      .catch(() => { /* reference data load failure — non-critical, bank account selector will be empty */ });
+      .catch((err) => {
+        log.error('Failed to load bank accounts for cashbook', { error: err }, 'accounting-ui');
+        setError('Failed to load bank accounts');
+        setLoading(false);
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

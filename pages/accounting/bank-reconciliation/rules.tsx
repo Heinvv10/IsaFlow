@@ -10,6 +10,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import { BankRuleForm } from '@/components/accounting/bank-rules/BankRuleForm';
+import { truncatedSuppliersNotice } from '@/lib/fetchAllSuppliers';
 import { useBankRuleRefData } from '@/components/accounting/bank-rules/useBankRuleRefData';
 import { BankRulesHeader } from '@/components/accounting/bank-rules/BankRulesHeader';
 import { BankRulesTable } from '@/components/accounting/bank-rules/BankRulesTable';
@@ -41,7 +42,7 @@ async function fetchPreviewMatchCount(params: URLSearchParams): Promise<number |
 }
 
 export default function BankRulesPage() {
-  const { accounts, bankAccounts, suppliers, clients, defaultBankId, errors: refErrors } = useBankRuleRefData();
+  const { accounts, bankAccounts, suppliers, clients, defaultBankId, suppliersTruncated, errors: refErrors } = useBankRuleRefData();
   const rules = useBankRules({ defaultBankId, fetchPreview: fetchPreviewMatchCount });
 
   // Modal-based confirmations replace window.confirm() so the UX is styled,
@@ -74,6 +75,9 @@ export default function BankRulesPage() {
                 {refErrors.map((msg, i) => <li key={i}>{msg}</li>)}
               </ul>
             </div>
+          )}
+          {suppliersTruncated && (
+            <div role="status" className="p-3 rounded-lg bg-amber-500/10 text-amber-300 text-sm">{truncatedSuppliersNotice()}</div>
           )}
           {rules.applyResult && (
             <div className="p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">
