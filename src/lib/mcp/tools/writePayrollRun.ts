@@ -31,7 +31,7 @@ import {
 } from '@/modules/accounting/services/payroll/payrollRunService';
 import {
   approvePayrollRun,
-  findApprovalBlocker,
+  previewPayrollApproval,
 } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { PayrollApprovalRefusedError } from '@/modules/accounting/services/payroll/payrollApprovalRefusal';
 import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
@@ -40,6 +40,7 @@ import {
   PayrollRunJournalPostedError,
   runHasLoanWork,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
+import { payrollJournalInForce } from '@/modules/accounting/services/payroll/payrollJournalChain';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -103,6 +104,7 @@ export const calculatePayRunTool: McpTool = {
       // a reopened run whose GL journal is still posted was promised a recost
       // that calculatePayrollRun then refuses.
       const blocked = run.journalEntryId != null
+        && await payrollJournalInForce(ctx.companyId, run.journalEntryId)
         && await runHasLoanWork(ctx.companyId, runId, run.periodYear, run.periodMonth);
       return ok({
         dryRun: true,
@@ -150,7 +152,9 @@ export const approvePayRunTool: McpTool = {
     + 'write:post permission. Approvable from draft, calculated or processed. '
     + 'Run calculate_pay_run first and check the totals — an uncosted run, or one whose journal '
     + 'cannot post (closed period, deactivated account, missing account), is refused before it is '
-    + 'approved. Reversal is by a reversing journal, not by re-approving.',
+    + 'approved. Reversal is by a reversing journal, not by re-approving. '
+    + 'Two calls: dry_run: true returns plan_hash for the journal it previews; the live call must '
+    + 'send that value as expected_plan_hash, and is refused if the run has changed since.',
   scope: 'write:payroll',
   write: true,
   requiresPost: true,
@@ -158,6 +162,10 @@ export const approvePayRunTool: McpTool = {
     type: 'object',
     properties: {
       run_id: { type: 'string' },
+      expected_plan_hash: {
+        type: 'string',
+        description: 'plan_hash from this tool\'s dry run. Required on the live call.',
+      },
       ...MUTATION_ARG_SCHEMA,
     },
     required: ['run_id', 'idempotency_key'],
@@ -168,6 +176,17 @@ export const approvePayRunTool: McpTool = {
     if (!runId) return toolError('run_id is required');
     const bad = guardCastableArgs(args, { uuid: ['run_id'] });
     if (bad) return bad;
+
+    // Enforced HERE: inputSchema is not validated at runtime, so `required`
+    // would not stop a live call that carries no hash — and without one the
+    // agent approves whatever the run holds now, not what its dry run showed.
+    const expectedPlanHash = args.expected_plan_hash;
+    if (args.dry_run !== true && (typeof expectedPlanHash !== 'string' || expectedPlanHash === '')) {
+      return toolError(
+        'expected_plan_hash is required: call approve_pay_run with dry_run: true first '
+        + 'and send the plan_hash it returns.',
+      );
+    }
 
     const run = await getPayrollRun(runId, ctx.companyId);
     if (!run) return toolError(NOT_FOUND);
@@ -187,21 +206,29 @@ export const approvePayRunTool: McpTool = {
       );
     }
 
-    const preview = (skipped: Array<{ id: string; reason: string; detail: string }>) => ok({
+    const preview = (
+      skipped: Array<{ id: string; reason: string; detail: string }>,
+      gate?: { planHash: string; posted: { journalEntryId: string } | null; replaces: { journalEntryId: string } | null },
+    ) => ok({
       dryRun: true,
       wroteNothing: true,
       journals: [],
       effects: [
-        // A reopened run keeps its journal; the live call posts nothing and returns it.
-        run.journalEntryId
+        // A reopened run keeps its LIVE journal; the live call posts nothing and
+        // returns it. A reversed one is replaced: the live call posts afresh.
+        gate?.posted
           ? `Approve run ${run.periodMonth}/${run.periodYear}. It already carries journal `
-            + `${run.journalEntryId}, which is returned — nothing new is posted.`
+            + `${gate.posted.journalEntryId}, which is returned — nothing new is posted.`
           : `Approve run ${run.periodMonth}/${run.periodYear} and POST its journal: `
             + `${run.employeeCount} employees, gross ${run.totalGross}, PAYE ${run.totalPaye}, `
-            + `UIF ${run.totalUif}, SDL ${run.totalSdl}, net ${run.totalNet}.`,
+            + `UIF ${run.totalUif}, SDL ${run.totalSdl}, net ${run.totalNet}.`
+            + (gate?.replaces
+              ? ` The journal it posted before (${gate.replaces.journalEntryId}) was reversed, so a new one is posted in its place.`
+              : ''),
       ],
       skipped,
       current: runPayload(run),
+      ...(gate ? { plan_hash: gate.planHash } : {}),
     });
 
     // An uncosted run is answered first, by name: its plan would otherwise be
@@ -226,9 +253,10 @@ export const approvePayRunTool: McpTool = {
     // it (K-079). The dry run asks the same question, so it refuses what the
     // live call refuses.
     if (args.dry_run === true) {
-      const blocker = await findApprovalBlocker(ctx.companyId, runId);
-      if (blocker) return toolError(`The journal for this run cannot post, so it was not approved: ${blocker.detail}`);
-      return preview([]);
+      const gate = await previewPayrollApproval(ctx.companyId, runId);
+      if (!gate) return toolError(NOT_FOUND);
+      if (gate.blocker) return toolError(`The journal for this run cannot post, so it was not approved: ${gate.blocker.detail}`);
+      return preview([], gate);
     }
 
     // Only the service's own pre-write refusal is returned: nothing has been
@@ -240,9 +268,12 @@ export const approvePayRunTool: McpTool = {
     try {
       approved = await approvePayrollRun(ctx.companyId, runId, ctx.userId, {
         postingAgent: APPROVE_TOOL_AGENT,
+        expectedPlanHash: expectedPlanHash as string,
       });
     } catch (err) {
       if (err instanceof PayrollApprovalRefusedError) return toolError(`Not approved: ${err.message}`);
+      // The bounded wait for the run or its journal ran out — before any write.
+      if (err instanceof PayrollLoanLockTimeoutError) return toolError(err.message);
       throw err;
     }
     return ok({

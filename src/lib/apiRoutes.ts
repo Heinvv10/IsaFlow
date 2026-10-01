@@ -51,6 +51,7 @@ import type { getIncomeStatement } from '@/modules/accounting/services/reports/f
 import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
 import type { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
 import type { mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
+import type { approvePayrollRun, previewPayrollApproval } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
 import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
@@ -152,6 +153,9 @@ interface DynamicRoutes {
   '/api/accounting/commentary/{}/approve': { commentary: CommentaryRow };
   '/api/accounting/commentary/{}/reject': { commentary: CommentaryRow };
   '/api/accounting/annotations/{}/resolve': { resolved: true };
+  // PAY-01. GET only / POST only respectively; the handlers are passthroughs.
+  '/api/payroll/runs/{}/journal-plan': NonNullable<Awaited<ReturnType<typeof previewPayrollApproval>>>;
+  '/api/payroll/runs/{}/approve': Awaited<ReturnType<typeof approvePayrollRun>>;
 }
 
 /**

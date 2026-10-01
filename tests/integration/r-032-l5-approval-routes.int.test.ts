@@ -74,7 +74,7 @@ const CASES: Case[] = [
     call: { body: { runId: missing, proposalId: other, decision: 'approve' } } },
   { name: 'close-run proposal reject', handler: closeRunDecide,
     call: { body: { runId: missing, proposalId: other, decision: 'reject' } } },
-  { name: 'pay run approve', handler: payrollRunApprove, call: { query: { id: missing } } },
+  { name: 'pay run approve', handler: payrollRunApprove, call: { query: { id: missing }, body: { expectedPlanHash: 'r032-any' } } },
   { name: 'payroll batch post', handler: payrollBatchPost, call: { query: { id: missing } } },
   { name: 'expense claim approve', handler: expenseClaimApprove, call: { query: { id: missing }, body: { decision: 'approve' } } },
   { name: 'expense claim reject', handler: expenseClaimApprove, call: { query: { id: missing }, body: { decision: 'reject' } } },

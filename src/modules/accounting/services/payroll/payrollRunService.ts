@@ -7,7 +7,8 @@ import { calculatePayrollLine } from './payrollCalculator';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear } from './taxTables';
-import { isPayrollRunLocked, PayrollRunLockedError } from './payrollRunLock';
+import { isPayrollRunLocked, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals } from './payrollRunLock';
+import { journalInForceOrNull } from './payrollJournalChain';
 import type { EmployeeComponent, PayrollComponent, PayrollPeriod, ValidationResult } from './payrollTypes';
 import {
   buildTerminationComponents,
@@ -113,13 +114,10 @@ export async function calculatePayrollRun(
 ): Promise<PayrollRunSummary> {
   log.info('Calculating payroll run', { runId, companyId }, 'payrollRunService');
 
-  const runRows = (await sql`
-    SELECT * FROM payroll_run_headers
-    WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
-  `) as Row[];
-  if (runRows.length === 0 || !runRows[0]) throw new Error('Payroll run not found');
+  // Locked for the whole calculation, with a bounded wait: see lockPayrollRunHeader.
+  const run = await lockPayrollRunHeader(runId, companyId);
+  if (!run) throw new Error('Payroll run not found');
 
-  const run = runRows[0];
   if (isPayrollRunLocked(String(run.status))) {
     throw new PayrollRunLockedError(String(run.status));
   }
@@ -162,7 +160,8 @@ export async function calculatePayrollRun(
     periodYear: period.year,
     periodMonth: period.month,
     officialRate: Number(process.env.SARS_OFFICIAL_RATE ?? 0.085),
-    journalEntryId: run.journal_entry_id == null ? null : String(run.journal_entry_id),
+    // Only a journal whose amounts are in the ledger blocks loan work (round 5).
+    journalEntryId: await journalInForceOrNull(companyId, run.journal_entry_id),
   });
 
   for (const employee of employees) {
@@ -260,43 +259,30 @@ export async function calculatePayrollRun(
         INSERT INTO payroll_run_lines (
           run_id, employee_id, gross_pay, taxable_income, paye,
           uif_employee, uif_employer, sdl, eti, net_pay,
-          component_breakdown, validation_results
+          component_breakdown, validation_results, created_at
         ) VALUES (
           ${runId}::uuid, ${ins.employeeId}::uuid,
           ${ins.grossPay}, ${ins.taxableIncome}, ${ins.paye},
           ${ins.uifEmployee}, ${ins.uifEmployer},
           ${ins.sdl}, ${ins.eti}, ${ins.netPay},
           ${ins.componentBreakdown},
-          ${ins.validationResults}
+          ${ins.validationResults}, clock_timestamp()
         )
       `;
     }
   });
 
-  const updated = (await sql`
-    UPDATE payroll_run_headers SET
-      status         = 'calculated',
-      total_gross    = ${r(totalGross)},
-      total_taxable  = ${r(totalGross)},
-      total_paye     = ${r(totalPaye)},
-      total_uif      = ${r(totalUifEmployee + totalUifEmployer)},
-      total_sdl      = ${r(totalSdl)},
-      total_eti      = ${r(totalEti)},
-      total_net      = ${r(totalNet)},
-      employee_count = ${employees.length},
-      updated_at     = NOW()
-    WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
-    RETURNING *
-  `) as Row[];
-
-  if (!updated[0]) throw new Error('UPDATE returned no row');
+  const updated = await saveCalculatedRunTotals(runId, companyId, {
+    gross: r(totalGross), paye: r(totalPaye), uif: r(totalUifEmployee + totalUifEmployer),
+    sdl: r(totalSdl), eti: r(totalEti), net: r(totalNet), employeeCount: employees.length,
+  });
 
   log.info(
     'Payroll run calculated',
     { runId, employeeCount: employees.length, totalGross },
     'payrollRunService',
   );
-  return mapRunRow(updated[0]);
+  return mapRunRow(updated);
 }
 
 export interface PayrollRunLine {

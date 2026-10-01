@@ -22,9 +22,11 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunService', () => ({
   calculatePayrollRun: vi.fn(),
   getPayrollRun: vi.fn(),
 }));
+// Round 5: "journal in force" is read from the ledger; here it simply says yes unless a test says otherwise.
+vi.mock('@/modules/accounting/services/payroll/payrollJournalChain', () => ({ payrollJournalInForce: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/payroll/payrollApprovalService', () => ({
   approvePayrollRun: vi.fn(),
-  findApprovalBlocker: vi.fn(),
+  previewPayrollApproval: vi.fn(),
 }));
 // The error classes must be the real ones — the tool branches on them, and a
 // stubbed sentinel would let those branches pass by accident.
@@ -45,7 +47,7 @@ import {
 } from '@/modules/accounting/services/payroll/payrollRunService';
 import {
   approvePayrollRun,
-  findApprovalBlocker,
+  previewPayrollApproval,
 } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import {
@@ -53,6 +55,7 @@ import {
   PayrollRunJournalPostedError,
   runHasLoanWork,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
+import { payrollJournalInForce } from '@/modules/accounting/services/payroll/payrollJournalChain';
 import { approvePayRunTool, calculatePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
@@ -60,6 +63,9 @@ const COMPANY = '11111111-1111-4111-8111-111111111111';
 const RUN = '22222222-2222-4222-8222-222222222222';
 const JE = '33333333-3333-4333-8333-333333333333';
 const KEY = { idempotency_key: 'k1' };
+/** A live approve_pay_run call: it must carry the hash its dry run returned. */
+const LIVE = { ...KEY, expected_plan_hash: 'hash-1' };
+const gate = (over: Record<string, unknown> = {}) => ({ blocker: null, planHash: 'hash-1', posted: null, replaces: null, ...over });
 
 function ctx(): McpToolContext {
   return {
@@ -185,6 +191,16 @@ describe('calculate_pay_run', () => {
     expect(calculatePayrollRun).not.toHaveBeenCalled();
   });
 
+  it('dry run promises the recost when the linked journal is no longer in the ledger', async () => {
+    // Round 5 (C3-B): the guard is "journal in force", not "journal linked".
+    vi.mocked(getPayrollRun).mockResolvedValue(run({ journalEntryId: JE }) as never);
+    vi.mocked(payrollJournalInForce).mockResolvedValueOnce(false);
+    vi.mocked(runHasLoanWork).mockResolvedValue(true);
+    const out = parseOk(await calculatePayRunTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx()));
+    expect(JSON.stringify(out.effects)).toContain('Recost run');
+    expect(out.skipped).toEqual([]);
+  });
+
   it('dry run still promises the recost when the journal carries no loan work', async () => {
     vi.mocked(getPayrollRun).mockResolvedValue(run({ journalEntryId: JE }) as never);
     vi.mocked(runHasLoanWork).mockResolvedValue(false);
@@ -218,22 +234,22 @@ describe('approve_pay_run', () => {
     vi.mocked(approvePayrollRun).mockResolvedValue(
       { ...run({ status: 'approved' }), journalEntryId: JE, advisories: [{ code: 'eti_beyond_paye', detail: 'R2200.00 not booked' }] } as never,
     );
-    vi.mocked(findApprovalBlocker).mockResolvedValue(null);
+    vi.mocked(previewPayrollApproval).mockResolvedValue(gate() as never);
   });
 
   it('approves, posts, and returns the journal it wrote', async () => {
-    const out = parseOk(await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx()));
+    const out = parseOk(await approvePayRunTool.handler({ run_id: RUN, ...LIVE }, ctx()));
     expect(out.status).toBe('approved');
     expect(out.journal_entry_id).toBe(JE);
     expect(out.advisories).toEqual([{ code: 'eti_beyond_paye', detail: 'R2200.00 not booked' }]);
     expect(approvePayrollRun).toHaveBeenCalledWith(
-      COMPANY, RUN, ctx().userId, { postingAgent: 'mcp:approve_pay_run:v1' },
+      COMPANY, RUN, ctx().userId, { postingAgent: 'mcp:approve_pay_run:v1', expectedPlanHash: 'hash-1' },
     );
   });
 
   it('refuses a status the service would refuse, before posting', async () => {
     vi.mocked(getPayrollRun).mockResolvedValue(run({ status: 'cancelled' }) as never);
-    expect(errText(await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx())))
+    expect(errText(await approvePayRunTool.handler({ run_id: RUN, ...LIVE }, ctx())))
       .toContain("status 'cancelled'");
     expect(approvePayrollRun).not.toHaveBeenCalled();
   });
@@ -242,7 +258,7 @@ describe('approve_pay_run', () => {
     // A returned error would RELEASE the savepoint and commit a run marked
     // approved against a journal that never posted.
     vi.mocked(approvePayrollRun).mockRejectedValue(new Error('period is closed'));
-    await expect(approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx()))
+    await expect(approvePayRunTool.handler({ run_id: RUN, ...LIVE }, ctx()))
       .rejects.toThrow('period is closed');
   });
 
@@ -262,7 +278,7 @@ describe('approve_pay_run', () => {
     // Its real plan is refused as nothing_to_post; the uncosted answer, which
     // says what to do, must win.
     vi.mocked(getPayrollRun).mockResolvedValue(run({ employeeCount: 0 }) as never);
-    vi.mocked(findApprovalBlocker).mockResolvedValue({ code: 'nothing_to_post', detail: 'every journal line is zero' });
+    vi.mocked(previewPayrollApproval).mockResolvedValue(gate({ blocker: { code: 'nothing_to_post', detail: 'every journal line is zero' } }) as never);
     const out = parseOk(await approvePayRunTool.handler(
       { run_id: RUN, dry_run: true, ...KEY }, ctx(),
     ));
@@ -271,7 +287,7 @@ describe('approve_pay_run', () => {
 
   it('refuses a foreign run generically', async () => {
     vi.mocked(getPayrollRun).mockResolvedValue(null);
-    expect(errText(await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx())))
+    expect(errText(await approvePayRunTool.handler({ run_id: RUN, ...LIVE }, ctx())))
       .toBe('Not found');
     expect(approvePayrollRun).not.toHaveBeenCalled();
   });
