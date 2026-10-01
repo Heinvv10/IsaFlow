@@ -23,7 +23,9 @@ const pdfBytes = Buffer.from(
 );
 
 /** A Playwright double: a browser whose connection state we control. */
-const waitCalls: Array<{ fn: (a: string[]) => boolean; arg: string[] }> = [];
+const waitCalls: Array<{ fn: (a: string[]) => boolean; arg: string[]; timeout: number }> = [];
+/** Called as each wait "happens", so a test can let time pass during it. */
+let duringWait: ((timeout: number) => void) | null = null;
 
 /** The attributes the print page would carry: `'fonts: …'` / `'pages: …'` land
  *  under their producer's own attribute name, as `markPrintError` writes them. */
@@ -54,7 +56,10 @@ function makeBrowser(printError: string | string[] | null = null, script?: PageS
         close: vi.fn(async () => { ctx.closed = true; }),
         newPage: vi.fn(async () => ({
           goto: vi.fn(async () => {}),
-          waitForFunction: vi.fn(async (fn: (a: string[]) => boolean, arg: string[]) => { waitCalls.push({ fn, arg }); }),
+          waitForFunction: vi.fn(async (fn: (a: string[]) => boolean, arg: string[], opts: { timeout: number }) => {
+            waitCalls.push({ fn, arg, timeout: opts.timeout });
+            duringWait?.(opts.timeout);
+          }),
           // Runs the transport's OWN function against a document that carries
           // the markers under their real names only, so reading any other
           // attribute name finds nothing and the render succeeds.
@@ -160,6 +165,33 @@ describe('playwrightTransport — a print page that reports it cannot render', (
     ]));
     await expect(playwrightTransport.render(request)).resolves.toBeInstanceOf(Buffer);
     expect(waitCalls).toHaveLength(2);
+  });
+
+  describe('the deadline', () => {
+    beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-09-30T10:00:00Z')); waitCalls.length = 0; });
+    afterEach(() => { vi.useRealTimers(); duringWait = null; });
+
+    it('gives up, saying so, when the page is neither ready nor failed within the timeout', async () => {
+      // Each wait "resolves" only after it has used its whole timeout.
+      duringWait = (timeout) => vi.setSystemTime(Date.now() + timeout);
+      launchMock.mockResolvedValue(makeBrowser(null, [{ attrs: [], ready: false }]));
+      await expect(playwrightTransport.render(request)).rejects.toThrow(/neither ready nor failed within the timeout/);
+      expect(waitCalls).toHaveLength(1);
+    });
+
+    it('re-waits for at most the time left to the ORIGINAL deadline', async () => {
+      const { PRINT_READY_TIMEOUT_MS } = await import('@/lib/pdf/pdfTransport');
+      const spent = 12_000;
+      duringWait = (() => {
+        let n = 0;
+        return () => { if (n++ === 0) vi.setSystemTime(Date.now() + spent); };
+      })();
+      launchMock.mockResolvedValue(makeBrowser(null, [{ attrs: [], ready: false }, { attrs: [], ready: true }]));
+      await playwrightTransport.render(request);
+      expect(waitCalls).toHaveLength(2);
+      expect(waitCalls[0]!.timeout).toBe(PRINT_READY_TIMEOUT_MS);
+      expect(waitCalls[1]!.timeout).toBe(PRINT_READY_TIMEOUT_MS - spent);
+    });
   });
 
   it('renders normally when the page reports nothing', async () => {
