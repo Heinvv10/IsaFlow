@@ -17,6 +17,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { demoSet, brand, matters, trend } from './fixtures/boardPackInputs';
 import { fakeRequestTx, pgError, touchLedger } from './support/fakeRequestTx';
+import { checkInvariants } from '@/modules/accounting/services/reconciliation/reconciliationInvariants';
+import { log } from '@/lib/logger';
 
 const getCompanyName = vi.fn(async () => 'ISAFlow Demo (Pty) Ltd');
 const buildPackFigureSet = vi.fn(async () => demoSet);
@@ -319,7 +321,13 @@ describe('the receivables decomposition failing inside the request transaction',
 describe('a reconciliation that fails its own invariants', () => {
   const control = demoSet.current.accountsReceivable;
   const subledger = control + 5_000_000;
-  const reconciliation = (holds: boolean) => ({
+  /** Every invariant the reconciliation service declares, by the names it
+   *  gives them — asked of the service, so one added there is covered here. */
+  const DECLARED = checkInvariants({
+    subledgerTotal: null, controlAccountBalance: null, difference: null, unexplained: null, items: [],
+  }).map((invariant) => invariant.name);
+
+  const reconciliation = (broken: string | null) => ({
     controlAccountBalance: control,
     unexplainedDifference: 0,
     reconcilingItems: [{
@@ -327,24 +335,32 @@ describe('a reconciliation that fails its own invariants', () => {
       amount: 5_000_000, documentIds: ['je-1', 'je-2'], documentNumbers: [],
       citedGross: 5_000_000, citedAbsAmount: 5_000_000,
     }],
-    invariants: [
-      { name: 'control_plus_items_equals_subledger', holds: true, detail: '' },
-      { name: 'item_within_cited_gross', holds, detail: 'posting_with_no_document claims …' },
-    ],
+    invariants: DECLARED.map((name) => ({ name, holds: name !== broken, detail: '' })),
   });
-  const build = async (holds: boolean): Promise<string> => {
+  const build = async (broken: string | null): Promise<string> => {
     buildMatters.mockResolvedValue({ matters, agedDebtorsTotal: subledger, subledgerTotal: subledger } as typeof mattersRead);
-    reconcileSubledger.mockResolvedValue(reconciliation(holds));
+    reconcileSubledger.mockResolvedValue(reconciliation(broken));
     return JSON.stringify(await buildBoardPackDocument(request()));
   };
+  const warned = () => vi.mocked(log.warn).mock.calls
+    .filter(([message]) => String(message).includes('failed its own invariants'));
 
-  it('prints the decomposition while every invariant holds', async () => {
-    expect(await build(true)).toContain('across 2 postings that reference no document');
+  it('is tabled over the three invariants the service declares', () => {
+    expect(DECLARED).toEqual([
+      'control_plus_items_equals_subledger', 'item_within_cited_gross', 'unexplained_is_the_residual',
+    ]);
   });
 
-  it('withholds the decomposition, and keeps the two figures, when one does not', async () => {
-    const doc = await build(false);
+  it('prints the decomposition, and warns of nothing, while every invariant holds', async () => {
+    expect(await build(null)).toContain('across 2 postings that reference no document');
+    expect(warned()).toEqual([]);
+  });
+
+  it.each(DECLARED)('withholds the decomposition, keeps the two figures and logs it when %s does not hold', async (name) => {
+    const doc = await build(name);
     expect(doc).not.toContain('postings that reference no document');
     expect(doc).toContain('The first is the open customer subledger');
+    expect(warned()).toHaveLength(1);
+    expect(warned()[0]![1]).toEqual({ companyId: COMPANY, invariants: [name] });
   });
 });
