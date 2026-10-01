@@ -55,7 +55,9 @@ import {
 export const searchGlTool: McpTool = {
   name: 'search_gl',
   description:
-    'General-ledger lines for one account over a date range, with running balance. Provide account_id or account_code plus from_date/to_date. Max 200 rows. Balances are exact to the cent.',
+    'General-ledger lines for one account over a date range, with running balance. Provide account_id or account_code plus from_date/to_date. Max 200 rows. Balances are exact to the cent. ' +
+    'A revenue or expense account opens at the start of the fiscal year containing from_date, and when the range crosses a later fiscal-year start the rows include a derived year-end close row at each boundary where the balance is not zero: source "year_end_close", derived true, empty journalEntryId, description "Closed to retained earnings — FY ending <date> (derived — not posted)". It zeroes the running balance, so the closing balance equals the trial balance as at to_date. Close rows count toward total and the row limit. ' +
+    'closedToRetainedEarnings is the normal-side total of those close rows, negated (0 when none, and always 0 for a balance-sheet account); periodClosingBalance = openingBalance + periodNet + closedToRetainedEarnings.',
   scope: 'read:reports',
   write: false,
   inputSchema: {

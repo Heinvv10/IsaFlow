@@ -39,8 +39,7 @@
  * slice must — and over a subset it is a coincidence, not a check.
  */
 
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import {
@@ -56,6 +55,7 @@ import {
   type StreamTotals,
 } from './generalLedgerStreamTypes';
 import { streamFiscalBasis, withRetainedBf } from './generalLedgerStreamYearEnd';
+import { INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
 export type {
   GeneralLedgerCursor,
   GeneralLedgerLine,
@@ -170,7 +170,7 @@ export async function getGeneralLedgerLines(
                            AND ga.company_id = ${companyId}::UUID
         WHERE jl.company_id = ${companyId}::UUID
           AND je.entry_date < ${periodStart}::DATE
-          AND (ga.account_type NOT IN ('revenue', 'expense') OR je.entry_date >= ${basis.fyStart}::DATE)
+          AND (ga.account_type <> ALL(${[...INCOME_STATEMENT_TYPES]}::text[]) OR je.entry_date >= ${basis.fyStart}::DATE)
           AND ga.account_code IN (SELECT account_code FROM matched)
         GROUP BY ga.account_code
       ),

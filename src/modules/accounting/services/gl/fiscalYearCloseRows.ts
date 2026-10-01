@@ -36,11 +36,22 @@ export function incomeStatementOpeningFloor(
   return isIncomeStatementType(accountType) ? fiscalYearStart(fromDate, fyStartMonth) : null;
 }
 
-/** Fiscal-year start dates strictly after `fromDate` and on or before `toDate`, ascending. */
+const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}/;
+
+/**
+ * Fiscal-year start dates strictly after `fromDate` and on or before `toDate`, ascending.
+ * Both dates must start 'YYYY-MM-DD': the walk below compares strings, and an odd one
+ * (a leading space sorts below every digit) would never end.
+ */
 export function fiscalYearStartsWithin(fromDate: string, toDate: string, fyStartMonth: number): string[] {
+  for (const d of [fromDate, toDate]) {
+    if (!ISO_DATE_PREFIX.test(d)) throw new Error(`fiscalYearStartsWithin: invalid date '${d}'`);
+  }
   const out: string[] = [];
+  const from = fromDate.slice(0, 10);
   let boundary = fiscalYearStart(toDate, fyStartMonth);
-  while (boundary > fromDate.slice(0, 10)) {
+  // Year 0000 is the floor: past it the year would pad into a non-date.
+  while (boundary > from && boundary >= '0001') {
     out.unshift(boundary);
     const year = Number(boundary.slice(0, 4)) - 1;
     boundary = `${String(year).padStart(4, '0')}${boundary.slice(4)}`;

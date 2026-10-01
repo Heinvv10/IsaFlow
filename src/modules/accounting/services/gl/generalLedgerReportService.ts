@@ -16,7 +16,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { DEFAULT_FY_START_MONTH, fiscalYearStart, resolveFiscalYearStartMonth } from './fiscalYearBasis';
-import { broughtForwardLine, getRetainedEarningsBroughtForward } from './trialBalanceBasis';
+import { broughtForwardLine, getRetainedEarningsBroughtForward, INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
 import { withYearEndCloses } from './generalLedgerReportYearEnd';
 
 type Row = Record<string, unknown>;
@@ -113,7 +113,7 @@ export async function getGeneralLedgerReport(
         AND jl.company_id = ${companyId}::UUID
         AND ga.company_id = ${companyId}::UUID
         AND je.entry_date < ${periodStart}
-        AND (ga.account_type NOT IN ('revenue', 'expense') OR je.entry_date >= ${fyStart})
+        AND (ga.account_type <> ALL(${[...INCOME_STATEMENT_TYPES]}::text[]) OR je.entry_date >= ${fyStart})
       GROUP BY ga.account_code
     `) as Row[];
 
