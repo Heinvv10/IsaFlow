@@ -51,7 +51,7 @@ const REFUNDABLE: Record<string, { kind: 'ai' | 'send'; marksIn: string }> = {
   'accounting/customer-statements-send.ts': { kind: 'send', marksIn: 'src/modules/accounting/services/core/emailService.ts' },
   'accounting/company-invitations.ts': { kind: 'send', marksIn: 'src/modules/accounting/services/core/emailService.ts' },
   'accounting/ar/dunning/send.ts': { kind: 'send', marksIn: 'src/modules/accounting/services/core/emailService.ts' },
-  'accounting/afs/[documentId]/send-for-signing.ts': { kind: 'send', marksIn: 'src/modules/accounting/services/core/emailService.ts' },
+  'accounting/afs/[documentId]/send-for-signing.ts': { kind: 'send', marksIn: 'pages/api/accounting/afs/[documentId]/send-for-signing.ts' },
 };
 
 /** Routes that keep their charge whatever happens, and why a refund cannot be proven. */
@@ -99,7 +99,21 @@ const leavesContext = (source: string) => /\bals\s*\.\s*exit\s*\(|\.exit\s*\(\s*
 /** The one place that may: it is how runAfterCommit detaches work, after forfeiting the refund. */
 const MAY_LEAVE_CONTEXT = ['src/lib/afterCommit.ts'];
 
-const marks = (file: string, kind: string) => new RegExp(`markQuotaUsed\\('${kind}'`).test(code(file));
+/**
+ * Registering work to run after the request (`runAfterCommit`) forfeits the
+ * request's refund at run time (`forfeitQuotaRefund`): safe, but silent. So a
+ * refundable route may reach such a file only if it is listed here with why
+ * its refund is not lost.
+ */
+const registersAfterCommit = (source: string) => /\brunAfterCommit\s*\(\s*['"`\w]/.test(source);
+const AFTER_COMMIT_ALLOWED: Record<string, string> = {
+  'src/lib/afterCommit.ts': 'defines runAfterCommit',
+  'src/modules/accounting/services/core/emailNotificationService.ts':
+    'registers the invoice.sent webhook only after a successful send, when the unit is already used',
+};
+
+/** quotaUse.ts defines the marking functions (and its classifiers call markQuotaUsed); it records nothing by itself. */
+const marks = (file: string, kind: string) => file !== 'src/lib/quotaUse.ts' && new RegExp(`markQuotaUsed\\('${kind}'`).test(code(file));
 
 describe('usage-quota caller census (R-175)', () => {
   const callers = tracked('pages').concat(tracked('src'))
@@ -122,6 +136,24 @@ describe('usage-quota caller census (R-175)', () => {
     expect(reached.has(marksIn)).toBe(true);
     // Fail closed: nothing it can reach may run its work outside the request.
     expect([...reached].filter((f) => !MAY_LEAVE_CONTEXT.includes(f) && leavesContext(code(f)))).toEqual([]);
+    // Fail closed: no after-commit work it can reach, unless listed with a reason.
+    expect([...reached].filter((f) => !(f in AFTER_COMMIT_ALLOWED) && registersAfterCommit(code(f)))).toEqual([]);
+  });
+
+  it('every after-commit exception still registers after-commit work and is reached by a refundable route', () => {
+    const reachedByAny = new Set(Object.keys(REFUNDABLE).flatMap((r) => [...reachable(API + r)]));
+    for (const file of Object.keys(AFTER_COMMIT_ALLOWED)) {
+      expect({ file, registers: registersAfterCommit(code(file)), reached: reachedByAny.has(file) })
+        .toEqual({ file, registers: true, reached: true });
+    }
+  });
+
+  it('the after-commit check goes red on a registration and stays green without one', () => {
+    expect(registersAfterCommit("runAfterCommit('send later', () => sendEmail(mail));")).toBe(true);
+    expect(registersAfterCommit('await runAfterCommit (label, fn);')).toBe(true);
+    expect(registersAfterCommit("'must be registered with runAfterCommit (@/lib/afterCommit)'")).toBe(false);
+    expect(registersAfterCommit("import { runAfterCommit } from '@/lib/afterCommit';\nawait sendEmail(mail);")).toBe(false);
+    expect(registersAfterCommit(code('src/modules/accounting/services/core/emailNotificationService.ts'))).toBe(true);
   });
 
   it.each(Object.entries(KEEPS_CHARGE))('%s keeps its charge: it does not ask for refundUnused', (route) => {

@@ -70,3 +70,30 @@ export function markQuotaUsedUnlessNoWork(kind: QuotaKind, err: unknown): void {
   if (NEVER_SENT.has(String(e.cause?.code ?? e.code))) return;
   markQuotaUsed(kind);
 }
+
+/**
+ * nodemailer 8 codes (lib/smtp-connection, lib/errors.js) for failures that
+ * leave the message unsent: DNS, TLS set-up, login, missing credentials, an
+ * envelope or message the server refused, a bad configuration.
+ */
+const SMTP_NOT_SENT = new Set(['EDNS', 'ETLS', 'EREQUIRETLS', 'EAUTH', 'ENOAUTH', 'EOAUTH2', 'EENVELOPE', 'EMESSAGE', 'ECONFIG']);
+
+/**
+ * Called when `transporter.sendMail` THREW. The same rule as for a provider:
+ * the send unit is used unless the error proves the message was not accepted.
+ *  - one of SMTP_NOT_SENT;
+ *  - a 4xx/5xx SMTP reply (`responseCode`): the server answered with a refusal;
+ *  - a socket error while connecting (nodemailer reports it as ESOCKET and
+ *    keeps Node's `syscall`): it never connected.
+ * A timeout (ETIMEDOUT: nodemailer uses it for the connect, the greeting AND an
+ * idle socket mid-message, so it proves nothing), a socket error after
+ * connecting, a closed connection, or anything else counts as use: the server
+ * may already have accepted the message.
+ */
+export function markSendUsedUnlessNotSent(err: unknown): void {
+  const e = (err ?? {}) as { code?: unknown; responseCode?: unknown; syscall?: unknown };
+  if (SMTP_NOT_SENT.has(String(e.code))) return;
+  if (typeof e.responseCode === 'number' && e.responseCode >= 400) return;
+  if (e.code === 'ESOCKET' && (e.syscall === 'connect' || e.syscall === 'getaddrinfo')) return;
+  markQuotaUsed('send');
+}
