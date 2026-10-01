@@ -153,13 +153,13 @@ function buildRow(
   // reason, on a distinct source so `assertConsistent` never compares them.
   let prior: PackFigure | null = null;
   if (priorRatios && priorRaw) {
-    const read = spec.read(priorRatios, priorRaw);
+    const read = spec.readPrior?.(priorRaw, raw) ?? spec.read(priorRatios, priorRaw);
     prior = recordFigure(
       p,
       `${spec.source}.prior`,
       read,
       spec.format,
-      read.value === null && !actualReasons.has(reasonOf(read)),
+      spec.readPrior === undefined && read.value === null && !actualReasons.has(reasonOf(read)),
     );
   }
 

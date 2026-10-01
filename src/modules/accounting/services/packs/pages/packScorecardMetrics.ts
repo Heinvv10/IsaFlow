@@ -9,6 +9,8 @@ import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import type { PackFigureFormat } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
 import {
+  absentComparativeCashFlow,
+  absentOperatingCashFlow,
   DEBTOR_DAYS_SOURCE,
   CREDITOR_DAYS_SOURCE,
   DEBT_TO_EQUITY_SOURCE,
@@ -37,6 +39,10 @@ export interface MetricSpec {
   targetKey?: string;
   lowerIsBetter: boolean;
   read: (ratios: ExtendedRatioResult, raw: ReportPackFigures) => MetricRead;
+  /** The comparative cell's own read, where another page prints the same
+   *  source and the two must word its absence identically — see
+   *  `absentComparativeCashFlow`. Its reason is printed as given. */
+  readPrior?: (raw: ReportPackFigures, current: ReportPackFigures) => MetricRead;
 }
 
 /**
@@ -161,9 +167,15 @@ export const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: Metr
         format: 'money',
         source: 'packFigureSet.current.operatingCashFlow',
         lowerIsBetter: false,
+        // The cash page prints this source too: both word its absence
+        // through `packMetricReads`.
         read: (_r, raw) =>
           raw.operatingCashFlow === undefined
-            ? { value: null, unavailable: 'No operating cash flow figure was captured for this period.' }
+            ? { value: null, unavailable: absentOperatingCashFlow(raw) }
+            : { value: raw.operatingCashFlow },
+        readPrior: (raw, current) =>
+          raw.operatingCashFlow === undefined
+            ? { value: null, unavailable: absentComparativeCashFlow(raw, current) }
             : { value: raw.operatingCashFlow },
       },
       {

@@ -32,7 +32,13 @@
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
-import { investingCashFlowOf, OPERATING_PROFIT_SOURCE, operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
+import {
+  absentComparativeCashFlow,
+  absentOperatingCashFlow,
+  investingCashFlowOf,
+  OPERATING_PROFIT_SOURCE,
+  operatingProfitOf,
+} from '@/modules/accounting/services/packs/figures/packMetricReads';
 import { buildTable } from './packStatementRows';
 import type { PackTable } from './packPageModel';
 
@@ -140,7 +146,11 @@ export function buildCashTable(set: PackFigureSet, p: PackFigureProvenance): Pac
   // failed read and reads as a company with no cash flows. The comparative
   // cells take the comparative's own reason the same way.
   const notRead = current.cashFlowUnavailable;
-  const priorNotRead = prior?.cashFlowUnavailable ?? undefined;
+  // The comparative's reason names its own period — see
+  // `absentComparativeCashFlow`, which page 9 prints for the same source.
+  const priorNotRead = prior === null || !prior.cashFlowUnavailable
+    ? undefined
+    : absentComparativeCashFlow(prior, current);
   return buildTable(p, [
     {
       label: 'Opening cash',
@@ -160,7 +170,7 @@ export function buildCashTable(set: PackFigureSet, p: PackFigureProvenance): Pac
       priorUnavailable: 'The period before the comparative period is not in this pack, so there is '
         + 'no earlier opening cash balance to measure this one against.',
     },
-    { label: 'Operating cash flow', key: 'cash.operating', source: 'packFigureSet.current.operatingCashFlow', actual: current.operatingCashFlow ?? null, prior: prior?.operatingCashFlow ?? null, unavailable: notRead ?? 'No operating cash flow figure was captured for this period.', priorUnavailable: priorNotRead },
+    { label: 'Operating cash flow', key: 'cash.operating', source: 'packFigureSet.current.operatingCashFlow', actual: current.operatingCashFlow ?? null, prior: prior?.operatingCashFlow ?? null, unavailable: absentOperatingCashFlow(current), priorUnavailable: prior === null ? undefined : absentComparativeCashFlow(prior, current) },
     { label: 'Investing cash flow', key: 'cash.investing', source: 'packStatementTables.investingCashFlow', actual: investing(current), prior: prior ? investing(prior) : null, // THE REASON NAMES THIS ROW'S OWN NOUN, as the two beside it do. It read
     // "Investing cash flow is taken from capital expenditure, and no capital
     // expenditure figure was captured" — true while this row was capex

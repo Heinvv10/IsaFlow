@@ -148,3 +148,33 @@ export function investingCashFlowOf(f: ReportPackFigures): number | null {
   if (f.investingCashFlow !== undefined) return f.investingCashFlow;
   return f.capitalExpenditure === undefined ? null : -f.capitalExpenditure;
 }
+
+/**
+ * WHY A WINDOW HAS NO OPERATING CASH FLOW — one wording, for every page that
+ * prints the figure.
+ *
+ * Page 8's table and page 9's scorecard both print operating cash flow under
+ * one source, and each worded its absence itself. The consistency gate
+ * compares the reason as well as the value, so a pack whose comparative had
+ * no operating figure was REFUSED — on a tenant whose prior cash flow read
+ * degraded, every time. Both pages take the sentence from here.
+ *
+ * The comparative's sentence names its period itself, because it is printed
+ * in a column whose heading is a different period from the report's.
+ */
+export function absentOperatingCashFlow(f: ReportPackFigures): string {
+  return f.cashFlowUnavailable ?? 'No operating cash flow figure was captured for this period.';
+}
+
+export function absentComparativeCashFlow(prior: ReportPackFigures, current: ReportPackFigures): string {
+  // A REASON TRUE OF BOTH PERIODS IS STATED ONCE. Where the report's own
+  // window is missing the figure for the same cause, the comparative cell
+  // repeats that sentence, so the scorecard prints one lettered note and not
+  // two — page 9 has under three millimetres to give (see the scorecard's
+  // `PRIOR_PERIOD_PREFIX`, which is the same rule).
+  const same = absentOperatingCashFlow(prior);
+  if (current.operatingCashFlow === undefined && absentOperatingCashFlow(current) === same) return same;
+  return prior.cashFlowUnavailable === null || prior.cashFlowUnavailable === undefined
+    ? 'The comparative period carries no operating cash flow figure.'
+    : "The comparative period's cash flow statement could not be read.";
+}

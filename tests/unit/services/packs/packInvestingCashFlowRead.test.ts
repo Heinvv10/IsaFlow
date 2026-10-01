@@ -162,6 +162,7 @@ describe('a cash flow statement that could not be read', () => {
     };
     const operating = buildCashTable(set, new PackFigureProvenance()).rows.find((r) => r.label === 'Operating cash flow')!;
     expect(operating.figures.actual?.value).toBe(OPERATING);
-    expect(operating.figures.prior?.unavailable).toBe(NOT_READ);
+    // Named as the comparative's, since the column is a different period.
+    expect(operating.figures.prior?.unavailable).toBe("The comparative period's cash flow statement could not be read.");
   });
 });
