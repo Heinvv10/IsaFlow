@@ -136,7 +136,8 @@ export function decomposition(
   // whoever has to clear them.
   const clauses = named.map((item) => {
     const population = item.documentIds.length;
-    const across = population === 0 ? '' : ` across ${population}`;
+    // Grouped like every other figure on the sheet: "across 1 012", not "1012".
+    const across = population === 0 ? '' : ` across ${formatMoney(population, { pack: true })}`;
     return `${money(item.amount)}${across} ${ITEM_CLAUSE[item.type]!}`;
   });
   const list = clauses.length === 1

@@ -66,7 +66,19 @@ export const NO_PRIOR_MEETING_RECORD = 'Not tracked — no prior board pack is s
  * and this model always knows which.
  */
 function plural(n: number, one: string, many: string = `${one}s`): string {
-  return `${n} ${n === 1 ? one : many}`;
+  return `${count(n)} ${n === 1 ? one : many}`;
+}
+
+/**
+ * A COUNT, GROUPED LIKE EVERY OTHER FIGURE ON THE SHEET. A template literal
+ * printed "1012 unreconciled bank items" beside a quantum column reading
+ * `1 012`: two ways of writing a thousand in one table row. The pack has one
+ * whole-number formatter and one separator (`GROUP_SEPARATOR`), and this is
+ * that formatter — a count is never nil where it is printed, so the en dash
+ * it gives a measured zero is not reachable here.
+ */
+function count(n: number): string {
+  return formatMoney(n, { pack: true });
 }
 
 async function agedDebtorConcentrationMatters(
@@ -187,9 +199,19 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
   // own population in two, so their sum is the count that belongs beside it.
   const itemsOn = (r: Record<string, unknown>): number =>
     Number(r.suggestedCount ?? 0) + Number(r.unallocatedCount ?? 0);
-  const count = rows.reduce((s, r) => s + itemsOn(r), 0);
-  const total = rows.reduce((s, r) => s + Math.abs(Number(r.unreconciledBalance ?? 0)), 0);
-  if (count === 0 || round2(total) === 0) return [];
+  const items = rows.reduce((s, r) => s + itemsOn(r), 0);
+  // THE COUNT RAISES THE MATTER, NOT THE AMOUNT. `unreconciledBalance` is each
+  // account's NET unmatched amount, and it was also the gate: an unmatched
+  // receipt and an unmatched payment of the same size net to nil, and took
+  // every other unreconciled item on the account off the page with them.
+  if (items === 0) return [];
+  // What the service can give: the net per account. Added WITHOUT sign across
+  // accounts, so an inflow on one cannot cancel an outflow on another — and
+  // said to be that, because it is not the gross value of the items.
+  const total = round2(rows.reduce((s, r) => s + Math.abs(Number(r.unreconciledBalance ?? 0)), 0));
+  const amountClause = total === 0
+    ? '; receipts and payments among them net to nil on each account, so no amount is stated'
+    : '; the amount is the net unmatched amount on each account, added without regard to sign';
 
   const accountCount = rows.filter((r) => itemsOn(r) > 0).length;
   return [{
@@ -204,9 +226,10 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
     // as-at date, so a pack dated to an earlier period end prints the bank
     // position at the moment it was extracted. Every other matter on this
     // page is read as at the window's end; this one cannot be, and says so.
-    issue: `${plural(count, 'unreconciled bank item')} across ${plural(accountCount, 'bank account')}`
-      + ', as at the time this pack was extracted rather than at the period end',
-    quantum: round2(total),
+    issue: `${plural(items, 'unreconciled bank item')} across ${plural(accountCount, 'bank account')}`
+      + ', as at the time this pack was extracted rather than at the period end'
+      + amountClause,
+    quantum: total,
     owner: 'Bookkeeping',
     movement: NO_PRIOR_MEETING_RECORD,
     decisionRequired: BOARD_DECISIONS.unreconciledBank,

@@ -103,8 +103,57 @@ describe('the unreconciled bank matter', () => {
     const matter = await bankMatter([bankRow({ unreconciled_balance: 500, unallocated_count: 1 })]);
     expect(matter!.issue).toBe(
       '1 unreconciled bank item across 1 bank account, as at the time this pack was extracted '
-      + 'rather than at the period end',
+      + 'rather than at the period end; the amount is the net unmatched amount on each account, '
+      + 'added without regard to sign',
     );
+  });
+
+  /**
+   * THE AMOUNT IS A NET PER ACCOUNT, AND A NET CAN BE NIL OVER ANY NUMBER OF
+   * ITEMS. The matter was suppressed whenever the amount rounded to nothing,
+   * so an unmatched receipt and an unmatched payment of the same size hid
+   * themselves, and every other unreconciled item on the account with them.
+   * What a board is asked about is the backlog: the COUNT raises the matter.
+   */
+  it('is raised by the count alone, and says so, where the items net to nil', async () => {
+    const matter = await bankMatter([
+      bankRow({ unreconciled_balance: '0.00', suggested_count: 1, unallocated_count: 3 }),
+    ]);
+    expect(matter, 'four unreconciled items raised no matter because they net to nil').toBeDefined();
+    expect(matter!.issue).toBe(
+      '4 unreconciled bank items across 1 bank account, as at the time this pack was extracted '
+      + 'rather than at the period end; receipts and payments among them net to nil on each '
+      + 'account, so no amount is stated',
+    );
+    expect(matter!.quantum).toBe(0);
+  });
+
+  it('adds a net inflow on one account to a net outflow on another without letting them cancel', async () => {
+    const matter = await bankMatter([
+      bankRow({ id: 'a', unreconciled_balance: -5_000, unallocated_count: 2 }),
+      bankRow({ id: 'b', unreconciled_balance: 3_000, unallocated_count: 1 }),
+    ]);
+    expect(matter!.quantum).toBe(8_000);
+    expect(matter!.issue).toMatch(/^3 unreconciled bank items across 2 bank accounts/);
+    expect(matter!.issue).toMatch(/net unmatched amount on each account, added without regard to sign$/);
+  });
+
+  it('counts the items on an account that nets to nil beside one that does not', async () => {
+    const matter = await bankMatter([
+      bankRow({ id: 'a', unreconciled_balance: 0, unallocated_count: 6 }),
+      bankRow({ id: 'b', unreconciled_balance: 750, unallocated_count: 1 }),
+    ]);
+    expect(matter!.issue).toMatch(/^7 unreconciled bank items across 2 bank accounts/);
+    expect(matter!.quantum).toBe(750);
+    expect(matter!.issue).not.toMatch(/net to nil/);
+  });
+
+  it('groups a count in the thousands the way the pack groups every figure', async () => {
+    const matter = await bankMatter([
+      bankRow({ unreconciled_balance: 91_000, suggested_count: 12, unallocated_count: 1_000 }),
+    ]);
+    // U+00A0, the pack's one separator: "1 012", never "1012".
+    expect(matter!.issue.startsWith('1\u00a0012 unreconciled bank items across 1 bank account')).toBe(true);
   });
 
   it('is absent where every account is reconciled', async () => {

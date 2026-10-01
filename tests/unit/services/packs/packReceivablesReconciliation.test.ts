@@ -836,3 +836,21 @@ describe('the decomposition has wording for every item the reconciliation emits'
     );
   });
 });
+
+describe('the decomposition groups a population in the thousands', () => {
+  it('prints "across 1 012", with the pack\'s separator, not "across 1012"', () => {
+    const block = receivablesReconciliationNote({
+      agedDebtorsTotal: null,
+      subledgerTotal: 4_000_000,
+      controlBalance: 1_000_000,
+      unexplained: 0,
+      items: [{
+        bridge: 'subledger_to_control', type: 'posting_with_no_document', description: '',
+        amount: 3_000_000, documentIds: Array.from({ length: 1_012 }, (unused, i) => `je-${i}`),
+        documentNumbers: [], citedGross: 3_000_000, citedAbsAmount: 3_000_000,
+      }],
+    }, 1_000_000, PACK_SCALE);
+    const body = block?.kind === 'disclosure' ? block.disclosure.notes[0]!.body : '';
+    expect(body).toContain('across 1 012 postings that reference no document');
+  });
+});
