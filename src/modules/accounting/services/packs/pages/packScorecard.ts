@@ -21,7 +21,6 @@ import {
   type ExtendedRatioResult,
   type FinancialData,
 } from '@/modules/accounting/services/reports/reportingEngineService';
-import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { DEFAULT_KPI_TARGETS } from '@/modules/accounting/services/reports/reportPackService';
 import {
   PackFigureProvenance,
@@ -30,22 +29,14 @@ import {
 } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
-import {
-  DEBTOR_DAYS_SOURCE,
-  CREDITOR_DAYS_SOURCE,
-  DEBT_TO_EQUITY_SOURCE,
-  operatingProfitOf,
-  readCreditorDays,
-  readDebtToEquity,
-  readDebtorDays,
-  readOverCurrentLiabilities,
-  type PackMetricRead,
-} from '@/modules/accounting/services/packs/figures/packMetricReads';
+import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
+import { GROUPS, type MetricRead, type MetricSpec } from './packScorecardMetrics';
 import type { PackScorecardGroup, PackScorecardRow, PackScorecardStatus } from './packPageModel';
 
-/** No turnover-basis reason exists in `calculateExtendedRatios.notMeaningful`
- *  (equity-divided ratios only), so this one names its own. */
-const NO_TURNOVER_MARGIN = 'Revenue is not positive, so there is no turnover to take a margin of.';
+/** The metric list itself lives in `packScorecardMetrics.ts`, split out for
+ *  the 300-line cap. Re-exported because every existing caller imports these
+ *  here. */
+export { NO_INVENTORY_CLASSIFIED, liquidityMetricNames, SCORECARD_METRICS } from './packScorecardMetrics';
 
 /** `FinancialData` off the pack's own figure shape — nothing computed here,
  *  only renamed and carried through. Named for its input: `toFinancialData`
@@ -75,193 +66,6 @@ export function packFiguresToFinancialData(f: ReportPackFigures): FinancialData 
     // the same `depreciation_expense` band, so one field carries both.
     depreciation: f.depreciation,
   };
-}
-
-/** Shared with the highlights strip, which shows two of these same metrics:
- *  one source must have ONE reading or `assertConsistent` throws. */
-type MetricRead = PackMetricRead;
-
-interface MetricSpec {
-  metric: string;
-  format: PackFigureFormat;
-  /** e.g. 'calculateExtendedRatios.currentRatio' — service call, then field. */
-  source: string;
-  /** Key into `DEFAULT_KPI_TARGETS`, or absent when this metric has no target. */
-  targetKey?: string;
-  lowerIsBetter: boolean;
-  read: (ratios: ExtendedRatioResult, raw: ReportPackFigures) => MetricRead;
-}
-
-/**
- * What an unclassified chart of accounts costs this pack, in one sentence.
- *
- * Exported because page 12's caveat says the same thing about the same fact,
- * and the pack must not describe one condition two ways.
- */
-export const NO_INVENTORY_CLASSIFIED =
-  'No inventory could be identified in the chart of accounts, so the cash conversion cycle cannot be computed.';
-
-const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: MetricSpec[] }> = [
-  {
-    letter: 'A',
-    name: 'Profitability',
-    metrics: [
-      {
-        metric: 'Gross margin',
-        format: 'pct',
-        source: 'marginPct.grossMargin',
-        targetKey: 'grossProfitMargin',
-        lowerIsBetter: false,
-        read: (_r, raw) => {
-          const grossProfit = raw.revenue - raw.costOfSales;
-          const value = marginPct(grossProfit, raw.revenue);
-          return value === null
-            ? { value: null, unavailable: NO_TURNOVER_MARGIN }
-            : { value, basis: { numerator: grossProfit, denominator: raw.revenue } };
-        },
-      },
-      {
-        metric: 'Operating margin',
-        format: 'pct',
-        source: 'marginPct.operatingMargin',
-        lowerIsBetter: false,
-        read: (_r, raw) => {
-          const operatingProfit = operatingProfitOf(raw);
-          const value = marginPct(operatingProfit, raw.revenue);
-          return value === null
-            ? { value: null, unavailable: NO_TURNOVER_MARGIN }
-            : { value, basis: { numerator: operatingProfit, denominator: raw.revenue } };
-        },
-      },
-    ],
-  },
-  {
-    letter: 'B',
-    name: 'Liquidity',
-    metrics: [
-      {
-        metric: 'Current ratio',
-        format: 'ratio',
-        source: 'calculateExtendedRatios.currentRatio',
-        targetKey: 'currentRatio',
-        lowerIsBetter: false,
-        read: (r, raw) => readOverCurrentLiabilities(r.currentRatio, raw.currentAssets, raw.currentLiabilities),
-      },
-      {
-        metric: 'Cash ratio',
-        format: 'ratio',
-        source: 'calculateExtendedRatios.cashRatio',
-        lowerIsBetter: false,
-        read: (r, raw) => readOverCurrentLiabilities(r.cashRatio, raw.cash, raw.currentLiabilities),
-      },
-    ],
-  },
-  {
-    letter: 'C',
-    name: 'Working capital',
-    metrics: [
-      {
-        metric: 'Debtor days',
-        format: 'days',
-        source: DEBTOR_DAYS_SOURCE,
-        targetKey: 'debtorDays',
-        lowerIsBetter: true,
-        read: readDebtorDays,
-      },
-      {
-        metric: 'Creditor days',
-        format: 'days',
-        source: CREDITOR_DAYS_SOURCE,
-        lowerIsBetter: true,
-        read: readCreditorDays,
-      },
-    ],
-  },
-  {
-    letter: 'D',
-    name: 'Leverage',
-    metrics: [
-      {
-        metric: 'Debt-to-equity',
-        format: 'ratio',
-        source: DEBT_TO_EQUITY_SOURCE,
-        targetKey: 'debtToEquity',
-        lowerIsBetter: true,
-        read: (r, raw) => readDebtToEquity(r, raw),
-      },
-      {
-        // R-P44: the pack captures no interest expense at all, so
-        // `interestCoverage`'s `interestExp > 0 ? ... : 0` branch can never
-        // fire — its 0 is an artefact, not a measurement, and would tell a
-        // director "cannot service debt from earnings" falsely.
-        metric: 'Interest cover',
-        format: 'ratio',
-        source: 'calculateExtendedRatios.interestCoverage',
-        lowerIsBetter: false,
-        read: () => ({
-          value: null,
-          unavailable: 'Interest expense is not captured in the pack figure set.',
-        }),
-      },
-    ],
-  },
-  {
-    letter: 'E',
-    name: 'Cash flow',
-    metrics: [
-      {
-        metric: 'Operating cash flow',
-        format: 'money',
-        source: 'packFigureSet.current.operatingCashFlow',
-        lowerIsBetter: false,
-        read: (_r, raw) =>
-          raw.operatingCashFlow === undefined
-            ? { value: null, unavailable: 'No operating cash flow figure was captured for this period.' }
-            : { value: raw.operatingCashFlow },
-      },
-      {
-        // R-P45: `inventoryCaveat` means "we cannot tell" — inventory is zero
-        // because nothing was identified as stock, not because there is none.
-        // A CCC computed through that zero reads as fast, favourable cash
-        // conversion — wrong the dangerous way, and undetectable downstream.
-        metric: 'Cash conversion cycle',
-        format: 'days',
-        source: 'calculateExtendedRatios.cashConversionCycle',
-        lowerIsBetter: true,
-        read: (r, raw) =>
-          raw.inventoryCaveat !== null
-            ? {
-                value: null,
-                unavailable: NO_INVENTORY_CLASSIFIED,
-              }
-            : { value: r.cashConversionCycle },
-      },
-    ],
-  },
-];
-
-/**
- * THE LIQUIDITY MEASURES THIS PACK ACTUALLY PRINTS, READ OFF THE SCORECARD.
- *
- * Page 12's inventory caveat has to name them, and twice now it has named
- * them from the author's belief instead. The first wording qualified a QUICK
- * ratio the pack does not publish. Its replacement — written two rounds ago
- * to fix exactly that — read "liquidity is read off the current ratio alone",
- * and the eleventh gate failed it against section B of page 9, which prints
- * the current ratio AND the cash ratio. One false claim traded for another,
- * because both were checked against a memory of the scorecard rather than
- * against the scorecard.
- *
- * So the caveat takes the names from `GROUPS`, which is the same list page 9
- * renders from. Adding a third liquidity metric rewrites the caveat; removing
- * one rewrites it too. There is no wording that can outlive the section it
- * describes.
- */
-const LIQUIDITY_GROUP = 'Liquidity';
-
-export function liquidityMetricNames(): string[] {
-  return GROUPS.filter((group) => group.name === LIQUIDITY_GROUP)
-    .flatMap((group) => group.metrics.map((metric) => metric.metric));
 }
 
 const TARGETS = new Map(DEFAULT_KPI_TARGETS.map((t) => [t.ratioKey, t.target]));
@@ -396,11 +200,3 @@ export function buildScorecardGroups(set: PackFigureSet, p: PackFigureProvenance
   }));
 }
 
-/** Every metric name page 9 can print, in print order.
- *
- *  Exported for `packDisownedBases`' coverage test: that table is keyed on
- *  these strings and an unknown key fails open, so a rename here would
- *  silently drop a row's disowned-base qualification. It is a red test now.
- */
-export const SCORECARD_METRICS: readonly string[] =
-  GROUPS.flatMap((g) => g.metrics.map((m) => m.metric));
