@@ -7,6 +7,7 @@
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { CHART_HEIGHT_MM } from '@/lib/charts/ssrSvg';
 import { stepPaint, waterfallChromePx } from '@/modules/accounting/services/packs/packChartOptions';
+import { TICK_PITCH_PX } from '@/modules/accounting/services/packs/packWaterfallDomain';
 import type { PackWaterfallBar, PlugReason } from './packPageModel';
 
 /**
@@ -16,12 +17,11 @@ import type { PackWaterfallBar, PlugReason } from './packPageModel';
  * overprints on the 48mm one: the demo cash bridge drew seven tick labels
  * with 11.8px between their centres at 12px type. The plot is the box less
  * `grid.top` and `grid.bottom`, which `waterfallChromePx` reports because
- * the bottom rung draws them tighter, and 26px is
- * comfortable for a 12px label — the same measure `packChartAxisLegibility`
- * asserts against on the printed SVG.
+ * the bottom rung draws them tighter. This is the ASK, at `TICK_PITCH_PX`
+ * (26px, comfortable for a 12px label); what is ENFORCED is the 18px
+ * legibility floor `waterfallLayout` holds the drawn axis to.
  */
 export const PX_PER_MM = 96 / 25.4;
-const TICK_PITCH_PX = 26;
 
 /** The bottom rung, where the bridge draws its axis chrome tighter and its
  *  category labels a size smaller — see `WATERFALL_CHROME`. */

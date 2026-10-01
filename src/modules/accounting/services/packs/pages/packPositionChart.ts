@@ -14,6 +14,8 @@ import {
 } from '@/modules/accounting/services/packs/packChartOptions';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { CHART_MEASURE_MM, MID, type ChartBox } from './packChartRungs';
+import { PX_PER_MM } from './packWaterfallBars';
+import { TICK_PITCH_PX } from '@/modules/accounting/services/packs/packWaterfallDomain';
 import type { PackChartSpec } from './packPageModel';
 
 /**
@@ -52,13 +54,12 @@ function positionCompositionTitle(current: PackFigureSet['current'], scale: Mone
  * ECharts chose the ticks, and it chooses by the data: 4 000 down to (5 000)
  * at every 1 000 is ten labels whatever the box. At the middle rung they
  * stood 16px apart in 12px type and at the 65mm the live sheets shorten this
- * chart to, 13 — labels touching. The pitch is the bridges' own
- * (`intervalsFor`): 26px a step, so a shorter chart draws FEWER ticks rather
+ * chart to, 13 — labels touching. The ask is the bridges' own target pitch
+ * (`TICK_PITCH_PX`, 26px a step), so a shorter chart draws FEWER ticks rather
  * than the same ticks closer together. `axisDomain` may round the bounds out
- * by a step, which is why the pitch is more than the 18px the gate asks for.
+ * by a step, which is why the target is above the 18px legibility floor the
+ * gate holds every chart to.
  */
-const PX_PER_MM = 96 / 25.4;
-const TICK_PITCH_PX = 26;
 
 function tickIntervals(plotMm: number): number {
   const plotPx = plotMm * PX_PER_MM - COMPOSITION_CHROME_PX.top - COMPOSITION_CHROME_PX.bottom;
