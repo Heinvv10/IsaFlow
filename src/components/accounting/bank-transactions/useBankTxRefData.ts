@@ -5,9 +5,10 @@
  */
 
 import { useEffect, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiJson } from '@/lib/apiFetch';
 import { fetchAllSuppliers } from '@/lib/fetchAllSuppliers';
 import { log } from '@/lib/logger';
+import { notify } from '@/utils/toast';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import type { SelectOption } from '@/components/accounting/BankTxTable';
 import type { BankAcct } from './BankTxBankCards';
@@ -43,10 +44,13 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
   } = setters;
 
   const refreshBankAccounts = useCallback(() => {
-    apiFetch('/api/accounting/bank-accounts').then(r => r.json()).then(bankJson => {
-      const bankList: BankAcct[] = Array.isArray(bankJson.data || bankJson) ? (bankJson.data || bankJson) : [];
+    apiJson('/api/accounting/bank-accounts').then(data => {
+      const bankList: BankAcct[] = Array.isArray(data) ? data : [];
       setBankAccounts(bankList);
-    }).catch(() => { /* non-critical */ });
+    }).catch((err) => {
+      log.error('Failed to refresh bank accounts', { error: err }, 'accounting-ui');
+      notify.error('Could not refresh bank accounts — the balances shown may be out of date');
+    });
   }, [setBankAccounts]);
 
   // Suppliers page through the whole list, so they load on their own: a slow or
