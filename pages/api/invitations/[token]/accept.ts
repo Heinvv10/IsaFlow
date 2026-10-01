@@ -101,11 +101,11 @@ const handler: NextApiHandler = async (req, res) => {
   // owner — but the invitation is a single acceptance, and nothing legitimate
   // needs more than a handful of tries. Keyed on the digest, never the raw
   // token, so the rate-limit table holds no usable invitation secret.
-  // Charged above 1 deliberately: checkRateLimit short-circuits on its
-  // in-process LRU while a key sits below half its limit, which under-counts
-  // precisely the burst a guesser produces, and a cost above 1 is documented to
-  // always fall through to the authoritative shared counter. Ten attempts an
-  // hour, counted exactly and across pods.
+  // Charged above 1 for a reason that no longer applies: until R-175
+  // checkRateLimit admitted cost-1 calls from an in-process LRU without
+  // counting them. Every call now reaches the shared counter, so cost 2 of a
+  // max of 20 is simply ten attempts an hour, counted exactly and across pods.
+  // Left at 2 so the live counters keep their meaning.
   //
   // Placed AFTER the 410, not before it: the key is derived from a caller-chosen
   // URL segment, so charging it ahead of the lookup let an unauthenticated

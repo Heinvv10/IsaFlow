@@ -56,13 +56,11 @@ const MAX_BATCH_SIZE = 20;
 // statement file: 32kb fits only ~150-250 OFX transactions, well under a
 // months-long catch-up on a busy account.
 //
-// This is a real 32× increase in per-request cost and the rate limits do NOT
-// bound it as tightly as their nominal values suggest: checkRateLimit keeps a
-// 5s LRU and skips the shared counter entirely while a key is under
-// floor(max*0.5), so the per-IP 300/min admits bursts on the order of 150 per
-// 5s PER PROCESS before the DB counter is consulted. Next also parses the body
-// before the handler runs, so the buffer + JSON.parse cost is paid ahead of
-// both the per-IP check below and any authentication.
+// This is a real 32× increase in per-request cost. Since R-175 checkRateLimit
+// counts every call on the shared counter, so the per-IP 300/min holds at its
+// nominal value. Next still parses the body before the handler runs, so the
+// buffer + JSON.parse cost is paid ahead of both the per-IP check below and
+// any authentication.
 //
 // Accepted deliberately for the import use case. If MCP traffic grows, the
 // right fix is a size check keyed on the tool being called rather than one
