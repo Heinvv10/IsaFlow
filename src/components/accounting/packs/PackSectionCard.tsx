@@ -8,14 +8,14 @@
  * than their markup, which is what keeps a figure reading the same on both
  * without pinning them to one layout.
  */
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/accounting/ManagementPandLRows';
 import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
 import { formatPackKv } from '@/components/accounting/packs/PackSectionView';
 import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 import { log } from '@/lib/logger';
-import { ratioLines } from '@/modules/accounting/services/reports/ratioPresentation';
+import { ratioLines, UnknownRatioError, type RatioLine } from '@/modules/accounting/services/reports/ratioPresentation';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { ProfitWaterfall } from '@/components/accounting/charts/ProfitWaterfall';
 import { MissingPackFieldError, packToCashFlowUnavailable, packToWaterfallSteps } from '@/modules/accounting/services/packs/packSectionData';
@@ -117,19 +117,25 @@ function reasonsOrNone(
  *  saved payload whose steps are absent or are not steps shows a notice and a
  *  warning rather than throwing into the page. */
 function BridgeChart({ d }: { d: Record<string, unknown> }) {
-  // The payload is read inside the try; the JSX is built outside it, so an
-  // error from rendering is not mistaken for an unusable payload.
-  let steps: WaterfallStep[] | null = null;
-  try {
-    steps = packToWaterfallSteps(d);
-  } catch (err) {
-    if (!(err instanceof MissingPackFieldError)) throw err;
-    log.warn('SectionCard: the saved profit bridge is unusable', { field: err.field, reason: err.reason }, 'packs');
-  }
-  if (steps === null) {
+  // Read once per payload (memo), outside JSX; warned once per payload from an
+  // effect — never from render, which runs on every update.
+  const read = useMemo(() => readBridge(d), [d]);
+  useEffect(() => {
+    if (read.problem !== null) log.warn('SectionCard: the saved profit bridge is unusable', read.problem, 'packs');
+  }, [read]);
+  if (read.steps === null) {
     return <p className="text-sm text-[var(--ff-text-tertiary)] italic">This saved pack carries no usable profit bridge.</p>;
   }
-  return <ProfitWaterfall steps={steps} title="Profit bridge" />;
+  return <ProfitWaterfall steps={read.steps} title="Profit bridge" />;
+}
+
+function readBridge(d: Record<string, unknown>): { steps: WaterfallStep[] | null; problem: { field: string; reason: string } | null } {
+  try {
+    return { steps: packToWaterfallSteps(d), problem: null };
+  } catch (err) {
+    if (!(err instanceof MissingPackFieldError)) throw err;
+    return { steps: null, problem: { field: err.field, reason: err.reason } };
+  }
 }
 
 /** [field, label]. The `unavailable` map is keyed by the FIELD name, as
@@ -164,13 +170,33 @@ function CashFlowItems({ d }: { d: Record<string, unknown> }) {
  *  a rand amount and a margin read alike ("Ebitda -1883824.19"). A saved
  *  payload with no reasons map simply has no reasons: the lines still read. */
 function RatioItems({ d }: { d: Record<string, unknown> }) {
+  // A key the label table does not know — a response cached across a deploy,
+  // from a newer or older server — would throw out of `ratioLines` during
+  // render and take the page with it. It is read once per payload outside JSX;
+  // the document and PDF path keep throwing (fail closed), the screen does not.
+  const read = useMemo(() => readRatios(d), [d]);
+  useEffect(() => {
+    if (read.lines === null) log.warn('SectionCard: the saved ratios carry a ratio this screen cannot name', {}, 'packs');
+  }, [read]);
+  if (read.lines === null) {
+    return <p className="col-span-full text-sm text-[var(--ff-text-tertiary)] italic">This saved pack carries no usable ratios.</p>;
+  }
   return (
     <>
-      {ratioLines(d).slice(0, 12).map((line) => (
+      {read.lines.slice(0, 12).map((line) => (
         <KVItem key={line.key} label={line.label} value={line.text} />
       ))}
     </>
   );
+}
+
+function readRatios(d: Record<string, unknown>): { lines: RatioLine[] | null } {
+  try {
+    return { lines: ratioLines(d) };
+  } catch (err) {
+    if (!(err instanceof UnknownRatioError)) throw err;
+    return { lines: null };
+  }
 }
 
 /**

@@ -9,7 +9,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
-vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
+const warn = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/logger', () => ({ log: { warn, error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 import { SectionCard } from '@/components/accounting/packs/PackSectionCard';
 import { ratioLines } from '@/modules/accounting/services/reports/ratioPresentation';
@@ -31,7 +32,7 @@ function open(section: { type: string; title: string; data: Record<string, unkno
 }
 const valueOf = (label: string) => screen.getByText(label).nextElementSibling!.textContent!;
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); warn.mockClear(); });
 
 describe('SectionCard ratios', () => {
   it('names a ratio by its label, not by its key split on capitals', () => {
@@ -67,12 +68,42 @@ describe('SectionCard ratios', () => {
     // The engine's own sentences (`ratioBasis.ts`), so the card cannot pass by
     // echoing a placeholder: a base that is not positive, an input the report
     // never read, an input read and nil, or a stated "Not stated: …".
-    const ENGINE_REASON = /is not positive, so this ratio has no meaning\.$|is not captured in this report, so this ratio cannot be stated\.$|^No .+ recorded in the period, so this ratio cannot be stated\.$|^Not stated: |^Interest income is at least interest expense|^Equity is negative — liabilities exceed assets, so this ratio inverts/;
+    const ENGINE_REASON = /is not positive, so this ratio has no meaning\.$|is not captured in this report, so this ratio cannot be stated\.$|^No .+ recorded in the period, so this ratio cannot be stated\.$|^Not stated: |^Interest income is at least interest expense|^Interest expense is a net credit in the period, so cover on it is not meaningful\.$|^Equity is negative — liabilities exceed assets, so this ratio inverts/;
     for (const line of shown) {
       expect(valueOf(line.label), line.label).toBe(reasons[line.key]);
       expect(reasons[line.key], line.key).toMatch(ENGINE_REASON);
     }
     expect(document.body.textContent).not.toContain('null');
     expect(document.body.textContent).not.toContain('[object Object]');
+  });
+
+  describe('a payload with a ratio key this screen cannot name', () => {
+    const stale = () => ({ type: 'ratios', title: 'Ratios', data: { ...ratios(INPUT).data, aRatioFromAnotherDeploy: 1.5 } });
+
+    it('shows a notice naming nothing internal, instead of crashing the page', () => {
+      expect(() => open(stale())).not.toThrow();
+      expect(screen.getByText(/carries no usable ratios/)).toBeTruthy();
+      expect(document.body.textContent).not.toContain('aRatioFromAnotherDeploy');
+      expect(document.body.textContent).not.toMatch(/UnknownRatioError/);
+    });
+
+    it('warns once for the payload, however many times the card re-renders', () => {
+      const section = stale();
+      const { rerender } = render(<SectionCard section={section} />);
+      fireEvent.click(screen.getByRole('button'));
+      rerender(<SectionCard section={section} />);
+      rerender(<SectionCard section={section} defaultOpen />);
+      rerender(<SectionCard section={section} />);
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-throws any other error: only the unknown-key case is tolerated', () => {
+      const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const bad = { type: 'ratios', title: 'Ratios', data: { ...ratios(INPUT).data, notMeaningful: 'not an object' } };
+      // ratioLines treats a non-object reasons map as empty; make it fail some other way instead.
+      Object.defineProperty(bad.data, 'currentRatio', { get() { throw new TypeError('boom'); }, enumerable: true });
+      expect(() => open(bad)).toThrow(/boom/);
+      quiet.mockRestore();
+    });
   });
 });

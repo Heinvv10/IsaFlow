@@ -14,7 +14,8 @@ vi.mock('@/components/charts/EChartClient', () => ({
     <div data-testid="echart" data-option={JSON.stringify(option)} />
   ),
 }));
-vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
+const warn = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/logger', () => ({ log: { warn, error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 import { SectionCard } from '@/components/accounting/packs/PackSectionCard';
 import { buildReportPack, type ReportPackInput } from '@/modules/accounting/services/reports/reportPackService';
@@ -37,6 +38,7 @@ function open(section: { type: string; title: string; data: Record<string, unkno
 const injected: HTMLStyleElement[] = [];
 afterEach(() => {
   cleanup();
+  warn.mockClear();
   document.documentElement.classList.remove('dark');
   for (const s of injected.splice(0)) s.remove();
 });
@@ -77,6 +79,15 @@ describe('SectionCard waterfall', () => {
     open({ type: 'waterfall', title: 'Profit bridge', data: { steps } });
     expect(screen.queryByTestId('echart')).toBeNull();
     expect(screen.getByText(/carries no usable profit bridge/)).toBeTruthy();
+  });
+
+  it('warns once for an unusable bridge, however many times the card re-renders', () => {
+    const section = { type: 'waterfall', title: 'Profit bridge', data: { steps: 'x' } };
+    const { rerender } = render(<SectionCard section={section} />);
+    fireEvent.click(screen.getByRole('button'));
+    rerender(<SectionCard section={section} />);
+    rerender(<SectionCard section={section} defaultOpen />);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it('repaints in the other theme: the light and dark palettes reach the chart', async () => {
