@@ -846,6 +846,13 @@ A fresh blind reviewer said SHIP with two MEDIUMs and two LOWs.
    production database's `max_connections` and the number of production processes were not
    checked (the fixture allows 100). Measured with a scratch test that is not committed.
 
+   The size is now read from **`RATE_LIMIT_POOL_MAX`** (default 10), like `PG_POOL_MAX`,
+   `AUTH_POOL_MAX` and `PLATFORM_ADMIN_POOL_MAX`, so it can be lowered without a deploy (a
+   restart picks it up). Unlike those, which use a plain `Number(...)`, a value that is not a
+   whole number from 1 to 100 falls back to 10 with a warning: a NaN `max` would leave a pg
+   pool unbounded. Tested: default, valid values, invalid values, and that the pool is built
+   with the configured size.
+
 Mutants: 23, all red, with a green baseline before and after (`green.log`).
 
 ## Rollback

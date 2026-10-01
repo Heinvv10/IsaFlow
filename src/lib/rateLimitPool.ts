@@ -17,13 +17,33 @@ import pg from 'pg';
 import { log } from '@/lib/logger';
 
 /**
- * Connections per process. A key that is full is answered from memory (see
- * `checkRateLimit`), so the pool only carries calls that may be admitted.
- * Sized by measurement (R-175 fix.md, /review round): with 3, fifty concurrent
- * admitted calls waited up to 250 ms and a thousand on one key hit the connect
- * timeout; with 10, 97 ms and no timeout. Idle connections close after 30 s.
+ * Connections per process: RATE_LIMIT_POOL_MAX, default 10, like PG_POOL_MAX
+ * and AUTH_POOL_MAX for the other pools. Read once, when the pool is created,
+ * so a new value takes effect on the next process start.
+ *
+ * A key that is full is answered from memory (see `checkRateLimit`), so the
+ * pool only carries calls that may be admitted. The default is measured (R-175
+ * fix.md, /review round): with 3, fifty concurrent admitted calls waited up to
+ * 250 ms and a thousand on one key hit the connect timeout; with 10, 97 ms and
+ * none. Idle connections close after 30 s.
+ *
+ * Unlike the plain `Number(...)` the other pools use, a value that is not a
+ * whole number from 1 to 100 falls back to the default with a warning: a NaN
+ * `max` would leave a pg pool never full, that is unbounded.
  */
-export const RATE_LIMIT_POOL_MAX = 10;
+export const DEFAULT_RATE_LIMIT_POOL_MAX = 10;
+const LARGEST_RATE_LIMIT_POOL = 100;
+
+export function rateLimitPoolMax(): number {
+  const raw = process.env.RATE_LIMIT_POOL_MAX;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_RATE_LIMIT_POOL_MAX;
+  const n = Number(raw);
+  if (Number.isInteger(n) && n >= 1 && n <= LARGEST_RATE_LIMIT_POOL) return n;
+  log.warn('RATE_LIMIT_POOL_MAX is not a whole number from 1 to 100; using the default', {
+    value: raw, default: DEFAULT_RATE_LIMIT_POOL_MAX,
+  }, 'rateLimit');
+  return DEFAULT_RATE_LIMIT_POOL_MAX;
+}
 
 /**
  * How long a limiter call waits for a connection before it throws. A throw is
@@ -37,7 +57,7 @@ export const RATE_LIMIT_CONNECT_TIMEOUT_MS = 5000;
  * The counter rows can be locked by someone else (the nightly cleanup deletes
  * them through `sql`, possibly inside a transaction; DDL or VACUUM FULL holds
  * the table), and a stalled statement would otherwise pin one of only
- * RATE_LIMIT_POOL_MAX connections for as long as the lock lasts.
+ * the pool's few connections for as long as the lock lasts.
  *
  * Order matters: lock < statement < query. `query_timeout` is a client-side
  * timer that abandons the query without cancelling it, so if it fired first the
@@ -57,7 +77,7 @@ export function getRateLimitPool(): pg.Pool {
     }
     _pool = new pg.Pool({
       connectionString,
-      max: RATE_LIMIT_POOL_MAX,
+      max: rateLimitPoolMax(),
       connectionTimeoutMillis: RATE_LIMIT_CONNECT_TIMEOUT_MS,
       lock_timeout: LOCK_TIMEOUT_MS,
       statement_timeout: STATEMENT_TIMEOUT_MS,
