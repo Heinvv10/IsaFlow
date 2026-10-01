@@ -206,7 +206,9 @@ export async function seedChartOfAccountsFromTemplate(
     SET parent_account_id = (
       SELECT p.id FROM gl_accounts p
       WHERE p.company_id = ${companyId}::UUID AND p.account_code = t.parent_code
-        AND NOT (p.is_system_account AND p.account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[]))
+        -- COALESCE: with a NULL subtype the AND is NULL, NOT NULL is NULL, and
+        -- every sub-account of an unclassified system header lost its parent.
+        AND NOT COALESCE(p.is_system_account AND p.account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[]), false)
     )
     FROM jsonb_to_recordset(${rows}::jsonb) AS t(code TEXT, parent_code TEXT)
     WHERE c.company_id = ${companyId}::UUID AND c.account_code = t.code AND t.parent_code IS NOT NULL

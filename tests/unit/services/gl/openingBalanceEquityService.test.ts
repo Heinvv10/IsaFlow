@@ -9,6 +9,9 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ clear
 // The role-write lock is its own statements; its behaviour is proven against Postgres
 // in tests/integration/w2-28-system-role-writers*.int.test.ts.
 vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', () => ({ lockSystemRoleWrites: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/systemRoleInvariant', () => ({
+  snapshotRoles: vi.fn(async () => ({})), assertRolesKept: vi.fn(async () => undefined),
+}));
 
 import { sql } from '@/lib/neon';
 import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';

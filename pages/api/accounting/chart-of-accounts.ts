@@ -47,6 +47,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
+    const postBodyError = accountUpdateBodyError(req.body);
+    if (postBodyError) return apiResponse.badRequest(res, postBodyError);
     try {
       const { accountCode, accountName, accountType, accountSubtype, parentAccountId, description, normalBalance, defaultVatCode, vatInputDenied } = req.body;
 

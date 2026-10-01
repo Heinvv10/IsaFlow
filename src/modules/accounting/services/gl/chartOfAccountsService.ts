@@ -10,7 +10,7 @@ import type { GLAccount, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { isBankSubtype } from './accountSubtypes';
 import { assertParentUsable } from './accountParentRules';
-import { clearSystemAccountCacheAfterCommit, guardActiveChange, refuseSystemAccountDelete } from './systemRoleReactivation';
+import { clearSystemAccountCacheAfterCommit, guardActiveChange, lockBeforeChartWrite, refuseSystemAccountDelete } from './systemRoleReactivation';
 
 export interface CreateAccountInput {
   accountCode: string;
@@ -300,6 +300,7 @@ export async function renameAccountCode(
 ): Promise<GLAccount> {
   const trimmed = newCode.trim();
   if (!trimmed) throw new Error('newCode is required');
+  await lockBeforeChartWrite(companyId);
 
   const acct = await sql`
     SELECT id, account_code FROM gl_accounts

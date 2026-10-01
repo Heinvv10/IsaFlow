@@ -193,7 +193,8 @@ export async function saveDefaultAccountMappings(
   // Before the first write: a subtype change that would move a line inside a
   // locked (filed) VAT period is refused, naming the account and the period.
   try {
-    await assertAccountChangesKeepVatLocks(companyId, changes, tx);
+    // Bounded: it waits on the shared VAT key while this save holds the role lock.
+    await withBoundedLockWait(tx, () => assertAccountChangesKeepVatLocks(companyId, changes, tx));
   } catch (err) {
     if (err instanceof VatPeriodLockedError) throw new DefaultAccountsRefusal(err.message);
     throw err;

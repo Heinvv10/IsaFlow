@@ -114,13 +114,16 @@ describeIfDb('W2-28 input gates on the role writers', () => {
   });
 
   it('an unexpected database error is a 500 (rolled back), not a 400 that commits', async () => {
+    // Round 9: a malformed id is now refused 400 by the routes before any lock, so the driver error is
+    // provoked with a name longer than account_name's varchar(100) instead. The DELETE catch's re-throw
+    // is pinned by the role-lock-timeout 503 case in w2-28-system-role-writers-lock.int.test.ts.
+    const tooLong = 'x'.repeat(101);
     const answers = [
-      await fx.call(chartOfAccountsDetail, 'PUT', DETAIL, { id: 'not-a-uuid', accountName: 'x' }),
-      await fx.call(chartOfAccountsDetail, 'DELETE', DETAIL, { id: 'not-a-uuid' }),
-      await fx.call(chartOfAccounts, 'PUT', CHART, { id: 'not-a-uuid', accountName: 'x' }),
+      await fx.call(chartOfAccountsDetail, 'PUT', DETAIL, { id: X, accountName: tooLong }),
+      await fx.call(chartOfAccounts, 'PUT', CHART, { id: X, accountName: tooLong }),
       await fx.call(bankAccounts, 'PUT', '/api/accounting/bank-accounts', { id: BANK, bankOpeningBalanceDate: 'not-a-date' }),
     ].map((a) => a.statusCode);
-    expect(answers).toEqual([500, 500, 500, 500]);
+    expect(answers).toEqual([500, 500, 500]);
     // A service refusal is still a 400.
     expect((await fx.call(chartOfAccountsDetail, 'PUT', DETAIL, { id: BANK, isActive: false })).statusCode).toBe(400);
   });

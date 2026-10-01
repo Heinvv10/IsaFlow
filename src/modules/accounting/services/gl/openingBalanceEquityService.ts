@@ -37,6 +37,8 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
 import { lockSystemRoleWrites } from './systemRoleWriteLock';
+import { assertRolesKept, snapshotRoles } from './systemRoleInvariant';
+import { roleHeldBy } from './roleTargetRules';
 
 export const OPENING_BALANCE_EQUITY_SUBTYPE = 'opening_balance_equity';
 export const OPENING_BALANCE_EQUITY_NAME = 'Opening Balance Equity';
@@ -101,12 +103,15 @@ export async function ensureOpeningBalanceEquityAccount(
   if (existing) return existing;
 
   const code = await freeCode(companyId);
+  const roles = await snapshotRoles(companyId);
   const parents = (await sql`
-    SELECT id, level FROM gl_accounts
+    SELECT id, level, account_subtype, is_system_account FROM gl_accounts
     WHERE company_id = ${companyId}::UUID AND account_code = ${EQUITY_HEADER_CODE} AND account_type = 'equity'
     LIMIT 1
   `) as DbRow[];
-  const parent = parents[0];
+  // Not under a 3000 that holds a role (retained earnings, say): a role
+  // holder cannot have sub-accounts. The account goes at the top level instead.
+  const parent = parents[0] && !roleHeldBy(parents[0]) ? parents[0] : undefined;
   const parentId = parent ? String(parent.id) : null;
   const level = parent ? Number(parent.level ?? 1) + 1 : 1;
 
@@ -135,6 +140,7 @@ export async function ensureOpeningBalanceEquityAccount(
     throw err;
   }
   const r = rows[0]!;
+  await assertRolesKept(companyId, roles);
   clearSystemAccountCacheAfterCommit(companyId);
   log.info('Created Opening Balance Equity account', { companyId, code }, 'accounting');
   return { id: String(r.id), accountCode: String(r.account_code), accountName: String(r.account_name), created: true };

@@ -66,6 +66,9 @@ export function brkFixture(tag: string) {
   };
 
   const wipe = async () => {
+    for (const t of ['mcp_tool_calls', 'mcp_idempotency_keys', 'flow_wallet_transactions', 'gl_reclassification_batches', 'fiscal_periods_tmp']) {
+      await pool.query(`DELETE FROM ${t} WHERE company_id = $1`, [CO]).catch(() => undefined);
+    }
     for (const t of ['gl_account_merges', 'gl_journal_lines', 'gl_journal_entries', 'migration_sessions', 'app_settings']) await pool.query(`DELETE FROM ${t} WHERE company_id = $1`, [CO]);
     await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id = $1)', [CO]);
     await pool.query('UPDATE gl_accounts SET parent_account_id = NULL WHERE company_id = $1', [CO]);
@@ -87,8 +90,8 @@ export function brkFixture(tag: string) {
     try {
       await wipe();
       await pool.query('DELETE FROM company_users WHERE company_id = $1', [CO]);
-      await pool.query('DELETE FROM companies WHERE id = $1', [CO]);
-      await pool.query('DELETE FROM users WHERE id = $1', [USER]);
+      await pool.query('DELETE FROM companies WHERE id = $1', [CO]).catch(() => undefined);   // disposable fixture: leftovers are fine
+      await pool.query('DELETE FROM users WHERE id = $1', [USER]).catch(() => undefined);
     } finally { await pool.end(); }
   }
 

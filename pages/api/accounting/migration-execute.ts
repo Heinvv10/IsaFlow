@@ -7,6 +7,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { migrationSizeError } from '@/modules/accounting/services/core/migrationRowCaps';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -33,6 +34,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!VALID_SOURCES.includes(source as MigrationSource)) {
     return apiResponse.badRequest(res, `Invalid source. Must be one of: ${VALID_SOURCES.join(', ')}`);
   }
+
+  if (![accounts, customers, suppliers].every(Array.isArray)) {
+    return apiResponse.badRequest(res, 'accounts, customers and suppliers must be arrays');
+  }
+  const sizeError = migrationSizeError({ accounts: accounts.length, customers: customers.length, suppliers: suppliers.length });
+  if (sizeError) return apiResponse.badRequest(res, sizeError);
 
   log.info('Migration execute requested', {
     companyId, source, accounts: accounts.length, customers: customers.length, suppliers: suppliers.length,

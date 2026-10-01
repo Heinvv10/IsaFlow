@@ -32,6 +32,7 @@ import {
 import { GL_ACCOUNT_SUBTYPES } from '@/modules/accounting/types/glAccountSubtypes';
 import { UUID_RE } from '@/lib/validation';
 import { isLockTimeoutError } from '@/lib/lockTimeout';
+import { SystemRoleInvariantError } from '@/modules/accounting/services/gl/systemRoleInvariant';
 import { reactivationRefusal } from '@/modules/accounting/services/gl/systemRoleReactivation';
 import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
@@ -288,10 +289,10 @@ export const deactivateGlAccountTool: McpTool = {
       // Every refusal deleteAccount raises is checked before its UPDATE, so a
       // tool error here leaves nothing written and the message (balance,
       // children, unreconciled transactions) is what the agent needs.
-      // A lock timeout is the exception: 55P03 has aborted the registry's
-      // savepoint, so it must be THROWN — the registry rolls back and keeps
-      // the "retry" wording of an allow-listed code.
-      if (isLockTimeoutError(err)) throw err;
+      // Two exceptions must be THROWN so the registry rolls its savepoint back
+      // (it keeps an allow-listed code's wording): a lock timeout (55P03 aborted
+      // the savepoint) and a failed role post-condition (raised AFTER the UPDATE).
+      if (isLockTimeoutError(err) || err instanceof SystemRoleInvariantError) throw err;
       return toolError(safeErrorText(err, 'Failed to deactivate account.'));
     }
     return ok({ id: accountId, is_active: false, already_inactive: false });

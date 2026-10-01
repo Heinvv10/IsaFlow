@@ -52,6 +52,7 @@ import {
 import handler from '../../../pages/api/accounting/chart-of-accounts';
 
 const ACCOUNT = '22222222-2222-4222-8222-222222222222';
+const PARENT = '33333333-3333-4333-8333-333333333333';   // the route refuses a malformed id before any service call
 
 function mockReqRes(body: Record<string, unknown>) {
   const req = {
@@ -102,7 +103,7 @@ describe('PUT /api/accounting/chart-of-accounts — partial-commit safety', () =
     vi.mocked(reclassifyAccount).mockRejectedValueOnce(
       new ReclassifyError('Parent 5000 has journal lines posted to it.'),
     );
-    const { req, res } = mockReqRes({ id: ACCOUNT, parentAccountId: 'p-1', accountName: 'X' });
+    const { req, res } = mockReqRes({ id: ACCOUNT, parentAccountId: PARENT, accountName: 'X' });
 
     await handler(req, res);
     expect(res.statusCode).toBe(400);
@@ -116,7 +117,7 @@ describe('PUT /api/accounting/chart-of-accounts — partial-commit safety', () =
     vi.mocked(reclassifyAccount).mockRejectedValueOnce(
       Object.assign(new Error('deadlock detected'), { code: '40P01' }),
     );
-    const { req, res } = mockReqRes({ id: ACCOUNT, parentAccountId: 'p-1' });
+    const { req, res } = mockReqRes({ id: ACCOUNT, parentAccountId: PARENT });
 
     await expect(handler(req, res)).rejects.toThrow('deadlock detected');
     expect(res.statusCode).not.toBe(400);
