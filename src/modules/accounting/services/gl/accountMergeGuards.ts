@@ -22,6 +22,7 @@ import { reportingClassFor } from './accountReportingClass';
 import { isBankSubtype } from './accountSubtypes';
 import { hasChildAccounts, isSubjectToLeafRule } from './isReportVisibleLeaf';
 import { openBillLinesRefusal } from './accountMergeBillLines';
+import { assertTargetMayTakeChildren } from './accountMergeRoleGuard';
 import {
   CONFIGURATION_REFERENCE_EXCLUSIONS,
   findConfigurationReferences,
@@ -269,6 +270,7 @@ export async function assertMergeable(
     );
   }
   await assertTargetStaysOnTheReports(companyId, source, target);
+  await assertTargetMayTakeChildren(companyId, source, target);
   if (isBankSubtype(source.accountSubtype)) {
     const count = await countBankTransactions(companyId, source.id);
     if (count > 0) {

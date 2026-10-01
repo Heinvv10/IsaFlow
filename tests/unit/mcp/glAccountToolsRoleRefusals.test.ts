@@ -30,6 +30,7 @@ import { reactivationRefusal } from '@/modules/accounting/services/gl/systemRole
 import { SystemRoleLockTimeoutError } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import { safeErrorText } from '@/lib/mcp/tools/toolHelpers';
 import type { McpToolContext } from '@/lib/mcp/types';
+import { ChartRefusal } from '@/modules/accounting/services/gl/chartRefusal';
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const ctx = { companyId: '22222222-2222-4222-8222-222222222222', userId: 'u' } as unknown as McpToolContext;
@@ -45,7 +46,7 @@ describe('MCP account tools and the role guards', () => {
   });
 
   it('deactivate_gl_account still answers an ordinary refusal as a tool error', async () => {
-    vi.mocked(deleteAccount).mockRejectedValueOnce(new Error('Cannot delete "Bank" — it is a system account'));
+    vi.mocked(deleteAccount).mockRejectedValueOnce(new ChartRefusal('Cannot delete "Bank" — it is a system account'));
     const out = await deactivateGlAccountTool.handler({ account_id: ACCOUNT, idempotency_key: 'k' }, ctx);
     expect(out).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('it is a system account') }] });
   });

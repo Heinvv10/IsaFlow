@@ -47,11 +47,24 @@ const RETRYABLE_LOCK_ERRORS = new Set(['55P03', '40P01']);
 export const isRetryableLockError = (err: unknown): boolean =>
   RETRYABLE_LOCK_ERRORS.has(String((err as { code?: unknown } | null)?.code ?? ''));
 
+/** What a caller is told. */
+export const SYSTEM_ROLE_LOCK_TIMEOUT_MESSAGE = 'The chart of accounts is being changed by another request — retry in a moment.';
+
+/**
+ * Is this MCP tool result the role lock's timeout (or deadlock) refusal? The
+ * tool threw it and the registry worded it, so the batch loop — which must not
+ * make the calls behind it wait 5s each — can only know it by its text.
+ */
+export function isRoleLockRefusal(result: unknown): boolean {
+  const r = result as { isError?: boolean; content?: { text?: string }[] } | null | undefined;
+  return r?.isError === true && r.content?.[0]?.text === SYSTEM_ROLE_LOCK_TIMEOUT_MESSAGE;
+}
+
 /** Another request held the company's role-write lock for longer than 5s. */
 export class SystemRoleLockTimeoutError extends Error {
   readonly code = 'SYSTEM_ROLE_LOCK_TIMEOUT';
   constructor() {
-    super('The chart of accounts is being changed by another request — retry in a moment.');
+    super(SYSTEM_ROLE_LOCK_TIMEOUT_MESSAGE);
     this.name = 'SystemRoleLockTimeoutError';
   }
 }

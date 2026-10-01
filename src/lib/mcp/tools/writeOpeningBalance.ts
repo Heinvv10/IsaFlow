@@ -30,7 +30,7 @@ import { accountsBelongToCompany, getAccountById } from '@/modules/accounting/se
 import { setBankOpeningBalanceMeta } from '@/modules/accounting/services/bank/bankOpeningBalanceService';
 import { ensureOpeningBalanceEquityAccount } from '@/modules/accounting/services/gl/openingBalanceEquityService';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
-import { lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
+import { boundedRowWait, lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
@@ -166,23 +166,29 @@ export const setOpeningBalanceTool: McpTool = {
     // balance and refuses BEFORE writing, but postJournalEntry writes — and a
     // `catch → toolError` after that point is audited with a NULL idempotency
     // key, so the agent's retry would post a second opening balance.
-    const entry = await createJournalEntry(
-      ctx.companyId,
-      {
-        entryDate: asAt,
-        description: strArg(args, 'memo') ?? `Opening balance — ${bankAccount.accountName}`,
-        source: 'auto_migration',
-        lines,
-      },
-      ctx.userId,
-      mcpPostingOpts(ctx, TOOL),
-    );
-    await postJournalEntry(ctx.companyId, entry.id, ctx.userId);
+    // Bounded: the role lock is held from here to the end of the request, so
+    // every lock the posting waits for (an account row, a VAT period) waits at
+    // most 5s and then throws the retryable refusal — never unbounded.
+    const entry = await boundedRowWait(async () => {
+      const created = await createJournalEntry(
+        ctx.companyId,
+        {
+          entryDate: asAt,
+          description: strArg(args, 'memo') ?? `Opening balance — ${bankAccount.accountName}`,
+          source: 'auto_migration',
+          lines,
+        },
+        ctx.userId,
+        mcpPostingOpts(ctx, TOOL),
+      );
+      await postJournalEntry(ctx.companyId, created.id, ctx.userId);
 
-    // Written AFTER the posting, so the metadata can never claim an opening
-    // balance the ledger does not have. The reverse order would leave the
-    // banking screen showing a figure a failed post never created.
-    await setBankOpeningBalanceMeta.write(ctx.companyId, bankAccountId, amount, asAt);
+      // Written AFTER the posting, so the metadata can never claim an opening
+      // balance the ledger does not have. The reverse order would leave the
+      // banking screen showing a figure a failed post never created.
+      await setBankOpeningBalanceMeta.write(ctx.companyId, bankAccountId, amount, asAt);
+      return created;
+    });
 
     return ok({
       bank_account_id: bankAccountId,

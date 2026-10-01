@@ -31,10 +31,10 @@ import {
 } from '@/modules/accounting/types/gl.types';
 import { GL_ACCOUNT_SUBTYPES } from '@/modules/accounting/types/glAccountSubtypes';
 import { UUID_RE } from '@/lib/validation';
-import { isLockTimeoutError } from '@/lib/lockTimeout';
-import { SystemRoleInvariantError } from '@/modules/accounting/services/gl/systemRoleInvariant';
+import { ChartRefusal } from '@/modules/accounting/services/gl/chartRefusal';
+import { ParentAccountError } from '@/modules/accounting/services/gl/accountParentRules';
 import { reactivationRefusal } from '@/modules/accounting/services/gl/systemRoleReactivation';
-import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const VAT_CODES = ['none', 'standard', 'zero_rated', 'exempt'] as const;
 
@@ -144,11 +144,11 @@ export const createGlAccountTool: McpTool = {
       });
       return ok(account);
     } catch (err) {
-      // Every refusal createAccount raises (duplicate code, invalid subtype,
-      // missing parent) happens BEFORE its INSERT, so a tool error keeps nothing
-      // written. A lock timeout aborted the registry's savepoint: it is thrown.
-      if (isLockTimeoutError(err)) throw err;
-      return toolError(safeErrorText(err, 'Failed to create account.'));
+      // A tool error only for createAccount's own typed refusals (duplicate
+      // code, invalid subtype, unusable parent): each is raised BEFORE its
+      // INSERT. Anything else is thrown — the registry rolls its savepoint back.
+      if (err instanceof ChartRefusal || err instanceof ParentAccountError) return toolError(err.message);
+      throw err;
     }
   },
 };
@@ -286,14 +286,14 @@ export const deactivateGlAccountTool: McpTool = {
     try {
       await deleteAccount(ctx.companyId, accountId);
     } catch (err) {
-      // Every refusal deleteAccount raises is checked before its UPDATE, so a
-      // tool error here leaves nothing written and the message (balance,
-      // children, unreconciled transactions) is what the agent needs.
-      // Two exceptions must be THROWN so the registry rolls its savepoint back
-      // (it keeps an allow-listed code's wording): a lock timeout (55P03 aborted
-      // the savepoint) and a failed role post-condition (raised AFTER the UPDATE).
-      if (isLockTimeoutError(err) || err instanceof SystemRoleInvariantError) throw err;
-      return toolError(safeErrorText(err, 'Failed to deactivate account.'));
+      // A tool error only for deleteAccount's own typed refusals: each is
+      // checked before its UPDATE, and the message (balance, children,
+      // unreconciled transactions) is what the agent needs. Anything else is
+      // THROWN so the registry rolls its savepoint back: a lock timeout, a
+      // failed role post-condition, or a driver error raised AFTER the UPDATE
+      // (returned as a tool error, that write was committed and its text shown).
+      if (err instanceof ChartRefusal) return toolError(err.message);
+      throw err;
     }
     return ok({ id: accountId, is_active: false, already_inactive: false });
   },

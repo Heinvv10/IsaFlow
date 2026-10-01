@@ -5,7 +5,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
-import { roleBarringChildren, roleTargetRefusal } from '../gl/roleTargetRules';
+import { holderAsParentRefusal, roleBarringChildren, roleTargetRefusal } from '../gl/roleTargetRules';
 import { isSystemAccountKey, type SystemAccountKey } from '../gl/systemAccountKeys';
 import type { MigrationError } from './migrationService';
 import type { AccountImportRow, SystemAccountMap } from './migrationCoaService';
@@ -117,6 +117,35 @@ export async function roleMapConflicts(
       subtype: r?.account_subtype == null ? null : String(r.account_subtype),
     }, 'import');
     return message ? [{ step: 'coa' as const, row: -1, field: `systemAccountMap.${role}`, message }] : [];
+  });
+}
+
+/**
+ * Rows this import would put under a balance-sheet role holder — which may not
+ * have sub-accounts (`roleBarringChildren`). Named row by row BEFORE any write:
+ * left to the role post-condition, the whole import was refused with "would
+ * leave bank without exactly one usable account", which names nothing to fix.
+ * A holder the map moves its role away from in this same import is not one.
+ */
+export async function holderParentConflicts(
+  companyId: string, map: SystemAccountMap, accounts: readonly AccountImportRow[],
+): Promise<MigrationError[]> {
+  const parentCodes = [...new Set(accounts.flatMap((a) => (a.parentCode ? [a.parentCode] : [])))];
+  if (parentCodes.length === 0) return [];
+  const rows = (await sql`
+    SELECT account_code, account_type, account_subtype, is_system_account FROM gl_accounts
+    WHERE company_id = ${companyId}::UUID AND account_code = ANY(${parentCodes}::TEXT[])
+  `) as DbRow[];
+  const mapped: Record<string, string | undefined> = { ...map };
+  const barred = new Map(rows.flatMap((r) => {
+    const role = roleBarringChildren(r);
+    const code = String(r.account_code);
+    return role && (mapped[role] === undefined || mapped[role] === code) ? [[code, role] as [string, string]] : [];
+  }));
+  return accounts.flatMap((a, row) => {
+    const role = a.parentCode ? barred.get(a.parentCode) : undefined;
+    return role ? [{ step: 'coa' as const, row, field: 'parentCode',
+      message: `Account ${a.accountCode} cannot go under ${a.parentCode}: ${holderAsParentRefusal(a.parentCode!, role)}` }] : [];
   });
 }
 

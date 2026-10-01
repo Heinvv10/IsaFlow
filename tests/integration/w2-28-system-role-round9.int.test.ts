@@ -140,10 +140,10 @@ describeIfDb('W2-28 round 9', () => {
     const n = (await fx.query('SELECT count(*)::int AS n FROM gl_accounts WHERE company_id = $1', [CO])).rows[0].n;
     expect({ statuses: answers.map((a) => a.statusCode), accounts: n }).toEqual({ statuses: [400, 400, 400, 400], accounts: 2 });
     const text = answers.map((a) => String((a.body.error as { message?: string } | undefined)?.message));
-    expect(text[0]).toMatch(/has 7,501 accounts and one request takes at most 7,500\. Split the chart into files of up to 7,500 accounts/);
-    expect(text[1]).toMatch(/Run the migration in batches of up to 3,000 accounts/);
-    expect(text[2]).toMatch(/batches of up to 2,000 customers/);
-    expect(text[3]).toMatch(/batches of up to 2,000 suppliers/);
+    expect(text[0]).toMatch(/has 3,001 accounts and one request takes at most 3,000\. Split the chart into files of up to 3,000 accounts/);
+    expect(text[1]).toMatch(/Run the migration in batches of up to 2,000 accounts/);
+    expect(text[2]).toMatch(/batches of up to 1,000 customers/);
+    expect(text[3]).toMatch(/batches of up to 1,000 suppliers/);
   }, 120_000);
 
   it('a CoA import and a migration execute AT the caps succeed inside the 5s other role writers will wait for them', async () => {
