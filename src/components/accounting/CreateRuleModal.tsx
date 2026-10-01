@@ -157,7 +157,8 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
   });
   const [selectedSupplier, setSelectedSupplier] = useState<SelectOption | null>(() => {
     if (selection?.type === 'supplier' && selection.entityId) {
-      return suppliers.find(s => s.id === selection.entityId) ?? null;
+      // The list may not have loaded yet (it pages in on its own): the row's label stands in.
+      return suppliers.find(s => s.id === selection.entityId) ?? { id: selection.entityId, name: selection.label };
     }
     return null;
   });

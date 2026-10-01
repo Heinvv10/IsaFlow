@@ -7,13 +7,13 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Wallet, Loader2, Plus, Trash2, Info, Receipt } from 'lucide-react';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
-import { fuzzyMatchSupplier } from '@/modules/accounting/utils/fuzzyMatch';
+import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
+import { useVendorSupplierMatch } from '@/components/accounting/supplier-invoices/matchVendorSupplier';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
-interface Supplier { id: string; name: string }
 interface OutstandingInvoice { id: string; invoiceNumber: string; totalAmount: number; balance: number }
 interface Allocation { key: string; invoiceId: string; amount: number }
 
@@ -23,7 +23,6 @@ const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dar
 
 export default function NewSupplierPaymentPage() {
   const router = useRouter();
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [invoices, setInvoices] = useState<OutstandingInvoice[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -38,13 +37,6 @@ export default function NewSupplierPaymentPage() {
   });
 
   const [allocations, setAllocations] = useState<Allocation[]>([{ key: crypto.randomUUID(), invoiceId: '', amount: 0 }]);
-
-  useEffect(() => {
-    apiFetch('/api/accounting/suppliers-list').then(r => r.json()).then(res => {
-      const data = res.data || res;
-      setSuppliers(Array.isArray(data) ? data : data.suppliers || []);
-    }).catch(() => setError('Failed to load suppliers'));
-  }, []);
 
   useEffect(() => {
     if (!form.supplierId) { setInvoices([]); return; }
@@ -65,12 +57,14 @@ export default function NewSupplierPaymentPage() {
 
   const totalAmount = allocations.reduce((sum, a) => sum + (a.amount || 0), 0);
 
+  // A scan may fill an empty supplier or replace an earlier scan's; never the user's pick.
+  const { scan: matchVendor, notePick } = useVendorSupplierMatch(form.supplierId, id => setForm(f => ({ ...f, supplierId: id })));
+
   function handleExtracted(data: ExtractedDocument) {
     if (data.date) setForm(f => ({ ...f, paymentDate: data.date! }));
     if (data.referenceNumber) setForm(f => ({ ...f, reference: data.referenceNumber! }));
-    if (data.vendorName && suppliers.length > 0) {
-      const match = fuzzyMatchSupplier(data.vendorName, suppliers.map(s => ({ id: String(s.id), name: s.name })));
-      if (match) setForm(f => ({ ...f, supplierId: String(match.id) }));
+    if (data.vendorName) {
+      matchVendor(data.vendorName);
     }
     if (data.totalAmount && invoices.length > 0) {
       const exactMatch = invoices.find(inv => Math.abs(inv.balance - data.totalAmount!) < 0.02);
@@ -81,6 +75,7 @@ export default function NewSupplierPaymentPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!form.supplierId) { setError('Please select a supplier'); return; }
     setIsSubmitting(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/supplier-payments', {
@@ -142,10 +137,7 @@ export default function NewSupplierPaymentPage() {
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className={lbl}>Supplier *</label>
-                    <select name="supplierId" required value={form.supplierId} onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))} className={inp}>
-                      <option value="">Select supplier…</option>
-                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    <SupplierSelect required value={form.supplierId} inputClassName={inp} onChange={id => { notePick(); setForm(f => ({ ...f, supplierId: id })); }} />
                   </div>
                   <div>
                     <label className={lbl}>Payment Date *</label>
