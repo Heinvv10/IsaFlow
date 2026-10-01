@@ -19,9 +19,9 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const checkPublicUrlMock = vi.fn(async (_url: string): Promise<string | null> => null);
+const safeFetchMock = vi.fn();
 vi.mock('@/lib/safeFetch', () => ({
-  checkPublicUrl: (url: string) => checkPublicUrlMock(url),
+  safeFetch: (...a: unknown[]) => safeFetchMock(...a),
 }));
 const warn = vi.fn();
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: (...a: unknown[]) => warn(...a), error: vi.fn() } }));
@@ -32,7 +32,7 @@ import {
   UNEXPLAINED_FAILURE,
 } from '@/modules/accounting/services/packs/packRefusal';
 import { resolvePackBrand } from '@/modules/accounting/services/packs/packBrand';
-import { resolvePackBrandForRender } from '@/modules/accounting/services/packs/packBrandForRender';
+import { LOGO_MAX_BYTES, resolvePackBrandForRender } from '@/modules/accounting/services/packs/packBrandForRender';
 import type { BrandProfile } from '@/modules/accounting/services/afs/afsTypes';
 
 describe('what a failed pack render is allowed to tell its caller', () => {
@@ -89,25 +89,33 @@ const profile = (logoUrl: string | null): BrandProfile => ({
   primaryColour: '#1a3a5c', secondaryColour: '#c8a86b', reportFooterText: null,
 } as BrandProfile);
 
-describe('the logo the headless browser is asked to fetch', () => {
+const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01]);
+
+function image(body: Uint8Array | string, headers: Record<string, string> = { 'content-type': 'image/png' }, status = 200): Response {
+  return new Response(body, { status, headers });
+}
+
+describe('the logo is fetched by the server, never by the headless browser', () => {
   beforeEach(() => {
-    checkPublicUrlMock.mockReset();
-    checkPublicUrlMock.mockResolvedValue(null);
+    safeFetchMock.mockReset();
+    safeFetchMock.mockResolvedValue(image(PNG));
     warn.mockReset();
   });
 
-  it('keeps a logo whose host is still a public target', async () => {
+  it('hands the renderer the bytes as a data: URI, so the browser resolves no host', async () => {
     const brand = await resolvePackBrandForRender(profile('https://cdn.example.com/logo.png'));
-    expect(brand.logoUrl).toBe('https://cdn.example.com/logo.png');
-    expect(checkPublicUrlMock).toHaveBeenCalledWith('https://cdn.example.com/logo.png');
+    expect(brand.logoUrl).toBe(`data:image/png;base64,${Buffer.from(PNG).toString('base64')}`);
+    expect(safeFetchMock).toHaveBeenCalledTimes(1);
+    expect(safeFetchMock.mock.calls[0]![0]).toBe('https://cdn.example.com/logo.png');
   });
 
   /**
    * THE ONE THE WRITE-TIME CHECK CANNOT CATCH: a host that resolved publicly
-   * when the profile was saved and resolves to a reserved address now.
+   * when the profile was saved and resolves to a reserved address now. The
+   * fetch's own re-validation refuses it, and the pack still renders.
    */
-  it('drops a logo that now resolves to a blocked address, and renders anyway', async () => {
-    checkPublicUrlMock.mockResolvedValue('logo.tenant.example resolves to blocked address 169.254.169.254: link-local');
+  it('drops a logo whose host now resolves to a blocked address, and renders anyway', async () => {
+    safeFetchMock.mockRejectedValue(new Error('logo.tenant.example resolves to blocked address 169.254.169.254: link-local'));
     const brand = await resolvePackBrandForRender(profile('https://logo.tenant.example/l.png'));
     expect(brand.logoUrl).toBeNull();
     // SUBSTITUTE, DO NOT REFUSE — the colours are still resolved and the pack
@@ -116,9 +124,31 @@ describe('the logo the headless browser is asked to fetch', () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it.each([
+    ['an HTML page', image('<html></html>', { 'content-type': 'text/html' })],
+    ['an SVG', image('<svg xmlns="http://www.w3.org/2000/svg"/>', { 'content-type': 'image/svg+xml' })],
+    ['a response with no content type', image(PNG, {})],
+    ['a redirect', image('', { 'content-type': 'image/png', location: 'http://169.254.169.254/' }, 302)],
+    ['a server error', image(PNG, { 'content-type': 'image/png' }, 500)],
+    ['an empty body', image(new Uint8Array(0))],
+    ['a declared size over the cap', image(PNG, { 'content-type': 'image/png', 'content-length': '999999' })],
+    ['a body over the cap with no declared size', image(new Uint8Array(LOGO_MAX_BYTES + 1))],
+  ])('drops %s', async (_what, response) => {
+    safeFetchMock.mockResolvedValue(response);
+    const brand = await resolvePackBrandForRender(profile('https://cdn.example.com/logo.png'));
+    expect(brand.logoUrl).toBeNull();
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('accepts a body exactly at the cap', async () => {
+    safeFetchMock.mockResolvedValue(image(new Uint8Array(LOGO_MAX_BYTES).fill(1)));
+    const brand = await resolvePackBrandForRender(profile('https://cdn.example.com/logo.png'));
+    expect(brand.logoUrl).toMatch(/^data:image\/png;base64,/);
+  });
+
   it('asks nothing of the network when there is no logo', async () => {
     expect((await resolvePackBrandForRender(profile(null))).logoUrl).toBeNull();
-    expect(checkPublicUrlMock).not.toHaveBeenCalled();
+    expect(safeFetchMock).not.toHaveBeenCalled();
   });
 
   /** The pure resolver is unchanged and still does no I/O — it is what the
@@ -126,6 +156,6 @@ describe('the logo the headless browser is asked to fetch', () => {
   it('leaves the pure resolver pure', () => {
     expect(resolvePackBrand(profile('https://logo.tenant.example/l.png')).logoUrl)
       .toBe('https://logo.tenant.example/l.png');
-    expect(checkPublicUrlMock).not.toHaveBeenCalled();
+    expect(safeFetchMock).not.toHaveBeenCalled();
   });
 });
