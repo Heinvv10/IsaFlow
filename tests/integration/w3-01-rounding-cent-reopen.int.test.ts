@@ -126,6 +126,23 @@ describe('a reopened run and the labour split\'s rounding cent (W3-01 round 3)',
     await pool.query('UPDATE payroll_employee_cost_allocations SET percentage = 50 WHERE employee_id = $1', [employee]);
     expect((await doReopen(id)).statusCode).toBe(200);
 
+    // The LARGEST change the gate lets through: both mappings removed, so
+    // today's plan puts the whole labour cost on 5200 while the journal has
+    // none of it there. Still not a recalculation — the run's figures are the
+    // journal's — so it re-locks onto the journal as posted, old split and all.
+    await pool.query('DELETE FROM cost_centre_gl_mappings WHERE company_id = $1', [company]);
+    const whole = await preview(id);
+    const labour = (lines: Array<Line & { accountCode: string }>) => lines.filter((l) => l.debit > 0).map((l) => [l.accountCode, Math.round(l.debit * 100)]);
+    expect(labour(whole.body.data!.plan.lines)).toEqual([['5200', 2017713]]);
+    expect(labour(whole.body.data!.posted.lines).map(([code]) => code).sort()).toEqual(['5210', '5220']);
+    expect(whole.body.data!.blocker).toBeNull();
+    const relocked = await doApprove(id);
+    expect(relocked.statusCode).toBe(200);
+    expect(relocked.body.data).toMatchObject({ journalEntryId: journalId });
+    expect((await pool.query(
+      "SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id = $1 AND description = 'Payroll run 2026-09'", [company])).rows[0]!.n).toBe(1);
+    expect((await doReopen(id)).statusCode).toBe(200);
+
     // One cent more salary, recalculated: the labour total and net pay move.
     await pool.query('UPDATE payroll_employee_components SET amount = 20000.02 WHERE id = $1', [salary]);
     expect((await call(calculate as Route, 'POST', url(id, 'calculate'), id)).statusCode).toBe(200);
