@@ -307,11 +307,11 @@ describe('/api/mcp transport', () => {
     const body = res.body as Array<{ id: number; result: { isError?: boolean; content?: { text: string }[] } }>;
     const retry = 'The chart of accounts is being changed by another request — retry in a moment.';
     const text = (id: number) => { const r = body.find((b) => b.id === id)!.result; return `${r.isError}:${r.content?.[0]?.text}`; };
-    // The call that waited gets the lock's own refusal; the calls not run say that, and that nothing was charged.
+    // The call that waited gets the lock's refusal; the calls not run say so. The batch was charged its full five up front.
     expect({ roleBusyRuns: counts.roleBusy, echoRuns: seenContexts.length, ids: body.map((b) => b.id), ping: body[3]!.result, waited: text(2), skipped: [text(3), text(5)] })
       .toEqual({ roleBusyRuns: 1, echoRuns: 1, ids: [1, 2, 3, 4, 5], ping: {}, waited: `true:${retry}`,
-        skipped: Array(2).fill(expect.stringMatching(/^true:Not run: an earlier call in this batch found the chart of accounts being changed.*Nothing was written or charged/)) });
-    expect(companyCharges()) // charged its full five before any ran; the skip gives nothing back.toEqual([[`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60, cost: 5 }]]);
+        skipped: Array(2).fill(expect.stringMatching(/^true:Not run: an earlier call in this batch found the chart of accounts being changed.*Nothing was written and no Flows were debited for this call; it still counted towards the batch's rate limit/)) });
+    expect(companyCharges()).toEqual([[`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60, cost: 5 }]]);
   });
 
   it('no other failure stops a batch: a thrown error, a returned tool error and a row-lock timeout each leave the later calls running', async () => {
