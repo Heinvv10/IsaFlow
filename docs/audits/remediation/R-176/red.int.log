@@ -291,3 +291,18 @@ AssertionError: add pool.on('error', …), or pin the file in UNLISTENED with th
 AssertionError: expected +0 to be 1 // Object.is equality
  Test Files  3 failed (3)
       Tests  4 failed | 30 passed (34)
+
+# Round 7 (review round 5). RED on 058e40913 + the new cases; source unchanged (2026-10-01T19:07:58Z). The exact-bytes and boundary cases pass on this head; they pin behaviour.
+     × opens no socket for a NaN pid, and says so 3ms
+     × opens no socket for a fractional pid, and says so 1ms
+     × opens no socket for a pid above 32 bits, and says so 1ms
+     × opens no socket for a pid below int32, and says so 0ms
+     × opens no socket for a NaN key, and says so 0ms
+     × opens no socket for a fractional key, and says so 0ms
+     × opens no socket for a key above 32 bits, and says so 0ms
+     × opens no socket for a key below int32, and says so 0ms
+     × opens no socket for an empty Buffer key, and says so 0ms
+     × opens no socket for a 3-byte Buffer key, and says so 0ms
+     × opens no socket for a 257-byte Buffer key, and says so 0ms
+ Test Files  1 failed (1)
+      Tests  11 failed | 17 passed (28)

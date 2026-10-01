@@ -15,9 +15,19 @@ interface CancellableClient {
   port: number;
 }
 
+/** An integer that fits 32 bits, signed or unsigned: pg reads the pid and key with readInt32BE. */
+const fits32 = (n: unknown): n is number =>
+  typeof n === 'number' && Number.isInteger(n) && n >= -0x80000000 && n <= 0xffffffff;
+/** Protocol 3.2 allows a key of up to 256 bytes; the 3.0 key is 4. */
+const keyBytes = (b: Buffer) => b.length >= 4 && b.length <= 256;
+
+/**
+ * A malformed pid or key is refused, not coerced: a coerced one makes a cancel that silently
+ * does nothing, and a `false` here is what lets rollbackError warn that nothing was cancelled.
+ */
 const cancellable = (c: unknown): c is CancellableClient => {
   const x = c as Partial<CancellableClient> | null;
-  return typeof x?.processID === 'number' && (typeof x.secretKey === 'number' || Buffer.isBuffer(x.secretKey))
+  return fits32(x?.processID) && (fits32(x.secretKey) || (Buffer.isBuffer(x.secretKey) && keyBytes(x.secretKey)))
     && typeof x.host === 'string' && typeof x.port === 'number';
 };
 
