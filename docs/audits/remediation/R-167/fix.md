@@ -199,7 +199,7 @@ Evidence:
   - r158, r166, k101, r155-157, r157 and the r159 suites;
   - the k122 suites and the three r095 portal suites;
   - customer-ownership-fence-routes, on an `isaflow_test` copy of the fixture.
-- `mutations.log`: every mutant is RED. That is 47 in round 2; in round 3, Q50–Q52 are added, Q39 is re-pointed and Q40 is removed with the dead code, 49 in all; the re-confirmation round adds Q53, the /review round adds Q54, the fresh-review round adds Q55–Q60, and round 6 adds Q61 and Q62, 59 in all. Each run used both suites plus the
+- `mutations.log`: every mutant is RED. That is 47 in round 2; in round 3, Q50–Q52 are added, Q39 is re-pointed and Q40 is removed with the dead code, 49 in all; the re-confirmation round adds Q53, the /review round adds Q54, the fresh-review round adds Q55–Q60, round 6 adds Q61 and Q62, and round 7 adds Q63 and Q64, 61 in all. Each run used both suites plus the
   `paystackClient` unit test. They cover:
   - every filter and each arm of the charge, both link kinds, and the clamp;
   - every refusal and its HTTP mapping, including the 409;
@@ -344,6 +344,14 @@ Both reviewers returned SHIP at `9b03ccc85`. The LOWs:
   clone). Production and dev never applied it.
 - The verify-race tests stand in for the webhook with a direct UPDATE. The webhook's own
   delivery is covered by the settlement cases.
+
+## Re-confirmation of round 6 (round 7)
+
+Both reviewers returned SHIP at `78df79bcf`; the general reviewer had no findings. One LOW from
+the adversarial reviewer, fixed: `verify` now asks Paystack about failed requests too, and that
+call had no timeout. `verifyTransaction` takes an optional `timeoutMs` and `verify` passes 10
+seconds, as create does. A timeout is logged and the stored status is reported. The two other
+callers of `verifyTransaction` are unchanged (Q63, Q64).
 
 ## Migration / rollback
 
