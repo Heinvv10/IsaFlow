@@ -14,7 +14,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { isUuidParam } from '@/lib/validation';
-import { enableOnlinePayment } from '@/modules/accounting/services/core/paymentGatewayPortalService';
+import { enableOnlinePayment, InvoiceNotApprovedError } from '@/modules/accounting/services/core/paymentGatewayPortalService';
+import { CustomerInvoiceLockTimeoutError } from '@/modules/accounting/services/ar/customerInvoiceLock';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -30,7 +31,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Only action=enable is supported on this endpoint');
   }
 
-  const paymentUrl = await enableOnlinePayment(companyId, invoiceId);
+  let paymentUrl: string | null;
+  try {
+    paymentUrl = await enableOnlinePayment(companyId, invoiceId);
+  } catch (err) {
+    if (err instanceof CustomerInvoiceLockTimeoutError) return apiResponse.badRequest(res, err.message, { code: err.code });
+    // R-180: the one refusal with its own answer; "not found" would send staff looking for the invoice.
+    if (err instanceof InvoiceNotApprovedError) return apiResponse.badRequest(res, err.message);
+    throw err;
+  }
   if (!paymentUrl) return apiResponse.notFound(res, 'Open invoice with a balance due');
   return apiResponse.success(res, { paymentUrl });
 }

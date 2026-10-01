@@ -1,0 +1,26 @@
+# RED on origin/master 090497265 (unchanged code), fixture clone at 718 (2026-10-01T10:30:50Z)
+     × answers with the link and its token; no gateway call and no payment request in its transaction 276ms
+     × the token starts one checkout for the live balance through the public route, and a second click reuses it 55ms
+     × a second Pay Now, even at the same moment, keeps the one standing link 42ms
+     × mints a fresh standing link when the one the invoice names is cancelled, and never adopts an explicit-amount link 37ms
+     × reads the balance in numeric: a NaN balance or a paid invoice gets no link, a negative amount_paid counts as nothing paid 12ms
+     × verify reports cancelled, leaves the request pending, and the next click gets the same checkout 239ms
+     × Pay Now and enableOnlinePayment mint links with no expiry; an explicit-amount link keeps its 30 days 38ms
+     × enableOnlinePayment returns the standing link the invoice already has 33ms
+     × migration 719 revives the expired link an invoice names, and nothing else 100ms
+     × no link is minted for a draft by Pay Now, enableOnlinePayment or the payment-link POST 17ms
+     × a link already on a draft cannot be shown or paid, and works once the invoice is approved 48ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected { …(3) } to deeply equal { …(2) }
+AssertionError: {"success":false,"error":{"code":"NOT_FOUND","message":"Payment link not found"},"meta":{"timestamp":"2026-10-01T10:30:51.097Z"}}: expected 404 to be 200 // Object.is equality
+AssertionError: expected [ { …(3) }, { …(3) } ] to have a length of 1 but got 2
+AssertionError: expected 'undefined' not to be 'undefined' // Object.is equality
+AssertionError: expected 500 to be 400 // Object.is equality
+AssertionError: expected [ { status: 'cancelled' } ] to deeply equal [ { status: 'pending' } ]
+AssertionError: expected [ …(2) ] to deeply equal [ [ true, null ], [ true, null ] ]
+AssertionError: expected 'https://app.r177.test/portal/pay/ebe1…' to be 'https://app.r177.test/portal/pay/6c4a…' // Object.is equality
+Error: ENOENT: no such file or directory, open 'scripts/migrations/sql/719_standing_payment_links_do_not_expire.sql'
+AssertionError: expected 200 to be 400 // Object.is equality
+AssertionError: expected 200 to be 400 // Object.is equality
+ Test Files  1 failed (1)
+      Tests  11 failed | 3 passed (14)

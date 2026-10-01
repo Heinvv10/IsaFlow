@@ -1,0 +1,31 @@
+# RED: the final suites (head 9da291234) run on unchanged origin/master 090497265 source (2026-10-01T12:04:39Z). 64-hex tokens redacted.
+## r177-pay-now-standing-link
+     × answers with the link and its token; no gateway call and no payment request in its transaction 363ms
+     × the token starts one checkout for the live balance through the public route, and a second click reuses it 38ms
+     × a second Pay Now, even at the same moment, keeps the one standing link 24ms
+     × mints a fresh standing link when the one the invoice names is cancelled 19ms
+     × never adopts a link the invoice does not name, nor an explicit-amount link it does 29ms
+     × reads the balance in numeric: a NaN balance or a paid invoice gets no link, a negative amount_paid counts as nothing paid 8ms
+     × waits at most 5s for an invoice another request holds, then answers a retryable 400 and mints nothing 20003ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  7 failed | 2 passed (9)
+## r178-r180-portal-link-rules
+     × verify reports cancelled, leaves the request pending, and the next click gets the same checkout 504ms
+     × Pay Now and enableOnlinePayment mint links with no expiry; an explicit-amount link keeps its 30 days 17ms
+     × enableOnlinePayment returns the standing link the invoice already has 13ms
+     × the standing link an invoice names is payable past its stored expiry, and Pay Now still hands it out 113ms
+     × a cancelled or paid link is not shown, even one the invoice names 14ms
+     × returns the standing link, and 404 for a paid invoice as before 20ms
+     × waits at most 5s for an invoice another request holds, then answers a retryable 400 20006ms
+     × with the public origin set to "" it mints nothing and answers 500, on both routes 30ms
+     × with the public origin set to "http://localhost:3200" it mints nothing and answers 500, on both routes 12ms
+     × a token is matched exactly, not as a pattern: a link whose token is the named one with a "_" in it names nothing 27ms
+     × the service refuses to run outside a request transaction, where its lock would hold nothing 13ms
+     × no link is minted for a draft invoice by Pay Now, enableOnlinePayment or the payment-link POST 14ms
+     × no link is minted for a pending_approval invoice by Pay Now, enableOnlinePayment or the payment-link POST 12ms
+     × a link already on a draft invoice cannot be shown or paid, and works once the invoice is approved 27ms
+     × a link already on a pending_approval invoice cannot be shown or paid, and works once the invoice is approved 27ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 15 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  15 failed | 2 passed (17)
