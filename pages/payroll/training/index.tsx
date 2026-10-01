@@ -6,6 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { GraduationCap, Loader2, AlertCircle, Plus, X } from 'lucide-react';
+import { localISODate } from '@/lib/dateUtils';
 
 interface Employee { id: string; employeeNumber: string; firstName: string; lastName: string }
 interface Event {
@@ -54,7 +55,7 @@ export default function TrainingPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = localISODate();
   const [form, setForm] = useState({
     employeeId: '',
     category: 'short_course',

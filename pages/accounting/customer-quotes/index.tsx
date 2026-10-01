@@ -8,6 +8,7 @@ import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight,
   ExternalLink, ClipboardList, Trash2, Download } from 'lucide-react';
 import { StatusPill, PageHeader } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 interface Quote { id: string; quoteNumber: string; customerName: string; quoteDate: string; expiryDate: string | null; status: string; total: number; invoiceId?: string }
 interface CustomerOption { id: string; name: string }
@@ -19,7 +20,7 @@ const TABS = ['all', 'draft', 'sent', 'accepted', 'declined', 'expired', 'conver
 
 interface ModalProps { customers: CustomerOption[]; onClose: () => void; onCreated: () => void }
 function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
-  const [form, setForm] = useState({ clientId: '', customerName: '', quoteDate: new Date().toISOString().split('T')[0], expiryDate: '', notes: '' });
+  const [form, setForm] = useState({ clientId: '', customerName: '', quoteDate: localISODate(), expiryDate: '', notes: '' });
   const [lines, setLines] = useState([{ desc: '', qty: 1, price: 0 }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');

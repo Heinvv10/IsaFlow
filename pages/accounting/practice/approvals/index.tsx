@@ -12,6 +12,7 @@ import type { PracticeClient } from '@/modules/accounting/services/practice/prac
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import { PeriodPicker } from '@/components/practice/PeriodPicker';
 import type { PeriodRange } from '@/components/practice/PeriodPicker';
+import { localISODate, monthStartISO } from '@/lib/dateUtils';
 
 // ---------- helpers ----------
 
@@ -40,10 +41,7 @@ function ErrBanner({ msg }: { msg: string }) {
 type Filters = { userId: string; practiceClientId: string; dateFrom: string; dateTo: string; status: 'submitted' | 'approved' };
 const EMPTY_FILTERS: Filters = { userId: '', practiceClientId: '', dateFrom: '', dateTo: '', status: 'submitted' };
 
-function firstOfMonth() {
-  const d = new Date();
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().split('T')[0]!;
-}
+function firstOfMonth() { return monthStartISO(); }
 
 export default function ApprovalsPage() {
   const [entries, setEntries] = useState<PracticeTimeEntry[]>([]);
@@ -53,7 +51,7 @@ export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [period, setPeriod] = useState<PeriodRange>({ dateFrom: firstOfMonth(), dateTo: new Date().toISOString().slice(0, 10) });
+  const [period, setPeriod] = useState<PeriodRange>({ dateFrom: firstOfMonth(), dateTo: localISODate() });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [approving, setApproving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
@@ -116,7 +114,7 @@ export default function ApprovalsPage() {
     void loadEntries(next);
   }
   function clearFilters() {
-    const defPeriod = { dateFrom: firstOfMonth(), dateTo: new Date().toISOString().slice(0, 10) };
+    const defPeriod = { dateFrom: firstOfMonth(), dateTo: localISODate() };
     setPeriod(defPeriod);
     const next = { ...EMPTY_FILTERS, dateFrom: defPeriod.dateFrom, dateTo: defPeriod.dateTo };
     setFilters(next);
