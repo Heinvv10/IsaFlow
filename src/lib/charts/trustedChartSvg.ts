@@ -11,12 +11,13 @@
  * for, on `packParamsHash.ts`). The board pack's print page now adopts a
  * deserialised document in the browser, so `adoptTrustedChartSvg` has to be
  * reachable from there. Nothing in this file touches Node, a DOM, or ECharts:
- * two regex batteries over a string, and the type they hand out.
+ * a tokenizer and a CSS-shape check over a string, and the type they hand out.
  *
  * `renderChartSvg` and `adoptTrustedChartSvg` call the SAME two guard
  * functions defined below — not two copies that could drift, which is the
  * whole point of the split being a move rather than a re-implementation.
  */
+import { parseSvgGrammar, SvgGrammarError } from './svgGrammar';
 
 /**
  * A string that has passed `assertNoExternalReferences` and
@@ -59,110 +60,39 @@ export type TrustedChartSvg = string & { readonly __trustedChartSvg: unique symb
  * renderer is a tracking beacon or an SSRF probe.
  *
  * So this is a runtime check, not just a test: a chart that tried to fetch
- * something is not a chart we print. Three layers over the rendered MARKUP,
- * deliberately not a parser:
+ * something is not a chart we print.
  *
- *  1. A DENYLIST of the known fetch surfaces (`<script>`, `<foreignObject>`,
- *     `<image>`, event handlers, `href`) — kept because each names what it
- *     found, which is what whoever hits it needs.
- *  2. AN ALLOWLIST OF ELEMENTS, which is the guard that does not depend on
- *     having thought of the construct. Measured over every chart the board
- *     pack draws (the demo, Brightsphere and the live-demo fixtures: waterfall
- *     custom series, bars, lines, sparklines, scorecard) zrender emits exactly
- *     `svg g defs clipPath rect path text style` and nothing else; a gradient
- *     fill adds `linearGradient`/`radialGradient`/`stop`. Anything
- *     else — `<use>`, `<animate>`, `<set>`, `<a>`, `<animateTransform>` — is
- *     refused. If a future chart legitimately emits another element this
- *     throws and names it; the fix is to admit that exact element here.
- *  3. NO SCHEME, `//` OR `image-set(` IN ANY ATTRIBUTE VALUE, and EVERY
- *     `url(…)` MUST BE A SAME-DOCUMENT REFERENCE, `url(#id)`. zrender
- *     writes `clip-path="url(#zr…-0)"` on its clip groups and nothing else; a
- *     `url(https://…)` in a `style` or presentation attribute is a fetch.
+ * IT IS A GRAMMAR, NOT A SCAN (`svgGrammar.ts`). The string reaches
+ * `dangerouslySetInnerHTML`, so the browser's HTML parser decides what it
+ * means, and a regex over the string reads case, quoting, separators,
+ * character references, comments, CDATA and `<text>` bodies differently from
+ * it — every difference a bypass. The whole string must instead be consumed
+ * by a strict tokenizer: one root `<svg>`, lowercase-exact elements and
+ * attribute names from the lists zrender really emits, `name="value"` with
+ * double quotes, text with only the five XML entities, CDATA only inside
+ * `<style>`, no comments or doctypes or control characters. Values may carry
+ * no scheme, `//`, `image-set(`, CSS escape or CSS comment, and every `url()`
+ * is `url(#id)`. Anything unconsumed is refused. The denylisted constructs
+ * (`<script>`, `<foreignObject>`, `<image>`, handlers, `href`) are still named
+ * as external references, because that is what whoever hits one needs to hear.
  *
  * Exported so its positive controls can be tested directly: several of the
  * constructs it refuses (`<use>`, an event handler) are ones no ECharts option
  * can make zrender emit, so a test that could only go through renderChartSvg
  * would silently cover the guard's cheapest half.
  */
-const ALLOWED_ELEMENTS = new Set([
-  'svg', 'g', 'defs', 'clipPath', 'rect', 'path', 'text', 'style',
-  // A gradient fill — a documented ECharts setting that ssrSvgStyleGuard.test
-  // renders for a line area, a bar and sankey links; no pack chart uses one.
-  'linearGradient', 'radialGradient', 'stop',
-]);
-
 export function assertNoExternalReferences(svg: string): void {
-  // Positional, like the id rewrite above and for the same reason: a pattern
-  // matched anywhere in the string is a pattern matched in DATA. Scanning the
-  // raw markup for an absolute URL aborted a whole pack render on a customer
-  // name containing one — and those arrive from Sage and bank imports. So the
-  // text nodes go first, and what is checked is markup only. A URL sitting in
-  // a text node fetches nothing; every actual fetch surface is an element or
-  // an attribute, and all of them are below.
-  const markup = svg
-    // `<text>` bodies specifically, not every `>…<` run. A general strip
-    // consumes `>` characters, and a `>` inside an ATTRIBUTE value (producible
-    // — `textStyle.fontFamily: 'a>b'` renders `font-family:a>b;`) opens what
-    // the regex reads as a text node, deleting every sibling attribute up to
-    // the next `<`. The only false positive being excluded here is label text,
-    // and label text lives in `<text>`; SSR emits no `<title>` or `<desc>`,
-    // and the `<style>` CDATA is allow-listed separately below.
-    //
-    // The opening tag skips quoted sections for the same reason — `[^>]*`
-    // would stop at that same attribute `>` and put the tail of the tag back
-    // into the body.
-    .replace(/(<text\b(?:"[^"]*"|'[^']*'|[^>"'])*>)[^<]*(<\/text>)/gi, '$1$2')
-    .replace(/xmlns(:xlink)?="[^"]*"/g, '');
-  const checks: Array<[RegExp, string]> = [
-    [/<script\b/i, 'a script element'],
-    [/<foreignObject\b/i, 'a foreignObject'],
-    [/<image\b/i, 'an image element'],
-    // At ANY attribute boundary, not only after whitespace: `<svg/onload=…>`
-    // and `x="1"onload=…` are parsed as attributes by a browser.
-    [/[\s"'/]on[a-z]+\s*=/i, 'an event-handler attribute'],
-    [/\b(?:xlink:)?href\s*=/i, 'an href'],
-  ];
-  for (const [pattern, what] of checks) {
-    if (pattern.test(markup)) {
-      throw new Error(`renderChartSvg: refusing a chart containing an external reference (${what})`);
+  try {
+    parseSvgGrammar(svg);
+  } catch (err) {
+    if (!(err instanceof SvgGrammarError)) throw err;
+    if (err.reason.startsWith('EXTERNAL: ')) {
+      throw new Error(`renderChartSvg: refusing a chart containing an external reference (${err.reason.slice(10)})`);
     }
+    throw new Error(`renderChartSvg: refusing a chart whose markup is outside the grammar (${err.message})`);
   }
-  // The `<style>` body is CSS, not markup, and `assertStyleBlockIsOurs` owns
-  // it — scanning it here would report an injected `url(…)` as an external
-  // reference before the style guard could say what shape it expected.
-  const structure = markup.replace(/(<style\b[^>]*>)[\s\S]*?(<\/style>)/g, '$1$2');
-  // The allowlist. A comment, doctype or processing instruction can hide an
-  // element from this scan. (The `<style>` CDATA was emptied above.)
-  if (/<[!?]/.test(structure)) {
-    throw new Error('renderChartSvg: refusing a chart containing a comment, doctype or processing instruction');
-  }
-  for (const [, name] of structure.matchAll(/<\/?([a-zA-Z][\w:.-]*)/g)) {
-    if (!ALLOWED_ELEMENTS.has(name!)) {
-      throw new Error(
-        `renderChartSvg: refusing a chart containing an element outside the allow-list (<${name}>)`,
-      );
-    }
-  }
-  // No reference of any kind inside an attribute value: `image-set(`, a scheme
-  // (`http:`, `https:`, `data:`, `javascript:`) or a protocol-relative `//`.
-  // zrender's attribute values are numbers, colours, path data, a font stack
-  // and `url(#id)`; none contains a colon-scheme or a double slash. (`xmlns`
-  // declarations were removed above.)
-  for (const [, dq, sq] of structure.matchAll(/\s[\w:-]+\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
-    const value = dq ?? sq ?? '';
-    if (/image-set\s*\(|\b(?:https?|data|javascript|file|ftp):|\/\//i.test(value)) {
-      throw new Error(
-        `renderChartSvg: refusing a chart containing an external reference (${JSON.stringify(value.slice(0, 60))} in an attribute)`,
-      );
-    }
-  }
-  for (const [, target] of structure.matchAll(/url\(([^)]*)\)/gi)) {
-    if (!/^#[A-Za-z0-9_-]+$/.test(target!.trim())) {
-      throw new Error(
-        `renderChartSvg: refusing a chart containing an external reference (url(${JSON.stringify(target!.slice(0, 60))}) that is not a same-document #id)`,
-      );
-    }
-  }
+  // The `<style>` bodies the grammar admitted are checked for CSS shape below.
+  assertStyleBlockIsOurs(svg);
 }
 
 /**

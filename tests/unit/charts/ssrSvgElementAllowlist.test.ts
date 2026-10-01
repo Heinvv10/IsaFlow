@@ -11,6 +11,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { assertNoExternalReferences } from '@/lib/charts/trustedChartSvg';
+import { ATTRIBUTES } from '@/lib/charts/svgGrammar';
 import { adoptTrustedChartSvg } from '@/lib/charts/ssrSvg';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { brightsphereInput, demoInput } from '../services/packs/fixtures/boardPackInputs';
@@ -26,8 +27,8 @@ describe('elements outside the allowlist are refused', () => {
     ['a set element', '<rect><set attributeName="fill" to="red"/></rect>', /allow-list \(<set>\)/],
     ['an anchor element', '<a><text>x</text></a>', /allow-list \(<a>\)/],
     ['an uppercase USE', '<USE x="1"/>', /allow-list \(<USE>\)/],
-    ['an element after an early </style>', '<style>/* x */</style><use x="1"/>', /allow-list \(<use>\)/],
-    ['a comment that could hide an element', '<!-- <use x="1"/> -->', /comment, doctype or processing instruction/],
+    ['an element after an early </style>', '<style><![CDATA[.zr1-0:hover{fill:#000}]]></style><use x="1"/>', /allow-list \(<use>\)/],
+    ['a comment that could hide an element', '<!-- <use x="1"/> -->', /comment, doctype, processing instruction/],
   ];
   for (const [what, body, message] of HOSTILE) {
     it(`refuses ${what}`, () => {
@@ -68,7 +69,7 @@ describe('handlers at any attribute boundary', () => {
       .toThrow(/event-handler attribute/);
   });
   it('does not read an attribute that merely begins with "on" inside a value', () => {
-    expect(() => assertNoExternalReferences(svg('<g data-label="one two"><path d="M0 0"/></g>'))).not.toThrow();
+    expect(() => assertNoExternalReferences(svg('<g id="onion"><path d="M0 0"/></g>'))).not.toThrow();
   });
 });
 
@@ -116,5 +117,27 @@ describe('every chart the board pack produces passes', () => {
     }
     expect(charts, 'no chart was produced, so nothing was tested').toBeGreaterThan(20);
     expect([...seen].sort()).toEqual(['clipPath', 'defs', 'g', 'path', 'rect', 'style', 'svg', 'text']);
+  });
+
+  it('uses only attribute names the grammar lists, and lists none that carry a reference', () => {
+    const names = new Set<string>();
+    for (const input of [demoInput, brightsphereInput, liveDemoRenderedInput]) {
+      const svgs: string[] = [];
+      walk(buildBoardPackPages(input).pages, svgs);
+      for (const chart of svgs) {
+        const stripped = chart.replace(/(<text\b(?:"[^"]*"|'[^']*'|[^>"'])*>)[^<]*(<\/text>)/gi, '$1$2');
+        for (const m of stripped.matchAll(/\s([A-Za-z_:][\w:.-]*)="/g)) names.add(m[1]!);
+      }
+    }
+    expect([...names].sort()).toEqual([
+      'baseProfile', 'class', 'clip-path', 'd', 'dominant-baseline', 'ecmeta_data_index', 'ecmeta_series_index',
+      'ecmeta_silent', 'ecmeta_ssr_type', 'fill', 'fill-opacity', 'height', 'id', 'pointer-events', 'stroke',
+      'stroke-linecap', 'stroke-linejoin', 'stroke-width', 'style', 'text-anchor', 'transform', 'version',
+      'viewBox', 'width', 'x', 'xml:space', 'xmlns', 'xmlns:xlink', 'y',
+    ]);
+    for (const name of names) expect(ATTRIBUTES.has(name), name).toBe(true);
+    for (const forbidden of ['href', 'xlink:href', 'src', 'onload', 'onclick', 'onerror']) {
+      expect(ATTRIBUTES.has(forbidden), forbidden).toBe(false);
+    }
   });
 });

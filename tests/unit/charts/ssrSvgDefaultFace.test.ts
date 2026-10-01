@@ -34,9 +34,17 @@ describe('renderChartSvg default-face guard', () => {
     expect(() => render(font)).toThrow(/default face/);
   });
 
+  // Single quotes: zrender writes the `font` string into a double-quoted
+  // `style` attribute WITHOUT escaping, so a double-quoted family name ends
+  // the attribute early and the browser reads the rest of the name as further
+  // attributes. The grammar refuses that markup, correctly.
   it('accepts a named family in the same shapes', () => {
-    expect(() => render('12px "IBM Plex Sans", sans-serif')).not.toThrow();
-    expect(() => render('bold 12px "IBM Plex Sans", sans-serif')).not.toThrow();
-    expect(() => render('italic bold 12px "IBM Plex Sans"')).not.toThrow();
+    expect(() => render("12px 'IBM Plex Sans', sans-serif")).not.toThrow();
+    expect(() => render("bold 12px 'IBM Plex Sans', sans-serif")).not.toThrow();
+    expect(() => render("italic bold 12px 'IBM Plex Sans'")).not.toThrow();
+  });
+
+  it('refuses a double-quoted family, which zrender leaves unescaped in the attribute', () => {
+    expect(() => render('12px "IBM Plex Sans", sans-serif')).toThrow(/grammar/);
   });
 });
