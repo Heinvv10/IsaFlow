@@ -22,10 +22,10 @@ export function formatPackKv(item: PackKvItem): string {
   if (item.unavailable) return item.unavailable;
   if (item.value === null) return NO_FIGURE;
   switch (item.format) {
-    case 'pct': return formatPct(item.value);
+    case 'pct': return formatPct(item.value, 1, { pack: true });
     case 'ratio': return formatRatio(item.value);
     case 'days': return formatDays(item.value);
-    case 'money': return formatMoney(item.value, { cents: true });
+    case 'money': return formatMoney(item.value, { cents: true, pack: true });
   }
 }
 
