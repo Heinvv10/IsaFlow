@@ -170,7 +170,7 @@ describeIfDb('W2-28 round 9', () => {
       importUnder5s: true, executeUnder5s: true });
   }, 120_000);
 
-  const HELD_PARENTS: Record<string, string[]> = { isaflow_standard: [], xero_compatible: [], sage_compatible: ['4101 under 4100'] };
+  const HELD_PARENTS: Record<string, string[]> = { isaflow_standard: [], xero_compatible: [], sage_compatible: [] };
   describe.each(['isaflow_standard', 'xero_compatible', 'sage_compatible'] as CoaTemplate[])('seeding %s', (template) => {
     const lines = getTemplateLines(template);
 
@@ -186,7 +186,7 @@ describeIfDb('W2-28 round 9', () => {
       await fx.query('SELECT seed_company_chart_of_accounts($1)', [CO]);
       const before = await tree();
       const holders = new Set((await fx.query(`SELECT account_code FROM gl_accounts WHERE company_id = $1 AND is_system_account
-        AND account_subtype IS NOT NULL AND account_subtype IN (SELECT unnest($2::text[]))`, [CO, ['bank', 'receivable', 'payable', 'vat_input',
+        AND account_type IN ('asset', 'liability', 'equity') AND account_subtype IS NOT NULL AND account_subtype IN (SELECT unnest($2::text[]))`, [CO, ['bank', 'receivable', 'payable', 'vat_input',
         'vat_output', 'vat_input_late_claim', 'retained_earnings', 'opening_balance_equity', 'default_revenue', 'other_income', 'default_expense',
         'admin_expense', 'accumulated_depreciation', 'depreciation_expense', 'disposal_profit_loss']])).rows.map((r) => r.account_code));
       expect((await fx.call(coaSeed, 'POST', '/api/accounting/coa-seed', { template })).statusCode).toBe(200);
@@ -194,7 +194,7 @@ describeIfDb('W2-28 round 9', () => {
       // Master's pass 2: every template row gets the account at its template parent code (NULL when there is none).
       // This branch differs in two deliberate places, both counted so they are visible: a template ROLE row
       // whose role the company already holds is not inserted (round 5: no second holder), and a row is not
-      // wired under a parent that holds a role (round 8).
+      // wired under a parent that holds a balance-sheet role (round 8, narrowed in round 11).
       const skippedRoleRows = lines.filter((l) => !(l.code in after)).map((l) => `${l.code}:${l.subtype}:${l.isSystem === true}`);
       const expected: Record<string, string | null> = { ...before };
       for (const code of Object.keys(after)) if (!(code in expected)) expected[code] = null;
@@ -205,9 +205,10 @@ describeIfDb('W2-28 round 9', () => {
         expected[l.code] = parent;
       }
       expect(after).toEqual(expected);
-      // Ruled by Hein 2026-10-01: a role holder has no sub-accounts. Where the company-create chart puts a
-      // role on the template's parent code, that template row is left without a parent (master would
-      // have made the holder a header). Pinned per template so a change to either seed is noticed.
+      // Ruled by Hein 2026-10-01: a BALANCE-SHEET role holder has no sub-accounts; an income-statement one
+      // may (sage's 4101 hangs under the revenue holder 4100, as on master). Where the company-create chart
+      // puts a balance-sheet role on the template's parent code, that template row is left without a parent.
+      // Pinned per template so a change to either seed is noticed: today no template has such a row.
       expect(heldParents).toEqual(HELD_PARENTS[template]);
       expect(skippedRoleRows.every((r) => r.endsWith(':true'))).toBe(true);
       process.stdout.write(`\nW228R9 ${template} after the company-create seed: ${skippedRoleRows.length} role rows not seeded again (${skippedRoleRows.join(', ')})\n`);

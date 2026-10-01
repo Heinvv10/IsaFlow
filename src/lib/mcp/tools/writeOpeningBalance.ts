@@ -30,6 +30,7 @@ import { accountsBelongToCompany, getAccountById } from '@/modules/accounting/se
 import { setBankOpeningBalanceMeta } from '@/modules/accounting/services/bank/bankOpeningBalanceService';
 import { ensureOpeningBalanceEquityAccount } from '@/modules/accounting/services/gl/openingBalanceEquityService';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
+import { lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
@@ -128,6 +129,13 @@ export const setOpeningBalanceTool: McpTool = {
           `${existing.asAt ? ` as at ${existing.asAt}` : ''}. Reverse that journal before posting another.`,
       );
     }
+
+    // The role-write lock BEFORE the posting, in the order every chart writer
+    // takes it: the journal's lines key-share-lock the bank row, and the
+    // metadata write below needs the role lock. Taken after the posting it
+    // inverted an account merge's order (role lock, then its rows). Thrown, not
+    // caught: the registry keeps the retry wording of a lock timeout.
+    await lockSystemRoleWrites(ctx.companyId);
 
     // Creating the clearing account is the one write that precedes the
     // journal. It is idempotent (find-or-create on a reserved subtype), so a

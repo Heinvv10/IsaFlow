@@ -5,8 +5,10 @@
  * Reactivating a deactivated system account puts it back as a role holder. If
  * another account has taken that role since, the role would have two holders
  * and the resolver would choose between them — so the reactivation is refused,
- * naming the current holder. With the role empty it is allowed: the account
- * simply holds the role again.
+ * naming the current holder. With the role empty the account holds the role
+ * again — so it must pass the rule any account taking a role passes
+ * (`roleTargetRules`): of a type the role allows, and not a balance-sheet
+ * header with sub-accounts.
  *
  * Call under `lockSystemRoleWrites`, before any write of the request.
  */
@@ -14,28 +16,39 @@ import { sql } from '@/lib/neon';
 import { SYSTEM_ACCOUNT_KEYS } from './systemAccountKeys';
 import { boundedRowWait, lockSystemRoleWrites } from './systemRoleWriteLock';
 import { ChartRefusal } from './chartRefusal';
+import { roleBarringChildren, roleTargetRefusal } from './roleTargetRules';
 import { assertRolesKept, snapshotRoles, type RoleSnapshot } from './systemRoleInvariant';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
 
 /** The refusal message, or null when reactivating `accountId` is safe. */
 export async function reactivationRefusal(companyId: string, accountId: string): Promise<string | null> {
   const rows = (await sql`
-    SELECT a.account_code, a.account_subtype, h.account_code AS holder_code
+    SELECT a.account_code, a.account_type, a.account_subtype, a.is_system_account,
+           (SELECT min(h.account_code) FROM gl_accounts h
+             WHERE h.company_id = a.company_id AND h.account_subtype = a.account_subtype
+               AND h.is_system_account IS TRUE AND h.is_active IS TRUE AND h.id <> a.id) AS holder_code,
+           EXISTS (SELECT 1 FROM gl_accounts c
+                    WHERE c.parent_account_id = a.id AND c.company_id = a.company_id) AS has_children
     FROM gl_accounts a
-    JOIN gl_accounts h ON h.company_id = a.company_id AND h.account_subtype = a.account_subtype
-      AND h.is_system_account IS TRUE AND h.is_active IS TRUE AND h.id <> a.id
     WHERE a.id::TEXT = ${accountId} AND a.company_id = ${companyId}::UUID
       -- IS [NOT] TRUE: both flags are nullable, and NOT NULL is NULL — a
       -- row with a NULL is_active is inactive to the resolver and must be checked.
       AND a.is_system_account IS TRUE AND a.is_active IS NOT TRUE
       AND a.account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[])
-    ORDER BY h.account_code
-    LIMIT 1
-  `) as { account_code: string; account_subtype: string; holder_code: string }[];
+  `) as { account_code: string; account_type: string; account_subtype: string; is_system_account: boolean;
+    holder_code: string | null; has_children: boolean }[];
   const r = rows[0];
   if (!r) return null;
-  return `Cannot reactivate system account ${r.account_code}: account ${r.holder_code} now holds the ${r.account_subtype} role. `
-    + 'Reactivating it would give the role two holders; move the role in Default Accounts instead.';
+  if (r.holder_code) {
+    return `Cannot reactivate system account ${r.account_code}: account ${r.holder_code} now holds the ${r.account_subtype} role. `
+      + 'Reactivating it would give the role two holders; move the role in Default Accounts instead.';
+  }
+  // The role is empty: this account becomes its holder. Sub-accounts bar it
+  // only where they bar a holder from gaining them (`roleBarringChildren`).
+  return roleTargetRefusal(r.account_subtype, r.account_subtype, {
+    code: r.account_code, type: r.account_type, isActive: true, subtype: r.account_subtype,
+    hasChildren: r.has_children === true && roleBarringChildren(r) !== null,
+  }, 'reactivate');
 }
 
 /**

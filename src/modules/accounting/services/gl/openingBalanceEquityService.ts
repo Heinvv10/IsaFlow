@@ -38,7 +38,7 @@ import { log } from '@/lib/logger';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
 import { boundedRowWait, lockSystemRoleWrites } from './systemRoleWriteLock';
 import { assertRolesKept, snapshotRoles } from './systemRoleInvariant';
-import { roleHeldBy } from './roleTargetRules';
+import { roleBarringChildren } from './roleTargetRules';
 
 export const OPENING_BALANCE_EQUITY_SUBTYPE = 'opening_balance_equity';
 export const OPENING_BALANCE_EQUITY_NAME = 'Opening Balance Equity';
@@ -105,13 +105,13 @@ export async function ensureOpeningBalanceEquityAccount(
   const code = await freeCode(companyId);
   const roles = await snapshotRoles(companyId);
   const parents = (await sql`
-    SELECT id, level, account_subtype, is_system_account FROM gl_accounts
+    SELECT id, level, account_type, account_subtype, is_system_account FROM gl_accounts
     WHERE company_id = ${companyId}::UUID AND account_code = ${EQUITY_HEADER_CODE} AND account_type = 'equity'
     LIMIT 1
   `) as DbRow[];
-  // Not under a 3000 that holds a role (retained earnings, say): a role
-  // holder cannot have sub-accounts. The account goes at the top level instead.
-  const parent = parents[0] && !roleHeldBy(parents[0]) ? parents[0] : undefined;
+  // Not under a 3000 that holds a role (retained earnings, say): a balance-sheet
+  // role holder cannot have sub-accounts. The account goes at the top level instead.
+  const parent = parents[0] && !roleBarringChildren(parents[0]) ? parents[0] : undefined;
   const parentId = parent ? String(parent.id) : null;
   const level = parent ? Number(parent.level ?? 1) + 1 : 1;
 

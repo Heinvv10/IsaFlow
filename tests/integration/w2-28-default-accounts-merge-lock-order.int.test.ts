@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { SignJWT } from 'jose';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { als, type RequestContext } from '@/lib/als';
 
 let gate: { reached: () => void; release: Promise<void> } | null = null;
 vi.mock('@/modules/accounting/services/gl/systemRoleCoverage', async (orig) => {
@@ -19,6 +20,7 @@ vi.mock('@/modules/accounting/services/gl/systemRoleCoverage', async (orig) => {
   };
 });
 import defaultAccounts from '../../pages/api/accounting/default-accounts';
+import { mergeAccounts } from '@/modules/accounting/services/gl/accountMergeService';
 
 const describeIfDb = process.env.DATABASE_URL && process.env.JWT_SECRET
   && process.env.ISAFLOW_DISPOSABLE_AUTH_TEST === '1' ? describe : describe.skip;
@@ -45,13 +47,13 @@ describeIfDb('PR #593 breaker round 2 — lock order vs account merge', () => {
   afterAll(async () => {
     if (!pool) return;
     try {
-      for (const t of ['app_settings', 'gl_accounts', 'company_users']) await pool.query(`DELETE FROM ${t} WHERE company_id = $1`, [A]);
+      for (const t of ['gl_account_merges', 'app_settings', 'gl_accounts', 'company_users']) await pool.query(`DELETE FROM ${t} WHERE company_id = $1`, [A]);
       await pool.query('DELETE FROM companies WHERE id = $1', [A]);
       await pool.query('DELETE FROM users WHERE id = $1', [USER]);
     } finally { await pool.end(); }
   });
 
-  it('REPRO 5: save moving bank to SRC while SRC is merged into the bank → deadlock, one side 40P01', async () => {
+  it('REPRO 5: save moving bank to SRC while SRC is merged into the bank (the real mergeAccounts): no deadlock', async () => {
     let reached!: () => void; let release!: () => void;
     const reachedP = new Promise<void>((r) => { reached = r; });
     gate = { reached, release: new Promise<void>((r) => { release = r; }) };
@@ -63,26 +65,26 @@ describeIfDb('PR #593 breaker round 2 — lock order vs account merge', () => {
     const save = (defaultAccounts as (a: never, b: never) => Promise<unknown>)(req as never, out.res as never);
     await reachedP;   // save holds FOR UPDATE on TGT (the bank role row)
 
-    // mergeAccounts(SRC → TGT): lockGlAccountsForUpdate — ascending id, one row at a time, lock_timeout 5s.
-    const merge = await pool.connect();
-    let mergeErr = '';
-    const mergeP = (async () => {
-      try {
-        await merge.query('BEGIN');
-        await merge.query("SET LOCAL lock_timeout = '5s'");
-        for (const id of [SRC, TGT].sort()) {
-          await merge.query('SELECT id FROM gl_accounts WHERE id = $1 AND company_id = $2 FOR UPDATE', [id, A]);
-        }
-        await merge.query('ROLLBACK');
-      } catch (e) {
-        mergeErr = (e as { code?: string }).code ?? String(e);
-        await merge.query('ROLLBACK');
-      } finally { merge.release(); }
-    })();
-    await new Promise((r) => setTimeout(r, 300));   // merge now holds SRC, waits on TGT
+    // The production merge, SRC → TGT, in its own request transaction: role lock first, then its rows in
+    // ascending id order. (This used to be a hand-written FOR UPDATE loop, which stayed green with the
+    // production role lock removed.)
+    const client = await pool.connect();
+    await client.query('BEGIN');
+    const ctx: RequestContext = { client, userId: USER, companyId: A, claims: {}, afterCommit: [] };
+    const mergeP = als.run(ctx, () => mergeAccounts(A, SRC, TGT, USER))
+      // Ended as a request ends: COMMIT when the merge went through (so a merge that slipped past the save
+      // is visible in the outcome below), ROLLBACK when it threw.
+      .then(async () => { await client.query('COMMIT'); return 'merged'; },
+        async (e: Error & { code?: string }) => { await client.query('ROLLBACK'); return `${e.code ?? 'refused'}: ${e.message}`; })
+      .finally(() => client.release());
+    await new Promise((r) => setTimeout(r, 300));   // the merge is now waiting for the role lock the save holds
     release();
-    await Promise.all([save, mergeP]);
-    expect({ save: out.state.statusCode, mergeErr }, 'one side was killed by the deadlock detector')
-      .toEqual({ save: 200, mergeErr: '' });
+    const [, merge] = await Promise.all([save, mergeP]);
+    const bank = (await pool.query(`SELECT account_code FROM gl_accounts WHERE company_id = $1 AND account_subtype = 'bank'
+      AND is_system_account AND is_active`, [A])).rows.map((r) => r.account_code);
+    // The save wins the role lock and moves the bank role to SRC; the merge then judges the settled rows
+    // and refuses its source (now a system account) — its own guard's code, never 40P01 or a lock timeout.
+    expect({ save: out.state.statusCode, merge, bank }, 'neither side may be killed by the deadlock detector')
+      .toEqual({ save: 200, merge: expect.stringMatching(/^source_is_system_account: 1111 is a system account/), bank: ['1111'] });
   }, 20_000);
 });

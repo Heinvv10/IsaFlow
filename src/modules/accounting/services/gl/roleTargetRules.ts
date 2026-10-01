@@ -29,8 +29,23 @@ export interface RoleTarget {
 /** Classifications an account may carry and still take any role. */
 const UNCLASSIFIED = new Set(['other']);
 
+/**
+ * Who is asking, for the header refusal's advice: the save can offer the
+ * header's sub-accounts; an import collided with a code the chart already uses
+ * for a header; a reactivation is the account itself coming back.
+ */
+const HEADER_ADVICE = {
+  save: (code: string, setting: string) => `Account ${code} is a header with sub-accounts; choose one of its sub-accounts for '${setting}'`,
+  import: (code: string, setting: string) => `Account ${code} is a header with sub-accounts, so it cannot hold the '${setting}' role. `
+    + `Map the role to an account that has none — or, if your file's ${code} is not the chart's ${code}, renumber it in the file and import again.`,
+  reactivate: (code: string, setting: string) => `Account ${code} has sub-accounts, and the account that holds the ${setting} role cannot be a header. `
+    + 'Move its sub-accounts to another parent first, or choose another account for the role in Default Accounts.',
+} as const;
+
 /** Why `target` cannot take `role`, or null. `setting` is the name the caller's user knows it by. */
-export function roleTargetRefusal(role: string, setting: string, target: RoleTarget): string | null {
+export function roleTargetRefusal(
+  role: string, setting: string, target: RoleTarget, caller: keyof typeof HEADER_ADVICE = 'save',
+): string | null {
   const { code, subtype } = target;
   if (!typeFitsSubtype(target.type, role)) {
     const allowed = Object.entries(GL_ACCOUNT_SUBTYPES_BY_TYPE)
@@ -38,9 +53,7 @@ export function roleTargetRefusal(role: string, setting: string, target: RoleTar
     return `Account for '${setting}' must be of type '${allowed.join("' or '")}' (got '${target.type}')`;
   }
   if (!target.isActive) return `Account ${code} for '${setting}' is inactive`;
-  if (target.hasChildren) {
-    return `Account ${code} is a header with sub-accounts; choose one of its sub-accounts for '${setting}'`;
-  }
+  if (target.hasChildren) return HEADER_ADVICE[caller](code, setting);
   if (subtype !== null && subtype !== role && !UNCLASSIFIED.has(subtype)) {
     return `Account ${code} is classified '${subtype}'; only an account classified 'other' (or unclassified), or one already classified '${role}', can hold that role. It must be reclassified to 'other' first.`;
   }
@@ -48,16 +61,41 @@ export function roleTargetRefusal(role: string, setting: string, target: RoleTar
 }
 
 /**
- * The mirror of the header rule above: a role is refused a header, so the
- * account that HOLDS a role may not be made one afterwards (a child created
- * under it, an account moved under it, a bank account grouped under it). The
- * role a row holds, or null.
+ * The account types whose role holder may not have sub-accounts (Hein,
+ * 2026-10-01): the balance-sheet ones. A level 1-2 asset / liability / equity
+ * account with children is left out of the balance sheet (migration 484), so
+ * postings to such a holder would be hidden behind a header. The income
+ * statement has no such filter: "Sales - Services" under the revenue holder
+ * 4100 is ordinary chart maintenance, as it always was.
  */
+export const HOLDER_NO_CHILDREN_TYPES = ['asset', 'liability', 'equity'] as const;
+
+/** The role a row holds, or null. */
 export function roleHeldBy(row: { account_subtype?: unknown; is_system_account?: unknown }): string | null {
   return row.is_system_account === true && isSystemAccountKey(row.account_subtype) ? row.account_subtype : null;
 }
 
+/**
+ * THE predicate for "may this account be given a sub-account": the role that
+ * forbids it, or null. One rule for every writer that can put a child under
+ * an account — `assertParentUsable` (create, reparent), the bank route's
+ * grouping, the template seed's parent wiring, the Opening Balance Equity
+ * auto-create — and, as `HOLDER_NO_CHILDREN_TYPES` in SQL, for the
+ * post-condition's header check (which is what judges the COA import and a
+ * merge that moves children).
+ *
+ * NOT the same as `roleTargetRefusal`'s header rule, deliberately: ASSIGNING a
+ * role to an account that already has sub-accounts is refused for every type
+ * (not ruled on; unchanged). So 4100 may gain children while it holds the
+ * revenue role, but the role cannot be moved onto an account that has them.
+ */
+export function roleBarringChildren(
+  row: { account_type?: unknown; account_subtype?: unknown; is_system_account?: unknown },
+): string | null {
+  return (HOLDER_NO_CHILDREN_TYPES as readonly string[]).includes(String(row.account_type)) ? roleHeldBy(row) : null;
+}
+
 export function holderAsParentRefusal(code: string, role: string): string {
-  return `Account ${code} holds the ${role} role, and an account that holds a system role cannot have sub-accounts `
+  return `Account ${code} holds the ${role} role, and a balance-sheet account that holds a system role cannot have sub-accounts `
     + '(postings to it would be hidden behind a header). Choose another parent, or move the role in Default Accounts first.';
 }
