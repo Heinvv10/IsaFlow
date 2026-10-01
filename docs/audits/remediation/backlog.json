@@ -14675,9 +14675,15 @@
     {
       "area": "auth",
       "affectedPaths": [
+        "src/lib/rollbackFailed.ts",
         "src/lib/auth/withAuth.ts",
         "src/lib/auth/bearerPipeline.ts",
         "src/lib/auth/withExtensionToken.ts",
+        "src/lib/auth/withInviteToken.ts",
+        "src/lib/auth/withPlatformAdmin.ts",
+        "src/lib/neon.ts",
+        "pages/api/invitations/[token]/accept.ts",
+        "src/modules/accounting/services/workbench/portfolioWorkbenchService.ts",
         "tests/unit/lib/auth/deferredEndCensus.test.ts"
       ],
       "sourceLabel": "R-159 adversarial review follow-up, 2026-09-30",
@@ -14685,13 +14691,16 @@
         "R-159"
       ],
       "correctedTrigger": null,
-      "severityRationale": "Latent: needs a ROLLBACK that fails on a connection that stays alive. No auth pool sets a client-side query_timeout today, and pg-pool already evicts a dead socket. If reached, the next request on that connection commits the failed request's writes.",
+      "severityRationale": "Latent: needs a ROLLBACK that fails on a connection that stays alive. No pool sets a client-side query_timeout today, and pg-pool already evicts a dead socket. If reached, the next user of that connection commits the failed work, or runs inside an aborted or READ ONLY transaction.",
       "auditedSha": "090497265",
       "currentSha": "090497265",
       "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/r176-failed-rollback-evicts-connection.int.test.ts",
+        "tests/integration/r176-other-owners-evict-connection.int.test.ts",
+        "tests/integration/r176-invite-accept-evicts-connection.int.test.ts",
+        "tests/integration/r176-evict.helpers.ts",
         "tests/unit/lib/auth/deferredEndCensus.test.ts"
       ],
       "evidencePaths": [
@@ -14709,9 +14718,9 @@
       "id": "R-176",
       "severity": "low",
       "reportedSeverity": "low",
-      "title": "An auth wrapper whose ROLLBACK fails returns the connection to the pool inside its open transaction; the res.end census misses Reflect.defineProperty",
-      "claim": "(a) withAuth, bearerPipeline and withExtensionToken call client.release() bare on every path. When the wrapper's ROLLBACK (or a failed COMMIT's secondary ROLLBACK) fails on a live connection, the client is pooled inside its open transaction and the next request's COMMIT lands the failed request's writes. withPublicRouteTransaction and withAlsTransaction already release with the failure. (b) tests/unit/lib/auth/deferredEndCensus.test.ts does not flag Reflect.defineProperty(res, 'end', ...).",
-      "processNotes": "2026-10-01: Confirmed on real Postgres before the fix: a throw whose ROLLBACK is refused leaves the backend idle in transaction, and the next request commits the row (red.int.log, 16 of 29 red on 090497265). Fixed: each wrapper sets a flag where a ROLLBACK fails and releases with it, so pg-pool destroys the client; a clean ROLLBACK still reuses the connection. Census matcher extended, with fixture cases both ways. Mutants: 21/21 RED (M6 survived once and got a case). Same defect left as a follow-up, not fixed here: withInviteToken, withPlatformAdmin (two clients), neon.ts sql.transaction and withTransaction, pages/api/auth/verify-email.ts, pages/api/invitations/[token]/accept.ts."
+      "title": "A transaction owner whose ROLLBACK fails returns the connection to the pool inside its transaction; the res.end census misses Reflect.defineProperty",
+      "claim": "(a) Ten transaction owners release their client bare after a failed ROLLBACK: withAuth, bearerPipeline, withExtensionToken, withInviteToken, withPlatformAdmin (role gate and handler), sql.transaction, withTransaction, pages/api/invitations/[token]/accept.ts and the portfolio workbench. The client is pooled inside its open or aborted transaction and the next user's COMMIT lands the failed work. withPublicRouteTransaction and withAlsTransaction already release with the failure; verify-email.ts ends its per-request pool. (b) tests/unit/lib/auth/deferredEndCensus.test.ts does not flag Reflect.defineProperty(res, 'end', ...).",
+      "processNotes": "2026-10-01: Confirmed on real Postgres before the fix (red.int.log): for each owner the refused ROLLBACK leaves the backend idle in transaction and the next user commits the failed row, fails in an aborted transaction, or is refused as read-only. Every .release( and .connect( in src/ and pages/ is tabled in fix.md. Fixed: src/lib/rollbackFailed.ts sends the ROLLBACK, logs a failure and returns it; each owner releases with that result, so pg-pool destroys the client; a clean ROLLBACK still reuses the connection. Census matcher extended, with fixture cases both ways. Mutants: round 1 21/21 RED (M6 survived once and got a case); round 2, every mutant on the final head, 48/48 RED. Left alone: verify-email.ts (per-request pool ended in the same finally; untested). Not covered: an early-return ROLLBACK that throws in the three wrappers; a real query_timeout."
     }
   ],
   "sourceInventory": [

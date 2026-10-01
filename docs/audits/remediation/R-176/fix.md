@@ -2,93 +2,125 @@
 
 ## Defect
 
-(a) `withAuth`, the Bearer pipeline (`runBearerRequest`) and `withExtensionToken` released their
-client with a bare `client.release()` on every path. pg-pool evicts a client on a bare release
-only when its socket is already dead. A live connection whose ROLLBACK never reached the server
-went back to the pool inside its open transaction. The next request on that pool got it. Its
-`BEGIN` was a no-op with a warning, and its `COMMIT` landed the failed request's writes.
+(a) Most transaction owners released their client with a bare `client.release()` on every path.
+pg-pool evicts a client on a bare release only when its socket is already dead. A live
+connection whose ROLLBACK never reached the server went back to the pool inside its open (or
+aborted) transaction. The next user of that pool got it. Its `BEGIN` was a no-op with a
+warning, and its `COMMIT` landed the failed work.
 
-Proved on unchanged code (`red.int.log`): a request writes a customer row and throws, its
-ROLLBACK is refused, the backend is left `idle in transaction`, and the next request's COMMIT
-commits the row (`expected 1 to be +0`).
+Proved on unchanged code (`red.int.log`):
 
-Reach today: low. No auth pool sets a client-side `query_timeout`, and a dropped socket is
-evicted by pg-pool itself. The defect needs a ROLLBACK that fails on a connection that stays
-alive. It becomes live the day a `query_timeout` is set on these pools.
+- `withAuth`, the Bearer pipeline, `withExtensionToken`, `withInviteToken`, `withPlatformAdmin`,
+  `withTransaction`: a request writes a row and fails, its ROLLBACK is refused, the backend is
+  left `idle in transaction`, and the next request's COMMIT commits the row
+  (`expected 1 to be +0`).
+- `sql.transaction`: after a failed statement the pooled connection is in an aborted
+  transaction, and the next batch fails.
+- Invite accept: an invitee who was answered 500 gets the membership anyway, committed by the
+  next invitee's accept. After `EMAIL_IN_USE` the next invitee is answered 500.
+- Portfolio workbench: the next platform-admin write runs inside the leftover READ ONLY
+  transaction and is refused.
+
+Reach today: low. No pool sets a client-side `query_timeout`, and a dropped socket is evicted
+by pg-pool itself. The defect needs a ROLLBACK that fails on a connection that stays alive. It
+becomes live the day a `query_timeout` is set on these pools.
 
 (b) The `res.end` census did not catch `Reflect.defineProperty(res, 'end', …)`.
 
-## How each owner behaved before
+## Every `.release(` and `.connect(` in `src/` and `pages/`
 
-| Owner | Throw, ROLLBACK fails | COMMIT fails, then ROLLBACK fails | 5xx answer, ROLLBACK fails twice |
-|---|---|---|---|
-| `withAuth` | bare release, pooled | bare release, pooled | bare release, pooled |
-| `runBearerRequest` | bare release, pooled | bare release, pooled | bare release, pooled |
-| `withExtensionToken` | bare release, pooled | bare release, pooled | bare release, pooled |
-| `withPublicRouteTransaction` | `release(err)`, destroyed | `release(err)`, destroyed | not applicable |
+Enumerated with `grep -rnE "\.release\(|\.connect\(" src pages`, and cross-checked against
+every `BEGIN` in the same trees. "Before" is `090497265`.
 
-In the three wrappers the release is one line in `finally`. The early returns (403, 429) run
-`ROLLBACK` inside the `try`; if that throws it lands in the same `catch`. The finalize path
-swallowed a failed secondary ROLLBACK with an empty `catch`. `withPublicRouteTransaction`
-already evicted and is unchanged; `withAlsTransaction` already evicts too.
+| # | Site | Owns a transaction? | Before, on a failed ROLLBACK | Now |
+|---|---|---|---|---|
+| 1 | `src/lib/auth/withAuth.ts` | yes | not recorded; bare release, pooled | destroyed |
+| 2 | `src/lib/auth/bearerPipeline.ts` (`runBearerRequest`) | yes | same | destroyed |
+| 3 | `src/lib/auth/withExtensionToken.ts` | yes | same | destroyed |
+| 4 | `src/lib/auth/withInviteToken.ts` | yes | swallowed; bare release, pooled | destroyed |
+| 5 | `src/lib/auth/withPlatformAdmin.ts`, role gate (`appClient`) | yes, read-only | swallowed; pooled | destroyed |
+| 6 | `src/lib/auth/withPlatformAdmin.ts`, handler (`adminClient`) | yes | swallowed; pooled | destroyed |
+| 7 | `src/lib/neon.ts`, `sql.transaction` (pool path) | yes | swallowed; pooled | destroyed |
+| 8 | `src/lib/neon.ts`, `withTransaction` (pool path) | yes | swallowed; pooled | destroyed |
+| 9 | `pages/api/invitations/[token]/accept.ts` | yes | logged; bare release, pooled | destroyed |
+| 10 | `src/modules/accounting/services/workbench/portfolioWorkbenchService.ts` | yes, READ ONLY, one per company | swallowed; pooled | destroyed |
+| 11 | `src/lib/publicRouteTx.ts` | yes | `release(err)`, destroyed | unchanged |
+| 12 | `src/lib/alsTransaction.ts` | yes | `release(err)`, destroyed | unchanged |
+| 13 | `pages/api/auth/verify-email.ts` | yes | logged; bare release, then `admin.end()` in the same `finally` | unchanged |
+| 14 | `src/lib/auth/impersonationSessions.ts` (`client.connect()`) | no: one autocommit INSERT on its own `pg.Client`, then `end()` | n/a | out of scope |
+| 15 | `sentMirrorService.ts`, `imapMirrorService.ts` (`client.connect()`, `lock.release()`) | no: an IMAP client and a mailbox lock | n/a | out of scope |
+
+Row 10 was not in the brief; the enumeration found it. Row 13 was in the brief and is left
+alone: `verify-email.ts` builds a new pool on every request and ends it in the `finally` that
+releases the client, so no later caller can receive that connection. No test drives it. The
+ALS branches of `sql.transaction` and `withTransaction` use a SAVEPOINT on the request's client
+and own no transaction.
 
 ## Fix
 
-Each of the three wrappers keeps one flag, `unusable`. It is set where a ROLLBACK fails: the
-secondary ROLLBACK after a failed COMMIT or ROLLBACK, and the ROLLBACK in the `catch`. The
-`finally` calls `client.release(unusable)`, so pg-pool destroys the client. A ROLLBACK that
-succeeds leaves the flag false and the connection is reused, including after a failed COMMIT.
-The finalize log line gains `connectionDestroyed`; the throw log's `rolledBack` is now
-`!unusable`. No file grew past 300 lines (`bearerPipeline.ts` stays at 298).
+`src/lib/rollbackFailed.ts` holds one function, `rollbackFailed(client, source)`. It sends
+`ROLLBACK`, returns `false` when that worked, and on a failure logs
+`<source>: ROLLBACK failed, destroying the connection` and returns `true`. Each owner in rows
+1–10 keeps the result in a flag and calls `client.release(flag)`, so pg-pool destroys the
+client. A ROLLBACK that succeeds keeps the connection, including after a failed COMMIT. No
+owner needed a per-owner option. The portfolio workbench rolls back in one function and
+releases in its caller, so the flag travels in a small `tx` object.
 
-The census matcher treats `Reflect.defineProperty` like `Object.defineProperty`.
+In the three deferred-flush wrappers the finalize log line also gains `connectionDestroyed`,
+and the throw log's `rolledBack` is `!unusable`. The census matcher treats
+`Reflect.defineProperty` like `Object.defineProperty`.
+
+Sizes: `bearerPipeline.ts` 299, `accept.ts` 288 (was 292), `neon.ts` 478 (was 483; it was
+already over 300 and shrank).
 
 ## Strongest argument against
 
-Nothing in production can reach this today, so the change adds a branch that only a test
-exercises. Against that: the cost is one flag per wrapper, the healthy paths are pinned to
-reuse the connection, and the failure it prevents is one tenant's request committing another
-request's rolled-back writes.
+Nothing in production can reach this today, so the change adds a branch that only tests
+exercise, across ten owners. Against that: it is one shared function and one flag per owner,
+the healthy paths are pinned to reuse their connection, and the failure it prevents is one
+request committing another request's rolled-back writes, possibly another tenant's.
 
 ## Tests
 
-`tests/integration/r176-failed-rollback-evicts-connection.int.test.ts`, 29 cases on real
-Postgres (6 per wrapper for `withAuth`, `withBearerOrCookieAuth`, `withBearerAuth`,
-`withExtensionToken`; 5 for `withPublicRouteTransaction`). The handler takes its own client
-from ALS and makes `ROLLBACK` and/or `COMMIT` reject before they reach Postgres, so the
-transaction really stays open. Each case counts the refusals, then runs a healthy request on
-the same owner, and asserts by outcome:
+All on real Postgres. Each case refuses the owner's `ROLLBACK` and/or `COMMIT` on its own
+client before it reaches the server, counts the refusals, then runs a healthy call on the same
+owner and asserts by outcome: the backend is gone from `pg_stat_activity`, the next user is on
+another pid, and the failed row is absent after the next user commits. The healthy cases
+assert the backend is `idle` and the same pid is reused.
 
-- throw, ROLLBACK fails: backend gone from `pg_stat_activity`, next request on another pid,
-  the row absent after that request commits, throw log `rolledBack: false`;
-- COMMIT fails, then ROLLBACK fails: the same, with 500 `COMMIT_FAILED`;
-- 500 answer, ROLLBACK fails twice: the same;
-- throw, ROLLBACK succeeds: backend `idle`, same pid reused;
-- COMMIT fails, ROLLBACK succeeds: backend `idle`, same pid reused, row absent;
-- 200: committed, same pid reused.
+- `tests/integration/r176-failed-rollback-evicts-connection.int.test.ts`, 29 cases: `withAuth`,
+  `withBearerOrCookieAuth`, `withBearerAuth`, `withExtensionToken` (6 each) and
+  `withPublicRouteTransaction` (5).
+- `tests/integration/r176-other-owners-evict-connection.int.test.ts`, 29 cases:
+  `withInviteToken`, the `withPlatformAdmin` handler, `withAlsTransaction`, `withTransaction`,
+  `sql.transaction` (5 each); the `withPlatformAdmin` role gate (2); the portfolio workbench
+  (2). The gate writes nothing, so its proof is the backend and the pid. The workbench is
+  read-only, so its proof is that the next admin write succeeds.
+- `tests/integration/r176-invite-accept-evicts-connection.int.test.ts`, 5 cases, through the
+  real route on the K-041 harness (GoTrue stubbed at `fetch`).
+- `tests/integration/r176-evict.helpers.ts`: the shared arming and backend probe.
+- `tests/unit/lib/auth/deferredEndCensus.test.ts`: a fixture that must be flagged and one that
+  must not.
 
-`tests/unit/lib/auth/deferredEndCensus.test.ts`: a fixture that must be flagged
-(`Reflect.defineProperty(res, 'end', …)`) and one that must not (`'status'`).
+`public-route-tx.int.test.ts` proves eviction with `pg_terminate_backend`, which passes on a
+bare release too. It is left as it is. The `withPublicRouteTransaction` cases in the first
+suite replace it as the guard: mutant R2-M44 (bare release there) is RED.
 
-Evidence: `red.int.log` (16 of 29 red on `090497265`; the 13 green are the healthy paths and
-all of `withPublicRouteTransaction`), `green.log`, `mutations.log` (21 mutants, all RED; M6
-survived the first run and got a case).
+Evidence: `red.int.log` (round 1: 16 of 29 red; round 2: 10 of 29 and 2 of 5 red),
+`green.log`, `mutations.log` (round 2: 48 mutants on the final head, all RED).
 
 ## Not covered
 
-- An early return (403, 429) whose `ROLLBACK` throws. It reaches the same `catch` line, but
-  no case drives it: the handler never runs, so the test cannot arm the client.
-- A real client-side `query_timeout`. The test refuses the statement instead.
-- `tests/integration/withAuth.test.ts` fails 2 of 2 with 401 on unchanged source in the
-  fixture environment. It is not part of this change.
-
-## Follow-up (not in this change)
-
-The same bare release after a swallowed ROLLBACK failure is in: `src/lib/auth/withInviteToken.ts`,
-`src/lib/auth/withPlatformAdmin.ts` (two clients), `src/lib/neon.ts` (`sql.transaction` and
-`withTransaction`), `pages/api/auth/verify-email.ts` and `pages/api/invitations/[token]/accept.ts`.
-`tests/integration/public-route-tx.int.test.ts` proves eviction with `pg_terminate_backend`,
-which pg-pool evicts on a bare release too, so that case cannot fail.
+- `pages/api/auth/verify-email.ts` (row 13): not changed and not tested.
+- An early return (403, 429) in the three wrappers whose `ROLLBACK` throws. It reaches the same
+  `catch` line, but no case drives it.
+- A real client-side `query_timeout`. The tests refuse the statement instead.
+- `withInviteToken`'s test row is written after `SET LOCAL ROLE NONE`, because `app_user` with
+  no tenant cannot insert a customer.
+- These fail on unchanged source too in the fixture environment and are outside the run set:
+  `tests/integration/withAuth.test.ts` (2), `admin-forbidden.test.ts` (1),
+  `admin-rls-bypass.test.ts` (1), `k104-k105-invitation-token-encoding.int.test.ts` (1). The
+  K-041 and K-042 suites pass only with `GOTRUE_URL` at the origin (no `/auth/v1`).
 
 ## Migration / rollback
 
