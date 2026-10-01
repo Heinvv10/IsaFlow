@@ -48,7 +48,7 @@ export {
   PROFIT_UNCAPTURED_LABEL,
   buildProfitWaterfallChart,
 } from './packProfitBridge';
-export { CASH_UNCAPTURED_LABEL, buildCashWaterfallChart } from './packCashBridge';
+export { CASH_UNCAPTURED_LABEL, buildCashWaterfallChart, cashBridgeAtHeight } from './packCashBridge';
 export type { PackCashBridge } from './packCashBridge';
 export {
   buildPositionCompositionChart,

@@ -11,7 +11,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { WATERFALL_CHROME, categoryDepthPx } from '@/modules/accounting/services/packs/packWaterfallDomain';
-import { CHART_HEIGHT_MM, PX_PER_MM } from '@/lib/charts/ssrSvg';
+import { PX_PER_MM } from '@/lib/charts/ssrSvg';
+import { isCompact } from '@/modules/accounting/services/packs/pages/packWaterfallBars';
 import type { PackChartSpec } from '@/modules/accounting/services/packs/pages/packPageModel';
 import * as A from './fixtures/boardPackInputs';
 import * as B from './fixtures/liveDemoBoardPack';
@@ -51,9 +52,7 @@ describe('every bridge draws the plot its layout was given', () => {
     const charts = bridgesOf(input);
     if (charts === null) return;
     for (const chart of charts) {
-      // The tighter chrome is every box under the half rung — a bridge grown
-      // a few millimetres past the bottom rung keeps it.
-      const compact = chart.heightMm < CHART_HEIGHT_MM.half;
+      const compact = isCompact({ heightMm: chart.heightMm });
       const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
       const names = (chart.waterfallBars ?? []).map((b) => b.label);
       const bottom = Math.max(chrome.bottom, categoryDepthPx(names, chrome.labelPx));

@@ -8,11 +8,12 @@ import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
 import { waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
+import { waterfallDrawnSize } from '@/modules/accounting/services/packs/packWaterfallFrame';
 import { axisDomain } from '@/modules/accounting/services/packs/packChartAxes';
 import { MONEY_TOLERANCE } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { investingCashFlowOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
-import { HALF } from './packChartRungs';
+import { CHART_MEASURE_MM, HALF } from './packChartRungs';
 import { intervalsFor, isCompact, toBars } from './packWaterfallBars';
 import type { PackChartSpec } from './packPageModel';
 
@@ -165,20 +166,40 @@ export function buildCashWaterfallChart(
   const cashBridgeTitle = `Cash moved from ${inProse(formatMoney(opening, { scale }))} to `
     + `${inProse(formatMoney(current.cash, { scale }))} over the period.`;
   const cashBridgePlot = svgBoxFor(box, cashBridgeTitle);
-  return {
-    drawn: true,
-    residual,
-    chart: {
-      id: 'cash-bridge',
-      title: cashBridgeTitle,
-      kind: 'waterfall',
-      svg: renderChartSvg(waterfallOption(
-        steps, scale, undefined, cashBridgeIntervals(steps, box, cashBridgePlot.heightMm), isCompact(box),
-        undefined, svgBoxPx(cashBridgePlot),
-      ), cashBridgePlot),
-      heightMm: box.heightMm,
-      plotMm: cashBridgePlot.heightMm,
-      waterfallBars: toBars(steps, CASH_UNCAPTURED_LABEL, 'cashFlowSplits'),
-    },
+  const intervals = cashBridgeIntervals(steps, box, cashBridgePlot.heightMm);
+  const chart: PackChartSpec = {
+    id: 'cash-bridge',
+    title: cashBridgeTitle,
+    kind: 'waterfall',
+    svg: renderChartSvg(waterfallOption(
+      steps, scale, undefined, intervals, isCompact(box), undefined, svgBoxPx(cashBridgePlot),
+    ), cashBridgePlot),
+    heightMm: box.heightMm,
+    plotMm: cashBridgePlot.heightMm,
+    waterfallBars: toBars(steps, CASH_UNCAPTURED_LABEL, 'cashFlowSplits'),
   };
+  DRAWN.set(chart, waterfallDrawnSize(steps, scale, intervals, isCompact(box), svgBoxPx(cashBridgePlot)));
+  return { drawn: true, residual, chart };
+}
+
+/** How large each bridge built here was drawn — for `cashBridgeAtHeight`,
+ *  and never part of the chart the pack carries. */
+const DRAWN = new WeakMap<PackChartSpec, { plotPx: number; tallestBarPx: number }>();
+
+/**
+ * THE CASH BRIDGE AT ANOTHER HEIGHT, IF THAT IS A BIGGER PICTURE. Page 8
+ * grows its bridge into whatever the sheet has left; a taller box is taken
+ * only if the plot is taller and the tallest bar is drawn no shorter — a
+ * taller box can redraw the axis coarser, and then every bar is smaller in
+ * more paper. Null where it is not, and the caller keeps the chart it has.
+ */
+export function cashBridgeAtHeight(
+  set: PackFigureSet, scale: MoneyScale, heightMm: number, current: PackCashBridge,
+): (PackCashBridge & { drawn: true }) | null {
+  if (!current.drawn || heightMm <= current.chart.heightMm) return null;
+  const grown = buildCashWaterfallChart(set, scale, { widthMm: CHART_MEASURE_MM, heightMm });
+  if (!grown.drawn) return null;
+  const [was, now] = [DRAWN.get(current.chart), DRAWN.get(grown.chart)];
+  if (was === undefined || now === undefined) return null;
+  return now.plotPx > was.plotPx && now.tallestBarPx >= was.tallestBarPx ? grown : null;
 }

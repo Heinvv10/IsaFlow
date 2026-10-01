@@ -9,8 +9,8 @@
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { cashTitle } from '@/modules/accounting/services/packs/narrative/derivedSentences';
-import { buildCashWaterfallChart, shorterCashTrendChart } from './packPageCharts';
-import { CHART_MEASURE_MM, MID } from './packChartRungs';
+import { cashBridgeAtHeight, shorterCashTrendChart } from './packPageCharts';
+import { MID } from './packChartRungs';
 import { anchorRow } from './packStatementTables';
 import { buildCashBlocks } from './packPageBlocks';
 import type { PackCashBridge } from './packPageCharts';
@@ -71,8 +71,9 @@ while (cashLine !== null && pageMm(cashPage) > pageBoxMm(cashPage)) {
 const spare = pageBoxMm(cashPage) - pageMm(cashPage);
 if (cashBridge.drawn && spare > 1) {
   const heightMm = Math.floor(Math.min(MID.heightMm, cashBridge.chart.heightMm + spare - 0.5));
-  if (heightMm > cashBridge.chart.heightMm) {
-    const grown = buildCashWaterfallChart(set, scale, { widthMm: CHART_MEASURE_MM, heightMm });
+  // And only if it is a bigger picture — see `cashBridgeAtHeight`.
+  const grown = cashBridgeAtHeight(set, scale, heightMm, cashBridge);
+  if (grown !== null) {
     const grownPage = cashSheet(cashLine, grown);
     if (pageMm(grownPage) <= pageBoxMm(grownPage)) cashPage = grownPage;
   }
