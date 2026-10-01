@@ -174,13 +174,19 @@ export function renderSectionHtml(section: PackSection): string {
       return tableHtml(['Item', 'Amount'], rows);
 
     case 'ratios':
-      // The first twenty, as before — and every ratio with no figure, which
-      // keeps its row and prints why wherever it falls. They used to be
-      // dropped without a word, while the reasons map printed as a row.
-      rows = ratioPackRows(d as Record<string, unknown>)
-        .filter((r, i) => i < 20 || r.value === null)
-        .map(r => `<tr><td>${escapeHtml(r.label)}</td><td class="num">${r.value === null ? escapeHtml(r.reason) : r.value.toFixed(2)}</td></tr>`)
-        .join('');
+      // The first twenty ratios that HAVE figures, as before, then every
+      // ratio that has none, with its reason. Taken as two lists: filtering
+      // one list by `index < 20 || no figure` counts a reasoned row among the
+      // twenty, so each ratio that lost its figure pushed one that had a
+      // figure off the end of the table.
+      {
+        const all = ratioPackRows(d as Record<string, unknown>);
+        const withFigures = all.filter(r => r.value !== null).slice(0, 20);
+        const withReasons = all.filter(r => r.value === null);
+        rows = [...withFigures, ...withReasons]
+          .map(r => `<tr><td>${escapeHtml(r.label)}</td><td class="num">${r.value === null ? escapeHtml(r.reason) : r.value.toFixed(2)}</td></tr>`)
+          .join('');
+      }
       return tableHtml(['Ratio', 'Value'], rows);
 
     case 'kpis': {

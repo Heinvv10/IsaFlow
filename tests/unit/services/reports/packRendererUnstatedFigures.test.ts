@@ -101,12 +101,8 @@ describe.each(RENDERERS)('%s — ratios', (_name, rows) => {
     expect(cells.get('free Cash Flow')).toMatch(/capital expenditure is not captured separately/i);
   });
 
-  it('prints free cash flow as a figure, never a reason, where capital expenditure is carried', () => {
+  it('prints no reason for free cash flow where capital expenditure is carried', () => {
     const cells = rows(section({ ...BASE, ...FLOWS, capitalExpenditure: 150_000 }, 'ratios'));
-    // The HTML pack prints the first twenty ratios, and a free cash flow that
-    // HAS a figure falls outside them, as it always did. Where it is printed
-    // it is the figure.
-    expect(cells.get('free Cash Flow') ?? '195678.12').toBe('195678.12');
     expect([...cells.values()].join('|')).not.toMatch(/capital expenditure is not captured/i);
   });
 
@@ -131,5 +127,57 @@ describe('the PDF pack — ratios', () => {
   it('prints operating less capital expenditure as free cash flow', () => {
     const cells = pdfRows(section({ ...BASE, ...FLOWS, capitalExpenditure: 150_000 }, 'ratios'));
     expect(cells.get('free Cash Flow')).toBe('195678.12');
+  });
+});
+
+/**
+ * THE HTML PACK PRINTS TWENTY RATIOS WITH FIGURES, THEN EVERY RATIO WITHOUT.
+ *
+ * It printed the first twenty entries. Keeping the rows that carry a reason
+ * was done as `index < 20 || no figure`, which counts a reasoned row among
+ * the twenty — so each ratio that lost its figure pushed a ratio that HAD one
+ * off the end of the table. Which numeric ratios print must not depend on how
+ * many others could not be computed.
+ */
+describe('the HTML pack — which ratios print', () => {
+  /** The labels of the section's ratios that have a figure, in order. */
+  function figured(s: PackSection): string[] {
+    const reasons = (s.data as { notMeaningful: Record<string, string> }).notMeaningful;
+    return Object.entries(s.data)
+      .filter(([k, v]) => typeof v === 'number' && reasons[k] === undefined)
+      .map(([k]) => k.replace(/([A-Z])/g, ' $1').trim());
+  }
+  const SOUND = { ...BASE, ...FLOWS };
+  const INSOLVENT = { ...SOUND, totalEquity: -500_000, totalLiabilities: 4_400_000 };
+
+  it('prints the first twenty ratios that have figures, however many others have none', () => {
+    const s = section(INSOLVENT, 'ratios');
+    const reasons = Object.keys((s.data as { notMeaningful: Record<string, string> }).notMeaningful);
+    // The premise: on negative equity several ratios inside the first twenty
+    // entries have no figure.
+    const firstTwentyKeys = Object.keys(s.data).slice(0, 20);
+    expect(firstTwentyKeys.filter((k) => reasons.includes(k)).length).toBeGreaterThanOrEqual(2);
+
+    const printed = [...htmlRows(s).keys()];
+    const expected = figured(s).slice(0, 20);
+    expect(expected).toHaveLength(20);
+    expect(printed.slice(0, 20)).toEqual(expected);
+  });
+
+  it('prints every ratio without a figure after them, each with its reason', () => {
+    const s = section(INSOLVENT, 'ratios');
+    const reasons = (s.data as { notMeaningful: Record<string, string> }).notMeaningful;
+    const cells = htmlRows(s);
+    const tail = [...cells.keys()].slice(20);
+    expect(tail).toEqual(Object.keys(s.data)
+      .filter((k) => reasons[k] !== undefined)
+      .map((k) => k.replace(/([A-Z])/g, ' $1').trim()));
+    for (const label of tail) expect(cells.get(label), label).not.toMatch(/^-?[0-9.]+$/);
+  });
+
+  it('leaves a free cash flow that has a figure outside the twenty, as it always was', () => {
+    const cells = htmlRows(section({ ...SOUND, capitalExpenditure: 150_000 }, 'ratios'));
+    expect(cells.size).toBe(20);
+    expect(cells.has('free Cash Flow')).toBe(false);
   });
 });
