@@ -55,9 +55,16 @@ describeIfDb('W2-28 input gates on the role writers', () => {
       await fx.call(chartOfAccountsDetail, 'PUT', DETAIL, { id: X, displayOrder: 'first' }),
       // Without the route check the reclassification below is written, then updateAccount refuses: 500.
       await fx.call(chartOfAccounts, 'PUT', CHART, { id: X, accountSubtype: 'other', isActive: 'false' }),
-      await fx.call(chartOfAccounts, 'PUT', CHART, { id: X, defaultVatCode: 'luxury' }),
+      await fx.call(chartOfAccounts, 'PUT', CHART, { id: X, defaultVatCode: ['standard'] }),
     ].map((a) => a.statusCode);
     expect(answers).toEqual([400, 400, 400]);
+  });
+
+  it('the route checks TYPES only: an account carrying a legacy VAT code (\'zero\') can still be edited with that code re-sent, as the row editor does', async () => {
+    await fx.query("UPDATE gl_accounts SET default_vat_code = 'zero' WHERE id = $1", [X]);
+    const r = await fx.call(chartOfAccounts, 'PUT', CHART, { id: X, accountName: 'Renamed', defaultVatCode: 'zero' });
+    const row = (await fx.query('SELECT account_name, default_vat_code FROM gl_accounts WHERE id = $1', [X])).rows[0];
+    expect({ status: r.statusCode, row }).toEqual({ status: 200, row: { account_name: 'Renamed', default_vat_code: 'zero' } });
   });
 
   it('an id that is not a string is refused 400 by both chart routes', async () => {

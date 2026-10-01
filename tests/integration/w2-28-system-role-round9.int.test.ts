@@ -52,7 +52,7 @@ describeIfDb('W2-28 round 9', () => {
   });
   afterAll(fx.teardown);
 
-  it('an MCP batch that row-locked the bank holder WITHOUT the role lock (a FOR SHARE guard) and then writes an account: no 40P01 reaches anyone', async () => {
+  it('an MCP batch that row-locked the bank holder WITHOUT the role lock (a FOR SHARE guard) and then writes an account: exactly one of the batch and the save is told to retry', async () => {
     const tx = await fx.openTx(drainAfterCommit);
     try {
       await tx.run(async () => { await sql`SELECT 1 FROM gl_accounts WHERE id = ${BANK}::UUID FOR SHARE`; });   // e.g. a bill line's account guard
@@ -64,9 +64,14 @@ describeIfDb('W2-28 round 9', () => {
         { account_id: X, is_active: false, idempotency_key: randomUUID() }, ctx()).then((r) => JSON.stringify(r), (e: Error) => `thrown: ${e.message}`));
       await tx.commit().catch(() => undefined);
       const s = await saving;
-      // The cycle cannot be avoided by order here (the FOR SHARE came first); its victim is told to retry.
+      // The cycle cannot be avoided by order here (the FOR SHARE came first). One side loses and is told to
+      // retry — the save (503) or the tool (the retry refusal) — and the other goes through; never a 500,
+      // a raw 40P01 or the generic failure. (Round 12: tightened from "any of 200/400/409/503".)
       expect(second + JSON.stringify(s.body)).not.toMatch(/deadlock|GENERIC_FAILURE|operation failed/i);
-      expect([200, 400, 409, 503]).toContain(s.statusCode);
+      const saveLost = s.statusCode === 503; const toolLost = /"isError":true/.test(second) && /retry in a moment/.test(second);
+      expect({ save: s.statusCode, saveRetry: /retry in a moment/.test(JSON.stringify(s.body)), toolLost, bank: await holders('bank') }).toEqual(saveLost
+        ? { save: 503, saveRetry: true, toolLost: false, bank: ['1110'] }
+        : { save: 200, saveRetry: false, toolLost: true, bank: ['1115'] });
     } finally { await tx.rollback().catch(() => undefined); }
   }, 30_000);
 
