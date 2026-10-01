@@ -70,14 +70,19 @@ vi.mock('@/modules/accounting/services/reports/casewareExportService', () => ({
 vi.mock('@/lib/pdf/renderPagePdf', () => ({
   renderPagePdf: vi.fn().mockResolvedValue(Buffer.from('%PDF-1.7')),
 }));
-vi.mock('@/modules/accounting/services/reports/reportPackDataService', () => ({
-  getReportPackInput: vi.fn().mockResolvedValue({
+vi.mock('@/modules/accounting/services/reports/reportPackDataService', () => {
+  const input = {
     companyName: 'Co', period: '', revenue: 0, costOfSales: 0, operatingExpenses: 0,
     netProfit: 0, totalAssets: 0, totalLiabilities: 0, totalEquity: 0,
     currentAssets: 0, currentLiabilities: 0, cash: 0, accountsReceivable: 0,
     accountsPayable: 0, inventory: 0,
-  }),
-}));
+  };
+  return {
+    getReportPackInput: vi.fn().mockResolvedValue(input),
+    // The screen route's producer: the same input, with the figures it came from.
+    readReportPackInput: vi.fn().mockResolvedValue({ input, figures: { period: {}, cumulative: { unclassifiedCount: 0 } } }),
+  };
+});
 vi.mock('@/modules/accounting/services/packs/packTrendService', () => ({ getPackTrend: vi.fn().mockResolvedValue([]) }));
 vi.mock('@/modules/accounting/services/packs/pptxExportService', () => ({
   renderPackPptx: vi.fn().mockResolvedValue(Buffer.from('PK')),

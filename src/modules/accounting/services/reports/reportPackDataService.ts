@@ -33,6 +33,7 @@ import {
   toFinancialData,
   inventoryWarning,
   unclassifiedWarning,
+  type PeriodFigures,
 } from '@/modules/accounting/services/gl/financialFiguresService';
 import { log } from '@/lib/logger';
 import { withSavepoint } from '@/lib/neon';
@@ -127,12 +128,37 @@ async function readCashFlows(companyId: string, from: string, to: string): Promi
   return { operatingCashFlow, investingCashFlow, financingCashFlow, cashFlowUnavailable: null };
 }
 
+/**
+ * The pack input, for a caller that needs nothing else from the ledger read.
+ * See `readReportPackInput`, which every caller goes through.
+ */
 export async function getReportPackInput(
   companyId: string,
   companyName: string,
   from: string,
   to: string,
 ): Promise<ReportPackFigures> {
+  return (await readReportPackInput(companyId, companyName, from, to)).input;
+}
+
+/**
+ * THE ONE PRODUCER OF A REPORT PACK'S INPUT, with the figures it was built
+ * from.
+ *
+ * The interactive screen, the HTML export and the shared link each built this
+ * input by hand from `getFinancialFigures`, beside this function, and none of
+ * them carried the cash flows: the PDF printed the ledger's cash flow
+ * statement and the screen for the same period printed reasons. They built it
+ * by hand because they also need the figures — the classification caveat they
+ * return is an object, not this input's sentence — so the figures are handed
+ * back here rather than read from the ledger a second time.
+ */
+export async function readReportPackInput(
+  companyId: string,
+  companyName: string,
+  from: string,
+  to: string,
+): Promise<{ input: ReportPackFigures; figures: PeriodFigures }> {
   const figures = await getFinancialFigures(companyId, from, to);
   const data = toFinancialData(figures);
 
@@ -141,7 +167,7 @@ export async function getReportPackInput(
   const inventory = inventoryWarning(figures);
   const unclassified = unclassifiedWarning(figures.cumulative);
 
-  return {
+  const input: ReportPackFigures = {
     companyName,
     period: `${from} to ${to}`,
     revenue: data.revenue,
@@ -179,4 +205,5 @@ export async function getReportPackInput(
     inventoryCaveat: inventory === null ? null : inventory.board,
     classificationCaveat: unclassified === null ? null : unclassified.board,
   };
+  return { input, figures };
 }
