@@ -10,11 +10,16 @@
  */
 import { lines, PAGE_WIDTH_MM, PT_MM, wrappedLines, type PageOrientation } from './packTextMetrics';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
-import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
-import type { PackDisclosure, PackKpiDelta, PackNarrative, PackPageBlock } from './packPageModel';
+import { GUTTER_MM } from './packDisclosureHeight';
+import type { PackNarrative } from './packPageModel';
 
-/** `--pack-gutter`. */
-export const GUTTER_MM = 8;
+/** The disclosure's arithmetic and the KPI tile's split to
+ *  `packDisclosureHeight.ts` and `packKpiTileHeight.ts` for the 300-line cap.
+ *  Re-exported because every existing caller imports them here. */
+export { GUTTER_MM };
+export { disclosureMm, balancedLines } from './packDisclosureHeight';
+export { kpiTileHeight } from './packKpiTileHeight';
+
 /**
  * `.pack-narrative-columns.is-pending .pack-narrative-actions`'s measure —
  * the FULL page width now, which is what removed the dead column beside it.
@@ -121,57 +126,6 @@ export function notMeaningfulNotesMm(figures: Array<PackFigure | null | undefine
   );
 }
 
-/** The measure a disclosure note is set across — the full page in portrait,
- *  one of two columns in landscape. */
-function noteMeasureMm(orientation: PageOrientation): number {
-  if (orientation === 'portrait') return PAGE_WIDTH_MM.portrait;
-  // A landscape column is 126.4mm. It is budgeted at 116: the column-balancer
-  // below turns one extra line into half a line of page, and half a line is
-  // the difference between the trends page fitting and not.
-  return 116;
-}
-
-/** `.pack-disclosure` — a 15pt heading, then one 14pt paragraph per note. */
-export function disclosureMm(disclosure: PackDisclosure, orientation: PageOrientation): number {
-  const heading = lines(wrappedLines(disclosure.heading, 11, PAGE_WIDTH_MM[orientation]), 15);
-  const twoColumn = disclosure.columns === 2 && orientation === 'portrait';
-  const measure = twoColumn ? (PAGE_WIDTH_MM.portrait - GUTTER_MM) / 2 : noteMeasureMm(orientation);
-  // The list variant is set at the glossary's 8.5pt (see `packPrint.css`); a
-  // disclosure that is an ARGUMENT keeps the pack's 9.5pt prose size.
-  const notePt = twoColumn ? 8.5 : 9.5;
-  const noteLines = disclosure.notes.map((n) => wrappedLines(`${n.heading} ${n.body}`, notePt, measure));
-  const total = noteLines.reduce((a, b) => a + b, 0);
-  if (twoColumn) {
-    // Each note is `break-inside: avoid`, so the block is the taller of the
-    // two columns under Chromium's own in-order balance — the same model
-    // `blockMm` uses for the glossary, and for the same reason.
-    //
-    // PLUS ONE LINE, WHICH IS THE BALANCER'S OWN SLACK AND NOT A FUDGE.
-    // `balancedLines` is the BEST in-order split; Chromium's multicol
-    // balancer does not always find it. Measured on the basis page's own
-    // block against the real faces: at eight notes and at six it lays the
-    // taller column out one line above the best split, and at seven, five,
-    // four and three it hits the split exactly. One line is that error, and
-    // `packSheetCount.test.ts` re-measures it on every fixture.
-    //
-    // This used to be paid for by charging `(notes - 1) * 1.5` for the gap
-    // between notes, which covered the balancer by accident and cost the
-    // block ten millimetres for eight one-line facts. The gap is now zero in
-    // `packPrint.css` — a list of label-and-value pairs on a 14pt leading is
-    // separated already — and the balancer is paid for on purpose.
-    return heading + 1.5 + lines(balancedLines(noteLines) + 1, 12);
-  }
-  if (orientation === 'portrait') return heading + disclosure.notes.length * 1.5 + lines(total, 14);
-  // Landscape sets the notes in two balanced columns (`column-count: 2`) and
-  // the block is as tall as the taller one. Chromium balances by LINE across
-  // the whole block, so the height is half the lines — floored at two,
-  // because a two-line note is the one shape that cannot split (each column
-  // would keep a single line, which `widows`/`orphans` refuse). The gaps ride
-  // in the taller column, the pessimistic reading of where they land.
-  const balanced = Math.max(2, Math.ceil(total / 2));
-  return heading + 1.5 + lines(balanced, 14) + Math.max(0, disclosure.notes.length - 1) * 1.5;
-}
-
 /**
  * `NarrativeColumns` — the commentary and the derived action panel.
  *
@@ -248,62 +202,6 @@ function listMm(items: string[], widthMm: number): number {
     sum + (i === 0 ? 0 : 1.5) + lines(wrappedLines(item, 9.5, widthMm), 14), 0);
 }
 
-type KpiTile = (PackPageBlock & { kind: 'kpiTiles' })['tiles'][number];
-
-/** The measure a tile's own text is set across. `repeat(4, 1fr)` with a
- *  `nowrap` figure lets one column pull wider than a quarter and the rest
- *  narrower; 33mm is under every column measured, which is the direction that
- *  over-counts lines rather than under-counting them. */
-const KPI_COLUMN_MM = 36;
-/** The sparkline is `width: 100%; height: auto` — its height follows its
- *  column, at 0.8 of the width across every column the fixtures produce. */
-const KPI_SPARKLINE_MM = 33;
-
-/**
- * The words a tile's delta line is charged for: THE WORDS THE TILE PRINTS.
- *
- * It was the fixed string "up 00.0%" for every percentage delta. The tile
- * prints its own direction word, and the line is set across a quarter of the
- * measure with no slack — "down 12.0% prior period" takes a second line that
- * "up 00.0% prior period" does not, so a falling figure was under-measured by
- * a whole line. Same call the tile makes (`KpiTileWithSparkline`), with the
- * direction word it derives from the sign, so the model cannot be charging
- * for a different string from the one on the paper.
- */
-/**
- * THE MEASURE THE DELTA LINE IS WRAPPED AT, calibrated against the printed
- * sheet rather than taken from `KPI_COLUMN_MM`.
- *
- * At 36mm the model wraps "down 9.9% prior period", which Chromium sets on
- * one line — a line of over-charge that cost the demo sheet a whole
- * disclosure, because page 3 composes within half a millimetre of its box.
- * Twelve delta lines were rendered through the print harness on that sheet:
- * every `up` and `flat` form and a single-digit `down` percentage print on
- * one line; `down 12.0%`, `down 100.0%`, `down 3.0 pp` and `down 12.0 pp`
- * wrap. The model reproduces all twelve between 38.0 and 39.5mm and this is
- * the narrow end of that range, which is the direction that over-counts.
- * `packKpiTileDeltaHeight.test.ts` holds the twelve.
- */
-const KPI_DELTA_MEASURE_MM = 38;
-
-function deltaWords(delta: PackKpiDelta): string {
-  const direction = delta.value > 0 ? 'up' : (delta.value < 0 ? 'down' : 'flat');
-  return deltaWithWord(delta, direction, direction, 'pp');
-}
-
-export function kpiTileHeight(tile: KpiTile): number {
-  const label = lines(wrappedLines(tile.label, 9, KPI_COLUMN_MM), 12);
-  const figure = tile.figure.value === null
-    ? lines(wrappedLines(tile.figure.unavailable ?? '', 11, KPI_COLUMN_MM), 14)
-    : lines(1, 25);
-  // The delta prints as a glyph, its words and its basis — "↑ up 12.4% prior
-  // period". See `deltaWords`.
-  const delta = tile.delta === null ? 0
-    : 1 + lines(wrappedLines(`X ${deltaWords(tile.delta)} ${tile.delta.basis}`, 9, KPI_DELTA_MEASURE_MM), 12);
-  const spark = tile.sparklineSvg === null ? 0 : 1 + KPI_SPARKLINE_MM;
-  return label + 1 + figure + delta + spark;
-}
-
 /** `.pack-table` — an 8pt header row over 9pt body rows, with the reasons
  *  list underneath. Only the label column wraps. */
 export function tableMm(
@@ -319,44 +217,3 @@ export function tableMm(
   return headMm + body + notMeaningfulNotesMm(figures, widthMm);
 }
 
-
-
-/**
- * The taller of two balanced columns of unbreakable items, in the items' own
- * units.
- *
- * Chromium balances a `column-count: 2` block by finding the SMALLEST height
- * at which a greedy top-to-bottom fill still fits in two columns; with
- * `break-inside: avoid` on every item, that is exactly the best in-order
- * split. Modelled rather than approximated: a `total / 2` reads short by up
- * to a whole item, and `total / 2 + the tallest item` — the safe fudge — cost
- * page 12 forty millimetres it did not have.
- *
- * @param gap The space BETWEEN two items in the same column, in the items'
- *   own units — `.pack-definition + .pack-definition`'s 2mm, and zero for a
- *   list that has none.
- *
- *   It is charged per COLUMN, not per item, because the item that starts the
- *   second column does not print it: a `margin-top` at the top of a
- *   fragmentainer is truncated, and Chromium truncates this one. Baking it
- *   into every item but the first — which is what the caller used to do —
- *   therefore charges one gap that never reaches paper. Two millimetres,
- *   measured: the live demo company's glossary lays out at 155.7mm under the
- *   print harness against 157.7mm of estimate, and page 12 was 0.67mm over
- *   its box, so those two millimetres were costing the sheet FOUR of its
- *   eight provenance facts.
- */
-export function balancedLines(items: number[], gap = 0): number {
-  const total = items.reduce((a, b) => a + b, 0);
-  let best = Infinity;
-  let head = 0;
-  for (let i = 0; i < items.length; i += 1) {
-    head += items[i]!;
-    // Items 0..i in the first column, the rest in the second; each column
-    // pays for the gaps BETWEEN its own items and none above its first.
-    const first = head + i * gap;
-    const second = (total - head) + Math.max(0, items.length - i - 2) * gap;
-    best = Math.min(best, Math.max(first, second));
-  }
-  return best;
-}
