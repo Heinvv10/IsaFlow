@@ -208,16 +208,6 @@ export function wrappedLines(text: string, pt: number, widthMm: number): number 
 }
 
 /**
- * The same greedy wrap against a measure stated in CHARACTERS of ordinary
- * prose — which is how `packMattersPrinted` divides its five columns. One
- * character is `EM_DEFAULT` wide by definition here, so the two models share
- * a wrapper rather than a constant.
- */
-export function linesForChars(text: string, perLine: number): number {
-  return wrapEms(text, perLine * EM_DEFAULT);
-}
-
-/**
  * A "WORD" IS WHAT A BROWSER WILL NOT BREAK, WHICH IS NOT WHAT `\s` MATCHES.
  *
  * `formatMoney` separates thousands with U+00A0 so a figure cannot split
