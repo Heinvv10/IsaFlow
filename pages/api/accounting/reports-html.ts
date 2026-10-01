@@ -174,12 +174,14 @@ export function renderSectionHtml(section: PackSection): string {
     case 'kpis': {
       const items = (d.scorecard as KPIScorecardItem[]) ?? [];
       rows = items.map(item => {
-        const cls = item.status === 'green' ? 'status-green' : item.status === 'amber' ? 'status-amber' : 'status-red';
+        // Unscored is not failed: its own neutral pill, as the screen's tile.
+        const cls = item.status === 'green' ? 'status-green' : item.status === 'amber' ? 'status-amber'
+          : item.status === 'red' ? 'status-red' : 'status-neutral';
         // The tile's own decision: value and target in the ratio's unit, and
         // the reason — not "null" — where the ratio has no value.
         const figure = scorecardFigure(item);
         const actual = figure.scored ? figure.value : figure.reason;
-        return `<tr><td>${escapeHtml(item.name)}</td><td class="num">${escapeHtml(actual)}</td><td class="num">${escapeHtml(figure.target)}</td><td><span class="${cls}">${escapeHtml(item.status.toUpperCase())}</span></td></tr>`;
+        return `<tr><td>${escapeHtml(item.name)}</td><td class="num">${escapeHtml(actual)}</td><td class="num">${escapeHtml(figure.target)}</td><td><span class="${cls}">${escapeHtml(item.status.toUpperCase().replace('_', ' '))}</span></td></tr>`;
       }).join('');
       return tableHtml(['KPI', 'Actual', 'Target', 'Status'], rows);
     }
@@ -249,6 +251,7 @@ function buildReportHtml(
     .status-green { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #dcfce7; color: #16a34a; font-size: 11px; font-weight: 600; }
     .status-amber { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #fef9c3; color: #ca8a04; font-size: 11px; font-weight: 600; }
     .status-red   { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #fee2e2; color: #dc2626; font-size: 11px; font-weight: 600; }
+    .status-neutral { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #f3f4f6; color: #4b5563; font-size: 11px; font-weight: 600; }
     .footer { border-top: 1px solid #e5e7eb; padding: 12px 32px; font-size: 11px; color: #9ca3af; display: flex; justify-content: space-between; }
     @media print {
       .header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
