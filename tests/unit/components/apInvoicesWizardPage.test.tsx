@@ -65,8 +65,10 @@ beforeEach(() => {
   posted = null;
   PARSED = [ROW];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-    if (url.startsWith('/api/accounting/suppliers')) {
-      return envelope([{ id: SUPPLIER_ID, name: 'ACME Trading' }]);
+    // The route that exists. (A stub for `/api/accounting/suppliers` hid for a long
+    // time that no such route does: the page's supplier list was always empty.)
+    if (url.startsWith('/api/accounting/suppliers-list')) {
+      return envelope({ suppliers: [{ id: SUPPLIER_ID, name: 'ACME Trading' }], total: 1 });
     }
     if (url.startsWith('/api/accounting/migration/session')) {
       return envelope({ session: { id: SESSION_ID, sourceSystem: 'sage', status: 'in_progress' } });
@@ -142,5 +144,50 @@ describe('AP migration wizard page', () => {
     expect('invoiceNumber' in row).toBe(false);
     // A mapped-but-empty cell is the other case, and still sends the field.
     expect(row.supplierName).toBe('ACME Trading');
+  }, 20000);
+
+  it('matches the first uploaded file against the supplier list it just loaded', async () => {
+    const { container } = render(<ApInvoicesPage />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['x'], 'ap.csv', { type: 'text/csv' })] } });
+
+    const button = await waitFor(() => {
+      const b = Array.from(container.querySelectorAll('button'))
+        .find(el => /Import 1 Invoices/.test(el.textContent ?? ''));
+      if (!b) throw new Error('import button not rendered');
+      return b;
+    }, { timeout: 5000 });
+    expect(screen.getByText('HIGH')).toBeTruthy();
+    fireEvent.click(button);
+
+    await waitFor(() => expect(posted).not.toBeNull(), { timeout: 5000 });
+    expect((posted!.invoices![0] as Record<string, unknown>).supplierId).toBe(SUPPLIER_ID);
+  }, 20000);
+
+  it('says so when the supplier list cannot be loaded', async () => {
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request) => {
+      if (String(url).startsWith('/api/accounting/suppliers-list')) return new Response('{}', { status: 500 });
+      throw new Error(`unexpected fetch ${String(url)}`);
+    });
+    const { container } = render(<ApInvoicesPage />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['x'], 'ap.csv', { type: 'text/csv' })] } });
+    expect(await screen.findByText(/Couldn't load suppliers.*Upload the file again/, undefined, { timeout: 5000 })).toBeTruthy();
+  }, 20000);
+
+  it('the next file upload retries the supplier load after a failure', async () => {
+    let fail = true;
+    const impl = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) =>
+      String(url).startsWith('/api/accounting/suppliers-list') && fail ? new Response('{}', { status: 500 }) : impl(url as string, init));
+    const { container } = render(<ApInvoicesPage />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const upload = () => fireEvent.change(input, { target: { files: [new File(['x'], 'ap.csv', { type: 'text/csv' })] } });
+    upload();
+    await screen.findByText(/Couldn't load suppliers/, undefined, { timeout: 5000 });
+    fail = false;
+    upload();
+    expect(await screen.findByText('HIGH', undefined, { timeout: 5000 })).toBeTruthy();
+    expect(screen.queryByText(/Couldn't load suppliers/)).toBeNull();
   }, 20000);
 });
