@@ -7,7 +7,7 @@
  * marked it: status 'reconciled' (completion wrote it, or the Sage import
  * `scripts/import-sage-britech.ts` did, with no reconciliation_id), or status
  * 'matched' on a reconciliation. The `reconciliation_id` stamp alone never
- * locks — start stamps every imported line and allocation does not clear it.
+ * locks — start stamps every line it claims and allocation does not clear it.
  *
  * Nothing in the app reopens or cancels a completed reconciliation yet
  * (`cancelReconciliation` refuses anything not in_progress) — R-111. So the
@@ -39,13 +39,17 @@ export type LineLock =
  * How a (locked) bank row stands against reconciliation. Reads only.
  *
  * Decided by what a reconciliation COUNTS and MARKS, never by the stamp alone:
- * `startReconciliation` stamps its id on every imported line of the account
- * (bankReconciliationService.ts:95-98), and allocating a line later does not
- * clear it — but the session counts only `matched` (and `imported`) lines
- * (:28-29), and completion marks only `matched` lines `reconciled` (:127-128).
- * So: a `reconciled` line is locked (completion or the Sage import wrote it); a
- * `matched` line carrying a session's id is locked by that session; anything
- * else — an allocated line still carrying the stamp — is not.
+ * `startReconciliation` stamps its id on the lines it claims
+ * (bankReconciliationClaim.ts), and allocating a line later does not clear it.
+ * Completion marks `reconciled` exactly what the session counts as matched —
+ * `matched` lines and allocated lines self-matched to their own journal line
+ * (2026-09-30). So: a `reconciled` line is locked (completion or the Sage
+ * import wrote it); a `matched` line carrying a session's id is locked by that
+ * session; an `allocated` line is not locked while its session is open — its
+ * reversal is the remedy for a wrong allocation, it leaves the session with the
+ * reversal, and completion recomputes the live GL balance before it signs off.
+ * An allocated line carrying a COMPLETED session's stamp was not counted by it
+ * (allocated after completion, or a pre-2026-09-30 session) and is not locked.
  */
 export async function reconciliationLockOf(companyId: string, row: DbRow): Promise<LineLock> {
   const status = String(row.status ?? '');
