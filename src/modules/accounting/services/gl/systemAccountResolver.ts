@@ -11,6 +11,8 @@
  */
 
 import { sql } from '@/lib/neon';
+import { als } from '@/lib/als';
+import { runAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import {
   MissingSystemAccountError,
@@ -62,22 +64,66 @@ interface CompanyCache {
 
 const companyCache = new Map<string, CompanyCache>();
 const CACHE_TTL_MS = 60_000; // 1 minute
+/**
+ * Bumped by every clear. A fill whose SELECT started before a clear read the
+ * chart as it was then; storing it after the clear would hand the old holder
+ * out for the whole TTL (a resolver read in flight across a Default Accounts
+ * save's COMMIT did exactly that). Such a fill still answers its own caller
+ * but is not cached. Counted PER COMPANY (plus one count for a clear-all): one
+ * tenant's clears must not stop every other tenant's fills from being cached.
+ */
+const companyGen = new Map<string, number>();
+let allGen = 0;
+const genOf = (companyId: string) => `${allGen}:${companyGen.get(companyId) ?? 0}`;
+
+/**
+ * Companies whose roles a request has written and not yet committed, per
+ * request context. Inside that request a resolve reads its own uncommitted
+ * state, which must neither come from nor go into the shared cache: if the
+ * request then rolls back, nothing would ever clear it.
+ */
+const pendingClear = new WeakMap<object, Set<string>>();
 
 /** Clear the cache for a specific company (call after chart of accounts changes) */
 export function clearSystemAccountCache(companyId?: string): void {
   if (companyId) {
+    companyGen.set(companyId, (companyGen.get(companyId) ?? 0) + 1);
     companyCache.delete(companyId);
   } else {
+    allGen++;
     companyCache.clear();
   }
 }
 
-async function ensureCache(companyId: string): Promise<Map<string, CachedAccount>> {
+/**
+ * Clear once the surrounding request transaction has COMMITTED. Cleared before
+ * COMMIT, a resolver read landing between the clear and the COMMIT re-caches
+ * the old holder from committed state, and posting uses it for the whole TTL.
+ * Every transaction owner (withAuth, the bearer pipeline, withAlsTransaction…)
+ * runs after-commit work; with no transaction in flight the writes are already
+ * committed, so the clear runs now. A bare ALS context that runs no after-commit
+ * work (a test harness) also clears now — this is in-memory, not DB, work.
+ */
+export function clearSystemAccountCacheAfterCommit(companyId: string): void {
+  const store = als.getStore();
+  if (store?.afterCommit && !store.finished) {
+    runAfterCommit('system account cache clear', async () => clearSystemAccountCache(companyId));
+    const pending = pendingClear.get(store) ?? new Set<string>();
+    pendingClear.set(store, pending.add(companyId));
+    return;
+  }
+  clearSystemAccountCache(companyId);
+}
+
+async function ensureCache(companyId: string): Promise<CompanyCache> {
+  const store = als.getStore();
+  const readThrough = store !== undefined && pendingClear.get(store)?.has(companyId) === true;
   const existing = companyCache.get(companyId);
-  if (existing && Date.now() - existing.loadedAt < CACHE_TTL_MS) {
-    return existing.map;
+  if (!readThrough && existing && Date.now() - existing.loadedAt < CACHE_TTL_MS) {
+    return existing;
   }
 
+  const gen = genOf(companyId);
   const rows = (await sql`
     SELECT id, account_code, account_name, account_type, account_subtype, created_at
     FROM gl_accounts
@@ -127,8 +173,9 @@ async function ensureCache(companyId: string): Promise<Map<string, CachedAccount
     }, 'accounting');
   }
 
-  companyCache.set(companyId, { map, contested, loadedAt: Date.now() });
-  return map;
+  const entry: CompanyCache = { map, contested, loadedAt: Date.now() };
+  if (!readThrough && gen === genOf(companyId)) companyCache.set(companyId, entry);
+  return entry;
 }
 
 /**
@@ -147,9 +194,8 @@ export async function getSystemAccountCandidates(
   key: SystemAccountKey,
   companyId: string
 ): Promise<CachedAccount[]> {
-  const map = await ensureCache(companyId);
-  const cached = companyCache.get(companyId);
-  const contested = cached?.contested.get(key);
+  const { map, contested: rivals } = await ensureCache(companyId);
+  const contested = rivals.get(key);
   if (contested && contested.length > 0) return [...contested];
   const winner = map.get(key);
   return winner ? [winner] : [];
@@ -182,7 +228,7 @@ const RESOLVED_SUBTYPES: ReadonlySet<string> = new Set<string>(SYSTEM_ACCOUNT_KE
  * That costs one extra query on the failing path only.
  */
 export async function getSystemAccount(key: SystemAccountKey, companyId: string): Promise<CachedAccount> {
-  const map = await ensureCache(companyId);
+  const { map } = await ensureCache(companyId);
   const account = map.get(key);
   if (!account) {
     // The near-miss lookup is a SECOND query, and it must never be what decides
@@ -233,6 +279,6 @@ export async function getSystemAccountId(key: SystemAccountKey, companyId: strin
  * use `getSystemRoleCoverage` directly; this is the bare-name answer.
  */
 export async function validateSystemAccounts(companyId: string): Promise<string[]> {
-  const map = await ensureCache(companyId);
+  const { map } = await ensureCache(companyId);
   return SYSTEM_ACCOUNT_KEYS.filter((key) => !map.has(key));
 }

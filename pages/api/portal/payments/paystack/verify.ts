@@ -74,7 +74,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       let mapped: 'completed' | 'failed' | 'cancelled' | 'pending' = 'pending';
       if (live.status === 'success') mapped = 'completed';
       else if (live.status === 'failed') mapped = 'failed';
-      else if (live.status === 'abandoned') mapped = 'cancelled';
+      // R-178: 'abandoned' is not terminal at Paystack — the checkout can still be paid. The page
+      // is told it was cancelled, but the request stays pending, so the next click gets this same
+      // checkout instead of a second payable one. Re-read first: the webhook may have settled it
+      // while Paystack was being asked.
+      else if (live.status === 'abandoned') {
+        const current = await sql<{ status: string }>`
+          SELECT status FROM paystack_payment_requests WHERE id = ${pr.id} AND company_id = ${pr.company_id}
+        `;
+        status = current[0]?.status === 'pending' ? 'cancelled' : (current[0]?.status ?? status);
+      }
       const isTerminal = mapped !== 'pending';
       if (mapped !== status && isTerminal) {
         // One transaction: the status change and the ledger posting stand or

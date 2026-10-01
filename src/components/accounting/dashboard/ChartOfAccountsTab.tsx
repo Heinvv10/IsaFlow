@@ -4,7 +4,7 @@
 
 import { useState, useEffect } from 'react';
 import { Plus, Loader2, Search } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   AccountCategorySidebar,
@@ -103,14 +103,14 @@ export function ChartOfAccountsTab() {
         credentials: 'include',
         body: JSON.stringify({ ...addForm, accountSubtype: addForm.accountSubtype || undefined, parentAccountId: addForm.parentAccountId || undefined, description: addForm.description || undefined, normalBalance }),
       });
-      if (!res.ok) { const errData = await res.json(); throw new Error(errData.message || 'Failed to create account'); }
+      await assertOk(res, 'Failed to create account');   // the envelope is { error: { message } }: the refusal's own words
       setShowAddForm(false);
       setAddForm({ accountCode: '', accountName: '', accountType: 'asset', accountSubtype: '', parentAccountId: '', description: '' });
       setSuggestedCode('');
       await loadAccounts();
     } catch (err) {
       log.error('Failed to create account', { error: err }, 'accounting-ui');
-      notify.error(err instanceof Error ? err.message : 'Failed to create account');
+      notify.error(apiErrorMessage(err, 'Failed to create account'));
     } finally {
       setIsSaving(false);
     }
@@ -133,11 +133,11 @@ export function ChartOfAccountsTab() {
   ) => {
     try {
       const res = await apiFetch('/api/accounting/chart-of-accounts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id, ...data }) });
-      if (!res.ok) { const errData = await res.json(); throw new Error(errData.message || 'Failed to update account'); }
+      await assertOk(res, 'Failed to update account');
       await loadAccounts();
     } catch (err) {
       log.error('Failed to update account', { error: err }, 'accounting-ui');
-      notify.error(err instanceof Error ? err.message : 'Failed to update account');
+      notify.error(apiErrorMessage(err, 'Failed to update account'));
     }
   };
 
@@ -152,7 +152,7 @@ export function ChartOfAccountsTab() {
     setIsDeleting(true);
     try {
       const res = await apiFetch(`/api/accounting/chart-of-accounts-detail?id=${id}`, { method: 'DELETE', credentials: 'include' });
-      if (!res.ok) { const errData = await res.json(); throw new Error(errData.message || 'Failed to delete account'); }
+      await assertOk(res, 'Failed to delete account');
       setPendingDeleteId(null);
       await loadAccounts();
     } catch (err) {
@@ -161,7 +161,7 @@ export function ChartOfAccountsTab() {
       // user can act on (non-zero balance, active children, unreconciled bank
       // transactions), and closing it would hide the reason behind a toast on
       // a row that looks unchanged.
-      notify.error(err instanceof Error ? err.message : 'Failed to delete account');
+      notify.error(apiErrorMessage(err, 'Failed to delete account'));
     } finally {
       setIsDeleting(false);
     }
