@@ -42,7 +42,15 @@ function makeBrowser(printError: string | null = null) {
         newPage: vi.fn(async () => ({
           goto: vi.fn(async () => {}),
           waitForFunction: vi.fn(async (fn: (a: string[]) => boolean, arg: string[]) => { waitCalls.push({ fn, arg }); }),
-          evaluate: vi.fn(async () => printError),
+          // Runs the transport's OWN function against a document that carries
+          // the marker under its real name only, so reading any other
+          // attribute name returns null and the render succeeds.
+          evaluate: vi.fn(async (fn: (a: string) => unknown, arg: string) => {
+            vi.stubGlobal('document', {
+              documentElement: { getAttribute: (name: string) => (name === 'data-print-error' ? printError : null) },
+            });
+            try { return fn(arg); } finally { vi.unstubAllGlobals(); }
+          }),
           emulateMedia: vi.fn(async () => {}),
           pdf: vi.fn(async () => pdfBytes),
         })),
@@ -81,6 +89,11 @@ describe('playwrightTransport — a print page that reports it cannot render', (
   it('fails the render with the reported reason instead of waiting out the timeout', async () => {
     launchMock.mockResolvedValue(makeBrowser('fonts: footer face unreachable'));
     await expect(playwrightTransport.render(request)).rejects.toThrow(/cannot render: fonts: footer face unreachable/);
+  });
+
+  it('reads the attribute the print page writes (usePrintMode / usePackPagesData)', async () => {
+    const { PRINT_ERROR_ATTRIBUTE } = await import('@/lib/pdf/pdfTransport');
+    expect(PRINT_ERROR_ATTRIBUTE).toBe('data-print-error');
   });
 
   it('carries a pages-fetch refusal through with its status', async () => {
