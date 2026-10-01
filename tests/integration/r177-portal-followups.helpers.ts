@@ -36,13 +36,16 @@ export const enableRoute = async (invoiceId: string) => call(
 export const mintExplicit = async (invoiceId: string, amount = 10) => call(
   (await import('../../pages/api/portal/payment-link')).default as never,
   authed({ query: {}, body: { invoiceId, clientId: CUSTOMER, amount } }));
-/** The service in a transaction of its own, as the fixture's owner: no row security, so only its predicates isolate. */
-export async function enableOnlinePayment(companyId: string, invoiceId: string): Promise<string | null> {
+/**
+ * The service in a transaction of its own, as the fixture's owner: no row security, so only its
+ * predicates isolate. `strict` lets InvoiceNotApprovedError through instead of answering null.
+ */
+export async function enableOnlinePayment(companyId: string, invoiceId: string, strict = false): Promise<string | null> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const url = await als.run({ client, userId: USER, companyId, claims: {} } as never,
-      () => enableOnlinePaymentInTx(companyId, invoiceId).catch((err) => { if (err instanceof InvoiceNotApprovedError) return null; throw err; }));
+      () => enableOnlinePaymentInTx(companyId, invoiceId).catch((err) => { if (!strict && err instanceof InvoiceNotApprovedError) return null; throw err; }));
     await client.query('COMMIT');
     return url;
   } catch (err) { await client.query('ROLLBACK'); throw err; } finally { client.release(); }
