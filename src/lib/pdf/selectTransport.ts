@@ -46,9 +46,9 @@
 // on the Gotenberg path a tenant logo hosted anywhere but the app host is not
 // fetched at all, and an SSRF target certainly is not. The PLAYWRIGHT path has
 // no equivalent — its request interception is scoped to the API paths the
-// print page fetches and never sees an image load — which is why the logo URL
-// is re-checked at compose time in `packBrand.resolvePackBrandForRender`
-// rather than being left to the container.
+// print page fetches and never sees an image load — which is why the browser
+// is never given the logo URL: `packBrandForRender.resolvePackBrandForRender`
+// fetches the logo server-side once and the cover carries a `data:` URI.
 
 import { log } from '@/lib/logger';
 
