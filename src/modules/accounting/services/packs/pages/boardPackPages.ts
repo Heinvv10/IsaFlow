@@ -23,32 +23,22 @@
  * page's requirement or leaking unapproved text.
  */
 
-import { PACK_LABELS } from '@/modules/accounting/services/packs/packSections';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
-import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
 import {
   highlightsTitle,
-  narrativeTitle,
-  boardActionMatters,
-  positionTitle,
   scorecardScore,
   trendsTitle,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import { buildBasis, PACK_SCALE, statementFootnotes } from './packBasis';
-import { dayCountsMeasured, tradeBalancesFootnote } from './packTradeBalances';
 import { buildHighlightTiles } from './packHighlights';
 import { buildScorecardGroups } from './packScorecard';
 import {
   buildCashTrendChart,
   buildCashWaterfallChart,
-  buildPositionCompositionChart,
-  positionCompositionChartAtHeight,
   buildTrendPanels,
   TRENDS_PANELS_SPECIFIED,
 } from './packPageCharts';
 import {
-  anchorColumn,
-  anchorRow,
   buildCashTable,
   buildIncomeStatementTable,
   buildPositionTable,
@@ -57,24 +47,12 @@ import {
   buildMonthlyResultsTable,
 } from './packMonthlyResults';
 import {
-  buildCommentaryBlocks,
   buildHighlightsBlocks,
-  buildPositionBlocks,
-  impossibleBalanceLines,
   buildTrendBlocks,
 } from './packPageBlocks';
-import { withDerivedMatters } from './packDerivedMatters';
-import { partialMonthClauseFor, partialMonthOf } from './packPartialMonth';
-import { selectPrintedMatters } from './packMattersPrinted';
-import { fitPageToBox } from './packPageFit';
-import { pageBoxMm, pageMm } from './packPageMetrics';
-import { relaidNarrative } from './packNarrativeLayout';
-import { definitionsPrintedBy } from './packDefinitions';
+import { partialMonthOf } from './packPartialMonth';
 import {
   buildMattersBlock,
-  buildMattersSupportBlocks,
-  mattersBudgetMm,
-  mattersTitle,
   MATTERS_NAV_LABEL,
 } from './packMattersPage';
 // Debtor days printed 213 on the scorecard page and 63.7 on the trends
@@ -82,32 +60,24 @@ import {
 // period and the other a month.
 import { formatPackPeriod } from './packPeriodLabel';
 import {
-  buildBasisPage,
-  buildFrontPages,
-  BASIS_NAV_LABEL,
-  fitContentsPage,
-  numbered,
   page,
-  printedCaveats,
   type UnnumberedPage,
 } from './packFrontMatter';
 import { buildIncomeStatementSheet } from './packIncomeSheet';
 import { buildCashSheet } from './packCashSheet';
 import { buildMonthlyResultsPage } from './packMonthlyPage';
-import { buildScorecardPage, scorecardPageNotes } from './packScorecardNotes';
 import { ledgerStalenessNote } from './packLedgerStaleness';
 import { shortenedPanelsNote } from './packShortenedPanels';
-import {
-  receivablesBaseNote,
-  receivablesReconciliationNote,
-} from './packReceivablesReconciliation';
 import type { BoardPackInput } from './packBoardPackInput';
-import { printedStrings } from './packPrintedStrings';
+import { statementFootnoteAnchors } from './packStatementFootnoteAnchors';
+import { buildScorecardSheet } from './packScorecardSheet';
+import { selectBoardPackMatters } from './packMattersSelection';
+import { buildPositionSheet } from './packPositionSheet';
+import { comparativeReader } from './packPrintsComparative';
+import { buildNarrativePage } from './packNarrativePage';
+import { assembleBoardPackDocument } from './packDocumentAssembly';
 import type {
-  PackChartSpec,
   PackComparativePeriod,
-  PackTable,
-  PackNarrative,
   PackPagesDocument,
 } from './packPageModel';
 
@@ -115,8 +85,6 @@ import type {
  *  `packBoardPackInput.ts` and `packPrintedStrings.ts`, split out for the
  *  300-line cap. Re-exported because every existing caller imports it here. */
 export type { BoardPackInput };
-
-const pending: PackNarrative = { status: 'pending', body: null, actions: [] };
 
 export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const { set, trend, generatedAt } = input;
@@ -155,33 +123,10 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
           end: set.priorWindow.end,
         };
   const statementNotes = statementFootnotes(comparativePeriod, set.currentWindow);
-  // EVERY NUMBERED FOOTNOTE GETS THE SUPERSCRIPT IT PROMISES.
-  //
-  // The pack ran two footnote systems and only the lettered one worked: on
-  // the live demo pack TWELVE numbered notes printed at the feet of pages 5
-  // to 9 and not one had a marker anywhere on its sheet. Page 3's has always
-  // been anchored, through `PackKpiTile.trendFootnote`, which is what made
-  // the rest look deliberate.
-  //
-  // The numbers are fixed by `statementFootnotes`: 1 is the rounding note on
-  // every statement page and 2 is the prior column's period, present only
-  // where there IS a comparative. They are stamped here rather than in the
-  // table builders because the NUMBER is a property of the page, and
-  // `anchorRow` throws if the row it names is not there — an anchor that
-  // silently matches nothing is the defect this replaces.
-  const ROUNDING_FOOTNOTE = 1;
-  const PRIOR_COLUMN_FOOTNOTE = 2;
-  /** The rounding note belongs on the row a reader's addition lands on. */
-  const anchorRounding = (table: PackTable): PackTable => {
-    const last = [...table.rows].reverse()
-      .find((row) => row.role === 'total' || row.role === 'grandTotal');
-    return last === undefined ? table : anchorRow(table, (row) => row === last, ROUNDING_FOOTNOTE);
-  };
-  /** And the comparative's period belongs on the column heading that claims
-   *  it — the one thing in the pack a footnote is about that is not a row. */
-  const anchorPrior = (table: PackTable): PackTable => (
-    comparativePeriod === null ? table : anchorColumn(table, 'prior', PRIOR_COLUMN_FOOTNOTE)
-  );
+  // EVERY NUMBERED FOOTNOTE GETS THE SUPERSCRIPT IT PROMISES — see
+  // `packStatementFootnoteAnchors`, which holds the two numbers and the two
+  // functions that stamp them on.
+  const { ROUNDING_FOOTNOTE, anchorRounding, anchorPrior } = statementFootnoteAnchors(comparativePeriod);
 
   const tiles = buildHighlightTiles(set, trend, p);
   const monthlyResults = anchorRounding(buildMonthlyResultsTable(trend, p));
@@ -197,73 +142,15 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // SPLIT (which of them share a y-domain) is read by `buildTrendBlocks`
   // alone, off the one decision `buildTrendPanels` made.
   const panels = trendPanels.panels;
-  // PAGE 9'S ONE FOOTNOTE MARKS THE ROW IT IS ABOUT. `PackScorecardRow.footnote`
-  // is rendered by `ScorecardTable` and has been since the row model was
-  // written; the page simply never set it, so "Debtor days on this page … is
-  // the figure for the WHOLE reporting period" printed under a Debtor days
-  // row with nothing on it. Set only where the footnote is actually printed —
-  // the panel it reciprocates is not drawn on every pack.
-  // AND THE ROW THAT CARRIES A RED MISS CARRIES THE BASE CAVEAT WITH IT.
-  //
-  // Page 9 prints `Debtor days · 213 days · target 30 days · MISSED` in red,
-  // and page 4 says the ratio is taken on trade receivables of 59 — the
-  // control account — against an open customer subledger of 10 724, and to
-  // "read the day count as a measure of the control account, not of what
-  // customers owe". The pack scored a red miss against a base it disowns one
-  // page earlier, and this row's only footnote was about annualisation. The
-  // cross-reference ran one way.
-  //
-  // Fired on the SAME condition page 4's block is, by asking that builder, so
-  // the two cannot come apart; and carried inside the existing footnote,
-  // because sheet 9 has 2.77mm and a second one costs 3.88.
-  // BUILT ONCE FOR THE WHOLE PACK. Page 4's block, page 9's flag and page
-  // 11's own support block all turn on these two, and they were composed up
-  // to four times between them purely to be tested for null.
-  const receivablesReconciliation = receivablesReconciliationNote(
-    input.receivables, set.current.accountsReceivable, scale,
-  );
-  const debtorsBase = receivablesBaseNote(
-    input.receivables,
-    set.current.accountsReceivable,
-    scale,
-    ['both', 'debtorOnly'].includes(dayCountsMeasured(set)),
-    receivablesReconciliation,
-  );
-  const debtorsBaseApplies = debtorsBase !== null;
-  // PAGE 9'S FOOTNOTES AND THE MARKERS THAT POINT AT THEM — see
-  // `packScorecardNotes`. Three separate rulings' worth of reasoning, all
-  // about one sheet's two footnotes, lifted out of the composer whole.
-  const page7Impossible = impossibleBalanceLines(position, set);
-  const scorecardNotes = scorecardPageNotes({
-    scorecard, set, panels, comparativePeriod, debtorsBaseApplies, page7Impossible,
-  });
-  const scorecardPage = buildScorecardPage(score, scorecard, scorecardNotes);
+  // PAGE 9, AND THE THREE READINGS IT SHARES WITH PAGES 4, 7 AND 11 — see
+  // `packScorecardSheet`. Built once for the whole pack.
+  const { receivablesReconciliation, debtorsBase, page7Impossible, scorecardPage } =
+    buildScorecardSheet(input, set, scale, position, scorecard, score, panels, comparativePeriod);
 
-  // PAGE 11'S OWN BLOCKS, BEFORE ITS TABLE — because the table's budget is
-  // whatever they leave behind. ONE selection, read by page 4's panel and
-  // page 11's table alike: derived twice, they contradicted each other. See
-  // `SelectedMatters` and `mattersBudgetMm`.
-  // PAGE 11 CARRIES THE RECONCILIATION OF THE TWO DEBTORS FIGURES THE PACK
-  // PRINTS, and it is a SUPPORT block rather than something appended after
-  // the table, because this page's table is budgeted against whatever its
-  // support blocks leave behind — see `packReceivablesReconciliation.ts` for
-  // what that costs and why it is the right way round.
-  const mattersSupport = buildMattersSupportBlocks(
-    input.mattersCommentary ?? pending,
-    receivablesReconciliation,
-  );
-  // The title first, from the FULL list: the budget the table spends depends
-  // on how much paper the header leaves, and the headline must not change
-  // when a row moves off the page.
-  // The checks that reach this page all read the ledger; one anomaly is
-  // visible only in the SERIES — see `creditMonthMatters`.
-  // THE PERIOD'S NET PROFIT IS AN ARGUMENT, not a fact the derived sentence
-  // infers from the branch it is written in — see `CREDIT_MONTH_STANDING`.
-  const allMatters = withDerivedMatters(input.matters, trend, scale, set.current.netProfit);
-  const mattersHeadline = mattersTitle(allMatters, scale);
-  const matters = selectPrintedMatters(
-    allMatters, mattersBudgetMm(mattersSupport, mattersHeadline, allMatters),
-  );
+  // PAGE 11'S OWN BLOCKS, BEFORE ITS TABLE, AND THE ONE SELECTION pages 4 and
+  // 11 both read — see `packMattersSelection`.
+  const { mattersSupport, mattersHeadline, matters } =
+    selectBoardPackMatters(input, receivablesReconciliation, trend, scale, set);
 
   // Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
   // its delta and the basis that delta is measured against.
@@ -297,83 +184,12 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // `packCashSheet`, the same construction page 6 uses for its bridge.
   const cashPage = buildCashSheet(cash, cashBridge, cashTrend, trend, set, scale, statementNotes);
 
-  // PAGE 7'S MEMORANDUM MARKS THE TWO ROWS ITS BALANCES SIT INSIDE. Trade
-  // receivables and trade payables are not rows of this table — they are the
-  // splits a reader has to be given because the day counts on pages 3 and 9
-  // are taken on them — so the marker goes on Current assets and Current
-  // liabilities, which is where those balances are. It is the one numbered
-  // footnote whose subject is a figure the sheet does not print, and marking
-  // the rows that contain it is the closest thing to an anchor that is true.
-  const positionTable = anchorRow(
-    anchorRow(position, (row) => row.label.toLowerCase() === 'current assets',
-      statementNotes.length + 1),
-    (row) => row.label.toLowerCase() === 'current liabilities', statementNotes.length + 1,
-  );
-  // PAGE 7, AS A FUNCTION OF THE CHART ON IT — the construction page 6 uses
-  // for its bridge. It carries the two balances the day counts are taken on
-  // as a footnote — see `packTradeBalances.ts` for why it is a footnote
-  // rather than two memorandum rows, and what that cost.
-  const positionSheet = (chart: PackChartSpec): UnnumberedPage => page(
-    positionTitle(set, scale), 'Balance sheet', 'Financials', 'high',
-    buildPositionBlocks(positionTable, chart, set, scale, page7Impossible),
-    'portrait',
-    [...statementNotes, tradeBalancesFootnote(set, scale, statementNotes.length + 1)],
-  );
-  // AND THE CHART GIVES BACK WHAT THE SHEET IS SHORT BY, MEASURED. The table
-  // gained its closing "Total equity and liabilities" row, and on a company
-  // carrying both the below-zero block and the negative-equity disclosure the
-  // sheet had under two millimetres to give it: `fitPageToBox` paid for the
-  // row out of the page's three footnotes, the trade-balances memorandum
-  // among them. The chart is the one thing here with a height the spec lets
-  // us choose, so it takes the overrun and no more — a sheet that fits keeps
-  // the middle rung, and one the shorter chart cannot rescue is left to the
-  // fitter as before.
-  const positionChart = buildPositionCompositionChart(set, scale);
-  let positionPage = positionSheet(positionChart);
-  const positionOverrun = pageMm(positionPage) - pageBoxMm(positionPage);
-  if (positionOverrun > 0) {
-    const shorter = positionCompositionChartAtHeight(set, scale, positionChart.heightMm - positionOverrun);
-    const shorterPage = shorter === null ? null : positionSheet(shorter);
-    if (shorterPage !== null && pageMm(shorterPage) <= pageBoxMm(shorterPage)) {
-      positionPage = shorterPage;
-    }
-  }
-  // WHICH DESTINATION CELLS ACTUALLY CARRY A COMPARATIVE, read off the tables
-  // and the scorecard this pack composed rather than off the figure set they
-  // came from. Page 10's note claims "all against the comparative but gross
-  // margin", and the demo pack's page 9 prints Debtor days PRIOR as `n/m` —
-  // the same state as gross margin's, and one the sentence did not name.
-  //
-  // A `PackFigure` whose `value` is null is a cell printing a reason instead
-  // of a number, which is exactly what "prints no comparative" means to a
-  // reader who turns to it.
-  //
-  // AND A CELL THAT IS NOT THERE PRINTS NONE EITHER. This read
-  // `row?.figures.prior?.value !== null`, and on a pack with no comparative
-  // period the row carries no `prior` figure at all: `undefined !== null` is
-  // true, so four absent columns were reported as four comparatives.
-  const rowPrior = (table: PackTable, label: string): boolean => {
-    const prior = table.rows.find((r) => r.label.toLowerCase() === label)?.figures.prior;
-    return prior !== undefined && prior.value !== null;
-  };
-  const printsComparative = (panelId: string): boolean => {
-    switch (panelId) {
-      case 'trend-revenue': return rowPrior(income, 'revenue');
-      case 'trend-operating-expenses': return rowPrior(income, 'operating expenses');
-      case 'trend-net-profit': return rowPrior(income, 'net profit');
-      case 'trend-cash': return rowPrior(cash, 'closing cash');
-      case 'trend-debtor-days':
-        return scorecard.some((g) => g.rows.some(
-          // `prior` is NULL, not undefined, where there is no prior period —
-          // the same trap as `rowPrior` above, one arm down.
-          (r) => r.metric.toLowerCase() === 'debtor days' && r.prior !== null && r.prior.value !== null,
-        ));
-      // Gross margin's exception is structural — page 6 carries no comparative
-      // column for the ratio at all — and `printsAgainstComparative` already
-      // states it, so this reading cannot make it worse or better.
-      default: return true;
-    }
-  };
+  // PAGE 7, WITH ITS MEMORANDUM ANCHORED AND ITS CHART AT THE HEIGHT THE
+  // MEASURED SHEET CHOSE — see `packPositionSheet`.
+  const positionPage = buildPositionSheet(position, statementNotes, set, scale, page7Impossible);
+  // WHICH DESTINATION CELLS ACTUALLY CARRY A COMPARATIVE — see
+  // `packPrintsComparative`.
+  const printsComparative = comparativeReader(income, cash, scorecard);
   const trendBlocks = buildTrendBlocks(trendPanels, printsComparative);
 
   const staleLedger = ledgerStalenessNote(input.ledgerVersion, trend, set.currentWindow.end);
@@ -385,50 +201,8 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // `shortenedPanelsNote` for why it is on this sheet and not page 10.
   const shortPanels = shortenedPanelsNote(trendPanels.shortenedPanels, trend);
 
-  // Page 4 — no tabular figures. Spec §4.A keeps this page free of them; both
-  // of its columns are prose.
-  //
-  // TWO COLUMNS, AND THE SECOND ONE IS WHY THE PAGE IS NOT NEARLY EMPTY.
-  // Nothing in this codebase stores board commentary yet, so the left column
-  // is the visible "Commentary pending approval." placeholder on every pack
-  // today — and the page was built as commentary-ONLY, so that single italic
-  // line was the whole sheet at 1.0% fill. §4.A specifies an action panel
-  // beside it and it was simply never populated. Filled from the same matters
-  // model page 11 tabulates, the page carries content whether or not
-  // commentary is approved, so the pack is TWELVE pages either way (R-P57)
-  // rather than changing shape according to an editorial state — a director
-  // comparing two months' packs must not see the structure move.
-  //
-  // The placeholder STAYS. Filling the panel is not a way to stop saying that
-  // commentary is owed and unwritten.
-  //
-  // THE TITLE IS ABOUT THIS PAGE'S PAYLOAD — see `narrativeTitle`, and note
-  // that `boardActionMatters` is the same list the panel below prints, not a
-  // second count of the selection.
-  //
-  // Its footnote went with the old title: `narrativeComparativeFootnote`
-  // existed to explain why the headline's net-profit percentage could not be
-  // formed, and the headline no longer states one. It was also the second
-  // unanchored footnote in the pack.
-  const narrativePage = page(
-    narrativeTitle(boardActionMatters(matters), [...matters.printed, ...matters.omitted], scale),
-    'Commentary and actions',
-    'Performance',
-    'medium',
-    // AND THE ONE FACT ABOUT THE FIGURE SET THAT BELONGS ON THE FIRST PAGE
-    // A BOARD READS: whether the ledger has moved since it was last posted
-    // to. Null on a current ledger, which is most packs — see
-    // `ledgerStalenessNote` for the three conditions and for why this sheet
-    // rather than page 5 or page 12.
-    [
-      ...buildCommentaryBlocks(input.commentary ?? pending, matters),
-      ...(staleLedger === null ? [] : [staleLedger]),
-      ...(debtorsBase === null ? [] : [debtorsBase]),
-      ...(shortPanels === null ? [] : [shortPanels]),
-    ],
-    'portrait',
-    [],
-  );
+  // Page 4 — no tabular figures. See `packNarrativePage`.
+  const narrativePage = buildNarrativePage(matters, scale, input, staleLedger, debtorsBase, shortPanels);
 
   const body: UnnumberedPage[] = [
     highlights,
@@ -471,89 +245,10 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     ]),
   ];
 
-  // Page 2 says where the full basis is; it is the LAST page, counted rather
-  // than written as the literal 12 it used to be. The basis page is not in
-  // `body` yet — see below — so it is counted here.
-  const total = 2 + body.length + 1;
-  const [cover, contents] = buildFrontPages({
-    companyLegalName: input.companyLegalName,
-    period: input.period,
-    preparedBy: input.preparedBy,
-    generatedAt,
-    draftReasons: input.draftReasons,
-    partialMonth: partialMonthClauseFor(trend),
-    scale,
-    currency,
-    basis,
-    basisPageNumber: total,
-  });
-  // THE CONTENTS PAGE IS FITTED BEFORE THE BASIS PAGE IS COMPOSED, and the
-  // order is the whole point. The caveats print with the contents now, and
-  // the basis page's standfirst counts them and says where they are — a
-  // count composed before the contents page is held to its sheet is a count
-  // that fit can falsify. See `fitContentsPage`.
-  // THE LABELS, not the count: the index wraps a long one onto a second line
-  // and the reserve has to know. Page 12 is not composed yet — it is composed
-  // FROM this fit — so it is named by its constant.
-  const fittedContents = fitContentsPage(
-    contents!, [cover!, contents!, ...body].map((p2) => p2.navLabel).concat(BASIS_NAV_LABEL));
-  // AND HOW MANY BRIDGES THE COLOUR KEY IS ABOUT — counted off the composed
-  // body rather than assumed, because page 8's cash bridge is refused where
-  // there is nothing to bridge through and the demo pack draws one waterfall,
-  // under a key reading "On the bridges".
-  const bridgesDrawn = body
-    .flatMap((p2) => p2.blocks)
-    .filter((b) => b.kind === 'chart' && b.chart.kind === 'waterfall').length;
-  // THE GLOSSARY IS DRIVEN BY WHAT THE ELEVEN SHEETS BEFORE IT PRINT — see
-  // `definitionsPrintedBy`. Composed off the BODY, which is why it happens
-  // here and not in `buildBasis`: the basis is built before a single page
-  // exists, and a definition of a measure the document does not carry is a
-  // definition of nothing.
-  const printedProse = body
-    .flatMap((p2) => printedStrings(p2))
-    .join(' \u0001 ')
-    .toLowerCase();
-  const basisPage = buildBasisPage(
-    { ...basis, definitions: definitionsPrintedBy(basis.definitions, printedProse) },
-    input.companyLegalName, input.period, comparativePeriod, scale, currency,
-    printedCaveats(fittedContents, basis), bridgesDrawn,
+  // THE FRONT PAGES, THE BASIS PAGE, THE NUMBERING AND THE INTEGRITY GATE —
+  // see `packDocumentAssembly`. The gate is still the last thing that
+  // happens: a pack whose figures do not reconcile never becomes a document.
+  return assembleBoardPackDocument(
+    body, input, generatedAt, trend, scale, currency, basis, comparativePeriod, draft, p,
   );
-  const pages = numbered([
-    cover!,
-    fittedContents,
-    // EVERY page, held to its sheet — the same rule the matters table spends
-    // its budget under, applied to the prose on the other eleven. A page that
-    // already fits comes back untouched.
-    //
-    // LAYOUT FIRST, THEN THE FIT. `relaidNarrative` decides which of page 4's
-    // two shapes the narrative block is drawn in — see the module, and note
-    // that it drops nothing. It runs BEFORE `fitPageToBox` because that
-    // function may take disclosure notes and page footnotes and nothing else,
-    // and that list is the guarantee no figure is ever trimmed off a sheet.
-    ...body.map((p2) => fitPageToBox(relaidNarrative(p2))),
-    fitPageToBox(basisPage),
-  ]);
-
-  const document: PackPagesDocument = {
-    packType: 'board',
-    packLabel: PACK_LABELS.board,
-    companyName: input.companyLegalName,
-    period: input.period,
-    generatedAt,
-    draft,
-    brand: input.brand,
-    numberConvention: basis.numberConvention,
-    basisOfPreparation: basis.basisOfPreparation,
-    comparativePeriod,
-    provenance: p,
-    pages,
-  };
-
-  // Spec §7.2, and the last thing this function does: a pack whose figures do
-  // not reconcile never becomes a document. The gate THROWS rather than
-  // warning, because a warning on a pack a director forwards to their bank is
-  // a warning nobody reads. Every caller of this function inherits it, which
-  // is the only way the check cannot be forgotten at one call site.
-  assertPackIntegrity(document);
-  return document;
 }
