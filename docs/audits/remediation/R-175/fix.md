@@ -807,6 +807,47 @@ written and no Flows were debited for this call; it still counted towards the ba
 limit". The two tests that match it are updated: the transport unit test and master's
 `w2-28-system-role-round12` integration test.
 
+## /review round (PR #604)
+
+A fresh blind reviewer said SHIP with two MEDIUMs and two LOWs.
+
+1. **`send-for-signing` marks its work.** Its bounded work is the Signum document, not only the
+   signer emails. With SMTP down it created the document, sent nothing, answered 200 and got
+   the unit back. The route now marks the unit used once `sendForSigning` returns, and on a
+   failure calls `markQuotaUsedUnlessNoWork`: a timeout counts as use, a refused connection does
+   not. A Signum refusal now carries its HTTP `status`, so it counts as no work. The census lists
+   the route itself as where this route's use is recorded.
+2. **SMTP failures are classified, from nodemailer 8.0.4's source** (`lib/smtp-connection`,
+   `lib/errors.js`). Not use: a 4xx/5xx reply (`responseCode`), EDNS, ETLS, EREQUIRETLS, EAUTH,
+   ENOAUTH, EOAUTH2, EENVELOPE, EMESSAGE, ECONFIG, and ESOCKET from `connect` or `getaddrinfo`
+   (nodemailer overwrites Node's code with ESOCKET but keeps `syscall`). Use: ETIMEDOUT
+   (nodemailer reports the connect, the greeting and an idle socket mid-message all as
+   ETIMEDOUT with command CONN, so it proves nothing), any other socket error, a dropped
+   connection, and anything unknown. Tested with the real nodemailer against a small SMTP
+   server in the test process (refusals at AUTH, MAIL, RCPT, DATA and end of DATA; a connection
+   dropped after the message; a refused port), and the rest by error shape.
+3. **After-commit work is visible.** The quota caller census fails when a refundable route can
+   reach a file that registers `runAfterCommit` work, unless the file is listed with a reason.
+   One is: `emailNotificationService.ts` registers the invoice.sent webhook only after a
+   successful send, when the unit is already used. The forfeit itself is unchanged.
+4. **Pool size: changed from 3 to 10, by measurement.** On the fixture (load average 3.5 to 6,
+   32 cores), every call admitted:
+
+   | Concurrent calls | Pool 3, p50 / p99 | Pool 10, p50 / p99 |
+   |---|---|---|
+   | 50, one key | 127 / 253 ms | 48 / 97 ms |
+   | 50, many keys | 85 / 170 ms | 11 / 19 ms |
+   | 200, one key | 521 / 1017 ms | 190 / 378 ms |
+   | 200, many keys | 335 / 673 ms | 38 / 75 ms |
+   | 1000, one key | 2.6 s / 5.0 s, 30 to 56 calls hit the connect timeout | 0.9 s / 1.9 s, none |
+   | 1000, many keys | 0.6 to 1.7 s / 1.2 to 3.4 s | 187 / 370 to 421 ms |
+
+   Cost: up to 10 limiter connections per process instead of 3, closed after 30 s idle. The
+   production database's `max_connections` and the number of production processes were not
+   checked (the fixture allows 100). Measured with a scratch test that is not committed.
+
+Mutants: 23, all red, with a green baseline before and after (`green.log`).
+
 ## Rollback
 
 Revert the branch's commits. No migration, no data change, no configuration. Counters written
