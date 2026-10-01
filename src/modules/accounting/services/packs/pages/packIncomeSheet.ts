@@ -180,7 +180,7 @@ while (pageMm(incomeSheet) > pageBoxMm(incomeSheet)) {
 const spare = pageBoxMm(incomeSheet) - pageMm(incomeSheet);
 if (spare > 1) {
   const grown = profitBridgeAtHeight(
-    set, scale, grossMarginWindowNote.length > 0, profitBridge.heightMm + spare - 0.5,
+    set, scale, grossMarginWindowNote.length > 0, profitBridge.heightMm + spare - 0.5, profitBridge,
   );
   if (grown !== null && grown.heightMm > profitBridge.heightMm) {
     const grownSheet = incomeStatementSheet(grown);

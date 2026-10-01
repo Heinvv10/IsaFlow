@@ -27,10 +27,11 @@ import { waterfallOption } from '@/modules/accounting/services/packs/packChartOp
 import { MIN_TICK_PITCH_PX } from '@/modules/accounting/services/packs/packChartAxes';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { bars, clipRect, figures, haloOrder, illegible, outsideClip, straddlesOwnBar, textOnText, wrongSide } from './support/bridgeSvg';
+import { bars, clipRect, figures, haloOrder, illegible, onNeighbourBars, outsideClip, straddlesOwnBar, textOnText, wrongSide } from './support/bridgeSvg';
 import { outsideSvg } from './support/svgBounds';
 import { yAxisTicks } from './support/svgTicks';
 import { bridgeFuzz } from './support/bridgeFuzz';
+import { LEGACY_WATERFALL_BOX } from '@/components/accounting/packs/PackSectionView';
 import { DEMO_MANAGEMENT_BRIDGE, renderLegacyBridge } from './support/legacyBridge';
 
 const DEMO = DEMO_MANAGEMENT_BRIDGE;
@@ -44,6 +45,7 @@ function faults(svg: string, steps: WaterfallStep[]): string[] {
   // k-th figure with the k-th bar.
   if (drawn.length !== steps.length || own.length !== steps.length) return [`${drawn.length} figures and ${own.length} bars for ${steps.length} steps`];
   const ticks = yAxisTicks(svg).map((t) => t.y).sort((a, b) => a - b);
+  const tickTexts = yAxisTicks(svg).map((t) => t.text);
   const pitch = Math.min(Infinity, ...ticks.slice(1).map((y, i) => y - ticks[i]!));
   return [
     ...drawn.filter((f) => outsideClip(f, clip)).map((f) => `"${f.text}" leaves the plot`),
@@ -51,19 +53,23 @@ function faults(svg: string, steps: WaterfallStep[]): string[] {
     ...drawn.filter((f, k) => straddlesOwnBar(f, own[k]!)).map((f) => `"${f.text}" is part on its bar and part off`),
     ...drawn.filter((f, k) => steps[k]!.end !== steps[k]!.start && wrongSide(f, own[k]!, steps[k]!.end > steps[k]!.start)).map((f) => `"${f.text}" is on the wrong side of its bar`),
     ...textOnText(svg),
+    ...onNeighbourBars(svg),
     ...outsideSvg(svg),
     ...illegible(svg),
     ...(pitch < MIN_TICK_PITCH_PX - 0.01 ? [`value ticks ${pitch.toFixed(1)}px apart`] : []),
+    // No figure on two ticks: "2 | 1 | 1 | –" under four thousand at R'000.
+    ...(new Set(tickTexts).size === tickTexts.length ? [] : [`value ticks repeat: ${tickTexts.join(' | ')}`]),
   ];
 }
 
-const SEEDS = [424_242, 777_001, 13_579, 20_260_930, 5_550_123];
+const SEEDS = [424_242, 777_001, 13_579, 20_260_930, 5_550_123, 31_415_927];
 const PER_SEED = 1_200;
-const LEGACY_WIDTHS = [700, 900, 1100];
+/** The one box the management pack's print view draws its bridge in. */
+const BOX = LEGACY_WATERFALL_BOX;
 
 describe('a bridge figure is whole and legible', () => {
-  it.each(LEGACY_WIDTHS)('the Demo management pack at %ipx: "226 871" is whole', (width) => {
-    const svg = renderLegacyBridge(DEMO, width, 320);
+  it('the Demo management pack, in its print box: "226 871" is whole', () => {
+    const svg = renderLegacyBridge(DEMO, BOX.widthPx, BOX.heightPx);
     expect(figures(svg).map((f) => f.text.replace(/\s/g, ' '))).toContain('226 871');
     expect(faults(svg, DEMO)).toEqual([]);
   });
@@ -72,25 +78,27 @@ describe('a bridge figure is whole and legible', () => {
     const steps: WaterfallStep[] = [[0, -48_010_562], [-48_010_562, -96_755_403], [-96_755_403, -137_618_153], [-137_618_153, -174_428_941],
       [-174_428_941, -238_593_828], [-238_593_828, -244_179_812], [-244_179_812, -299_064_370], [0, -299_064_370]]
       .map(([start, end], i, all) => ({ label: `Step ${i + 1}`, start: start!, end: end!, value: end! - start!, isSubtotal: i === 0 || i === all.length - 1, color: 'red' }));
-    expect(faults(renderLegacyBridge(steps, 700, 320), steps)).toEqual([]);
+    expect(faults(renderLegacyBridge(steps, BOX.widthPx, BOX.heightPx), steps)).toEqual([]);
   });
 
   it('paints every halo beneath every figure, so no halo can erase a digit', () => {
-    const svg = renderLegacyBridge(DEMO, 700, 320);
+    const svg = renderLegacyBridge(DEMO, BOX.widthPx, BOX.heightPx);
     const order = haloOrder(svg);
     expect(order.halos, 'no figure outside its bar, so no halo is under test').toBeGreaterThan(2);
     expect(order.allBeneath).toBe(true);
   });
 
-  // Whole-rand figures in the billions on a 480px chart: clearing them at
-  // twelve would stagger one more than two lines out.
+  // OFF-SIZE, ON PURPOSE: these two are not a box production draws. Whole-rand
+  // figures in the billions on a 480px chart are what it takes to reach the
+  // type-size step, which the print box's own bridges do not — clearing them
+  // at twelve would stagger one more than two lines out.
   const CROWDED: Array<[number, Array<[number, number, boolean]>]> = [
-    [10, [[0, 1_670_538_542, true], [1_670_538_542, 4_464_739_702, false], [4_464_739_702, 5_406_775_803, false], [5_406_775_803, 7_671_208_553, false],
-      [7_671_208_553, 9_906_482_643, false], [9_906_482_643, 11_429_121_317, false], [11_429_121_317, 11_561_392_675, false], [0, 11_561_392_675, true]]],
+    [10, [[0, -7_204_853_135, true], [-7_204_853_135, 19_907_806_913, false], [19_907_806_913, 36_881_253_575, false],
+      [36_881_253_575, 7_834_553_528, false], [7_834_553_528, 29_677_401_479, false], [0, 29_677_401_479, true]]],
     [9, [[0, 39_809_131_502, true], [39_809_131_502, 47_160_985_871, false], [47_160_985_871, -61_412_785_201, false], [-61_412_785_201, -55_552_989_645, false],
       [-55_552_989_645, 443_737_210_049, false], [443_737_210_049, 452_015_167_830, false], [452_015_167_830, 463_558_329_639, false], [0, 463_558_329_639, true]]],
   ];
-  it.each(CROWDED)('a crowded bridge sets every figure at %ipx rather than stagger them past two lines', (px, shape) => {
+  it.each(CROWDED)('off-size, 480px: a crowded bridge sets every figure at %ipx rather than stagger them past two lines', (px, shape) => {
     const steps: WaterfallStep[] = shape.map(([start, end, isSubtotal], i) => ({ label: `Step ${i + 1}`, start, end, value: end - start, isSubtotal, color: end >= start ? 'green' : 'red' }));
     const svg = renderLegacyBridge(steps, 480, 320);
     expect([...new Set(figures(svg).map((f) => f.px))]).toEqual([px]);
@@ -98,7 +106,7 @@ describe('a bridge figure is whole and legible', () => {
   });
 
   it('and an ordinary bridge keeps twelve', () => {
-    expect([...new Set(figures(renderLegacyBridge(DEMO, 700, 320)).map((f) => f.px))]).toEqual([12]);
+    expect([...new Set(figures(renderLegacyBridge(DEMO, BOX.widthPx, BOX.heightPx)).map((f) => f.px))]).toEqual([12]);
   });
 
   it.each(SEEDS)('print, as the profit and cash callers draw it, every rung — seed %i', (seed) => {
@@ -112,7 +120,7 @@ describe('a bridge figure is whole and legible', () => {
     expect(found.slice(0, 5), `${found.length} faults in ${PER_SEED} charts`).toEqual([]);
   }, 180_000);
 
-  it.each(SEEDS)('the management pack, profit and random shapes, 700 to 1100px — seed %i', (seed) => {
+  it.each(SEEDS)('the management pack in its print box, profit and random shapes — seed %i', (seed) => {
     const fuzz = bridgeFuzz(seed);
     const found: string[] = [];
     for (let i = 0; i < PER_SEED; i += 1) {
@@ -120,9 +128,8 @@ describe('a bridge figure is whole and legible', () => {
       // thousand to a billion. Whole rands, as the management pack prints.
       const profit = fuzz.rnd() < 0.6;
       const steps = profit ? fuzz.profit(Math.pow(10, 5 + fuzz.rnd() * 4.3)) : fuzz.random(Math.pow(10, 3 + fuzz.rnd() * 6));
-      const width = fuzz.pick(LEGACY_WIDTHS);
-      const svg = renderLegacyBridge(steps, width, 320);
-      for (const fault of faults(svg, steps)) found.push(`#${i} ${profit ? 'profit' : 'random'} ${width}px ${JSON.stringify(steps.map((s) => [s.start, s.end]))}: ${fault}`);
+      const svg = renderLegacyBridge(steps, BOX.widthPx, BOX.heightPx);
+      for (const fault of faults(svg, steps)) found.push(`#${i} ${profit ? 'profit' : 'random'} ${JSON.stringify(steps.map((s) => [s.start, s.end]))}: ${fault}`);
     }
     expect(found.slice(0, 5), `${found.length} faults in ${PER_SEED} charts`).toEqual([]);
   }, 180_000);

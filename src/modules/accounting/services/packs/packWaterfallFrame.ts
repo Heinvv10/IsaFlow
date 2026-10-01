@@ -13,9 +13,13 @@
  * it settles in two passes on every bridge the pack draws.
  */
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
+import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { packFigureWidthPx } from '@/lib/charts/packFigureWidth';
+import { axisDomain } from './packChartAxes';
 import { CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
+import { figureText, LABEL_LINE_PX } from './packWaterfallFit';
 import {
-  CATEGORY_ROTATE_DEG, WATERFALL_CHROME, waterfallLayout, type TextMeasure, type WaterfallLayout,
+  CATEGORY_ROTATE_DEG, packTextMeasure, WATERFALL_CHROME, waterfallLayout, type TextMeasure, type WaterfallLayout,
 } from './packWaterfallDomain';
 
 /** ECharts' gap between an axis and its labels, and a pixel or two of slack
@@ -37,12 +41,15 @@ export function waterfallFrame(
   texts: readonly string[],
   /** How wide the value axis prints a tick at `value`, in its own face. */
   tickWidthPx: (value: number) => number,
+  /** What it prints there. */
+  tickText: (value: number) => string,
 ): WaterfallFrame {
   const labelPx = (compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full).labelPx;
   const rad = (CATEGORY_ROTATE_DEG * Math.PI) / 180;
   const names = steps.map((s) => measure(s.label, labelPx));
   let left = CHART_GUTTER_PX;
-  let layout = waterfallLayout(steps, box.heightPx, compact, askHint, measure, { texts, plotLeftPx: left, plotWidthPx: box.widthPx - left - CHART_GUTTER_RIGHT_PX });
+  const fitAt = (gutter: number) => ({ texts, tickText, plotLeftPx: gutter, plotWidthPx: box.widthPx - gutter - CHART_GUTTER_RIGHT_PX });
+  let layout = waterfallLayout(steps, box.heightPx, compact, askHint, measure, fitAt(left));
   for (let pass = 0; pass < MAX_PASSES; pass += 1) {
     const { min, max, splitNumber, interval } = layout.domain;
     const stepSize = interval ?? (max - min) / Math.max(1, splitNumber);
@@ -55,7 +62,45 @@ export function waterfallFrame(
     const need = Math.min(Math.ceil(Math.max(tickNeed, nameNeed) + SLACK_PX), Math.floor(box.widthPx * MAX_GUTTER_SHARE));
     if (need <= left) break;
     left = need;
-    layout = waterfallLayout(steps, box.heightPx, compact, askHint, measure, { texts, plotLeftPx: left, plotWidthPx: box.widthPx - left - CHART_GUTTER_RIGHT_PX });
+    layout = waterfallLayout(steps, box.heightPx, compact, askHint, measure, fitAt(left));
   }
   return { ...layout, left };
+}
+
+/** The size a value axis sets its ticks at. */
+const TICK_PX = 12;
+
+/** A bridge's frame: its margins, its value axis, its figures' size. */
+export function frameOf(
+  steps: WaterfallStep[], scale: MoneyScale, intervals: number, compact: boolean,
+  box: number | { heightPx: number; widthPx: number } | undefined, measure: TextMeasure,
+) {
+  const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
+  const texts = steps.map((s) => figureText(s, scale));
+  // Ticks are figures: in the print face, the face's own advances.
+  const tickText = (value: number) => formatMoney(value, { scale });
+  const tickWidthPx = (value: number) => {
+    const text = tickText(value);
+    return measure === packTextMeasure ? packFigureWidthPx(text, TICK_PX) : measure(text, TICK_PX).width;
+  };
+  if (box === undefined) {
+    return { top: chrome.top, bottom: chrome.bottom, domain: axisDomain(steps.flatMap((s) => [s.start, s.end]), intervals), fontPx: LABEL_LINE_PX, left: CHART_GUTTER_PX };
+  }
+  return typeof box === 'object'
+    ? waterfallFrame(steps, box, compact, intervals, measure, texts, tickWidthPx, tickText)
+    : { ...waterfallLayout(steps, box, compact, intervals, measure, { texts, tickText }), left: CHART_GUTTER_PX };
+}
+
+/**
+ * How large a bridge is DRAWN in a box: its plot's height and its tallest
+ * bar's, in pixels. For a caller choosing between two boxes — a taller box
+ * is not a bigger picture if its margins took the difference.
+ */
+export function waterfallDrawnSize(
+  steps: WaterfallStep[], scale: MoneyScale, intervals: number, compact: boolean, box: { heightPx: number; widthPx: number },
+): { plotPx: number; tallestBarPx: number } {
+  const { domain, top, bottom } = frameOf(steps, scale, intervals, compact, box, packTextMeasure);
+  const plotPx = box.heightPx - top - bottom;
+  const span = domain.max - domain.min;
+  return { plotPx, tallestBarPx: span > 0 ? (Math.max(0, ...steps.map((s) => Math.abs(s.end - s.start))) / span) * plotPx : 0 };
 }

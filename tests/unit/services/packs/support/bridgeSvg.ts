@@ -168,6 +168,28 @@ export function textOnText(svg: string): string[] {
   return out;
 }
 
+/**
+ * A figure outside its bar that stands on ANOTHER column's bar, with the
+ * area of that bar its box and paper ground cover. A figure may overlap its
+ * own bar's column only: on a neighbour's it reads as the neighbour's, and
+ * its ground cuts a notch out of a bar that states a different amount.
+ */
+export function onNeighbourBars(svg: string): string[] {
+  const [all, drawn] = [figures(svg), bars(svg)];
+  if (all.length !== drawn.length) return [`${all.length} figures for ${drawn.length} bars`];
+  const out: string[] = [];
+  all.forEach((figure, k) => {
+    const box = boxOf(figure);
+    drawn.forEach((bar, j) => {
+      if (j === k) return;
+      const w = Math.min(box.right, bar.right ?? Infinity) - Math.max(box.left, bar.left ?? -Infinity);
+      const h = Math.min(box.bottom, bar.bottom) - Math.max(box.top, bar.top);
+      if (w > 0.5 && h > 0.5) out.push(`"${figure.text}" stands on bar ${j + 1}, not its own bar ${k + 1}, over ${(w * h).toFixed(0)}px²`);
+    });
+  });
+  return out;
+}
+
 const channel = (c: number) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
 function luminance(hex: string): number {
   const n = parseInt(hex.slice(1), 16);

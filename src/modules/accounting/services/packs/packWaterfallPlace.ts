@@ -12,9 +12,10 @@
  *      side has no room or the bar is a subtotal; every other figure goes
  *      wholly outside on its own side — above a rising bar, below a falling
  *      one — and is moved sideways only as far as keeps it on the plot.
- *   2. NO FIGURE MEETS ANOTHER. Outside figures are walked left to right, and
- *      one whose box would come within a halo of a figure already placed is
- *      set a line further out on its own side, and again, until it is clear.
+ *   2. NO FIGURE MEETS ANOTHER, OR ANOTHER COLUMN'S BAR. Outside figures are
+ *      walked left to right, and one whose box would come within a halo of a
+ *      figure already placed, or onto a bar that is not its own, is set a
+ *      line further out on its own side, and again, until it is clear.
  *      A bridge ending on a falling movement into a negative closing balance
  *      put its last two figures at one height in adjacent bands, and the
  *      later halo erased the earlier digits: "(54 884 558)" read "(54 884 5".
@@ -48,10 +49,11 @@ const apart = (a: Placement, b: Placement, fontPx: number): number => Math.max(
 );
 
 /**
- * @param hold Keep every figure inside the plot's height, whatever it takes.
- *   The renderer's safety net: with a box the layout has reserved the room
- *   and it does not fire. The layout itself passes `false`, because how far a
- *   figure runs past the plot is what it is asking.
+ * @param hold Keep every figure inside the plot's height, whatever it takes
+ *   — never moved to the other side, never clipped out. The renderer's
+ *   safety net: with a box the layout has reserved the room and it does not
+ *   fire. The layout itself passes `false`, because how far a figure runs
+ *   past the plot is what it is asking.
  */
 export function placeFigures(bars: readonly BarPx[], plot: PlotPx, fontPx: number, hold: boolean): Placement[] {
   const step = fontPx + LABEL_GAP_PX;
@@ -73,16 +75,29 @@ export function placeFigures(bars: readonly BarPx[], plot: PlotPx, fontPx: numbe
     // a negative read as a positive. One wider than the plot is centred on it.
     const centre = plot.right - plot.left < halfWidth * 2 ? (plot.left + plot.right) / 2
       : Math.min(Math.max(bar.centre, plot.left + halfWidth), plot.right - halfWidth);
-    const at = (level: number): Placement => ({
-      inside: false, below, level, centre, halfWidth,
-      top: below ? bar.top + bar.drawnHeight + LABEL_GAP_PX + level * step : bar.top - step - level * step,
-    });
-    const others = placed.filter((p, j): p is Placement => p !== undefined && (p.inside || j < i));
+    // Staggered a line at a time; `hold` keeps it on the plot BEFORE it is
+    // tested, so what is checked for collisions is where it will be drawn.
+    const at = (level: number): Placement => {
+      const raw = below ? bar.top + bar.drawnHeight + LABEL_GAP_PX + level * step : bar.top - step - level * step;
+      const top = hold ? Math.min(Math.max(raw, plot.top), plot.bottom - fontPx) : raw;
+      return { inside: false, below, level, centre, halfWidth, top };
+    };
+    const figures = placed.filter((p, j): p is Placement => p !== undefined && (p.inside || j < i));
+    // A figure may stand over its OWN column only. On a neighbour's bar it
+    // reads as the neighbour's figure, and its ground notches a bar that
+    // states a different amount — so the other bars are obstacles too.
+    const onAnotherBar = (spot: Placement): boolean => bars.some((other, j) => j !== i && other.width !== undefined
+      && other.centre - other.width / 2 < spot.centre + halfWidth && other.centre + other.width / 2 > spot.centre - halfWidth
+      && other.top < spot.top + fontPx && other.top + other.drawnHeight > spot.top);
+    const blocked = (spot: Placement): boolean => onAnotherBar(spot) || figures.some((o) => apart(spot, o, fontPx) < MIN_APART_PX);
     let spot = at(0);
-    while (spot.level < MAX_LEVEL && others.some((o) => apart(spot, o, fontPx) < MIN_APART_PX)) spot = at(spot.level + 1);
-    // THE CLAMP IS A SAFETY NET — never moved to the other side, never
-    // clipped out: held at the plot's edge on its own side.
-    placed[i] = hold ? { ...spot, top: Math.min(Math.max(spot.top, plot.top), plot.bottom - fontPx) } : spot;
+    while (spot.level < MAX_LEVEL && blocked(spot)) {
+      const next = at(spot.level + 1);
+      // Held at the plot's edge, a further line is the same place: stop.
+      if (next.top === spot.top) break;
+      spot = next;
+    }
+    placed[i] = spot;
   });
   return placed as Placement[];
 }

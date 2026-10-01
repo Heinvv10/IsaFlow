@@ -51,7 +51,9 @@ describe('every bridge draws the plot its layout was given', () => {
     const charts = bridgesOf(input);
     if (charts === null) return;
     for (const chart of charts) {
-      const compact = chart.heightMm <= CHART_HEIGHT_MM.inline;
+      // The tighter chrome is every box under the half rung — a bridge grown
+      // a few millimetres past the bottom rung keeps it.
+      const compact = chart.heightMm < CHART_HEIGHT_MM.half;
       const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
       const names = (chart.waterfallBars ?? []).map((b) => b.label);
       const bottom = Math.max(chrome.bottom, categoryDepthPx(names, chrome.labelPx));

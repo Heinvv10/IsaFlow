@@ -89,7 +89,13 @@ const FAR_APART_PX = 1e6;
  * bar's width is known, nothing is taken to fit inside, and every figure is
  * given room outside — see `figureFitsInside`.
  */
-export interface FigureFit { texts: readonly string[]; plotLeftPx?: number; plotWidthPx?: number }
+export interface FigureFit {
+  texts: readonly string[];
+  plotLeftPx?: number;
+  plotWidthPx?: number;
+  /** How the value axis prints a tick — given, no figure is printed on two. */
+  tickText?: (value: number) => string;
+}
 
 /** The bars in pixels, on a plot `plotPx` tall with its top at zero. */
 function barsPx(steps: WaterfallStep[], domain: AxisDomain, plotPx: number, fit?: FigureFit): BarPx[] {
@@ -131,6 +137,14 @@ function overrun(steps: WaterfallStep[], domain: AxisDomain, plotPx: number, fit
   return { reach, level: Math.max(0, ...placed.map((p) => p.level)) };
 }
 
+/** Whether two ticks of the axis would print the same figure. */
+function ticksRepeat(domain: AxisDomain, fit?: FigureFit): boolean {
+  if (fit?.tickText === undefined || !(domain.max > domain.min)) return false;
+  const step = (domain.max - domain.min) / domain.splitNumber;
+  const printed = Array.from({ length: domain.splitNumber + 1 }, (_, i) => fit.tickText!(domain.min + i * step));
+  return new Set(printed).size !== printed.length;
+}
+
 /** Whether every outside figure has room on its own side of its bar. */
 export function labelsFit(steps: WaterfallStep[], domain: AxisDomain, plotPx: number, fit?: FigureFit, fontPx: number = LABEL_LINE_PX): boolean {
   return overrun(steps, domain, plotPx, fit, fontPx).reach.length === 0;
@@ -167,9 +181,11 @@ export function waterfallLayout(
     let level = 0;
     for (let pass = 0; pass < MAX_PASSES && !settled; pass += 1) {
       domain = axisDomain([...ends, ...reach], ask);
-      if (domain.splitNumber > budget && ask > 1) {
-        // Rounding the step and the bounds drew more steps than the plot holds:
-        // ask for one fewer and start the headroom again on the coarser axis.
+      if ((domain.splitNumber > budget || ticksRepeat(domain, fit)) && ask > 1) {
+        // Rounding the step and the bounds drew more steps than the plot holds
+        // — or steps so fine two of them print the same figure ("2 | 1 | 1 |
+        // –" under four thousand, stated in thousands): ask for one fewer and
+        // start the headroom again on the coarser axis.
         ask -= 1;
         reach = [];
         continue;
@@ -194,5 +210,9 @@ export function waterfallLayout(
   // below one, and the rounding can still return two or three; the bounds
   // stay, and the axis labels its two ends only.
   if (domain.splitNumber > budget) domain = { ...domain, splitNumber: budget, interval: domain.max - domain.min };
+  // AND FIGURES TOO SMALL FOR THE SCALE TO TELL APART draw one step as well:
+  // under a thousand, stated in thousands, every step between the ends
+  // prints "<1".
+  else if (ticksRepeat(domain, fit)) domain = { ...domain, splitNumber: 1, interval: domain.max - domain.min };
   return { top: chrome.top, bottom, plotPx, domain, fontPx: chosen.fontPx };
 }

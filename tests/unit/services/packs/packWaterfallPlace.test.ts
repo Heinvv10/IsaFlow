@@ -56,6 +56,34 @@ describe('placeFigures', () => {
     expect(placeFigures(top, PLOT, PX, true)[0]!.top).toBe(PLOT.top);
   });
 
+  it('moves an outside figure off a NEIGHBOUR\'s bar: it may stand over its own column only', () => {
+    // The first bar falls a little; its figure, below it, is wide enough to
+    // reach the tall bar beside it, which occupies that height.
+    const bars = [bar({ centre: 100, top: 100, height: 5, drawnHeight: 5, falls: true, rises: false, text: '(123 456 789 012)' }),
+      bar({ centre: 170, top: 60, height: 80, drawnHeight: 80, text: '1' })];
+    const [wide] = placeFigures(bars, PLOT, PX, false);
+    const neighbour = bars[1]!;
+    const overlapsNeighbour = wide!.centre + wide!.halfWidth > neighbour.centre - neighbour.width! / 2
+      && wide!.top < neighbour.top + neighbour.drawnHeight && wide!.top + PX > neighbour.top;
+    expect(wide!.level).toBeGreaterThan(0);
+    expect(overlapsNeighbour).toBe(false);
+  });
+
+  it('tests collisions on the HELD position, not the one the plot\'s edge then moves it from', () => {
+    // Two adjacent falling bars ending at the foot of the plot: unheld, the
+    // second figure clears the first by going a line lower; held, both are
+    // at the plot's edge — and the walk must see that they are.
+    const foot = PLOT.bottom - 10;
+    const bars = [bar({ centre: 100, top: foot - 60, falls: true, rises: false, text: '(54 884 558)' }),
+      bar({ centre: 170, top: foot - 60, falls: true, rises: false, text: '(299 064 370)' })];
+    const held = placeFigures(bars, PLOT, PX, true);
+    for (const p of held) expect(p.top + PX).toBeLessThanOrEqual(PLOT.bottom);
+    // Nothing is left to try at the edge, so the walk stops rather than
+    // claiming a level it did not reach.
+    expect(held[1]!.level).toBe(0);
+    expect(held[1]!.top).toBe(held[0]!.top);
+  });
+
   it('takes nothing to fit a bar of unknown width', () => {
     const [p] = placeFigures([bar({ width: undefined, subtotal: true, height: 200, drawnHeight: 200 })], PLOT, PX, false);
     expect(p!.inside).toBe(false);

@@ -40,7 +40,7 @@
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import type { MoneyScale } from '@/lib/format/money';
 import {
   axisDomain,
   compositionTooltip,
@@ -51,10 +51,8 @@ import {
 } from './packChartAxes';
 import { CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
 import { makeWaterfallRenderItem } from './packWaterfallBars';
-import { packTextMeasure, WATERFALL_CHROME, waterfallLayout, type TextMeasure } from './packWaterfallDomain';
-import { figureText, LABEL_LINE_PX } from './packWaterfallFit';
-import { waterfallFrame } from './packWaterfallFrame';
-import { packFigureWidthPx } from '@/lib/charts/packFigureWidth';
+import { packTextMeasure, WATERFALL_CHROME, type TextMeasure } from './packWaterfallDomain';
+import { frameOf } from './packWaterfallFrame';
 
 export { labelInkOn, stepPaint } from './packWaterfallPaint';
 export { AXIS_END_LABEL_RESERVE_PX, CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
@@ -113,17 +111,7 @@ export function waterfallOption(
 ): EChartsCoreOption {
   const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
   const boxPx = typeof box === 'number' ? box : box?.heightPx;
-  const texts = steps.map((s) => figureText(s, scale));
-  // Ticks are figures: in the print face, the face's own advances.
-  const tickWidthPx = (value: number) => {
-    const text = formatMoney(value, { scale });
-    return measure === packTextMeasure ? packFigureWidthPx(text, TICK_PX) : measure(text, TICK_PX).width;
-  };
-  const frame = boxPx === undefined
-    ? { top: chrome.top, bottom: chrome.bottom, domain: axisDomain(steps.flatMap((s) => [s.start, s.end]), intervals), fontPx: LABEL_LINE_PX, left: CHART_GUTTER_PX }
-    : typeof box === 'object'
-      ? waterfallFrame(steps, box, compact, intervals, measure, texts, tickWidthPx)
-      : { ...waterfallLayout(steps, boxPx, compact, intervals, measure, { texts }), left: CHART_GUTTER_PX };
+  const frame = frameOf(steps, scale, intervals, compact, box, measure);
   const domain = frame.domain;
   // NOTHING MAY MOVE THE PLOT where the box is known: the rectangle the
   // domain was chosen for is the one drawn, in either face. A bare height in

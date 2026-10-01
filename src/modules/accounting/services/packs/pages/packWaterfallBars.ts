@@ -23,10 +23,17 @@ import type { PackWaterfallBar, PlugReason } from './packPageModel';
  */
 export const PX_PER_MM = 96 / 25.4;
 
-/** The bottom rung, where the bridge draws its axis chrome tighter and its
- *  category labels a size smaller — see `WATERFALL_CHROME`. */
+/**
+ * Every box SHORTER THAN THE HALF RUNG draws its axis chrome tighter and its
+ * category labels a size smaller — see `WATERFALL_CHROME`.
+ *
+ * It was the bottom rung alone, so a bridge grown a millimetre past 48 took
+ * the full chrome — 28px more of margin and 12px names — and had LESS plot
+ * than the rung it grew from: with a long step name under it, under 40px,
+ * and a value axis run out to a hundred billion to hold the figures.
+ */
 export function isCompact(box: { heightMm: number }): boolean {
-  return box.heightMm <= CHART_HEIGHT_MM.inline;
+  return box.heightMm < CHART_HEIGHT_MM.half;
 }
 
 /**

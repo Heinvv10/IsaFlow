@@ -9,6 +9,7 @@ import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
 import { buildProfitWaterfall, OPERATING_PROFIT_BAR, type WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import { waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
+import { waterfallDrawnSize } from '@/modules/accounting/services/packs/packWaterfallFrame';
 import {
   MONEY_TOLERANCE,
   UNCAPTURED_SHARE_LIMIT,
@@ -73,6 +74,13 @@ export function shorterProfitBridge(
  * page actually has room for, capped at the tallest rung, so the ladder
  * decides the rung and the paper decides the last few millimetres.
  *
+ * AND IT IS TAKEN ONLY IF IT IS A BIGGER PICTURE. A taller box is not one by
+ * itself: the chart's margins depend on the box too, and a grown bridge was
+ * once accepted with half the plot of the rung it grew from and every bar
+ * drawn as a one-pixel rule. So where the caller passes the chart it has,
+ * the grown one is returned only if its plot is taller AND its tallest bar is
+ * drawn no shorter.
+ *
  * Null when there is nothing worth growing into — the caller keeps the chart
  * it has rather than re-rendering an SVG for half a millimetre.
  */
@@ -81,14 +89,19 @@ export function profitBridgeAtHeight(
   scale: MoneyScale,
   carriesWindowNote: boolean,
   heightMm: number,
+  current?: PackChartSpec,
 ): PackChartSpec | null {
   // WHOLE MILLIMETRES. The spare is a difference of two measured heights and
   // carries a tail of fifteen decimal places; a chart box that renders at
   // 103.38166666666666mm makes every diff of this pack look like a change.
   const target = Math.floor(Math.min(CHART_HEIGHT_MM.full, heightMm));
   if (target <= 0) return null;
-  return buildProfitWaterfallChart(set, scale, carriesWindowNote,
-    { widthMm: CHART_MEASURE_MM, heightMm: target });
+  const box = { widthMm: CHART_MEASURE_MM, heightMm: target };
+  if (current !== undefined) {
+    const [was, grown] = [drawnSizeAt(set, scale, { widthMm: CHART_MEASURE_MM, heightMm: current.heightMm }), drawnSizeAt(set, scale, box)];
+    if (grown.plotPx <= was.plotPx || grown.tallestBarPx < was.tallestBarPx) return null;
+  }
+  return buildProfitWaterfallChart(set, scale, carriesWindowNote, box);
 }
 
 /**
@@ -124,6 +137,34 @@ function withUncapturedStep(steps: WaterfallStep[], netProfit: number): Waterfal
   return [...steps.slice(0, -1), step, closing];
 }
 
+/** The bridge's steps, plug included, and the bars the builder left out. */
+function bridgeWalk(f: PackFigureSet['current']): { bridged: WaterfallStep[]; omitted: string[] } {
+  const { steps, omitted } = buildProfitWaterfall({
+    revenue: f.revenue,
+    costOfSales: f.costOfSales,
+    grossProfit: f.revenue - f.costOfSales,
+    operatingExpenses: f.operatingExpenses,
+    otherIncome: f.otherIncome ?? 0,
+    otherExpenses: f.otherExpenses ?? 0,
+    netProfit: f.netProfit,
+    // The figure page 6's TABLE prints on its Operating profit row, so the
+    // bridge draws that subtotal only where its own walk lands on the same
+    // number — see the step in `buildProfitWaterfall`.
+    operatingProfit: operatingProfitOf(f),
+  });
+  return { bridged: withUncapturedStep(steps, f.netProfit), omitted };
+}
+
+const titleOf = (f: PackFigureSet['current'], scale: MoneyScale): string =>
+  `Revenue of ${inProse(formatMoney(f.revenue, { scale }))} bridges to net `
+  + `profit of ${inProse(formatMoney(f.netProfit, { scale }))}.`;
+
+/** How large the bridge is drawn in `box` — see `waterfallDrawnSize`. */
+function drawnSizeAt(set: PackFigureSet, scale: MoneyScale, box: ChartBox): { plotPx: number; tallestBarPx: number } {
+  const f = set.current;
+  return waterfallDrawnSize(bridgeWalk(f).bridged, scale, intervalsFor(box), isCompact(box), svgBoxPx(svgBoxFor(box, titleOf(f, scale))));
+}
+
 /**
  * Page 6 — revenue to net profit, IBCS notation.
  *
@@ -149,20 +190,7 @@ export function buildProfitWaterfallChart(
   // predicate — a second implementation of the builder's rule that agreed
   // with it by coincidence, and that could not name the Operating Profit
   // subtotal at all because its list was of the five movement lines.
-  const { steps, omitted } = buildProfitWaterfall({
-    revenue: f.revenue,
-    costOfSales: f.costOfSales,
-    grossProfit: f.revenue - f.costOfSales,
-    operatingExpenses: f.operatingExpenses,
-    otherIncome: f.otherIncome ?? 0,
-    otherExpenses: f.otherExpenses ?? 0,
-    netProfit: f.netProfit,
-    // The figure page 6's TABLE prints on its Operating profit row, so the
-    // bridge draws that subtotal only where its own walk lands on the same
-    // number — see the step in `buildProfitWaterfall`.
-    operatingProfit: operatingProfitOf(f),
-  });
-  const bridged = withUncapturedStep(steps, f.netProfit);
+  const { bridged, omitted } = bridgeWalk(f);
   const bars = toBars(bridged, PROFIT_UNCAPTURED_LABEL, 'belowTheOperatingLine');
   // AND THE SAME RULE AS PAGE 7: the chart gives a rung back when the page
   // has something to say. Where the plug breaches `UNCAPTURED_SHARE_LIMIT`
@@ -216,8 +244,7 @@ export function buildProfitWaterfallChart(
   // HOISTED, because the SVG has to be rendered at the box the FIGURE will
   // give it and that depends on how tall this sentence wraps — see
   // `svgBoxFor`.
-  const bridgeTitle = `Revenue of ${inProse(formatMoney(f.revenue, { scale }))} bridges to net `
-    + `profit of ${inProse(formatMoney(f.netProfit, { scale }))}.`;
+  const bridgeTitle = titleOf(f, scale);
   const plot = svgBoxFor(box, bridgeTitle);
   // WHICH BARS THE RENDERER HAD TO FLOOR, collected as it draws them — see
   // `PackChartSpec.flooredBars`. A Set because ECharts may call `renderItem`
