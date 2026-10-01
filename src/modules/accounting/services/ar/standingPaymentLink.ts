@@ -60,23 +60,25 @@ export async function ensureStandingLink(
   // The URL's tail is compared exactly, not with LIKE: a token is not a pattern.
   // No expiry test: the standing link the invoice names does not expire (see resolveLinkCharge).
   const existing = (await sql`
-    SELECT l.token, ci.online_payment_enabled AS enabled
+    SELECT l.token, ci.online_payment_enabled AS enabled, ci.payment_url
     FROM portal_payment_links l
     JOIN customer_invoices ci ON ci.id = l.invoice_id
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
       AND l.status = 'active' AND l.charges_balance
       AND right(ci.payment_url, 12 + length(l.token)) = '/portal/pay/' || l.token
     LIMIT 1
-  `) as { token: string; enabled: boolean | null }[];
+  `) as { token: string; enabled: boolean | null; payment_url: string }[];
   if (existing[0]) {
-    // A legacy row can name its link with the flag off; the invoice page shows the link by the flag.
-    if (existing[0].enabled !== true) {
+    const paymentUrl = `${appUrl}/portal/pay/${existing[0].token}`;
+    // A legacy row can name its link with the flag off, or on another origin (the old localhost
+    // fallback); the invoice page shows and copies what is stored, so store what is handed out.
+    if (existing[0].enabled !== true || existing[0].payment_url !== paymentUrl) {
       await sql`
-        UPDATE customer_invoices SET online_payment_enabled = true, updated_at = NOW()
+        UPDATE customer_invoices SET online_payment_enabled = true, payment_url = ${paymentUrl}, updated_at = NOW()
         WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
       `;
     }
-    return { ok: true, token: existing[0].token, paymentUrl: `${appUrl}/portal/pay/${existing[0].token}` };
+    return { ok: true, token: existing[0].token, paymentUrl };
   }
 
   // `amount` is only the balance at minting; a standing link charges the live balance.
