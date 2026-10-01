@@ -50,9 +50,12 @@ describe('validateSystemAccountMap', () => {
     const errors = validateSystemAccountMap(
       { ...MAP, opening_balance_equity: '3200', vat_input: '5100', payable: '', bank: '9999' }, ACCOUNTS,
     );
+    // 5100 is now named for vat_input AND default_expense: the second is refused as a second role.
     expect(errors.map((e) => e.field).sort()).toEqual([
-      'systemAccountMap.bank', 'systemAccountMap.opening_balance_equity', 'systemAccountMap.payable', 'systemAccountMap.vat_input',
+      'systemAccountMap.bank', 'systemAccountMap.default_expense', 'systemAccountMap.opening_balance_equity',
+      'systemAccountMap.payable', 'systemAccountMap.vat_input',
     ]);
+    expect(errors.find((e) => e.field === 'systemAccountMap.default_expense')!.message).toContain('One account cannot hold two roles');
     expect(errors.find((e) => e.field === 'systemAccountMap.vat_input')!.message).toContain('is expense');
   });
 });
