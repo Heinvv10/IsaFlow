@@ -1,21 +1,23 @@
-# Mutations on e5512dece. Each: r177-portal-payment-followups + r167-link-charges-link-amount (43 cases); baseline after: 0 failed | 43 passed.
-# M1-M13, M17-M19 ran on 70b8296a6; M11 survived there (RLS hides the row through the route) and is RED after the service-level case was added.
-M1 no invoice lock in ensureStandingLink: RED | 1 failed | 42 passed
-M2 lookup ignores link status: RED | 1 failed | 42 passed
-M3 lookup adopts an explicit-amount link: RED | 1 failed | 42 passed
-M4 lookup hands out an expired link: RED | 1 failed | 42 passed
-M5 lookup adopts a link the invoice does not name: RED | 1 failed | 42 passed
-M6 no lookup: always mint: RED | 3 failed | 40 passed
-M7 ensureStandingLink allows a draft: RED | 1 failed | 42 passed
-M8 NaN balance owes: RED | 1 failed | 42 passed
-M9 minted with the 30-day default expiry: RED | 2 failed | 41 passed
-M10 payment_url not updated on mint: RED | 4 failed | 39 passed
-M12 a link on a draft is payable (resolveLinkCharge): RED | 1 failed | 42 passed
-M13 payment-link POST mints for a draft: RED | 1 failed | 42 passed
-M17 migration revives links no invoice names: RED | 1 failed | 42 passed
-M18 migration revives cancelled links: RED | 1 failed | 42 passed
-M19 migration revives explicit-amount links: RED | 1 failed | 42 passed
-M11 lock and lookup without company predicate... lookup: RED | 1 failed | 42 passed
-M15 verify abandoned: no re-read of the stored status: RED | 2 failed | 41 passed
-M14 verify writes cancelled on abandoned (old behaviour): RED | 1 failed | 42 passed
-M16 (verify reports cancelled for a failed request Paystack calls abandoned): equivalent — the re-read already returns the stored status; the redundant condition was removed.
+# Mutations on ac7c70262 (final code). Each: r177-pay-now-standing-link + r178-r180-portal-link-rules + r167-link-charges-link-amount (48 cases).
+M1 no invoice lock in ensureStandingLink: RED | 2 failed | 46 passed
+M2 invoice lock is FOR UPDATE (blocks rows referencing the invoice): RED | 1 failed | 47 passed
+M3 lookup ignores link status: RED | 1 failed | 47 passed
+M4 lookup adopts an explicit-amount link: RED | 1 failed | 47 passed
+M5 lookup adopts a link the invoice does not name: RED | 1 failed | 47 passed
+M6 no lookup: always mint: RED | 4 failed | 44 passed
+M7 ensureStandingLink allows an unapproved invoice: RED | 2 failed | 46 passed
+M8 NaN balance owes: RED | 1 failed | 47 passed
+M9 minted with the 30-day default expiry: RED | 2 failed | 46 passed
+M10 payment_url not updated on mint: RED | 5 failed | 43 passed
+M11 lock query without the company predicate: RED | 1 failed | 47 passed
+M12 online_payment_enabled not restored on a found link: RED | 1 failed | 47 passed
+M13 a link on an unapproved invoice is payable (resolveLinkCharge): RED | 2 failed | 46 passed
+M14 the named standing link expires like any other: RED | 1 failed | 47 passed
+M15 a named explicit-amount link never expires: RED | 1 failed | 47 passed
+M16 any standing link never expires, named or not: RED | 1 failed | 47 passed
+M17 payment-link POST mints for an unapproved invoice: RED | 2 failed | 46 passed
+M18 verify writes cancelled on abandoned (old behaviour): RED | 1 failed | 47 passed
+M19 verify abandoned: no re-read of the stored status: RED | 2 failed | 46 passed
+M20 pay-now does not map the lock timeout: RED | 1 failed | 47 passed
+M21 GET shows a link whatever resolveLinkCharge says: RED | 6 failed | 42 passed
+BASELINE after: 0 failed | 48 passed

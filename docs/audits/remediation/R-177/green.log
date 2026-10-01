@@ -1,4 +1,4 @@
-# GREEN on e5512dece, fixture clone at 719 (2026-10-01T10:38:09Z). 64-hex tokens redacted.
+# GREEN on ac7c70262, fixture clone at 718 (2026-10-01T10:52:38Z). 64-hex tokens redacted.
 ## k-036-paystack-invoice-payment-not-in-gl.int.test.ts
  Test Files  1 passed (1)
       Tests  21 passed (21)
@@ -53,6 +53,12 @@
 ## k122f-email-log-savepoint.int.test.ts
  Test Files  1 passed (1)
       Tests  2 passed (2)
+## r082-documentpopulation-twin-parity.int.test.ts
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+## r082-statements-exclude-drafts.int.test.ts
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
 ## r095-portal-round4.int.test.ts
  Test Files  1 passed (1)
       Tests  7 passed (7)
@@ -80,9 +86,12 @@
 ## r167-standing-links-and-checkout.int.test.ts
  Test Files  1 passed (1)
       Tests  19 passed (19)
-## r177-portal-payment-followups.int.test.ts
+## r177-pay-now-standing-link.int.test.ts
  Test Files  1 passed (1)
-      Tests  15 passed (15)
-## unit: payNowCheckout, paystackClient
+      Tests  9 passed (9)
+## r178-r180-portal-link-rules.int.test.ts
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+## unit: payNowCheckout, paystackClient, hooks
  Test Files  2 passed (2)
       Tests  22 passed (22)
