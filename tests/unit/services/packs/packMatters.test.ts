@@ -113,7 +113,7 @@ describe('buildMatters', () => {
     // is already sorted, or one where every quantum is non-null, cannot pass
     // a broken implementation by accident.
     agingSpy.mockResolvedValue(agingWithConcentration(50_000, [40_000, 40_000, 30_000, 30_000])); // 25% of 200,000 -> flagged, quantum 50,000
-    bankSpy.mockResolvedValue([{ unreconciled_count: 2, unreconciled_balance: 20_000 }]);
+    bankSpy.mockResolvedValue([{ unallocatedCount: 2, unreconciledBalance: 20_000 }]);
     const journalFlags: UnusualJournalFlag[] = [
       { entryId: 'j1', entryNumber: 'JE-1', entryDate: '2026-03-01', description: 'Estimate', amount: 90_000, reason: 'round_number' },
       { entryId: 'j2', entryNumber: 'JE-2', entryDate: '2026-04-01', description: 'Late entry', amount: 5_000, reason: 'backdated' },
@@ -297,7 +297,7 @@ describe('buildMatters', () => {
     // The company's financial year start is unusable. That is a refusal the
     // filings service makes on purpose, and "could not be assessed" is true.
     filingSpy.mockRejectedValue(new FilingDeadlineUnknownError('no usable financial_year_start'));
-    bankSpy.mockResolvedValue([{ unreconciled_count: 3, unreconciled_balance: 15_000 }]);
+    bankSpy.mockResolvedValue([{ unallocatedCount: 3, unreconciledBalance: 15_000 }]);
     const matters = (await buildMatters('c1', window)).matters;
     expect(matters.some((m) => m.issue.startsWith('overdue statutory filings could not be assessed'))).toBe(true);
     expect(matters.some((m) => m.issue.match(/unreconciled bank item/i))).toBe(true);
@@ -316,7 +316,7 @@ describe('buildMatters', () => {
     agingSpy.mockImplementation(async () => { await touchLedger('aging'); return emptyAging(); });
     bankSpy.mockImplementation(async () => {
       await touchLedger('bank');
-      return [{ unreconciled_count: 3, unreconciled_balance: 15_000 }];
+      return [{ unallocatedCount: 3, unreconciledBalance: 15_000 }];
     });
     journalSpy.mockImplementation(async () => { await touchLedger('journals'); return []; });
     filingSpy.mockImplementation(async () => { await touchLedger('filings'); return []; });
@@ -355,8 +355,8 @@ describe('buildMatters', () => {
   describe('the sentences this page composes', () => {
     it('counts in words rather than hedging with a developer\'s plural', async () => {
       bankSpy.mockResolvedValue([
-        { unreconciled_count: 1, unreconciled_balance: 4_000 },
-        { unreconciled_count: 11, unreconciled_balance: 91_000 },
+        { unallocatedCount: 1, unreconciledBalance: 4_000 },
+        { unallocatedCount: 11, unreconciledBalance: 91_000 },
       ]);
       filingSpy.mockResolvedValue([
         { filingType: 'Annual Financial Statements', fiscalYear: 2024, deadline: '2024-08-28', daysOverdue: 739 },
@@ -389,7 +389,7 @@ describe('buildMatters', () => {
       // `toLocaleString('en-ZA')` printed `R1,234,567.89` — comma-separated,
       // in rands, unbracketed — in the same table row as a quantum column
       // stated in R'000 with spaces and brackets.
-      bankSpy.mockResolvedValue([{ unreconciled_count: 3, unreconciled_balance: 1_234_567.89 }]);
+      bankSpy.mockResolvedValue([{ unallocatedCount: 3, unreconciledBalance: 1_234_567.89 }]);
       const matter = (await buildMatters('c1', window)).matters
         .find((m) => m.issue.includes('unreconciled bank item'))!;
       expect(matter.issue).not.toMatch(/R\s?1[ ,]?234/);
@@ -399,7 +399,7 @@ describe('buildMatters', () => {
 
   it('does not let one failed source suppress the matters from the others', async () => {
     agingSpy.mockRejectedValue(pgError('57014', 'canceling statement due to statement timeout'));
-    bankSpy.mockResolvedValue([{ unreconciled_count: 3, unreconciled_balance: 15_000 }]);
+    bankSpy.mockResolvedValue([{ unallocatedCount: 3, unreconciledBalance: 15_000 }]);
     const matters = (await buildMatters('c1', window)).matters;
     expect(matters.some((m) => m.issue.match(/aged debtors could not be assessed/i))).toBe(true);
     expect(matters.some((m) => m.issue.match(/unreconciled bank item/i))).toBe(true);

@@ -237,11 +237,23 @@ async function agedDebtorConcentrationMatters(
 
 async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]> {
   const rows = await getBankAccountsStatus(companyId);
-  const count = rows.reduce((s, r) => s + Number(r.unreconciled_count ?? 0), 0);
-  const total = rows.reduce((s, r) => s + Math.abs(Number(r.unreconciled_balance ?? 0)), 0);
+  // THE SERVICE'S OWN KEYS. It maps every row to camelCase before returning
+  // it; this read `unreconciled_count` and `unreconciled_balance`, the column
+  // names, which are on no row it returns — so the count was always 0 and
+  // the matter could not fire on any tenant.
+  //
+  // AND THE COUNT IS OF WHAT THE AMOUNT SUMS. `unreconciledBalance` is every
+  // posted line with no journal line that is not excluded. The service's
+  // `unreconciledCount` is a different population (status imported or
+  // allocated); `suggestedCount` and `unallocatedCount` split the amount's
+  // own population in two, so their sum is the count that belongs beside it.
+  const itemsOn = (r: Record<string, unknown>): number =>
+    Number(r.suggestedCount ?? 0) + Number(r.unallocatedCount ?? 0);
+  const count = rows.reduce((s, r) => s + itemsOn(r), 0);
+  const total = rows.reduce((s, r) => s + Math.abs(Number(r.unreconciledBalance ?? 0)), 0);
   if (count === 0 || round2(total) === 0) return [];
 
-  const accountCount = rows.filter((r) => Number(r.unreconciled_count ?? 0) > 0).length;
+  const accountCount = rows.filter((r) => itemsOn(r) > 0).length;
   return [{
     kind: 'finding',
     // NO RAND AMOUNT IN THE SENTENCE. `toLocaleString('en-ZA')` printed
@@ -249,7 +261,13 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
     // quantum column stated in R'000 with spaces and brackets: one figure,
     // two conventions, in the same table row. The amount IS the quantum, and
     // the quantum column prints it in the pack's own convention.
-    issue: `${plural(count, 'unreconciled bank item')} across ${plural(accountCount, 'bank account')}`,
+    //
+    // AND IT SAYS WHICH DATE IT IS TRUE AT. `getBankAccountsStatus` takes no
+    // as-at date, so a pack dated to an earlier period end prints the bank
+    // position at the moment it was extracted. Every other matter on this
+    // page is read as at the window's end; this one cannot be, and says so.
+    issue: `${plural(count, 'unreconciled bank item')} across ${plural(accountCount, 'bank account')}`
+      + ', as at the time this pack was extracted rather than at the period end',
     quantum: round2(total),
     owner: 'Bookkeeping',
     movement: NO_PRIOR_MEETING_RECORD,
