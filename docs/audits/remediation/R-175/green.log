@@ -1,68 +1,15 @@
-### R-175 + K-103 integration (real Postgres fixture), final code of review round 5 (bc3646c42)
+### R-175 + K-103 integration (real Postgres fixture), final code of review round 6 (4536a8cf2)
  RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r175-rate-limiter
  Test Files  6 passed (6)
       Tests  59 passed (59)
-   Start at  20:51:14
-   Duration  10.80s (transform 290ms, setup 0ms, import 591ms, tests 26.27s, environment 0ms)
+   Start at  22:10:04
+   Duration  11.00s (transform 659ms, setup 0ms, import 1.01s, tests 25.18s, environment 0ms)
 exit=0
 
 ### Whole unit suite (./node_modules/.bin/vitest run)
  Test Files  1125 passed (1125)
-      Tests  15038 passed | 6 skipped (15044)
-   Duration  39.95s (transform 216.19s, setup 0ms, import 471.82s, tests 121.53s, environment 103ms)
+      Tests  15039 passed | 6 skipped (15045)
+   Duration  43.39s (transform 221.40s, setup 0ms, import 488.10s, tests 123.32s, environment 84ms)
 exit=0
 
-### Integration: every other tests/integration file that mentions the limiter or its table (23 files)
- FAIL  tests/integration/2fa-login-gate.int.test.ts > login MFA gate
- FAIL  tests/integration/api/zod-validation.test.ts [ tests/integration/api/zod-validation.test.ts ]
- FAIL  tests/integration/k-041-invite-accept-adjacent.int.test.ts > L3: an address already held by another users row is refused, not 500ed
- FAIL  tests/integration/k-041-invite-accept-adjacent.int.test.ts > L4: accepting an invitation does not revert an established profile email
- FAIL  tests/integration/k-041-invite-accept-adjacent.int.test.ts > L5: names from the anonymous body are type-checked and bounded
- FAIL  tests/integration/k-041-invite-accept-adjacent.int.test.ts > L7: a signed-in identity that does not match the invitation is refunded too
- FAIL  tests/integration/k-041-invite-accept-adjacent.int.test.ts > M1: a name of astral characters is cut on a code point, not mid-surrogate-pair
- FAIL  tests/integration/k-041-invite-accept-adjacent.int.test.ts > M2: a brand-new invitee is confirmed as well as given a password
- FAIL  tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts > attaches the membership when the existing account proves ownership with its own password
- FAIL  tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts > L4: the accept endpoint caps password attempts per invitation token
- FAIL  tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts > L5: an established account whose password predates the 10-character floor can still accept
- FAIL  tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts > L6: re-inviting an existing member at a new role changes their role on accept
- FAIL  tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts > replaying an accepted invitation token is refused and never patches a password
- FAIL  tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts > still sets the password for a brand-new invitee who has no users row yet
- FAIL  tests/integration/k-042-reinvite-unique-violation.int.test.ts > a re-invite at a different role rewrites the role and pushes the expiry out
- FAIL  tests/integration/k-042-reinvite-unique-violation.int.test.ts > resends an existing invitation instead of raising a unique violation
- FAIL  tests/integration/k104-k105-invitation-token-encoding.int.test.ts > round-2 L2: the SECURITY DEFINER function pins pg_catalog first and is not owned by a superuser
- FAIL  tests/integration/mfa-impersonation-postgres.int.test.ts [ tests/integration/mfa-impersonation-postgres.int.test.ts ]
- Test Files  7 failed | 16 passed (23)
-      Tests  15 failed | 167 passed | 33 skipped (215)
- ❯ tests/integration/2fa-login-gate.int.test.ts (2 tests | 2 skipped) 3ms
- ❯ tests/integration/2fa-login-gate.int.test.ts:58:24
- ❯ tests/integration/api/zod-validation.test.ts (29 tests | 29 skipped) 5ms
- ❯ tests/integration/api/zod-validation.test.ts:75:3
- ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:105:35
- ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:128:35
- ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:152:35
- ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:184:35
- ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:45:35
- ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts (6 tests | 6 failed) 895ms
- ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:85:35
- ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:109:35
- ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts (10 tests | 6 failed) 1026ms
- ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:135:27
- ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:148:35
- ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:60:35
- ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:78:35
- ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:87:35
- ❯ tests/integration/k-042-reinvite-unique-violation.int.test.ts:110:35
- ❯ tests/integration/k-042-reinvite-unique-violation.int.test.ts:137:35
- ❯ tests/integration/k-042-reinvite-unique-violation.int.test.ts (5 tests | 2 failed) 306ms
- ❯ tests/integration/k104-k105-invitation-token-encoding.int.test.ts:231:21
- ❯ tests/integration/k104-k105-invitation-token-encoding.int.test.ts (7 tests | 1 failed) 845ms
- ❯ tests/integration/mfa-impersonation-postgres.int.test.ts (1 test | 1 skipped) 23ms
- ❯ tests/integration/mfa-impersonation-postgres.int.test.ts:30:14
- ❯ tests/integration/mfa-impersonation-postgres.int.test.ts:30:20
-exit=1
-
-### Attribution of the failing integration files above
-The set of FAIL lines is identical to the run with origin/master's src/lib/rateLimit.ts swapped in.
-Causes, none in the limiter: no GoTrue on the harness (2fa-login-gate, mfa-impersonation-postgres,
-k-041 x2, k-042); zod-validation refuses this database name; k104-k105 expects a migration_admin owner.
-Not run: the rest of tests/integration.
+Unchanged in this round and not re-run: the 23 other limiter-related integration files (round 5: the same 15 failures as origin/master).

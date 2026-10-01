@@ -757,6 +757,22 @@ mutant) was started before the round's changes were committed and reverted them.
 restored from a copy taken minutes earlier, the full suites were re-run green, and only then
 committed and mutated.
 
+## Review round 6
+
+Both reviewers said SHIP on 20ceca5d3 and confirmed the round-5 restore was complete.
+
+1. **`send-for-signing` charges after the signer check.** Round 5 put the company charge before
+   it, so foreign or inactive signer ids against a real document spent the shared bucket. The
+   charge now sits after the document checks and the signer ownership and role checks, before
+   the company query and the file read. Tested both ways: foreign signers leave the bucket
+   untouched; a valid request is charged before the file read.
+2. **Comments reflowed** on the five send routes. `statement-bulk-email`'s comment now also
+   names the two abuse buckets.
+
+Mutants: 142, all red, baseline green before and after (`mutations.log`, round 8). A first full
+run was void (two runners overlapped after a batch overran its time limit) and was re-run
+sequentially.
+
 ## Rollback
 
 Revert the branch's commits. No migration, no data change, no configuration. Counters written
