@@ -50,7 +50,8 @@ export function AccountLedgerSummary({
         </p>
         {closedToRetainedEarnings !== 0 && (
           <p className="text-xs text-[var(--ff-text-tertiary)]">
-            after {fmt(closedToRetainedEarnings)} closed to retained earnings at year end (derived)
+            {/* closedToRetainedEarnings is the negated normal-side balance that was closed: show it unsigned. */}
+            {fmt(Math.abs(closedToRetainedEarnings))}{closedToRetainedEarnings > 0 ? ' (abnormal-side balance)' : ''} closed to retained earnings at year end (derived)
           </p>
         )}
       </div>

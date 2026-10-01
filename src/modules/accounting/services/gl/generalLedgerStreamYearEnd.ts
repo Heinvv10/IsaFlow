@@ -31,6 +31,18 @@ export interface StreamFiscalBasis {
   retainedBf: number | null;
 }
 
+/**
+ * Reads the fiscal-year start month, and on an unfiltered read the RE-BF balance: up to TWO extra
+ * statements per stream page, each a separate statement from the line/opening query.
+ *
+ * CONSISTENCY WINDOW: under READ COMMITTED (the request transaction's level) each statement sees
+ * its own snapshot, so a posting that commits between the opening query and the RE-BF read can make
+ * the returned opening set (with RE-BF) fail to foot by that posting. It is not folded into the
+ * main query because RE-BF comes from getRetainedEarningsBroughtForward (trialBalanceBasis), shared
+ * with the trial balance, whose account-type logic would have to be duplicated into this SQL. A
+ * caller needing a guaranteed foot runs the stream in a REPEATABLE READ transaction, as the stream's
+ * integration test does (R-165).
+ */
 export async function streamFiscalBasis(
   companyId: string,
   periodStart: string,
