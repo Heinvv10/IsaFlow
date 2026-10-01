@@ -10,8 +10,8 @@
  */
 import type { ExtendedRatioResult, FinancialData, RatioResult } from './ratioTypes';
 import {
-  dependsOnUnstated, equityBasisFailure, equityNotMeaningful, NO_FREE_CASH_FLOW,
-  NO_OPERATING_CASH_FLOW_RATIO, notPositive, notRecorded,
+  dependsOnUnstated, equityBasisFailure, equityNotMeaningful, NET_INTEREST_IS_INCOME, NO_FREE_CASH_FLOW,
+  NO_OPERATING_CASH_FLOW_RATIO, noneRecorded, notCaptured, notPositive,
 } from './ratioBasis';
 
 function safeDiv(numerator: number, denominator: number): number {
@@ -85,9 +85,15 @@ export function calculateFinancialRatios(data: FinancialData): RatioResult {
   };
 }
 
-/** The reason an optional input stops a ratio, or null where it was supplied. */
-const missing = (value: number | undefined, what: string): string | null =>
-  (value === undefined ? notRecorded(what) : null);
+/**
+ * Why an optional input stops a ratio that divides by it, or null where it
+ * can be used. `undefined` is the REPORT not having captured it; a supplied
+ * nil is the LEDGER having none — see `ratioBasis.notCaptured`.
+ */
+function unusable(value: number | undefined, captured: string, recorded: string): string | null {
+  if (value === undefined) return notCaptured(captured);
+  return value > 0 ? null : noneRecorded(recorded);
+}
 
 export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResult {
   const base = calculateFinancialRatios(data);
@@ -123,10 +129,18 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   const { debtorDays, creditorDays } = base;
   const cycleParts = debtorDays === null || creditorDays === null || inventoryDays === null;
 
+  const noHeadCount = unusable(data.employeeCount, 'The employee count', 'employees');
+  const noEmployeeCost = unusable(data.employeeCosts, 'Employee cost', 'employee cost');
+  const noInterest = unusable(data.interestExpense, 'Interest expense', 'interest expense');
+  // Cover on NET interest: no base where nothing was paid, and none either
+  // where more was earned than paid — which is not "no interest recorded".
+  const noNetInterest = noInterest ?? (netInterest > 0 ? null : NET_INTEREST_IS_INCOME);
   const perEmployee = (key: string, numerator: number): number | null =>
-    given(key, employees > 0 ? null : notRecorded('employee count'), () => r2(safeDiv(numerator, employees)));
+    given(key, noHeadCount, () => r2(safeDiv(numerator, employees)));
   const onNetInterest = (key: string, numerator: number): number | null =>
-    given(key, netInterest > 0 ? null : notRecorded('net interest expense'), () => r2(safeDiv(numerator, netInterest)));
+    given(key, noNetInterest, () => r2(safeDiv(numerator, netInterest)));
+  const onRevenue = (problem: string | null): string | null =>
+    problem ?? (data.revenue > 0 ? null : notPositive('Revenue'));
 
   return {
     ...base,
@@ -136,11 +150,10 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
     roce: on('roce', capitalEmployed, 'Capital employed', () => pct(ebit, capitalEmployed)),
     pbitMargin: on('pbitMargin', data.revenue, 'Revenue', () => pct(ebit, data.revenue)),
     directMaterialMargin: given('directMaterialMargin',
-      directMaterials > 0 ? (data.revenue > 0 ? null : notPositive('Revenue')) : notRecorded('direct material cost'),
+      onRevenue(unusable(data.directMaterialCosts, 'Direct material cost', 'direct material cost')),
       () => pct(data.revenue - directMaterials, data.revenue)),
     // Leverage
-    interestCoverage: given('interestCoverage', interestExp > 0 ? null : notRecorded('interest expense'),
-      () => r2(safeDiv(ebit, interestExp))),
+    interestCoverage: given('interestCoverage', noInterest, () => r2(safeDiv(ebit, interestExp))),
     debtRatio: on('debtRatio', data.totalAssets, 'Total assets', () => r2(safeDiv(data.totalLiabilities, data.totalAssets))),
     equityMultiplier: equityFailure ? null : r2(safeDiv(data.totalAssets, data.totalEquity)),
     // Liquidity
@@ -165,7 +178,7 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
       () => r2(safeDiv(data.revenue, netOperatingAssets))),
     // Cash Flow
     freeCashFlow: given('freeCashFlow',
-      capex === undefined ? NO_FREE_CASH_FLOW : missing(opCF, 'operating cash flow'),
+      capex === undefined ? NO_FREE_CASH_FLOW : opCF === undefined ? NO_OPERATING_CASH_FLOW_RATIO : null,
       () => r2((opCF ?? 0) - (capex ?? 0))),
     // Coverage (AFS Master v15 — interest coverage variants)
     ebitdaToNetInterest: onNetInterest('ebitdaToNetInterest', ebitda),
@@ -175,18 +188,21 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
     revenuePerEmployee: perEmployee('revenuePerEmployee', data.revenue),
     pbitPerEmployee: perEmployee('pbitPerEmployee', ebit),
     ebitdaPerEmployee: perEmployee('ebitdaPerEmployee', ebitda),
-    employeeCostToRevenue: given('employeeCostToRevenue',
-      employeeCosts > 0 ? (data.revenue > 0 ? null : notPositive('Revenue')) : notRecorded('employee costs'),
+    employeeCostToRevenue: given('employeeCostToRevenue', onRevenue(noEmployeeCost),
       () => pct(employeeCosts, data.revenue)),
-    employeeCostPerHead: given('employeeCostPerHead',
-      employees > 0 ? (employeeCosts > 0 ? null : notRecorded('employee costs')) : notRecorded('employee count'),
+    employeeCostPerHead: given('employeeCostPerHead', noHeadCount ?? noEmployeeCost,
       () => r2(safeDiv(employeeCosts, employees))),
     // Returns
-    dividendCover: given('dividendCover', dividendsPaid > 0 ? null : notRecorded('dividends paid'),
+    dividendCover: given('dividendCover', unusable(data.dividendsPaid, 'Dividends paid', 'dividends'),
       () => r2(safeDiv(data.netProfit, dividendsPaid))),
-    retentionRate: on('retentionRate', data.netProfit, 'Net profit', () => pct(data.netProfit - dividendsPaid, data.netProfit)),
+    // An absent dividend is not a nil one: read as zero it printed 100% retained.
+    retentionRate: given('retentionRate',
+      data.dividendsPaid === undefined ? notCaptured('Dividends paid')
+        : data.netProfit > 0 ? null : notPositive('Net profit'),
+      () => pct(data.netProfit - dividendsPaid, data.netProfit)),
     effectiveTaxRate: given('effectiveTaxRate',
-      missing(data.taxExpense, 'tax expense') ?? (pbt > 0 ? null : notPositive('Profit before tax')),
+      data.taxExpense === undefined ? notCaptured('Tax expense')
+        : pbt > 0 ? null : notPositive('Profit before tax'),
       () => pct(data.taxExpense ?? 0, pbt)),
     // DuPont Decomposition
     dupontMargin: on('dupontMargin', data.revenue, 'Revenue', () => pct(data.netProfit, data.revenue)),

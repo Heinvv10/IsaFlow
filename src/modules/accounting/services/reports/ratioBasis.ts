@@ -50,10 +50,30 @@ export function notPositive(base: string): string {
   return `${base} is not positive, so this ratio has no meaning.`;
 }
 
-/** Why a ratio whose input nobody supplied is not stated — never a zero. */
-export function notRecorded(input: string): string {
-  return `No ${input} is recorded, so this ratio cannot be stated.`;
+/**
+ * TWO DIFFERENT ABSENCES, AND THE ENGINE MUST NOT CONFUSE THEM.
+ *
+ * `notCaptured` — the caller did not supply the input (`undefined`). That is
+ * a fact about the REPORT: it did not read the interest accounts, it carries
+ * no head count. The engine cannot say the company has none.
+ *
+ * `noneRecorded` — the input was supplied and is nil. That is a fact about
+ * the LEDGER in the period, and only a caller that read it can make it true.
+ *
+ * It used to say "No interest expense is recorded" for both, so a pack that
+ * never looked told a client their company paid no interest.
+ */
+export function notCaptured(input: string): string {
+  return `${input} is not captured in this report, so this ratio cannot be stated.`;
 }
+
+export function noneRecorded(input: string): string {
+  return `No ${input} recorded in the period, so this ratio cannot be stated.`;
+}
+
+/** Why cover on NET interest is not stated where interest earned is at least interest paid. */
+export const NET_INTEREST_IS_INCOME =
+  'Interest income is at least interest expense in the period, so there is no net interest cost to cover.';
 
 /** Why a ratio built from other ratios is not stated when one of them is not. */
 export function dependsOnUnstated(parts: string): string {
