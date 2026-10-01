@@ -140,13 +140,16 @@ export async function lockJournalChain(tx: TxSql, companyId: string, rootId: str
      WHERE id = ${rootId}::uuid AND company_id = ${companyId}::uuid
        FOR UPDATE
   `) as DbRow[]).map((r) => String(r.id));
+  // `seen` ends the walk even if the rows ever formed a loop: a row is locked once.
+  const seen = new Set(ids);
   while (ids.length > 0) {
     ids = ((await tx`
       SELECT id FROM gl_journal_entries
        WHERE reversal_of_id = ANY(${ids}::uuid[]) AND company_id = ${companyId}::uuid
        ORDER BY id
          FOR UPDATE
-    `) as DbRow[]).map((r) => String(r.id));
+    `) as DbRow[]).map((r) => String(r.id)).filter((id) => !seen.has(id));
+    for (const id of ids) seen.add(id);
   }
 }
 
