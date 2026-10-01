@@ -256,10 +256,9 @@ Unit:
 bare release too. It is left as it is; the `withPublicRouteTransaction` cases above are the
 guard.
 
-Evidence: `red.int.log` (six rounds), `green.log`, `mutations.log`. The last batch, round 6b,
-ran 172 mutants on `0d1f36ba6` with the baseline green three times before and once after:
-172 of 172 RED. Round 6 found two survivors (the cancel socket's bound, and two same-named
-pools in one file); each got a case and the whole list was re-run.
+Evidence: `red.int.log` (seven rounds), `green.log`, `mutations.log`. The last batch, round 7,
+ran 179 mutants on `f13aeedef` with the baseline green three times before and once after:
+179 of 179 RED, no survivor.
 
 ## Not covered
 
@@ -306,6 +305,17 @@ pools in one file); each got a case and the whole list was re-run.
   longer sits on a checked-out, idle client for an unbounded ROLLBACK, and once released the
   client is under the pool's listener, which every long-lived pool now has. It needs its own
   item.
+- The guard for a pg upgrade that changes `processID` or `secretKey` lives in
+  `tests/integration/r176-cancel-backend.int.test.ts`, which needs a database. GitHub CI runs
+  integration tests only when `DATABASE_URL` is set, and there it is empty, so that guard runs
+  locally only. The unit suite pins the fields' presence on a real `pg.Client` but cannot see
+  their types before a connection.
+- The cannot-cancel warning recognises pg's query_timeout by its exact message,
+  `Query read timeout` (pg 8.20.0 client.js 641). pg has no error code for it; if that text
+  changes, a timed-out ROLLBACK with no cancel possible is still logged at error, only the warning
+  is lost.
+- The pool census matches a listener to a pool by the name's text within one function. A name
+  reassigned to another pool in the same function is not told apart; review is the guard there.
 - The cancel request carries the backend's pid and secret key, as node-postgres received them at
   connect. Production connects to Postgres directly. Behind a pooler in transaction mode those
   would be the pooler's, and the cancel would be the pooler's to route; this would need
@@ -401,6 +411,17 @@ test-only follow-up in `0d1f36ba6`.
    build command; `vitest.config.ts` reads `.env*` through `loadEnv` into a local only (not into
    `process.env`). A shell that exports `NODE_ENV` would fail that one case loudly. Nothing
    changed.
+
+## Review round 5
+
+Both reviewers said SHIP on `058e40913`. Fixed in `f13aeedef`:
+
+1. A malformed pid or key was coerced (`>>> 0`) into a cancel that silently did nothing. It is
+   refused now: the pid and a numeric key must be integers that fit 32 bits, a Buffer key 4 to
+   256 bytes. `cancelBackend` returns false, so the cannot-cancel warning fires.
+2. The exact packet for 32-bit keys is pinned: -1, -2^31, 0xdeadbeef as a negative, 2^32-1
+   and 0. (A case for -1 → `ffffffff` already existed; it now asserts the whole packet.)
+3. Three limits are recorded under Accepted.
 
 ## Migration / rollback
 
