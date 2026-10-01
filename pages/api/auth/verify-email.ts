@@ -183,8 +183,9 @@ const handler: NextApiHandler = async (req, res) => {
     paygEligible = provisioned.paygEligible;
     await client.query('COMMIT');
   } catch (err) {
-    // `||`: the early ROLLBACK above may already have failed; that still condemns the connection.
-    unusable = (await rollbackFailed(client, 'verify-email')) || unusable;
+    // Not again if the early ROLLBACK above already failed: that client is condemned, and a second
+    // ROLLBACK would only queue behind the stuck one and send its backend a second cancel.
+    if (!unusable) unusable = await rollbackFailed(client, 'verify-email');
     log.error('tenant provisioning failed after verification', {
       error: err instanceof Error ? err.message : String(err),
     }, 'auth');

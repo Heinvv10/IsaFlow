@@ -323,3 +323,9 @@ AssertionError: expected [ [] ] to deeply equal [ [ false ] ]
 AssertionError: roll back with rollbackFailed(client, source), or pin the file in PINNED with the reason: expected { …(5) } to deeply equal { Object (src/lib/rollbackFailed.ts, scripts/apply-migrations.ts, ...) }
  Test Files  1 failed (1)
       Tests  1 failed | 12 passed (13)
+
+# Round 11 (/review round 2). RED on 42579d105 + the new verify-email case and the widened rollback census; source unchanged (2026-10-01T20:25:51Z). The census's new fixtures test its own matcher, so they are proved by mutants.
+     × an unknown token whose ROLLBACK fails, then a throw: the stuck client is not rolled back a second time 3ms
+AssertionError: expected [ 'ROLLBACK', 'ROLLBACK' ] to have a length of 1 but got 2
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 54 passed (55)

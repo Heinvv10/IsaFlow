@@ -254,6 +254,16 @@ describe('verify-email — a ROLLBACK that fails destroys the connection (R-176)
     expect(endMock).toHaveBeenCalledTimes(1);
   });
 
+  it('an unknown token whose ROLLBACK fails, then a throw: the stuck client is not rolled back a second time', async () => {
+    consumeMock.mockResolvedValue(null);
+    findConsumedMock.mockRejectedValue(new Error('db down')); // throws after the early ROLLBACK, into the catch
+    refuseRollback();
+    await expect(handler(req(), mockRes())).rejects.toThrow('db down');
+    expect(clientStatements().filter((t) => t === 'ROLLBACK')).toHaveLength(1);
+    expect(releaseMock.mock.calls).toEqual([[true]]);
+    expect(endMock).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ['provisioning throws, ROLLBACK succeeds', () => provisionMock.mockRejectedValue(new Error('db down'))],
     ['an unknown token, ROLLBACK succeeds', () => consumeMock.mockResolvedValue(null)],
