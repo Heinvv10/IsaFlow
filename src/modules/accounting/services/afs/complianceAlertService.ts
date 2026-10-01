@@ -133,6 +133,44 @@ const DEADLINE_UNKNOWN_MESSAGE = 'AFS filing deadline cannot be assessed: the fi
 const DEADLINE_UNKNOWN_DETAIL =
   'Set the financial year start in Company Settings. Until then no filing deadline reminder can be raised.';
 
+const DEADLINE_UNKNOWN: AfsAlertType = 'afs_filing_deadline_unknown';
+
+/**
+ * Raise the alert — unless somebody has dismissed it. A dismissed row is
+ * outside the partial unique index, so the plain `fireAlert` raised it again
+ * on the next run: dismissing it did nothing while the year start stayed
+ * unset. A row the SYSTEM withdrew (`dismissed_by` null) does not count: if
+ * the year start is cleared again the alert returns.
+ */
+async function fireDeadlineUnknown(companyId: string): Promise<void> {
+  await (sql`
+    INSERT INTO compliance_alerts (company_id, alert_type, message, detail)
+    SELECT ${companyId}::UUID, ${DEADLINE_UNKNOWN}::TEXT, ${DEADLINE_UNKNOWN_MESSAGE}::TEXT, ${DEADLINE_UNKNOWN_DETAIL}::TEXT
+    WHERE NOT EXISTS (
+      SELECT 1 FROM compliance_alerts
+      WHERE company_id = ${companyId}::UUID AND alert_type = ${DEADLINE_UNKNOWN}::TEXT
+        AND dismissed_by IS NOT NULL
+    )
+    ON CONFLICT (company_id, alert_type) WHERE dismissed_at IS NULL
+    DO NOTHING
+  ` as Promise<unknown>);
+}
+
+/**
+ * Withdraw it once it is no longer true: the year start is usable, or no
+ * statement is left open to assess. It stayed up for good, beside the
+ * deadline reminder it said could not be raised. `dismissed_by` stays null —
+ * nobody dismissed it.
+ */
+async function withdrawDeadlineUnknown(companyId: string): Promise<void> {
+  await (sql`
+    UPDATE compliance_alerts
+    SET dismissed_at = now()
+    WHERE company_id = ${companyId}::UUID AND alert_type = ${DEADLINE_UNKNOWN}::TEXT
+      AND dismissed_at IS NULL
+  ` as Promise<unknown>);
+}
+
 async function detectFilingDeadlineAlerts(companyId: string): Promise<void> {
   const rows = (await sql`
     SELECT d.id, d.fiscal_year, c.financial_year_start
@@ -172,7 +210,7 @@ async function detectFilingDeadlineAlerts(companyId: string): Promise<void> {
           'complianceAlertService: AFS filing deadline cannot be assessed — the company has no usable financial_year_start',
           { companyId, fiscalYear },
         );
-        await fireAlert(companyId, 'afs_filing_deadline_unknown', DEADLINE_UNKNOWN_MESSAGE, DEADLINE_UNKNOWN_DETAIL);
+        await fireDeadlineUnknown(companyId);
       }
       continue;
     }
@@ -195,6 +233,8 @@ async function detectFilingDeadlineAlerts(companyId: string): Promise<void> {
       );
     }
   }
+
+  if (!unknownRaised) await withdrawDeadlineUnknown(companyId);
 }
 
 // ── Detector stubs ────────────────────────────────────────────────────────────

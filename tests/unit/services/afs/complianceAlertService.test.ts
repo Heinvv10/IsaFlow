@@ -236,6 +236,26 @@ describe('detectAndFireAfsAlerts — the AFS filing deadline', () => {
     expect(alerts.map((a) => a[0])).toEqual(['afs_filing_deadline_7']);
   });
 
+  /** The withdrawals the detector issued in its last run: [company, alert_type]. */
+  const withdrawals = () => mockSql.mock.calls
+    .filter(([strings]) => /UPDATE compliance_alerts\s+SET dismissed_at/.test((strings as readonly string[]).join('?')))
+    .map((call) => [call[1], call[2]]);
+
+  it('withdraws that alert once the year start is usable, for this company only', async () => {
+    await alertsFor('2026-08-25', [{ fiscal_year: 2026, financial_year_start: 3 }]);
+    expect(withdrawals()).toEqual([['company-1', 'afs_filing_deadline_unknown']]);
+  });
+
+  it('withdraws it when no statement is left open to assess', async () => {
+    await alertsFor('2026-08-25', []);
+    expect(withdrawals()).toEqual([['company-1', 'afs_filing_deadline_unknown']]);
+  });
+
+  it('does not withdraw it in the run that raises it', async () => {
+    await alertsFor('2026-08-25', [{ fiscal_year: 2026, financial_year_start: null }]);
+    expect(withdrawals()).toEqual([]);
+  });
+
   it('still alerts for the company\'s other statements when one has no usable year start', async () => {
     // Rows are per document; the year start is the company's, so in practice
     // they share it. The detector must not let one bad row stop the loop.
