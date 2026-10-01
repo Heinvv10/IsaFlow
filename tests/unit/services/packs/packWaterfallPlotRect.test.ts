@@ -16,6 +16,7 @@ import type { PackChartSpec } from '@/modules/accounting/services/packs/pages/pa
 import * as A from './fixtures/boardPackInputs';
 import * as B from './fixtures/liveDemoBoardPack';
 import { clipRect } from './support/bridgeSvg';
+import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 
 /** A demo pack whose profit bridge carries the long plug name. */
 const longName: BoardPackInput = {
@@ -32,7 +33,14 @@ const INPUTS: Array<[string, BoardPackInput]> = [
 
 function bridgesOf(input: BoardPackInput): PackChartSpec[] | null {
   let doc;
-  try { doc = buildBoardPackPages(input); } catch { return null; } // a fixture built to be refused
+  try {
+    doc = buildBoardPackPages(input);
+  } catch (error) {
+    // A fixture built to be refused — out of balance, a commentary too long
+    // for its sheet. Anything else is a defect and fails the test.
+    if (error instanceof PackRefusal) return null;
+    throw error;
+  }
   return doc.pages.flatMap((p) => p.blocks.flatMap((b) => (b.kind === 'chart' && b.chart.kind === 'waterfall' ? [b.chart] : [])));
 }
 
