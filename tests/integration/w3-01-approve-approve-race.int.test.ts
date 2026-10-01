@@ -107,22 +107,20 @@ describe('approve vs approve (W3-01 round 3)', () => {
     expect(hdr).toEqual({ status: 'approved', journal_entry_id: journals[0]!.id });
   });
 
-  // Round 4: approval judged the linked journal ("live, same figures" or
-  // "reversed, reversal stands") without locking it, so a reversal could
-  // commit between that judgement and approval's writes. It now locks the
-  // journal and then its reversal, under the header lock, and judges inside
-  // those locks — a reversal either finished before approval looked or waits
-  // until approval has committed.
-  describe('the linked journal is locked while approval decides', () => {
+  // Rounds 4–5: approval judged the journal a run links without locking it, and
+  // the generic reversal knew nothing about pay runs, so a reversal could land
+  // between approval's judgement and its writes. Both now take the run header,
+  // then the journal's whole reversal chain, in that order (payrollJournalChain)
+  // — and the reversal is judged against what approval left.
+  describe('approval and a reversal of the run\'s journal cannot interleave', () => {
     const reverse = (journal: string) => call(jeAction as Route, 'POST', '/api/accounting/journal-entries-action', undefined, { body: { id: journal, action: 'reverse' } });
     const approved = async (month: number) => {
       const id = await calculatedRun(call, month);
       const url = (a: string) => `/api/payroll/runs/${id}/${a}`;
       const plan = () => call(journalPlan as Route, 'GET', url('journal-plan'), id);
-      const appr = async () => call(approve as Route, 'POST', url('approve'), id, { body: { expectedPlanHash: (await plan()).body.data!.planHash } });
-      const j1 = String((await appr()).body.data!.journalEntryId);
+      const j1 = String((await call(approve as Route, 'POST', url('approve'), id, { body: { expectedPlanHash: (await plan()).body.data!.planHash } })).body.data!.journalEntryId);
       expect((await call(reopen as Route, 'POST', url('reopen'), id, { body: { reason: 'w301 journal lock' } })).statusCode).toBe(200);
-      return { id, j1, plan, appr };
+      return { id, j1, plan };
     };
     const park = () => {
       let release!: () => void;
@@ -131,52 +129,35 @@ describe('approve vs approve (W3-01 round 3)', () => {
       return { release, entered };
     };
     const header = async (id: string) => (await pool.query('SELECT status, journal_entry_id FROM payroll_run_headers WHERE id = $1', [id])).rows[0];
+    const labour = async (journals: string[]) => Number((await pool.query(
+      `SELECT COALESCE(sum(l.debit - l.credit), 0)::float8 AS n FROM gl_journal_lines l
+         JOIN gl_journal_entries e ON e.id = l.journal_entry_id JOIN gl_accounts a ON a.id = l.gl_account_id
+        WHERE e.company_id = $1 AND e.status = 'posted' AND a.account_code = '5200'
+          AND e.id IN (WITH RECURSIVE c AS (SELECT id FROM gl_journal_entries WHERE id = ANY($2::uuid[])
+                         UNION SELECT x.id FROM gl_journal_entries x JOIN c ON x.reversal_of_id = c.id) SELECT id FROM c)`,
+      [company, journals])).rows[0]!.n);
 
-    it('re-approving onto a live journal: a reversal of it waits for the approval', async () => {
+    it('re-approving onto a live journal: a reversal of it waits, then is refused — the run is approved', async () => {
       const { id, j1, plan } = await approved(9);
       const hash = (await plan()).body.data!.planHash; // before parking: the preview runs the gate too
       const { release, entered } = park();
       const apprP = call(approve as Route, 'POST', `/api/payroll/runs/${id}/approve`, id, { body: { expectedPlanHash: hash } });
-      await entered; // judged "live, same figures"; nothing written yet
+      await entered; // judged "in force, same figures"; nothing written yet
       const revP = reverse(j1);
-      const state = await Promise.race([revP.then(() => 'finished' as const), waitsOnLock('gl_journal_entries')]);
+      const state = await Promise.race([revP.then(() => 'finished' as const), waitsOnLock('')]); // behind the header, or the chain
       release();
       const [appr1, rev] = await Promise.all([apprP, revP]);
 
       expect(state).toBe('waiting');
       expect(appr1.statusCode).toBe(200);
       expect(appr1.body.data).toMatchObject({ journalEntryId: j1 });
-      // The reversal ran AFTER the approval committed: a later act on an approved run, not a torn one.
-      expect(rev.statusCode).toBe(200);
+      expect(rev.statusCode).toBe(400);
+      expect(rev.body.error?.message).toMatch(/Reopen the pay run first/);
       expect(await header(id)).toEqual({ status: 'approved', journal_entry_id: j1 });
+      expect(await labour([j1])).toBe(20177.12); // approved, and in the ledger
     });
 
-    it('a journal being reversed when approval arrives: approval waits, then judges what was committed', async () => {
-      const { id, j1, plan } = await approved(10);
-      const hash = (await plan()).body.data!.planHash;
-      // Stands in for a reversal mid-transaction: it has claimed the journal (reversed_at) and not committed.
-      const peer = await pool.connect();
-      let res: Awaited<ReturnType<typeof call>>;
-      let state: 'finished' | 'waiting';
-      try {
-        await peer.query('BEGIN');
-        await peer.query('UPDATE gl_journal_entries SET reversed_at = NOW() WHERE id = $1', [j1]);
-        const apprP = call(approve as Route, 'POST', `/api/payroll/runs/${id}/approve`, id, { body: { expectedPlanHash: hash } });
-        state = await Promise.race([apprP.then(() => 'finished' as const), waitsOnLock('gl_journal_entries')]);
-        await peer.query('COMMIT');
-        res = await apprP;
-      } finally {
-        await peer.query('ROLLBACK');
-        peer.release();
-      }
-      expect(state).toBe('waiting');
-      // Reversed, with no standing reversal to show for it: neither re-locked onto it nor replaced.
-      expect(res.statusCode).toBe(400);
-      expect(res.body.error?.message).toMatch(/can neither be re-approved onto it nor post a new one/);
-      expect(await header(id)).toEqual({ status: 'calculated', journal_entry_id: j1 });
-    });
-
-    it('replacing a reversed journal: a reversal of its reversal waits for the approval', async () => {
+    it('replacing a reversed journal: a reversal of its reversal waits, then is refused — the month is in the ledger once', async () => {
       const { id, j1, plan } = await approved(11);
       expect((await reverse(j1)).statusCode).toBe(200);
       const contra = String((await pool.query('SELECT id FROM gl_journal_entries WHERE reversal_of_id = $1', [j1])).rows[0]!.id);
@@ -185,19 +166,20 @@ describe('approve vs approve (W3-01 round 3)', () => {
 
       const { release, entered } = park();
       const apprP = call(approve as Route, 'POST', `/api/payroll/runs/${id}/approve`, id, { body: { expectedPlanHash: p.body.data!.planHash } });
-      await entered; // judged "reversed, reversal stands"; nothing written yet
+      await entered; // judged "nothing in the ledger: replace"; nothing written yet
       const revP = reverse(contra);
-      const state = await Promise.race([revP.then(() => 'finished' as const), waitsOnLock('gl_journal_entries')]);
-      // While approval is deciding, the old journal's amounts cannot come back into the ledger.
+      const state = await Promise.race([revP.then(() => 'finished' as const), waitsOnLock('')]); // behind the header, or the chain
       expect(state).toBe('waiting');
-      expect((await pool.query('SELECT reversed_at FROM gl_journal_entries WHERE id = $1', [contra])).rows[0]!.reversed_at).toBeNull();
       release();
-      const [appr1] = await Promise.all([apprP, revP]);
+      const [appr1, rev] = await Promise.all([apprP, revP]);
 
       expect(appr1.statusCode).toBe(200);
       const j2 = String(appr1.body.data!.journalEntryId);
       expect(j2).not.toBe(j1);
+      expect(rev.statusCode).toBe(400);
+      expect(rev.body.error?.message).toMatch(/approve the pay run/);
       expect(await header(id)).toEqual({ status: 'approved', journal_entry_id: j2 });
+      expect(await labour([j1, j2])).toBe(20177.12);
     });
   });
 

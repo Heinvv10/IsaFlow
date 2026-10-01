@@ -8,6 +8,7 @@ import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilitySer
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear } from './taxTables';
 import { isPayrollRunLocked, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals } from './payrollRunLock';
+import { journalInForceOrNull } from './payrollJournalChain';
 import type { EmployeeComponent, PayrollComponent, PayrollPeriod, ValidationResult } from './payrollTypes';
 import {
   buildTerminationComponents,
@@ -159,7 +160,8 @@ export async function calculatePayrollRun(
     periodYear: period.year,
     periodMonth: period.month,
     officialRate: Number(process.env.SARS_OFFICIAL_RATE ?? 0.085),
-    journalEntryId: run.journal_entry_id == null ? null : String(run.journal_entry_id),
+    // Only a journal whose amounts are in the ledger blocks loan work (round 5).
+    journalEntryId: await journalInForceOrNull(companyId, run.journal_entry_id),
   });
 
   for (const employee of employees) {
@@ -257,14 +259,14 @@ export async function calculatePayrollRun(
         INSERT INTO payroll_run_lines (
           run_id, employee_id, gross_pay, taxable_income, paye,
           uif_employee, uif_employer, sdl, eti, net_pay,
-          component_breakdown, validation_results
+          component_breakdown, validation_results, created_at
         ) VALUES (
           ${runId}::uuid, ${ins.employeeId}::uuid,
           ${ins.grossPay}, ${ins.taxableIncome}, ${ins.paye},
           ${ins.uifEmployee}, ${ins.uifEmployer},
           ${ins.sdl}, ${ins.eti}, ${ins.netPay},
           ${ins.componentBreakdown},
-          ${ins.validationResults}
+          ${ins.validationResults}, clock_timestamp()
         )
       `;
     }

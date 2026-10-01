@@ -40,6 +40,7 @@ import {
   PayrollRunJournalPostedError,
   runHasLoanWork,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
+import { payrollJournalInForce } from '@/modules/accounting/services/payroll/payrollJournalChain';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -103,6 +104,7 @@ export const calculatePayRunTool: McpTool = {
       // a reopened run whose GL journal is still posted was promised a recost
       // that calculatePayrollRun then refuses.
       const blocked = run.journalEntryId != null
+        && await payrollJournalInForce(ctx.companyId, run.journalEntryId)
         && await runHasLoanWork(ctx.companyId, runId, run.periodYear, run.periodMonth);
       return ok({
         dryRun: true,

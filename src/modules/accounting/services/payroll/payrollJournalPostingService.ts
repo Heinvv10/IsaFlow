@@ -118,6 +118,15 @@ export async function postPayrollRunJournal(
 
 // ── reversePayrollRunJournal ─────────────────────────────────────────────────
 
+/**
+ * Reverses the run's journal and clears the link. reverseJournalEntry's
+ * payroll guard applies (payrollJournalReversalGuard): the run must have been
+ * reopened — an approved or paid run's journal is refused. Clearing the link
+ * is no longer what makes the run approvable again (approval judges the
+ * journal by the ledger and replaces one that is out); it is kept so the
+ * header does not point at a reversed journal.
+ */
+
 export async function reversePayrollRunJournal(
   companyId: string,
   runId: string,

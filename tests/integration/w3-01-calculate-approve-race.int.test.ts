@@ -30,7 +30,10 @@ vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', async (o
 });
 
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
+import { runRecalculatedSince } from '@/modules/accounting/services/payroll/payrollJournalChain';
+import { als } from '@/lib/als';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
+import reopen from '../../pages/api/payroll/runs/[id]/reopen';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -126,5 +129,33 @@ describe('calculate vs approve (W3-01 round 2, R2-2)', () => {
     expect((await pool.query(
       'SELECT status, journal_entry_id, total_gross::float8 AS gross FROM payroll_run_headers WHERE id = $1', [id])).rows[0])
       .toEqual({ status: 'approved', journal_entry_id: appr.body.data!.journalEntryId, gross: 20000 });
+  });
+
+  // Round 5. "Recalculated since the journal posted" is read from timestamps: the run lines' against
+  // the journal's. NOW() is a transaction's START, so a calculation whose transaction was already
+  // open when the approval's began would stamp its lines EARLIER than the journal and pass for
+  // "not recalculated" — the lines are stamped with the clock at the insert instead.
+  it('a recalculation is seen as later than the journal even when its transaction began first', async () => {
+    await pool.query('UPDATE payroll_employee_components SET amount = 20000 WHERE id = $1', [salary]);
+    const id = await calculatedRun(call, 6);
+    const url = (a: string) => `/api/payroll/runs/${id}/${a}`;
+    const early = await pool.connect();
+    try {
+      await early.query('BEGIN');
+      await early.query('SELECT NOW()'); // this transaction's clock is fixed here
+      const p = await call(journalPlan as Route, 'GET', url('journal-plan'), id);
+      const appr = await call(approve as Route, 'POST', url('approve'), id, { body: { expectedPlanHash: p.body.data!.planHash } });
+      expect(appr.statusCode).toBe(200);
+      const journal = String(appr.body.data!.journalEntryId);
+      expect((await call(reopen as Route, 'POST', url('reopen'), id, { body: { reason: 'w301 clock stamp' } })).statusCode).toBe(200);
+      expect(await runRecalculatedSince(company, id, journal)).toBe(false);
+
+      await als.run({ client: early, userId: admin, companyId: company, claims: {} }, () => calculatePayrollRun(id, company));
+      await early.query('COMMIT');
+      expect(await runRecalculatedSince(company, id, journal)).toBe(true);
+    } finally {
+      await early.query('ROLLBACK');
+      early.release();
+    }
   });
 });
