@@ -112,10 +112,13 @@ export async function executeMigration(
           )
           ON CONFLICT (company_id, account_code) DO UPDATE SET
             account_name    = EXCLUDED.account_name,
-            account_type    = EXCLUDED.account_type,
-            -- A system account's subtype is its ROLE: only Default Accounts
-            -- and the COA import's role map place one, never this fill (it
-            -- would make the account a holder, beside the role's own).
+            -- A system account keeps its type and subtype. The subtype is its
+            -- ROLE: only Default Accounts and the COA import's role map place
+            -- one, never this fill (it would make the account a holder, beside
+            -- the role's own). Its type is what the role requires: re-typing
+            -- the bank holder as an expense would leave posting on a mistyped account.
+            account_type    = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_type
+                                   ELSE EXCLUDED.account_type END,
             account_subtype = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_subtype
                                    ELSE COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype) END
           WHERE gl_accounts.imported_from = EXCLUDED.imported_from
@@ -271,8 +274,9 @@ async function reimportAttributeChanges(
     return [{
       accountId: String(r.id), accountCode: String(r.account_code),
       from: { accountType: String(r.account_type), accountSubtype: subtype },
-      to: { accountType: String(acct.mappedType),
-        accountSubtype: subtype ?? (r.is_system_account === true ? null : acct.mappedSubtype ?? null) },
+      to: r.is_system_account === true
+        ? { accountType: String(r.account_type), accountSubtype: subtype }
+        : { accountType: String(acct.mappedType), accountSubtype: subtype ?? acct.mappedSubtype ?? null },
     }];
   });
 }

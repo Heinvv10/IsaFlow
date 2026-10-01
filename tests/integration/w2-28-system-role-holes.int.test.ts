@@ -129,4 +129,18 @@ describeIfDb('W2-28 a role is never emptied or doubled by a rollback, a subtype 
     expect({ imported: out.accountsImported, bank: await holders('bank'), subtypes }).toEqual({ imported: 2, bank: ['1190'],
       subtypes: [{ account_code: 'Z100', account_subtype: null }, { account_code: 'Z200', account_subtype: 'bank' }] });
   });
+  it('a migration re-import never re-types a system account: the bank holder cannot become an expense', async () => {
+    await ins(randomUUID(), 'Z300', 'asset', 'bank', true, { importedFrom: 'xero' });
+    await ins(randomUUID(), 'Z400', 'asset', 'other', false, { importedFrom: 'xero' });
+    const account = (sourceCode: string) => ({ sourceCode, sourceName: `Imported ${sourceCode}`, sourceType: 'EXPENSE',
+      openingBalance: 0, mappedType: 'expense' as const, mappedNormalBalance: 'debit' as const, mappedSubtype: 'operating_expense' });
+    const tx = await fx.openTx();
+    await tx.run(() => executeMigration(CO, USER, 'xero', [account('Z300'), account('Z400')], [], []));
+    await tx.commit();
+    clearSystemAccountCache(CO);
+    const types = (await fx.query(
+      "SELECT account_code, account_type FROM gl_accounts WHERE company_id = $1 AND account_code LIKE 'Z%' ORDER BY 1", [CO])).rows;
+    expect({ types, bank: (await getSystemAccount('bank', CO)).accountType }).toEqual({ bank: 'asset',
+      types: [{ account_code: 'Z300', account_type: 'asset' }, { account_code: 'Z400', account_type: 'expense' }] });
+  });
 });
