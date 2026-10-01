@@ -8,7 +8,7 @@ import { SignJWT } from 'jose';
 import { request } from './mfa-impersonation-postgres.helpers';
 import { CO, CUSTOMER, USER, call, pool } from './r167-portal-links.helpers';
 import { als } from '@/lib/als';
-import { enableOnlinePayment as enableOnlinePaymentInTx } from '@/modules/accounting/services/core/paymentGatewayPortalService';
+import { InvoiceNotApprovedError, enableOnlinePayment as enableOnlinePaymentInTx } from '@/modules/accounting/services/core/paymentGatewayPortalService';
 
 let jwt = '';
 export async function signIn(): Promise<void> {
@@ -30,6 +30,9 @@ const authed = (extra: Record<string, unknown>) =>
   ({ ...(request({ 'sb-access-token': jwt, active_company_id: CO }, 'POST') as object), ...extra });
 export const payNow = async (invoiceId: string) => call(
   (await import('../../pages/api/accounting/customer-invoices/[id]/pay-now')).default as never, authed({ query: { id: invoiceId } }));
+export const enableRoute = async (invoiceId: string) => call(
+  (await import('../../pages/api/accounting/payment-gateway')).default as never,
+  authed({ query: {}, body: { invoiceId, action: 'enable' } }));
 export const mintExplicit = async (invoiceId: string, amount = 10) => call(
   (await import('../../pages/api/portal/payment-link')).default as never,
   authed({ query: {}, body: { invoiceId, clientId: CUSTOMER, amount } }));
@@ -38,7 +41,8 @@ export async function enableOnlinePayment(companyId: string, invoiceId: string):
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const url = await als.run({ client, userId: USER, companyId, claims: {} } as never, () => enableOnlinePaymentInTx(companyId, invoiceId));
+    const url = await als.run({ client, userId: USER, companyId, claims: {} } as never,
+      () => enableOnlinePaymentInTx(companyId, invoiceId).catch((err) => { if (err instanceof InvoiceNotApprovedError) return null; throw err; }));
     await client.query('COMMIT');
     return url;
   } catch (err) { await client.query('ROLLBACK'); throw err; } finally { client.release(); }

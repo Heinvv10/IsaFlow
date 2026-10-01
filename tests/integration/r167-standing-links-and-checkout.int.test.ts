@@ -78,7 +78,7 @@ describe("the invoice's standing link charges the live balance and is never spen
     expect(h.charged).toEqual([2500]);
   });
 
-  // enableOnlinePayment's standing link is covered in r177-portal-payment-followups (it needs the request transaction).
+  // enableOnlinePayment's standing link is covered in r178-r180-portal-link-rules (it needs the request transaction).
   it('pay-now mints a standing link', async () => {
     const b = await invoiceWithLink(0, 1);
     const jwt = await new SignJWT({ sub: USER, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
