@@ -25,7 +25,15 @@ const pdfBytes = Buffer.from(
 /** A Playwright double: a browser whose connection state we control. */
 const waitCalls: Array<{ fn: (a: string[]) => boolean; arg: string[] }> = [];
 
-function makeBrowser(printError: string | null = null) {
+/** The attributes the print page would carry: `'fonts: …'` / `'pages: …'` land
+ *  under their producer's own attribute name, as `markPrintError` writes them. */
+function attributesFor(printError: string | string[] | null): Array<{ name: string; value: string }> {
+  return (printError === null ? [] : [printError].flat()).map((value) => ({
+    name: `data-print-error-${value.split(':')[0]}`, value,
+  }));
+}
+
+function makeBrowser(printError: string | string[] | null = null) {
   const contexts: Array<{ closed: boolean }> = [];
   const listeners: Array<() => void> = [];
   const browser = {
@@ -43,12 +51,10 @@ function makeBrowser(printError: string | null = null) {
           goto: vi.fn(async () => {}),
           waitForFunction: vi.fn(async (fn: (a: string[]) => boolean, arg: string[]) => { waitCalls.push({ fn, arg }); }),
           // Runs the transport's OWN function against a document that carries
-          // the marker under its real name only, so reading any other
-          // attribute name returns null and the render succeeds.
+          // the markers under their real names only, so reading any other
+          // attribute name finds nothing and the render succeeds.
           evaluate: vi.fn(async (fn: (a: string) => unknown, arg: string) => {
-            vi.stubGlobal('document', {
-              documentElement: { getAttribute: (name: string) => (name === 'data-print-error' ? printError : null) },
-            });
+            vi.stubGlobal('document', { documentElement: { attributes: attributesFor(printError) } });
             try { return fn(arg); } finally { vi.unstubAllGlobals(); }
           }),
           emulateMedia: vi.fn(async () => {}),
@@ -91,9 +97,22 @@ describe('playwrightTransport — a print page that reports it cannot render', (
     await expect(playwrightTransport.render(request)).rejects.toThrow(/cannot render: fonts: footer face unreachable/);
   });
 
-  it('reads the attribute the print page writes (usePrintMode / usePackPagesData)', async () => {
-    const { PRINT_ERROR_ATTRIBUTE } = await import('@/lib/pdf/pdfTransport');
-    expect(PRINT_ERROR_ATTRIBUTE).toBe('data-print-error');
+  it('reads the attribute names the print page writes (usePrintMode / usePackPagesData)', async () => {
+    const { PRINT_ERROR_ATTRIBUTE_PREFIX } = await import('@/lib/pdf/pdfTransport');
+    const { markPrintError } = await import('@/components/accounting/packs/usePrintMode');
+    expect(PRINT_ERROR_ATTRIBUTE_PREFIX).toBe('data-print-error');
+    vi.stubGlobal('document', { documentElement: { setAttribute: vi.fn() } });
+    markPrintError('fonts', 'x');
+    const set = (document.documentElement.setAttribute as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    vi.unstubAllGlobals();
+    expect((set[0] as string).startsWith(PRINT_ERROR_ATTRIBUTE_PREFIX)).toBe(true);
+  });
+
+  it('reports BOTH producers when both failed', async () => {
+    launchMock.mockResolvedValue(makeBrowser(['fonts: footer face unreachable', 'pages: HTTP 422']));
+    await expect(playwrightTransport.render(request)).rejects.toThrow(
+      /cannot render: fonts: footer face unreachable; pages: HTTP 422$/,
+    );
   });
 
   it('carries a pages-fetch refusal through with its status', async () => {
@@ -109,7 +128,7 @@ describe('playwrightTransport — a print page that reports it cannot render', (
     const run = (ready: boolean, error: boolean) => {
       vi.stubGlobal('document', {
         querySelector: () => (ready ? {} : null),
-        documentElement: { hasAttribute: (a: string) => error && a === 'data-print-error' },
+        documentElement: { attributes: error ? [{ name: 'data-print-error-pages', value: 'pages: HTTP 500' }] : [{ name: 'lang', value: 'en' }] },
       });
       try { return fn(arg); } finally { vi.unstubAllGlobals(); }
     };

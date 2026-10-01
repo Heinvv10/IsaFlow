@@ -18,12 +18,14 @@ import { serialisePackPagesDocument } from '@/modules/accounting/services/packs/
 import { demoInput } from '../../services/packs/fixtures/boardPackInputs';
 import { PackPagesPrintPage } from '@/components/accounting/packs/PackPagesPrintPage';
 
-const attr = () => document.documentElement.getAttribute('data-print-error');
+const attr = () => document.documentElement.getAttribute('data-print-error-pages');
+const fontsAttr = () => document.documentElement.getAttribute('data-print-error-fonts');
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-  document.documentElement.removeAttribute('data-print-error');
+  document.documentElement.removeAttribute('data-print-error-pages');
+  document.documentElement.removeAttribute('data-print-error-fonts');
   document.documentElement.className = '';
   window.localStorage.clear();
 });
@@ -59,10 +61,10 @@ describe('PackPagesPrintPage when the pages fetch fails', () => {
     await waitFor(() => expect(result.current.document).not.toBeNull());
     expect(attr()).toBeNull();
 
-    document.documentElement.setAttribute('data-print-error', 'fonts: x');
+    document.documentElement.setAttribute('data-print-error-fonts', 'fonts: x');
     rerender({ to: '2026-10-31' });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     await new Promise((r) => setTimeout(r, 50));
-    expect(attr()).toBe('fonts: x');
+    expect(fontsAttr()).toBe('fonts: x');
   });
 });

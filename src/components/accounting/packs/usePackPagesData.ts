@@ -58,7 +58,7 @@ export function usePackPagesData(packType: PackType, from: string, to: string): 
         // refusal is a fact about the payload, not about this render.
         const adopted = adoptPackPagesDocument(raw);
         if (cancelled) return;
-        clearPrintError('pages:');
+        clearPrintError('pages');
         setDocument(adopted);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -66,7 +66,7 @@ export function usePackPagesData(packType: PackType, from: string, to: string): 
         // The status, never the body: this attribute is read by the render
         // route's logs, and a refusal body is a tenant-facing sentence.
         if (!cancelled) {
-          markPrintError(`pages: ${err instanceof ApiRequestError ? `HTTP ${err.status}` : message}`);
+          markPrintError('pages', err instanceof ApiRequestError ? `HTTP ${err.status}` : message);
           setError(message);
         }
       }

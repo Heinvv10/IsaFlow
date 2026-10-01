@@ -101,10 +101,11 @@ export const MM_PER_INCH = 25.4;
 export const PAPER_A4_IN = { width: 8.27, height: 11.69 } as const;
 
 export const PRINT_READY_SELECTOR = '[data-print-ready="true"]';
-/** Set on <html> by the print page when it can never become ready (a font
- *  failed to load). Its value is the reason; a transport that sees it fails
- *  the render at once rather than waiting out PRINT_READY_TIMEOUT_MS. */
-export const PRINT_ERROR_ATTRIBUTE = 'data-print-error';
+/** Attributes (all starting with this prefix) set on <html> by the print page
+ *  when it can never become ready — one per producer. Their values are the
+ *  reasons; a transport that sees any fails the render at once rather than
+ *  waiting out PRINT_READY_TIMEOUT_MS. */
+export { PRINT_ERROR_ATTRIBUTE_PREFIX } from './printErrorAttribute';
 export const PRINT_READY_TIMEOUT_MS = 30_000;
 
 /** Chromium's page-number footer. Both transports render the same markup. */

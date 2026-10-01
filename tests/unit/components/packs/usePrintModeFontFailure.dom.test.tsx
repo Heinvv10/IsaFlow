@@ -24,13 +24,14 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   Reflect.deleteProperty(document, 'fonts');
-  document.documentElement.removeAttribute('data-print-error');
+  document.documentElement.removeAttribute('data-print-error-fonts');
+  document.documentElement.removeAttribute('data-print-error-pages');
   document.getElementById('pack-footer-face')?.remove();
   logError.mockClear();
 });
 
 describe('usePrintReady when a font load rejects', () => {
-  it('logs the failure, marks <html data-print-error>, and stays not-ready', async () => {
+  it('logs the failure, marks <html data-print-error-fonts>, and stays not-ready', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('footer face unreachable'); }));
     Object.defineProperty(document, 'fonts', {
       configurable: true,
@@ -38,7 +39,7 @@ describe('usePrintReady when a font load rejects', () => {
     });
     const { container } = render(<Probe />);
     await waitFor(() => {
-      expect(document.documentElement.getAttribute('data-print-error')).toBe('fonts: footer face unreachable');
+      expect(document.documentElement.getAttribute('data-print-error-fonts')).toBe('fonts: footer face unreachable');
     });
     expect(logError).toHaveBeenCalledWith(
       'Pack print fonts failed to load', { reason: 'footer face unreachable' }, 'pdf',
@@ -55,7 +56,7 @@ describe('usePrintReady when a font load rejects', () => {
     });
     const { container } = render(<Probe />);
     await waitFor(() => {
-      expect(document.documentElement.getAttribute('data-print-error')).toBe(
+      expect(document.documentElement.getAttribute('data-print-error-fonts')).toBe(
         'fonts: a declared face is not available after loading',
       );
     });
@@ -69,18 +70,33 @@ describe('usePrintReady when a font load rejects', () => {
       value: { load: vi.fn(async () => []), check: () => true, ready: Promise.resolve(null) },
     });
     const first = render(<Probe />);
-    await waitFor(() => expect(document.documentElement.getAttribute('data-print-error')).toMatch(/^fonts:/));
+    await waitFor(() => expect(document.documentElement.getAttribute('data-print-error-fonts')).toMatch(/^fonts:/));
     first.unmount();
 
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) }) as unknown as Response));
     const second = render(<Probe />);
     await waitFor(() => expect(second.container.querySelector('[data-print-ready="true"]')).not.toBeNull());
-    expect(document.documentElement.getAttribute('data-print-error')).toBeNull();
+    expect(document.documentElement.getAttribute('data-print-error-fonts')).toBeNull();
     second.unmount();
 
-    document.documentElement.setAttribute('data-print-error', 'pages: HTTP 422');
+    document.documentElement.setAttribute('data-print-error-pages', 'pages: HTTP 422');
     const third = render(<Probe />);
     await waitFor(() => expect(third.container.querySelector('[data-print-ready="true"]')).not.toBeNull());
-    expect(document.documentElement.getAttribute('data-print-error')).toBe('pages: HTTP 422');
+    expect(document.documentElement.getAttribute('data-print-error-pages')).toBe('pages: HTTP 422');
+  });
+
+  it('keeps a font failure when the pages fetch then fails and then recovers', async () => {
+    const { markPrintError, clearPrintError } = await import('@/components/accounting/packs/usePrintMode');
+    const root = document.documentElement;
+    markPrintError('fonts', 'footer face unreachable');
+    markPrintError('pages', 'HTTP 422');
+    // Neither overwrote the other.
+    expect(root.getAttribute('data-print-error-fonts')).toBe('fonts: footer face unreachable');
+    expect(root.getAttribute('data-print-error-pages')).toBe('pages: HTTP 422');
+    clearPrintError('pages');
+    expect(root.getAttribute('data-print-error-pages')).toBeNull();
+    expect(root.getAttribute('data-print-error-fonts')).toBe('fonts: footer face unreachable');
+    clearPrintError('fonts');
+    expect(root.getAttribute('data-print-error-fonts')).toBeNull();
   });
 });

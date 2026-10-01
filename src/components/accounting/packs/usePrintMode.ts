@@ -44,6 +44,7 @@ import {
   packFooterFaceCss,
 } from '@/lib/charts/packFont';
 import { log } from '@/lib/logger';
+import { PRINT_ERROR_ATTRIBUTE_PREFIX } from '@/lib/pdf/printErrorAttribute';
 import type { PackDocumentSection } from '@/modules/accounting/services/packs/packDocument';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 
@@ -195,28 +196,29 @@ export async function packFontsLoaded(target: Document): Promise<boolean> {
 /**
  * A font failure, said out loud. The page stays not-print-ready — that is the
  * gate's policy — and the reason is logged and written to
- * `<html data-print-error>` so whoever opens the print URL, or the transport
+ * `<html data-print-error-fonts>` so whoever opens the print URL, or the transport
  * once it reads it, can see why nothing rendered without waiting out a
  * timeout.
  */
 function reportFontFailure(reason: string): void {
   log.error('Pack print fonts failed to load', { reason }, 'pdf');
-  markPrintError(`fonts: ${reason}`);
+  markPrintError('fonts', reason);
 }
 
-/** Tell the renderer this page will never become print-ready. The prefix
- *  (`fonts:`, `pages:`) says which producer; the transport fails the render on
- *  the attribute rather than waiting out its timeout. */
-export function markPrintError(reason: string): void {
-  document.documentElement.setAttribute('data-print-error', reason);
+export type PrintErrorProducer = 'fonts' | 'pages';
+
+/** Tell the renderer this page will never become print-ready. EACH PRODUCER
+ *  HAS ITS OWN ATTRIBUTE (`data-print-error-fonts`, `data-print-error-pages`),
+ *  so a second failure cannot overwrite the first and one producer recovering
+ *  cannot withdraw the other's. The transport fails the render if any is
+ *  present, rather than waiting out its timeout. */
+export function markPrintError(producer: PrintErrorProducer, reason: string): void {
+  document.documentElement.setAttribute(`${PRINT_ERROR_ATTRIBUTE_PREFIX}-${producer}`, `${producer}: ${reason}`);
 }
 
-/** Withdraw an error a LATER success has superseded — a retried fetch, a font
- *  that arrived. Only the producer's own prefix: the pages fetch recovering
- *  must not erase a font failure, or the reverse. */
-export function clearPrintError(prefix: string): void {
-  const root = document.documentElement;
-  if (root.getAttribute('data-print-error')?.startsWith(prefix)) root.removeAttribute('data-print-error');
+/** Withdraw this producer's error — a retried fetch, a font that arrived. */
+export function clearPrintError(producer: PrintErrorProducer): void {
+  document.documentElement.removeAttribute(`${PRINT_ERROR_ATTRIBUTE_PREFIX}-${producer}`);
 }
 
 /**
@@ -231,7 +233,7 @@ function useFontsReady(): boolean {
     let live = true;
     void packFontsLoaded(document).then((loaded) => {
       if (live && loaded) {
-        clearPrintError('fonts:');
+        clearPrintError('fonts');
         setReady(true);
       }
       if (live && !loaded) reportFontFailure('a declared face is not available after loading');

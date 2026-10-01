@@ -7,7 +7,7 @@
 
 import { chromium, type Browser } from 'playwright';
 import {
-  FOOTER_HTML, HEADER_HTML, PDF_MARGIN_MM, PRINT_ERROR_ATTRIBUTE, PRINT_READY_SELECTOR, PRINT_READY_TIMEOUT_MS,
+  FOOTER_HTML, HEADER_HTML, PDF_MARGIN_MM, PRINT_ERROR_ATTRIBUTE_PREFIX, PRINT_READY_SELECTOR, PRINT_READY_TIMEOUT_MS,
   mm, type PdfRenderRequest, type PdfTransport,
 } from '../pdfTransport';
 import { writePdfInfoDictionary } from '../pdfInfoDictionary';
@@ -90,16 +90,21 @@ export const playwrightTransport: PdfTransport = {
       // never become ready, so waiting out the timeout only delays the same
       // failure and hides its reason.
       await page.waitForFunction(
-        ([ready, errorAttribute]) => document.querySelector(ready!) !== null
-          || document.documentElement.hasAttribute(errorAttribute!),
-        [PRINT_READY_SELECTOR, PRINT_ERROR_ATTRIBUTE],
+        ([ready, prefix]) => document.querySelector(ready!) !== null
+          || Array.from(document.documentElement.attributes).some((a) => a.name.startsWith(prefix!)),
+        [PRINT_READY_SELECTOR, PRINT_ERROR_ATTRIBUTE_PREFIX],
         { timeout: PRINT_READY_TIMEOUT_MS },
       );
+      // Every producer's reason, so a font failure and a pages failure are
+      // both in the one error.
       const printError = await page.evaluate(
-        (errorAttribute) => document.documentElement.getAttribute(errorAttribute),
-        PRINT_ERROR_ATTRIBUTE,
+        (prefix) => Array.from(document.documentElement.attributes)
+          .filter((a) => a.name.startsWith(prefix))
+          .map((a) => a.value)
+          .join('; '),
+        PRINT_ERROR_ATTRIBUTE_PREFIX,
       );
-      if (printError !== null) {
+      if (printError !== '') {
         throw new Error(`playwrightTransport: the print page reported it cannot render: ${printError}`);
       }
       await page.emulateMedia({ media: 'print' });
