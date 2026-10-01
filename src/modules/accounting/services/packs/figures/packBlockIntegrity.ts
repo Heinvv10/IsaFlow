@@ -15,6 +15,7 @@ import { checkWaterfall, disproportionatePlugSentence } from './packWaterfallInt
 import { checkColumns } from './packStatementIntegrity';
 import { EXPOSURE_CLAUSE } from '../pages/packMattersPage';
 import { joinDecision } from '../narrative/derivedCaptions';
+import type { IntegrityCheck, IntegrityFailure } from './packIntegrityRefusal';
 import { formatMoney, type MoneyScale } from '@/lib/format/money';
 import type { PackChartSpec, PackPagesDocument } from '../pages/packPageModel';
 
@@ -278,29 +279,30 @@ export function checkMattersAmounts(doc: PackPagesDocument, scale: MoneyScale): 
  * scale from the one the page printed would never match the page's text —
  * the gate would refuse a pack that says exactly what it must.
  */
-export function checkBlocks(doc: PackPagesDocument, scale: MoneyScale): string[] {
-  const failures: string[] = [...checkMattersCrossReference(doc), ...checkMattersAmounts(doc, scale)];
+export function checkBlocks(doc: PackPagesDocument, scale: MoneyScale): IntegrityFailure[] {
+  const failures: IntegrityFailure[] = [];
+  const add = (check: IntegrityCheck, messages: string[]): void => {
+    for (const message of messages) failures.push({ check, message });
+  };
+  add('matters', checkMattersCrossReference(doc));
+  add('matters', checkMattersAmounts(doc, scale));
+  const chart = (page: PackPagesDocument['pages'][number], spec: PackChartSpec): void => {
+    add('chartClaims', checkChartClaims(page, spec));
+    if (spec.kind === 'waterfall') {
+      add('waterfall', checkWaterfall(spec));
+      add('waterfall', checkPlugDisclosure(page, spec, scale));
+    }
+  };
   for (const page of doc.pages) {
     for (const block of page.blocks) {
       if (block.kind === 'table') {
-        failures.push(...checkColumns(block.table, `Page ${page.number} table`));
+        add('columns', checkColumns(block.table, `Page ${page.number} table`));
       } else if (block.kind === 'chart') {
-        failures.push(...checkChartClaims(page, block.chart));
-        if (block.chart.kind === 'waterfall') {
-          failures.push(...checkWaterfall(block.chart));
-          failures.push(...checkPlugDisclosure(page, block.chart, scale));
-        }
+        chart(page, block.chart);
       } else if (block.kind === 'smallMultiples') {
-        for (const panel of block.panels) {
-          failures.push(...checkChartClaims(page, panel));
-          if (panel.kind === 'waterfall') {
-            failures.push(...checkWaterfall(panel));
-            failures.push(...checkPlugDisclosure(page, panel, scale));
-          }
-        }
+        for (const panel of block.panels) chart(page, panel);
       }
     }
   }
   return failures;
 }
-

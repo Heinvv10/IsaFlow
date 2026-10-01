@@ -49,6 +49,7 @@ import {
 } from './packStatementIntegrity';
 import { checkBlocks } from './packBlockIntegrity';
 import { checkProse } from './packProseIntegrity';
+import { integrityRefusal, type IntegrityCheck, type IntegrityFailure } from './packIntegrityRefusal';
 
 /** One basis point, in the percentage POINTS a `pct` figure is stated in. */
 const PCT_TOLERANCE = 0.01;
@@ -262,27 +263,30 @@ function checkQuotients(located: Located[]): string[] {
  */
 export function assertPackIntegrity(doc: PackPagesDocument): void {
   const located = locateFigures(doc);
-  const failures: string[] = [];
+  const failures: IntegrityFailure[] = [];
+  const add = (check: IntegrityCheck, messages: string[]): void => {
+    for (const message of messages) failures.push({ check, message });
+  };
 
   try {
     doc.provenance.assertConsistent();
   } catch (error) {
     // Its message already names every disagreeing source; it is folded in
     // here so one render reports every integrity failure at once.
-    failures.push(error instanceof Error ? error.message : String(error));
+    add('consistency', [error instanceof Error ? error.message : String(error)]);
   }
 
-  failures.push(...checkResolution(doc, located));
-  failures.push(...checkStatements(doc));
-  failures.push(...checkQuotients(located));
-  failures.push(...checkCashBridgeEndpoints(doc));
-  failures.push(...checkComparativePeriod(doc));
+  add('resolution', checkResolution(doc, located));
+  add('statements', checkStatements(doc));
+  add('quotients', checkQuotients(located));
+  add('cashBridge', checkCashBridgeEndpoints(doc));
+  add('comparative', checkComparativePeriod(doc));
   // 7. The pack does not show a reader how it is built. Six leaks on the
   //    rendered proofs — a column name, a spec clause, three `(s)` plurals, a
   //    millisecond timestamp — were one defect: prose written for a developer
   //    on the paths a flattering fixture never reaches. See
   //    `packProseIntegrity.ts`.
-  failures.push(...checkProse(doc));
+  add('prose', checkProse(doc));
 
   // The document's own scale, narrowed. An unrecognised one is refused rather
   // than defaulted: every figure on the pack is FORMATTED at this scale, and
@@ -290,19 +294,16 @@ export function assertPackIntegrity(doc: PackPagesDocument): void {
   // (R-P52) the whole mechanism exists to stop.
   const scale = toMoneyScale(doc.numberConvention.scale);
   if (scale === null) {
-    failures.push(
+    add('scale', [
       `The pack states its figures in '${doc.numberConvention.scale}', which is not a scale ` +
         `any formatter knows. Refusing to print figures at an unknown scale.`,
-    );
+    ]);
   } else {
     failures.push(...checkBlocks(doc, scale));
   }
 
-  if (failures.length > 0) {
-    throw new Error(
-      `Pack figure integrity failed, so this render is refused (spec §7.2). ` +
-        `${failures.length} problem${failures.length === 1 ? '' : 's'}:\n  ` +
-        failures.join('\n  '),
-    );
-  }
+  // A `PackRefusal`, not an `Error`: the route shows a person only a
+  // refusal's own sentence, and answers anything else with a 500. See
+  // `packIntegrityRefusal.ts` for what each of the two readers is told.
+  if (failures.length > 0) throw integrityRefusal(failures);
 }
