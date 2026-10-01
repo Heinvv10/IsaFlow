@@ -21,6 +21,7 @@ function TxStatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     imported: 'bg-gray-500/20 text-gray-400',
     matched: 'bg-blue-500/20 text-blue-400',
+    allocated: 'bg-blue-500/20 text-blue-400',
     reconciled: 'bg-teal-500/20 text-teal-400',
     excluded: 'bg-red-500/20 text-red-400',
   };
@@ -271,7 +272,9 @@ export default function ReconciliationDetailPage() {
   }
 
   const unmatchedTxs = transactions.filter(t => t.status === 'imported');
-  const matchedTxs = transactions.filter(t => t.status === 'matched' || t.status === 'reconciled');
+  // An allocated line is matched to its own allocation journal line (bankReconciliationClaim).
+  const matchedTxs = transactions.filter(t => t.status === 'matched' || t.status === 'reconciled'
+    || (t.status === 'allocated' && !!t.matchedJournalLineId));
   const isCompleted = recon.status === 'completed';
   const canComplete = Math.abs(recon.difference) < 0.01 && !isCompleted;
 
