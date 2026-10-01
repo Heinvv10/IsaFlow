@@ -6,7 +6,6 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { accountUpdateBodyError, isServiceRefusal } from '@/lib/accountUpdateBody';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -125,7 +124,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } catch (err) {
       log.error('Failed to update account', { error: err }, 'accounting-api');
       if (reclassified) throw err;
-      if (respondIfLockTimeout(res, err)) return;
       // Only a refusal is a 400 (which COMMITS); anything unexpected is a 500.
       if (!isServiceRefusal(err)) throw err;
       return apiResponse.badRequest(res, err.message);

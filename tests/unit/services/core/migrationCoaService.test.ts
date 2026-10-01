@@ -105,7 +105,8 @@ describe('importChartOfAccounts', () => {
       expect(u.text).not.toContain('account_subtype = NULL');
     }
     const vatDemote = demote.find((u) => u.params.includes('vat_input'))!;
-    expect(vatDemote.params).toEqual([CO, 'vat_input', '1140']);
+    // …and only when the mapped account is there to take the role (company, code again).
+    expect(vatDemote.params).toEqual([CO, 'vat_input', '1140', CO, '1140']);
     expect(vatDemote.text).toContain('account_code <> ?');
     expect(updates.indexOf(vatDemote)).toBeLessThan(updates.indexOf(promote.find((u) => u.params.includes('vat_input'))!));
   });
@@ -145,7 +146,7 @@ describe('importChartOfAccounts — income-statement rows never land with a NULL
       .map((c) => ({ text: (c[0] as TemplateStringsArray).join('?'), params: c.slice(1) }));
     for (const u of upserts) {
       // explicit value → existing → default, in that order.
-      expect(u.text).toContain('account_subtype   = COALESCE(?, gl_accounts.account_subtype, EXCLUDED.account_subtype)');
+      expect(u.text).toContain('ELSE COALESCE(?, gl_accounts.account_subtype, EXCLUDED.account_subtype) END');
     }
     const conflictParam = (u: { text: string; params: unknown[] }) =>
       u.params[u.text.slice(0, u.text.indexOf('COALESCE(?, gl_accounts.account_subtype')).split('?').length - 1];

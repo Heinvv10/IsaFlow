@@ -24,7 +24,8 @@ import { sql, type TxSql } from '@/lib/neon';
 import { TransactionRefusal } from '@/lib/transactionRefusal';
 import { SYSTEM_ACCOUNT_KEYS, type SystemAccountKey } from './systemAccountKeys';
 import { getSystemRoleCoverage } from './systemRoleCoverage';
-import { lockSystemRoleWrites } from './systemRoleWriteLock';
+import { lockSystemRoleWrites, withBoundedLockWait } from './systemRoleWriteLock';
+import { roleTargetRefusal } from './roleTargetRules';
 import { VatPeriodLockedError } from './journalVatLockGuard';
 import { assertAccountChangesKeepVatLocks, type AccountAttributeChange } from './vatLockLineClassification';
 
@@ -54,9 +55,6 @@ const SUBTYPE_EXPECTED_TYPE: Record<string, string> = {
   vat_input: 'asset', payable: 'liability', bank: 'asset', retained_earnings: 'equity',
   opening_balance_equity: 'equity',
 };
-
-/** Classifications an account may carry and still take any role. */
-const UNCLASSIFIED = new Set(['other']);
 
 type Row = Record<string, unknown>;
 
@@ -141,13 +139,16 @@ export async function saveDefaultAccountMappings(
   // these rows (and the merge's FOR UPDATE), but not the FOR KEY SHARE a
   // journal line's foreign key takes — a posting on the bank and receivable
   // accounts neither waits for a save nor deadlocks with it (40P01).
-  await tx`
+  // Bounded like the role lock: a writer that holds one of these rows without
+  // the role lock (a bank field edit, a long import) must not make the save —
+  // and every role writer queued behind it — wait for as long as it runs.
+  await withBoundedLockWait(tx, () => tx`
     SELECT 1 FROM gl_accounts
     WHERE company_id = ${companyId}::UUID
       AND (account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[]) OR id::TEXT = ANY(${chosenIds}::TEXT[]))
     ORDER BY id
     FOR NO KEY UPDATE
-  `;
+  `);
   const { holders: before, contested } = await roleState(companyId, tx);
 
   const changes: AccountAttributeChange[] = [];
@@ -185,18 +186,11 @@ export async function saveDefaultAccountMappings(
     if (row.account_type !== expectedType) {
       throw new DefaultAccountsRefusal(`Account for '${uiKey}' must be of type '${expectedType}' (got '${String(row.account_type)}')`);
     }
-    if (row.is_active !== true) throw new DefaultAccountsRefusal(`Account ${code} for '${uiKey}' is inactive`);
-    // A header is hidden from the balance sheet (isReportVisibleLeaf) and
-    // refused for direct posting (migration 484) — never a role holder.
-    if (row.has_children === true) {
-      throw new DefaultAccountsRefusal(`Account ${code} is a header with sub-accounts; choose one of its sub-accounts for '${uiKey}'`);
-    }
     const fromSubtype = row.account_subtype == null ? null : String(row.account_subtype);
-    if (fromSubtype !== null && fromSubtype !== subtype && !UNCLASSIFIED.has(fromSubtype)) {
-      throw new DefaultAccountsRefusal(
-        `Account ${code} is classified '${fromSubtype}'; only an account classified 'other' (or unclassified), or one already classified '${subtype}', can hold that role. It must be reclassified to 'other' first.`,
-      );
-    }
+    // Active, not a header, unclassified or already this role: the rule the COA import's role map shares.
+    const unfit = roleTargetRefusal(subtype, uiKey,
+      { code, isActive: row.is_active === true, hasChildren: row.has_children === true, subtype: fromSubtype });
+    if (unfit) throw new DefaultAccountsRefusal(unfit);
     // Last: an account that is wrong in itself is refused as such, stale page or not.
     if (idOrNull(loaded[uiKey]) !== current) {
       throw new DefaultAccountsRefusal('Default accounts changed since you loaded this page. It has been reloaded; review and save again.', 409);

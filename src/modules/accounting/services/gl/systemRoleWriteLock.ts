@@ -36,6 +36,25 @@ export class SystemRoleLockTimeoutError extends Error {
   }
 }
 
+/**
+ * Run a lock-taking statement under the 5s bound, restoring the caller's own
+ * `lock_timeout` after. A timeout is 55P03 — the transaction (or the enclosing
+ * savepoint) is aborted — and is rethrown typed, so callers answer 5xx/retry.
+ */
+export async function withBoundedLockWait<T>(q: SqlExec, take: () => PromiseLike<T>): Promise<T> {
+  const prev = (await q`SELECT current_setting('lock_timeout') AS v`) as { v?: unknown }[];
+  await q`SELECT set_config('lock_timeout', '5s', true)`;
+  let taken: T;
+  try {
+    taken = await take();
+  } catch (err) {
+    if ((err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE) throw new SystemRoleLockTimeoutError();
+    throw err;
+  }
+  await q`SELECT set_config('lock_timeout', ${String(prev[0]?.v ?? '0')}, true)`;
+  return taken;
+}
+
 export async function lockSystemRoleWrites(companyId: string, q: SqlExec = sql): Promise<void> {
   const prev = (await q`SELECT current_setting('lock_timeout') AS v`) as { v?: unknown }[];
   try {

@@ -8,7 +8,6 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { accountUpdateBodyError, isServiceRefusal } from '@/lib/accountUpdateBody';
 import { apiResponse } from '@/lib/apiResponse';
 import { ErrorCode } from '@/lib/apiResponse.types';
@@ -48,9 +47,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const account = await updateAccount(companyId, id, { accountName, description, isActive, displayOrder });
       return apiResponse.success(res, account);
     } catch (err) {
-      if (respondIfLockTimeout(res, err)) return;
       log.error('Failed to update account', { id, error: err }, 'accounting-api');
-      // Only a refusal is a 400: a 4xx COMMITS, so anything unexpected goes to withErrorHandler (500, rolled back).
+      // Only a refusal is a 400: a 4xx COMMITS, so anything else goes to withErrorHandler
+      // (500, rolled back; a role-lock timeout is 503 + Retry-After there).
       if (!isServiceRefusal(err)) throw err;
       return apiResponse.badRequest(res, err.message);
     }
@@ -83,7 +82,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await deleteAccount(companyId, id);
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
-      if (respondIfLockTimeout(res, err)) return;
       log.error('Failed to delete account', { id, error: err }, 'accounting-api');
       if (!isServiceRefusal(err)) throw err;
       return apiResponse.badRequest(res, err.message);

@@ -12,13 +12,15 @@ import { updateSession } from './migrationService';
 import type { ImportResult, MigrationError } from './migrationService';
 import type { GLAccountType } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
-import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
 import { subtypeErrorFor } from '../gl/accountSubtypeRules';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { assertAccountChangesKeepVatLocks } from '../gl/vatLockLineClassification';
 import { lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 import { accountAttributes, attributeChanges } from './migrationCoaVatLock';
 import { importRowSubtype } from './migrationCoaSubtype';
+import { roleMapConflicts, validateSystemAccountMap } from './migrationCoaRoleMap';
+
+export { validateSystemAccountMap };
 
 
 export interface AccountImportRow {
@@ -43,86 +45,7 @@ export interface SystemAccountMap {
   admin_expense: string;
 }
 
-const SYSTEM_MAP_KEYS: readonly (keyof SystemAccountMap)[] = [
-  'bank', 'receivable', 'payable', 'vat_input', 'vat_output', 'retained_earnings',
-  'default_revenue', 'default_expense', 'admin_expense',
-];
-
-/**
- * The map arrives as raw request JSON. Its keys become `account_subtype` and
- * its values are flagged `is_system_account = true` verbatim, and the
- * resolver hands those rows to every auto-posting path — so an unknown key,
- * or a mapped account whose type cannot carry the role (an expense account as
- * vat_input), or one account named for two roles, must refuse the whole
- * import BEFORE any row is written. Returns the refusals; empty means proceed.
- */
-export function validateSystemAccountMap(
-  map: Record<string, unknown>,
-  accounts: readonly AccountImportRow[],
-): MigrationError[] {
-  const errors: MigrationError[] = [];
-  const byCode = new Map(accounts.map((a) => [a.accountCode, a]));
-  const roleOf = new Map<string, string>();
-  for (const [key, code] of Object.entries(map)) {
-    if (!(SYSTEM_MAP_KEYS as readonly string[]).includes(key)) {
-      errors.push({ step: 'coa', row: -1, field: `systemAccountMap.${key}`, message: `Unknown system account role "${key}"` });
-      continue;
-    }
-    if (typeof code !== 'string' || !code.trim()) {
-      errors.push({ step: 'coa', row: -1, field: `systemAccountMap.${key}`, message: 'Account code is required' });
-      continue;
-    }
-    const other = roleOf.get(code);
-    if (other) {
-      errors.push({ step: 'coa', row: -1, field: `systemAccountMap.${key}`,
-        message: `One account cannot hold two roles: '${other}' and '${key}' both name account ${code}` });
-      continue;
-    }
-    roleOf.set(code, key);
-    const acct = byCode.get(code);
-    if (!acct) {
-      errors.push({ step: 'coa', row: -1, field: `systemAccountMap.${key}`, message: `Account ${code} is not in this import` });
-      continue;
-    }
-    const allowed = GL_ACCOUNT_SUBTYPES_BY_TYPE[acct.accountType] as readonly string[] | undefined;
-    if (!allowed?.includes(key)) {
-      errors.push({
-        step: 'coa', row: -1, field: `systemAccountMap.${key}`,
-        message: `Account ${code} is ${acct.accountType}; the ${key} role needs one of: ${Object.entries(GL_ACCOUNT_SUBTYPES_BY_TYPE).filter(([, v]) => (v as readonly string[]).includes(key)).map(([t]) => t).join(', ')}`,
-      });
-    }
-  }
-  return errors;
-}
-
 // ── Public API ───────────────────────────────────────────────────────────────
-
-/** The classification the import itself gives an income-statement row that has none. */
-const TYPE_DEFAULT_SUBTYPE: Record<string, string> = { revenue: 'revenue', expense: 'operating_expense' };
-
-/**
- * The Default Accounts rule, for the role map: a role may only go to an
- * account that is unclassified ('other', NULL, or the type default this import
- * assigns) or already classified for that role. Mapping it onto the account
- * that holds ANOTHER role would take that account from its role and leave the
- * role with no holder. Read under the role-write lock, before any write.
- */
-async function roleMapConflicts(companyId: string, map: SystemAccountMap): Promise<MigrationError[]> {
-  const entries = Object.entries(map);
-  const rows = (await sql`
-    SELECT account_code, account_type, account_subtype FROM gl_accounts
-    WHERE company_id = ${companyId}::UUID AND account_code = ANY(${entries.map(([, code]) => code)}::TEXT[])
-  `) as DbRow[];
-  const existing = new Map(rows.map((r) => [String(r.account_code), r]));
-  return entries.flatMap(([role, code]) => {
-    const r = existing.get(code);
-    const subtype = r?.account_subtype == null ? null : String(r.account_subtype);
-    if (!r || subtype === null || subtype === 'other' || subtype === role
-      || subtype === TYPE_DEFAULT_SUBTYPE[String(r.account_type)]) return [];
-    return [{ step: 'coa' as const, row: -1, field: `systemAccountMap.${role}`,
-      message: `Account ${code} is classified '${subtype}'; only an unclassified account, or one already classified '${role}', can take the ${role} role. Move or reclassify it first.` }];
-  });
-}
 
 export async function importChartOfAccounts(
   companyId: string,
@@ -199,7 +122,7 @@ export async function importChartOfAccounts(
               }
             }
 
-            await sql`
+            const written = ((await sql`
               INSERT INTO gl_accounts (
                 company_id, account_code, account_name, account_type, account_subtype,
                 normal_balance, parent_account_id, description, is_system_account,
@@ -219,12 +142,25 @@ export async function importChartOfAccounts(
               )
               ON CONFLICT (company_id, account_code) DO UPDATE SET
                 account_name      = EXCLUDED.account_name,
-                account_type      = EXCLUDED.account_type,
-                account_subtype   = COALESCE(${explicitSubtype}, gl_accounts.account_subtype, EXCLUDED.account_subtype),
+                -- An existing system account keeps its type and classification:
+                -- its subtype is its ROLE, and a row that re-typed or
+                -- re-classified it emptied or mistyped the role. Only the role
+                -- map below places roles. is_active is never touched here.
+                account_type      = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_type
+                                         ELSE EXCLUDED.account_type END,
+                account_subtype   = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_subtype
+                  ELSE COALESCE(${explicitSubtype}, gl_accounts.account_subtype, EXCLUDED.account_subtype) END,
                 normal_balance    = EXCLUDED.normal_balance,
                 description       = COALESCE(EXCLUDED.description, gl_accounts.description),
                 is_system_account = EXCLUDED.is_system_account OR gl_accounts.is_system_account
-            `;
+              RETURNING account_type, account_subtype
+            `) as DbRow[])[0];
+            const keptSubtype = written?.account_subtype == null ? null : String(written.account_subtype);
+            if (written && !isSystem && (written.account_type !== acct.accountType
+              || (explicitSubtype !== null && keptSubtype !== explicitSubtype))) {
+              errors.push({ step: 'coa', row: i, field: 'accountType',
+                message: `Account ${acct.accountCode} is a system account: its name was updated, its type and classification (${String(written.account_type)} / ${keptSubtype ?? 'none'}) were kept.` });
+            }
             imported++;
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -254,6 +190,11 @@ export async function importChartOfAccounts(
               AND account_subtype = ${subtype}
               AND is_system_account = true
               AND account_code <> ${accountCode}
+              -- Only when the mapped account is really there to take the role:
+              -- its own row may have been skipped above (a missing parent, a
+              -- failed insert), and demoting for it left the role with no holder.
+              AND EXISTS (SELECT 1 FROM gl_accounts t WHERE t.company_id = ${companyId}::UUID
+                            AND t.account_code = ${accountCode} AND t.is_active)
           `;
           await sql`
             UPDATE gl_accounts

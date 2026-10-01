@@ -36,7 +36,9 @@ vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 // The two-holder refusal on reactivation reads other accounts; it is proven against
 // Postgres in tests/integration/w2-28-system-role-holes-locks.int.test.ts.
-vi.mock('@/modules/accounting/services/gl/systemRoleReactivation', () => ({ reactivationRefusal: vi.fn(async () => null) }));
+vi.mock('@/modules/accounting/services/gl/systemRoleReactivation', () => ({
+  guardActiveChange: vi.fn(async () => undefined), refuseSystemAccountDelete: vi.fn(async () => undefined),
+}));
 
 import { updateAccount } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { getPostedAccountBalance } from '@/modules/accounting/services/gl/glAccountBalance';

@@ -6,7 +6,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -139,10 +138,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `;
       return apiResponse.success(res, { updated: true });
     } catch (err) {
-      if (respondIfLockTimeout(res, err)) return;
       log.error('Failed to update bank account', { error: err }, 'accounting-api');
       // Every refusal above is RETURNED; whatever is thrown here is unexpected.
-      // A 400 would COMMIT, so it goes to withErrorHandler (500, rolled back).
+      // A 400 would COMMIT, so it goes to withErrorHandler: 500, rolled back —
+      // or 503 + Retry-After for a role-lock timeout.
       throw err;
     }
   }

@@ -31,6 +31,8 @@ import {
 } from '@/modules/accounting/types/gl.types';
 import { GL_ACCOUNT_SUBTYPES } from '@/modules/accounting/types/glAccountSubtypes';
 import { UUID_RE } from '@/lib/validation';
+import { isLockTimeoutError } from '@/lib/lockTimeout';
+import { reactivationRefusal } from '@/modules/accounting/services/gl/systemRoleReactivation';
 import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 const VAT_CODES = ['none', 'standard', 'zero_rated', 'exempt'] as const;
@@ -219,6 +221,10 @@ export const updateGlAccountTool: McpTool = {
       return toolError('Nothing to update — pass at least one field besides account_id.');
     }
 
+    // Before any write: reactivating a former role holder beside the current one is refused.
+    const reactivation = isActive === true ? await reactivationRefusal(ctx.companyId, accountId) : null;
+    if (reactivation) return toolError(reactivation);
+
     try {
       // Reclassification carries the structural guards (cycles, the leaf rule,
       // orphaned bank transactions) and refuses BEFORE writing, so it runs
@@ -282,6 +288,10 @@ export const deactivateGlAccountTool: McpTool = {
       // Every refusal deleteAccount raises is checked before its UPDATE, so a
       // tool error here leaves nothing written and the message (balance,
       // children, unreconciled transactions) is what the agent needs.
+      // A lock timeout is the exception: 55P03 has aborted the registry's
+      // savepoint, so it must be THROWN — the registry rolls back and keeps
+      // the "retry" wording of an allow-listed code.
+      if (isLockTimeoutError(err)) throw err;
       return toolError(safeErrorText(err, 'Failed to deactivate account.'));
     }
     return ok({ id: accountId, is_active: false, already_inactive: false });

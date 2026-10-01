@@ -24,7 +24,7 @@ import chartOfAccountsDetail from '../../pages/api/accounting/chart-of-accounts-
 import { getSystemAccount, clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
 import { deleteAccount, seedChartOfAccountsFromTemplate } from '../../src/modules/accounting/services/gl/chartOfAccountsService';
 import { reclassifyAccount } from '../../src/modules/accounting/services/gl/accountReclassifyService';
-import { lockSystemRoleWrites } from '../../src/modules/accounting/services/gl/systemRoleWriteLock';
+import { lockSystemRoleWrites, withBoundedLockWait } from '../../src/modules/accounting/services/gl/systemRoleWriteLock';
 
 const describeIfDb = process.env.DATABASE_URL && process.env.JWT_SECRET
   && process.env.ISAFLOW_DISPOSABLE_AUTH_TEST === '1' ? describe : describe.skip;
@@ -109,6 +109,21 @@ describeIfDb('W2-28 system role writers take the role-write lock', () => {
     } finally { await tx.rollback(); }
   }, 30_000);
 
+  it('a save that cannot get a role ROW within 5s answers 503 too, instead of waiting on whoever holds the row', async () => {
+    await ins(BANK, '1110', 'asset', 'bank', true);
+    await ins(X, '1115', 'asset', null, false);
+    const c = await fx.connect();                     // a writer that takes no role lock: a bank field edit, a long import
+    try {
+      await c.query('BEGIN');
+      await c.query('SELECT 1 FROM gl_accounts WHERE id = $1 FOR UPDATE', [BANK]);
+      const saving = save({ mappings: { primary_bank: X }, loaded: { primary_bank: BANK } });
+      const answered = await Promise.race([saving.then((s) => s.statusCode), sleep(9000).then(() => 'still waiting after 9s')]);
+      await c.query('ROLLBACK');
+      await saving;
+      expect({ answered, bankHolders: await holders('bank') }).toEqual({ answered: 503, bankHolders: ['1110'] });
+    } finally { await c.query('ROLLBACK').catch(() => undefined); c.release(); }
+  }, 30_000);
+
   it('the chart and bank-account routes answer 503 too, not a 400 that reads as "do not retry"', async () => {
     await ins(BANK, '1110', 'asset', 'bank', true);
     await ins(X, '1115', 'asset', 'bank', false);
@@ -127,14 +142,17 @@ describeIfDb('W2-28 system role writers take the role-write lock', () => {
     expect((await fx.query('SELECT is_active FROM gl_accounts WHERE id = $1', [X])).rows[0].is_active).toBe(true);
   }, 30_000);
 
-  it('the 5s bound is for the role lock only: the caller\'s lock_timeout is back once it is granted', async () => {
+  it('the 5s bound covers the role lock and the save\'s row locks only: the caller\'s lock_timeout is back after each', async () => {
     const tx = await fx.openTx();
     try {
+      const timeout = async () => ((await sql`SELECT current_setting('lock_timeout') AS v`) as { v: string }[])[0]!.v;
       const after = await tx.run(async () => {
         await lockSystemRoleWrites(CO);
-        return (await sql`SELECT current_setting('lock_timeout') AS v`) as { v: string }[];
+        const afterRoleLock = await timeout();
+        const during = await withBoundedLockWait(sql, timeout);   // what the save's row locks run under
+        return { afterRoleLock, during, afterRowLocks: await timeout() };
       });
-      expect(after[0]!.v).toBe('0');
+      expect(after).toEqual({ afterRoleLock: '0', during: '5s', afterRowLocks: '0' });
     } finally { await tx.rollback(); }
   });
 });

@@ -10,8 +10,7 @@ import type { GLAccount, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { isBankSubtype } from './accountSubtypes';
 import { assertParentUsable } from './accountParentRules';
-import { lockSystemRoleWrites } from './systemRoleWriteLock';
-import { reactivationRefusal } from './systemRoleReactivation';
+import { guardActiveChange, refuseSystemAccountDelete } from './systemRoleReactivation';
 
 export interface CreateAccountInput {
   accountCode: string;
@@ -343,16 +342,7 @@ export async function renameAccountCode(
 
 export async function updateAccount(companyId: string, id: string, input: UpdateAccountInput): Promise<GLAccount> {
   try {
-    // The guards below test `=== true` / `=== false`; "true", 1 or [true] from
-    // an unvalidated caller would skip them and Postgres would still cast and
-    // apply it. Refused here so no caller can.
-    for (const flag of ['isActive', 'vatInputDenied'] as const) {
-      if (input[flag] !== undefined && typeof input[flag] !== 'boolean') throw new Error(`${flag} must be true or false`);
-    }
-    // Deactivating could empty a system role and reactivating could double
-    // one: serialise with every writer of role flags (a Default Accounts save
-    // choosing this account) BEFORE the reads below, so they judge settled rows.
-    if (input.isActive !== undefined) await lockSystemRoleWrites(companyId);
+    await guardActiveChange(companyId, id, input);
     const account = await sql`SELECT * FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}` as {
       is_system_account: boolean;
       account_name: string;
@@ -361,10 +351,6 @@ export async function updateAccount(companyId: string, id: string, input: Update
 
     if (account[0]!.is_system_account && input.isActive === false) {
       throw new Error('Cannot deactivate a system account');
-    }
-    if (input.isActive === true) {
-      const refusal = await reactivationRefusal(companyId, id);
-      if (refusal) throw new Error(refusal);
     }
 
     // Money in the account blocks deactivation, the same rule deleteAccount
@@ -407,9 +393,7 @@ export async function updateAccount(companyId: string, id: string, input: Update
 
 export async function deleteAccount(companyId: string, id: string): Promise<void> {
   try {
-    // Deleting could empty a system role: serialise with every writer of role
-    // flags first, so the system-account check below judges the settled row.
-    await lockSystemRoleWrites(companyId);
+    await refuseSystemAccountDelete(companyId, id);
     // 1. Child accounts always block deletion, regardless of type.
     // company_id scope: without it this count is a cross-tenant existence
     // oracle AND runs before the ownership check below (audit W6).
@@ -424,18 +408,14 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
     // 2. Load the account so we can report a friendly name and decide
     //    whether the bank-specific checks apply.
     const accountRows = await sql`
-      SELECT account_subtype, account_name, is_system_account
+      SELECT account_subtype, account_name
       FROM gl_accounts
       WHERE id = ${id} AND company_id = ${companyId}
       LIMIT 1
-    ` as { account_subtype: string | null; account_name: string; is_system_account: boolean }[];
+    ` as { account_subtype: string | null; account_name: string }[];
 
     if (accountRows.length === 0) {
       throw new Error('Account not found');
-    }
-    // A role holder: posting resolves the role to it, so it cannot go.
-    if (accountRows[0]!.is_system_account) {
-      throw new Error(`Cannot delete "${accountRows[0]!.account_name}" — it is a system account`);
     }
 
     const accountName = accountRows[0]!.account_name;
