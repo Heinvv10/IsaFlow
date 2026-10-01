@@ -15,6 +15,16 @@
  * sheet — and a gate whose evidence is a footerless render cannot see a
  * footer go missing.
  *
+ * HOW TO RECAPTURE `renderedPack-fontsLoaded.txt` (it goes stale whenever a
+ * sheet's wording or the footer changes — last recaptured 2026-10-01): sign in
+ * as the dev QA user on a local dev server, select the ISAFlow Demo company,
+ * `GET /api/accounting/packs/board/pdf?from=2026-01-01&to=2026-09-07` through
+ * the Playwright transport, and run `pdftotext <file>.pdf -` (no `-layout`,
+ * as `scripts/pdf/render-pack.ts` does). `renderedPack-fontsBlocked.txt` is the
+ * artefact of the defect itself and is NOT recapturable: the print page now
+ * refuses to become ready until its fonts load (`usePrintReady`), so the app
+ * can no longer print a pack with its fonts held back — which is the fix.
+ *
  * So this test is mutation-proved by construction: the checker must pass the
  * first file and fail the second, and it fails the second for the reason the
  * defect had.
