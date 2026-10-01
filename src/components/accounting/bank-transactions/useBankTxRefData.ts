@@ -7,6 +7,7 @@
 import { useEffect, useCallback } from 'react';
 import { apiFetch, apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { notify } from '@/utils/toast';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import type { SelectOption } from '@/components/accounting/BankTxTable';
 import type { BankAcct } from './BankTxBankCards';
@@ -43,7 +44,10 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
     apiJson('/api/accounting/bank-accounts').then(data => {
       const bankList: BankAcct[] = Array.isArray(data) ? data : [];
       setBankAccounts(bankList);
-    }).catch(() => { /* non-critical */ });
+    }).catch((err) => {
+      log.error('Failed to refresh bank accounts', { error: err }, 'accounting-ui');
+      notify.error('Could not refresh bank accounts — the balances shown may be out of date');
+    });
   }, [setBankAccounts]);
 
   useEffect(() => {
