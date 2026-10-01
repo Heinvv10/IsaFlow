@@ -96,7 +96,7 @@ describe('rollbackFailed', () => {
     expect(() => { (mod as { ROLLBACK_TIMEOUT_MS: number }).ROLLBACK_TIMEOUT_MS = 1; }).toThrow();
   });
 
-  it('a timed-out ROLLBACK whose backend cannot be cancelled is said once, at warn; a refused one is not', async () => {
+  it('a ROLLBACK that timed out (no answer, or pg\'s query_timeout) with no cancel possible is warned once; a refused one is not', async () => {
     // A fresh module, so "once per process" starts from nothing said.
     vi.resetModules();
     const fresh = await import('@/lib/rollbackFailed');
@@ -106,12 +106,23 @@ describe('rollbackFailed', () => {
     // Refused outright: nothing is known to be in flight, so there is nothing to warn about.
     await fresh.rollbackFailed({ query: async () => { throw new Error('reset'); } }, 'owner');
     expect(cannot()).toBe(0);
-    for (let i = 0; i < 2; i += 1) {
-      const result = fresh.rollbackFailed({ query: () => new Promise<never>(() => undefined) }, 'owner');
-      await vi.advanceTimersByTimeAsync(usual);
-      await expect(result).resolves.toBe(true);
-    }
+    // Refused by node-postgres's own query_timeout: a statement is still in flight.
+    await fresh.rollbackFailed({ query: async () => { throw new Error('Query read timeout'); } }, 'owner');
     expect(cannot()).toBe(1);
+    await fresh.rollbackFailed({ query: async () => { throw new Error('Query read timeout'); } }, 'owner');
+    expect(cannot()).toBe(1); // once per process
+    // A ROLLBACK that never answered, in a process that has not warned yet.
+    vi.resetModules();
+    const third = await import('@/lib/rollbackFailed');
+    const thirdLog = (await import('@/lib/logger')).log;
+    const thirdCannot = () => vi.mocked(thirdLog.warn).mock.calls.filter((c) => String(c[0]).includes('cannot cancel')).length;
+    const before = thirdCannot();
+    for (let i = 0; i < 2; i += 1) {
+      const pending = third.rollbackFailed({ query: () => new Promise<never>(() => undefined) }, 'owner');
+      await vi.advanceTimersByTimeAsync(usual);
+      await expect(pending).resolves.toBe(true);
+    }
+    expect(thirdCannot() - before).toBe(1);
     // And not at all when the cancel could be sent.
     vi.resetModules();
     const again = await import('@/lib/rollbackFailed');

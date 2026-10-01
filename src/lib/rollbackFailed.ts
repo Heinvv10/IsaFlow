@@ -57,9 +57,12 @@ export async function rollbackError(client: Rollbackable, source: string): Promi
   } catch (cancelErr) {
     log.error(`${source}: backend cancel failed`, { message: cancelErr instanceof Error ? cancelErr.message : String(cancelErr) }, 'DB');
   }
-  if (!cancelSent && failure === noAnswer && !warnedNoCancel) {
-    // Something was in flight and nothing could be sent to stop it (not a connected pg client, or
-    // node-postgres no longer exposes what cancelBackend reads). Said once per process.
+  // A statement is still in flight when the ROLLBACK never answered, or when node-postgres's own
+  // query_timeout gave up on it (client.js: 'Query read timeout').
+  const inFlight = failure === noAnswer || error.message === 'Query read timeout';
+  if (!cancelSent && inFlight && !warnedNoCancel) {
+    // Nothing could be sent to stop it (not a connected pg client, or its key fields changed
+    // type). Said once per process.
     warnedNoCancel = true;
     log.warn(`${source}: cannot cancel the backend of a connection that stopped answering; its statement runs on`, {}, 'DB');
   }

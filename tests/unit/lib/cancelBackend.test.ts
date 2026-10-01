@@ -50,8 +50,27 @@ describe('cancelBackend', () => {
   });
 
   it.each([
+    ['a 32-byte key (protocol 3.2)', Buffer.alloc(32, 7)],
+    ['a 4-byte key held as a Buffer', Buffer.from([0x3a, 0xde, 0x68, 0xb1])],
+  ])('sends a CancelRequest whose key is %s, byte for byte', async (_what, key) => {
+    expect(cancelBackend({ processID: 4242, secretKey: key, host: '127.0.0.1', port })).toBe(true);
+    expect(await until(() => Buffer.concat(received).length >= 12 + key.length)).toBe(true);
+    const packet = Buffer.concat(received);
+    expect(packet.length).toBe(12 + key.length);
+    expect([packet.readInt32BE(0), packet.readInt32BE(4), packet.readInt32BE(8)]).toEqual([12 + key.length, 80877102, 4242]);
+    expect(packet.subarray(12).equals(key)).toBe(true);
+  });
+
+  it('a negative 32-bit key (pg reads it signed) goes out as the same four bytes', async () => {
+    expect(cancelBackend({ processID: 7, secretKey: -1, host: '127.0.0.1', port })).toBe(true);
+    expect(await until(() => Buffer.concat(received).length >= 16)).toBe(true);
+    expect(Buffer.concat(received).subarray(12).toString('hex')).toBe('ffffffff');
+  });
+
+  it.each([
     ['a mock client', { query: async () => ({}) }],
     ['a client that never connected', { processID: null, secretKey: null, host: '127.0.0.1', port: 0 }],
+    ['a key of another type', { processID: 1, secretKey: 'abc', host: '127.0.0.1', port: 1 }],
     ['null', null],
   ])('opens no socket for %s, and says so', async (_what, client) => {
     expect(cancelBackend(client)).toBe(false);
@@ -59,15 +78,11 @@ describe('cancelBackend', () => {
     expect(sockets).toHaveLength(0);
   });
 
-  it('the installed node-postgres still has what the cancel reads (an upgrade that moves it turns this red)', () => {
-    const client = new pg.Client({ host: '127.0.0.1', port: 1 }) as unknown as Record<string, unknown> & {
-      connection: Record<string, unknown> & { stream: Record<string, unknown> };
-    };
-    // Set once the backend sends BackendKeyData; present, and not yet numbers, before a connection.
+  it('a real pg.Client on the installed version has the fields the cancel reads (the key types: the integration suite)', () => {
+    const client = new pg.Client({ host: '127.0.0.1', port: 1 }) as unknown as Record<string, unknown>;
+    // processID and secretKey are set once the backend sends BackendKeyData; present before then.
     expect('processID' in client && 'secretKey' in client).toBe(true);
     expect([typeof client.host, typeof client.port]).toEqual(['string', 'number']);
-    expect(['connect', 'cancel', 'on'].map((m) => typeof client.connection[m])).toEqual(['function', 'function', 'function']);
-    expect(typeof client.connection.stream.destroy).toBe('function');
   });
 
   it('its socket is torn down at the bound when the server never closes it', async () => {

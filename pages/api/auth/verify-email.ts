@@ -42,7 +42,7 @@ function escapeHtml(value: string): string {
 function adminPool(): pg.Pool {
   const url = process.env.MIGRATION_ADMIN_DATABASE_URL;
   if (!url) throw new Error('MIGRATION_ADMIN_DATABASE_URL required for verify-email');
-  return new pg.Pool({
+  const pool = new pg.Pool({
     connectionString: url,
     max: 2,
     ssl:
@@ -52,6 +52,10 @@ function adminPool(): pg.Pool {
           ? false
           : { rejectUnauthorized: false },
   });
+  // Built per request and ended by it, but inside the server process: an unlistened pool error
+  // there is an uncaught exception (R-176).
+  pool.on('error', (err) => log.warn('verify-email pool error', { message: err.message }, 'auth'));
+  return pool;
 }
 
 /**

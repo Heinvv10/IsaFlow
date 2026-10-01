@@ -273,3 +273,21 @@ AssertionError: expected [ [ …(3) ] ] to deeply equal [ [ …(3) ] ]
 AssertionError: expected '[["withAuth: transaction finalize fai…' not to contain 's3cr3t'
  Test Files  5 failed (5)
       Tests  17 failed | 80 passed (97)
+
+# Round 6 (review round 4). RED on 496a26cfb + the new and changed cases; source unchanged (2026-10-01T18:08:40Z).
+# The real-client cancel case passes on this head (the installed pg gives a numeric key); it is the guard for a type change.
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+     × a ROLLBACK that timed out (no answer, or pg's query_timeout) with no cancel possible is warned once; a refused one is not 4ms
+     × sends a CancelRequest whose key is a 32-byte key (protocol 3.2), byte for byte 4ms
+     × sends a CancelRequest whose key is a 4-byte key held as a Buffer, byte for byte 1ms
+     × a file that constructs a pool listens for its errors, or is pinned with the reason 81ms
+ FAIL  tests/unit/lib/cancelBackend.test.ts > cancelBackend > sends a CancelRequest whose key is a 32-byte key (protocol 3.2), byte for byte
+ FAIL  tests/unit/lib/cancelBackend.test.ts > cancelBackend > sends a CancelRequest whose key is a 4-byte key held as a Buffer, byte for byte
+AssertionError: expected false to be true // Object.is equality
+ FAIL  tests/unit/lib/poolErrorListenerCensus.test.ts > R-176: every long-lived pool listens for errors > a file that constructs a pool listens for its errors, or is pinned with the reason
+AssertionError: add pool.on('error', …), or pin the file in UNLISTENED with the reason an uncaught pool error is acceptable there: expected { …(8) } to deeply equal { …(7) }
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > a ROLLBACK that timed out (no answer, or pg's query_timeout) with no cancel possible is warned once; a refused one is not
+AssertionError: expected +0 to be 1 // Object.is equality
+ Test Files  3 failed (3)
+      Tests  4 failed | 30 passed (34)
