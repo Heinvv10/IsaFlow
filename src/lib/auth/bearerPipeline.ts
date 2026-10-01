@@ -132,6 +132,7 @@ export async function runBearerRequest(
   const startedAt = Date.now();
   const client = await getAuthPool().connect();
   let deferred: DeferredEnd | null = null;
+  let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
   try {
     await client.query('BEGIN');
     await client.query('SET LOCAL ROLE app_user');
@@ -256,11 +257,11 @@ export async function runBearerRequest(
     try {
       await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
     } catch (finalizeErr) {
-      try { await client.query('ROLLBACK'); } catch { /* secondary */ }
+      try { await client.query('ROLLBACK'); } catch { unusable = true; }
       log.error('bearerPipeline: transaction finalize failed after handler responded', {
         url: req.url,
         status: res.statusCode,
-        handlerFailed,
+        handlerFailed, connectionDestroyed: unusable,
         message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
       }, 'Auth');
       if (process.env.SENTRY_ENABLED === 'true' && finalizeErr instanceof Error) {
@@ -287,11 +288,10 @@ export async function runBearerRequest(
     if (!handlerFailed) drainAfterCommit(txCtx);
   } catch (err) {
     // R-159: answer the throw here; see withAuth.
-    let rolledBack = true;
-    try { await client.query('ROLLBACK'); } catch { rolledBack = false; }
-    answerThrow(req, res, deferred, err, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId, rolledBack });
+    try { await client.query('ROLLBACK'); } catch { unusable = true; }
+    answerThrow(req, res, deferred, err, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId, rolledBack: !unusable });
   } finally {
-    client.release();
+    client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
     const ms = Date.now() - startedAt;
     if (ms > 100) log.info('bearerPipeline slow request', { ms, url: req.url }, 'Auth');
   }

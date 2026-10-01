@@ -91,6 +91,7 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
 
     const client = await pool().connect();
     let deferred: DeferredEnd | null = null;
+    let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
     try {
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE app_user');
@@ -155,9 +156,9 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
       try {
         await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
       } catch (finalizeErr) {
-        try { await client.query('ROLLBACK'); } catch { /* secondary */ }
+        try { await client.query('ROLLBACK'); } catch { unusable = true; }
         log.error('withExtensionToken: transaction finalize failed after handler responded', {
-          status: res.statusCode, handlerFailed, connectionId: claims.connectionId,
+          status: res.statusCode, handlerFailed, connectionDestroyed: unusable, connectionId: claims.connectionId,
           message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
         }, 'extensionAuth');
         if (res.headersSent) {
@@ -179,14 +180,13 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
       if (!handlerFailed) drainAfterCommit(ctx);
     } catch (err) {
       // R-159: answer the throw here; see withAuth.
-      let rolledBack = true;
-      try { await client.query('ROLLBACK'); } catch { rolledBack = false; }
+      try { await client.query('ROLLBACK'); } catch { unusable = true; }
       answerThrow(req, res, deferred, err, {
         source: 'withExtensionToken', companyId: claims.companyId, userId: claims.userId,
-        extra: { connectionId: claims.connectionId }, rolledBack,
+        extra: { connectionId: claims.connectionId }, rolledBack: !unusable,
       });
     } finally {
-      client.release();
+      client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
     }
   };
 }
