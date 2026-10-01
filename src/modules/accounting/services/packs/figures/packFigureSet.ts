@@ -21,7 +21,7 @@
 
 import { log } from '@/lib/logger';
 import { withSavepoint } from '@/lib/neon';
-import { isFailedRead } from '@/modules/accounting/services/packs/packFailedRead';
+import { failedReadLabel, isFailedRead } from '@/modules/accounting/services/packs/packFailedRead';
 import {
   getReportPackInput,
   type ReportPackFigures,
@@ -111,7 +111,7 @@ async function fetchPrior(
     if (!isFailedRead(error)) throw error;
     log.warn(
       'packFigureSet: prior period unavailable, comparative column omitted',
-      { companyId, from: window.start, to: window.end, error: String(error) },
+      { companyId, from: window.start, to: window.end, error: failedReadLabel(error) },
       'packs',
     );
     return null;
@@ -157,7 +157,7 @@ async function fetchBudget(
     // A missing budget must not cost the pack its actual and prior columns.
     log.warn(
       'packFigureSet: budget unavailable, budget column omitted',
-      { companyId, from: window.start, to: window.end, error: String(error) },
+      { companyId, from: window.start, to: window.end, error: failedReadLabel(error) },
       'packs',
     );
     return null;

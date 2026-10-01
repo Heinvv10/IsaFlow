@@ -196,7 +196,7 @@ describe('buildPackFigureSet', () => {
 
   it('carries a null budget rather than failing the pack when the budget fetch throws', async () => {
     getFinancialFigures.mockResolvedValue(figures(100));
-    getBudgetVariance.mockRejectedValue(pgError('42P01', 'relation "account_budgets" does not exist'));
+    getBudgetVariance.mockRejectedValue(pgError('57014', 'canceling statement due to statement timeout'));
     const set = await buildPackFigureSet('c1', 'Demo', '2026-03-01', '2026-03-31');
     expect(set.budget).toBeNull();
     expect(warn).toHaveBeenCalled();
@@ -320,6 +320,30 @@ describe('a degrading read inside the request transaction', () => {
     getBudgetVariance.mockRejectedValue(new TypeError('rows.map is not a function'));
     await expect(buildPackFigureSet('c1', 'Demo', '2026-03-01', '2026-03-31'))
       .rejects.toBeInstanceOf(TypeError);
+  });
+
+  it('logs the class and SQLSTATE of a failed read, never the driver\'s sentence', async () => {
+    // A node-postgres message carries whatever the server put in it — the
+    // statement, the offending row. It was logged whole, by `String(error)`.
+    getFinancialFigures
+      .mockResolvedValueOnce(figures(100))
+      .mockRejectedValueOnce(pgError('57014', 'canceling statement: SELECT … WHERE customer = \'Blitz Fibre\''));
+    getBudgetVariance.mockRejectedValue(pgError('40P01', 'deadlock detected: Process 71 waits for row (0,7) of account_budgets'));
+    await buildPackFigureSet('c1', 'Demo', '2026-03-01', '2026-03-31');
+
+    const logged = warn.mock.calls.map((call) => call[1] as { error: string });
+    expect(logged.map((l) => l.error)).toEqual(['Error (SQLSTATE 57014)', 'Error (SQLSTATE 40P01)']);
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/Blitz Fibre|account_budgets|SELECT/);
+  });
+
+  it('does not call a missing table "no budget"', async () => {
+    // 42P01 is a migration that never ran, or a typo in a query. It used to
+    // degrade like a timeout, and a pack went out without its budget column
+    // on the strength of one warn.
+    getFinancialFigures.mockResolvedValue(figures(100));
+    getBudgetVariance.mockRejectedValue(pgError('42P01', 'relation "account_budgets" does not exist'));
+    await expect(buildPackFigureSet('c1', 'Demo', '2026-03-01', '2026-03-31'))
+      .rejects.toMatchObject({ code: '42P01' });
   });
 
   it('does not degrade on a transaction that was already aborted before the read', async () => {
