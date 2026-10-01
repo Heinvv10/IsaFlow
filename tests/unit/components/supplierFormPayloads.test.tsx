@@ -11,7 +11,11 @@ vi.mock('next/router', () => ({ useRouter: () => router }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: ReactNode }) => <>{children}</> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <>{children}</> }));
 vi.mock('@/modules/accounting/documents', () => ({ AccountingDocumentPanel: () => null }));
-vi.mock('@/components/accounting/suppliers/PoGrnSelector', () => ({ PoGrnSelector: () => null }));
+vi.mock('@/components/accounting/suppliers/PoGrnSelector', () => ({
+  PoGrnSelector: (p: { selectedPoId: string; selectedGrnId: string; copyLines: boolean; onPoChange: (v: string) => void; onGrnChange: (v: string) => void; onCopyLinesChange: (v: boolean) => void }) => (
+    <button type="button" onClick={() => { p.onPoChange('po-x'); p.onGrnChange('grn-x'); p.onCopyLinesChange(true); }}>set-po</button>
+  ),
+}));
 vi.mock('@/components/accounting/ScanAndFillButton', () => ({
   ScanAndFillButton: ({ onExtracted }: { onExtracted: (d: unknown) => void }) => (
     <>
@@ -34,10 +38,13 @@ import NewBatch from '../../../pages/accounting/batch-payments/new';
 import Adjustments from '../../../pages/accounting/adjustments/index';
 import SupplierLedger from '../../../pages/accounting/reports/supplier-ledger';
 
+const SA = '00000000-0000-4000-8000-00000000000a';
+const SB = '00000000-0000-4000-8000-00000000000b';
+const S26 = '00000000-0000-4000-8000-000000000026';
 const SUPPLIERS = [
-  { id: 'sa', name: 'Alpha Traders', company_name: null },
-  { id: 'sb', name: 'Beta Supplies', company_name: null },
-  { id: 's26', name: 'Supplier One', company_name: 'Supplier One Holdings' },
+  { id: SA, name: 'Alpha Traders', company_name: null },
+  { id: SB, name: 'Beta Supplies', company_name: null },
+  { id: S26, name: 'Supplier One', company_name: 'Supplier One Holdings' },
 ];
 function scan(vendorName: string) {
   return { vendorName, referenceNumber: null, date: null, dueDate: null, paymentTerms: null, vatRate: null, totalAmount: null, lineItems: [], confidence: 1, warnings: [] };
@@ -85,18 +92,31 @@ const submit = (c: HTMLElement) => fireEvent.submit(c.querySelector('form')!);
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 50)); });
 
 describe('supplier-invoices/new', () => {
+  it('an OCR supplier replace drops the PO, GRN and copy-lines that belonged to the previous supplier', async () => {
+    const { container } = render(<NewSupplierInvoice />);
+    fireEvent.click(screen.getByText('scan-alpha'));
+    await waitFor(() => expect(supplierId(container)).toBe(SA), { timeout: 2000 });
+    fireEvent.click(screen.getByText('set-po'));
+    fireEvent.click(screen.getByText('scan-beta'));
+    await waitFor(() => expect(supplierId(container)).toBe(SB), { timeout: 2000 });
+    submit(container);
+    await waitFor(() => expect(writesTo('/supplier-invoices')[0]?.body).toMatchObject({ supplierId: SB }));
+    const body = writesTo('/supplier-invoices')[0]!.body;
+    expect(body.purchaseOrderId).toBeUndefined();
+    expect(body.grnId).toBeUndefined();
+  });
   it('a rescan replaces an earlier scan\'s supplier, but not one the user picked afterwards', async () => {
     const { container } = render(<NewSupplierInvoice />);
     fireEvent.click(screen.getByText('scan-alpha'));
-    await waitFor(() => expect(supplierId(container)).toBe('sa'), { timeout: 2000 });
+    await waitFor(() => expect(supplierId(container)).toBe(SA), { timeout: 2000 });
     fireEvent.click(screen.getByText('scan-beta'));
-    await waitFor(() => expect(supplierId(container)).toBe('sb'), { timeout: 2000 });
+    await waitFor(() => expect(supplierId(container)).toBe(SB), { timeout: 2000 });
     fireEvent.click(screen.getByLabelText(/clear supplier/i));
     await pick(container);
-    expect(supplierId(container)).toBe('s26');
+    expect(supplierId(container)).toBe(S26);
     fireEvent.click(screen.getByText('scan-alpha'));
     await settle(); await settle();
-    expect(supplierId(container)).toBe('s26');
+    expect(supplierId(container)).toBe(S26);
   });
   it('does not POST without a supplier', async () => {
     const { container } = render(<NewSupplierInvoice />);
@@ -109,23 +129,23 @@ describe('supplier-invoices/new', () => {
     const { container } = render(<NewSupplierInvoice />);
     await pick(container);
     submit(container);
-    await waitFor(() => expect(writesTo('/supplier-invoices')[0]?.body.supplierId).toBe('s26'));
+    await waitFor(() => expect(writesTo('/supplier-invoices')[0]?.body.supplierId).toBe(S26));
   });
   it('an OCR match does not overwrite a supplier the user already picked', async () => {
     const { container } = render(<NewSupplierInvoice />);
     await pick(container);
     fireEvent.click(screen.getByText('scan-alpha'));
     await settle(); await settle();
-    expect(supplierId(container)).toBe('s26');
+    expect(supplierId(container)).toBe(S26);
   });
   it('an OCR match fills an empty supplier, and only the newest scan applies', async () => {
     supplierDelay = { alpha: 300 };
     const { container } = render(<NewSupplierInvoice />);
     fireEvent.click(screen.getByText('scan-alpha')); // slow
     fireEvent.click(screen.getByText('scan-beta'));  // fast, newer
-    await waitFor(() => expect(supplierId(container)).toBe('sb'), { timeout: 2000 });
+    await waitFor(() => expect(supplierId(container)).toBe(SB), { timeout: 2000 });
     await act(async () => { await new Promise((r) => setTimeout(r, 500)); });
-    expect(supplierId(container)).toBe('sb');
+    expect(supplierId(container)).toBe(SB);
   });
 });
 
@@ -133,15 +153,15 @@ describe('supplier-payments/new', () => {
   it('a rescan replaces an earlier scan\'s supplier, but not one the user picked afterwards', async () => {
     const { container } = render(<NewSupplierPayment />);
     fireEvent.click(screen.getByText('scan-alpha'));
-    await waitFor(() => expect(supplierId(container)).toBe('sa'), { timeout: 2000 });
+    await waitFor(() => expect(supplierId(container)).toBe(SA), { timeout: 2000 });
     fireEvent.click(screen.getByText('scan-beta'));
-    await waitFor(() => expect(supplierId(container)).toBe('sb'), { timeout: 2000 });
+    await waitFor(() => expect(supplierId(container)).toBe(SB), { timeout: 2000 });
     fireEvent.click(screen.getByLabelText(/clear supplier/i));
     await pick(container);
-    expect(supplierId(container)).toBe('s26');
+    expect(supplierId(container)).toBe(S26);
     fireEvent.click(screen.getByText('scan-alpha'));
     await settle(); await settle();
-    expect(supplierId(container)).toBe('s26');
+    expect(supplierId(container)).toBe(S26);
   });
   it('does not POST without a supplier', async () => {
     const { container } = render(<NewSupplierPayment />);
@@ -154,23 +174,23 @@ describe('supplier-payments/new', () => {
     const { container } = render(<NewSupplierPayment />);
     await pick(container);
     submit(container);
-    await waitFor(() => expect(writesTo('/supplier-payments')[0]?.body.supplierId).toBe('s26'));
+    await waitFor(() => expect(writesTo('/supplier-payments')[0]?.body.supplierId).toBe(S26));
   });
   it('an OCR match does not overwrite a supplier the user already picked', async () => {
     const { container } = render(<NewSupplierPayment />);
     await pick(container);
     fireEvent.click(screen.getByText('scan-beta'));
     await settle(); await settle();
-    expect(supplierId(container)).toBe('s26');
+    expect(supplierId(container)).toBe(S26);
   });
   it('only the newest scan applies when scans resolve out of order', async () => {
     supplierDelay = { alpha: 300 };
     const { container } = render(<NewSupplierPayment />);
     fireEvent.click(screen.getByText('scan-alpha'));
     fireEvent.click(screen.getByText('scan-beta'));
-    await waitFor(() => expect(supplierId(container)).toBe('sb'), { timeout: 2000 });
+    await waitFor(() => expect(supplierId(container)).toBe(SB), { timeout: 2000 });
     await act(async () => { await new Promise((r) => setTimeout(r, 500)); });
-    expect(supplierId(container)).toBe('sb');
+    expect(supplierId(container)).toBe(SB);
   });
 });
 
@@ -188,7 +208,7 @@ describe('credit-notes/new (supplier)', () => {
     asSupplier(container);
     await pick(container);
     submit(container);
-    await waitFor(() => expect(writesTo('/credit-notes')[0]?.body.supplierId).toBe('s26'));
+    await waitFor(() => expect(writesTo('/credit-notes')[0]?.body.supplierId).toBe(S26));
   });
 });
 
@@ -205,7 +225,7 @@ describe('supplier-credit-notes/new', () => {
     fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Return' } });
     fireEvent.change(screen.getAllByRole('spinbutton')[1]!, { target: { value: '10' } });
     submit(container);
-    await waitFor(() => expect(writesTo('/supplier-credit-notes')[0]?.body.supplierId).toBe('s26'));
+    await waitFor(() => expect(writesTo('/supplier-credit-notes')[0]?.body.supplierId).toBe(S26));
   });
 });
 
@@ -223,7 +243,7 @@ describe('supplier-returns', () => {
     await pick(container, 'Supplier One Holdings');
     fireEvent.change(container.querySelector('input[type="number"]')!, { target: { value: '50' } });
     submit(container);
-    await waitFor(() => expect(writesTo('/supplier-returns')[0]?.body.supplierId).toBe('s26'));
+    await waitFor(() => expect(writesTo('/supplier-returns')[0]?.body.supplierId).toBe(S26));
   });
 });
 
@@ -238,7 +258,7 @@ describe('purchase-orders/new', () => {
     const { container } = render(<NewPurchaseOrder />);
     await pick(container);
     submit(container);
-    await waitFor(() => expect(writesTo('/purchase-orders')[0]?.body.supplierId).toBe('s26'));
+    await waitFor(() => expect(writesTo('/purchase-orders')[0]?.body.supplierId).toBe(S26));
   });
 });
 
@@ -264,16 +284,16 @@ describe('purchase-orders/[poId] edit', () => {
     const { container } = await openEdit(null);
     await pick(container);
     fireEvent.click(screen.getByText('Save Changes'));
-    await waitFor(() => expect(writes.find((w) => w.method === 'PUT')?.body.supplier_id).toBe('s26'));
+    await waitFor(() => expect(writes.find((w) => w.method === 'PUT')?.body.supplier_id).toBe(S26));
   });
   it('shows the current supplier by name even though it is not in the first page', async () => {
-    const { container } = await openEdit('s26');
+    const { container } = await openEdit(S26);
     await waitFor(() => expect(supplierInput(container).value).toBe('Supplier One'), { timeout: 2000 });
   });
 });
 
 describe('batch-payments/new', () => {
-  const invoices = { invoices: [{ id: 'i1', supplierId: 's26', invoiceNumber: 'INV-1', totalAmount: 100, amountPaid: 0 }] };
+  const invoices = { invoices: [{ id: 'i1', supplierId: S26, invoiceNumber: 'INV-1', totalAmount: 100, amountPaid: 0 }] };
   beforeEach(() => { extra = (u) => (u.includes('supplier-invoices') ? json(invoices) : null); });
   it('does not POST when no line has a supplier', async () => {
     const { container } = render(<NewBatch />);
@@ -289,7 +309,7 @@ describe('batch-payments/new', () => {
     fireEvent.change(container.querySelector('select[name="invoiceId"]')!, { target: { value: 'i1' } });
     fireEvent.change(container.querySelector('input[name="amount"]')!, { target: { value: '50' } });
     submit(container);
-    await waitFor(() => expect((writesTo('/batch-payments')[0]?.body.payments as { supplierId: string }[])[0]?.supplierId).toBe('s26'));
+    await waitFor(() => expect((writesTo('/batch-payments')[0]?.body.payments as { supplierId: string }[])[0]?.supplierId).toBe(S26));
   });
 });
 
@@ -316,7 +336,7 @@ describe('adjustments (supplier tab)', () => {
     await pick(container);
     fill(container);
     submit(container);
-    await waitFor(() => expect(writesTo('/adjustments')[0]?.body).toMatchObject({ entityType: 'supplier', entityId: 's26' }));
+    await waitFor(() => expect(writesTo('/adjustments')[0]?.body).toMatchObject({ entityType: 'supplier', entityId: S26 }));
   });
   it('a customer chosen on the customer tab is not carried into the supplier tab', async () => {
     extra = (u) => (u.includes('/customers') ? json([{ id: 'c1', company_name: 'Cust One' }]) : null);
@@ -341,7 +361,7 @@ describe('reports/supplier-ledger', () => {
     const { container } = render(<SupplierLedger />);
     await pick(container);
     fireEvent.click(screen.getByRole('button', { name: /run|generate|view/i }));
-    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([u]) => String(u).includes('reports-supplier-ledger?supplierId=s26'))).toBe(true));
+    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([u]) => String(u).includes(`reports-supplier-ledger?supplierId=${S26}`))).toBe(true));
   });
   it('makes no ledger request without a supplier', async () => {
     render(<SupplierLedger />);

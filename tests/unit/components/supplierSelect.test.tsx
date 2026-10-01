@@ -10,7 +10,9 @@ vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
 import { apiFetch } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
-const ALL = Array.from({ length: 58 }, (_, i) => ({ id: `id-${i + 1}`, name: `Supplier ${String(i + 1).padStart(2, '0')}` }));
+const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const GONE = uid(9999);
+const ALL = Array.from({ length: 58 }, (_, i) => ({ id: uid(i + 1), name: `Supplier ${String(i + 1).padStart(2, '0')}` }));
 
 /** Mirrors the route: name-ordered, ?limit default 25, ?q substring, ?id single row. */
 function fakeRoute(url: string): Response {
@@ -48,35 +50,44 @@ describe('SupplierSelect', () => {
     const option = await screen.findByRole('button', { name: 'Supplier 26' }, { timeout: 2000 });
     fireEvent.click(option);
 
-    expect(onPick).toHaveBeenLastCalledWith('id-26');
+    expect(onPick).toHaveBeenLastCalledWith(uid(26));
     expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('Supplier 26');
   });
 
   it('shows the name of a preselected supplier that is not in the first page', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
-    render(<Harness initial="id-40" />);
+    render(<Harness initial={uid(40)} />);
     await waitFor(() => expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('Supplier 40'), { timeout: 2000 });
   });
 
   it('resolves a preselected supplier under React.StrictMode (effects run twice)', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
-    render(<StrictMode><Harness initial="id-40" /></StrictMode>);
+    render(<StrictMode><Harness initial={uid(40)} /></StrictMode>);
     await waitFor(() => expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('Supplier 40'), { timeout: 2000 });
   });
 
   it('clears and flags an id the server says does not exist (404)', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
     const onPick = vi.fn();
-    render(<Harness initial="gone" onPick={onPick} required />);
+    render(<Harness initial={GONE} onPick={onPick} required />);
     expect((await screen.findByRole('alert', {}, { timeout: 2000 })).textContent).toMatch(/not found/i);
     expect(onPick).toHaveBeenLastCalledWith('');
     expect((screen.getByRole('textbox') as HTMLInputElement).checkValidity()).toBe(false);
   });
 
+  it('treats a non-UUID id as missing without asking the server (the route 500s on the ::UUID cast)', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
+    const onPick = vi.fn();
+    render(<Harness initial="not-a-uuid" onPick={onPick} />);
+    expect((await screen.findByRole('alert', {}, { timeout: 2000 })).textContent).toMatch(/not found/i);
+    expect(onPick).toHaveBeenLastCalledWith('');
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
+
   it('clears an id when the lookup is ok but returns no row', async () => {
     vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: true, data: {} }), { status: 200 }));
     const onPick = vi.fn();
-    render(<Harness initial="gone" onPick={onPick} />);
+    render(<Harness initial={GONE} onPick={onPick} />);
     expect((await screen.findByRole('alert', {}, { timeout: 2000 })).textContent).toMatch(/not found/i);
     expect(onPick).toHaveBeenLastCalledWith('');
   });
@@ -88,7 +99,7 @@ describe('SupplierSelect', () => {
     let broken = true;
     vi.mocked(apiFetch).mockImplementation(async (url) => (broken ? fail() : fakeRoute(String(url))));
     const onPick = vi.fn();
-    render(<Harness initial="id-3" onPick={onPick} required />);
+    render(<Harness initial={uid(3)} onPick={onPick} required />);
     expect((await screen.findByRole('alert', {}, { timeout: 2000 })).textContent).toMatch(/couldn.t load supplier/i);
     expect(onPick).not.toHaveBeenCalled(); // the saved supplier was not wiped
     expect((screen.getByRole('textbox') as HTMLInputElement).checkValidity()).toBe(true);
@@ -100,7 +111,7 @@ describe('SupplierSelect', () => {
 
   it('after a not-found id, picking a supplier makes a required picker valid again', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
-    render(<Harness initial="gone" required />);
+    render(<Harness initial={GONE} required />);
     await screen.findByRole('alert', {}, { timeout: 2000 });
     const input = screen.getByRole('textbox') as HTMLInputElement;
     expect(input.checkValidity()).toBe(false);
@@ -112,7 +123,7 @@ describe('SupplierSelect', () => {
 
   it('an optional picker is never invalid, and its not-found notice can be cleared', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
-    render(<Harness initial="gone" />);
+    render(<Harness initial={GONE} />);
     await screen.findByRole('alert', {}, { timeout: 2000 });
     expect((screen.getByRole('textbox') as HTMLInputElement).checkValidity()).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: /clear/i }));
