@@ -123,9 +123,28 @@ Recorded, not changed:
   becomes payable again. Census below.
 - A stored `failed` request that Paystack calls `abandoned` stays `failed`. R-167's suite pins it.
 
+## /review round
+
+A fresh blind reviewer returned SHIP on `aba4b1244` (posted on PR #601), with LOWs. Fixed:
+
+- **`enableOnlinePayment` fell back to `http://localhost:3101`** when `NEXT_PUBLIC_APP_URL` was
+  unset, and that URL was stored on the invoice and emailed. `portalAppUrl()` is now the one
+  check, used by `pay-now` and the enable service: a missing or localhost origin mints nothing and
+  answers 500. This predates the branch.
+- **The link an invoice names was matched with `LIKE`**, so a token containing `%` or `_` would
+  be a pattern. It is an exact comparison of the URL's tail now. Tokens are hex today.
+
+Recorded, not changed:
+
+- The 30-minute reuse window (above).
+- `window.open` now follows two awaited calls instead of one, so a popup blocker is somewhat
+  more likely to stop it. The old code had the same weakness with one call.
+- `portalTokenService.ts:30` has the same localhost fallback for the portal access link. It is
+  another feature and is not touched here.
+
 ## Tests
 
-Real Postgres, the real routes and wrappers; only the Paystack client is stubbed. 23 cases in two
+Real Postgres, the real routes and wrappers; only the Paystack client is stubbed. 26 cases in two
 files, with shared callers in `tests/integration/r177-portal-followups.helpers.ts`.
 
 `tests/integration/r177-pay-now-standing-link.int.test.ts`, 9 cases (R-177):
@@ -140,7 +159,7 @@ files, with shared callers in `tests/integration/r177-portal-followups.helpers.t
 - another company's invoice is 404 through both routes, also when it is a draft (never "not
   approved"), and null through the service, which runs there with no row security.
 
-`tests/integration/r178-r180-portal-link-rules.int.test.ts`, 14 cases:
+`tests/integration/r178-r180-portal-link-rules.int.test.ts`, 17 cases:
 
 - R-178: `abandoned` reports cancelled, the request stays pending, the next click gets the same
   checkout, one charge. `failed` is still written.
@@ -152,7 +171,8 @@ files, with shared callers in `tests/integration/r177-portal-followups.helpers.t
   link already there is neither shown nor payable, and works once the invoice is approved.
 - The enable route: returns the standing link and still answers 404 for a paid invoice; a held
   invoice gives a retryable 400 after 5 seconds; the bare service refuses to run with no request
-  transaction.
+  transaction; with the public origin unset or on localhost both routes answer 500 and mint
+  nothing; a link whose token is `%` is not treated as named.
 
 `tests/unit/accounting/utils/payNowCheckout.test.ts`, 5 cases: the two calls in order, and each
 refusal thrown with the server's message.
@@ -162,7 +182,7 @@ offered for approved, sent, overdue and partially paid invoices with a balance, 
 
 `red.int.log`: 11 of 14 failed on unchanged `origin/master` (the first version of the suite).
 `red.r1.int.log`: the final suites on unchanged `origin/master` source, 19 of 23 failed.
-`mutations.log`: 25 mutants on the final code, all RED.
+`mutations.log`: 30 mutants on the final code, all RED.
 
 **Browser proof (2026-10-01):** a dev server from this branch against the disposable fixture, a
 Playwright Chromium session signed in as a seeded user, and the public create route answered by

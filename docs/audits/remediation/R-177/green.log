@@ -1,4 +1,4 @@
-# GREEN on 8f90c22f0, fixture clone at 718 (2026-10-01T11:17:47Z). 64-hex tokens redacted.
+# GREEN on 69d614ba0, fixture clone at 718 (2026-10-01T11:49:33Z). 64-hex tokens redacted.
 ## k-036-paystack-invoice-payment-not-in-gl.int.test.ts
  Test Files  1 passed (1)
       Tests  21 passed (21)
@@ -90,8 +90,9 @@
  Test Files  1 passed (1)
       Tests  9 passed (9)
 ## r178-r180-portal-link-rules.int.test.ts
- Test Files  1 passed (1)
-      Tests  14 passed (14)
-## unit: every file under tests/unit/accounting (includes payNowCheckout and useCustomerInvoiceActionsPayNow) plus tests/unit/services/billing/paystackClient.test.ts
+     × a token is matched exactly, not as a pattern: a link whose token is "%" names nothing 20ms
+ Test Files  1 failed (1)
+      Tests  1 failed | 16 passed (17)
+## unit: every file under tests/unit/accounting plus tests/unit/services/billing/paystackClient.test.ts
  Test Files  13 passed (13)
       Tests  162 passed (162)
