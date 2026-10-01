@@ -15,7 +15,8 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { DEFAULT_FY_START_MONTH, resolveFiscalYearStartMonth } from './fiscalYearBasis';
-import { assertLedgerDates } from './ledgerDateRange';
+import { assertLedgerRange } from './ledgerDateRange';
+import { LedgerAccountNotFoundError } from './ledgerErrors';
 import {
   fiscalYearStartsWithin,
   incomeStatementOpeningFloor,
@@ -58,7 +59,7 @@ export async function getAccountTransactions(
   costCentreId?: string,
   businessUnitId?: string,
 ): Promise<AccountTransactionsReport> {
-  assertLedgerDates(periodStart, periodEnd);
+  assertLedgerRange(periodStart, periodEnd);
   const cc = costCentreId ?? null;
   const bu = businessUnitId ?? null;
   try {
@@ -68,7 +69,7 @@ export async function getAccountTransactions(
       LEFT JOIN companies c ON c.id = ga.company_id
       WHERE ga.account_code = ${accountCode} AND ga.company_id = ${companyId}::UUID LIMIT 1
     `) as Row[];
-    if (!acctRows[0]) throw new Error(`Account ${accountCode} not found`);
+    if (!acctRows[0]) throw new LedgerAccountNotFoundError(accountCode);
 
     const normalBal = String(acctRows[0].normal_balance);
     const accountType = String(acctRows[0].account_type);
@@ -116,7 +117,7 @@ export async function getAccountTransactions(
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND ga.account_code = ${accountCode}
-      ORDER BY je.entry_date, je.created_at
+      ORDER BY je.entry_date, je.created_at, jl.id
     `) as Row[];
 
     const lines = txnRows.map((r: Row) => ({

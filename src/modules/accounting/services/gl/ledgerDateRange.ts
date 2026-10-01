@@ -20,6 +20,19 @@ export function assertLedgerDates(...dates: unknown[]): void {
   }
 }
 
+/** assertLedgerDates plus: the range must not be inverted. */
+export function assertLedgerRange(from: unknown, to: unknown): void {
+  assertLedgerDates(from, to);
+  if ((from as string) > (to as string)) throw new Error(`invalid ledger range: ${String(from)} is after ${String(to)}`);
+}
+
+/** A plain non-negative integer in [min, max] from a query parameter, else null. `typeof` first: a repeated parameter is an array. */
+export function parseBoundedInt(value: unknown, min: number, max: number): number | null {
+  if (typeof value !== 'string' || !/^\d{1,15}$/.test(value)) return null;
+  const n = Number(value);
+  return n >= min && n <= max ? n : null;
+}
+
 export function isLedgerDate(value: unknown): value is string {
   if (typeof value !== 'string' || !isRealCalendarDate(value)) return false;
   const year = Number(value.slice(0, 4));

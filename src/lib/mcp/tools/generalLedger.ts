@@ -17,6 +17,7 @@ import {
   type GeneralLedgerCursor,
 } from '@/modules/accounting/services/gl/generalLedgerStreamService';
 import { GL_ACCOUNT_TYPES } from '@/modules/accounting/types/gl.types';
+import { UUID_RE } from '@/lib/validation';
 import { isLedgerDate } from '@/modules/accounting/services/gl/ledgerDateRange';
 import {
   buildEnvelope,
@@ -31,6 +32,11 @@ import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelp
 const NO_LEDGER_READ = '1970-01-01T00:00:00.000Z';
 
 const CURSOR_PARTS = 4;
+
+const CREATED_KEY_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/;
+function isCursorKey(p: readonly string[]): boolean {
+  return isLedgerDate(p[1]) && CREATED_KEY_RE.test(p[2]!) && UUID_RE.test(p[3]!);
+}
 
 /** Every element of a string-array argument, or undefined when absent. */
 function strArrayArg(args: Record<string, unknown>, key: string): string[] | undefined {
@@ -111,6 +117,7 @@ export const generalLedgerTool: McpTool = {
     // isRealCalendarDate allows years 1-9999; the ledger's FY floor does not survive year 0.
     if (!isLedgerDate(periodStart)) return toolError('invalid period_start');
     if (!isLedgerDate(periodEnd)) return toolError('invalid period_end');
+    if (periodStart > periodEnd) return toolError('period_start must not be after period_end');
     if (accountIds?.some((id) => guardCastableArgs({ id }, { uuid: ['id'] }) !== null)) {
       return toolError('invalid account_ids');
     }
@@ -130,7 +137,8 @@ export const generalLedgerTool: McpTool = {
     let after: GeneralLedgerCursor | null = null;
     if (rawCursor !== undefined) {
       const decoded = decodeCursor(rawCursor, CURSOR_PARTS);
-      if (!decoded) return toolError('invalid cursor');
+      // Every part is cast in SQL (::DATE, ::UUID): refuse one that cannot be before any query.
+      if (!decoded || !isCursorKey(decoded.parts)) return toolError('invalid cursor');
       after = {
         accountCode: decoded.parts[0]!,
         date: decoded.parts[1]!,

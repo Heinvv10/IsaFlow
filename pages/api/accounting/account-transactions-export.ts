@@ -14,6 +14,7 @@ import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import { getAccountTransactions } from '@/modules/accounting/services/reports/transactionReportingService';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
+import { LedgerAccountNotFoundError } from '@/modules/accounting/services/gl/ledgerErrors';
 import { csvCell } from '@/lib/csv';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -31,6 +32,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!isLedgerDate(periodStart) || !isLedgerDate(periodEnd)) {
     return apiResponse.badRequest(res, `period_start and period_end ${LEDGER_DATE_MESSAGE}`);
   }
+
+  if (periodStart > periodEnd) return apiResponse.badRequest(res, 'period_start must not be after period_end');
 
   if (!(await checkReportRateLimit(companyId, 'account-transactions-export'))) {
     log.warn('Account transactions export rate limit exceeded', { companyId }, 'rateLimit');
@@ -86,6 +89,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     return res.status(200).send(csv);
   } catch (err) {
+    if (err instanceof LedgerAccountNotFoundError) return apiResponse.notFound(res, 'Account');
     log.error('Failed to export account transactions', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, 'Failed to export account transactions');
   }

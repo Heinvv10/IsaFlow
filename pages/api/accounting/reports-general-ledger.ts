@@ -26,6 +26,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!isLedgerDate(period_start) || !isLedgerDate(period_end)) {
       return apiResponse.badRequest(res, `period_start and period_end ${LEDGER_DATE_MESSAGE}`);
     }
+    if (period_start > period_end) return apiResponse.badRequest(res, 'period_start must not be after period_end');
     const accounts = await getGeneralLedgerReport(
       companyId,
       String(period_start),
