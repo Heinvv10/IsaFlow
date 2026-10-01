@@ -673,6 +673,52 @@ For a decision:
   emails, the hourly quotas and `portal-chat` daily, and about 60 unit files that run against
   the database `.env.local` names.
 
+## Review round 4
+
+Both blind reviewers said SHIP on 84bcca1b8 with no HIGH or MEDIUM. Every LOW is fixed.
+
+1. **Company bucket charged after the ownership check.** One write-access user naming ids that
+   are not the company's could take half the company's 15-minute send allowance with nothing
+   sent. The shared bucket is now charged only after the record is found to be the company's:
+   - `customer-statements-send`: after the ownership guard.
+   - `invoice-email`: a new ownership query (and a UUID check before it) answers 404 first.
+   - `ar/dunning/send`: the invoice and the template are looked up first, 404 if either is not
+     the company's. This costs two extra reads per send; `sendDunning` reads them again.
+   - `afs/send-for-signing`: after the document, signer and rendered-HTML checks, just before
+     the Signum call.
+2. **`invite-accept` refunds into its own window.** It uses `chargeRateLimit` and passes the
+   window to the refund. The key census now fails on any refund that names no window.
+3. **Attempt key scoped to the company:** `<route>:attempts:<company>:<user>`. A bureau user has
+   one allowance per client. The old keys simply expire.
+4. **Both usage buckets or neither.** In the AI and send wrappers, when the daily bucket
+   refuses, what the call took from the 15-minute company bucket is given back, into its window.
+   The per-IP bucket is an abuse limit and stays charged.
+5. **The cache remembers only a full key** (`count >= max`). A refused 100-unit call at 9,950 of
+   10,000 is not remembered, so a 1-unit call that fits is never refused from memory. The cost:
+   repeated oversized calls on a nearly full key each reach the database. They write nothing.
+6. **`max` is validated.** A fractional `max` is floored: 2.5 admits 2, the safe reading. NaN,
+   Infinity, a negative or a value above 1,000,000,000 throws a `RangeError` that names the
+   problem. Throwing is right for those: there is no safe number to substitute, and it is a
+   programming error, not a request error. The bound is below int4 so `count + cost` cannot
+   overflow.
+7. **Header corrected:** an outage that shows as hangs still uses up the daily allowance,
+   because a timeout counts as use.
+8. **Old rows above `max`** are tested: refused until the window ends, then the count restarts.
+
+Tests and mutants: integration 6 files, 57 pass (red 3 of 57 on 84bcca1b8, `red.r4.int.log`);
+limiter unit files 17 files, 220 pass (red 25 of 213, `red.r4.unit.log`); whole unit suite 1125
+files, 15033 pass, 6 skipped; mutants 131 of 131 red with a green baseline before and after
+(`mutations.log`, round 6).
+
+Not verified in this round:
+
+- `invite-accept`'s refund through the route. The k-041 suite that drives it needs GoTrue, which
+  this harness lacks. It is covered by the limiter-level rollover test and by the census rule.
+- Item 5's stale-snapshot case as the reviewer described it (a concurrent writer between the
+  statement's snapshot and its refusal). The rule that replaces it is tested; the race is not
+  reproduced.
+- Load, and the statement under concurrency from separate processes.
+
 ## Rollback
 
 Revert the branch's commits. No migration, no data change, no configuration. Counters written

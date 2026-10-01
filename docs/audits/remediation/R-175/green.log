@@ -1,15 +1,15 @@
-### R-175 + K-103 integration (real Postgres fixture), final code of review round 3 (46285c324)
+### R-175 + K-103 integration (real Postgres fixture), final code of review round 4 (48c0ec754)
  RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r175-rate-limiter
  Test Files  6 passed (6)
-      Tests  51 passed (51)
-   Start at  18:34:58
-   Duration  11.28s (transform 282ms, setup 0ms, import 603ms, tests 26.77s, environment 0ms)
+      Tests  57 passed (57)
+   Start at  19:25:00
+   Duration  10.89s (transform 262ms, setup 0ms, import 544ms, tests 24.99s, environment 0ms)
 exit=0
 
 ### Whole unit suite (./node_modules/.bin/vitest run)
  Test Files  1125 passed (1125)
-      Tests  15011 passed | 6 skipped (15017)
-   Duration  40.74s (transform 193.85s, setup 0ms, import 490.46s, tests 152.78s, environment 94ms)
+      Tests  15033 passed | 6 skipped (15039)
+   Duration  37.94s (transform 186.71s, setup 0ms, import 454.36s, tests 144.61s, environment 85ms)
 exit=0
 
 ### Integration: every other tests/integration file that mentions the limiter or its table (23 files)
@@ -42,10 +42,10 @@ exit=0
  ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:152:35
  ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:184:35
  ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:45:35
- ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts (6 tests | 6 failed) 856ms
+ ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts (6 tests | 6 failed) 516ms
  ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:85:35
  ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:109:35
- ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts (10 tests | 6 failed) 1010ms
+ ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts (10 tests | 6 failed) 602ms
  ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:135:27
  ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:148:35
  ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:60:35
@@ -53,10 +53,10 @@ exit=0
  ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:87:35
  ❯ tests/integration/k-042-reinvite-unique-violation.int.test.ts:110:35
  ❯ tests/integration/k-042-reinvite-unique-violation.int.test.ts:137:35
- ❯ tests/integration/k-042-reinvite-unique-violation.int.test.ts (5 tests | 2 failed) 348ms
+ ❯ tests/integration/k-042-reinvite-unique-violation.int.test.ts (5 tests | 2 failed) 158ms
  ❯ tests/integration/k104-k105-invitation-token-encoding.int.test.ts:231:21
- ❯ tests/integration/k104-k105-invitation-token-encoding.int.test.ts (7 tests | 1 failed) 685ms
- ❯ tests/integration/mfa-impersonation-postgres.int.test.ts (1 test | 1 skipped) 22ms
+ ❯ tests/integration/k104-k105-invitation-token-encoding.int.test.ts (7 tests | 1 failed) 543ms
+ ❯ tests/integration/mfa-impersonation-postgres.int.test.ts (1 test | 1 skipped) 21ms
  ❯ tests/integration/mfa-impersonation-postgres.int.test.ts:30:14
  ❯ tests/integration/mfa-impersonation-postgres.int.test.ts:30:20
 exit=1
@@ -67,5 +67,6 @@ Causes, none in the limiter: the harness points GOTRUE_URL at a closed port ("fe
 gotrueFetch: 2fa-login-gate, mfa-impersonation-postgres, k-041 x2, k-042);
 tests/integration/api/zod-validation.test.ts refuses any database but isaflow_dev / isaflow_test;
 k104-k105 expects a function owned by migration_admin and the fixture has it owned by postgres.
-Not verified here because of that: the k-041 and k-042 invite suites.
+Not verified here because of that: the k-041 and k-042 invite suites, including the route-level
+test of invite-accept's refund.
 Not run: the rest of tests/integration (files that do not mention the limiter).
