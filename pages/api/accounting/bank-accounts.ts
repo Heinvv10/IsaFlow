@@ -16,6 +16,7 @@ import { sql } from '@/lib/neon';
 import { BANK_SUBTYPES, isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
+import { reactivationRefusal } from '@/modules/accounting/services/gl/systemRoleReactivation';
 
 // Fields are nullable as well as optional. The UI clears a field by sending
 // `null` (e.g. `description: editForm.description.trim() || null`), and the
@@ -102,12 +103,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // fails). Checked before ANY write: a 4xx commits what came before it.
       // Under the role-write lock, so a Default Accounts save choosing this
       // account has either committed (refused here) or waits for this request.
-      if (b.isActive === false) {
+      // Reactivating a former primary bank beside the current one would give
+      // the role two holders: refused the same way.
+      if (typeof b.isActive === 'boolean') {
         await lockSystemRoleWrites(companyId);
         const [acct] = await sql`SELECT is_system_account FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}`;
-        if (acct?.is_system_account) {
+        if (acct?.is_system_account && !b.isActive) {
           return apiResponse.badRequest(res, 'Cannot deactivate the primary bank account — choose another primary bank in Default Accounts first');
         }
+        const refusal = b.isActive ? await reactivationRefusal(companyId, id) : null;
+        if (refusal) return apiResponse.badRequest(res, refusal);
       }
 
       if (Object.prototype.hasOwnProperty.call(req.body, 'parentAccountId')) {

@@ -66,7 +66,7 @@ export function roleWriterFixture(tag: string) {
        AND is_system_account AND is_active ORDER BY account_code`, [CO, sub])).rows.map((r) => String(r.account_code));
 
   const wipe = async () => {
-    for (const t of ['migration_sessions', 'app_settings']) await pool.query(`DELETE FROM ${t} WHERE company_id = $1`, [CO]);
+    for (const t of ['gl_journal_lines', 'gl_journal_entries', 'migration_sessions', 'app_settings']) await pool.query(`DELETE FROM ${t} WHERE company_id = $1`, [CO]);
     await pool.query('UPDATE gl_accounts SET parent_account_id = NULL WHERE company_id = $1', [CO]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id = $1', [CO]);
   };
@@ -91,5 +91,6 @@ export function roleWriterFixture(tag: string) {
     } finally { await pool.end(); }
   }
 
-  return { CO, USER, ins, call, openTx, holders, wipe, setup, teardown, query: (text: string, values: unknown[]) => pool.query(text, values) };
+  return { CO, USER, ins, call, openTx, holders, wipe, setup, teardown, query: (text: string, values: unknown[]) => pool.query(text, values),
+    connect: () => pool.connect() };
 }

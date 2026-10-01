@@ -10,7 +10,6 @@ import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationPa
 import type { DbRow } from '@/types/db';
 import { defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
-import { lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 import { assertAccountChangesKeepVatLocks, type AccountAttributeChange } from '../gl/vatLockLineClassification';
 
 // Rollback lives in its own file for the 300-line cap; re-exported so the API
@@ -78,9 +77,6 @@ export async function executeMigration(
   // would move a posted line inside a locked (filed) VAT period into a
   // different box refuses the WHOLE migration, naming account and period —
   // later steps post opening balances against these accounts.
-  // The upsert can fill a system account's NULL subtype (making it a role
-  // holder): serialise with every writer of role flags before that read.
-  await lockSystemRoleWrites(companyId);
   try {
     await assertAccountChangesKeepVatLocks(companyId, await reimportAttributeChanges(companyId, source, validAccounts));
   } catch (err) {
@@ -117,7 +113,11 @@ export async function executeMigration(
           ON CONFLICT (company_id, account_code) DO UPDATE SET
             account_name    = EXCLUDED.account_name,
             account_type    = EXCLUDED.account_type,
-            account_subtype = COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype)
+            -- A system account's subtype is its ROLE: only Default Accounts
+            -- and the COA import's role map place one, never this fill (it
+            -- would make the account a holder, beside the role's own).
+            account_subtype = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_subtype
+                                   ELSE COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype) END
           WHERE gl_accounts.imported_from = EXCLUDED.imported_from
           RETURNING account_code
         `)
@@ -260,7 +260,7 @@ async function reimportAttributeChanges(
   const codes = accounts.map((a) => a.sourceCode || a.sourceName.substring(0, 20));
   if (codes.length === 0) return [];
   const rows = (await sql`
-    SELECT id, account_code, account_type, account_subtype FROM gl_accounts
+    SELECT id, account_code, account_type, account_subtype, is_system_account FROM gl_accounts
     WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
       AND account_code = ANY(${codes}::TEXT[])`) as DbRow[];
   const byCode = new Map(accounts.map((a, i) => [codes[i]!, a]));
@@ -271,7 +271,8 @@ async function reimportAttributeChanges(
     return [{
       accountId: String(r.id), accountCode: String(r.account_code),
       from: { accountType: String(r.account_type), accountSubtype: subtype },
-      to: { accountType: String(acct.mappedType), accountSubtype: subtype ?? acct.mappedSubtype ?? null },
+      to: { accountType: String(acct.mappedType),
+        accountSubtype: subtype ?? (r.is_system_account === true ? null : acct.mappedSubtype ?? null) },
     }];
   });
 }

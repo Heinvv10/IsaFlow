@@ -24,14 +24,13 @@ import chartOfAccountsDetail from '../../pages/api/accounting/chart-of-accounts-
 import { getSystemAccount, clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
 import { deleteAccount, seedChartOfAccountsFromTemplate } from '../../src/modules/accounting/services/gl/chartOfAccountsService';
 import { reclassifyAccount } from '../../src/modules/accounting/services/gl/accountReclassifyService';
-import { executeMigration } from '../../src/modules/accounting/services/core/migrationExecuteService';
 import { lockSystemRoleWrites } from '../../src/modules/accounting/services/gl/systemRoleWriteLock';
 
 const describeIfDb = process.env.DATABASE_URL && process.env.JWT_SECRET
   && process.env.ISAFLOW_DISPOSABLE_AUTH_TEST === '1' ? describe : describe.skip;
 
 const fx = roleWriterFixture('W228R4L');
-const { CO, USER, ins, holders } = fx;
+const { CO, ins, holders } = fx;
 const save = (body: Record<string, unknown>) => fx.call(defaultAccounts, 'POST', '/api/accounting/default-accounts', body);
 const resolvedBank = async () => {
   try { return (await getSystemAccount('bank', CO)).accountCode; } catch (e) { return (e as Error).name; }
@@ -84,33 +83,16 @@ describeIfDb('W2-28 system role writers take the role-write lock', () => {
     expect(await raceSaveWith('bank', put)).toEqual(settled('400'));
   });
 
-  /** `writer` adds a second bank holder in a request still open; a save started meanwhile must see it. */
-  async function saveDuringOpenRequest(writer: () => Promise<unknown>) {
-    await ins(BANK, '1190', 'asset', 'bank', true, { createdAt: '2024-01-01' });
-    await ins(X, '1195', 'asset', null, false);
+  it('a save started while a template seed is in flight waits for it and answers 409, not 200 beside the bank the seed adds', async () => {
+    await ins(X, '1195', 'asset', null, false);       // no bank holder yet: the page showed "not configured"
     const tx = await fx.openTx();
     try {
-      await tx.run(writer);
-      const saving = save({ mappings: { primary_bank: X }, loaded: { primary_bank: BANK } });
+      await tx.run(() => seedChartOfAccountsFromTemplate(CO, 'isaflow_standard'));   // adds 1110, uncommitted
+      const saving = save({ mappings: { primary_bank: X } });
       await sleep(300);
       await tx.commit();
-      return (await saving).statusCode;
+      expect({ save: (await saving).statusCode, bankHolders: await holders('bank') }).toEqual({ save: 409, bankHolders: ['1110'] });
     } finally { await tx.rollback(); }
-  }
-
-  it('a save started while a template seed is in flight waits for it and answers 409, not 200 over a holder it could not see', async () => {
-    expect(await saveDuringOpenRequest(() => seedChartOfAccountsFromTemplate(CO, 'isaflow_standard'))).toBe(409);
-    expect(await holders('bank')).toContain('1110');
-  }, 20_000);
-
-  it('a save started while a migration import is filling a system account\'s subtype waits for it and answers 409', async () => {
-    await ins(randomUUID(), 'Z100', 'asset', null, true, { importedFrom: 'xero' });
-    let imported = 0;
-    const status = await saveDuringOpenRequest(async () => {
-      imported = (await executeMigration(CO, USER, 'xero', [{ sourceCode: 'Z100', sourceName: 'Imported bank', sourceType: 'BANK',
-        openingBalance: 0, mappedType: 'asset', mappedNormalBalance: 'debit', mappedSubtype: 'bank' }], [], [])).accountsImported;
-    });
-    expect({ imported, status, bankHolders: await holders('bank') }).toEqual({ imported: 1, status: 409, bankHolders: ['1190', 'Z100'] });
   }, 20_000);
 
   it('a writer that cannot get the role lock within 5s answers 503 to retry instead of waiting on the holder', async () => {

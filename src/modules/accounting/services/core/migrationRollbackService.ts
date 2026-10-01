@@ -45,11 +45,14 @@ export async function rollbackMigration(
   let deleted = 0;
 
   try {
-    // Deleting imported accounts can remove a role holder: serialise with
-    // every writer of role flags first.
+    // A system account is a role holder (or a seeded header): posting resolves
+    // the role to it, so it is RETAINED like an account something still
+    // references — never deleted. Under the role-write lock, taken first, so a
+    // Default Accounts save cannot make a candidate a holder mid-rollback and
+    // the loop below takes its row locks with no save in flight.
     await lockSystemRoleWrites(companyId);
     const candidates = (await sql`
-      SELECT id, account_code FROM gl_accounts
+      SELECT id, account_code, is_system_account FROM gl_accounts
       WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
       ORDER BY account_code
     `) as DbRow[];
@@ -61,7 +64,7 @@ export async function rollbackMigration(
     // the loop is paid for only when it is actually needed.
     const bulk = candidates.length === 0 ? [] : await withSavepoint('mig_rb_bulk', async () => (await sql`
       DELETE FROM gl_accounts
-      WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
+      WHERE company_id = ${companyId}::UUID AND imported_from = ${source} AND NOT is_system_account
       RETURNING id
     `) as DbRow[]).catch((err: unknown) => {
       if (!isFkViolation(err)) throw err;
@@ -84,6 +87,7 @@ export async function rollbackMigration(
       for (const [i, row] of candidates.entries()) {
         const id = String(row.id);
         const code = String(row.account_code);
+        if (row.is_system_account === true) { retained.push({ id, code }); continue; }
         try {
           // RETURNING, not the absence of a throw: a candidate the SELECT saw
           // can be gone by now, or invisible to an RLS USING clause, and

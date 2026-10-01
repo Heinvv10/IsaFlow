@@ -1,9 +1,9 @@
 /**
  * The one lock every writer of a company's role holders takes first — before
  * it reads the state it decides on, and before any gl_accounts row lock: the
- * Default Accounts save, the COA import's role map, the migration import and
- * rollback, the template seed, the Opening Balance Equity auto-create, an
- * account deactivate / delete / reclassify, the bank-account deactivate, and
+ * Default Accounts save, the COA import's role map, the migration rollback,
+ * the template seed, the Opening Balance Equity auto-create, an account
+ * (de)activation / delete / reclassify, the bank-account (de)activation, and
  * (through `lockGlAccountsForUpdate`) the account merge.
  * Without it two saves on a company whose chart carries no role yet both
  * committed 200s (a FOR UPDATE on the role rows locks nothing when there are
