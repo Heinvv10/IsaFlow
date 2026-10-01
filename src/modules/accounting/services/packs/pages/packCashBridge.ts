@@ -3,7 +3,7 @@
  * `packPageCharts.ts` for the 300-line cap; that file re-exports every
  * export here, so each caller still imports it there.
  */
-import { svgBoxFor } from './packChartBox';
+import { svgBoxFor, svgBoxPx } from './packChartBox';
 import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
@@ -13,7 +13,7 @@ import { MONEY_TOLERANCE } from '@/modules/accounting/services/packs/figures/pac
 import { investingCashFlowOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { HALF } from './packChartRungs';
-import { intervalsFor, isCompact, PX_PER_MM, toBars } from './packWaterfallBars';
+import { intervalsFor, isCompact, toBars } from './packWaterfallBars';
 import type { PackChartSpec } from './packPageModel';
 
 /**
@@ -174,7 +174,7 @@ export function buildCashWaterfallChart(
       kind: 'waterfall',
       svg: renderChartSvg(waterfallOption(
         steps, scale, undefined, cashBridgeIntervals(steps, box, cashBridgePlot.heightMm), isCompact(box),
-        undefined, Math.round(cashBridgePlot.heightMm * PX_PER_MM),
+        undefined, svgBoxPx(cashBridgePlot),
       ), cashBridgePlot),
       heightMm: box.heightMm,
       plotMm: cashBridgePlot.heightMm,

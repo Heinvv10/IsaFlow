@@ -149,8 +149,12 @@ describe('every chart the board pack produces passes', () => {
     }
     expect([...names].sort()).toEqual([
       'baseProfile', 'class', 'clip-path', 'd', 'dominant-baseline', 'ecmeta_data_index', 'ecmeta_series_index',
-      'ecmeta_silent', 'ecmeta_ssr_type', 'fill', 'fill-opacity', 'height', 'id', 'pointer-events', 'stroke',
-      'stroke-linecap', 'stroke-linejoin', 'stroke-width', 'style', 'text-anchor', 'transform', 'version',
+      // `paint-order` and `stroke-miterlimit`: the paper halo on a bridge
+      // figure set outside its bar, and on page 8's closing figure — a text
+      // stroke painted under its fill. Both were already on the allow-list.
+      'ecmeta_silent', 'ecmeta_ssr_type', 'fill', 'fill-opacity', 'height', 'id', 'paint-order', 'pointer-events',
+      'stroke', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-width', 'style', 'text-anchor',
+      'transform', 'version',
       'viewBox', 'width', 'x', 'xml:space', 'xmlns', 'xmlns:xlink', 'y',
     ]);
     for (const name of names) expect(ATTRIBUTES.has(name), name).toBe(true);

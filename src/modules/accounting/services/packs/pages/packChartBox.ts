@@ -56,3 +56,14 @@ export function svgBoxFor(
   const plot = box.heightMm - chartTitleMm(title, box.widthMm);
   return { widthMm: box.widthMm, heightMm: Math.max(box.heightMm / 3, plot) };
 }
+
+/** CSS pixels per millimetre — what `renderChartSvg` sizes its SVG by. */
+const PX_PER_MM = 96 / 25.4;
+
+/**
+ * That box in the pixels `renderChartSvg` will draw it at, rounded as it
+ * rounds them: what a bridge's layout needs to know its plot exactly.
+ */
+export function svgBoxPx(box: { widthMm: number; heightMm: number }): { widthPx: number; heightPx: number } {
+  return { widthPx: Math.round(box.widthMm * PX_PER_MM), heightPx: Math.round(box.heightMm * PX_PER_MM) };
+}

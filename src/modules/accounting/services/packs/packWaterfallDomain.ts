@@ -13,7 +13,8 @@
  *      (`outerBoundsMode: 'none'`), so the plot ECharts draws IS
  *      `boxPx - top - bottom`. Held by a test that reads the clip rect.
  *   2. The tick count and the label headroom are chosen JOINTLY: the axis is
- *      extended by a label's height past every short bar's end, the step
+ *      extended by a label's height past the end of every bar that does not
+ *      hold its own figure (`figureFitsInside`, the renderer's test), the step
  *      count is held to the pitch budget, and the two are iterated to a
  *      fixed point where both hold. Bounded; the renderer checks the result
  *      against the real rectangle and has a fallback for the rare state that
@@ -23,7 +24,8 @@ import type { WaterfallStep } from '@/modules/accounting/services/reports/waterf
 import { format } from 'echarts/core';
 import { PACK_FONT_STACK } from '@/lib/charts/packFont';
 import { axisDomain, type AxisDomain } from './packChartAxes';
-import { LABEL_CLEARANCE_PX, LABEL_INSIDE_PX, NIL_STEP_RULE_PX } from './packWaterfallBars';
+import { NIL_STEP_RULE_PX } from './packWaterfallBars';
+import { figureFitsInside, LABEL_CLEARANCE_PX } from './packWaterfallFit';
 
 /**
  * The axis chrome, at the two rungs. `bottom` is the floor for the category
@@ -86,22 +88,29 @@ export interface WaterfallLayout {
 
 const MAX_PASSES = 16;
 
-/** The pixels each bar's outside label needs past its end, as user values. */
-function reachFor(steps: WaterfallStep[], domain: AxisDomain, plotPx: number): number[] {
+/**
+ * What the layout knows of the figures: the text each bar prints, and how
+ * wide a bar is drawn where that is known. See `figureFitsInside`.
+ */
+export interface FigureFit { texts: readonly string[]; barWidthPx?: number }
+
+/** The pixels each figure set OUTSIDE its bar needs past the bar's end, as
+ *  user values. A figure that fits inside needs none. */
+function reachFor(steps: WaterfallStep[], domain: AxisDomain, plotPx: number, fit?: FigureFit): number[] {
   const unitsPerPx = (domain.max - domain.min) / plotPx;
   if (!(unitsPerPx > 0)) return [];
   const clearance = (LABEL_CLEARANCE_PX + NIL_STEP_RULE_PX) * unitsPerPx;
-  return steps.flatMap((step) => {
-    if (Math.abs(step.end - step.start) / unitsPerPx >= LABEL_INSIDE_PX) return [];
+  return steps.flatMap((step, i) => {
+    if (figureFitsInside(fit?.texts[i] ?? '', Math.abs(step.end - step.start) / unitsPerPx, fit?.barWidthPx)) return [];
     return step.end < step.start
       ? [Math.min(step.start, step.end) - clearance]
       : [Math.max(step.start, step.end) + clearance];
   });
 }
 
-/** Whether every outside label has room on its own side of its bar. */
-export function labelsFit(steps: WaterfallStep[], domain: AxisDomain, plotPx: number): boolean {
-  const reach = reachFor(steps, domain, plotPx);
+/** Whether every outside figure has room on its own side of its bar. */
+export function labelsFit(steps: WaterfallStep[], domain: AxisDomain, plotPx: number, fit?: FigureFit): boolean {
+  const reach = reachFor(steps, domain, plotPx, fit);
   // Relative to the span: at a domain of a trillion, float residue in the
   // reach is far larger than an absolute billionth.
   const tolerance = (domain.max - domain.min) * 1e-9;
@@ -118,6 +127,7 @@ export function waterfallLayout(
   compact: boolean,
   askHint?: number,
   measure: TextMeasure = packTextMeasure,
+  fit?: FigureFit,
 ): WaterfallLayout {
   const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
   const bottom = Math.max(chrome.bottom, categoryDepthPx(steps.map((s) => s.label), chrome.labelPx, measure));
@@ -142,8 +152,8 @@ export function waterfallLayout(
       reach = [];
       continue;
     }
-    if (labelsFit(steps, domain, plotPx)) break;
-    reach = [...reach, ...reachFor(steps, domain, plotPx)];
+    if (labelsFit(steps, domain, plotPx, fit)) break;
+    reach = [...reach, ...reachFor(steps, domain, plotPx, fit)];
   }
   // A PLOT TOO SHORT FOR TWO LEGIBLE STEPS draws one. The ask cannot go
   // below one, and the rounding can still return two or three; the bounds

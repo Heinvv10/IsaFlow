@@ -4,7 +4,7 @@
  * `packPageCharts.ts` for the 300-line cap; that file re-exports every
  * export here, so each caller still imports it there.
  */
-import { svgBoxFor } from './packChartBox';
+import { svgBoxFor, svgBoxPx } from './packChartBox';
 import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
 import { buildProfitWaterfall, OPERATING_PROFIT_BAR, type WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
@@ -17,7 +17,7 @@ import {
 import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { BRIDGE_RUNGS, CHART_MEASURE_MM, FULL, MID, type ChartBox } from './packChartRungs';
-import { intervalsFor, isCompact, PX_PER_MM, toBars } from './packWaterfallBars';
+import { intervalsFor, isCompact, toBars } from './packWaterfallBars';
 import type { PackChartSpec } from './packPageModel';
 
 /**
@@ -225,7 +225,7 @@ export function buildProfitWaterfallChart(
   const floored = new Set<string>();
   const svg = renderChartSvg(
     waterfallOption(bridged, scale, undefined, intervalsFor(box), isCompact(box), (label) => floored.add(label),
-      Math.round(plot.heightMm * PX_PER_MM)),
+      svgBoxPx(plot)),
     plot,
   );
   return {

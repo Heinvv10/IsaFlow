@@ -1,49 +1,41 @@
 /**
- * The waterfall's `custom`-series `renderItem` — one bar, its value label and
- * the label's ground — with the pixel constants that place them. Moved out of
- * `packChartOptions.ts` unchanged to keep that file under the 300-line cap;
- * the geometry, figure and scale notes at the head of that file govern this
- * one.
+ * The waterfall's `custom`-series `renderItem` — one bar and its figure —
+ * with the pixel constants that place them. Moved out of
+ * `packChartOptions.ts` to keep that file under the 300-line cap; the
+ * geometry, figure and scale notes at the head of that file govern this one.
  */
 import type { CustomSeriesRenderItem, CustomSeriesRenderItemAPI, CustomSeriesRenderItemParams } from 'echarts';
-import { format } from 'echarts/core';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { PACK_FONT_STACK } from '@/lib/charts/packFont';
-import { textWidthEms, WIDTH_SAFETY } from './pages/packTextMetrics';
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import type { MoneyScale } from '@/lib/format/money';
 import type { ChartPalette } from './packChartAxes';
 import { labelInkOn, stepColour } from './packWaterfallPaint';
+import {
+  BAR_SHARE_OF_BAND, figureFitsInside, figureText, figureWidthPx, LABEL_GAP_PX, LABEL_LINE_PX,
+} from './packWaterfallFit';
+
+export { LABEL_CLEARANCE_PX, LABEL_INSIDE_PX } from './packWaterfallFit';
 
 /**
- * EVERY BAR CARRIES ITS OWN VALUE, AND THE LABEL GOES WHEREVER IT CAN BE READ.
+ * EVERY BAR CARRIES ITS OWN VALUE, IN ONE OF TWO STATES.
  *
- * The label is drawn four pixels ABOVE the bar. A bar with no room there —
- * one whose top is within a line of the top of the plot, which is every
- * total drawn from the axis — takes one of two fallbacks: INSIDE the bar in
- * paper where the bar is tall enough to hold a line of type, and immediately
- * BELOW it in ink where it is not. Neither is cosmetic:
+ * INSIDE the bar, in the ink that reads on the fill, where the bar holds the
+ * figure (`figureFitsInside` — tall enough AND wide enough). Otherwise wholly
+ * OUTSIDE it on its own side — above a rising bar, below a falling one, the
+ * side reads as the sign — in ordinary ink, in room `waterfallLayout` reserved
+ * by asking the same question. Never part on and part off:
  *
- *   - Off the top, `clip: true` cuts the label in half. Brightsphere's cash
- *     bridge printed `(3 186)` with its lower half missing on a pack that
- *     called itself final.
- *   - Inside the bar in INK is worse, because it fails silently: the bar is
- *     ink-filled, so the label is drawn and invisible. Sheets 6 and 8 printed
- *     Gross Profit, Net Profit, Opening cash and Closing cash — the four
- *     largest marks in the pack — with no value on them at all, leaving hue
- *     as the only cue for an increase against a decrease.
- *   - Inside a SHORT bar in paper fails the same silent way, on white.
+ *   - Off the top, `clip: true` cuts the figure in half. Brightsphere's cash
+ *     bridge printed `(3 186)` with its lower half missing.
+ *   - On an ink-filled bar in INK it is drawn and invisible. Sheets 6 and 8
+ *     printed their four largest marks with no value on them at all.
+ *   - In PAPER ink across a bar's edge, the half off the bar is white on
+ *     white: the management pack printed `226 871` with the bottom of every
+ *     digit gone, and a bracket lost that way turns a negative positive.
  *
  * A directly labelled bar is also the greyscale cue the rubric asks for:
  * `(1 431)` reads under a photocopier and `red` does not.
  */
-
-const LABEL_GAP_PX = 4;
-const LABEL_LINE_PX = 12;
-
-/** What a label set outside its bar needs from the plot: its line and its gap. */
-export const LABEL_CLEARANCE_PX = LABEL_GAP_PX + LABEL_LINE_PX;
-/** The shortest bar that holds its own label inside — see `fitsInside`. */
-export const LABEL_INSIDE_PX = LABEL_LINE_PX + LABEL_GAP_PX * 2;
 
 /**
  * A NIL STEP IS STILL A STEP, AND IT HAS TO BE DRAWN WHERE IT HAPPENS.
@@ -71,38 +63,21 @@ export const NIL_STEP_RULE_PX = 1;
 /**
  * A GRIDLINE MAY NOT RUN THROUGH A FIGURE.
  *
- * Brightsphere's sheet 6 drew the `(1 000)` gridline (y 397.1pt, the full
- * width of the plot) straight through the `(411)` label sitting outside its
- * bar — at 500dpi the rule cuts the bottom of both parentheses. It was the
- * only visible strike in twenty-four sheets, and the demo's near-miss shows
- * why: `1 431` sits across the zero line at 391.1pt and is invisible only
- * because the red bar is painted over the gridline and the label sits on the
- * bar. Paint order saves the one and not the other, so the picture is one
- * condition — a shorter bar, a different domain — away from the same strike
- * on either company.
+ * Brightsphere's sheet 6 drew the `(1 000)` gridline straight through the
+ * `(411)` figure sitting outside its bar — at 500dpi the rule cuts the bottom
+ * of both parentheses. A figure inside its bar has the bar behind it; one
+ * outside has only the plot, so its glyphs carry a paper HALO: the text's own
+ * stroke in the paper colour, painted under its fill (`paint-order: stroke`).
  *
- * A label INSIDE its bar already has a knockout: the bar. A label above or
- * below one has nothing behind it but the plot, so it gets a paper rect of
- * its own. Not a paint-order fix, because there is nothing wrong with the
- * paint order — the label is already drawn after the gridlines; what shows
- * through is the gap between the glyphs' strokes, and only an opaque ground
- * closes that.
+ * A halo and not a paper rectangle, because a rectangle as wide as a long
+ * figure reached over the neighbouring bars and their figures and painted
+ * them out. The halo follows the glyphs and covers nothing else.
  */
-const LABEL_KNOCKOUT_PAD_PX = 2;
-
-/**
- * How wide a chart label is drawn, in pixels.
- *
- * The pack's own ruler — the same em table and the same `WIDTH_SAFETY` the
- * page composer measures prose with, so the knockout is at least as wide as
- * the glyphs whatever the renderer does with them. Generous is the safe
- * direction here: a knockout wider than its text hides a millimetre more
- * gridline; a knockout narrower than its text leaves a rule running out of
- * the side of a figure, which is the defect.
- */
-function labelWidthPx(text: string, fontPx: number): number {
-  return textWidthEms(text) * fontPx * WIDTH_SAFETY;
-}
+const LABEL_HALO_PX = 4;
+/** The paper kept round a figure that has to sit on a bar. */
+const GROUND_PAD_PX = 2;
+/** Figures over grounds over bars, whichever bar they belong to. */
+const FIGURE_Z2 = 2;
 
 export function makeWaterfallRenderItem(
   steps: WaterfallStep[],
@@ -119,7 +94,7 @@ export function makeWaterfallRenderItem(
     const [, y2 = 0] = api.coord([params.dataIndex, step.end]);
     const bandRaw = api.size ? api.size([1, 0]) : undefined;
     const band = (Array.isArray(bandRaw) ? bandRaw[0] : typeof bandRaw === 'number' ? bandRaw : 20) ?? 20;
-    const width = band * 0.6;
+    const width = band * BAR_SHARE_OF_BAND;
     const x = x1 - width / 2;
     const y = Math.min(y1, y2);
     const height = Math.abs(y1 - y2);
@@ -129,169 +104,105 @@ export function makeWaterfallRenderItem(
     // AND THE SHEET IS TOLD WHICH BAR THAT WAS. A bar drawn taller than its
     // own figure is the one mark on a bridge a reader cannot check against
     // the axis, so the rule has to be declared where it fired — and the only
-    // place the firing is known is here, where the pixels are. Reported
-    // rather than re-derived: the height that trips the floor is pixels of a
-    // plot box no caller computes.
+    // place the firing is known is here, where the pixels are.
     if (height < NIL_STEP_RULE_PX) onFloored?.(step.label);
 
-    // The top of the plot, asked of the coordinate system rather than assumed
-    // from `grid.top`: `containLabel` and the axis name both move it, and the
-    // domain's own maximum is where the plot ends.
     // THE RECTANGLE ECHARTS ACTUALLY DREW, from the coordinate system it
     // hands this function — not the domain's ends mapped through `coord`,
     // which is the same thing only when nothing shrank the grid. Where it is
     // absent, the domain's ends.
-    const rect = (params as { coordSys?: { y?: number; height?: number } }).coordSys;
+    const rect = (params as { coordSys?: { x?: number; y?: number; width?: number; height?: number } }).coordSys;
     const [, domainTop = 0] = api.coord([params.dataIndex, domain.max]);
-    const plotTop = rect?.y ?? domainTop;
-    const above = y - LABEL_GAP_PX;
-    const noRoomAbove = above - LABEL_LINE_PX < plotTop;
-    // Inside the bar only if the bar holds a line of type, height AND width.
-    const text = formatMoney(step.labelValue ?? step.value, { scale });
-    const labelW = labelWidthPx(text, LABEL_LINE_PX);
-    const fitsInside = height >= LABEL_INSIDE_PX && labelW <= width;
-    // A LABEL SET IN THE BAR'S OWN INK NEVER SITS ABOVE IT.
-    //
-    // A subtotal is filled with `palette.ink` and its label above it was set
-    // in `palette.ink` too, four pixels clear of a twelve-pixel line — so the
-    // type and the fill are one mark. A blind gate measured the demo pack's
-    // Gross Profit bar as running from +96 to (1 325) against a table reading
-    // (1 329) and called the bar 7.6% overstated; +96 is 16 page pixels of
-    // dark, which is exactly the label's line plus its gap. The bar is based
-    // at zero — measured off the composed SVG, rect top 61.0 with zero at
-    // 61.0 — and no arithmetic was wrong. What was wrong is that a reader
-    // could not see where the bar ended.
-    //
-    // IT HID ON THE OTHER COMPANY for the reason this branch keeps finding.
-    // Brightsphere's totals reach the top of the plot, so `noRoomAbove` put
-    // their labels INSIDE in paper, and there was no dark type above a dark
-    // bar to merge with. Right on one sheet, ambiguous on the other, off one
-    // rule that never asked what the bar was filled with.
-    //
-    // So a bar whose fill IS the label's ink carries its label inside, in
-    // paper — the placement half of what `labelInkOn` already does for
-    // contrast — and the two companies draw the same picture. A total too
-    // short to hold a line of type keeps the old fallbacks.
-    const sameInkAsFill = stepColour(step, palette) === palette.ink;
-    // AND A SAME-INK BAR TOO SHORT TO HOLD ITS LABEL keeps it on its own
-    // side like any other bar, set in the axis ink where that side is above
-    // it, so the type and the fill do not merge into one mark.
     const [, domainBottom = Infinity] = api.coord([params.dataIndex, domain.min]);
+    const plotTop = rect?.y ?? domainTop;
     const plotBottom = rect?.y !== undefined && rect.height !== undefined ? rect.y + rect.height : domainBottom;
-    const roomBelow = y + drawnHeight + LABEL_GAP_PX + LABEL_LINE_PX <= plotBottom;
-    // AND NEVER ON THE WRONG SIDE OF ITS BASE. A rising bar's figure is set
-    // above it and a falling bar's below it: the side reads as the sign. The
-    // demo's Revenue of 101, a short bar with the domain ending a few pixels
-    // over it, hung its figure under the zero line. Where the correct side has
-    // no room the plot is given room (`waterfallLayout`) and the label keeps its
-    // side; a bar tall enough takes it inside instead. A NIL step has no side
-    // and takes whichever has room.
+
+    const text = figureText(step, scale);
+    const fill = stepColour(step, palette);
     const falls = step.end < step.start;
     const rises = step.end > step.start;
-    const noRoomOnItsSide = falls ? !roomBelow : noRoomAbove;
-    const inside = fitsInside && (noRoomOnItsSide || sameInkAsFill);
-    // AND IF ITS SIDE STILL HAS NO ROOM — the layout could not settle, or a
-    // caller gave no box — the figure is never moved to the other side and
-    // never clipped out: inside a bar that holds a line of type, in
-    // contrasting ink, or else on its own side held to the plot's edge.
-    const tight = !fitsInside && noRoomOnItsSide && (rises || falls) && height >= LABEL_LINE_PX && labelW <= width;
-    const below = !inside && !tight && (falls || (!rises && noRoomAbove));
-    const aboveInOwnInk = !inside && !tight && !below && sameInkAsFill;
-
+    const roomAbove = y - LABEL_GAP_PX - LABEL_LINE_PX >= plotTop;
+    const roomBelow = y + drawnHeight + LABEL_GAP_PX + LABEL_LINE_PX <= plotBottom;
+    // A NIL step has no side and takes whichever has room.
+    const noRoomOnItsSide = falls ? !roomBelow : !roomAbove;
+    // A LABEL SET IN THE BAR'S OWN INK NEVER SITS ABOVE IT. A subtotal is
+    // filled with `palette.ink`, and its figure four pixels above it in the
+    // same ink made the type and the fill one mark — a blind gate measured
+    // the demo's Gross Profit bar as 7.6% overstated, which was exactly the
+    // label's line plus its gap. So a bar whose fill IS the figure's ink
+    // carries it inside wherever it fits, and where it does not the figure
+    // above is set in the axis ink.
+    const sameInkAsFill = fill === palette.ink;
+    // THE TWO STATES. Inside only where the bar holds the whole figure, and
+    // then only where it has to be (no room on its side) or reads better
+    // (the same-ink bar). Everything else is outside, on its own side.
+    const inside = figureFitsInside(text, height, width) && (noRoomOnItsSide || sameInkAsFill);
+    const below = !inside && (falls || (!rises && !roomAbove));
     // `drawnHeight`, not `height`: a floored bar is drawn a rule's width
     // taller than its figure, and the gap is kept from what is drawn.
-    const textY = inside ? y + LABEL_GAP_PX
-      : tight ? y + (height - LABEL_LINE_PX) / 2
+    //
+    // THE CLAMPS ARE A SAFETY NET. With a box the layout has reserved the
+    // room and neither fires. Without one — or if the layout could not
+    // settle — the figure is still never moved to the other side and never
+    // clipped out: it is held at the plot's edge on its own side.
+    const textTop = inside ? y + LABEL_GAP_PX
       : below ? Math.min(y + drawnHeight + LABEL_GAP_PX, plotBottom - LABEL_LINE_PX)
-      : Math.max(above, plotTop + LABEL_LINE_PX);
-    // A figure held to the plot's edge can land on its own bar. If MOST of
-    // its box is on the fill it is read like one set inside — no ground, the
-    // ink that reads on the fill. Otherwise it keeps its ink, and its paper
-    // ground is painted OVER the bar, knocking the bar out behind the type.
-    const textTop = below ? textY : textY - LABEL_LINE_PX;
-    const vOn = Math.max(0, Math.min(textTop + LABEL_LINE_PX, y + drawnHeight) - Math.max(textTop, y));
-    // The share is of the GLYPHS as drawn, not of the generous `labelW` the
-    // ground is cut to: at a near-half overlap the two rulers disagree.
-    const glyphW = format.getTextRect(text, `${LABEL_LINE_PX}px ${PACK_FONT_STACK}`).width;
-    const hOn = Math.max(0, Math.min(x + width / 2 + glyphW / 2, x + width) - Math.max(x + width / 2 - glyphW / 2, x));
-    const clamped = !inside && !tight;
-    const onOwnBar = clamped && vOn * hOn >= 0.5 * glyphW * LABEL_LINE_PX;
-    const groundOverBar = clamped && !onOwnBar && vOn > 0.5 && hOn > 0.5;
-    const onBar = inside || tight || onOwnBar;
-    // THE GROUND UNDER A LABEL THAT IS NOT ON ITS BAR — see
-    // `LABEL_KNOCKOUT_PAD_PX`. On the bar the fill is the ground already,
-    // and a paper rect there would punch a hole in the bar.
-    const knockoutW = labelW + LABEL_KNOCKOUT_PAD_PX * 2;
-    const knockout = onBar ? [] : [{
-      type: 'rect' as const,
-      // NAMED, because the bar is a rect too and a reader of this group —
-      // `packChartOptions.test.ts` reads it by name — must not take the
-      // ground for the bar.
-      name: 'labelGround',
-      // `above` anchors the text's BOTTOM and `below` its top — see
-      // `verticalAlign` on the label. The ground follows the same anchor, or
-      // it covers the wrong line of the plot.
-      shape: {
-        x: x + width / 2 - knockoutW / 2,
-        y: textTop - LABEL_KNOCKOUT_PAD_PX,
-        width: knockoutW,
-        height: LABEL_LINE_PX + LABEL_KNOCKOUT_PAD_PX * 2,
-      },
-      style: { fill: palette.paper },
-    }];
+      : Math.max(y - LABEL_GAP_PX, plotTop + LABEL_LINE_PX) - LABEL_LINE_PX;
+    // AND SIDEWAYS IT STAYS ON THE PLOT TOO. A figure wider than its bar, on
+    // the first or last bar, ran past the plot's edge and the clip took its
+    // bracket — a negative read as a positive. It is moved along until it is
+    // whole; one wider than the whole plot is centred on it.
+    const half = figureWidthPx(text) / 2;
+    const centre = inside || rect?.x === undefined || rect.width === undefined ? x + width / 2
+      : rect.width < half * 2 ? rect.x + rect.width / 2
+      : Math.min(Math.max(x + width / 2, rect.x + half), rect.x + rect.width - half);
+    // AND WHERE IT STILL LANDS ON A BAR — a neighbour's, under a figure wider
+    // than its own band, or its own where the clamps above fired — it keeps
+    // its ordinary ink on a paper ground cut to the figure. Never the bar's
+    // contrasting ink with part of the figure off the bar. Figures and
+    // grounds are painted over every bar (`z2`), so no later bar hides one.
+    const onABar = !inside && steps.some((other, j) => {
+      const [ox = 0, oy1 = 0] = api.coord([j, other.start]);
+      const [, oy2 = 0] = api.coord([j, other.end]);
+      const top = Math.min(oy1, oy2);
+      return ox - width / 2 < centre + half && ox + width / 2 > centre - half
+        && top < textTop + LABEL_LINE_PX && top + Math.max(Math.abs(oy1 - oy2), NIL_STEP_RULE_PX) > textTop;
+    });
 
     return {
       type: 'group',
       children: [
-        // THE KNOCKOUT FIRST, AND THE BAR AFTER IT, wherever the ground is
-        // clear of its own bar: that keeps every bar's `<path>` immediately
-        // followed by its own `<text>`, which `packWaterfallLegibility.test.ts`
-        // pairs them by. A ground partly over its bar goes after the bar.
-        ...(groundOverBar ? [] : knockout),
         {
           type: 'rect',
           name: 'bar',
           shape: { x, y, width, height: drawnHeight },
-          style: { fill: stepColour(step, palette) },
+          style: { fill },
         },
-        ...(groundOverBar ? knockout : []),
+        ...(onABar ? [{
+          type: 'rect' as const,
+          name: 'labelGround',
+          z2: FIGURE_Z2 - 1,
+          shape: { x: centre - half - GROUND_PAD_PX, y: textTop - GROUND_PAD_PX, width: (half + GROUND_PAD_PX) * 2, height: LABEL_LINE_PX + GROUND_PAD_PX * 2 },
+          style: { fill: palette.paper },
+        }] : []),
         {
           type: 'text',
+          z2: FIGURE_Z2,
           style: {
-            // THE TABLE'S SIGN, NOT THE STEP'S EFFECT ON PROFIT — see
-            // `WaterfallStep.labelValue`. The bar's direction already carries
-            // the effect; printing the negation of the figure in the table on
-            // the same sheet made the chart look like it disagreed with it.
             text,
-            x: x + width / 2,
-            // A bar that reaches the top of the domain has no room above it,
-            // so its label sits just inside the bar instead of half off the
-            // paper. See `LABEL_GAP_PX`.
-            y: textY,
-            // INSIDE THE BAR IT IS SET IN PAPER, NOT INK. Every bar drawn
-            // from the axis reaches the top of its own plot, so `clipped` is
-            // true of every TOTAL — and ink on an ink-filled total bar is an
-            // invisible label. Sheets 6 and 8 printed Gross Profit, Net
-            // Profit, Opening cash and Closing cash — the largest marks in
-            // the pack — carrying no value at all, which left red/green hue
-            // as the only thing separating an increase from a decrease on
-            // them. The label was being drawn the whole time.
-            fill: onBar ? labelInkOn(stepColour(step, palette), palette) : aboveInOwnInk ? palette.axis : palette.ink,
-            // AND THE PACK'S FACE, NAMED HERE BECAUSE THIS IS A RAW ZRENDER
-            // TEXT AND NOT AN ECHARTS LABEL.
-            //
-            // A `custom` series draws its own elements, and a zrender text
-            // takes its font from `style.font`, whose default is the literal
-            // `12px sans-serif` — it does not read `option.textStyle` the way
-            // an axis label does. So `renderChartSvg` stamping the family on
+            x: centre,
+            y: textTop,
+            fill: inside ? labelInkOn(fill, palette) : !below && sameInkAsFill ? palette.axis : palette.ink,
+            ...(inside ? {} : { stroke: palette.paper, lineWidth: LABEL_HALO_PX }),
+            // THE PACK'S FACE, NAMED HERE BECAUSE THIS IS A RAW ZRENDER TEXT
+            // AND NOT AN ECHARTS LABEL. A zrender text takes its font from
+            // `style.font`, whose default is the literal `12px sans-serif` —
+            // it does not read `option.textStyle` — so the family stamped on
             // the option reached every label on the sheet EXCEPT these, and
-            // the bridge's bar values kept printing in whatever Chromium
-            // resolves `sans-serif` to. On the demo income statement that put
-            // `1 431` on the sheet twice in two typefaces — once in the Cost
-            // of sales row, once on its own bar a centimetre below.
+            // the demo printed `1 431` twice in two typefaces.
             fontFamily: PACK_FONT_STACK,
             align: 'center',
-            verticalAlign: inside || tight || below ? 'top' : 'bottom',
+            verticalAlign: 'top',
           },
         },
       ],

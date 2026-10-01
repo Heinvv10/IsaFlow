@@ -36,12 +36,13 @@ import { liveDemoSet } from './fixtures/liveDemoBoardPack';
 import type { PackChartSpec } from '@/modules/accounting/services/packs/pages/packChartModel';
 
 /**
- * A drawn bar and the label on it, paired by DOCUMENT ORDER.
+ * A drawn bar and the label on it, paired by ORDER.
  *
- * `renderItem` emits each bar as a `<path>` immediately followed by its own
- * `<text>`, so the pairing is the renderer's own and no coordinate matching
- * is guessed. The `ecmeta_data_index` attribute is asserted rather than
- * assumed: if zrender ever stops emitting the two together, this finds no
+ * `renderItem` paints every figure over every bar, so the plot's group holds
+ * the bars in step order and then the figures in step order: the k-th figure
+ * is the k-th bar's. A paper ground under a figure is neither. The
+ * `ecmeta_data_index` attribute is asserted rather than assumed, and the two
+ * counts must agree: if zrender ever stops emitting them so, this finds no
  * bars and the vacuity check below fails loudly instead of passing empty.
  */
 interface Bar {
@@ -60,21 +61,24 @@ interface Bar {
 const PAPER = '#ffffff';
 
 function bars(svg: string): Bar[] {
-  const pattern = /<path\b[^>]*d="M([-\d.]+) ([-\d.]+)l[-\d.]+ 0l0 ([-\d.]+)l[^"]*"[^>]*fill="(#[0-9a-f]{6})"[^>]*ecmeta_data_index="(\d+)"[^>]*><\/path>\s*<text\b[^>]*\by="([-\d.]+)"[^>]*fill="(#[0-9a-f]{6})"[^>]*>([^<]*)<\/text>/gi;
-  const out: Bar[] = [];
-  for (const m of svg.matchAll(pattern)) {
+  const at = svg.indexOf('<g clip-path');
+  const plot = at < 0 ? '' : svg.slice(at, svg.indexOf('</g>', at));
+  const rects = [...plot.matchAll(/<path\b[^>]*d="M([-\d.]+) ([-\d.]+)l[-\d.]+ 0l0 ([-\d.]+)l[^"]*"[^>]*fill="(#[0-9a-f]{6})"[^>]*ecmeta_data_index="(\d+)"[^>]*><\/path>/gi)]
+    .filter((m) => m[4]!.toLowerCase() !== PAPER);
+  const texts = [...plot.matchAll(/<text\b[^>]*\by="([-\d.]+)"[^>]*fill="(#[0-9a-f]{6})"[^>]*>([^<]*)<\/text>/gi)];
+  if (rects.length !== texts.length) return [];
+  return rects.map((m, k) => {
     const top = Number(m[2]);
     const height = Number(m[3]);
-    const labelY = Number(m[6]);
-    out.push({
+    const labelY = Number(texts[k]![1]);
+    return {
       index: Number(m[5]),
       fill: m[4]!.toLowerCase(),
-      labelFill: m[7]!.toLowerCase(),
-      label: m[8] ?? '',
+      labelFill: texts[k]![2]!.toLowerCase(),
+      label: texts[k]![3] ?? '',
       behind: labelY >= top && labelY <= top + height ? m[4]!.toLowerCase() : PAPER,
-    });
-  }
-  return out;
+    };
+  });
 }
 
 /** Perceived lightness, 0–255. The one channel a photocopier keeps. */

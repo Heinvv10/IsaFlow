@@ -13,10 +13,10 @@ import { describe, expect, it } from 'vitest';
 import { buildProfitWaterfallChart } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
-import { labelInkOn, waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
+import { waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
 import { waterfallLayout } from '@/modules/accounting/services/packs/packWaterfallDomain';
 import { PX_PER_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
-import { barOf, clipRect, figures, legibleOnBar, outsideClip, overOwnBar, shareOnBar, wrongSide } from './support/bridgeSvg';
+import { barOf, clipRect, figures, illegible, outsideClip, overOwnBar, wrongSide } from './support/bridgeSvg';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { liveDemoSet } from './fixtures/liveDemoBoardPack';
 import { yAxisTicks } from './support/svgTicks';
@@ -119,19 +119,17 @@ describe('a short bar at the edge of the domain, under a long category name', ()
   });
 
   it('keeps both figures on the plot with no box at all — the renderer is the last guard', () => {
-    // 170 000 of 1 200 000 is a bar tall enough to carry its figure inside,
-    // and that is where it goes when its own side has no room.
+    // 170 000 of 1 200 000 is a bar some 17px tall here: under a line of type
+    // with its padding, so the figure does not go inside. With no box nothing
+    // reserved room on its side either, and it is held at the plot's edge —
+    // across its own bar, in ordinary ink on a paper ground, whole.
     for (const [steps, text] of [[RISING, '170'], [FALLING, '(170)']] as const) {
       const svg = render(steps, false);
       expectOnItsSide(svg, steps[1]!, text);
       const figure = figures(svg).find((f) => f.text === text)!;
-      const bar = barOf(svg, figure)!;
-      expect(figure.y - 6, `"${text}" is not inside its bar`).toBeGreaterThanOrEqual(bar.top - 0.01);
-      expect(figure.y + 6, `"${text}" is not inside its bar`).toBeLessThanOrEqual(bar.bottom + 0.01);
-      // In the ink that reads on the bar's fill, not the ink it would wear
-      // standing on paper beside the bar.
-      const fill = steps[1]!.color === 'green' ? DEFAULT_CHART_PALETTE.fav : DEFAULT_CHART_PALETTE.unfav;
-      expect(figure.fill).toBe(labelInkOn(fill, DEFAULT_CHART_PALETTE).toLowerCase());
+      expect(overOwnBar(figure, barOf(svg, figure)!), `"${text}" is clear of its bar — the guard is not under test`).toBe(true);
+      expect(figure.fill).toBe(DEFAULT_CHART_PALETTE.ink.toLowerCase());
+      expect(illegible(svg)).toEqual([]);
     }
   });
 
@@ -160,20 +158,20 @@ describe('a short bar at the edge of the domain, under a long category name', ()
 });
 
 /**
- * A FIGURE HELD ONTO ITS OWN BAR READS AGAINST WHAT IS UNDER MOST OF IT. The
- * edge clamp can leave a figure over its own fill. Where half or more of its
- * box is on the bar it takes the contrasting ink, with no ground; where less
- * is, it keeps the ordinary ink on its paper ground, painted over the bar.
- * Switching ink on any overlap set "(9)" in paper over a 1.4px bar — white
- * on white.
+ * A FIGURE HELD ONTO ITS OWN BAR KEEPS ITS ORDINARY INK, ON PAPER. With no
+ * box the layout reserves nothing, and the edge clamp can leave a figure over
+ * its own fill. It is never given the bar's contrasting ink there — set "(9)"
+ * in paper over a 1.4px bar and it is white on white — but a paper ground cut
+ * to the figure, painted over the bar and under the type.
  */
 describe('a figure that lands on its own bar', () => {
-  const legible = (svg: string, text: string) => {
+  const INK = DEFAULT_CHART_PALETTE.ink.toLowerCase();
+  const held = (svg: string, text: string) => {
     const figure = figures(svg).find((f) => f.text === text);
     expect(figure, `"${text}" is not drawn`).toBeDefined();
     const bar = barOf(svg, figure!)!;
     expect(overOwnBar(figure!, bar), `"${text}" is not over its bar — the case is not under test`).toBe(true);
-    expect(legibleOnBar(figure!, bar), `"${text}" in ${figure!.fill} on ${bar.fill}, ${(shareOnBar(figure!, bar) * 100).toFixed(0)}% on it`).toBe(true);
+    expect(illegible(svg)).toEqual([]);
     return { figure: figure!, bar };
   };
 
@@ -185,7 +183,7 @@ describe('a figure that lands on its own bar', () => {
       { label: 'Movement 3', start: -6212, end: -6069, value: 143, isSubtotal: false, color: 'green' },
       { label: 'Closing', start: 0, end: -6069, value: -6069, isSubtotal: true, color: 'teal' },
     ];
-    legible(String(renderChartSvg(waterfallOption(steps, "R'000", undefined, 5, false), { widthMm: 174, heightMm: 60 })), '1');
+    held(String(renderChartSvg(waterfallOption(steps, "R'000", undefined, 5, false), { widthMm: 174, heightMm: 60 })), '1');
   });
 
   it("the reviewer's (9): a 1.4px bar under a figure mostly off it", () => {
@@ -196,8 +194,8 @@ describe('a figure that lands on its own bar', () => {
       { label: 'Closing', start: 0, end: -999, value: -999, isSubtotal: true, color: 'teal' },
     ];
     const svg = String(renderChartSvg(waterfallOption(steps, 'R'), { widthMm: 454 / PX_PER_MM, heightMm: 265 / PX_PER_MM }));
-    const { figure, bar } = legible(svg, '(9)');
-    expect(shareOnBar(figure, bar)).toBeLessThan(0.5);
+    const { figure, bar } = held(svg, '(9)');
+    expect(figure.fill).toBe(INK);
     // And its ground is drawn OVER the bar, or the bar shows through the type.
     const plotted = svg.slice(svg.indexOf('<g clip-path'));
     const barAt = plotted.indexOf(`fill="${bar.fill}"`, plotted.indexOf(`l0 ${(bar.bottom - bar.top).toFixed(1)}`));
@@ -220,9 +218,7 @@ describe('a figure that lands on its own bar', () => {
       waterfallOption(steps, "R'000", undefined, 6, false, undefined, 320),
       { widthMm: 220, heightMm: 320 / PX_PER_MM },
     ));
-    for (const figure of figures(svg)) {
-      const bar = barOf(svg, figure)!;
-      if (overOwnBar(figure, bar)) expect(legibleOnBar(figure, bar), `"${figure.text}" in ${figure.fill} on ${bar.fill}`).toBe(true);
-    }
+    expect(figures(svg)).toHaveLength(steps.length);
+    expect(illegible(svg)).toEqual([]);
   });
 });

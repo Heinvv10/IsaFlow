@@ -15,7 +15,11 @@
  * on one company and struck on the other, off a difference of a few pixels of
  * bar height. So the assertion below is not "Brightsphere's (411) is clear";
  * it is that no label anywhere in either pack is crossed by a rule it does
- * not have an opaque ground under.
+ * not have something opaque under: a bar or a paper ground across the whole
+ * figure, or the paper HALO a figure outside its bar carries on its own
+ * glyphs — the text's stroke in the paper colour, painted under its fill.
+ * (A paper rectangle did this once; as wide as a long figure, it painted out
+ * the neighbouring bars. The halo follows the glyphs.)
  *
  * MEASURED OFF THE COMPOSED SVG, which is the only place this exists: the
  * option is right, the figures are right, and what was wrong is what the
@@ -33,6 +37,8 @@ const COMPANIES: Record<string, BoardPackInput> = {
   Brightsphere: brightsphereLiveInput,
 };
 
+const PAPER = DEFAULT_CHART_PALETTE.paper.toLowerCase();
+
 /** A full-width horizontal rule the axis draws, in the SVG's own units. */
 interface Gridline { y: number; x1: number; x2: number }
 
@@ -40,14 +46,16 @@ interface Gridline { y: number; x1: number; x2: number }
  *  label. `M x yl w 0l0 h l-w 0Z`. */
 interface Rect { x: number; y: number; w: number; h: number; fill: string }
 
-interface Label { text: string; cx: number; cy: number; ground: Rect[] }
+interface Label { text: string; cx: number; cy: number; ground: Rect[]; halo: { colour: string; width: number } | null }
 
 const GRID = new RegExp(
   `<path d="M([-\\d.]+) ([-\\d.]+)L([-\\d.]+) \\2"[^>]*stroke="${DEFAULT_CHART_PALETTE.prior}"`,
   'gi',
 );
 const RECT = /<path d="M([-\d.]+) ([-\d.]+)l([-\d.]+) 0l0 ([-\d.]+)l[-\d.]+ 0Z"[^>]*fill="(#[0-9a-f]{6})"/gi;
-const TEXT = /<text\b[^>]*\bx="([-\d.]+)"\s+y="([-\d.]+)"[^>]*>([^<]*)<\/text>/gi;
+const TEXT = /<text\b[^>]*\bx="([-\d.]+)"\s+y="([-\d.]+)"([^>]*)>([^<]*)<\/text>/gi;
+/** The narrowest stroke that closes the gaps between a 12px figure's glyphs. */
+const MIN_HALO_PX = 3;
 
 /** The line box a 12px label occupies — the size `renderItem` sets its ground
  *  from, and the same em table the page composer measures prose with. */
@@ -61,30 +69,26 @@ function gridlines(svg: string): Gridline[] {
 }
 
 /**
- * Every bar label, with the rects drawn before it and after the previous
- * label — its own group's ground and its own bar.
- *
- * Document order is the pairing, the same one `packWaterfallLegibility` uses:
- * `renderItem` emits one group per step and nothing interleaves them.
+ * Every bar label, with every rect painted before it — the bars and grounds,
+ * which the renderer paints under all the figures — and its own halo.
  */
 function labels(svg: string): Label[] {
   const plot = svg.slice(svg.indexOf('clip-path'));
   const marks = [...plot.matchAll(RECT)].map((m) => ({
     at: m.index, rect: { x: Number(m[1]), y: Number(m[2]), w: Number(m[3]), h: Number(m[4]), fill: m[5]!.toLowerCase() },
   }));
-  const out: Label[] = [];
-  let from = 0;
-  for (const m of plot.matchAll(TEXT)) {
-    const at = m.index;
-    out.push({
-      text: m[3] ?? '',
+  return [...plot.matchAll(TEXT)].map((m) => {
+    const stroke = /\bstroke="(#[0-9a-f]{6})"/i.exec(m[3]!)?.[1]?.toLowerCase();
+    const width = Number(/\bstroke-width="([\d.]+)"/.exec(m[3]!)?.[1] ?? 0);
+    const under = /\bpaint-order="stroke"/.test(m[3]!);
+    return {
+      text: m[4] ?? '',
       cx: Number(m[1]),
       cy: Number(m[2]),
-      ground: marks.filter((r) => r.at > from && r.at < at).map((r) => r.rect),
-    });
-    from = at;
-  }
-  return out;
+      ground: marks.filter((r) => r.at < m.index).map((r) => r.rect),
+      halo: stroke !== undefined && under ? { colour: stroke, width } : null,
+    };
+  });
 }
 
 /** Every waterfall the pack composes, by sheet. */
@@ -122,7 +126,8 @@ describe('no gridline is drawn through a figure', () => {
             // part of the label leaves the rule running out of one side of
             // it, which is the same strike in a smaller place.
             const covered = label.ground.some((r) => r.y <= rule.y && r.y + r.h >= rule.y
-              && r.x <= box.left && r.x + r.w >= box.right);
+              && r.x <= box.left && r.x + r.w >= box.right)
+              || (label.halo !== null && label.halo.colour === PAPER && label.halo.width >= MIN_HALO_PX);
             expect(
               covered,
               `${company} ${bridge.page}: the gridline at y=${rule.y} runs through "${label.text}" `
@@ -149,8 +154,9 @@ describe('no gridline is drawn through a figure', () => {
       && r.x1 < label!.cx + half && r.x2 > label!.cx - half);
     expect(struck.length, 'no rule crosses (411) any more, so the fix is not being tested here')
       .toBeGreaterThan(0);
-    // And it is a PAPER ground rather than the bar: this label sits clear of
-    // its own bar, which is the half of the defect paint order does not save.
-    expect(label!.ground.some((r) => r.fill === DEFAULT_CHART_PALETTE.paper.toLowerCase())).toBe(true);
+    // And it is its own PAPER halo rather than the bar: this label sits clear
+    // of its own bar, which is the half of the defect paint order does not save.
+    expect(label!.halo).toEqual({ colour: PAPER, width: expect.any(Number) });
+    expect(label!.halo!.width).toBeGreaterThanOrEqual(MIN_HALO_PX);
   });
 });

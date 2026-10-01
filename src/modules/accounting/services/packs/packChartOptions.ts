@@ -52,6 +52,7 @@ import {
 import { CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
 import { makeWaterfallRenderItem } from './packWaterfallBars';
 import { packTextMeasure, WATERFALL_CHROME, waterfallLayout, type TextMeasure } from './packWaterfallDomain';
+import { BAR_SHARE_OF_BAND, figureText } from './packWaterfallFit';
 
 export { labelInkOn, stepPaint } from './packWaterfallPaint';
 export { AXIS_END_LABEL_RESERVE_PX, CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
@@ -94,16 +95,26 @@ export function waterfallOption(
    *  the sheet can declare the rule; a bar may be reported more than once,
    *  because ECharts may call `renderItem` more than once per datum. */
   onFloored?: (label: string) => void,
-  /** The SVG box's height in pixels. Given, the plot rectangle is exact and
-   *  the axis is chosen to give every figure room — see `waterfallLayout`. */
-  boxPx?: number,
+  /** The SVG box in pixels. Given, the plot rectangle is exact and the axis
+   *  is chosen to give every figure room — see `waterfallLayout`. A bare
+   *  number is the height alone, for a chart drawn at whatever width its
+   *  container has: no bar's width is known, so every figure gets room
+   *  outside its bar. */
+  box?: number | { heightPx: number; widthPx: number },
   /** The face the chart's text is drawn in — see `TextMeasure`. */
   measure: TextMeasure = packTextMeasure,
 ): EChartsCoreOption {
   const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
+  const boxPx = typeof box === 'number' ? box : box?.heightPx;
+  // The bar's width is exact only where nothing narrows the plot: the print
+  // face, whose gutters are fixed (`outerBoundsMode: 'none'` below).
+  const barWidthPx = typeof box === 'object' && measure === packTextMeasure
+    ? ((box.widthPx - CHART_GUTTER_PX - CHART_GUTTER_RIGHT_PX) / Math.max(1, steps.length)) * BAR_SHARE_OF_BAND
+    : undefined;
+  const fit = { texts: steps.map((s) => figureText(s, scale)), barWidthPx };
   const layout = boxPx === undefined
     ? { top: chrome.top, bottom: chrome.bottom, domain: axisDomain(steps.flatMap((s) => [s.start, s.end]), intervals) }
-    : waterfallLayout(steps, boxPx, compact, intervals, measure);
+    : waterfallLayout(steps, boxPx, compact, intervals, measure, fit);
   const domain = layout.domain;
   return {
     animation: false,

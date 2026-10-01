@@ -11,51 +11,41 @@
  * than 18px, at the heights the view is drawn at.
  */
 import { describe, expect, it } from 'vitest';
-import { echarts } from '@/lib/charts/echarts';
-import { buildTheme } from '@/lib/charts/theme';
-import { legacyWaterfallOption } from '@/components/accounting/packs/PackSectionView';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { barOf, clipRect, figures, legibleOnBar, outsideClip, overOwnBar } from './support/bridgeSvg';
+import { clipRect, figures, illegible, outsideClip } from './support/bridgeSvg';
+import { renderLegacyBridge as render } from './support/legacyBridge';
 
-const MONO = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
 const MONO_EM = 0.6;
 const PX = 12;
-
-function render(steps: WaterfallStep[], width: number, height: number): string {
-  echarts.registerTheme('ff-legacy-test', buildTheme((name: string) => (name === '--ff-fig-font' ? MONO : '')));
-  const chart = echarts.init(null, 'ff-legacy-test', { renderer: 'svg', ssr: true, width, height });
-  try {
-    chart.setOption(legacyWaterfallOption(steps, height));
-    return chart.renderToSVGString();
-  } finally {
-    chart.dispose();
-  }
-}
 
 const unesc = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&#39;/g, "'");
 
 /** Every way the drawn chart breaks the containment rules, as sentences. */
-function breaches(svg: string, width: number, height: number): string[] {
+function breaches(svg: string, steps: WaterfallStep[], height: number): string[] {
   const out: string[] = [];
-  for (const m of svg.matchAll(/text-anchor="end"[^>]*transform="translate\(([-\d.]+) ([-\d.]+)\)"[^>]*>([^<]*)<\/text>/g)) {
+  const ticks = [...svg.matchAll(/text-anchor="end"[^>]*transform="translate\(([-\d.]+) ([-\d.]+)\)"[^>]*>([^<]*)<\/text>/g)];
+  // NOT VACUOUS: an axis that printed nothing, or names this did not find,
+  // would pass every check below by having nothing to check.
+  if (ticks.length < 2) out.push(`only ${ticks.length} value ticks were read`);
+  for (const m of ticks) {
     const left = Number(m[1]) - unesc(m[3]!).length * MONO_EM * PX;
     if (left < -0.5) out.push(`tick "${m[3]}" starts at ${left.toFixed(1)}`);
   }
-  for (const m of svg.matchAll(/transform="matrix\(0.866,-0.5,0.5,0.866,([-\d.]+),([-\d.]+)\)"[^>]*>([^<]*)<\/text>/g)) {
+  const names = [...svg.matchAll(/transform="matrix\(0.866,-0.5,0.5,0.866,([-\d.]+),([-\d.]+)\)"[^>]*>([^<]*)<\/text>/g)];
+  if (names.length !== steps.length) out.push(`${names.length} category names were read for ${steps.length} bars`);
+  for (const m of names) {
     const w = unesc(m[3]!).length * MONO_EM * PX;
     const bottom = Number(m[2]) + 0.5 * w + 0.65 * PX * 0.866;
     const left = Number(m[1]) - 0.866 * w - 0.5 * PX * 0.5;
     if (bottom > height + 0.5 || left < -0.5) out.push(`name "${m[3]}" reaches ${bottom.toFixed(1)}/${height}, left ${left.toFixed(1)}`);
   }
   const clip = clipRect(svg);
-  for (const figure of figures(svg)) {
-    if (outsideClip(figure, clip)) out.push(`"${figure.text}" leaves the plot`);
-    const bar = barOf(svg, figure);
-    if (bar !== undefined && overOwnBar(figure, bar) && !legibleOnBar(figure, bar)) out.push(`"${figure.text}" illegible on its bar`);
-  }
-  const ys = [...svg.matchAll(/text-anchor="end"[^>]*transform="translate\(([-\d.]+) ([-\d.]+)\)"/g)].map((m) => Number(m[2])).sort((a, b) => a - b);
+  const drawn = figures(svg);
+  if (drawn.length !== steps.length) out.push(`${drawn.length} figures were read for ${steps.length} bars`);
+  for (const figure of drawn) if (outsideClip(figure, clip)) out.push(`"${figure.text}" leaves the plot`);
+  out.push(...illegible(svg));
+  const ys = ticks.map((m) => Number(m[2])).sort((a, b) => a - b);
   for (let i = 1; i < ys.length; i += 1) if (ys[i]! - ys[i - 1]! < 18 - 0.01) { out.push(`ticks ${(ys[i]! - ys[i - 1]!).toFixed(1)}px apart`); break; }
-  if (width <= 0) out.push('no width');
   return out;
 }
 
@@ -96,7 +86,8 @@ function* bridges(seedValue: number, n: number): Generator<WaterfallStep[]> {
 describe('the legacy bridge, in the screen\'s own face', () => {
   for (const [rev, net] of [[2_500_000, 300_000], [12_000_000, -3_000_000], [25_000_000, 2_000_000], [140_000_000, -30_000_000]]) {
     it(`keeps every axis label inside the chart at revenue ${rev}`, () => {
-      expect(breaches(render(bridge(rev, net), 900, 320), 900, 320)).toEqual([]);
+      const steps = bridge(rev, net);
+      expect(breaches(render(steps, 900, 320), steps, 320)).toEqual([]);
     });
   }
 
@@ -107,7 +98,7 @@ describe('the legacy bridge, in the screen\'s own face', () => {
       const height = [240, 320, 420][k % 3]!;
       const width = [480, 700, 900][Math.floor(k / 3) % 3]!;
       const svg = render(steps, width, height);
-      for (const b of breaches(svg, width, height)) failures.push(`#${k} ${width}x${height}: ${b}`);
+      for (const b of breaches(svg, steps, height)) failures.push(`#${k} ${width}x${height}: ${b}`);
       k += 1;
     }
     expect(failures.slice(0, 6), `${failures.length} breaches`).toEqual([]);
