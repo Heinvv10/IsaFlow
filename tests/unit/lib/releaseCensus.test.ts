@@ -28,7 +28,9 @@ import ts from 'typescript';
 
 const PER_RUN_POOL = 'a migration tool whose pool is built for this one run and ended in the same finally, so nothing outside the run can check this connection out again; its ROLLBACK sits in a helper the release cannot see (see R-176 fix.md)';
 const IMAP_LOCK = 'an IMAP mailbox lock, not a Postgres client';
+const RUNS_ON_IMPORT = 'an operator-run script that runs main() on import, so no test can drive it: a conversion there would be unproven. Its pool is built for the run and ended in the same finally (R-176 fix.md)';
 const BARE: Record<string, { calls: string[]; reason: string }> = {
+  'scripts/ap-backfill-supplier-payments.ts': { calls: ['client.release()'], reason: RUNS_ON_IMPORT },
   'scripts/apply-migrations.ts': { calls: ['client.release()'], reason: PER_RUN_POOL },
   'scripts/migrations/resolve-checksum-conflicts.ts': { calls: ['client.release()'], reason: PER_RUN_POOL },
   'src/modules/accounting/services/ar/sentMirrorService.ts': { calls: ['lock.release()'], reason: IMAP_LOCK },
@@ -202,7 +204,7 @@ describe('R-176: no transaction owner releases its connection bare', () => {
     expect(endsPool(snippet)).toEqual([expected]);
   });
 
-  it.each(Object.entries(BARE).filter(([, e]) => e.reason === PER_RUN_POOL).map(([file]) => file))(
+  it.each(Object.entries(BARE).filter(([, e]) => e.reason === PER_RUN_POOL || e.reason === RUNS_ON_IMPORT).map(([file]) => file))(
     '%s: the pinned release sits in a finally that also ends its pool', (file) => {
       const bare = scanned[file]!.filter((f) => f.kind === 'bare');
       expect(bare).toHaveLength(1);
