@@ -142,13 +142,19 @@ export async function recordStartingCheckout(charge: LinkCharge, reference: stri
   `;
 }
 
-/** The gateway accepted the checkout: store where the customer pays it. */
-export async function checkoutStarted(companyId: string, reference: string, accessCode: string, url: string): Promise<void> {
-  await sql`
+/**
+ * The gateway accepted the checkout: store where the customer pays it. False when the recorded
+ * checkout is no longer pending (a stall past the starting window let a later click sweep it),
+ * in which case the URL must not be handed out.
+ */
+export async function checkoutStarted(companyId: string, reference: string, accessCode: string, url: string): Promise<boolean> {
+  const rows = (await sql`
     UPDATE paystack_payment_requests
     SET paystack_access_code = ${accessCode}, authorization_url = ${url}, updated_at = NOW()
     WHERE company_id = ${companyId}::UUID AND paystack_reference = ${reference} AND status = 'pending'
-  `;
+    RETURNING id
+  `) as { id: string }[];
+  return rows.length === 1;
 }
 
 /** The gateway refused or timed out: the recorded checkout can never be paid. */

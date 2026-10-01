@@ -75,8 +75,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.internalError(res, 'Failed to initialise payment');
   }
 
-  // Phase 3: where the customer pays it.
-  await checkoutStarted(charge.companyId, reference, init.accessCode, init.authorizationUrl);
+  // Phase 3: where the customer pays it — unless the recorded checkout was swept as abandoned while
+  // this request stalled, in which case its URL is never handed out.
+  if (!(await checkoutStarted(charge.companyId, reference, init.accessCode, init.authorizationUrl))) {
+    log.error('Paystack checkout no longer pending when its URL arrived', { invoiceId: charge.invoiceId, reference }, 'PaystackPortal');
+    return apiResponse.internalError(res, 'Failed to initialise payment');
+  }
   return apiResponse.success(res, { checkoutUrl: init.authorizationUrl, reference });
 }
 
