@@ -26,7 +26,9 @@ vi.mock('nodemailer', () => {
 });
 vi.mock('@/lib/neon', () => ({ sql: sqlMock, withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn() }));
 vi.mock('@/lib/rateLimit', () => ({ checkSendRateLimit: checkSend, checkRateLimit: checkAttempts }));
-vi.mock('fs/promises', () => ({ default: { readFile: vi.fn(async () => '<html>afs</html>') } }));
+vi.mock('fs/promises', () => ({
+  default: { readFile: vi.fn(async () => '<html>afs</html>'), access: vi.fn(async () => undefined) },
+}));
 vi.mock('@/lib/storage/afsStorage', () => ({ afsHtmlPath: () => '/tmp/afs.html' }));
 vi.mock('@/modules/accounting/services/afs/signumIntegrationService', () => ({
   sendForSigning: vi.fn(async () => ({ signumDocumentId: 'sig-1', signingTokens: [{ email: 'director@co.test', signingToken: 'tok' }] })),
@@ -265,5 +267,25 @@ it('invoice-email: a deleted invoice is refused before the company bucket (R-175
 
   expect(notFound).toHaveBeenCalledWith(expect.anything(), 'Invoice', ID(1));
   expect(checkSend).not.toHaveBeenCalled();
+  expect(sendMail).not.toHaveBeenCalled();
+});
+
+it('send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175)', async () => {
+  vi.clearAllMocks();
+  checkAttempts.mockResolvedValue(true);
+  checkSend.mockResolvedValue(true);
+  sqlMock.mockImplementation(database());
+  const fs = (await import('fs/promises')).default;
+  vi.mocked(fs.access).mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+  const badRequest = vi.spyOn(apiResponse, 'badRequest');
+
+  await (sendForSigningRoute as unknown as H)(
+    { method: 'POST', query: { documentId: ID(3) }, body: { signerContactIds: [ID(4)] }, companyId: COMPANY, user } as unknown as NextApiRequest,
+    res(),
+  );
+
+  expect(badRequest).toHaveBeenCalledWith(expect.anything(), 'Rendered HTML not yet generated for this document');
+  expect(checkSend).not.toHaveBeenCalled();
+  expect(fs.readFile).not.toHaveBeenCalled();
   expect(sendMail).not.toHaveBeenCalled();
 });
