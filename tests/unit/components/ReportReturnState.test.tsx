@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
 import TrialBalancePage from '@/../pages/accounting/trial-balance';
@@ -6,6 +7,7 @@ import BalanceSheetPage from '@/../pages/accounting/reports/balance-sheet';
 import AccountDetailPage from '@/../pages/accounting/reports/account-detail/[accountId]';
 import { accountReportBackHref, reportHref } from '@/components/reports/reportReturnState';
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({children}: {children: React.ReactNode}) => <>{children}</> }));
 vi.mock('@/contexts/TableDensityContext', () => ({ useTableDensity: () => ({rowClass: ''}) }));
 const route = vi.hoisted(() => ({query: {} as Record<string, string | string[]>, isReady: true, pathname: '', push: vi.fn()}));
