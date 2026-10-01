@@ -353,6 +353,20 @@ call had no timeout. `verifyTransaction` takes an optional `timeoutMs` and `veri
 seconds, as create does. A timeout is logged and the stored status is reported. The two other
 callers of `verifyTransaction` are unchanged (Q63, Q64).
 
+## Deployed
+
+- #599 was merged as `e00c8f237` and deployed at 06:45 SAST on 2026-10-01, before business
+  hours, on Hein's explicit "merge and deploy". The deploy also shipped peer PRs #583–#592,
+  #594, #597 and #598; `git cherry` showed 0 `+` against the previous release.
+- The deploy applied 1 migration (717). Golden paths passed 13/13 and integrity was green.
+- `RELEASE_SHA` is `e00c8f237`.
+- "abandoned while starting" and `charges_balance` are in the live
+  `pages/api/portal/payments/paystack/create.js`; "This invoice has no outstanding balance" is in
+  the live `pages/api/portal/payment-link.js`.
+- Live checks: health answers 200; a create with no token answers 400; a payment-link GET with an
+  unknown token answers 404.
+- The rollback target is `ca5f32867`, code only: migration 717 is additive and stays.
+
 ## Migration / rollback
 
 - **Migration 717 is additive** and uses `IF NOT EXISTS`. It adds two columns with fast
