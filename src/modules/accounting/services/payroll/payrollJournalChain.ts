@@ -41,7 +41,22 @@ export interface JournalChain {
   /** The run's journal first, then each reversal in the order they were made. */
   journals: ChainJournal[];
   state: ChainState;
+  /**
+   * The reversal links do not form a chain that ends: they loop (A reversed by
+   * B, B by A; a journal reversing itself) or run past MAX_CHAIN_JOURNALS. Bad
+   * data or a forged link. `state` is then 'unclear' and `journals` holds each
+   * journal once; every caller refuses.
+   */
+  broken: boolean;
 }
+
+/**
+ * The most journals a reversal chain is followed through — in the reads, the
+ * walk to the root and the lock. Real chains have one to four. Every walk
+ * stops here, so a loop in the links costs a bounded number of rows, never an
+ * unbounded query or unbounded memory, and ends in a refusal.
+ */
+export const MAX_CHAIN_JOURNALS = 25;
 
 const sameNet = (a: Map<string, number>, b: Map<string, number>): boolean =>
   a.size === b.size && [...a].every(([k, v]) => b.get(k) === v);
@@ -55,7 +70,7 @@ export async function readJournalChain(companyId: string, rootId: string, db: Tx
       UNION ALL
       SELECT e.id, chain.depth + 1 FROM gl_journal_entries e
         JOIN chain ON e.reversal_of_id = chain.id
-       WHERE e.company_id = ${companyId}::uuid
+       WHERE e.company_id = ${companyId}::uuid AND chain.depth < ${MAX_CHAIN_JOURNALS}
     )
     SELECT e.id, e.entry_number, e.entry_date, e.status, e.description, chain.depth,
            l.gl_account_id, (round(l.debit * 100) - round(l.credit * 100))::float8 AS cents
@@ -66,6 +81,16 @@ export async function readJournalChain(companyId: string, rootId: string, db: Tx
   `) as DbRow[];
   if (rows.length === 0) return null;
 
+  // A journal met at two depths is a loop; one met at the cap is a chain too long to judge.
+  const depthOf = new Map<string, number>();
+  const broken = rows.some((r) => {
+    const id = String(r.id);
+    const depth = Number(r.depth);
+    if (depth >= MAX_CHAIN_JOURNALS || (depthOf.has(id) && depthOf.get(id) !== depth)) return true;
+    depthOf.set(id, depth);
+    return false;
+  });
+
   const journals: ChainJournal[] = [];
   const net = new Map<string, number>();
   const first = new Map<string, number>();
@@ -75,6 +100,7 @@ export async function readJournalChain(companyId: string, rootId: string, db: Tx
   };
   for (const r of rows) {
     const id = String(r.id);
+    if (broken && journals.some((j) => j.id === id)) continue; // each journal once; the net is not used
     if (journals[journals.length - 1]?.id !== id) {
       journals.push({
         id,
@@ -93,11 +119,11 @@ export async function readJournalChain(companyId: string, rootId: string, db: Tx
   // only a reversal takes a journal out.
   const draft = journals.some((j) => j.status === 'draft');
   const alone = journals.length === 1 && journals[0]!.status === 'posted';
-  const state: ChainState = draft ? 'unclear'
+  const state: ChainState = draft || broken ? 'unclear'
     : alone ? 'in_force'
       : net.size === 0 ? 'out'
         : sameNet(net, first) ? 'in_force' : 'unclear';
-  return { journals, state };
+  return { journals, state, broken };
 }
 
 /** True when this journal's amounts are (or may be) in the ledger: anything but a chain that nets to zero. */
@@ -112,26 +138,31 @@ export async function journalInForceOrNull(companyId: string, journalId: unknown
   return await payrollJournalInForce(companyId, String(journalId)) ? String(journalId) : null;
 }
 
-/** The first journal of the chain `journalId` belongs to (itself, when it reverses nothing). */
-export async function findChainRoot(companyId: string, journalId: string, db: TxSql = sql): Promise<string> {
+/**
+ * The first journal of the chain `journalId` belongs to (itself, when it
+ * reverses nothing). Null when no first journal is reached within
+ * MAX_CHAIN_JOURNALS links — the links loop, or the chain is too long: the
+ * caller refuses.
+ */
+export async function findChainRoot(companyId: string, journalId: string, db: TxSql = sql): Promise<string | null> {
   const rows = (await db`
     WITH RECURSIVE up AS (
-      SELECT id, reversal_of_id FROM gl_journal_entries
+      SELECT id, reversal_of_id, 0 AS depth FROM gl_journal_entries
        WHERE id = ${journalId}::uuid AND company_id = ${companyId}::uuid
       UNION ALL
-      SELECT e.id, e.reversal_of_id FROM gl_journal_entries e
+      SELECT e.id, e.reversal_of_id, up.depth + 1 FROM gl_journal_entries e
         JOIN up ON e.id = up.reversal_of_id
-       WHERE e.company_id = ${companyId}::uuid
+       WHERE e.company_id = ${companyId}::uuid AND up.depth < ${MAX_CHAIN_JOURNALS}
     )
-    SELECT id FROM up WHERE reversal_of_id IS NULL
+    SELECT id FROM up WHERE reversal_of_id IS NULL ORDER BY depth LIMIT 1
   `) as DbRow[];
-  return rows[0] ? String(rows[0].id) : journalId;
+  return rows[0] ? String(rows[0].id) : null;
 }
 
 /**
  * Lock the chain FOR UPDATE: the first journal, then each reversal in chain
  * order (see LOCK ORDER above). Once the last one is held no reversal can be
- * added — the reversal claim needs that row. Call inside a bounded wait
+ * added — the reversal claim needs that row. Bounded (MAX_CHAIN_JOURNALS). Call inside a bounded wait
  * (payrollRunLock#withBoundedLockWait) and read the chain after it returns.
  */
 export async function lockJournalChain(tx: TxSql, companyId: string, rootId: string): Promise<void> {
@@ -140,9 +171,12 @@ export async function lockJournalChain(tx: TxSql, companyId: string, rootId: str
      WHERE id = ${rootId}::uuid AND company_id = ${companyId}::uuid
        FOR UPDATE
   `) as DbRow[]).map((r) => String(r.id));
-  // `seen` ends the walk even if the rows ever formed a loop: a row is locked once.
+  // Bounded twice over: a row is locked once (`seen`), so a loop in the links
+  // ends; and the walk stops at MAX_CHAIN_JOURNALS, so an endless chain does
+  // too. Either way the read that follows reports the chain `broken` and the
+  // caller refuses — this function only ever holds a bounded set of rows.
   const seen = new Set(ids);
-  while (ids.length > 0) {
+  while (ids.length > 0 && seen.size < MAX_CHAIN_JOURNALS) {
     ids = ((await tx`
       SELECT id FROM gl_journal_entries
        WHERE reversal_of_id = ANY(${ids}::uuid[]) AND company_id = ${companyId}::uuid

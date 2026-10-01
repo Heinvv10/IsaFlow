@@ -192,8 +192,11 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
           code: 'posted_journal_not_live',
           detail: !chain || !linked
             ? `The journal this run posted (${linkedId}) is missing, so the run can neither be re-approved onto it nor post a new one.`
-            : `The journal this run posted and its reversals (${numbers}) leave neither that journal nor nothing in the ledger `
-              + '(one of them is unposted, or they do not mirror each other), so the run can neither be re-approved onto it nor post a new one.',
+            : chain.broken
+              ? `The reversal links of the journal this run posted do not form a chain that ends (${numbers}) — they loop, or are too many to follow — `
+                + 'so the run can neither be re-approved onto it nor post a new one. The links need correcting first.'
+              : `The journal this run posted and its reversals (${numbers}) leave neither that journal nor nothing in the ledger `
+                + '(one of them is unposted, or they do not mirror each other), so the run can neither be re-approved onto it nor post a new one.',
         };
       }
       // In force. The journal to reverse is the LAST of the chain: the run's own, or the one that re-booked it.
