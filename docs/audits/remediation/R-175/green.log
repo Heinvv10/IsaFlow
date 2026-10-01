@@ -650,3 +650,103 @@ int: Tests  75 passed (75)
 unit: Tests  291 passed (291)
 
 DONE X1 X2 E1 E2 E3 HT1 H6 H7 H8 MB1 MB2 BASELINE
+
+==================================================================
+### RATE_LIMIT_POOL_MAX (commit aaba840c4). Parsing mutants PM1-PM6 (new) and the pool's K5, K6, T1-T4, on the committed head:
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  306 passed (306)
+
+PM1 | src/lib/rateLimitPool.ts | default pool size 3, not 10
+int: Tests  75 passed (75)
+unit: × defaults to 10 when unset or empty 4ms
+unit: × falls back to 10, with a warning, for "abc" 1ms
+unit: × falls back to 10, with a warning, for "0" 1ms
+unit: × falls back to 10, with a warning, for "-2" 1ms
+unit: × falls back to 10, with a warning, for "2.5" 1ms
+unit: × falls back to 10, with a warning, for "101" 0ms
+unit: × falls back to 10, with a warning, for "1e9" 0ms
+unit: × falls back to 10, with a warning, for "NaN" 0ms
+unit: × falls back to 10, with a warning, for "Infinity" 0ms
+unit: Tests  9 failed | 297 passed (306)
+
+PM2 | src/lib/rateLimitPool.ts | no validation: the raw Number is used
+int: Tests  75 passed (75)
+unit: × falls back to 10, with a warning, for "abc" 4ms
+unit: × falls back to 10, with a warning, for "0" 1ms
+unit: × falls back to 10, with a warning, for "-2" 0ms
+unit: × falls back to 10, with a warning, for "2.5" 0ms
+unit: × falls back to 10, with a warning, for "101" 0ms
+unit: × falls back to 10, with a warning, for "1e9" 0ms
+unit: × falls back to 10, with a warning, for "NaN" 0ms
+unit: × falls back to 10, with a warning, for "Infinity" 1ms
+unit: Tests  8 failed | 298 passed (306)
+
+PM3 | src/lib/rateLimitPool.ts | no upper bound
+int: Tests  75 passed (75)
+unit: × falls back to 10, with a warning, for "101" 3ms
+unit: × falls back to 10, with a warning, for "1e9" 0ms
+unit: Tests  2 failed | 304 passed (306)
+
+PM4 | src/lib/rateLimitPool.ts | fractional values accepted
+int: Tests  75 passed (75)
+unit: × falls back to 10, with a warning, for "2.5" 3ms
+unit: Tests  1 failed | 305 passed (306)
+
+PM5 | src/lib/rateLimitPool.ts | the pool ignores the setting
+int: Tests  75 passed (75)
+unit: × the pool is built with the configured size 4ms
+unit: Tests  1 failed | 305 passed (306)
+
+PM6 | src/lib/rateLimitPool.ts | an invalid value is not reported
+int: Tests  75 passed (75)
+unit: × falls back to 10, with a warning, for "abc" 2ms
+unit: × falls back to 10, with a warning, for "0" 0ms
+unit: × falls back to 10, with a warning, for "-2" 0ms
+unit: × falls back to 10, with a warning, for "2.5" 0ms
+unit: × falls back to 10, with a warning, for "101" 0ms
+unit: × falls back to 10, with a warning, for "1e9" 0ms
+unit: × falls back to 10, with a warning, for "NaN" 0ms
+unit: × falls back to 10, with a warning, for "Infinity" 0ms
+unit: Tests  8 failed | 298 passed (306)
+
+K5 | src/lib/rateLimitPool.ts | connect timeout 5000 => 60000
+int: × fails, and does not admit, when the limiter cannot get a connection 25012ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 25005ms
+int: Tests  2 failed | 73 passed (75)
+unit: Tests  306 passed (306)
+
+K6 | src/lib/rateLimitPool.ts | pool built without the connect timeout
+int: × fails, and does not admit, when the limiter cannot get a connection 25013ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 25019ms
+int: × bounds every statement on a limiter connection, server side first 25026ms
+int: Tests  3 failed | 72 passed (75)
+unit: Tests  306 passed (306)
+
+T1 | src/lib/rateLimitPool.ts | no lock_timeout on limiter connections
+int: × gives up on a counter row another connection has locked, with an error and no admission 3014ms
+int: × bounds every statement on a limiter connection, server side first 2ms
+int: Tests  2 failed | 73 passed (75)
+unit: Tests  306 passed (306)
+
+T2 | src/lib/rateLimitPool.ts | no statement_timeout on limiter connections
+int: × bounds every statement on a limiter connection, server side first 4ms
+int: Tests  1 failed | 74 passed (75)
+unit: Tests  306 passed (306)
+
+T3 | src/lib/rateLimitPool.ts | query_timeout shorter than statement_timeout
+int: × bounds every statement on a limiter connection, server side first 4ms
+int: Tests  1 failed | 74 passed (75)
+unit: Tests  306 passed (306)
+
+T4 | src/lib/rateLimitPool.ts | no query_timeout
+int: × bounds every statement on a limiter connection, server side first 3ms
+int: Tests  1 failed | 74 passed (75)
+unit: Tests  306 passed (306)
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  306 passed (306)
+
+DONE BASELINE PM1 PM2 PM3 PM4 PM5 PM6 K5 K6 T1 T2 T3 T4 BASELINE
