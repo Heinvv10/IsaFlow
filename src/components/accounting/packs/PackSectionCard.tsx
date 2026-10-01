@@ -14,7 +14,8 @@ import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/ac
 import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
 import { formatPackKv } from '@/components/accounting/packs/PackSectionView';
 import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
-import { packToCashFlowUnavailable, packToRatioReasons } from '@/modules/accounting/services/packs/packSectionData';
+import { log } from '@/lib/logger';
+import { MissingPackFieldError, packToCashFlowUnavailable, packToRatioReasons } from '@/modules/accounting/services/packs/packSectionData';
 import { marginKvItem } from '@/modules/accounting/services/packs/packDocument';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 
@@ -78,6 +79,34 @@ export function SectionCard({ section, defaultOpen }: { section: PackSection; de
   );
 }
 
+/**
+ * A payload from before the field existed — a response the browser cached
+ * across a deploy, or a stored snapshot — has nothing marked unavailable. The
+ * shared readers throw on an absent field, which other code relies on; here
+ * ONLY that case becomes "nothing marked", logged once per section type.
+ * Anything else still throws.
+ */
+const warned = new Set<string>();
+function reasonsOrNone(
+  d: Record<string, unknown>,
+  field: string,
+  read: () => Record<string, string>,
+  section: string,
+): Record<string, string> {
+  try {
+    return read();
+  } catch (err) {
+    // ABSENT only. A field that is present but malformed is a defect, not an
+    // old payload, and the reader's refusal stands.
+    if (!(err instanceof MissingPackFieldError) || d[field] !== undefined) throw err;
+    if (!warned.has(section)) {
+      warned.add(section);
+      log.warn('SectionCard: payload predates the unavailable-reasons field; showing figures as stored', { section, field: err.field }, 'packs');
+    }
+    return {};
+  }
+}
+
 const CASH_FLOW_LINES: Array<[string, string, string]> = [
   ['operatingCashFlow', 'Operating CF', 'operating'],
   ['investingCashFlow', 'Investing CF', 'investing'],
@@ -91,7 +120,7 @@ const CASH_FLOW_LINES: Array<[string, string, string]> = [
  *  service's stand-in number — which, for a cash flow statement that could not
  *  be read, is net profit under the label "Operating CF". */
 function CashFlowItems({ d }: { d: Record<string, unknown> }) {
-  const unavailable = packToCashFlowUnavailable(d);
+  const unavailable = reasonsOrNone(d, 'unavailable', () => packToCashFlowUnavailable(d), 'cash_flow');
   return (
     <>
       {CASH_FLOW_LINES.map(([field, label, key]) => (
@@ -104,7 +133,7 @@ function CashFlowItems({ d }: { d: Record<string, unknown> }) {
 /** A ratio the service could not compute prints its stated reason, as the
  *  scorecard tile does. `notMeaningful` is the reasons map, not a ratio. */
 function RatioItems({ d }: { d: Record<string, unknown> }) {
-  const reasons = packToRatioReasons(d);
+  const reasons = reasonsOrNone(d, 'notMeaningful', () => packToRatioReasons(d), 'ratios');
   return (
     <>
       {Object.entries(d).filter(([k]) => k !== 'notMeaningful').slice(0, 12).map(([k, v]) => (

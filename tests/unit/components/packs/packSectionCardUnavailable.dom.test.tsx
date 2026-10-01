@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { vi } from 'vitest';
 import { SectionCard } from '@/components/accounting/packs/PackSectionCard';
 
 const FULL = {
@@ -20,6 +21,9 @@ function open(section: { type: string; title: string; data: Record<string, unkno
   return view;
 }
 const valueOf = (label: string) => screen.getByText(label).nextElementSibling!.textContent;
+
+const warn = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/logger', () => ({ log: { warn, error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 describe('SectionCard cash flow', () => {
   it('prints the reason, and no figure, for each line the section marks unavailable', () => {
@@ -57,5 +61,26 @@ describe('SectionCard ratios', () => {
     expect(valueOf('Current Ratio')).toBe('1.50');
     expect(valueOf('Free Cash Flow')).toBe('No cash flow statement to read.');
     expect(document.body.textContent).not.toContain('[object Object]');
+  });
+});
+
+describe('SectionCard on a payload that predates the unavailable fields', () => {
+  it('shows a cash flow section\'s figures as stored, and warns once', () => {
+    const { unavailable: _omitted, ...old } = FULL;
+    open({ type: 'cash_flow', title: 'Cash flow', data: old });
+    expect(valueOf('Operating CF')).toMatch(/111/);
+    expect(valueOf('Closing Cash')).toMatch(/522/);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('shows a ratios section\'s figures as stored', () => {
+    open({ type: 'ratios', title: 'Ratios', data: { currentRatio: 1.5 } });
+    expect(valueOf('Current Ratio')).toBe('1.50');
+  });
+
+  it('still throws on a present-but-malformed field', () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => open({ type: 'cash_flow', title: 'Cash flow', data: { ...FULL, unavailable: [] } })).toThrow(/unavailable/);
+    quiet.mockRestore();
   });
 });
