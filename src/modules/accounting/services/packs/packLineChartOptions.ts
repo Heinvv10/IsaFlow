@@ -15,9 +15,14 @@
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import { endLabelGutterPx, gutterEndLabel } from './pages/packEndLabelGutter';
+import { packFigureWidthPx } from '@/lib/charts/packFigureWidth';
+import { pitchedAxisDomain } from './packChartAxes';
 import { CHART_GUTTER_PX, DEFAULT_CHART_PALETTE, type ChartPalette, type TrendPoint } from './packChartOptions';
 
 export { sparklineOption } from './packSparklineOption';
+
+/** ECharts' gap between a value axis and its tick labels. */
+const TICK_MARGIN_PX = 8;
 
 /** The one ECharts label-callback field these formatters read. */
 interface LabelParam {
@@ -77,6 +82,17 @@ export function smallMultipleOption(
   const FULL_GRID = { top: 32, bottom: 32 };
   // The closing figure's own gutter, right of the plot, on the full-width line.
   const end = gutterEndLabel(palette.paper, FULL_GRID.top, (boxPx ?? Infinity) - FULL_GRID.bottom);
+  // THE FULL-WIDTH LINE'S VALUE AXIS IS CHOSEN FOR ITS PLOT, like a bridge's:
+  // left to ECharts, the 36mm and 48mm rungs printed ticks four to ten pixels
+  // apart. And the left gutter holds the widest tick it prints — with nothing
+  // allowed to shrink the plot, a hundred-billion tick ran off the chart.
+  // A series nil throughout has no span to step: it prints its zero alone.
+  const allNil = domain.max === domain.min;
+  const ticked = unit === null || boxPx === undefined ? null
+    : allNil ? { min: 0, max: 1, splitNumber: 1, interval: 1 } : pitchedAxisDomain([domain.min, domain.max], boxPx - FULL_GRID.top - FULL_GRID.bottom);
+  const tickPx = ticked === null ? 0 : Math.max(...Array.from({ length: ticked.splitNumber + 1 },
+    (_, i) => packFigureWidthPx(formatValue(ticked.min + i * (ticked.interval ?? 0)), 12)));
+  const left = Math.max(CHART_GUTTER_PX, Math.ceil(tickPx + TICK_MARGIN_PX + 2));
   const endpoints = axis !== undefined && 'endpoints' in axis;
   return {
     animation: false,
@@ -118,7 +134,7 @@ export function smallMultipleOption(
     // measure and the same centre as the waterfall above it.
     grid: unit === null
       ? { left: CHART_GUTTER_PX, right: CHART_GUTTER_PX, top: 12, bottom: 28 }
-      : { left: CHART_GUTTER_PX, right: endLabelGutterPx(formatValue(last)), ...FULL_GRID, outerBoundsMode: 'none' as const },
+      : { left, right: endLabelGutterPx(formatValue(last)), ...FULL_GRID, outerBoundsMode: 'none' as const },
     xAxis: {
       type: 'category',
       data: points.map((p) => p.label),
@@ -181,18 +197,13 @@ export function smallMultipleOption(
     },
     yAxis: {
       type: 'value',
-      // THE FULL-WIDTH LINE LETS THE AXIS ROUND ITS OWN ENDS.
-      //
-      // Forcing the domain onto it puts the series' extreme on the axis as a
-      // label of its own, beside the last round tick it very nearly equals:
-      // page 8 printed `(1 500)` and `(1 621)` two millimetres apart at the
-      // foot of the scale, which is the same defect the reviewer found on
-      // Brightsphere's cash axis. The domain is this series' own either way —
-      // `sharedDomain` is called on one series here — and an ECharts value
-      // axis contains zero by default, so nothing about what the picture
-      // shows changes; only where the ticks fall. A PANEL keeps the forced
-      // domain, because there the whole point is that four panels share one.
-      ...(unit === null ? { min: domain.min, max: domain.max } : {}),
+      // THE FULL-WIDTH LINE'S ENDS ARE ROUNDED OUT TO WHOLE STEPS. Forcing the
+      // series' own extreme onto it printed `(1 500)` and `(1 621)` two
+      // millimetres apart at the foot of the scale. `pitchedAxisDomain`
+      // rounds the bounds to the step and holds the pitch; zero is inside
+      // either way. A PANEL keeps the forced domain, because there the whole
+      // point is that four panels share one.
+      ...(unit === null ? { min: domain.min, max: domain.max } : ticked ?? {}),
       // ONE INTERVAL, so the only ticks are the two ends of the domain. A
       // degenerate domain would give ECharts an interval of zero and an
       // infinite tick loop, so it keeps the default there.
@@ -213,7 +224,8 @@ export function smallMultipleOption(
         // on the 170mm line, which is what the waterfall and the composition
         // chart on the sheets either side of it use, and what makes the
         // three read as one chart layer rather than three.
-        : { show: true, color: palette.axis, fontSize: endpoints ? 8 : 12, formatter: (value: number) => formatValue(value) },
+        : { show: true, color: palette.axis, fontSize: endpoints ? 8 : 12, formatter: (value: number) => formatValue(value),
+          ...(ticked !== null && allNil ? { showMaxLabel: false } : {}) },
       axisLine: { show: false },
       axisTick: { show: false },
       splitLine: { lineStyle: { color: palette.prior } },

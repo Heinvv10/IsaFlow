@@ -23,7 +23,7 @@
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { format } from 'echarts/core';
 import { PACK_FONT_STACK } from '@/lib/charts/packFont';
-import { axisDomain, type AxisDomain } from './packChartAxes';
+import { axisDomain, MIN_TICK_PITCH_PX, TICK_PITCH_PX, type AxisDomain } from './packChartAxes';
 import { NIL_STEP_RULE_PX } from './packWaterfallBars';
 import { figureFitsInside, LABEL_CLEARANCE_PX } from './packWaterfallFit';
 
@@ -39,12 +39,7 @@ export const WATERFALL_CHROME = {
   compact: { top: 20, bottom: 56, labelPx: 10 },
 } as const;
 
-/** One gridline step per this many pixels of plot — the pitch at which a
- *  12px tick label is comfortable. */
-export const TICK_PITCH_PX = 26;
-
-/** The closest two 12px tick labels may stand: half a line of air between. */
-export const MIN_TICK_PITCH_PX = 18;
+export { MIN_TICK_PITCH_PX, TICK_PITCH_PX };
 
 /** The category names' rotation, and ECharts' gap between axis and name. */
 export const CATEGORY_ROTATE_DEG = 30;

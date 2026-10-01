@@ -200,6 +200,29 @@ export function axisDomain(values: number[], intervals = 6): AxisDomain {
   return { min, max, splitNumber: Math.round((max - min) / step) };
 }
 
+/** One gridline step per this many pixels of plot — the pitch at which a
+ *  12px tick label is comfortable. */
+export const TICK_PITCH_PX = 26;
+
+/** The closest two 12px tick labels may stand: half a line of air between. */
+export const MIN_TICK_PITCH_PX = 18;
+
+/**
+ * `axisDomain` for a plot of known height, with an explicit `interval`: as
+ * many steps as the plot holds at `TICK_PITCH_PX`, and never so many that two
+ * ticks stand closer than `MIN_TICK_PITCH_PX` — rounding the bounds out can
+ * draw more steps than were asked for, so the ask is lowered until it does
+ * not. A plot too short for two legible steps draws one, its two ends.
+ */
+export function pitchedAxisDomain(values: number[], plotPx: number): AxisDomain {
+  const budget = Math.max(1, Math.floor(plotPx / MIN_TICK_PITCH_PX));
+  let ask = Math.min(Math.max(2, Math.floor(plotPx / TICK_PITCH_PX)), budget);
+  let domain = axisDomain(values, ask);
+  while (domain.splitNumber > budget && ask > 1) domain = axisDomain(values, ask -= 1);
+  const steps = Math.min(domain.splitNumber, budget);
+  return { ...domain, splitNumber: steps, interval: (domain.max - domain.min) / steps };
+}
+
 /**
  * The y-axis of a MONEY chart, at the DOCUMENT's scale.
  *
