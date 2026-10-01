@@ -143,6 +143,7 @@ describe('R-177: Pay Now hands out the standing link and never calls the gateway
            subtotal, tax_amount, total_amount, amount_paid, status, created_by)
          VALUES ($1, $2, $3, $3, 'R177-OTHER', CURRENT_DATE, 100, 15, 115, 0, 'sent', $4)`, [id, other, CUSTOMER, USER]);
       expect((await payNow(id)).statusCode).toBe(404);
+      expect(await enableOnlinePayment(CO, id)).toBeNull(); // no RLS on this call: the predicate alone
       expect(await links(id)).toEqual([]);
     } finally {
       await pool.query('DELETE FROM customer_invoices WHERE id = $1', [id]);

@@ -78,7 +78,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // is told it was cancelled, but the request stays pending, so the next click gets this same
       // checkout instead of a second payable one. Re-read first: the webhook may have settled it
       // while Paystack was being asked.
-      else if (live.status === 'abandoned' && status === 'pending') {
+      else if (live.status === 'abandoned') {
         const current = await sql<{ status: string }>`
           SELECT status FROM paystack_payment_requests WHERE id = ${pr.id} AND company_id = ${pr.company_id}
         `;
