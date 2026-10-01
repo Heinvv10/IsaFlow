@@ -13,3 +13,69 @@ exit=0
 exit=0
 
 Unchanged in this round and not re-run: the 23 other limiter-related integration files (round 5: the same 15 failures as origin/master).
+
+==================================================================
+### After merging origin/master 0bdd7da89 (merge commit f03a333cb)
+backlog.json: conflict resolved by keeping every entry from both sides (461 items: master's R-177..R-181, this branch's R-175 and K-103 edit).
+pages/api/mcp/index.ts auto-merged: the merged file equals master's (#593 role-lock batch skip kept) plus this branch's comment edit only.
+
+Limiter integration set (6 files):
+ Test Files  6 passed (6)
+      Tests  59 passed (59)
+Master's MCP and paystack integration tests (w2-28-system-role-mcp-rollback, r177-pay-now-standing-link, r178-r180-portal-link-rules, r167-standing-links-and-checkout):
+ Test Files  4 passed (4)
+      Tests  49 passed (49)
+Limiter unit set (17 files) + tests/unit/mcp/transport.test.ts: 18 files, 245 passed.
+Whole unit suite:
+ Test Files  1132 passed (1132)
+      Tests  15088 passed | 6 skipped (15094)
+exit=0
+tsc clean; eslint clean on pages/api/mcp/index.ts, both paystack routes and the limiter files.
+
+Census mutants on the merge head, including three new ones on pages/api/mcp/index.ts (MC1-MC3), all RED, baseline green before and after:
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  226 passed (226)
+
+MC1 | pages/api/mcp/index.ts | mcp: the company key collides with the per-IP key at another limit
+int: Tests  59 passed (59)
+unit: × no key pattern is held to two different limits 4ms
+unit: Tests  1 failed | 225 passed (226)
+
+MC2 | pages/api/mcp/index.ts | mcp: the limiter is passed as a value
+int: Tests  59 passed (59)
+unit: × no file reaches the limiter under another name 3ms
+unit: Tests  1 failed | 225 passed (226)
+
+MC3 | pages/api/mcp/index.ts | mcp: per-IP key written with an unreadable key
+int: Tests  59 passed (59)
+unit: × every call it cannot read is pinned, and every pin still matches a call 4ms
+unit: Tests  1 failed | 225 passed (226)
+
+P1 | pages/api/accounting/portal/auth.ts | AFS magic-link route shares portal-auth: again
+int: Tests  59 passed (59)
+unit: × finds the call sites, including the keys the wrappers build 6ms
+unit: × no key pattern is held to two different limits 1ms
+unit: Tests  2 failed | 224 passed (226)
+
+P2 | pages/api/accounting/invoice-email.ts | a route holds an attempts key at another limit
+int: Tests  59 passed (59)
+unit: × no key pattern is held to two different limits 3ms
+unit: × counts the attempt against the user, and a malformed request never reaches the company bucket 5ms
+unit: Tests  2 failed | 224 passed (226)
+
+P3 | pages/api/accounting/ar/dunning/send.ts | a limiter is passed as a value
+int: Tests  59 passed (59)
+unit: × no file reaches the limiter under another name 5ms
+unit: Tests  1 failed | 225 passed (226)
+
+U3 | src/lib/auth/bearerPipeline.ts | bearer pipeline keeps its own copy of the table again
+int: Tests  59 passed (59)
+unit: × is the only table: both wrappers call it and neither keeps a copy 12ms
+unit: Tests  1 failed | 225 passed (226)
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  226 passed (226)
+
+DONE BASELINE MC1 MC2 MC3 P1 P2 P3 U3 BASELINE
