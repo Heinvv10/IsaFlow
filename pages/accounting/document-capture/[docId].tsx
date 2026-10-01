@@ -14,7 +14,7 @@ import {
 import { notify } from '@/utils/toast';
 import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiJson } from '@/lib/apiFetch';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -72,12 +72,7 @@ export default function DocumentCaptureDetailPage() {
     setError('');
 
     try {
-      const res = await apiFetch(`/api/accounting/document-capture?status=`);
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error?.message || 'Failed to load');
-
-      const found = (json.data || []).find((d: CapturedDocument) => d.id === docId);
-      if (!found) throw new Error('Document not found');
+      const found = await apiJson(`/api/accounting/document-capture?id=${encodeURIComponent(String(docId))}`);
 
       setDoc(found);
 

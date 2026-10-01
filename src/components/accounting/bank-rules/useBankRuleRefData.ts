@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 export interface RefAccount {
@@ -94,11 +94,9 @@ export function useBankRuleRefData(): BankRuleRefData {
     }, pushErr);
 
     void loadWithLog('bank-accounts', async () => {
-      const res = await apiFetch('/api/accounting/bank-accounts', { credentials: 'include' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      const list = Array.isArray(json.data) ? json.data : [];
-      const mapped: RefBankAccount[] = list.map((a: Record<string, unknown>) => ({
+      const data = await apiJson('/api/accounting/bank-accounts');
+      const list = Array.isArray(data) ? data : [];
+      const mapped: RefBankAccount[] = list.map((a) => ({
         id: String(a.id),
         accountCode: String(a.accountCode || ''),
         accountName: String(a.accountName || ''),
