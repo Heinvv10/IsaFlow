@@ -10,12 +10,14 @@ import { UUID_RE } from '@/lib/validation';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { hasNul, NUL_MESSAGE } from '@/lib/validation';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { LedgerAccountNotFoundError } from '@/modules/accounting/services/gl/ledgerErrors';
 import { getAccountTransactions } from '@/modules/accounting/services/reports/transactionReportingService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
+  if (hasNul(req.query)) return apiResponse.badRequest(res, NUL_MESSAGE);
   const { companyId } = req as CompanyAuthedRequest;
   const costCentreId = req.query.cost_centre_id;
   if (costCentreId !== undefined && (typeof costCentreId !== 'string' || !UUID_RE.test(costCentreId))) {

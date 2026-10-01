@@ -7,10 +7,10 @@ import type { McpTool } from '../types';
 import { fmtDate } from '@/lib/fmtDate';
 import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
-import { isLedgerDate } from '@/modules/accounting/services/gl/ledgerDateRange';
+import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { getChartOfAccounts } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { GL_ACCOUNT_TYPES } from '@/modules/accounting/types/gl.types';
-import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { clampLimit, guardCastableArgs, nulArgError, ok, strArg, toolError } from './toolHelpers';
 import {
   compareGlAccountKeys,
   decodeGlAccountCursor,
@@ -74,6 +74,8 @@ export const searchGlTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    const nul = nulArgError(args);
+    if (nul) return nul;
     const accountId = strArg(args, 'account_id');
     const accountCode = strArg(args, 'account_code');
     const fromDate = strArg(args, 'from_date');
@@ -87,8 +89,8 @@ export const searchGlTool: McpTool = {
     });
     if (bad) return bad;
     // isRealCalendarDate allows years 1-9999; the ledger's FY floor does not survive year 0.
-    if (!isLedgerDate(fromDate)) return toolError('invalid from_date');
-    if (!isLedgerDate(toDate)) return toolError('invalid to_date');
+    if (!isLedgerDate(fromDate)) return toolError(`from_date ${LEDGER_DATE_MESSAGE}`);
+    if (!isLedgerDate(toDate)) return toolError(`to_date ${LEDGER_DATE_MESSAGE}`);
     if (fromDate > toDate) return toolError('from_date must not be after to_date');
     const result = await getAccountLedger({
       companyId: ctx.companyId, // from ctx ONLY

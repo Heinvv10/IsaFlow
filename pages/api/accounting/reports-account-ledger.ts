@@ -23,6 +23,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { UUID_RE } from '@/lib/validation';
+import { hasNul, NUL_MESSAGE } from '@/lib/validation';
 import { isLedgerDate, LEDGER_DATE_MESSAGE, parseBoundedInt } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { LedgerAccountNotFoundError } from '@/modules/accounting/services/gl/ledgerErrors';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
@@ -33,6 +34,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
+
+  if (hasNul(req.query)) return apiResponse.badRequest(res, NUL_MESSAGE);
 
   const costCentreId = req.query.cost_centre_id;
   if (costCentreId !== undefined && (typeof costCentreId !== 'string' || !UUID_RE.test(costCentreId))) {

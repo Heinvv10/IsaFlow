@@ -19,9 +19,9 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 const A = '10000000-0000-4000-8000-0000000000e1';
 const EXP = '50000000-0000-4000-8000-0000000000e4';
 const BANK = '50000000-0000-4000-8000-0000000000e1';
-type J = { id: string; date: string; created: string; lines: Array<[string, number, number]> };
+type J = { id: string; date: string; created: string | null; lines: Array<[string, number, number]> };
 let jn = 0;
-const j = (date: string, lines: Array<[string, number, number]>, created = `${date}T10:00:00Z`, id?: string): J => {
+const j = (date: string, lines: Array<[string, number, number]>, created: string | null = `${date}T10:00:00Z`, id?: string): J => {
   jn += 1;
   return { id: id ?? `40000000-0000-4000-8000-${String(jn).padStart(12, '0')}`, date, created, lines };
 };
@@ -155,6 +155,41 @@ describe('ledger paging and ordering (Postgres)', async () => {
       expect(rep.closingBalance).toBe(ledger.periodClosingBalance);
       expect(inline.periodNet).toBe(ledger.periodNet);
       expect(inline.openingBalance).toBe(ledger.openingBalance);
+    });
+  }, 60000);
+
+  // Round 6: created_at is nullable. NULL sorts as the epoch EVERYWHERE, so the order stays total
+  // and identical across listings and the stream's cursor keeps serving every line.
+  it.skipIf(!reachable)('NULL created_at: one order across listings, and cursor paging serves every line once', async () => {
+    const js: J[] = [j('2025-06-10', [[EXP, 1000, 0], [BANK, 0, 1000]])];
+    for (let i = 0; i < 9; i += 1) js.push(j('2026-04-10', [[EXP, 10 + i, 0], [BANK, 0, 10 + i]], i < 4 ? null : '2026-04-10T08:00:00Z'));
+    js.push(j('2026-04-11', [[EXP, 500, 0], [BANK, 0, 500]], null));
+    await withData(js, async () => {
+      const full = await getAccountLedger({ ...q, limit: 500 });
+      const seq = full.rows.map(r => [r.debit, r.runningBalance]);
+      for (const size of [1, 2, 7]) {
+        const got: typeof full.rows = [];
+        for (let off = 0; off < full.total; off += size) got.push(...(await getAccountLedger({ ...q, limit: size, offset: off })).rows);
+        expect(got.map(r => [r.debit, r.runningBalance]), `size ${size}`).toEqual(seq);
+      }
+      const inline = await getAccountTransactions(A, '5000', q.fromDate, q.toDate);
+      const rep = (await getGeneralLedgerReport(A, q.fromDate, q.toDate)).find(x => x.accountCode === '5000')!;
+      const whole = await getGeneralLedgerLines({ companyId: A, periodStart: q.fromDate, periodEnd: q.toDate, accountCodes: ['5000'], limit: 100 });
+      expect(inline.transactions.map(r => [r.debit, r.balance])).toEqual(seq);
+      expect(rep.transactions.map(r => [r.debit, r.balance])).toEqual(seq);
+      expect(whole.lines.map(l => [l.debit, l.runningBalance])).toEqual(seq);
+      // NULL-created journals come first within a date (epoch), then the stamped ones.
+      expect(seq.slice(0, 4).map(x => x[0]).sort((a, b) => a! - b!)).toEqual([10, 11, 12, 13]);
+      // cursor paging, limit 1
+      const served: number[] = [];
+      let after = null as Awaited<ReturnType<typeof getGeneralLedgerLines>>['next'];
+      for (let g = 0; g < 40; g += 1) {
+        const page = await getGeneralLedgerLines({ companyId: A, periodStart: q.fromDate, periodEnd: q.toDate, accountCodes: ['5000'], limit: 1, after });
+        served.push(...page.lines.map(l => l.debit));
+        if (!page.next) break;
+        after = page.next;
+      }
+      expect(served).toEqual(seq.map(x => x[0]));
     });
   }, 60000);
 });

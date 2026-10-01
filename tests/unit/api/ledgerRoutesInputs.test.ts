@@ -91,3 +91,18 @@ describe('an account that is not this company\'s is a 404 (identical for missing
     await expect(call(accountLedger, led())).rejects.toThrow('boom');
   }, 5000);
 });
+
+describe('a NUL byte in any string query parameter is a 400 before any service runs', () => {
+  const NUL = '50\u000000';
+  it.each([
+    ['reports-account-ledger', accountLedger, led({ account_code: NUL })],
+    ['reports-account-ledger (array element)', accountLedger, led({ account_code: ['5000', NUL] })],
+    ['reports-account-transactions', accountTransactions, { account_code: NUL, period_start: '2026-01-01', period_end: '2026-09-30' }],
+    ['account-transactions-export', transactionsExport, { account_code: NUL, period_start: '2026-01-01', period_end: '2026-09-30' }],
+    ['reports-general-ledger', generalLedger, { period_start: '2026-01-01', period_end: '2026-09-30', other: NUL }],
+  ])('%s', async (_n, handler, query) => {
+    expect(await call(handler, query)).toBe(400);
+    expect(none()).toBe(true);
+  }, 5000);
+});
+

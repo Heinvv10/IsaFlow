@@ -145,7 +145,7 @@ export async function getGeneralLedgerReport(
         AND ga.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
-      ORDER BY ga.account_code, je.entry_date, je.created_at, jl.id
+      ORDER BY ga.account_code, je.entry_date, COALESCE(je.created_at, 'epoch'::timestamptz), jl.id
     `) as Row[];
 
     const byAccount = new Map<string, GeneralLedgerAccountReport>();
