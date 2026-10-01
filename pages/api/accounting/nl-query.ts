@@ -10,6 +10,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkAiRateLimit } from '@/lib/rateLimit';
+import { refundAiDailyQuota } from '@/lib/rateLimitQuota';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import {
   buildTextToSQLPrompt, parseSQLResponse, validateGeneratedSQL,
@@ -43,12 +44,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (!(await checkAiRateLimit(req, companyId, 'nl-query', { ipMax: 30, companyMax: 60, dailyMax: 300 }))) {
     return apiResponse.tooManyRequests(res, 'AI request limit reached. Please try again later.');
   }
+  // The daily bucket bounds AI calls that were answered. Every exit below that
+  // got no answer from the provider gives the unit back (R-175).
+  const noAiAnswer = () => refundAiDailyQuota(companyId, 'nl-query');
 
   const { question } = req.body;
   if (!question || typeof question !== 'string' || question.trim().length < 3) {
+    await noAiAnswer();
     return apiResponse.badRequest(res, 'Please ask a question (minimum 3 characters)');
   }
   if (question.length > 500) {
+    await noAiAnswer();
     return apiResponse.badRequest(res, 'Question is too long (maximum 500 characters)');
   }
   const intent = classifyQueryIntent(question);
@@ -57,7 +63,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   // Call Claude
   const apiKey = process.env.ANTHROPIC_API_KEY;
+  let aiAnswered = false;
   if (!apiKey) {
+    await noAiAnswer();
     return apiResponse.success(res, {
       intent,
       message: 'Natural language queries require ANTHROPIC_API_KEY to be configured.',
@@ -89,8 +97,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     if (!response.ok) {
+      await noAiAnswer();
       return apiResponse.success(res, { intent, message: 'AI service unavailable', rows: [], columns: [], summary: 'Service error' });
     }
+    aiAnswered = true;
 
     const data = await response.json() as { content?: { text?: string }[] };
     const text = data.content?.[0]?.text || '';
@@ -160,6 +170,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.error('NL query failed', { error: errMsg, question }, 'ai');
+    if (!aiAnswered) await noAiAnswer();
     return apiResponse.success(res, { intent, message: `Query execution failed: ${errMsg}`, rows: [], columns: [], summary: 'Error' });
   }
 }

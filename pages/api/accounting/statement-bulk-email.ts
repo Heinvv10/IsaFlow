@@ -21,6 +21,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { checkSendRateLimit } from '@/lib/rateLimit';
+import { refundSendDailyQuota } from '@/lib/rateLimitQuota';
 import { sendStatementEmail } from '@/modules/accounting/services/ar/statementEmailService';
 
 type Row = Record<string, unknown>;
@@ -93,22 +94,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const message =
     typeof body.message === 'string' ? body.message : undefined;
 
-  // Charge the per-company / per-day VOLUME buckets one unit per recipient so a
-  // batch can't be used to blow past a real email ceiling; the per-IP bucket
-  // stays request-rate (one call = one request). companyMax/dailyMax are email
-  // volumes here (not request counts), sized to allow legitimate statement runs
-  // (batches are capped at MAX_BATCH_SIZE=100) while bounding an abusive loop.
-  // Tunable if a large tenant's monthly run needs more headroom.
-  const sendAllowed = await checkSendRateLimit(req, companyId, 'statement-bulk-email', {
-    ipMax: 30, // requests / 15 min per IP (cost 1 each)
-    companyMax: 2_000, // emails / 15 min per company
-    dailyMax: 10_000, // emails / day per company
-    count: customerIds.length,
-  });
-  if (!sendAllowed) {
-    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
-  }
-
   // IDOR guard — verify all IDs belong to this company
   const owned = (await sql`
     SELECT id FROM customers
@@ -128,6 +113,24 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       res,
       'One or more customerIds do not belong to this company'
     );
+  }
+
+  // Charge the per-company / per-day VOLUME buckets one unit per recipient so a
+  // batch can't be used to blow past a real email ceiling; the per-IP bucket
+  // stays request-rate (one call = one request). companyMax/dailyMax are email
+  // volumes here (not request counts), sized to allow legitimate statement runs
+  // (batches are capped at MAX_BATCH_SIZE=100) while bounding an abusive loop.
+  // Tunable if a large tenant's monthly run needs more headroom.
+  // Charged AFTER the ownership guard (R-175): a request refused there sends
+  // nothing, and used to spend one unit per id it named.
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'statement-bulk-email', {
+    ipMax: 30, // requests / 15 min per IP (cost 1 each)
+    companyMax: 2_000, // emails / 15 min per company
+    dailyMax: 10_000, // emails / day per company
+    count: customerIds.length,
+  });
+  if (!sendAllowed) {
+    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
 
   const { name: companyName, statementSignature } =
@@ -160,6 +163,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       errors.push(result.error ?? `Failed to send to customer ${customerId}`);
     }
   }
+
+  // The daily bucket bounds emails sent; the ones that failed are given back.
+  if (failed > 0) await refundSendDailyQuota(companyId, 'statement-bulk-email', failed);
 
   log.info(
     'Bulk statement email complete',

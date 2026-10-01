@@ -7,7 +7,6 @@ import pg from 'pg';
 import '@/lib/pgTypes';
 import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteToken';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { als } from '@/lib/als';
 import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/gotrue';
 import { sql } from '@/lib/neon';
 import { checkRateLimit, refundRateLimit } from '@/lib/rateLimit';
@@ -113,24 +112,22 @@ const handler: NextApiHandler = async (req, res) => {
   // what proves the key names a real invitation, and this still precedes every
   // GoTrue call, which is what the cap exists to bound.
   //
-  // als.exit: written when checkRateLimit went through `sql` and so joined the
-  // invite-token transaction, where a thrown path below (a GoTrue outage) would
-  // discard the attempt and the key's row lock would be held across two GoTrue
-  // round-trips. Since K-103 the limiter writes on its own pool whatever the
-  // caller's context, so the als.exit is no longer needed; it is harmless.
+  // The limiter writes on its own pool (K-103), never on the invite-token
+  // transaction: a thrown path below (a GoTrue outage) ROLLBACKs that
+  // transaction and the attempt is still counted, and the counter's row lock is
+  // not held across the two GoTrue round-trips.
   const ATTEMPT_COST = 2;
   const ATTEMPTS_PER_HOUR = 10;
-  const admitted = await als.exit(() => checkRateLimit(`invite-accept:${tokenHash}`, {
+  const admitted = await checkRateLimit(`invite-accept:${tokenHash}`, {
     max: ATTEMPTS_PER_HOUR * ATTEMPT_COST, windowSecs: 3600, cost: ATTEMPT_COST,
-  }));
+  });
   if (!admitted) {
     return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts for this invitation. Try again later.' } });
   }
   // Hand the units back on the two verdicts below that are reachable ONLY
   // after signIn has already succeeded, so no unauthenticated caller can spend
-  // the counter down. als.exit for the same reason the charge uses it: keep it
-  // off the invite-token transaction, which is rolled back on any throw.
-  const refund = () => als.exit(() => refundRateLimit(`invite-accept:${tokenHash}`, ATTEMPT_COST));
+  // the counter down.
+  const refund = () => refundRateLimit(`invite-accept:${tokenHash}`, ATTEMPT_COST);
 
 
   // 2-4 run on the BYPASSRLS admin role: RLS would refuse the company_users

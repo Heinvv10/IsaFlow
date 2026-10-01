@@ -37,6 +37,13 @@ vi.mock('pg', () => {
 // checkRateLimit is only invoked for reports- prefix routes (not our test
 // routes), but mock it so importing the module never touches a real backend.
 vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
+// Usage-quota refunds (R-175): record what withAuth hands back, and when.
+const refunded: Array<Array<{ key: string; units: number }>> = [];
+vi.mock('@/lib/rateLimitQuota', () => ({
+  refundQuotaCharges: vi.fn(async (ctx: { quotaCharges?: Array<{ key: string; units: number }> } | null) => {
+    refunded.push([...(ctx?.quotaCharges ?? [])]);
+  }),
+}));
 
 // ── Mock client builder ──────────────────────────────────────────────────────
 function makeClient(opts: {
@@ -120,6 +127,7 @@ describe('withAuth — commit-before-respond ordering', () => {
     process.env.DATABASE_URL = 'postgresql://dummy:dummy@dummy/test';
     process.env.SENTRY_ENABLED = 'false';
     poolFactory.connect.mockClear();
+    refunded.length = 0;
   });
 
   it('COMMITs before flushing the response body on a 2xx', async () => {
@@ -224,5 +232,48 @@ describe('withAuth — commit-before-respond ordering', () => {
     expect(events).toContain('COMMIT');
     expect(events).not.toContain('ROLLBACK');
     expect(res.statusCode).toBe(404);
+  });
+
+  // ── R-175: a failed request gives its usage-quota units back ────────────────
+  // The handler notes a charge the way checkAiRateLimit does, on the request context.
+  async function runCharged(respond: (r: NextApiResponse) => void, clientOpts: { commitThrows?: boolean } = {}) {
+    const events: string[] = [];
+    currentClient = makeClient({ events, ...clientOpts });
+    const { res } = makeRes(events);
+    const { withAuth } = await import('@/lib/auth/withAuth');
+    const { als } = await import('@/lib/als');
+    await withAuth(async (_req: never, r: NextApiResponse) => {
+      als.getStore()!.quotaCharges!.push({ key: 'ai:x:co:c:day', units: 1 });
+      respond(r);
+    })(mkReq(await makeToken('user-1'), COMPANY_ID), res);
+    return { events, res };
+  }
+
+  it('keeps the usage-quota charge of a request that succeeds or is refused with a 4xx', async () => {
+    await runCharged((r) => { r.status(200).json({ ok: true }); });
+    await runCharged((r) => { r.status(400).json({ ok: false }); });
+    await runCharged((r) => { r.status(499).json({ ok: false }); });
+
+    expect(refunded).toEqual([]);
+  });
+
+  it('gives the usage-quota charge back when the handler responds 5xx', async () => {
+    const { events } = await runCharged((r) => { r.status(500).json({ ok: false }); });
+
+    expect(refunded).toEqual([[{ key: 'ai:x:co:c:day', units: 1 }]]);
+    expect(events).toContain('ROLLBACK');
+    expect(currentClient.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives the usage-quota charge back when the handler throws', async () => {
+    await runCharged(() => { throw new Error('handler blew up'); });
+
+    expect(refunded).toEqual([[{ key: 'ai:x:co:c:day', units: 1 }]]);
+  });
+
+  it('gives the usage-quota charge back when the COMMIT fails after a 2xx', async () => {
+    await runCharged((r) => { r.status(200).json({ ok: true }); }, { commitThrows: true });
+
+    expect(refunded).toEqual([[{ key: 'ai:x:co:c:day', units: 1 }]]);
   });
 });

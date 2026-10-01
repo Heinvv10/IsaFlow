@@ -3,8 +3,7 @@
  *
  * Verifies the per-IP bucket is enforced when ipMax is exceeded.
  * Uses the DB-backed pattern from rateLimit.test.ts: guards with
- * isDbReachable(), clears the DB rows between calls. (clearRateLimitCache is
- * a no-op since R-175; the limiter has no in-process cache.)
+ * isDbReachable(), clears the DB rows and remembered refusals between calls.
  */
 
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
@@ -51,7 +50,7 @@ describe('checkSendRateLimit — DB-backed (M13)', () => {
         expect(allowed).toBe(true);
       }
 
-      // No-op since R-175: every call already hits the DB.
+      // Forget any remembered refusal so the next call is decided by the DB.
       clearRateLimitCache();
 
       // One more call must hit the DB and see count > ipMax → blocked.
