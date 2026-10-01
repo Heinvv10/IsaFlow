@@ -24,7 +24,7 @@
 // allow-list is the lever if that ever stops holding — not this field.
 
 import {
-  PAPER_A4_IN, PDF_MARGIN_MM, PRINT_READY_SELECTOR, PRINT_READY_TIMEOUT_MS,
+  PAPER_A4_IN, PDF_MARGIN_MM, PRINT_ERROR_ATTRIBUTE_PREFIX, PRINT_READY_SELECTOR, PRINT_READY_TIMEOUT_MS,
   mmToIn, type PdfRenderRequest,
 } from '../pdfTransport';
 
@@ -76,11 +76,22 @@ export function buildGotenbergFields(
     // Matches the Gotenberg 8 default; set explicitly so the intent survives
     // an upstream default change.
     emulatedMediaType: 'print',
-    // The same gate the Playwright transport waits on. A waitDelay would be a
-    // guess that either truncates a slow pack or wastes seconds on a fast one.
-    // JSON.stringify escapes the selector so a future selector containing a
-    // quote cannot break out of the expression string.
-    waitForExpression: `document.querySelector(${JSON.stringify(PRINT_READY_SELECTOR)}) !== null`,
+    // The same gate the Playwright transport waits on — ready OR failed. A
+    // waitDelay would be a guess that either truncates a slow pack or wastes
+    // seconds on a fast one. JSON.stringify escapes the selector and the
+    // prefix so neither can break out of the expression string.
+    //
+    // THE EXPRESSION ALONE CANNOT FAIL THE REQUEST: it resolves on an error
+    // attribute and Gotenberg would then print the unready page. What turns
+    // that into a failure is `failOnConsoleExceptions` below, together with
+    // `markPrintError` raising an uncaught exception when it sets the attribute.
+    waitForExpression:
+      `document.querySelector(${JSON.stringify(PRINT_READY_SELECTOR)}) !== null`
+      + ` || Array.from(document.documentElement.attributes).some((a) => a.name.startsWith(${JSON.stringify(PRINT_ERROR_ATTRIBUTE_PREFIX)}))`,
+    // Gotenberg answers 409 instead of a PDF when the page threw an uncaught
+    // exception — which is how a print page that can never become ready says
+    // so under this transport (see `markPrintError`).
+    failOnConsoleExceptions: 'true',
     // Matches the Gotenberg 8 default (true); set explicitly because the app
     // holds background connections open, so network-idle would never fire if
     // this were ever false.

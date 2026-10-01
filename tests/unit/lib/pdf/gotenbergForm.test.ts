@@ -30,8 +30,30 @@ describe('buildGotenbergFields', () => {
   it('waits for the print-ready flag rather than a fixed delay', () => {
     const f = buildGotenbergFields(request, env);
     expect(f.waitForExpression).toContain(JSON.stringify(PRINT_READY_SELECTOR));
-    expect(f.waitForExpression).toBe(`document.querySelector(${JSON.stringify(PRINT_READY_SELECTOR)}) !== null`);
     expect(f.waitDelay).toBeUndefined();
+  });
+
+  /**
+   * READY OR FAILED, evaluated rather than string-matched: the expression is
+   * run against a stub document, so a wrong attribute prefix or a wrong
+   * selector is a red test, not a different string.
+   */
+  it('waits on ready OR any print-error attribute, and on nothing else', () => {
+    const f = buildGotenbergFields(request, env);
+    const run = (ready: boolean, attrs: string[]) => new Function('document', `return ${f.waitForExpression}`)({
+      querySelector: (sel: string) => (ready && sel === PRINT_READY_SELECTOR ? {} : null),
+      documentElement: { attributes: attrs.map((name) => ({ name })) },
+    });
+    expect(run(false, ['lang', 'class'])).toBe(false);
+    expect(run(true, ['lang'])).toBe(true);
+    expect(run(false, ['data-print-error-fonts'])).toBe(true);
+    expect(run(false, ['data-print-error-pages'])).toBe(true);
+    expect(run(false, ['data-print-errors-elsewhere'])).toBe(true);
+    expect(run(false, ['data-print-ready'])).toBe(false);
+  });
+
+  it('asks Gotenberg to fail the request on an uncaught page exception', () => {
+    expect(buildGotenbergFields(request, env).failOnConsoleExceptions).toBe('true');
   });
 
   it('emulates print media and prints backgrounds', () => {

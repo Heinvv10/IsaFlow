@@ -99,4 +99,15 @@ describe('usePrintReady when a font load rejects', () => {
     clearPrintError('fonts');
     expect(root.getAttribute('data-print-error-fonts')).toBeNull();
   });
+
+  it('raises an uncaught-style exception too, which is how Gotenberg (failOnConsoleExceptions) learns of it', async () => {
+    const { markPrintError } = await import('@/components/accounting/packs/usePrintMode');
+    const reported = vi.fn();
+    vi.stubGlobal('reportError', reported);
+    markPrintError('pages', 'HTTP 422');
+    expect(reported).toHaveBeenCalledTimes(1);
+    const err = reported.mock.calls[0]![0] as Error;
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toBe('print page cannot render — pages: HTTP 422');
+  });
 });
