@@ -200,6 +200,18 @@ the test so Paystack was not called. Clicking Pay Now on an approved R115 invoic
 with that token, and `window.open` was called with the checkout URL. One standing link was
 minted, with no expiry. Not exercised in a browser: the real Paystack page, and a popup blocker.
 
+## Deployed
+
+- #601 was merged as `ec6a483fc` and deployed at 16:08 SAST on 2026-10-01. Hein approved that
+  business-hours deploy explicitly ("Deploy all now"). It also shipped peers' #595 and #596.
+- The deploy applied 1 migration, 718, which belongs to #596. This change has none.
+- Golden paths passed 13/13 and integrity was green. `RELEASE_SHA` is `ec6a483fc`.
+- `invoice_unapproved` is in the live `portal/payments/paystack/create.js`, `portal/payment-link.js`,
+  `accounting/payment-gateway.js` and `accounting/customer-invoices/[id]/pay-now.js`.
+- Live checks: health answers 200; an unauthenticated `POST …/pay-now` answers 401.
+- The rollback target is `e00c8f237`, code only.
+- Still for Hein: the two censuses below, and whether a standing link needs a revoke action.
+
 ## Migration / rollback
 
 There is no migration. To roll back, revert the PR. Standing links minted meanwhile have no
