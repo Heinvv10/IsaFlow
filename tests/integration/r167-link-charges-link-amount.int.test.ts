@@ -153,6 +153,7 @@ describe('a completed payment spends the link it came from', () => {
     const [req] = await requests(invoiceId);
     h.verifyTransaction.mockResolvedValue({ status: 'success', id: 1671, paidAt: new Date().toISOString(), channel: 'card' });
     expect((await verify(req!.ref)).statusCode).toBe(200);
+    expect(h.verifyTransaction).toHaveBeenCalledWith(req!.ref, { timeoutMs: 10_000 }); // bounded
     expect(await linkRow(linkId)).toMatchObject({ status: 'paid', payment_reference: req!.ref });
   });
 

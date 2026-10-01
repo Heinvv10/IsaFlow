@@ -210,10 +210,11 @@ interface VerifyRaw {
 
 export async function verifyTransaction(
   reference: string,
+  opts: { timeoutMs?: number } = {},
 ): Promise<VerifyTransactionResult> {
   const data = await paystackFetch<VerifyRaw>(
     `/transaction/verify/${encodeURIComponent(reference)}`,
-    { method: 'GET' },
+    { method: 'GET', timeoutMs: opts.timeoutMs },
   );
   return {
     status: mapStatus(data.status),
