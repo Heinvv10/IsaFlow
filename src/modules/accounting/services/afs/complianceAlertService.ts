@@ -7,22 +7,9 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { AfsComplianceAlert, AfsAlertType } from './afsTypes';
+import { afsFilingDeadline, FilingDeadlineUnknownError, wholeDaysBetween } from './afsFilingDeadline';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
-
-function computeFiscalYearEnd(fiscalYear: number, financialYearStartMonth: number): Date {
-  let endMonth: number;
-  let endYear: number;
-  if (financialYearStartMonth === 1) {
-    endMonth = 12;
-    endYear = fiscalYear;
-  } else {
-    endMonth = financialYearStartMonth - 1;
-    endYear = fiscalYear;
-  }
-  const lastDay = new Date(endYear, endMonth, 0).getDate();
-  return new Date(endYear, endMonth - 1, lastDay);
-}
 
 async function fireAlert(
   companyId: string,
@@ -150,40 +137,49 @@ async function detectFilingDeadlineAlerts(companyId: string): Promise<void> {
     WHERE d.company_id = ${companyId}::UUID
       AND d.status NOT IN ('signed_off', 'filed')
       AND d.document_type = 'afs'
+      AND d.fiscal_year IS NOT NULL
   `) as Record<string, unknown>[];
 
-  const now = Date.now();
+  // TODAY AS A CALENDAR DAY IN SOUTH AFRICA, because the deadline is one.
+  // It was `Date.now()` against a local-midnight Date, rounded up, so the
+  // count moved with the hour the detector happened to run at.
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg' }).format(new Date());
 
   for (const row of rows) {
-    const fiscalYear = row.fiscal_year as number;
-    const fyStartMonth = (row.financial_year_start as number) || 3;
-
-    const yearEnd = computeFiscalYearEnd(fiscalYear, fyStartMonth);
-    const deadline = new Date(yearEnd);
-    deadline.setMonth(deadline.getMonth() + 6);
-
-    const daysUntil = Math.ceil((deadline.getTime() - now) / (1000 * 60 * 60 * 24));
-
-    if (daysUntil <= 7) {
-      await fireAlert(
-        companyId,
-        'afs_filing_deadline_7',
-        `AFS filing deadline is in ${daysUntil} day(s)`,
-        `Deadline: ${deadline.toISOString().split('T')[0]}`
+    const fiscalYear = Number(row.fiscal_year);
+    // ONE DEADLINE RULE, shared with the board pack's overdue-filings matter
+    // (`afsFilingDeadline.ts`). This detector had its own: `setMonth(+6)` on
+    // a month-end, which overflows (31 March gave 1 October), and `|| 3`,
+    // which dated a company with no financial year start as a February year
+    // end. A company whose year start is unusable gets NO alert rather than
+    // one about a date nobody can stand behind, and the log says why.
+    let deadline: string;
+    try {
+      deadline = afsFilingDeadline(fiscalYear, row.financial_year_start, companyId);
+    } catch (err) {
+      if (!(err instanceof FilingDeadlineUnknownError)) throw err;
+      log.warn(
+        'complianceAlertService: no AFS filing deadline alert — the company has no usable financial_year_start',
+        { companyId, fiscalYear },
       );
+      continue;
+    }
+
+    const daysUntil = wholeDaysBetween(today, deadline);
+    const detail = `Deadline: ${deadline}`;
+
+    if (daysUntil < 0) {
+      await fireAlert(companyId, 'afs_filing_deadline_7', `AFS filing deadline passed ${-daysUntil} day(s) ago`, detail);
+    } else if (daysUntil <= 7) {
+      await fireAlert(companyId, 'afs_filing_deadline_7', `AFS filing deadline is in ${daysUntil} day(s)`, detail);
     } else if (daysUntil <= 14) {
-      await fireAlert(
-        companyId,
-        'afs_filing_deadline_14',
-        `AFS filing deadline is in ${daysUntil} day(s)`,
-        `Deadline: ${deadline.toISOString().split('T')[0]}`
-      );
+      await fireAlert(companyId, 'afs_filing_deadline_14', `AFS filing deadline is in ${daysUntil} day(s)`, detail);
     } else if (daysUntil <= 30) {
       await fireAlert(
         companyId,
         'afs_filing_deadline_30',
         `AFS filing deadline is approaching — ${daysUntil} day(s) remaining`,
-        `Deadline: ${deadline.toISOString().split('T')[0]}`
+        detail,
       );
     }
   }

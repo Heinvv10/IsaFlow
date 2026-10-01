@@ -7,10 +7,12 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import {
   createAfsAlert,
   getActiveAfsAlerts,
   dismissAfsAlert,
+  detectAndFireAfsAlerts,
 } from '@/modules/accounting/services/afs/complianceAlertService';
 
 type SqlFn = MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
@@ -133,5 +135,93 @@ describe('complianceAlertService', () => {
       const sqlParts = (mockSql.mock.calls[0]?.[0] as string[]).join('');
       expect(sqlParts.toLowerCase()).toContain('company_id');
     });
+  });
+});
+
+/**
+ * THE APPROACHING-DEADLINE ALERT USES THE SAME DEADLINE AS THE BOARD PACK.
+ *
+ * This detector had its own copy of "year end plus six months" —
+ * `setMonth(getMonth() + 6)` on a month-end, which keeps the day number and
+ * overflows: a 31 March year end gave 1 October, 31 December gave 1 July, 31
+ * August gave 3 March, 28 February stopped at 28 August — and its own
+ * `|| 3`, which dated a tenant with no financial year start as if it were a
+ * February year end. The rule lives in `afsFilingDeadline.ts` now and both
+ * this detector and `statutoryFilingsService` read it.
+ */
+describe('detectAndFireAfsAlerts — the AFS filing deadline', () => {
+  /** The filing-deadline alerts the detector inserted: [alert_type, message, detail]. */
+  async function alertsFor(
+    today: string,
+    documents: Array<{ fiscal_year: number; financial_year_start: unknown }>,
+  ): Promise<Array<[string, string, string]>> {
+    mockSql.mockReset();
+    mockSql.mockImplementation(async (strings: unknown) => {
+      const text = (strings as readonly string[]).join('?');
+      if (text.includes('d.fiscal_year')) return documents;
+      return [];
+    });
+    vi.useFakeTimers();
+    // Midday SAST on `today`, so the calendar day is not in doubt.
+    vi.setSystemTime(new Date(`${today}T10:00:00.000Z`));
+    try {
+      await detectAndFireAfsAlerts('company-1');
+    } finally {
+      vi.useRealTimers();
+    }
+    return mockSql.mock.calls
+      .filter(([strings]) => (strings as readonly string[]).join('?').includes('INSERT INTO compliance_alerts'))
+      .map((call) => [call[2], call[3], call[4]] as [string, string, string]);
+  }
+
+  it.each([
+    ['28 February', 2026, 3, '2026-08-31'],
+    ['29 February in a leap year', 2028, 3, '2028-08-31'],
+    ['31 March', 2026, 4, '2026-09-30'],
+    ['31 August', 2025, 9, '2026-02-28'],
+    ['31 December', 2025, 1, '2026-06-30'],
+    ['30 June', 2026, 7, '2026-12-31'],
+  ])('a %s year end is due on the last day of the sixth month after it', async (_what, fiscalYear, start, deadline) => {
+    // Ten days before the deadline, counted on the calendar.
+    const [y, m, d] = deadline.split('-').map(Number);
+    const today = new Date(Date.UTC(y!, m! - 1, d! - 10)).toISOString().slice(0, 10);
+    const alerts = await alertsFor(today, [{ fiscal_year: fiscalYear, financial_year_start: start }]);
+    expect(alerts).toEqual([
+      ['afs_filing_deadline_14', 'AFS filing deadline is in 10 day(s)', `Deadline: ${deadline}`],
+    ]);
+  });
+
+  it('counts whole calendar days, and picks the alert band from them', async () => {
+    const doc = [{ fiscal_year: 2026, financial_year_start: 3 }]; // due 2026-08-31
+    expect((await alertsFor('2026-08-24', doc))[0]).toEqual(
+      ['afs_filing_deadline_7', 'AFS filing deadline is in 7 day(s)', 'Deadline: 2026-08-31']);
+    expect((await alertsFor('2026-08-23', doc))[0]![0]).toBe('afs_filing_deadline_14');
+    expect((await alertsFor('2026-08-01', doc))[0]).toEqual(
+      ['afs_filing_deadline_30', 'AFS filing deadline is approaching — 30 day(s) remaining', 'Deadline: 2026-08-31']);
+    expect(await alertsFor('2026-07-31', doc)).toEqual([]);
+  });
+
+  it('says a deadline has passed rather than that it is in a negative number of days', async () => {
+    const [alert] = await alertsFor('2026-09-07', [{ fiscal_year: 2026, financial_year_start: 3 }]);
+    expect(alert).toEqual(['afs_filing_deadline_7', 'AFS filing deadline passed 7 day(s) ago', 'Deadline: 2026-08-31']);
+  });
+
+  it.each([null, '', 0, 13])('fires no deadline alert for a company whose financial year start is %s, and says why in the log', async (raw) => {
+    vi.mocked(log.warn).mockClear();
+    const alerts = await alertsFor('2026-08-25', [{ fiscal_year: 2026, financial_year_start: raw }]);
+    // It used to assume March and fire "deadline is in 3 day(s)" off it.
+    expect(alerts).toEqual([]);
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(vi.mocked(log.warn).mock.calls[0])).toMatch(/financial_year_start/);
+  });
+
+  it('still alerts for the company\'s other statements when one has no usable year start', async () => {
+    // Rows are per document; the year start is the company's, so in practice
+    // they share it. The detector must not let one bad row stop the loop.
+    const alerts = await alertsFor('2026-08-25', [
+      { fiscal_year: 2026, financial_year_start: null },
+      { fiscal_year: 2026, financial_year_start: 3 },
+    ]);
+    expect(alerts.map((a) => a[2])).toEqual(['Deadline: 2026-08-31']);
   });
 });
