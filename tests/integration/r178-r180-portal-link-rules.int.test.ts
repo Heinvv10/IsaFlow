@@ -13,7 +13,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { CO, SECRET, addLink, cleanupCompany, create, getLink, pool, requests, seedCompany, verify } from './r167-portal-links.helpers';
-import { enableOnlinePayment, invoice, links, mintExplicit, payNow, signIn, tokenOf } from './r177-portal-followups.helpers';
+import { enableOnlinePayment, enableRoute, invoice, links, mintExplicit, payNow, signIn, tokenOf } from './r177-portal-followups.helpers';
+import { enableOnlinePayment as enableOnlinePaymentBare } from '@/modules/accounting/services/core/paymentGatewayPortalService';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -124,6 +125,35 @@ describe('R-179: a standing link does not expire', () => {
   });
 });
 
+describe('the enable-online-payment route shares the standing link and its lock', () => {
+  it('returns the standing link, and 404 for a paid invoice as before', async () => {
+    const id = await invoice();
+    const r = await enableRoute(id);
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.data?.paymentUrl).toBe(`https://app.r177.test/portal/pay/${tokenOf(await payNow(id))}`);
+    expect((await enableRoute(await invoice('paid', 115))).statusCode).toBe(404);
+  });
+
+  it('waits at most 5s for an invoice another request holds, then answers a retryable 400', async () => {
+    const id = await invoice();
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM customer_invoices WHERE id = $1 FOR UPDATE', [id]);
+      const r = await enableRoute(id);
+      expect(r.statusCode).toBe(400);
+      expect(JSON.stringify(r.body)).toContain('CUSTOMER_INVOICE_LOCK_TIMEOUT');
+    } finally { await holder.query('ROLLBACK'); holder.release(); }
+    expect(await links(id)).toEqual([]);
+  }, 20_000);
+
+  it('the service refuses to run outside a request transaction, where its lock would hold nothing', async () => {
+    const id = await invoice();
+    await expect(enableOnlinePaymentBare(CO, id)).rejects.toThrow(/requires a request transaction/);
+    expect(await links(id)).toEqual([]);
+  });
+});
+
 describe('R-180: an invoice that is not approved is not payable through a link', () => {
   it.each(['draft', 'pending_approval'])('no link is minted for a %s invoice by Pay Now, enableOnlinePayment or the payment-link POST', async (status) => {
     const id = await invoice(status);
@@ -131,6 +161,9 @@ describe('R-180: an invoice that is not approved is not payable through a link',
     expect(r.statusCode).toBe(400);
     expect(r.body.error?.message).toMatch(/not approved/i);
     expect(await enableOnlinePayment(CO, id)).toBeNull();
+    const e = await enableRoute(id);
+    expect(e.statusCode).toBe(400);
+    expect(e.body.error?.message).toMatch(/not approved/i);
     const m = await mintExplicit(id);
     expect(m.statusCode).toBe(400);
     expect(m.body.error?.message).toMatch(/not approved/i);
