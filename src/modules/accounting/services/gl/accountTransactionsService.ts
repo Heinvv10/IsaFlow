@@ -155,7 +155,8 @@ export async function getAccountTransactions(
     };
   } catch (err) {
     // An unknown account is an expected refusal (a 404 upstream), not an error event.
-    (err instanceof LedgerAccountNotFoundError ? log.warn : log.error)('Failed to generate account transactions', { error: err }, 'accounting');
+    if (err instanceof LedgerAccountNotFoundError) log.warn('Account transactions: account not found', { error: err }, 'accounting');
+    else log.error('Failed to generate account transactions', { error: err }, 'accounting');
     throw err;
   }
 }

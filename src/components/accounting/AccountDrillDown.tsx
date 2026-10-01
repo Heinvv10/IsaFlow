@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import Link from 'next/link';
 
 const fmt = (n: number) =>
@@ -91,20 +91,15 @@ export function AccountDrillDown({
     if (costCentreId) params.set('cost_centre_id', costCentreId);
     if (businessUnitId) params.set('business_unit_id', businessUnitId);
 
-    apiFetch(`/api/accounting/reports-account-transactions?${params}`)
-      .then(async r => {
-        const json = await r.json();
-        if (!r.ok) throw new Error('Failed to load transactions');
-        return json;
-      })
-      .then(json => {
+    apiJson(`/api/accounting/reports-account-transactions?${params}`)
+      .then(d => {
         if (cancelled) return;
-        const d = json.data || json;
         if (!d || !Array.isArray(d.transactions)) throw new Error('Invalid transaction response');
         setData(d);
       })
-      .catch(() => {
-        if (!cancelled) setError('Failed to load transactions');
+      .catch(err => {
+        // The server's own 400/404 message, not a generic line.
+        if (!cancelled) setError(apiErrorMessage(err, 'Failed to load transactions'));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 
 vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 
 import { apiFetch } from '@/lib/apiFetch';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
@@ -46,8 +46,9 @@ describe('General Ledger page', () => {
   it('counts posted accounts only (RE-BF excluded), in the subtitle and the grand-totals line', async () => {
     vi.mocked(apiFetch).mockResolvedValue(ok({ accounts }));
     render(<GeneralLedgerPage />);
-    expect(await screen.findByText(/2 accounts with activity in this period/)).toBeTruthy();
-    expect(screen.getByText('GRAND TOTALS (2 accounts)')).toBeTruthy();
+    // The derived row is not in the number, and the label says so.
+    expect(await screen.findByText('2 accounts + retained earnings b/f (derived) with activity in this period')).toBeTruthy();
+    expect(screen.getByText('GRAND TOTALS (2 accounts + retained earnings b/f (derived))')).toBeTruthy();
   }, 10000);
 
   it('labels the derived account', async () => {

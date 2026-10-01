@@ -71,7 +71,14 @@ export function withYearEndCloses(
   }
   if (Math.abs(openingBalance) >= 0.01 || reTransactions.length > 0) {
     reports.push({
-      accountCode, accountName, accountType: 'equity', derived: true,
+      accountCode,
+      // The balance on the account header is the CLOSING one: when fiscal years close inside the
+      // range it is the opening (profit before the FY start) plus those years, so the name says so.
+      // No comma: this string is a CSV field in the CaseWare export.
+      accountName: reTransactions.length > 0
+        ? accountName.replace(/\)$/, ' plus fiscal years closed in this range)')
+        : accountName,
+      accountType: 'equity', derived: true,
       openingBalance, closingBalance: balance, totalDebit: 0, totalCredit: 0,
       transactions: reTransactions,
     });

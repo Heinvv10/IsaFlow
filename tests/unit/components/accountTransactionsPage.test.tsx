@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 
 vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 
 import { apiFetch } from '@/lib/apiFetch';
 import AccountTransactionsPage from '../../../pages/accounting/reports/account-transactions';

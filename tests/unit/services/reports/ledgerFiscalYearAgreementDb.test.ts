@@ -225,6 +225,29 @@ describe('ledger listings agree with the trial balance (Postgres)', async () => 
     }
   }, 60000);
 
+  it.skipIf(!reachable)('REVENUE across a fiscal-year start: closes to the TB figure, derived close on the DEBIT side, in every listing', async () => {
+    await withLedger(3, async () => {
+      // 4300 is credit-normal: 100 on 2025-12-01 (FY ended 2026-02-28), 40 on 2026-05-01.
+      const tb = tbClosing(await getTrialBalance(company, SEPT), '4300');
+      expect(tb).toBe(40);
+      const l = await ledger('4300', '2025-06-01');
+      const close = l.rows.find(r => r.derived)!;
+      expect(close).toMatchObject({ entryDate: '2026-02-28', debit: 100, credit: 0, runningBalance: 0, source: 'year_end_close' });
+      expect(l.periodClosingBalance).toBe(tb);
+      expect(l.closedToRetainedEarnings).toBe(-100);
+      const inline = await getAccountTransactions(company, '4300', '2025-06-01', '2026-09-30');
+      expect(inline.transactions.find(t => t.derived)).toMatchObject({ debit: 100, credit: 0, balance: 0 });
+      expect(inline.closingBalance).toBe(tb);
+      const rep = (await glReport('4300', '2025-06-01'))!;
+      expect(rep.transactions.find(t => t.derived)).toMatchObject({ debit: 100, credit: 0, balance: 0 });
+      expect(rep.closingBalance).toBe(tb);
+      // RE-BF receives the NET mirror image per year end: 5200 closes 1300 (credit) and 4300 100 (debit),
+      // so the income-statement net is a 1200 credit and RE-BF takes the 1200 DEBIT (a loss).
+      const re = (await glReport('RE-BF', '2025-06-01'))!;
+      expect(re.transactions.map(t => [t.debit, t.credit].join('/'))).toEqual(['1200/0']);
+    });
+  }, 30000);
+
   it.skipIf(!reachable)('non-March FY (July) ties to the TB; another tenant’s FY is not used', async () => {
     await withLedger(7, async () => {
       expect(tbClosing(await getTrialBalance(company, SEPT), '5200')).toBe(50);
