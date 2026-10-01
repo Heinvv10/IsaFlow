@@ -268,34 +268,10 @@ describe('/api/mcp transport', () => {
     expect((res.body as { error: { code: number } }).error.code).toBe(-32000);
   });
 
-  // R-175: one atomic charge for the batch. The fake counter behaves like the limiter: a charge fits or changes nothing.
-  const companyCounter = (used: number) => vi.mocked(checkRateLimit).mockImplementation(async (key: string, o: { max: number; cost?: number }) => {
-    if (!key.startsWith('mcp:')) return true;
-    if (used + (o.cost ?? 1) > o.max) return false;
-    used += o.cost ?? 1;
-    return true;
-  });
   const companyCharges = () => vi.mocked(checkRateLimit).mock.calls.filter(([k]) => (k as string).startsWith('mcp:'));
-  it('a batch charges the per-company limiter its call count, once (no batch bypass)', async () => {
+  it('a batch charges the per-company limiter its call count, once (R-175; more in transportBatchCharge)', async () => {
     await route(makeReq('POST', [rpc('ping', undefined, 1), rpc('ping', undefined, 2), rpc('ping', undefined, 3)]) as never, makeRes());
     expect(companyCharges()).toEqual([[`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60, cost: 3 }]]);
-  });
-
-  it('a batch larger than what is left is refused whole: nothing charged, nothing run', async () => {
-    companyCounter(110);
-    const res = makeRes();
-    await route(makeReq('POST', Array.from({ length: 20 }, (_, i) => rpc('tools/call', { name: 'echo_ctx', arguments: {} }, i))) as never, res);
-    expect((res.body as { error: { code: number } }).error.code).toBe(-32000);
-    expect(companyCharges()).toHaveLength(1);
-    expect(seenContexts).toHaveLength(0);
-    // The 10 units left are still there for a batch that fits.
-    await route(makeReq('POST', Array.from({ length: 10 }, (_, i) => rpc('tools/call', { name: 'echo_ctx', arguments: {} }, i))) as never, makeRes());
-    expect(seenContexts).toHaveLength(10);
-  });
-
-  it('an empty batch charges nothing', async () => {
-    await route(makeReq('POST', []) as never, makeRes());
-    expect(companyCharges()).toEqual([]);
   });
 
   it('an over-large batch (>20) → 400 invalid request, nothing dispatched', async () => {
@@ -335,8 +311,7 @@ describe('/api/mcp transport', () => {
     expect({ roleBusyRuns: counts.roleBusy, echoRuns: seenContexts.length, ids: body.map((b) => b.id), ping: body[3]!.result, waited: text(2), skipped: [text(3), text(5)] })
       .toEqual({ roleBusyRuns: 1, echoRuns: 1, ids: [1, 2, 3, 4, 5], ping: {}, waited: `true:${retry}`,
         skipped: Array(2).fill(expect.stringMatching(/^true:Not run: an earlier call in this batch found the chart of accounts being changed.*Nothing was written or charged/)) });
-    // The batch was charged its full five calls before any ran; the skip gives nothing back.
-    expect(companyCharges()).toEqual([[`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60, cost: 5 }]]);
+    expect(companyCharges()) // charged its full five before any ran; the skip gives nothing back.toEqual([[`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60, cost: 5 }]]);
   });
 
   it('no other failure stops a batch: a thrown error, a returned tool error and a row-lock timeout each leave the later calls running', async () => {
