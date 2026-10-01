@@ -61,3 +61,78 @@ describe('getReportPackInput', () => {
     expect(grossProfit - i.operatingExpenses).not.toBeCloseTo(i.netProfit, 2);
   });
 });
+
+/**
+ * EBITDA IS OPERATING PROFIT PLUS THIS FIGURE, and nothing read it back.
+ *
+ * `PERIOD` above sets `depreciation: 0`, so dropping the carry — or defaulting
+ * it — produced the same pack input and every test stayed green, while the
+ * board pack's EBITDA row silently became the operating line again.
+ */
+describe('getReportPackInput carries the depreciation charge', () => {
+  it('carries the PERIOD charge, not zero and not the cumulative figure', async () => {
+    figuresMock.mockResolvedValue({
+      period: { ...PERIOD, depreciation: 184_250.75 },
+      cumulative: { ...PERIOD, depreciation: 9_999_999 },
+    });
+    const input = await getReportPackInput('c-1', 'Brightsphere', '2026-03-01', '2026-08-31');
+    expect(input.depreciation).toBe(184_250.75);
+  });
+});
+
+/**
+ * THE CAVEATS REACH A BOARD PACK IN THE BOARD'S WORDING.
+ *
+ * Each warning carries two sentences for one fact: `message` for the operator
+ * screens, which names `account_subtype` and tells the reader to set it, and
+ * `board` for a document a director receives. The pack once printed the
+ * operator one as caveat 1 on its basis-of-preparation page.
+ */
+describe('getReportPackInput carries the caveats in the board wording', () => {
+  const unclassified = (accounts: number) => ({
+    ...PERIOD,
+    unclassifiedCount: accounts,
+    unclassifiedTotal: 5_000,
+    unclassifiedByType: {
+      ...PERIOD.unclassifiedByType,
+      asset: { accounts, amount: 5_000 },
+    },
+  });
+
+  it('states an unidentified inventory for a director, not for an administrator', async () => {
+    figuresMock.mockResolvedValue({ inventoryClassified: false, period: PERIOD, cumulative: PERIOD });
+    const input = await getReportPackInput('c-1', 'Demo', '2026-03-01', '2026-08-31');
+    expect(input.inventoryCaveat).toBe(
+      'No account in the chart of accounts is classified as inventory, so '
+      + 'inventory could not be identified and the quick ratio does not exclude '
+      + 'it: on these figures the quick ratio and the current ratio are the same '
+      + 'number. Read it as a current ratio until the stock control account is '
+      + 'classified.',
+    );
+    expect(input.inventoryCaveat).not.toMatch(/account_subtype|Set /);
+  });
+
+  it('states defaulted classifications for a director, counted off the balance-sheet figures', async () => {
+    // The count comes from the CUMULATIVE figures: the classification splits
+    // the caveat is about are balance-sheet positions. The period carries a
+    // different count so reading the wrong one is visible.
+    figuresMock.mockResolvedValue({
+      inventoryClassified: true, period: unclassified(7), cumulative: unclassified(3),
+    });
+    const input = await getReportPackInput('c-1', 'Demo', '2026-03-01', '2026-08-31');
+    expect(input.classificationCaveat).toBe(
+      '3 accounts in the chart of accounts carry no recognised classification, so each was '
+      + 'reported in its default position — assets and liabilities as current, revenue as '
+      + 'revenue rather than other income, and expenses as operating rather than cost of sales. '
+      + 'The totals are complete; where a figure sits within them may not be.',
+    );
+    expect(input.classificationCaveat).not.toMatch(/account_subtype|account\(s\)|Set /);
+  });
+
+  it('carries no caveat where there is nothing to caveat', async () => {
+    figuresMock.mockResolvedValue({ inventoryClassified: true, period: PERIOD, cumulative: PERIOD });
+    const input = await getReportPackInput('c-1', 'Demo', '2026-03-01', '2026-08-31');
+    expect(input.inventoryCaveat).toBeNull();
+    expect(input.classificationCaveat).toBeNull();
+  });
+});
