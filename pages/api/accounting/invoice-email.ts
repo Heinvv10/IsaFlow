@@ -21,7 +21,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // Each call sends a real SMTP email to an arbitrary address — bound it per IP/company/day
   // so a logged-in user can't loop it into a spam cannon (pentest H9).
-  if (!(await checkSendRateLimit(req, companyId, 'invoice-email'))) {
+  if (!(await checkSendRateLimit(req, companyId, 'invoice-email', { refundUnused: true }))) {
     return apiResponse.tooManyRequests(res, 'Email send limit reached. Please try again later.');
   }
 

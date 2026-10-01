@@ -34,7 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   }
   const { companyId, user } = req as CompanyAuthedRequest;
 
-  const sendAllowed = await checkSendRateLimit(req, companyId, 'dunning');
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'dunning', { refundUnused: true });
   if (!sendAllowed) {
     apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
     return;

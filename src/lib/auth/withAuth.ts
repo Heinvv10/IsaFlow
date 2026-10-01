@@ -12,7 +12,7 @@ import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { refundQuotaCharges } from '@/lib/rateLimitQuota';
+import { settleQuotaCharges } from '@/lib/rateLimitQuota';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
 import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } from './deferredEnd';
 
@@ -275,9 +275,9 @@ export function withAuth(handler: Handler): NextApiHandler {
       answerThrow(req, res, deferred, err, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub, rolledBack });
     } finally {
       client.release();
-      // A failed request did none of the work its usage quota bounds: give the
-      // daily AI / send units back (never the short abuse buckets). Never throws.
-      if (res.statusCode >= 500) await refundQuotaCharges(owned);
+      // However the request ended: give back the daily AI / send units it
+      // charged and did not use (never the short abuse buckets). Never throws.
+      await settleQuotaCharges(owned);
       const ms = Date.now() - startedAt;
       if (ms > 100) log.info('withAuth slow request', { ms, url: req.url }, 'Auth');
       if (process.env.SENTRY_ENABLED === 'true') {

@@ -37,11 +37,12 @@ vi.mock('pg', () => {
 // checkRateLimit is only invoked for reports- prefix routes (not our test
 // routes), but mock it so importing the module never touches a real backend.
 vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
-// Usage-quota refunds (R-175): record what withAuth hands back, and when.
-const refunded: Array<Array<{ key: string; units: number }>> = [];
+// Usage-quota settlement (R-175): record what withAuth hands over, and when.
+type Charge = { kind: 'ai' | 'send'; key: string; charged: number; used: number };
+const settled: Charge[][] = [];
 vi.mock('@/lib/rateLimitQuota', () => ({
-  refundQuotaCharges: vi.fn(async (ctx: { quotaCharges?: Array<{ key: string; units: number }> } | null) => {
-    refunded.push([...(ctx?.quotaCharges ?? [])]);
+  settleQuotaCharges: vi.fn(async (ctx: { quotaCharges?: Charge[] } | null) => {
+    settled.push((ctx?.quotaCharges ?? []).map((c) => ({ ...c })));
   }),
 }));
 
@@ -127,7 +128,7 @@ describe('withAuth — commit-before-respond ordering', () => {
     process.env.DATABASE_URL = 'postgresql://dummy:dummy@dummy/test';
     process.env.SENTRY_ENABLED = 'false';
     poolFactory.connect.mockClear();
-    refunded.length = 0;
+    settled.length = 0;
   });
 
   it('COMMITs before flushing the response body on a 2xx', async () => {
@@ -234,46 +235,44 @@ describe('withAuth — commit-before-respond ordering', () => {
     expect(res.statusCode).toBe(404);
   });
 
-  // ── R-175: a failed request gives its usage-quota units back ────────────────
-  // The handler notes a charge the way checkAiRateLimit does, on the request context.
-  async function runCharged(respond: (r: NextApiResponse) => void, clientOpts: { commitThrows?: boolean } = {}) {
+  // ── R-175: every exit settles the request's usage quota ────────────────────
+  // The handler notes a charge the way checkSendRateLimit does and records use
+  // the way the email client does, on the request context.
+  async function runCharged(used: number, respond: (r: NextApiResponse) => void, clientOpts: { commitThrows?: boolean } = {}) {
     const events: string[] = [];
     currentClient = makeClient({ events, ...clientOpts });
     const { res } = makeRes(events);
     const { withAuth } = await import('@/lib/auth/withAuth');
     const { als } = await import('@/lib/als');
     await withAuth(async (_req: never, r: NextApiResponse) => {
-      als.getStore()!.quotaCharges!.push({ key: 'ai:x:co:c:day', units: 1 });
+      const charge: Charge = { kind: 'send', key: 'send:x:co:c:day', charged: 100, used: 0 };
+      als.getStore()!.quotaCharges!.push(charge);
+      charge.used = used;
       respond(r);
     })(mkReq(await makeToken('user-1'), COMPANY_ID), res);
     return { events, res };
   }
+  const handedOver = (used: number) => [[{ kind: 'send', key: 'send:x:co:c:day', charged: 100, used }]];
 
-  it('keeps the usage-quota charge of a request that succeeds or is refused with a 4xx', async () => {
-    await runCharged((r) => { r.status(200).json({ ok: true }); });
-    await runCharged((r) => { r.status(400).json({ ok: false }); });
-    await runCharged((r) => { r.status(499).json({ ok: false }); });
+  it.each([
+    ['a 200', 200], ['a 400', 400], ['a 429', 429], ['a 500', 500], ['a 503', 503],
+  ])('settles the usage quota after %s, with the use the request recorded', async (_label, status) => {
+    await runCharged(59, (r) => { r.status(status).json({}); });
 
-    expect(refunded).toEqual([]);
-  });
-
-  it('gives the usage-quota charge back when the handler responds 5xx', async () => {
-    const { events } = await runCharged((r) => { r.status(500).json({ ok: false }); });
-
-    expect(refunded).toEqual([[{ key: 'ai:x:co:c:day', units: 1 }]]);
-    expect(events).toContain('ROLLBACK');
+    expect(settled).toEqual(handedOver(59));
     expect(currentClient.release).toHaveBeenCalledTimes(1);
   });
 
-  it('gives the usage-quota charge back when the handler throws', async () => {
-    await runCharged(() => { throw new Error('handler blew up'); });
+  it('settles when the handler throws, keeping what was used before the throw', async () => {
+    await runCharged(59, () => { throw new Error('recipient 60 blew up'); });
 
-    expect(refunded).toEqual([[{ key: 'ai:x:co:c:day', units: 1 }]]);
+    expect(settled).toEqual(handedOver(59));
   });
 
-  it('gives the usage-quota charge back when the COMMIT fails after a 2xx', async () => {
-    await runCharged((r) => { r.status(200).json({ ok: true }); }, { commitThrows: true });
+  it('settles when the COMMIT fails after a 2xx: the work was done, the use stands', async () => {
+    const { res } = await runCharged(100, (r) => { r.status(200).json({ ok: true }); }, { commitThrows: true });
 
-    expect(refunded).toEqual([[{ key: 'ai:x:co:c:day', units: 1 }]]);
+    expect(res.statusCode).toBe(500);
+    expect(settled).toEqual(handedOver(100));
   });
 });

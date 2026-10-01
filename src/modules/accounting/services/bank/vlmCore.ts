@@ -4,6 +4,7 @@
  */
 
 import { log } from '@/lib/logger';
+import { markQuotaUsed } from '@/lib/quotaUse';
 import type { ExtractedLineItem, VendorBankDetails } from '@/modules/accounting/types/documentCapture.types';
 
 // ---------------------------------------------------------------------------
@@ -86,6 +87,8 @@ export async function callVlmChat(
       }, 'vlm-core');
       return null;
     }
+    // The provider answered: the request's daily AI unit is spent (R-175).
+    markQuotaUsed('ai');
 
     const result = await response.json() as {
       choices?: Array<{ message?: { content?: string } }>;

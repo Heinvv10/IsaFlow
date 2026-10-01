@@ -16,6 +16,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { checkSendRateLimit } from '@/lib/rateLimit';
+import { isValidUUID } from '@/lib/validation';
 import { sendStatementEmail } from '@/modules/accounting/services/ar/statementEmailService';
 
 type Row = Record<string, unknown>;
@@ -55,7 +56,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyAuthedRequest;
 
-  const sendAllowed = await checkSendRateLimit(req, companyId, 'customer-statements');
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'customer-statements', { refundUnused: true });
   if (!sendAllowed) {
     return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
@@ -81,6 +82,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   const validIds = customerIds as string[];
+  // Before any query: a non-UUID id would fail the ::UUID cast below as a 500.
+  if (validIds.some(id => !isValidUUID(id))) {
+    return apiResponse.badRequest(res, 'all customer_ids must be UUIDs');
+  }
 
   if (typeof body.as_at_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.as_at_date)) {
     return apiResponse.badRequest(res, 'as_at_date must be a valid YYYY-MM-DD date string');
@@ -100,7 +105,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (unauthorized.length > 0) {
     log.warn('Unauthorized customer_ids in statement send request', {
       companyId,
-      unauthorized,
+      count: unauthorized.length,
+      sample: unauthorized.slice(0, 3),
     }, 'customer-statements-send');
     return apiResponse.forbidden(res, 'One or more customer IDs do not belong to this company');
   }

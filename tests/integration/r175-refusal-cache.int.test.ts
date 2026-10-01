@@ -132,4 +132,16 @@ describe('R-175 — an over-limit key is refused from memory', () => {
     expect(await checkRateLimit(key, opts)).toBe(true);
     expect(await storedCount(key)).toBe(6);
   });
+
+  it('a 30-day window does not overflow: it admits, refuses and remembers like any other', async () => {
+    const key = newKey();
+    const month = { max: 2, windowSecs: 30 * 86_400 };
+    // 30 days is 2.6e9 ms, more than a 4-byte integer holds. The time left in
+    // the window used to be cast to int, and every call on such a key threw.
+    expect(await checkRateLimit(key, month)).toBe(true);
+    expect(await checkRateLimit(key, month)).toBe(true);
+    expect(await checkRateLimit(key, month)).toBe(false);
+    expect(await checkRateLimit(key, month)).toBe(false);
+    expect(await storedCount(key)).toBe(3);
+  });
 });
