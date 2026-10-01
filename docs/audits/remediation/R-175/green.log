@@ -259,3 +259,89 @@ int: Tests  59 passed (59)
 unit: Tests  227 passed (227)
 
 DONE BASELINE HT1 G1 G2 H6 H7 H8 P1 P2 P3 U3 MC1 MC2 MC3 BASELINE
+
+==================================================================
+### MCP batch charged all at once or not at all (commit 4ec230fbf)
+pages/api/mcp/index.ts: one checkRateLimit charge of cost = batch size, skipped for an empty batch. The per-IP 300/min
+check is unchanged: it is a pre-auth abuse limit charged once per HTTP request (cost 1), so a batch does not drain it.
+Master's role-lock batch skip is untouched; the existing role-lock test now also asserts the batch was charged its full 5.
+Master's w2-28-system-role-mcp-rollback integration test:
+      Tests  4 passed (4)
+Mutants MB1-MB4 (new) and census MC1-MC3, P1-P3, U3, run against the limiter integration set and 18 unit files (incl. tests/unit/mcp/transport.test.ts):
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  248 passed (248)
+
+MB1 | pages/api/mcp/index.ts | mcp: batch charged one unit only
+int: Tests  59 passed (59)
+unit: × a batch charges the per-company limiter its call count, once (no batch bypass) 4ms
+unit: × a batch larger than what is left is refused whole: nothing charged, nothing run 1ms
+unit: × a batch stops running tool calls after the first role-lock refusal: the rest are answered at once as not run 1ms
+unit: Tests  3 failed | 245 passed (248)
+
+MB2 | pages/api/mcp/index.ts | mcp: batch charged one call at a time again, stopping at the first refusal
+int: Tests  59 passed (59)
+unit: × per-company rate limit 120/min → -32000 when exceeded 4ms
+unit: × a batch charges the per-company limiter its call count, once (no batch bypass) 1ms
+unit: × a batch larger than what is left is refused whole: nothing charged, nothing run 1ms
+unit: × a batch stops running tool calls after the first role-lock refusal: the rest are answered at once as not run 1ms
+unit: Tests  4 failed | 244 passed (248)
+
+MB3 | pages/api/mcp/index.ts | mcp: an empty batch is charged
+int: Tests  59 passed (59)
+unit: × an empty batch charges nothing 4ms
+unit: Tests  1 failed | 247 passed (248)
+
+MB4 | pages/api/mcp/index.ts | mcp: a refused batch still runs
+int: Tests  59 passed (59)
+unit: × per-company rate limit 120/min → -32000 when exceeded 2ms
+unit: × a batch larger than what is left is refused whole: nothing charged, nothing run 1ms
+unit: Tests  2 failed | 246 passed (248)
+
+MC1 | pages/api/mcp/index.ts | mcp: the company key collides with the per-IP key at another limit
+int: Tests  59 passed (59)
+unit: × no key pattern is held to two different limits 3ms
+unit: × per-company rate limit 120/min → -32000 when exceeded 6ms
+unit: × a batch charges the per-company limiter its call count, once (no batch bypass) 1ms
+unit: × a batch larger than what is left is refused whole: nothing charged, nothing run 1ms
+unit: × a batch stops running tool calls after the first role-lock refusal: the rest are answered at once as not run 1ms
+unit: Tests  5 failed | 243 passed (248)
+
+MC2 | pages/api/mcp/index.ts | mcp: the limiter is passed as a value
+int: Tests  59 passed (59)
+unit: × no file reaches the limiter under another name 4ms
+unit: Tests  1 failed | 247 passed (248)
+
+MC3 | pages/api/mcp/index.ts | mcp: per-IP key written with an unreadable key
+int: Tests  59 passed (59)
+unit: × every call it cannot read is pinned, and every pin still matches a call 4ms
+unit: Tests  1 failed | 247 passed (248)
+
+P1 | pages/api/accounting/portal/auth.ts | AFS magic-link route shares portal-auth: again
+int: Tests  59 passed (59)
+unit: × finds the call sites, including the keys the wrappers build 8ms
+unit: × no key pattern is held to two different limits 2ms
+unit: Tests  2 failed | 246 passed (248)
+
+P2 | pages/api/accounting/invoice-email.ts | a route holds an attempts key at another limit
+int: Tests  59 passed (59)
+unit: × no key pattern is held to two different limits 4ms
+unit: × counts the attempt against the user, and a malformed request never reaches the company bucket 5ms
+unit: Tests  2 failed | 246 passed (248)
+
+P3 | pages/api/accounting/ar/dunning/send.ts | a limiter is passed as a value
+int: Tests  59 passed (59)
+unit: × no file reaches the limiter under another name 4ms
+unit: Tests  1 failed | 247 passed (248)
+
+U3 | src/lib/auth/bearerPipeline.ts | bearer pipeline keeps its own copy of the table again
+int: Tests  59 passed (59)
+unit: × is the only table: both wrappers call it and neither keeps a copy 8ms
+unit: Tests  1 failed | 247 passed (248)
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  248 passed (248)
+
+DONE BASELINE MB1 MB2 MB3 MB4 MC1 MC2 MC3 P1 P2 P3 U3 BASELINE

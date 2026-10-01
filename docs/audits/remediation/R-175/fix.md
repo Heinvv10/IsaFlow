@@ -783,6 +783,19 @@ untouched. Mutant HT1 red.
 The comment in `pages/api/mcp/index.ts` said `checkRateLimit` counts every call; since review
 round 3 a refused call is not counted. Corrected.
 
+### MCP batch charge (pre-existing, last review)
+
+`pages/api/mcp/index.ts` charged a JSON-RPC batch one unit at a time and stopped at the first
+refusal. A 20-call batch arriving with 10 units left spent those 10, ran nothing, and was
+refused; a retrying agent drained the end of every window. It is now one atomic charge of the
+batch size: the whole batch fits and is charged, or nothing is charged and it is refused. An
+empty batch is not charged, as before. The per-IP check is a pre-auth abuse limit charged once
+per HTTP request, so it does not have this shape and is unchanged. Calls a role-lock skip
+leaves unrun stay charged, as before. Mutants MB1 to MB4 red.
+
+`tests/unit/mcp/transport.test.ts` was already 347 lines on master (over the 300-line cap); this
+change brings it to 372. It was not split here.
+
 ## Rollback
 
 Revert the branch's commits. No migration, no data change, no configuration. Counters written
