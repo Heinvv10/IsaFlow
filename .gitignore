@@ -77,3 +77,6 @@ scripts/.venv/
 /*.png
 qa-reports/
 .superpowers/
+
+# Rendered pack proofs: real tenant figures, kept on disk, never in git.
+/evidence/
