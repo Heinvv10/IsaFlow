@@ -18,9 +18,12 @@
  * This does (2). A cursor-carried balance is a figure the CALLER supplies, and
  * a stale, hand-edited or out-of-order cursor then produces a running balance
  * that is wrong and looks authoritative — on a ledger, the single worst
- * failure available. (2) recomputes the window each page: a scan of at most ~22k
- * rows on the largest production company, in milliseconds. Correctness that does
- * not depend on the caller is worth that, and balances are IDENTICAL at any page size.
+ * failure available. (2) recomputes the window each page, which costs a scan of
+ * at most ~22k rows on the largest production company and is measured in
+ * milliseconds. Correctness that does not depend on the caller is worth that.
+ *
+ * It also means a page's balances are IDENTICAL at any page size, which is what
+ * the DB-gated test asserts.
  *
  * ── WHAT IS SUPPRESSED, AND WHY THAT IS NOT TIMIDITY ───────────────────────
  *
@@ -31,8 +34,7 @@
  * selects whole accounts and leaves each one's sequence intact, so the balances
  * survive and equal the ones the full ledger reports.
  *
- * Across a fiscal-year start an income-statement line from that date has a `null`
- * balance, named in `incomeStatementBalanceNullFrom` (see generalLedgerStreamYearEnd).
+ * Income-statement lines past a fiscal-year start: see generalLedgerStreamYearEnd.
  *
  * `balanced` is `null` under ANY filter. Debits equalling credits is a property
  * of the complete period — every posted journal balances, so a whole-period
@@ -54,9 +56,7 @@ import {
   type GeneralLedgerQuery,
   type StreamTotals,
 } from './generalLedgerStreamTypes';
-import {
-  incomeStatementBalanceNullFrom, runningBalanceIsDefined, streamFiscalBasis, withRetainedBf,
-} from './generalLedgerStreamYearEnd';
+import { incomeStatementBalanceNullFrom, runningBalanceIsDefined, streamFiscalBasis, withRetainedBf } from './generalLedgerStreamYearEnd';
 import { INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
 export type { GeneralLedgerCursor, GeneralLedgerLine, GeneralLedgerPage, GeneralLedgerQuery } from './generalLedgerStreamTypes';
 

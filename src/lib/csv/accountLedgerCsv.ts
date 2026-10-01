@@ -6,7 +6,7 @@
  *   - newlines within a field are preserved inside the quotes
  */
 
-import { toMoney } from '@/lib/money/decimalSum';
+import { ledgerPageBoundaries } from './ledgerPageBoundaries';
 import type {
   AccountLedgerMeta,
   AccountLedgerRow,
@@ -45,14 +45,7 @@ export function buildAccountLedgerCsv(
     'Debit', 'Credit', 'Balance', 'Derived',
   ];
 
-  const first = rows[0];
-  const last = rows[rows.length - 1];
-  const fromPrevious = page > 1 && first !== undefined;
-  const pageOpening = fromPrevious
-    ? toMoney(first.runningBalance - (meta.normalBalance === 'debit' ? first.debit - first.credit : first.credit - first.debit))
-    : openingBalance;
-  const carriesForward = page < totalPages && last !== undefined;
-  const pageClosing = carriesForward ? last.runningBalance : periodClosingBalance;
+  const b = ledgerPageBoundaries(meta.normalBalance, rows, openingBalance, periodClosingBalance, page, totalPages);
 
   const lines: string[] = [headers.join(',')];
 
@@ -60,12 +53,12 @@ export function buildAccountLedgerCsv(
     [
       '', // Date
       '', // Entry #
-      csvField(fromPrevious ? 'Balance Brought Forward' : 'Opening Balance'),
+      csvField(b.openingLabel),
       '', // Reference
       '', // Source
       '', // Debit
       '', // Credit
-      pageOpening.toFixed(2),
+      b.opening.toFixed(2),
       '', // Derived
     ].join(','),
   );
@@ -90,12 +83,12 @@ export function buildAccountLedgerCsv(
     [
       '', // Date
       '', // Entry #
-      csvField(carriesForward ? 'Balance Carried Forward' : 'Closing Balance'),
+      csvField(b.closingLabel),
       '', // Reference
       '', // Source
       '', // Debit
       '', // Credit
-      pageClosing.toFixed(2),
+      b.closing.toFixed(2),
       '', // Derived
     ].join(','),
   );
