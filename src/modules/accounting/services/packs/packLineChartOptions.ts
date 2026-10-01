@@ -14,6 +14,7 @@
  * which is why neither showed up.
  */
 import type { EChartsCoreOption } from 'echarts/core';
+import { endLabelAnchor, type EndLabelPlacement } from './pages/packEndLabelPlacement';
 import { CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX, DEFAULT_CHART_PALETTE, type ChartPalette, type TrendPoint } from './packChartOptions';
 
 export { sparklineOption } from './packSparklineOption';
@@ -66,12 +67,13 @@ export function smallMultipleOption(
   domain: { min: number; max: number },
   formatValue: (value: number) => string,
   palette: ChartPalette = DEFAULT_CHART_PALETTE,
-  axis?: { unit: string } | { endpoints: true },
+  axis?: { unit: string; endLabelAt?: EndLabelPlacement } | { endpoints: true },
 ): EChartsCoreOption {
   const last = points[points.length - 1]?.value ?? 0;
-  // Whether the line comes DOWN into its last point — see `endLabel`.
-  const fallsIntoLast = points.length > 1 && points[points.length - 2]!.value > last;
   const unit = axis !== undefined && 'unit' in axis ? axis.unit : null;
+  // Where the full-width line's end label goes — chosen by the caller, which
+  // draws the chart and reads it back (`packEndLabelPlacement`).
+  const endLabelAt = (axis !== undefined && 'unit' in axis ? axis.endLabelAt : undefined) ?? { side: 'above', away: 6 };
   const endpoints = axis !== undefined && 'endpoints' in axis;
   return {
     animation: false,
@@ -242,14 +244,11 @@ export function smallMultipleOption(
           // fine if the label is opaque, and is a strike-through if it is
           // not.
           //
-          // AND ON THE SIDE THE LINE DID NOT ARRIVE FROM. Lifted above the
-          // last point, it sat across a line that FELL into its last month —
-          // the long demo's (300) to (548) — so a falling finish takes the
-          // label under the point instead.
+          // AND WHERE THE DRAWN CHART HAS ROOM FOR IT — above, below or to
+          // the left of the last point, as `packEndLabelPlacement` found.
+          // Its right edge stays inside the plot.
           ...(unit === null ? {} : {
-            align: 'right',
-            verticalAlign: fallsIntoLast ? 'top' : 'bottom',
-            offset: [-3, fallsIntoLast ? 6 : -6],
+            ...endLabelAnchor(endLabelAt),
             backgroundColor: palette.paper,
             padding: [1, 2, 1, 2],
           }),

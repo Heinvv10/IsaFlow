@@ -7,7 +7,9 @@
 import { PAGE_WIDTH_MM } from './packTextMetrics';
 import { svgBoxFor } from './packChartBox';
 import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
-import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
+import { CHART_HEIGHT_MM, renderChartSvg, type TrustedChartSvg } from '@/lib/charts/ssrSvg';
+import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
+import { endLabelCandidates, endLabelFits, type EndLabelPlacement } from './packEndLabelPlacement';
 import { sharedDomain, smallMultipleOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { monthLabel, partialMonthClause } from './packPartialMonth';
@@ -63,6 +65,27 @@ const CASH_TREND_RUNGS = [
  * Null when there is no trend series to plot — the same "say why, don't
  * invent" rule the rest of this file follows rather than opening at zero.
  */
+function drawnWithEndLabel(
+  points: Array<{ label: string; value: number }>,
+  domain: { min: number; max: number },
+  scale: MoneyScale,
+  plot: { widthMm: number; heightMm: number },
+): TrustedChartSvg {
+  const falls = points.length > 1 && points[points.length - 2]!.value > points[points.length - 1]!.value;
+  const draw = (at: EndLabelPlacement) => renderChartSvg(
+    smallMultipleOption(points, domain, (n) => formatMoney(n, { scale }), undefined, { unit: scale, endLabelAt: at }),
+    plot,
+  );
+  const candidates = endLabelCandidates(falls);
+  for (const at of candidates) {
+    const svg = draw(at);
+    if (endLabelFits(String(svg), DEFAULT_CHART_PALETTE)) return svg;
+  }
+  // Nowhere clear: the first preference, which keeps the label on the plot
+  // side the line did not arrive from.
+  return draw(candidates[0]!);
+}
+
 export function buildCashTrendChart(
   trend: PackTrendPoint[],
   scale: MoneyScale,
@@ -99,13 +122,11 @@ export function buildCashTrendChart(
     id: 'cash-trend',
     title: cashTitle,
     kind: 'line',
-    svg: renderChartSvg(
-      // LABELLED, unlike a page-10 panel. This one is on the page's own text
-      // measure and is the only picture of cash a director gets; bare, it
-      // was six gridlines carrying one number.
-      smallMultipleOption(points, domain, (n) => formatMoney(n, { scale }), undefined, { unit: scale }),
-      cashPlot,
-    ),
+    // LABELLED, unlike a page-10 panel. This one is on the page's own text
+    // measure and is the only picture of cash a director gets; bare, it was
+    // six gridlines carrying one number. The end label is placed by drawing
+    // and reading back — see `packEndLabelPlacement`.
+    svg: drawnWithEndLabel(points, domain, scale, cashPlot),
     heightMm: box.heightMm,
     plotMm: cashPlot.heightMm,
     // What that sentence ASSERTS, as a number, so the gate can hold it
