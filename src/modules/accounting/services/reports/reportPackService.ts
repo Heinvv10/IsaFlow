@@ -126,6 +126,34 @@ export const DEFAULT_KPI_TARGETS: KPITargetConfig[] = [
   { ratioKey: 'debtorDays', target: 30, warningThreshold: 45, criticalThreshold: 60, lowerIsBetter: true },
 ];
 
+const NO_CASH_FLOW_READ = (activity: string): string =>
+  `No ${activity} cash flow figure was read for this period.`;
+const DEPENDS_ON_UNREAD_CASH_FLOW =
+  'Not stated: it depends on a cash flow figure that was not read for this period.';
+
+/** Why the pack states no free cash flow. */
+export const NO_FREE_CASH_FLOW =
+  'Not stated: capital expenditure is not captured separately from other investing cash flows.';
+
+/**
+ * The pack's ratios, with free cash flow marked not meaningful where there is
+ * no capital expenditure to take off.
+ *
+ * `calculateExtendedRatios` computes it as operating cash flow less capital
+ * expenditure and reads an absent capex as zero — so it printed 0 while
+ * operating cash flow was absent too, and prints OPERATING cash flow under
+ * the name "free cash flow" once that figure is carried. Nothing supplies
+ * capex: the cash flow statement nets acquisitions against disposals. Marked
+ * here, in the engine's own `notMeaningful` map, so the scorecard and the
+ * printed ratios read the same reason; the engine itself is shared with
+ * surfaces outside the pack and is not changed.
+ */
+function packRatios(financialData: FinancialData): ReturnType<typeof calculateExtendedRatios> {
+  const ratios = calculateExtendedRatios(financialData);
+  if (financialData.capitalExpenditure !== undefined) return ratios;
+  return { ...ratios, notMeaningful: { ...ratios.notMeaningful, freeCashFlow: NO_FREE_CASH_FLOW } };
+}
+
 function buildSectionData(
   type: string,
   input: ReportPackInput,
@@ -177,6 +205,23 @@ function buildSectionData(
       };
 
     case 'cash_flow': {
+      // A FIGURE NOBODY READ IS NOT A FIGURE. Where no operating cash flow was
+      // carried this section took it to BE net profit, took investing and
+      // financing to be nil, and derived a net movement and an opening
+      // balance from the three — a cash flow statement the ledger never
+      // produced. The numbers are still emitted, because every reader of
+      // this blob requires six of them; `unavailable` names the ones that
+      // are stand-ins, and the printed pack prints the reason instead.
+      const unavailable: Record<string, string> = {};
+      if (input.operatingCashFlow === undefined) unavailable.operatingCashFlow = NO_CASH_FLOW_READ('operating');
+      if (input.investingCashFlow === undefined && input.capitalExpenditure === undefined) {
+        unavailable.investingCashFlow = NO_CASH_FLOW_READ('investing');
+      }
+      if (input.financingCashFlow === undefined) unavailable.financingCashFlow = NO_CASH_FLOW_READ('financing');
+      if (Object.keys(unavailable).length > 0) {
+        unavailable.netCashFlow = DEPENDS_ON_UNREAD_CASH_FLOW;
+        unavailable.openingCash = DEPENDS_ON_UNREAD_CASH_FLOW;
+      }
       const opCF = input.operatingCashFlow ?? input.netProfit;
       // THE NET INVESTING FLOW WHERE ONE IS CARRIED, capex negated only where
       // it is not. With real operating and financing figures and investing
@@ -192,14 +237,22 @@ function buildSectionData(
         netCashFlow: netCF,
         openingCash: input.cash - netCF,
         closingCash: input.cash,
+        unavailable,
       };
     }
 
-    case 'ratios':
-      return calculateExtendedRatios(financialData) as unknown as Record<string, unknown>;
+    case 'ratios': {
+      const ratios = packRatios(financialData);
+      // Nulled as well as explained, so no reader of this blob can print the
+      // stand-in by skipping the reason.
+      return {
+        ...ratios,
+        ...(ratios.notMeaningful.freeCashFlow === undefined ? {} : { freeCashFlow: null }),
+      } as unknown as Record<string, unknown>;
+    }
 
     case 'kpis': {
-      const ratios = calculateExtendedRatios(financialData);
+      const ratios = packRatios(financialData);
       const scorecard = buildKPIScorecard(ratios, DEFAULT_KPI_TARGETS);
       return { scorecard };
     }

@@ -28,6 +28,13 @@ const TREND: PackTrendPoint[] = [
 ];
 
 const pack = buildReportPack('management', INPUT, '2026-01-01', '2026-09-05');
+/** The same pack with a cash flow statement and a capital expenditure figure
+ *  behind it, so every cash line and every ratio has a figure to print. */
+const packWithCashFlows = buildReportPack('management', {
+  ...INPUT,
+  operatingCashFlow: 512_345.67, investingCashFlow: -98_765.43, financingCashFlow: 12_345.67,
+  capitalExpenditure: 150_000,
+}, '2026-01-01', '2026-09-05');
 
 /** Every number reachable in a value, however deeply nested. */
 function numbersIn(value: unknown, found: Set<number> = new Set()): Set<number> {
@@ -135,8 +142,8 @@ describe('buildPackDocument', () => {
     };
 
     it('prints each line under its own label, with the figure the service produced', () => {
-      const source = pack.sections.find((s) => s.type === 'cash_flow')!.data as Record<string, number>;
-      const items = cashFlowItems(buildPackDocument(pack, TREND));
+      const source = packWithCashFlows.sections.find((s) => s.type === 'cash_flow')!.data as Record<string, number>;
+      const items = cashFlowItems(buildPackDocument(packWithCashFlows, TREND));
 
       expect(items.map((i) => i.label)).toEqual([
         'Operating Cash Flow', 'Investing Cash Flow', 'Financing Cash Flow',
@@ -171,6 +178,7 @@ describe('buildPackDocument', () => {
     ['waterfall', 'steps'],
     ['commentary', 'summary'],
     ['ratios', 'notMeaningful'],
+    ['cash_flow', 'unavailable'],
   ])('throws when the %s section loses its %s field', (sectionType, field) => {
     const stripped = {
       ...pack,
@@ -217,7 +225,9 @@ describe('buildPackDocument', () => {
   });
 
   it('carries no unavailable reason when equity is sound', () => {
-    const doc = buildPackDocument(pack, TREND);
+    // With capital expenditure carried: without it free cash flow has a
+    // reason of its own, pinned in reportPackUnstatedCashFigures.test.ts.
+    const doc = buildPackDocument(packWithCashFlows, TREND);
     const ratios = doc.sections.find((s) => s.type === 'ratios')!;
     const items = (ratios.blocks.find((b) => b.kind === 'kv') as { items: PackKvItem[] }).items;
     expect(items.filter((i) => i.unavailable !== undefined)).toEqual([]);

@@ -89,6 +89,19 @@ export function packToCashFlow(d: Record<string, unknown>): PackCashFlow {
   return out;
 }
 
+/**
+ * Why a cash-flow line has no figure to print, keyed by field. Always present
+ * on the section (possibly empty), so an absent one is a rename — and would
+ * silently print the service's stand-in numbers as if they had been read.
+ */
+export function packToCashFlowUnavailable(d: Record<string, unknown>): Record<string, string> {
+  const v = d.unavailable;
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) {
+    throw new MissingPackFieldError('cash_flow', 'unavailable', `expected an object, got ${describe(v)}`);
+  }
+  return v as Record<string, string>;
+}
+
 // ── kpis / waterfall / commentary / ratios ───────────────────────────────────
 
 /** The KPI scorecard. An EMPTY array is legitimate (no targets met the data);

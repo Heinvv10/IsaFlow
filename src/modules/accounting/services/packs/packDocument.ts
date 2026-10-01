@@ -27,7 +27,7 @@ import type { WaterfallStep } from '@/modules/accounting/services/reports/waterf
 import type { PackTrendPoint } from './packTrendService';
 import { isLandscapeSection, isPackSectionType, packSectionTitle, type PackSectionType } from './packSections';
 import {
-  CASH_FLOW_FIELDS, cashFlowLabel, packToCashFlow, packToCommentary,
+  CASH_FLOW_FIELDS, cashFlowLabel, packToCashFlow, packToCashFlowUnavailable, packToCommentary,
   packToRatioReasons, packToScorecard, packToWaterfallSteps,
 } from './packSectionData';
 
@@ -201,11 +201,17 @@ function blocksFor(sectionType: PackSectionType, section: PackSection, trend: Pa
       // Typed, not read by loose key: a rename upstream throws here rather
       // than producing six labelled zeros. See packSectionData.ts.
       const cashFlow = packToCashFlow(d);
+      // A line the service could not state prints its reason, not the
+      // stand-in number the blob still carries for its other readers.
+      const unavailable = packToCashFlowUnavailable(d);
       return [{
         kind: 'kv',
-        items: CASH_FLOW_FIELDS.map((field) => ({
-          label: cashFlowLabel(field), value: cashFlow[field], format: 'money' as const,
-        })),
+        items: CASH_FLOW_FIELDS.map((field): PackKvItem => {
+          const reason = unavailable[field];
+          return reason === undefined
+            ? { label: cashFlowLabel(field), value: cashFlow[field], format: 'money' }
+            : { label: cashFlowLabel(field), value: null, format: 'money', unavailable: reason };
+        }),
       }];
     }
 
