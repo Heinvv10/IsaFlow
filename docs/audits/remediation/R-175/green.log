@@ -1273,3 +1273,71 @@ int: Tests  75 passed (75)
 unit: Tests  344 passed (344)
 
 DONE ST7 ST8 Y6 Y7 Y8 Y9 N2 A1 A2 SG1 SG2 SG3 BASELINE
+
+==================================================================
+### Note writer without SDK retries; module doc states the status rule (commit 94084f8b0)
+Whole unit suite:
+ Test Files  1137 passed (1137)
+      Tests  15180 passed | 6 skipped (15186)
+Red on 7ff2d029f's noteAiService.ts: red.noretry.unit.log. Mutants RT1-RT2 (new) and AN2, AN5, Y6, A1, A2 (re-run); baseline green before and after; 7 of 7 RED:
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  347 passed (347)
+
+RT1 | src/modules/accounting/services/afs/noteAiService.ts | the note writer's client retries again (SDK default)
+int: Tests  75 passed (75)
+unit: × a 529 is not retried: one request, no use 477ms
+unit: × a 500 is not retried either: one request, counted as use 396ms
+unit: Tests  2 failed | 345 passed (347)
+
+RT2 | src/modules/accounting/services/afs/noteAiService.ts | the note writer's client retries once
+int: Tests  75 passed (75)
+unit: × a 529 is not retried: one request, no use 461ms
+unit: × a 500 is not retried either: one request, counted as use 379ms
+unit: Tests  2 failed | 345 passed (347)
+
+AN2 | src/lib/quotaUse.ts | a 529 counts as use for Anthropic (thrown form)
+int: Tests  75 passed (75)
+unit: × a 529 is not retried: one request, no use 93ms
+unit: × records nothing on an Anthropic 529 (overloaded): the request was turned away 4ms
+unit: × the Anthropic rule differs from the general one only at 529 1ms
+unit: Tests  3 failed | 344 passed (347)
+
+AN5 | src/modules/accounting/services/afs/noteAiService.ts | noteAiService uses the general rule (529 is use)
+int: Tests  75 passed (75)
+unit: × a 529 is not retried: one request, no use 86ms
+unit: × records nothing on an Anthropic 529 (overloaded): the request was turned away 4ms
+unit: Tests  2 failed | 345 passed (347)
+
+Y6 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × a 500 is not retried either: one request, counted as use 6ms
+unit: × records one AI use on any other 5xx: it may come after the work 4ms
+unit: × records one AI use when the call times out 1ms
+unit: Tests  3 failed | 344 passed (347)
+
+A1 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative records no use on an answer
+int: Tests  75 passed (75)
+unit: × a success is one request and one unit used 5ms
+unit: × accounting/afs/[documentId]/sections/[sectionId]/ai-narrative.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 62ms
+unit: × records one AI use when the provider answers 4ms
+unit: Tests  4 failed | 343 passed (347)
+
+A2 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative records use before the provider call
+int: Tests  75 passed (75)
+unit: × a 529 is not retried: one request, no use 82ms
+unit: × a 500 is not retried either: one request, counted as use 3ms
+unit: × records nothing when the provider refuses the request (4xx) 4ms
+unit: × records nothing on an Anthropic 529 (overloaded): the request was turned away 1ms
+unit: × records one AI use on any other 5xx: it may come after the work 1ms
+unit: × records nothing when the provider could not be reached 1ms
+unit: × records one AI use when the call times out 1ms
+unit: Tests  7 failed | 340 passed (347)
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  347 passed (347)
+
+DONE BASELINE RT1 RT2 AN2 AN5 Y6 A1 A2 BASELINE
