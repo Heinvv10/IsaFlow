@@ -3681,22 +3681,27 @@
       "correctedTrigger": null,
       "severityRationale": "Source priority only; impact and reachability not yet validated.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "31fc2f10",
-      "status": "confirmed",
+      "currentSha": "090497265",
+      "status": "in-progress",
       "dependencies": [],
       "testNames": [
         "tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts"
       ],
       "evidencePaths": [
         "K-103/red.log",
-        "K-103/validation.md"
+        "K-103/validation.md",
+        "K-103/red.r175.int.log",
+        "R-175/fix.md",
+        "R-175/green.log",
+        "R-175/mutations.log"
       ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
-      "reportedSeverity": "high"
+      "reportedSeverity": "high",
+      "processNotes": "2026-10-01: Fixed on fix/r175-rate-limiter-20261001 together with R-175, which made every limiter call reach the table and so widened this item's row-lock hold from 'above half the limit' to every call. The registered test file was not in the repository at any ref (only this item's red.log named it); it was rewritten from that log with the same two cases plus five more. RED 5/7 on 527dda3f4 (K-103/red.r175.int.log). Fix: checkRateLimit and refundRateLimit run on the limiter's own pool (src/lib/rateLimitPool.ts, 3 connections per process, 5s connect timeout), outside any transaction; a limiter that cannot get a connection throws, nothing is admitted unchecked. The validation's proposed fix (a client from the main pool) was not used: with every request connection held, a limiter on the main pool waits the full 15s connect timeout (measured, mutant K3). GREEN 7/7; mutants K1-K7 RED. rate_limit_counters has no RLS, policies or triggers on the fixture; grants to app_user and platform_admin. Not verified: the grants of the production DATABASE_URL role (login already writes the table on that role outside a transaction), and the connection budget across production processes. Awaiting blind review, CI and PR by the team lead."
     },
     {
       "id": "K-104",
@@ -14681,9 +14686,12 @@
       "auditedSha": "090497265",
       "currentSha": "090497265",
       "status": "in-progress",
-      "dependencies": [],
+      "dependencies": [
+        "K-103"
+      ],
       "testNames": [
         "tests/integration/r175-rate-limit-admits-over-max.int.test.ts",
+        "tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts",
         "tests/unit/lib/rateLimitEveryCallCounted.test.ts"
       ],
       "evidencePaths": [
@@ -14691,7 +14699,8 @@
         "docs/audits/remediation/R-175/red.int.log",
         "docs/audits/remediation/R-175/red.unit.log",
         "docs/audits/remediation/R-175/green.log",
-        "docs/audits/remediation/R-175/mutations.log"
+        "docs/audits/remediation/R-175/mutations.log",
+        "docs/audits/remediation/K-103/red.r175.int.log"
       ],
       "fixCommit": null,
       "pr": null,
@@ -14703,6 +14712,7 @@
       "title": "checkRateLimit admits about three times its limit: calls admitted from the in-process LRU are never written to rate_limit_counters",
       "affectedPaths": [
         "src/lib/rateLimit.ts",
+        "src/lib/rateLimitPool.ts",
         "src/lib/rateLimit.claude.md",
         "pages/api/invitations/[token]/accept.ts",
         "pages/api/mcp/index.ts"
@@ -14711,7 +14721,7 @@
       "claim": "checkRateLimit admits a cost-1 call from a 5-second in-process LRU copy while that copy is below floor(max * 0.5), and increments only the copy. The count is never written to rate_limit_counters. Each call that does reach the database overwrites the copy with the lower database count, so the copy falls back under the threshold and admits again. Measured on origin/master 090497265 against PostgreSQL: a limit of 20 admits 65 of 100 sequential calls on one process, and 65 across two module instances sharing the table. Every rate-limited route is affected.",
       "severityRationale": "Every limit in the product is about three times looser than written, per process, including the brute-force limits on login, 2FA and invite-accept password attempts. It weakens a control; it does not bypass authentication and it loses no data. Invite-accept already charged cost 2 to avoid the short-circuit.",
       "historicalDataImpact": "None. rate_limit_counters holds only short-lived counters; no ledger or customer data is involved.",
-      "processNotes": "2026-10-01: Reproduced with a failing test first (integration RED 7/11, mocked unit RED 4/6 on origin/master 090497265). Fix on the branch: the LRU short-circuit is removed, every call does the atomic upsert, clearRateLimitCache is kept as a no-op. GREEN 11/11 and 6/6; 47 unit files that mention the limiter pass (539 tests); mutants 14/14 RED. Argument against: one upsert per rate-limited request, and inside a withAuth transaction the key's row lock is now held from the first call rather than from half the limit (K-103, still open) — not measured. Not verified on this harness: the k-041 invite-accept limiter tests, which need GoTrue. Awaiting blind review, CI and PR by the team lead.",
+      "processNotes": "2026-10-01: Reproduced with a failing test first (integration RED 7/11, mocked unit RED 4/6 on origin/master 090497265). Fix on the branch: the LRU short-circuit is removed, every call does the atomic upsert, clearRateLimitCache is kept as a no-op. GREEN 11/11 and 6/6; 47 unit files that mention the limiter pass (539 tests); mutants 14/14 RED. Argument against: one upsert per rate-limited request, and inside a withAuth transaction the key's row lock is now held from the first call rather than from half the limit (K-103, still open) — not measured. Not verified on this harness: the k-041 invite-accept limiter tests, which need GoTrue. Later the same day, on the team lead's decision: K-103 fixed in the same branch, because this fix alone would make every call hold the counter row lock for the rest of its request. The limiter now writes on its own pool (see K-103). Whole unit suite 1117 files / 14881 tests pass; mutants 14/14 RED on the first commit, 19/19 RED (K1-K7 and the repeated M-series) on the pool-based code. Awaiting blind review, CI and PR by the team lead.",
       "reportedSeverity": "medium"
     }
   ],
