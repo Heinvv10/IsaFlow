@@ -1,4 +1,5 @@
 // Derived rows (year-end closes) and the derived RE-BF account must not inflate counts, and must be labelled.
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -6,6 +7,7 @@ import type { ReactNode } from 'react';
 vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';

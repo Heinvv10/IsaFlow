@@ -70,7 +70,7 @@ export default function GeneralLedgerPage() {
     if (!periodStart || !periodEnd) {
       // Clearing an input invalidates in-flight requests and clears data and loading.
       requestRef.current += 1;
-      setReports([]); setError(''); setLoading(false);
+      setReports([]); setError(''); setLoading(false); setLoaded(false);
       return;
     }
     // Only the latest request may set state (same pattern as the account detail page).

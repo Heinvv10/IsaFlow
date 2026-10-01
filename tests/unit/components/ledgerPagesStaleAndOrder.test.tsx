@@ -223,6 +223,16 @@ describe('clearing an input invalidates in-flight requests and clears data and l
     expect(screen.queryByText(new RegExp(text))).toBeNull();
   }, 15000);
 
+  it('General Ledger: after a successful load, clearing a date shows no "No account activity" text', async () => {
+    const pending = stubFetch();
+    const view = render(<GeneralLedgerPage />);
+    await calls(pending, 1);
+    await settle(pending[0]!, ok({ accounts: [] }));
+    await screen.findByText('No account activity for the selected period');
+    fireEvent.change(dateInputs(view.container)[1]!, { target: { value: '' } });
+    await waitFor(() => expect(screen.queryByText('No account activity for the selected period')).toBeNull());
+  }, 15000);
+
   it('Account Detail: no stuck spinner, late response ignored', async () => {
     const pending = stubFetch();
     router.query = { accountId: '5000', from: '2026-01-01', to: '2026-03-31' };

@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
 import TrialBalancePage from '@/../pages/accounting/trial-balance';
@@ -6,6 +7,7 @@ import IncomeStatementPage from '@/../pages/accounting/reports/income-statement'
 import BalanceSheetPage from '@/../pages/accounting/reports/balance-sheet';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({children}: {children: React.ReactNode}) => <>{children}</> }));
 vi.mock('@/contexts/TableDensityContext', () => ({ useTableDensity: () => ({rowClass: ''}) }));
 vi.mock('next/router', () => ({useRouter: () => ({query: {period_start:'2026-04-01', period_end:'2026-04-30', as_at_date:'2026-04-30'}, pathname: '', push: vi.fn()})}));
