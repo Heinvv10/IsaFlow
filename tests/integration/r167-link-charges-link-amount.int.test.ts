@@ -200,6 +200,21 @@ describe('a completed payment spends the link it came from', () => {
       .toEqual([{ status: 'completed' }]);
   });
 
+  it('verify still completes a request swept to failed while Paystack was answering success', async () => {
+    const { invoiceId, linkId, token } = await invoiceWithLink(0, 20);
+    expect((await create(token)).statusCode).toBe(200);
+    const [req] = await requests(invoiceId);
+    h.verifyTransaction.mockImplementation(async () => {
+      await pool.query("UPDATE paystack_payment_requests SET status = 'failed' WHERE paystack_reference = $1", [req!.ref]);
+      return { status: 'success', id: 1673, paidAt: new Date().toISOString(), channel: 'card' };
+    });
+    expect((await verify(req!.ref)).body.data?.status).toBe('completed');
+    expect((await pool.query('SELECT status FROM paystack_payment_requests WHERE paystack_reference = $1', [req!.ref])).rows)
+      .toEqual([{ status: 'completed' }]);
+    expect(await banked(req!.ref)).toEqual([{ t: '20.00' }]);
+    expect((await linkRow(linkId)).status).toBe('paid');
+  });
+
   it('a request naming a link of another invoice does not spend that link', async () => {
     const mine = await invoiceWithLink(0, 20);
     const other = await invoiceWithLink(0, 20);
