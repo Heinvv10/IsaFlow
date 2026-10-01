@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { apiFetch } from '@/lib/apiFetch';
 import { queryText, reportHref } from './reportReturnState';
+import { localISODate } from '@/lib/dateUtils';
 
 interface FiscalPeriod { id: string; periodName: string; startDate: string; endDate: string; status: string }
 
@@ -39,7 +40,7 @@ export function useTrialBalanceFilters() {
   useEffect(() => {
     if (!ready || !periodsLoaded) return;
     const query = Object.fromEntries(new URL(queryKey, 'https://report.invalid').searchParams);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISODate();
     const requested = periods.find(p => p.id === query.fiscal_period_id);
     const dated = periods.find(p => p.startDate.slice(0, 10) === query.from && p.endDate.slice(0, 10) === query.to);
     const best = requested ?? dated ?? periods.find(p => p.status === 'open' && p.startDate.slice(0, 10) <= today && p.endDate.slice(0, 10) >= today)

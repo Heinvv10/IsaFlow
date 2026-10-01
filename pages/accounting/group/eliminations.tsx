@@ -17,12 +17,10 @@ import {
 } from '@/components/accounting/group/EliminationsShared';
 import { EliminationsTable } from '@/components/accounting/group/EliminationsTable';
 import { EliminationsCreateModal } from '@/components/accounting/group/EliminationsCreateModal';
+import { localISODate } from '@/lib/dateUtils';
 
 interface EntityGroup { id: string; name: string; }
 
-const today = new Date();
-const DEFAULT_PERIOD_START = `${today.getFullYear()}-01-01`;
-const DEFAULT_PERIOD_END = today.toISOString().substring(0, 10);
 const BLANK_LINES: EliminationLine[] = [
   { groupAccountCode: '', debit: 0, credit: 0 },
   { groupAccountCode: '', debit: 0, credit: 0 },
@@ -31,8 +29,8 @@ const BLANK_LINES: EliminationLine[] = [
 export default function EliminationsPage() {
   const [groups, setGroups] = useState<EntityGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
-  const [periodStart, setPeriodStart] = useState(DEFAULT_PERIOD_START);
-  const [periodEnd, setPeriodEnd] = useState(DEFAULT_PERIOD_END);
+  const [periodStart, setPeriodStart] = useState(() => `${new Date().getFullYear()}-01-01`);
+  const [periodEnd, setPeriodEnd] = useState(() => localISODate());
   const [items, setItems] = useState<EliminationAdjustment[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -41,7 +39,7 @@ export default function EliminationsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formType, setFormType] = useState<EliminationType>('interco_revenue');
   const [formDescription, setFormDescription] = useState('');
-  const [formPeriod, setFormPeriod] = useState(DEFAULT_PERIOD_END);
+  const [formPeriod, setFormPeriod] = useState(() => localISODate());
   const [formLines, setFormLines] = useState<EliminationLine[]>(BLANK_LINES);
   const [formError, setFormError] = useState('');
   const [formSaving, setFormSaving] = useState(false);
@@ -101,7 +99,7 @@ export default function EliminationsPage() {
     postAction(id, { action: 'reverse-elimination', elimination_id: id }, 'Failed to reverse elimination');
 
   function resetForm() {
-    setFormType('interco_revenue'); setFormDescription(''); setFormPeriod(DEFAULT_PERIOD_END);
+    setFormType('interco_revenue'); setFormDescription(''); setFormPeriod(localISODate());
     setFormLines(BLANK_LINES.map((l) => ({ ...l }))); setFormError('');
   }
 
