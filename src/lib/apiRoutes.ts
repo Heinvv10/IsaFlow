@@ -42,6 +42,9 @@ import type { getPackTrend } from '@/modules/accounting/services/packs/packTrend
 import type { createShareLink, listShareLinks } from '@/modules/accounting/services/share/shareLinkService';
 import type { CommentaryRow, generateDrafts, listCommentary } from '@/modules/accounting/services/commentary/commentaryService';
 import type { createAnnotation, listAnnotations } from '@/modules/accounting/services/annotations/annotationService';
+import type { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
+import type { getAccountTransactions } from '@/modules/accounting/services/gl/accountTransactionsService';
+import type { getGeneralLedgerReport } from '@/modules/accounting/services/gl/generalLedgerReportService';
 import type { getMonthlyMovements } from '@/modules/accounting/services/reports/trendRowsService';
 import type { getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
 import type { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
@@ -106,6 +109,9 @@ interface StaticRoutes {
   '/api/accounting/annotations':
     | { annotations: Awaited<ReturnType<typeof listAnnotations>> }
     | { annotation: Awaited<ReturnType<typeof createAnnotation>> };
+  '/api/accounting/reports-account-ledger': Awaited<ReturnType<typeof getAccountLedger>>;
+  '/api/accounting/reports-account-transactions': Awaited<ReturnType<typeof getAccountTransactions>>;
+  '/api/accounting/reports-general-ledger': { accounts: Awaited<ReturnType<typeof getGeneralLedgerReport>> };
   '/api/accounting/reports-account-trends': Awaited<ReturnType<typeof getMonthlyMovements>>;
   '/api/accounting/reports-budget-comparator': {
     fiscalYear: Awaited<ReturnType<typeof getBudgetVariance>>['fiscalYear'];
