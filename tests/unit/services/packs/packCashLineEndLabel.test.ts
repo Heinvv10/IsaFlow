@@ -1,31 +1,44 @@
 /**
- * PAGE 8'S CLOSING FIGURE: INSIDE THE PLOT, OFF THE LINE, OFF THE AXIS LABELS.
+ * PAGE 8'S CLOSING FIGURE SITS IN ITS OWN GUTTER, BY A FIXED RULE, IN ONE RENDER.
  *
- * Above the last point it sat across a line that fell into its last month;
- * moved below, a point at the bottom of the domain took its opaque ground out
- * of the plot and over the last month's name — "Sep 2026 (part)" printed as
- * "Sep 2026 (". The reviewer's seeded series (seed 99173: four fixed shapes,
- * 4 000 random ones) are drawn through the real renderer and each label's
- * ground is read back off the SVG and held to all three.
+ * Every placement inside the plot met the line, an axis label or the plot's
+ * edge on some series, and the search that followed redrew the chart until a
+ * spot was free. The rule now: the grid reserves a right-hand gutter the
+ * width of the closing figure, the label is drawn a fixed gap right of the
+ * last point, centred on it, and moved vertically only to stay within the
+ * plot. Held here through the real renderer, at every height page 8 draws the
+ * line, on the reviewer's three seeds and the named shapes.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { format } from 'echarts/core';
+import { PACK_FONT_STACK } from '@/lib/charts/packFont';
 import { buildCashTrendChart } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
-import { PACK_FONT_STACK } from '@/lib/charts/packFont';
+import { PAGE_WIDTH_MM } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { END_LABEL_GAP_PX } from '@/modules/accounting/services/packs/pages/packEndLabelGutter';
 import { liveDemoTrend } from './fixtures/liveDemoBoardPack';
+import { millionsCashInput } from './fixtures/liveDemoBoardPack';
+
+const renders = vi.hoisted(() => ({ count: 0 }));
+vi.mock('@/lib/charts/ssrSvg', async (original) => {
+  const real = await original<typeof import('@/lib/charts/ssrSvg')>();
+  return { ...real, renderChartSvg: (...args: Parameters<typeof real.renderChartSvg>) => { renders.count += 1; return real.renderChartSvg(...args); } };
+});
 
 interface Box { left: number; right: number; top: number; bottom: number }
 
 function read(svg: string) {
+  const W = Number(/<svg width="([\d.]+)"/.exec(svg)![1]);
+  const H = Number(/<svg width="[\d.]+" height="([\d.]+)"/.exec(svg)![1]);
   const g = /<path d="M([-\d.]+) ([-\d.]+)l([-\d.]+) 0l0 ([-\d.]+)[^"]*" transform="translate\(([-\d.]+) ([-\d.]+)\)" fill="#ffffff"/.exec(svg)!;
   const [x, y, w, h, tx, ty] = g.slice(1, 7).map(Number) as [number, number, number, number, number, number];
   const ground: Box = { left: tx + x, right: tx + x + w, top: ty + y, bottom: ty + y + h };
   const c = /<clipPath[^>]*>\s*<path d="M([-\d.]+) ([-\d.]+)l([-\d.]+) 0l0 ([-\d.]+)/.exec(svg)!;
-  const plot: Box = { left: +c[1]!, top: +c[2]!, right: +c[1]! + +c[3]!, bottom: +c[2]! + +c[4]! };
-  const d = /<path d="(M[^"]*L[^"]*)"[^>]*fill="none"[^>]*stroke="#15202b"/.exec(svg)![1]!;
+  // The clip path is the grid grown by a pixel each side.
+  const plot = { top: +c[2]! + 1, bottom: +c[2]! + +c[4]! - 1 };
+  const d = /<path d="(M[^"]*)"[^>]*stroke="#15202b"[^>]*stroke-width="2"/.exec(svg)![1]!;
   const pts = [...d.matchAll(/[ML]([-\d.]+) ([-\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])] as [number, number]);
-  const axis: Box[] = [...svg.matchAll(/<text([^>]*)>([^<]*)<\/text>/g)]
+  const axis = [...svg.matchAll(/<text([^>]*)>([^<]*)<\/text>/g)]
     .filter((m) => !m[1]!.includes(`translate(${tx} ${ty})`))
     .flatMap((m) => {
       const t = /translate\(([-\d.]+) ([-\d.]+)\)/.exec(m[1]!);
@@ -37,55 +50,99 @@ function read(svg: string) {
       const left = anchor === 'end' ? ax - width : anchor === 'middle' ? ax - width / 2 : ax;
       return [{ left, right: left + width, top: ay - 6, bottom: ay + 6 }];
     });
-  return { ground, plot, pts, axis };
+  return { W, H, ground, plot, pts, axis };
 }
 
-const hit = (a: Box, b: Box) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5
+const overlaps = (a: Box, b: Box) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5
   && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5;
 
-function crossesLine(pts: Array<[number, number]>, b: Box): boolean {
-  for (let i = 1; i < pts.length; i += 1) {
-    for (let k = 0; k <= 400; k += 1) {
-      const x = pts[i - 1]![0] + ((pts[i]![0] - pts[i - 1]![0]) * k) / 400;
-      const y = pts[i - 1]![1] + ((pts[i]![1] - pts[i - 1]![1]) * k) / 400;
-      if (x > b.left && x < b.right && y > b.top && y < b.bottom) return true;
-    }
+/** Whether a segment enters a box, exactly (Liang–Barsky). */
+function enters([x1, y1]: [number, number], [x2, y2]: [number, number], b: Box): boolean {
+  let t0 = 0;
+  let t1 = 1;
+  for (const [p, q] of [[x1 - x2, x1 - b.left], [x2 - x1, b.right - x1], [y1 - y2, y1 - b.top], [y2 - y1, b.bottom - y1]] as const) {
+    if (p === 0) { if (q <= 0) return false; continue; }
+    const t = q / p;
+    if (p < 0) t0 = Math.max(t0, t); else t1 = Math.min(t1, t);
+    if (t0 >= t1) return false;
   }
-  return false;
+  return true;
 }
 
-/** The reviewer's series, seed 99173. */
-function series(): number[][] {
-  let seed = 99_173;
+/** The reviewer's series generator (endlabel8.ts), by seed. */
+function* series(seedValue: number, n: number): Generator<number[]> {
+  let seed = seedValue;
   const rnd = () => (seed = (seed * 16_807) % 2_147_483_647) / 2_147_483_647;
-  const cases: number[][] = [
-    [-108, -115, -118, -560, -800, -1000, -1200, -1400, -1600, -300, -1700],
-    [500, 400, 300, 200, 100, 0, -100, -200, -300, -400, -500, -600],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0],
-    [100, 90],
-  ];
-  for (let i = 0; i < 4000; i += 1) {
-    const len = 2 + Math.floor(rnd() * 11);
-    const mag = Math.pow(10, 2 + Math.floor(rnd() * 5));
-    cases.push(Array.from({ length: len }, () => Math.round((rnd() - 0.5) * 2 * mag)));
+  for (let i = 0; i < n; i += 1) {
+    const len = 1 + Math.floor(rnd() * 13);
+    const mag = Math.pow(10, 1 + Math.floor(rnd() * 7));
+    const v = () => Math.round((rnd() - 0.5) * 2 * mag);
+    const base = Array.from({ length: len }, v);
+    const kind = Math.floor(rnd() * 6);
+    if (kind === 0) yield Array(len).fill(v());
+    else if (kind === 1) yield [...base.slice(0, -1), Math.max(...base) + Math.abs(v())];
+    else if (kind === 2) yield [...base.slice(0, -1), Math.min(...base) - Math.abs(v())];
+    else yield base;
   }
-  return cases;
+}
+
+const RUNGS_MM = [110, 72, 48, 36];
+const NAMED: Array<[string, number[]]> = [
+  ['falling into the last month', [-108, -115, -118, -560, -800, -1000, -1200, -1400, -1600, -300, -548]],
+  ['climbing into the last month', [-108, -115, -118, -560, -800, -1000, -1200, -1400, -1600, -900, -300]],
+  ['last point at the maximum', [100, 200, 300, 900]],
+  ['last point at the minimum', [500, 400, 300, -900]],
+  ['flat', [250, 250, 250, 250]],
+  ['a single point', [7]],
+];
+
+function check(closing: number[], heightMm: number, tag: string, failures: string[]): void {
+  const trend = closing.map((v, i) => ({ ...liveDemoTrend[i % 12]!, cash: v * 1000 }));
+  const before = renders.count;
+  const svg = String(buildCashTrendChart(trend, PACK_SCALE, { widthMm: PAGE_WIDTH_MM.portrait, heightMm })!.svg);
+  if (renders.count - before !== 1) failures.push(`${tag}: ${renders.count - before} renders`);
+  const { W, H, ground, plot, pts, axis } = read(svg);
+  const last = pts[pts.length - 1]!;
+  if (ground.left < 0 || ground.right > W || ground.top < 0 || ground.bottom > H) failures.push(`${tag}: outside the SVG`);
+  if (axis.some((a) => overlaps(a, ground))) failures.push(`${tag}: over an axis label`);
+  for (let i = 1; i < pts.length; i += 1) if (enters(pts[i - 1]!, pts[i]!, ground)) failures.push(`${tag}: crossed by the line`);
+  // The SVG prints a path to one decimal, so a tenth of a pixel is the
+  // renderer's rounding, not a placement.
+  if (Math.abs(ground.left - last[0] - END_LABEL_GAP_PX) > 0.11) failures.push(`${tag}: ${(ground.left - last[0]).toFixed(2)}px from the point`);
+  const centre = (ground.top + ground.bottom) / 2;
+  if (ground.bottom - ground.top > plot.bottom - plot.top) {
+    // A plot shorter than the label: centred on the plot.
+    if (Math.abs(centre - (plot.top + plot.bottom) / 2) > 0.11) failures.push(`${tag}: not centred on a plot too short for it`);
+    return;
+  }
+  const clamped = ground.top <= plot.top + 0.11 || ground.bottom >= plot.bottom - 0.11;
+  if (Math.abs(centre - last[1]) > 0.11 && !clamped) failures.push(`${tag}: ${(centre - last[1]).toFixed(2)}px off the point, unclamped`);
+  if (ground.top < plot.top - 0.11 || ground.bottom > plot.bottom + 0.11) failures.push(`${tag}: outside the plot's height`);
 }
 
 describe("page 8's closing-cash label", () => {
-  it('lies inside the plot, clear of every axis label and of the line, on 4 004 seeded series', () => {
-    const failures = { outsidePlot: 0, overAxisLabel: 0, crossesLine: 0 };
-    const examples: string[] = [];
-    for (const closing of series()) {
-      const trend = closing.map((v, i) => ({ ...liveDemoTrend[i % 12]!, cash: v * 1000 }));
-      const { ground, plot, pts, axis } = read(String(buildCashTrendChart(trend, PACK_SCALE)!.svg));
-      const tag = JSON.stringify(closing);
-      if (ground.left < plot.left - 0.5 || ground.right > plot.right + 0.5 || ground.top < plot.top - 0.5 || ground.bottom > plot.bottom + 0.5) {
-        failures.outsidePlot += 1; if (examples.length < 6) examples.push(`outside ${tag}`);
+  for (const seed of [99_173, 5_150, 271_828]) {
+    it(`holds on seed ${seed}, at every height`, () => {
+      const failures: string[] = [];
+      let k = 0;
+      for (const closing of series(seed, 1_000)) {
+        const h = RUNGS_MM[k % RUNGS_MM.length]!;
+        check(closing, h, `#${k} ${h}mm ${JSON.stringify(closing)}`, failures);
+        k += 1;
       }
-      if (axis.some((a) => hit(a, ground))) { failures.overAxisLabel += 1; if (examples.length < 6) examples.push(`axis ${tag}`); }
-      if (crossesLine(pts, ground)) { failures.crossesLine += 1; if (examples.length < 6) examples.push(`line ${tag}`); }
-    }
-    expect(failures, examples.join('\n')).toEqual({ outsidePlot: 0, overAxisLabel: 0, crossesLine: 0 });
-  }, 120_000);
+      expect(failures.slice(0, 6), `${failures.length} failures`).toEqual([]);
+    }, 120_000);
+  }
+
+  it.each(NAMED)('holds for a series %s, at every height', (_name, closing) => {
+    const failures: string[] = [];
+    for (const h of RUNGS_MM) check(closing, h, `${h}mm`, failures);
+    expect(failures).toEqual([]);
+  });
+
+  it('holds for the millions-cash pack\'s own series', () => {
+    const failures: string[] = [];
+    for (const h of RUNGS_MM) check(millionsCashInput.trend.map((p) => p.cash / 1000), h, `${h}mm`, failures);
+    expect(failures).toEqual([]);
+  });
 });

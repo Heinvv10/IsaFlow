@@ -23,11 +23,16 @@
  * labelled category axis, which no grid setting reclaims — and must agree
  * ACROSS COMPANIES, which is the half of it a single-company render cannot
  * see.
+ *
+ * EXCEPT BY THE CASH LINE'S END-LABEL GUTTER. Page 8's closing figure sits in
+ * a gutter right of the plot, sized to the figure (`packEndLabelGutter`), so
+ * that chart's plot ends exactly that gutter short of the measure.
  */
 import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { AXIS_END_LABEL_RESERVE_PX } from '@/modules/accounting/services/packs/packChartOptions';
 import { PX_PER_MM } from '@/lib/charts/ssrSvg';
+import { endLabelGutterPx } from '@/modules/accounting/services/packs/pages/packEndLabelGutter';
 import type { PackChartSpec } from '@/modules/accounting/services/packs/pages/packChartModel';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { brightsphereLiveInput } from './fixtures/boardPackInputs';
@@ -43,6 +48,15 @@ function fullWidthCharts(doc: PackPagesDocument): PackChartSpec[] {
     }
   }
   return out;
+}
+
+/** What a chart may stop short of its SVG's right edge: the axis reserve,
+ *  or on the cash line the end-label gutter its closing figure needs. */
+function allowedShortPx(chart: PackChartSpec): number {
+  if (chart.id !== 'cash-trend') return AXIS_END_LABEL_RESERVE_PX;
+  const svg = chart.svg as unknown as string;
+  const label = /<path d="M[-\d.]+ [-\d.]+l[-\d.]+ 0l0 [-\d.]+[^"]*" (transform="translate\([-\d. ]+\)") fill="#ffffff"[\s\S]*?\1[^>]*>([^<]*)<\/text>/.exec(svg);
+  return endLabelGutterPx(label![2]!.replace(/&#39;/g, "'")) + 1;
 }
 
 /** The plot's right edge, off the painted gridlines. */
@@ -78,7 +92,7 @@ describe('a full-width chart is drawn on the page measure', () => {
       for (const chart of charts) {
         const short = svgWidthPx(chart.svg as unknown as string) - plotRightPx(chart.svg as unknown as string);
         expect(short, `${chart.id} stops ${short}px short of its own measure`)
-          .toBeLessThanOrEqual(AXIS_END_LABEL_RESERVE_PX);
+          .toBeLessThanOrEqual(allowedShortPx(chart));
       }
     });
   }
@@ -87,7 +101,9 @@ describe('a full-width chart is drawn on the page measure', () => {
     const measures = Object.entries(COMPANIES).map(([company, input]) => {
       const byId = new Map<string, number>();
       for (const chart of fullWidthCharts(buildBoardPackPages(input))) {
-        byId.set(chart.id, plotRightPx(chart.svg as unknown as string));
+        // Measured to the plot plus the gutter it is allowed, so the cash
+        // line compares on the measure it actually shares.
+        byId.set(chart.id, plotRightPx(chart.svg as unknown as string) + allowedShortPx(chart) - AXIS_END_LABEL_RESERVE_PX);
       }
       return { company, byId };
     });
@@ -126,7 +142,8 @@ describe('a full-width chart is drawn on the page measure', () => {
     const titles = charts.map((c) => c.title.length);
     expect(Math.max(...titles) - Math.min(...titles), 'every caption is the same length here')
       .toBeGreaterThan(20);
-    const edges = new Set(charts.map((c) => svgWidthPx(c.svg as unknown as string) - plotRightPx(c.svg as unknown as string)));
-    for (const edge of edges) expect(edge).toBeLessThanOrEqual(AXIS_END_LABEL_RESERVE_PX);
+    for (const c of charts) {
+      expect(svgWidthPx(c.svg as unknown as string) - plotRightPx(c.svg as unknown as string)).toBeLessThanOrEqual(allowedShortPx(c));
+    }
   });
 });

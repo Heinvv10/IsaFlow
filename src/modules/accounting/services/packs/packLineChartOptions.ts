@@ -14,8 +14,8 @@
  * which is why neither showed up.
  */
 import type { EChartsCoreOption } from 'echarts/core';
-import { endLabelAnchor, type EndLabelPlacement } from './pages/packEndLabelPlacement';
-import { CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX, DEFAULT_CHART_PALETTE, type ChartPalette, type TrendPoint } from './packChartOptions';
+import { endLabelGutterPx, gutterEndLabel } from './pages/packEndLabelGutter';
+import { CHART_GUTTER_PX, DEFAULT_CHART_PALETTE, type ChartPalette, type TrendPoint } from './packChartOptions';
 
 export { sparklineOption } from './packSparklineOption';
 
@@ -67,13 +67,16 @@ export function smallMultipleOption(
   domain: { min: number; max: number },
   formatValue: (value: number) => string,
   palette: ChartPalette = DEFAULT_CHART_PALETTE,
-  axis?: { unit: string; endLabelAt?: EndLabelPlacement } | { endpoints: true },
+  /** `boxPx`: the chart's height in pixels, which fixes the plot's extent so
+   *  the end label can be held inside it — see `packEndLabelGutter`. */
+  axis?: { unit: string; boxPx?: number } | { endpoints: true },
 ): EChartsCoreOption {
   const last = points[points.length - 1]?.value ?? 0;
   const unit = axis !== undefined && 'unit' in axis ? axis.unit : null;
-  // Where the full-width line's end label goes — chosen by the caller, which
-  // draws the chart and reads it back (`packEndLabelPlacement`).
-  const endLabelAt = (axis !== undefined && 'unit' in axis ? axis.endLabelAt : undefined) ?? { side: 'above', away: 6 };
+  const boxPx = axis !== undefined && 'unit' in axis ? axis.boxPx : undefined;
+  const FULL_GRID = { top: 32, bottom: 32 };
+  // The closing figure's own gutter, right of the plot, on the full-width line.
+  const end = gutterEndLabel(palette.paper, FULL_GRID.top, (boxPx ?? Infinity) - FULL_GRID.bottom);
   const endpoints = axis !== undefined && 'endpoints' in axis;
   return {
     animation: false,
@@ -115,7 +118,7 @@ export function smallMultipleOption(
     // measure and the same centre as the waterfall above it.
     grid: unit === null
       ? { left: CHART_GUTTER_PX, right: CHART_GUTTER_PX, top: 12, bottom: 28 }
-      : { left: CHART_GUTTER_PX, right: CHART_GUTTER_RIGHT_PX, top: 32, bottom: 32 },
+      : { left: CHART_GUTTER_PX, right: endLabelGutterPx(formatValue(last)), ...FULL_GRID, outerBoundsMode: 'none' as const },
     xAxis: {
       type: 'category',
       data: points.map((p) => p.label),
@@ -225,33 +228,9 @@ export function smallMultipleOption(
         endLabel: {
           show: true,
           color: palette.ink,
-          // INSIDE THE PLOT ON THE FULL-WIDTH LINE, because the gutter it
-          // used to sit in is gone — see `CHART_GUTTER_RIGHT_PX`. Anchored by
-          // its right edge just left of the last point and lifted clear of
-          // the line, so it reads as the end of the series rather than as a
-          // label floating off the chart's edge.
-          //
-          // A PANEL STILL PUTS IT OUTSIDE. Its grid keeps the 80px right
-          // gutter that exists for this label, and moving it inside an 83mm
-          // plot would set it over the series it labels — the opposite of the
-          // strike-through this placement was chosen to avoid.
-          //
-          // AND INSIDE THE PLOT IT CARRIES ITS OWN GROUND. A label in the
-          // gutter can be kept clear of the gridlines by geometry; one drawn
-          // over the plot cannot, because the gridlines run under everything
-          // there. `packPanelEndLabelIsClear.test.ts` holds the full-width
-          // line to the paper ground instead — a rule reaching the label is
-          // fine if the label is opaque, and is a strike-through if it is
-          // not.
-          //
-          // AND WHERE THE DRAWN CHART HAS ROOM FOR IT — above, below or to
-          // the left of the last point, as `packEndLabelPlacement` found.
-          // Its right edge stays inside the plot.
-          ...(unit === null ? {} : {
-            ...endLabelAnchor(endLabelAt),
-            backgroundColor: palette.paper,
-            padding: [1, 2, 1, 2],
-          }),
+          // A PANEL PUTS IT IN ITS 80px RIGHT GUTTER. The full-width line puts
+          // it in a gutter sized to it — see `packEndLabelGutter`.
+          ...(unit === null ? {} : end.style),
           // The end value, formatted the way the PANEL's own unit is
           // formatted. It was hard-wired to `formatMoney` with no scale, so
           // the gross-margin panel labelled −1394.3% as `(1 394)` and every
@@ -260,6 +239,7 @@ export function smallMultipleOption(
           // handed one rather than guessing.
           formatter: (param: LabelParam) => formatValue(Number(param.value ?? last)),
         },
+        ...(unit === null ? {} : { labelLayout: end.labelLayout }),
         data: points.map((p) => p.value),
         // A RULE AT ZERO, on the axis that has labels to read it against.
         // `sharedDomain` always puts zero inside the domain, but a gridline
