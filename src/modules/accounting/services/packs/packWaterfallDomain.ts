@@ -90,7 +90,10 @@ function reachFor(steps: WaterfallStep[], domain: AxisDomain, plotPx: number): n
 /** Whether every outside label has room on its own side of its bar. */
 export function labelsFit(steps: WaterfallStep[], domain: AxisDomain, plotPx: number): boolean {
   const reach = reachFor(steps, domain, plotPx);
-  return reach.every((v) => v <= domain.max + 1e-9 && v >= domain.min - 1e-9);
+  // Relative to the span: at a domain of a trillion, float residue in the
+  // reach is far larger than an absolute billionth.
+  const tolerance = (domain.max - domain.min) * 1e-9;
+  return reach.every((v) => v <= domain.max + tolerance && v >= domain.min - tolerance);
 }
 
 /**
@@ -111,7 +114,7 @@ export function waterfallLayout(
   // asked four, the cash bridge drew six at 17.6px — so whatever is asked,
   // no domain is accepted that puts two ticks closer than
   // `MIN_TICK_PITCH_PX`; the ask is lowered until none does.
-  const budget = Math.max(2, Math.floor(plotPx / MIN_TICK_PITCH_PX));
+  const budget = Math.max(1, Math.floor(plotPx / MIN_TICK_PITCH_PX));
   const ends = steps.flatMap((step) => [step.start, step.end]);
 
   let ask = Math.min(askHint ?? Math.max(2, Math.floor(plotPx / TICK_PITCH_PX)), budget);
@@ -129,5 +132,9 @@ export function waterfallLayout(
     if (labelsFit(steps, domain, plotPx)) break;
     reach = [...reach, ...reachFor(steps, domain, plotPx)];
   }
+  // A PLOT TOO SHORT FOR TWO LEGIBLE STEPS draws one. The ask cannot go
+  // below one, and the rounding can still return two or three; the bounds
+  // stay, and the axis labels its two ends only.
+  if (domain.splitNumber > budget) domain = { ...domain, splitNumber: budget };
   return { top: chrome.top, bottom, plotPx, domain };
 }

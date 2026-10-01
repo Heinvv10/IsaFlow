@@ -6,7 +6,7 @@
 import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
 
 export interface ClipRect { top: number; bottom: number; height: number }
-export interface Bar { centre: number; top: number; bottom: number }
+export interface Bar { centre: number; top: number; bottom: number; fill: string }
 /** A figure: zrender sets it on `dominant-baseline: central`, so `y` is its middle. */
 export interface Figure { x: number; y: number; text: string; fill: string }
 
@@ -40,7 +40,7 @@ export function bars(svg: string): Bar[] {
   const widest = Math.max(...all.map((r) => r.width));
   return all
     .filter((r) => r.fill !== DEFAULT_CHART_PALETTE.paper.toLowerCase() && r.width < widest)
-    .map(({ centre, top, bottom }) => ({ centre, top, bottom }));
+    .map(({ centre, top, bottom, fill }) => ({ centre, top, bottom, fill }));
 }
 
 export function figures(svg: string): Figure[] {
@@ -68,4 +68,9 @@ export function wrongSide(figure: Figure, bar: Bar, rises: boolean): boolean {
 
 export function outsideClip(figure: Figure, clip: ClipRect): boolean {
   return figure.y - FIGURE_PX / 2 < clip.top - 0.01 || figure.y + FIGURE_PX / 2 > clip.bottom + 0.01;
+}
+
+/** Whether a figure sits over its own bar — any overlap with the fill. */
+export function overOwnBar(figure: Figure, bar: Bar): boolean {
+  return Math.min(figure.y + FIGURE_PX / 2, bar.bottom) - Math.max(figure.y - FIGURE_PX / 2, bar.top) > 0.5;
 }

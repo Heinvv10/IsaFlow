@@ -16,7 +16,7 @@ import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packC
 import { labelInkOn, waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
 import { waterfallLayout } from '@/modules/accounting/services/packs/packWaterfallDomain';
 import { PX_PER_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
-import { barOf, clipRect, figures, outsideClip, wrongSide } from './support/bridgeSvg';
+import { barOf, clipRect, figures, outsideClip, overOwnBar, wrongSide } from './support/bridgeSvg';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { liveDemoSet } from './fixtures/liveDemoBoardPack';
 import { yAxisTicks } from './support/svgTicks';
@@ -154,6 +154,55 @@ describe('a short bar at the edge of the domain, under a long category name', ()
         { widthMm: 174, heightMm: 320 / PX_PER_MM },
       ));
       expectOnItsSide(svg, steps[1]!, text);
+    }
+  });
+
+});
+
+/**
+ * A FIGURE HELD ONTO ITS OWN BAR IS READ AS ONE SET INSIDE IT. The edge
+ * clamp can leave a figure over its own fill; its paper ground went under
+ * the bar and its ink matched the fill, so a subtotal's figure vanished.
+ */
+describe('a figure that lands on its own bar', () => {
+  const onBar = (svg: string, text: string) => {
+    const figure = figures(svg).find((f) => f.text === text);
+    expect(figure, `"${text}" is not drawn`).toBeDefined();
+    const bar = barOf(svg, figure!)!;
+    expect(overOwnBar(figure!, bar), `"${text}" is not over its bar — the case is not under test`).toBe(true);
+    expect(figure!.fill, `"${text}" in ${figure!.fill} on ${bar.fill}`)
+      .toBe(labelInkOn(bar.fill, DEFAULT_CHART_PALETTE).toLowerCase());
+  };
+
+  it('a short subtotal with no room on its side, drawn with no box', () => {
+    const steps: WaterfallStep[] = [
+      { label: 'Opening', start: 0, end: 763, value: 763, isSubtotal: true, color: 'blue' },
+      { label: 'Movement 1', start: 763, end: -6141, value: -6904, isSubtotal: false, color: 'red' },
+      { label: 'Movement 2', start: -6141, end: -6212, value: -71, isSubtotal: false, color: 'red' },
+      { label: 'Movement 3', start: -6212, end: -6069, value: 143, isSubtotal: false, color: 'green' },
+      { label: 'Closing', start: 0, end: -6069, value: -6069, isSubtotal: true, color: 'teal' },
+    ];
+    onBar(String(renderChartSvg(waterfallOption(steps, "R'000", undefined, 5, false), { widthMm: 174, heightMm: 60 })), '1');
+  });
+
+  it("the reviewer's red bar at nine decimal places, in a 320px box", () => {
+    const v = [-3.407627811379599e-9, -3.334827873965221e-9, -3.2865170608677928e-9, -3.3274286315904543e-9];
+    const steps: WaterfallStep[] = [
+      { label: 'Opening', start: 0, end: v[0]!, value: v[0]!, isSubtotal: true, color: 'blue' },
+      { label: 'Movement 1', start: v[0]!, end: v[1]!, value: v[1]! - v[0]!, isSubtotal: false, color: 'green' },
+      { label: 'Movement 2', start: v[1]!, end: v[2]!, value: v[2]! - v[1]!, isSubtotal: false, color: 'green' },
+      { label: 'Movement 3', start: v[2]!, end: v[3]!, value: v[3]! - v[2]!, isSubtotal: false, color: 'red' },
+      { label: 'Closing', start: 0, end: v[3]!, value: v[3]!, isSubtotal: true, color: 'teal' },
+    ];
+    const svg = String(renderChartSvg(
+      waterfallOption(steps, "R'000", undefined, 6, false, undefined, 320),
+      { widthMm: 220, heightMm: 320 / PX_PER_MM },
+    ));
+    for (const figure of figures(svg)) {
+      const bar = barOf(svg, figure)!;
+      if (!overOwnBar(figure, bar)) continue;
+      expect(figure.fill, `"${figure.text}" in ${figure.fill} on ${bar.fill}`)
+        .toBe(labelInkOn(bar.fill, DEFAULT_CHART_PALETTE).toLowerCase());
     }
   });
 });

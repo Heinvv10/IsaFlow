@@ -206,11 +206,17 @@ export function makeWaterfallRenderItem(
       : tight ? y + (height - LABEL_LINE_PX) / 2
       : below ? Math.min(y + drawnHeight + LABEL_GAP_PX, plotBottom - LABEL_LINE_PX)
       : Math.max(above, plotTop + LABEL_LINE_PX);
+    // A figure held to the plot's edge can land on its own bar. It is then
+    // read like one set inside: no ground, in the ink that reads on the fill.
+    const textTop = below ? textY : textY - LABEL_LINE_PX;
+    const onOwnBar = !inside && !tight
+      && Math.min(textTop + LABEL_LINE_PX, y + drawnHeight) - Math.max(textTop, y) > 0.5;
+    const onBar = inside || tight || onOwnBar;
     // THE GROUND UNDER A LABEL THAT IS NOT ON ITS BAR — see
-    // `LABEL_KNOCKOUT_PAD_PX`. Inside the bar the fill is the ground already,
+    // `LABEL_KNOCKOUT_PAD_PX`. On the bar the fill is the ground already,
     // and a paper rect there would punch a hole in the bar.
     const knockoutW = labelWidthPx(text, LABEL_LINE_PX) + LABEL_KNOCKOUT_PAD_PX * 2;
-    const knockout = inside || tight ? [] : [{
+    const knockout = onBar ? [] : [{
       type: 'rect' as const,
       // NAMED, because the bar is a rect too and a reader of this group —
       // `packChartOptions.test.ts` reads it by name — must not take the
@@ -221,7 +227,7 @@ export function makeWaterfallRenderItem(
       // it covers the wrong line of the plot.
       shape: {
         x: x + width / 2 - knockoutW / 2,
-        y: (below ? textY : textY - LABEL_LINE_PX) - LABEL_KNOCKOUT_PAD_PX,
+        y: textTop - LABEL_KNOCKOUT_PAD_PX,
         width: knockoutW,
         height: LABEL_LINE_PX + LABEL_KNOCKOUT_PAD_PX * 2,
       },
@@ -231,8 +237,8 @@ export function makeWaterfallRenderItem(
     return {
       type: 'group',
       children: [
-        // THE KNOCKOUT FIRST, AND THE BAR AFTER IT. It never overlaps the bar
-        // — it exists only where the label sits clear of one — so the order
+        // THE KNOCKOUT FIRST, AND THE BAR AFTER IT. It never overlaps its own
+        // bar — a figure that lands on the bar carries none — so the order
         // between those two is free, and drawing it first keeps every bar's
         // `<path>` immediately followed by its own `<text>` in the emitted
         // SVG. `packWaterfallLegibility.test.ts` pairs a bar with its label by
@@ -266,7 +272,7 @@ export function makeWaterfallRenderItem(
             // the pack — carrying no value at all, which left red/green hue
             // as the only thing separating an increase from a decrease on
             // them. The label was being drawn the whole time.
-            fill: inside || tight ? labelInkOn(stepColour(step, palette), palette) : aboveInOwnInk ? palette.axis : palette.ink,
+            fill: onBar ? labelInkOn(stepColour(step, palette), palette) : aboveInOwnInk ? palette.axis : palette.ink,
             // AND THE PACK'S FACE, NAMED HERE BECAUSE THIS IS A RAW ZRENDER
             // TEXT AND NOT AN ECHARTS LABEL.
             //

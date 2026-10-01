@@ -10,14 +10,15 @@
  *   - no figure leaves the clip rectangle ECharts drew;
  *   - no figure sits on the wrong side of its bar's base;
  *   - no two value ticks stand closer than 18px, at 12px type;
- *   - the clip rectangle is the plot the layout chose the axis for.
+ *   - the clip rectangle is the plot the layout chose the axis for;
+ *   - a figure that sits over its own bar is set in the ink that reads on it.
  */
 import { describe, expect, it } from 'vitest';
-import { waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
-import { waterfallLayout } from '@/modules/accounting/services/packs/packWaterfallDomain';
+import { DEFAULT_CHART_PALETTE, labelInkOn, waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
+import { labelsFit, MIN_TICK_PITCH_PX, waterfallLayout } from '@/modules/accounting/services/packs/packWaterfallDomain';
 import { PX_PER_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { bars, clipRect, figures, outsideClip, wrongSide } from './support/bridgeSvg';
+import { bars, clipRect, figures, outsideClip, overOwnBar, wrongSide } from './support/bridgeSvg';
 import { yAxisTicks } from './support/svgTicks';
 
 const BRIDGES = 20_000;
@@ -45,7 +46,7 @@ describe('bridge figures, fuzzed through the renderer', () => {
   it(`holds ${BRIDGES} seeded bridges to the plot, the side and the pitch`, () => {
     let seed = 20_261_001;
     const rnd = (): number => (seed = (seed * 16_807) % 2_147_483_647) / 2_147_483_647;
-    const failures = { offPlot: 0, wrongSide: 0, pitch: 0, plotMismatch: 0, unread: 0 };
+    const failures = { offPlot: 0, wrongSide: 0, pitch: 0, plotMismatch: 0, unread: 0, illegibleOnBar: 0 };
     const examples: string[] = [];
     const note = (kind: keyof typeof failures, detail: string): void => {
       failures[kind] += 1;
@@ -76,6 +77,9 @@ describe('bridge figures, fuzzed through the renderer', () => {
       steps.forEach((step, k) => {
         const figure = printed[k]!;
         if (outsideClip(figure, clip)) note('offPlot', `${tag} "${figure.text}" at ${figure.y} vs ${clip.top}–${clip.bottom}`);
+        if (overOwnBar(figure, drawn[k]!) && figure.fill !== labelInkOn(drawn[k]!.fill, DEFAULT_CHART_PALETTE).toLowerCase()) {
+          note('illegibleOnBar', `${tag} "${figure.text}" in ${figure.fill} on ${drawn[k]!.fill}`);
+        }
         if (step.end !== step.start && wrongSide(figure, drawn[k]!, step.end > step.start)) {
           note('wrongSide', `${tag} "${figure.text}" at ${figure.y}, bar ${drawn[k]!.top}–${drawn[k]!.bottom}`);
         }
@@ -85,6 +89,34 @@ describe('bridge figures, fuzzed through the renderer', () => {
         note('pitch', `${tag} ${ticks.length} ticks in ${clip.height}px`);
       }
     }
-    expect(failures, examples.join('\n')).toEqual({ offPlot: 0, wrongSide: 0, pitch: 0, plotMismatch: 0, unread: 0 });
+    expect(failures, examples.join('\n')).toEqual({ offPlot: 0, wrongSide: 0, pitch: 0, plotMismatch: 0, unread: 0, illegibleOnBar: 0 });
   }, 300_000);
 });
+
+describe('the layout at its edges', () => {
+  it('fits a reach that overshoots a trillion-wide domain by float residue', () => {
+    // 10px of bar ending 17px — the label's clearance — under the top, plus
+    // half a thousandth of a rand: residue at this magnitude, not overflow.
+    const plotPx = 100;
+    const unitsPerPx = 1e12 / plotPx;
+    const end = 1e12 - 17 * unitsPerPx + 5e-4;
+    const steps: WaterfallStep[] = [
+      { label: 'Opening', start: 0, end: end - 10 * unitsPerPx, value: end - 10 * unitsPerPx, isSubtotal: true, color: 'blue' },
+      { label: 'Up', start: end - 10 * unitsPerPx, end, value: 10 * unitsPerPx, isSubtotal: false, color: 'green' },
+    ];
+    expect(labelsFit(steps, { min: 0, max: 1e12, splitNumber: 5 }, plotPx)).toBe(true);
+  });
+
+  it('draws one step on a plot too short for two legible ones', () => {
+    const steps: WaterfallStep[] = [
+      { label: 'Opening', start: 0, end: 100, value: 100, isSubtotal: true, color: 'blue' },
+      { label: 'Down', start: 100, end: -900, value: -1000, isSubtotal: false, color: 'red' },
+      { label: 'Closing', start: 0, end: -900, value: -900, isSubtotal: true, color: 'teal' },
+    ];
+    // Full chrome is 32 + 72: a 134px box leaves a 30px plot.
+    const layout = waterfallLayout(steps, 134, false, 6);
+    expect(layout.plotPx).toBeLessThan(2 * MIN_TICK_PITCH_PX);
+    expect(layout.domain.splitNumber).toBe(1);
+  });
+});
+
