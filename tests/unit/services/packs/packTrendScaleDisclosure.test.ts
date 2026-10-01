@@ -132,7 +132,7 @@ describe('page 10 prints the scale its claims are made against', () => {
   it('names the range that is left when the month that sets the scale goes', () => {
     const { panels, sharedRange } = buildTrendPanels(roundingSplit, PACK_SCALE);
     const netProfit = panels.find((p) => p.id === 'trend-net-profit')!;
-    expect(netProfit.title).toContain('Apr 2026 alone is 1\u00a0908');
+    expect(netProfit.title).toContain('Without Apr 2026 (1\u00a0908');
 
     // The shared span, off the sheet's own words — "(1 621) to 1 908, a span
     // of 3 529 R'000".
@@ -147,8 +147,8 @@ describe('page 10 prints the scale its claims are made against', () => {
     // net profit's own range goes looking for a 58 that column does not
     // contain. Naming the shared range points them at the Scale note and the
     // commentary line that state the same span.
-    expect(netProfit.title).toContain('drop it and the SHARED range becomes');
-    const stated = /the SHARED range becomes (.+?), ([\d.]+)% narrower/.exec(netProfit.title);
+    expect(netProfit.title).toContain('the SHARED range is');
+    const stated = /the SHARED range is (.+?), ([\d.]+)% narrower/.exec(netProfit.title);
     expect(stated, netProfit.title).not.toBeNull();
     const [low, high] = stated![1]!.split(' to ');
     expect(low).toBe(formatMoney(-1_621_400, { scale: PACK_SCALE }));

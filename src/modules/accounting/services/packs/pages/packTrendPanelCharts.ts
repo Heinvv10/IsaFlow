@@ -79,8 +79,11 @@ export function moneyPanel(
   // The rendered demo pack drew a spike of +1 908 in one month on a page
   // whose income statement totals (1 546) for the period, and no title, note
   // or caption anywhere in the document mentioned it.
+  // AND THE TITLE KEEPS TO THREE LINES. At four, the last one sat on the
+  // panel's top tick ("1 908") and set the plot lower than its neighbour's;
+  // `packPanelTitlesFit.test.ts` measures every panel on every fixture.
   if (dominant !== null) {
-    const because = dominant.creditMonth === null ? '' : ` — ${dominant.creditMonth}`;
+    const because = dominant.creditMonth === null ? '' : `, ${dominant.creditMonth}`;
     // "sets N% of the scale" was a THIRD percentage on a page already
     // carrying two, measuring something else again — how much of the shared
     // span goes away when this point does. Said as what it is.
@@ -101,8 +104,8 @@ export function moneyPanel(
     // claim on the page a reader could not test, on a page whose argument is
     // that they can test all of them.
     clauses.push(
-      `${dominant.label} alone is ${prose(dominant.value)}${because}; drop it and the SHARED range `
-      + `becomes ${dominant.residualRange}, ${formatPctLevel(dominant.sharePct)} narrower.`,
+      `Without ${dominant.label} (${prose(dominant.value)}${because}) the SHARED range `
+      + `is ${dominant.residualRange}, ${formatPctLevel(dominant.sharePct)} narrower.`,
     );
   }
   return {

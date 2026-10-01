@@ -200,7 +200,7 @@ export function dominantPoint(series: number[][]): ScaleDominator | null {
  * silence.
  */
 export function creditMonthClause(point: PackTrendPoint): string | null {
-  return point.expenses < 0 ? 'a month whose expenses were a net credit' : null;
+  return point.expenses < 0 ? 'expenses a net credit' : null;
 }
 
 /**
