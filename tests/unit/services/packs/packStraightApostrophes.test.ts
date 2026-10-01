@@ -40,7 +40,7 @@ describe("the pack's own prose uses the straight apostrophe", () => {
     // NOT VACUOUS: the walk has to have found the modules that print prose.
     expect(files.length, 'no pack sources found, so nothing is scanned').toBeGreaterThan(20);
     expect(files, 'the module that printed the curly ones is not being scanned')
-      .toContain(join(ROOT, 'pages', 'packPageCharts.ts'));
+      .toContain(join(ROOT, 'pages', 'packCashBridge.ts'));
 
     const offenders = files.flatMap((file) => {
       const lines = readFileSync(file, 'utf8').split('\n');
