@@ -1,21 +1,25 @@
 # `src/lib/rateLimit.ts`
 
 ## Purpose
-Postgres-backed (DB-persisted) rate limiter — shares counters across all pods via the `rate_limit_counters` table (migration 331). There is no Redis dependency; all persistence is through Postgres.
+Postgres-backed (DB-persisted) rate limiter with a refuse-only in-process cache — shares counters across all pods via the `rate_limit_counters` table (migration 331). There is no Redis dependency; all persistence is through Postgres.
 
 ## Key exports
 
-- `checkRateLimit(key, opts) → Promise<boolean>` — returns `true` if the request is allowed; key is any string (typically IP or `companyId:endpoint`). Atomically UPSERTs the counter in Postgres by `opts.cost` (default 1) on **every** call, admitted or refused, and admits while the returned count is `<= max`. No in-process state (R-175).
+- `checkRateLimit(key, opts) → Promise<boolean>` — returns `true` if the request is allowed; key is any string (typically IP or `companyId:endpoint`). Atomically UPSERTs the counter in Postgres by `opts.cost` (default 1) and admits while the returned count is `<= max`. Every call that can be admitted reaches the database; a key the database has just reported over its limit is refused from memory for up to `REFUSAL_TTL_MS` (R-175).
 - `getClientIp(req) → string` — extracts the real client IP from `X-Forwarded-For` (last value = nginx-appended, spoofing-resistant). Never use `req.socket.remoteAddress` directly.
 - `checkAiRateLimit(req, companyId, name, opts?) → Promise<boolean>` — per-IP + per-company + daily quota for AI/LLM endpoints. Key prefix: `ai:`. Defaults: ipMax=20, companyMax=40, dailyMax=300 per 15-min / 24-hr window.
 - `checkSendRateLimit(req, companyId, name, opts?) → Promise<boolean>` — per-IP + per-company + daily quota for email-send endpoints (M13 / WS-2b). Key prefix: `send:`. Defaults: ipMax=30, companyMax=60, dailyMax=500 per 15-min / 24-hr window. `opts.count` (default 1) weights the cost by batch size — e.g. a bulk-send of N recipients should pass `count: N` so it charges N units instead of 1 (ratelimit-cost-weighting fix).
-- `withRateLimit(handler, opts) → NextApiHandler` — middleware wrapper that applies `checkRateLimit(ip, opts)` and returns 429 on breach.
+- `withRateLimit(handler, opts, scope) → NextApiHandler` — middleware wrapper that applies `checkRateLimit(`${scope}:ip:${ip}`, opts)` and returns 429 on breach. `scope` is required and namespaces the key per route.
 - `refundRateLimit(key, units) → Promise<void>` — gives units back to the current window; floors at zero, never moves `window_start`. Same pool as the charge.
-- `clearRateLimitCache()` — a no-op since R-175 (there is no cache); kept for tests that still call it.
+- `clearRateLimitCache()` — forgets every remembered refusal. Tests call it between cases; it can only cause a database call.
+- `REFUSAL_TTL_MS` (5000) — the longest a refusal is remembered.
+- `aiDailyKey(name, companyId)`, `sendDailyKey(name, companyId)` — the daily usage-quota keys, shared with `rateLimitQuota.ts`.
 - `RateLimitOptions` — `{ max: number; windowSecs: number; cost?: number }`.
 
 ## Dependencies
 - `@/lib/rateLimitPool` — the limiter's own `pg.Pool` for the atomic UPSERT and the refund
+- `lru-cache` — the refuse-only cache (10 000 keys)
+- `@/lib/als` — notes daily usage-quota charges on the request context
 - `@/lib/logger` — warns on 429
 
 ## Critical notes
@@ -23,7 +27,10 @@ Postgres-backed (DB-persisted) rate limiter — shares counters across all pods 
 - **IP extraction gotcha** (BL-20): the FIRST entry in `X-Forwarded-For` is client-supplied and spoofable. This file correctly uses the LAST entry. Do not change this logic.
 - **`rate_limit_counters` table** must exist (migration 331) — the `INSERT … ON CONFLICT` will throw without it.
 - **Window reset**: uses Postgres `make_interval(secs => N)` — the window resets per key, not globally. Each key is independent.
-- **No admitting cache (R-175)** — the old LRU short-circuit admitted calls it never wrote to the table, so a limit of 20 admitted ~65 per window on one process. Every call now costs one UPSERT. If that round-trip ever needs saving, a cache may only REFUSE early (a key the DB already reported over its limit, until its window ends); it must never admit.
-- **The counter never joins the caller's transaction (K-103)** — charge and refund run on the limiter's own pool (`src/lib/rateLimitPool.ts`, 3 connections per process, 5 s connect timeout), so the charge commits at once, survives a request that rolls back, and holds no row lock past its own statement. Do not route them through `sql`: inside a request that joins the request transaction. Do not use the main pool either: a request already holds one of its connections, and a second from the same pool deadlocks under load until the connect timeout.
-- **A limiter DB error throws** — no caller catches it, so the request fails (500). It is never admitted unchecked. Keep it that way.
+- **No admitting cache (R-175)** — the old LRU short-circuit admitted calls it never wrote to the table, so a limit of 20 admitted ~65 per window on one process. Nothing in memory may admit a call.
+- **Refuse-only cache** — when the DB reports `count > max`, that count is remembered for `min(REFUSAL_TTL_MS, time left in the window)`. A later call on the key with `max` below the remembered count returns `false` with no DB call, so a flood on one over-limit key cannot occupy the limiter pool. `refundRateLimit` drops the entry. The cap is 5 s on purpose: a refund from another process, the nightly cleanup, or an operator deleting a counter row is not seen here and must take effect within seconds. A test that changes a row behind the limiter's back must call `clearRateLimitCache()`.
+- **The counter never joins the caller's transaction (K-103)** — charge and refund run on the limiter's own pool (`src/lib/rateLimitPool.ts`, 3 connections per process, 5 s connect timeout, `lock_timeout` 2 s < `statement_timeout` 3 s < `query_timeout` 4 s — keep that order, the client-side timer must fire last), so the charge commits at once, survives a request that rolls back, and holds no row lock past its own statement. Do not route them through `sql`: inside a request that joins the request transaction. Do not use the main pool either: a request already holds one of its connections, and a second from the same pool deadlocks under load until the connect timeout.
+- **A limiter DB error throws** — the request fails (500). One caller catches it, `shareResolver.ts`, and refuses. Nothing may catch it and admit.
+- **Abuse limit or usage quota** — an abuse limit counts an attempt even when it fails (login, tokens, public routes). A usage quota bounds work done. The daily AI and send buckets are usage quotas: `checkAiRateLimit` / `checkSendRateLimit` note the charge on the request context and `withAuth` gives it back on a 5xx or a throw (`src/lib/rateLimitQuota.ts`). A handler that answers below 500 without doing the work calls `refundAiDailyQuota` / `refundSendDailyQuota` itself (see `pages/api/accounting/nl-query.ts`). A request can give back only what it charged. The 15-minute buckets are never given back.
+- **One key, one set of options** — a key is one row with one window; two call sites with the same key and different windows reset each other. `tests/unit/security/rateLimitKeyCensus.test.ts` fails on it.
 - **Security**: keys should never embed user-supplied strings without sanitisation; use composite keys like `ip:endpoint` rather than raw query params.
