@@ -33,7 +33,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
-import { FIGURE_HALO_PX } from '@/modules/accounting/services/packs/packWaterfallPlace';
 import { LEGACY_WATERFALL_BOX } from '@/components/accounting/packs/PackSectionView';
 import { brightsphereLiveInput } from './fixtures/boardPackInputs';
 import { DEMO_MANAGEMENT_BRIDGE, renderLegacyBridge } from './support/legacyBridge';
@@ -61,6 +60,9 @@ const GRID = /<path d="M([-\d.]+) ([-\d.]+)L([-\d.]+) \2"[^>]*stroke="#[0-9a-f]{
 const RECT = /<path d="M([-\d.]+) ([-\d.]+)l([-\d.]+) 0l0 ([-\d.]+)l[-\d.]+ 0Z"[^>]*fill="(#[0-9a-f]{6})"/gi;
 const TEXT = /<text\b[^>]*\bx="([-\d.]+)"\s+y="([-\d.]+)"([^>]*)>([^<]*)<\/text>/gi;
 
+
+/** The narrowest paper stroke that softens a ground's edge at 12px type. */
+const MIN_HALO_PX = 3;
 
 /** The line box a 12px label occupies, by the face's own advances — not a
  *  ruler production sizes the ground with. */
@@ -154,8 +156,10 @@ describe('no gridline is drawn through a figure', () => {
     // its own bar, which is the half of the defect paint order does not save.
     const half = labelWidth(label!.text) / 2;
     expect(label!.ground.some((r) => r.fill === PAPER && r.x <= label!.cx - half && r.x + r.w >= label!.cx + half)).toBe(true);
-    // The halo is still there, at the width the collision rule assumes.
-    expect(label!.halo).toEqual({ colour: PAPER, width: FIGURE_HALO_PX });
+    // The halo is still there: paper, and at least the floor stated here —
+    // this file's own number, not production's constant read back.
+    expect(label!.halo?.colour).toBe(PAPER);
+    expect(label!.halo!.width).toBeGreaterThanOrEqual(MIN_HALO_PX);
   });
 
   it('the management pack\'s Demo bridge, in its own theme: the rule under "1 430 581" and "(1 329 181)" is covered', () => {

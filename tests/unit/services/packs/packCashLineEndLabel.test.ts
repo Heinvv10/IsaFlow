@@ -27,6 +27,7 @@ import { PAGE_WIDTH_MM } from '@/modules/accounting/services/packs/pages/packTex
 import { END_LABEL_GAP_PX } from '@/modules/accounting/services/packs/pages/packEndLabelGutter';
 import { MIN_TICK_PITCH_PX } from '@/modules/accounting/services/packs/packChartAxes';
 import { glyphCells } from './support/bridgeSvg';
+import { outsideSvg } from './support/svgBounds';
 import { liveDemoTrend } from './fixtures/liveDemoBoardPack';
 import { millionsCashInput } from './fixtures/liveDemoBoardPack';
 
@@ -90,8 +91,9 @@ function* series(seedValue: number, n: number): Generator<number[]> {
   const rnd = () => (seed = (seed * 16_807) % 2_147_483_647) / 2_147_483_647;
   for (let i = 0; i < n; i += 1) {
     const len = 1 + Math.floor(rnd() * 13);
-    const mag = Math.pow(10, 1 + Math.floor(rnd() * 7));
-    const v = () => Math.round((rnd() - 0.5) * 2 * mag);
+    // In thousands, to the rand: a hundred rand to a hundred billion.
+    const mag = Math.pow(10, -1 + rnd() * 9);
+    const v = () => Math.round((rnd() - 0.5) * 2 * mag * 1000) / 1000;
     const base = Array.from({ length: len }, v);
     const kind = Math.floor(rnd() * 6);
     if (kind === 0) yield Array(len).fill(v());
@@ -102,6 +104,7 @@ function* series(seedValue: number, n: number): Generator<number[]> {
 }
 
 const RUNGS_MM = [110, 72, 48, 36];
+const SERIES = 1_000;
 const NAMED: Array<[string, number[]]> = [
   ['under a thousand a month', [0.9, -0.4, 1.2, -0.9, 0.3]],
   ['a few thousand, unevenly', [2.4, -1.1, 0.2, 3.6]],
@@ -122,6 +125,8 @@ function check(closing: number[], heightMm: number, tag: string, failures: strin
   const { W, H, ground, plot, pts, axis, ticks } = read(svg);
   const last = pts[pts.length - 1]!;
   if (ground.left < 0 || ground.right > W || ground.top < 0 || ground.bottom > H) failures.push(`${tag}: outside the SVG`);
+  // Nothing the chart prints lies outside it — ticks, months, the unit.
+  for (const out of outsideSvg(svg)) failures.push(`${tag}: ${out}`);
   if (axis.some((a) => overlaps(a, ground))) failures.push(`${tag}: over an axis label`);
   for (let i = 1; i < pts.length; i += 1) if (enters(pts[i - 1]!, pts[i]!, ground)) failures.push(`${tag}: crossed by the line`);
   // The SVG prints a path to one decimal, so a tenth of a pixel is the
@@ -159,14 +164,17 @@ describe("page 8's closing-cash label", () => {
   for (const seed of [99_173, 5_150, 271_828]) {
     it(`holds on seed ${seed}, at every height`, () => {
       const failures: string[] = [];
+      const before = renders.count;
       let k = 0;
-      for (const closing of series(seed, 1_000)) {
-        const h = RUNGS_MM[k % RUNGS_MM.length]!;
-        check(closing, h, `#${k} ${h}mm ${JSON.stringify(closing)}`, failures);
+      // A thousand series, each at ALL FOUR heights the page draws the line.
+      for (const closing of series(seed, SERIES)) {
+        for (const h of RUNGS_MM) check(closing, h, `#${k} ${h}mm ${JSON.stringify(closing)}`, failures);
         k += 1;
       }
       expect(failures.slice(0, 6), `${failures.length} failures`).toEqual([]);
-    }, 120_000);
+      // And every one of them was one render — four thousand charts.
+      expect(renders.count - before).toBe(SERIES * RUNGS_MM.length);
+    }, 300_000);
   }
 
   it.each(NAMED)('holds for a series %s, at every height', (_name, closing) => {

@@ -12,6 +12,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import * as boardPackInputs from './fixtures/boardPackInputs';
 import { outsideSvg as outside } from './support/svgBounds';
 import * as liveDemo from './fixtures/liveDemoBoardPack';
@@ -39,8 +40,14 @@ describe('no chart paints outside its own SVG', () => {
 
   it.each(INPUTS)('%s', (_name, input) => {
     let pages: unknown;
-    // A fixture built to be refused composes no charts to check.
-    try { pages = buildBoardPackPages(input).pages; } catch { return; }
+    // A fixture BUILT TO BE REFUSED composes no charts to check — and only
+    // that. Any other throw is a defect this must not pass over.
+    try {
+      pages = buildBoardPackPages(input).pages;
+    } catch (error) {
+      if (error instanceof PackRefusal) return;
+      throw error;
+    }
     const found = chartSvgs(pages).flatMap((c) => outside(c.svg).map((s) => `${c.id}: ${s}`));
     expect(found).toEqual([]);
   });
