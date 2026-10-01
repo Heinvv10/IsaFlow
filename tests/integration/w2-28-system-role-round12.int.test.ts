@@ -289,6 +289,48 @@ describeIfDb('W2-28 round 12', () => {
           errors: [expect.stringMatching(/^parentCode: Account 1119 cannot go under 1110: Account 1110 holds the bank role, and a balance-sheet account/)] });
     });
 
+    describe('round 14: the same-import holder-as-parent rule, the cases left untested', () => {
+      const importing = async (accounts: Record<string, unknown>[], systemAccountMap: Record<string, string>) => {
+        const before = await fx.hash();
+        const session = await createSession(CO, 'sage', USER);
+        const r = await fx.call(coaImport, 'POST', '/api/accounting/migration/chart-of-accounts', { sessionId: session.id, accounts, systemAccountMap });
+        const data = r.body.data as { imported: number; errors: { message: string; field: string }[] };
+        const chartUnchanged = (await fx.query('SELECT count(*)::int AS n FROM gl_accounts WHERE company_id = $1', [CO])).rows[0].n;
+        return { imported: data.imported, errors: data.errors.map((e) => `${e.field}: ${e.message}`), unchanged: (await fx.hash()) === before, accounts: chartUnchanged };
+      };
+      const row = (accountCode: string, accountType: string, extra: Record<string, unknown> = {}) =>
+        ({ accountCode, accountName: `Imported ${accountCode}`, accountType, normalBalance: ['asset', 'expense'].includes(accountType) ? 'debit' : 'credit', ...extra });
+
+      it('the map gives an EXISTING balance-sheet system header a role while a row of the file is parented under it: refused before any write, the row named', async () => {
+        await ins(SRC, '1000', 'asset', null, true, { level: 1 });
+        const out = await importing([row('1000', 'asset'), row('1001', 'asset', { parentCode: '1000' })], { bank: '1000' });
+        expect(out).toEqual({ imported: 0, unchanged: true, accounts: 6, errors: expect.arrayContaining([
+          expect.stringMatching(/^parentCode: Account 1001 cannot go under 1000: Account 1000 holds the bank role, and a balance-sheet account/)]) });
+        expect(out.errors.join(' ')).not.toMatch(/without exactly one usable/);
+        expect(await holders('bank')).toEqual(['1110']);
+      });
+
+      it('the same for an EXISTING income-statement system header: the parent rule does not bar it — what the import answers is the role-ASSIGNMENT rule', async () => {
+        await ins(SRC, '4000', 'revenue', null, true, { level: 1 });
+        const out = await importing([row('4000', 'revenue'), row('4001', 'revenue', { parentCode: '4000', accountSubtype: 'revenue' })], { default_revenue: '4000' });
+        // No "cannot go under" row error: an income-statement holder may have sub-accounts.
+        expect(out.errors.filter((e) => e.startsWith('parentCode:'))).toEqual([]);
+        // But the import is still refused, by the rule round 11 left unchanged ("not ruled on"): a role is not
+        // ASSIGNED to an account that has, or is given, sub-accounts — whatever its type.
+        expect(out).toMatchObject({ imported: 0, unchanged: true,
+          errors: [expect.stringMatching(/^systemAccountMap\.default_revenue: Account 4000 is a header with sub-accounts, so it cannot hold the 'default_revenue' role/)] });
+      });
+
+      it('a revenue holder as the parent of a row in the same import, re-stated in the map: allowed, the role stays with it', async () => {
+        await ins(SRC, '4100', 'revenue', 'default_revenue', true);
+        const out = await importing([row('4100', 'revenue'), row('4101', 'revenue', { parentCode: '4100', accountSubtype: 'revenue' })], { default_revenue: '4100' });
+        const parent = (await fx.query(`SELECT p.account_code FROM gl_accounts c JOIN gl_accounts p ON p.id = c.parent_account_id
+          WHERE c.company_id = $1 AND c.account_code = '4101'`, [CO])).rows[0]?.account_code;
+        expect({ imported: out.imported, refusals: out.errors.filter((e) => /cannot go under|is a header|without exactly one/.test(e)), parent, holder: await holders('default_revenue') })
+          .toEqual({ imported: 2, refusals: [], parent: '4100', holder: ['4100'] });
+      });
+    });
+
     it('item 14: an import role map onto an account carrying its type\'s default classification says where to change it and that the import can be re-run', async () => {
       await ins(SRC, '4200', 'revenue', 'revenue', false);
       const session = await createSession(CO, 'sage', USER);

@@ -143,7 +143,7 @@ export function VerifyTable({ results }: { results: VerifyEntry[] }) {
 
 export function RollbackButton({ source }: { source: MigrationSource }) {
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<RollbackResult | null>(null);
+  const [result, setResult] = useState<(RollbackResult & { runs: number }) | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleRollback = async () => {
@@ -161,7 +161,7 @@ export function RollbackButton({ source }: { source: MigrationSource }) {
       // Totals across "Continue rollback" passes: an account kept in an earlier
       // pass is untagged, so no later answer mentions it — only this can.
       setResult(prev => ({ ...data, deleted: (prev?.deleted ?? 0) + data.deleted, retained: (prev?.retained ?? 0) + data.retained,
-        retainedCodes: [...(prev?.retainedCodes ?? []), ...data.retainedCodes] }));
+        retainedCodes: [...(prev?.retainedCodes ?? []), ...data.retainedCodes], runs: (prev?.runs ?? 0) + 1 }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Rollback failed');
     } finally {
@@ -174,12 +174,16 @@ export function RollbackButton({ source }: { source: MigrationSource }) {
   // `remaining`: a large rollback is done in more than one request, so until it
   // is 0 the button stays and says what is left.
   if (result && !result.remaining) {
+    // The totals are this page's own: after a reload between runs they start again, so a result
+    // that took more than one run says what it covers.
+    const several = result.runs > 1;
+    const scope = several ? ` These figures cover this session's ${result.runs} runs only — a run made before the page was reloaded is not counted.` : '';
     return result.retained === 0
-      ? <span className="text-xs text-teal-400">Rollback complete — {result.deleted} accounts removed</span>
+      ? <span className="text-xs text-teal-400">Rollback complete — {result.deleted} accounts removed{several ? ' in this session.' : ''}{scope}</span>
       : (
         <span className="text-xs text-amber-400">
-          {result.deleted} accounts removed; {result.retained} kept because they are in use
-          ({result.retainedCodes.join(', ')}). The imported opening-balance journal is not reversed.
+          {result.deleted} accounts removed{several ? ' in this session' : ''}; {result.retained} kept because they are in use
+          ({result.retainedCodes.join(', ')}). The imported opening-balance journal is not reversed.{scope}
         </span>
       );
   }
