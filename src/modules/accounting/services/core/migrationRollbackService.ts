@@ -15,6 +15,7 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 import type { MigrationSource } from './migrationParserService';
 import type { DbRow } from '@/types/db';
 
@@ -44,6 +45,9 @@ export async function rollbackMigration(
   let deleted = 0;
 
   try {
+    // Deleting imported accounts can remove a role holder: serialise with
+    // every writer of role flags first.
+    await lockSystemRoleWrites(companyId);
     const candidates = (await sql`
       SELECT id, account_code FROM gl_accounts
       WHERE company_id = ${companyId}::UUID AND imported_from = ${source}

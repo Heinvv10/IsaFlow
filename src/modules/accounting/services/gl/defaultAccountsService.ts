@@ -3,16 +3,20 @@
  *
  * READ from the system-account flags themselves (the holder
  * systemAccountResolver hands out), never from app_settings, which is empty for
- * most companies. A save moves only the roles whose account it changes, and
+ * most companies. A save moves only the roles whose account it changes (plus
+ * any contested role it names — its other holders are unflagged), and
  * refuses — rolling back everything — when:
- *   - the page was loaded before someone else moved a role it moves (409);
+ *   - the page was loaded before someone else moved a role it moves (409).
+ *     `loaded` must carry, for every key that moves a role, the holder the page
+ *     showed; an omitted `loaded` (or key) counts as "not configured", so it
+ *     gets a 409 on any role that has a holder;
  *   - a role is cleared, or the account is unknown, of the wrong type,
  *     inactive, a header with sub-accounts, or already classified as something
  *     other than that role (Hein, 2026-09-30: only an unclassified, 'other' or
  *     same-role account may take a role — no reclassifying by assignment);
  *   - a locked (filed) VAT period's figures would move;
  *   - afterwards any role held before, or moved, does not resolve to exactly
- *     the account intended.
+ *     the account intended, or a moved role has more than one holder.
  * The 3 unmanaged page rows (sales discount, petty cash, rounding) are stored
  * in app_settings only and read by nothing (SET-02, open question).
  */
@@ -69,12 +73,18 @@ export function plainMapping(value: unknown): Record<string, unknown> {
 
 const idOrNull = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
 
-/** Role → the account id systemAccountResolver would hand out (same winner rule). */
-async function roleHolders(companyId: string, q: TxSql = sql): Promise<Map<SystemAccountKey, string>> {
+interface RoleState {
+  /** Role → the account id systemAccountResolver would hand out (same winner rule). */
+  holders: Map<SystemAccountKey, string>;
+  /** Roles more than one active system account claims. */
+  contested: Set<SystemAccountKey>;
+}
+
+async function roleState(companyId: string, q: TxSql = sql): Promise<RoleState> {
   const coverage = await getSystemRoleCoverage(companyId, q);
   const holders = new Map<SystemAccountKey, string>();
   for (const role of coverage.roles) if (role.holder) holders.set(role.key, role.holder.id);
-  return holders;
+  return { holders, contested: new Set(coverage.contested.map((r) => r.key)) };
 }
 
 async function storedMapping(companyId: string, q: TxSql = sql): Promise<Record<string, unknown>> {
@@ -87,7 +97,7 @@ async function storedMapping(companyId: string, q: TxSql = sql): Promise<Record<
 /** What the page shows: the live holder for each managed role, app_settings for the rest. */
 export async function readDefaultAccountMappings(companyId: string): Promise<Record<string, unknown>> {
   const mappings = await storedMapping(companyId);
-  const holders = await roleHolders(companyId);
+  const { holders } = await roleState(companyId);
   for (const [uiKey, subtype] of Object.entries(KEY_TO_SYSTEM_SUBTYPE)) {
     const holder = holders.get(subtype);
     if (holder) mappings[uiKey] = holder;
@@ -104,8 +114,8 @@ export async function readDefaultAccountMappings(companyId: string): Promise<Rec
 export async function saveDefaultAccountMappings(
   tx: TxSql, companyId: string, mappings: Record<string, unknown>, loaded: Record<string, unknown>,
 ): Promise<void> {
-  // Serialises this save against other Default Accounts saves and the COA
-  // import's role map for this company — nothing else.
+  // Serialises this save against every other writer of this company's role
+  // holders (systemRoleWriteLock lists them).
   await lockSystemRoleWrites(companyId, tx);
   const chosenIds = Object.entries(mappings)
     .filter(([k, v]) => managedSubtype(k) && idOrNull(v)).map(([, v]) => v as string);
@@ -118,7 +128,7 @@ export async function saveDefaultAccountMappings(
     ORDER BY id
     FOR UPDATE
   `;
-  const before = await roleHolders(companyId, tx);
+  const { holders: before, contested } = await roleState(companyId, tx);
 
   const changes: AccountAttributeChange[] = [];
   const moves: { subtype: SystemAccountKey; accountId: string }[] = [];
@@ -133,7 +143,9 @@ export async function saveDefaultAccountMappings(
       throw new DefaultAccountsRefusal(`One account cannot hold two roles: '${other}' and '${uiKey}' name the same account`);
     }
     if (accountId) chosenFor.set(accountId, uiKey);
-    if (accountId === current) continue;
+    // Naming a contested role's current winner is a move too: it settles the
+    // role on that account and unflags the rival holders.
+    if (accountId === current && !contested.has(subtype)) continue;
     if (!accountId) {
       throw new DefaultAccountsRefusal(
         `'${uiKey}' cannot be cleared: the ${subtype} role would have no account and posting that needs it would fail. Choose a replacement account instead.`,
@@ -162,7 +174,7 @@ export async function saveDefaultAccountMappings(
     const fromSubtype = row.account_subtype == null ? null : String(row.account_subtype);
     if (fromSubtype !== null && fromSubtype !== subtype && !UNCLASSIFIED.has(fromSubtype)) {
       throw new DefaultAccountsRefusal(
-        `Account ${code} is classified '${fromSubtype}'; only an unclassified account or one already classified '${subtype}' can hold that role. Change its classification on the chart of accounts first.`,
+        `Account ${code} is classified '${fromSubtype}'; only an account classified 'other' (or unclassified), or one already classified '${subtype}', can hold that role. It must be reclassified to 'other' first.`,
       );
     }
     // Last: an account that is wrong in itself is refused as such, stale page or not.
@@ -209,10 +221,11 @@ export async function saveDefaultAccountMappings(
 
   // Defence in depth: every role held before or moved must now resolve to
   // exactly the account intended (an emptied or drifted role posts wrongly).
-  const after = await roleHolders(companyId, tx);
+  const { holders: after, contested: stillContested } = await roleState(companyId, tx);
   const intended = new Map<SystemAccountKey, string>(before);
   for (const { subtype, accountId } of moves) intended.set(subtype, accountId);
-  const wrong = [...intended.keys()].filter((key) => after.get(key) !== intended.get(key));
+  const wrong = [...intended.keys()].filter((key) => after.get(key) !== intended.get(key)
+    || (moves.some((m) => m.subtype === key) && stillContested.has(key)));
   if (wrong.length > 0) {
     throw new DefaultAccountsRefusal(
       `This change would leave ${wrong.join(', ')} without the account you chose; posting would fail or use another account. Nothing was saved.`,

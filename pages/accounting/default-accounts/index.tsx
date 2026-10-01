@@ -93,14 +93,15 @@ export default function DefaultAccountsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mappings: pick(mappings), loaded: pick(loaded) }),
       });
+      // The message is set BEFORE the reload, so a reload that fails replaces
+      // it with its own error instead of being hidden behind "saved".
       if (res.ok) {
-        await loadData();
         setMessage({ type: 'success', text: 'Default accounts saved' });
+        await loadData();
       } else {
         const json = await res.json();
-        const text = json.error?.message || json.message || 'Failed to save';
+        setMessage({ type: 'error', text: json.error?.message || json.message || 'Failed to save' });
         if (res.status === 409) await loadData();
-        setMessage({ type: 'error', text });
       }
     } catch {
       setMessage({ type: 'error', text: 'Save request failed' });

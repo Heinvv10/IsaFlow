@@ -4,6 +4,9 @@
  * POST /api/accounting/default-accounts - Save default account mappings
  *   body: { mappings: {uiKey: accountId} (only the keys changed),
  *           loaded: {uiKey: accountId} (the holder the page showed for each) }
+ *   `loaded` is required for every key that moves a role: an omitted `loaded`
+ *   (or key) means "the page showed Not configured", so a role that has a
+ *   holder answers 409. A `loaded` that is not an object is 400.
  * Sage equivalent: Accounts > Default Accounts
  *
  * The rules live in defaultAccountsService: GET shows the live role holders;
@@ -19,6 +22,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withTransaction } from '@/lib/neon';
 import { runAfterCommit } from '@/lib/afterCommit';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import {
   DefaultAccountsRefusal, plainMapping, readDefaultAccountMappings, saveDefaultAccountMappings,
@@ -43,6 +47,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.validationError(res, { mappings: 'Object of key-value mappings required' });
     }
 
+    if (loaded != null && (typeof loaded !== 'object' || Array.isArray(loaded))) {
+      return apiResponse.badRequest(res, '`loaded` must be an object of the holders the page showed');
+    }
+
     try {
       await withTransaction((tx) => saveDefaultAccountMappings(
         tx, companyId, mappings as Record<string, unknown>, plainMapping(loaded)));
@@ -50,6 +58,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (err instanceof DefaultAccountsRefusal) {
         return err.status === 409 ? apiResponse.conflict(res, err.message) : apiResponse.badRequest(res, err.message);
       }
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Failed to save default accounts', { error: err instanceof Error ? err.message : String(err), module: 'accounting' });
       return apiResponse.databaseError(res, err, 'Failed to save default accounts');
     }

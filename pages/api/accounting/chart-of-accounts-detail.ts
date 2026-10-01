@@ -8,6 +8,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { ErrorCode } from '@/lib/apiResponse.types';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -43,6 +44,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const account = await updateAccount(companyId, id, { accountName, description, isActive, displayOrder });
       return apiResponse.success(res, account);
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       const message = err instanceof Error ? err.message : 'Failed to update account';
       log.error('Failed to update account', { id, error: err }, 'accounting-api');
       return apiResponse.badRequest(res, message);
@@ -75,6 +77,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await deleteAccount(companyId, id);
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       const message = err instanceof Error ? err.message : 'Failed to delete account';
       log.error('Failed to delete account', { id, error: err }, 'accounting-api');
       return apiResponse.badRequest(res, message);

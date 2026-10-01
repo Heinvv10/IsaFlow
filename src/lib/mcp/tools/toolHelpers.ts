@@ -236,6 +236,9 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SUPPLIER_PAYMENT_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_PROCESSABLE',
   'SUPPLIER_PAYMENT_REFUSED',
+  // Another request is changing the chart's role holders: one fixed "retry"
+  // sentence naming nothing, raised before any write.
+  'SYSTEM_ROLE_LOCK_TIMEOUT',
   'TAX_DIRECTIVE_ALREADY_APPLIED',
   'TIME_ENTRIES_NOT_CLAIMED',
   'TIME_ENTRY_LOCK_TIMEOUT',

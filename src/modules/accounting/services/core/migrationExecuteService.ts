@@ -10,6 +10,7 @@ import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationPa
 import type { DbRow } from '@/types/db';
 import { defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
+import { lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 import { assertAccountChangesKeepVatLocks, type AccountAttributeChange } from '../gl/vatLockLineClassification';
 
 // Rollback lives in its own file for the 300-line cap; re-exported so the API
@@ -77,6 +78,9 @@ export async function executeMigration(
   // would move a posted line inside a locked (filed) VAT period into a
   // different box refuses the WHOLE migration, naming account and period —
   // later steps post opening balances against these accounts.
+  // The upsert can fill a system account's NULL subtype (making it a role
+  // holder): serialise with every writer of role flags before that read.
+  await lockSystemRoleWrites(companyId);
   try {
     await assertAccountChangesKeepVatLocks(companyId, await reimportAttributeChanges(companyId, source, validAccounts));
   } catch (err) {

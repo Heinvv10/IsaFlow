@@ -2,7 +2,8 @@
  * Turn a document-numbering / row-lock timeout into a 503 the caller can act on.
  *
  * `DocumentNumberLockTimeoutError`, `TimeEntryLockTimeoutError`,
- * `DocumentClaimLockTimeoutError` and `RecurringTemplateLockTimeoutError` were
+ * `DocumentClaimLockTimeoutError`, `RecurringTemplateLockTimeoutError` and
+ * (later) `SystemRoleLockTimeoutError` were
  * typed at the service layer but nothing mapped them, so the user saw the
  * generic 500
  * `withErrorHandler` produces — whose message is masked outright in production —
@@ -25,13 +26,15 @@ import { TimeEntryLockTimeoutError } from '@/modules/accounting/services/practic
 import { DocumentClaimLockTimeoutError } from '@/modules/accounting/services/core/documentClaimLock';
 import { RecurringTemplateLockTimeoutError } from '@/modules/accounting/services/core/recurringTemplateLock';
 import { WipEntriesLockedError } from '@/modules/accounting/services/practice/wipEntryLock';
+import { SystemRoleLockTimeoutError } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 
 export function respondIfLockTimeout(res: NextApiResponse, err: unknown): boolean {
   if (!(err instanceof DocumentNumberLockTimeoutError)
     && !(err instanceof TimeEntryLockTimeoutError)
     && !(err instanceof DocumentClaimLockTimeoutError)
     && !(err instanceof RecurringTemplateLockTimeoutError)
-    && !(err instanceof WipEntriesLockedError)) {
+    && !(err instanceof WipEntriesLockedError)
+    && !(err instanceof SystemRoleLockTimeoutError)) {
     return false;
   }
   res.setHeader('Retry-After', '2');

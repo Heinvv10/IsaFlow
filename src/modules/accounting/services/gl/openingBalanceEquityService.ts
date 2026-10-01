@@ -35,7 +35,8 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { clearSystemAccountCache } from './systemAccountResolver';
+import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
+import { lockSystemRoleWrites } from './systemRoleWriteLock';
 
 export const OPENING_BALANCE_EQUITY_SUBTYPE = 'opening_balance_equity';
 export const OPENING_BALANCE_EQUITY_NAME = 'Opening Balance Equity';
@@ -93,6 +94,9 @@ async function freeCode(companyId: string): Promise<string> {
 export async function ensureOpeningBalanceEquityAccount(
   companyId: string,
 ): Promise<OpeningBalanceEquityAccount> {
+  // Before findExisting: a Default Accounts save placing the role elsewhere
+  // must not interleave with this create (two holders, posting using either).
+  await lockSystemRoleWrites(companyId);
   const existing = await findExisting(companyId);
   if (existing) return existing;
 
@@ -131,7 +135,7 @@ export async function ensureOpeningBalanceEquityAccount(
     throw err;
   }
   const r = rows[0]!;
-  clearSystemAccountCache(companyId);
+  clearSystemAccountCacheAfterCommit(companyId);
   log.info('Created Opening Balance Equity account', { companyId, code }, 'accounting');
   return { id: String(r.id), accountCode: String(r.account_code), accountName: String(r.account_name), created: true };
 }

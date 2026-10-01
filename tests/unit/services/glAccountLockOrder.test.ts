@@ -29,6 +29,11 @@ vi.mock('@/lib/neon', () => ({
     return Promise.resolve([]);
   },
 }));
+// The role-write lock precedes the row locks and issues its own statements; it
+// is proven against Postgres in w2-28-system-role-writers.int.test.ts.
+vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', () => ({
+  lockSystemRoleWrites: vi.fn(), SystemRoleLockTimeoutError: class extends Error {},
+}));
 vi.mock('@/lib/als', () => ({
   als: { getStore: () => ({ client: { query: vi.fn(async () => undefined) } }) },
   assertTxUsable: vi.fn(),

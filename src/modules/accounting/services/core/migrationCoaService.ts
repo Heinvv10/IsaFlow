@@ -7,7 +7,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { withAlsTransaction } from '@/lib/alsTransaction';
 import { log } from '@/lib/logger';
-import { clearSystemAccountCache } from '../gl/systemAccountResolver';
+import { clearSystemAccountCacheAfterCommit } from '../gl/systemAccountResolver';
 import { updateSession } from './migrationService';
 import type { ImportResult, MigrationError } from './migrationService';
 import type { GLAccountType } from '../../types/gl.types';
@@ -238,7 +238,7 @@ export async function importChartOfAccounts(
     return { imported: 0, skipped: accounts.length, errors: [{ step: 'coa', row: -1, field: 'accountCode', message: refusal.message }] };
   }
 
-  clearSystemAccountCache(companyId);
+  clearSystemAccountCacheAfterCommit(companyId);
 
   await updateSession(sessionId, companyId, {
     coaRecordsImported: imported,

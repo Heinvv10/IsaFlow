@@ -23,7 +23,8 @@ import { log } from '@/lib/logger';
 import type { GLAccount, GLAccountSubtype, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { ParentAccountError, assertParentUsable } from './accountParentRules';
-import { clearSystemAccountCache } from './systemAccountResolver';
+import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
+import { lockSystemRoleWrites } from './systemRoleWriteLock';
 import { getAccountById } from './chartOfAccountsService';
 import { isBankSubtype } from './accountSubtypes';
 import { findLockedReclassification, lockedReclassMessage } from './vatLockLineClassification';
@@ -191,6 +192,9 @@ export async function reclassifyAccount(
     throw new ReclassifyError('Nothing to reclassify — pass accountSubtype or parentAccountId');
   }
 
+  // A subtype change could take a role from its holder: serialise with every
+  // writer of role flags before reading the account.
+  if (changingSubtype) await lockSystemRoleWrites(companyId);
   const account = await loadAccount(companyId, id);
 
   if (changingSubtype) {
@@ -255,7 +259,7 @@ export async function reclassifyAccount(
     throw err;
   }
 
-  clearSystemAccountCache(companyId);
+  clearSystemAccountCacheAfterCommit(companyId);
 
   const updated = await getAccountById(companyId, id);
   if (!updated) throw new ReclassifyError('Account not found');

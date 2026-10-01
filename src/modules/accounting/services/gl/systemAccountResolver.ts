@@ -11,6 +11,8 @@
  */
 
 import { sql } from '@/lib/neon';
+import { als } from '@/lib/als';
+import { runAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import {
   MissingSystemAccountError,
@@ -79,6 +81,24 @@ export function clearSystemAccountCache(companyId?: string): void {
   } else {
     companyCache.clear();
   }
+}
+
+/**
+ * Clear once the surrounding request transaction has COMMITTED. Cleared before
+ * COMMIT, a resolver read landing between the clear and the COMMIT re-caches
+ * the old holder from committed state, and posting uses it for the whole TTL.
+ * Every transaction owner (withAuth, the bearer pipeline, withAlsTransaction…)
+ * runs after-commit work; with no transaction in flight the writes are already
+ * committed, so the clear runs now. A bare ALS context that runs no after-commit
+ * work (a test harness) also clears now — this is in-memory, not DB, work.
+ */
+export function clearSystemAccountCacheAfterCommit(companyId: string): void {
+  const store = als.getStore();
+  if (store?.afterCommit && !store.finished) {
+    runAfterCommit('system account cache clear', async () => clearSystemAccountCache(companyId));
+    return;
+  }
+  clearSystemAccountCache(companyId);
 }
 
 async function ensureCache(companyId: string): Promise<CompanyCache> {
