@@ -1,3 +1,9 @@
+# Re-confirmation round: on 44202201e. Q53 (a swept checkout's URL handed out) is new; Q42 was re-pointed at the checked URL write; Q21 and Q41 were re-run. Each: both r167 suites + paystackClient unit test.
+Q21 no reuse at all: RED | 3 failed | 33 passed (36)
+Q41 failed start not marked: RED | 1 failed | 35 passed (36)
+Q42 started checkout URL not stored: RED | 4 failed | 32 passed (36)
+Q53 swept checkout URL handed out: RED | 1 failed | 35 passed (36)
+
 # Review round 3: on 37d2b39ca. Q50-Q52 (the abandoned-start sweep) are new. Q39 was re-pointed at the simplified branch; Q40 is gone with the dead 'young' check. Q21 and Q47 were re-run. Q52 SURVIVED until the older-started-checkout case was added. Each run: both r167 suites + paystackClient unit test.
 Q21 no reuse at all: RED | 3 failed | 32 passed (35)
 Q47 starting not 409: RED | 1 failed | 34 passed (35)
