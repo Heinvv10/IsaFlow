@@ -67,6 +67,10 @@ export interface PackDocument {
   companyName: string;
   period: string;
   generatedAt: string;
+  /** Whether the pack is a draft (`readPackDraftState`) — the same answer the
+   *  running footer and the PDF metadata carry. Absent on a document built
+   *  before the field existed: not a draft. */
+  draft?: boolean;
   sections: PackDocumentSection[];
 }
 
@@ -207,8 +211,9 @@ function blocksFor(sectionType: PackSectionType, section: PackSection, trend: Pa
   }
 }
 
-export function buildPackDocument(pack: ReportPack, trend: PackTrendPoint[]): PackDocument {
+export function buildPackDocument(pack: ReportPack, trend: PackTrendPoint[], draft = false): PackDocument {
   return {
+    ...(draft ? { draft: true } : {}),
     packType: pack.type,
     companyName: pack.companyName,
     period: pack.period,

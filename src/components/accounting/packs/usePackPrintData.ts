@@ -35,10 +35,10 @@ export function usePackPrintData(packType: PackType, from: string, to: string): 
         // every method on it, so the payload is narrowed with one cast here.
         const packPayload = (await apiJson(
           `${PACK_DATA_API}?type=${packType}&from=${from}&to=${to}`,
-        )) as { pack: ReportPack };
+        )) as { pack: ReportPack; draft?: boolean };
         const trend = await apiJson(`${packTrendApiPath(packType)}?to=${to}&months=12`);
         if (cancelled) return;
-        setDocument(buildPackDocument(packPayload.pack, trend));
+        setDocument(buildPackDocument(packPayload.pack, trend, packPayload.draft === true));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.error('usePackPrintData: failed', { packType, from, to, error: message });

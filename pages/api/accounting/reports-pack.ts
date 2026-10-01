@@ -10,6 +10,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
 import { readReportPackInput } from '@/modules/accounting/services/reports/reportPackDataService';
 import { log } from '@/lib/logger';
+import { readPackDraftState } from '@/modules/accounting/services/packs/pages/packDraftState';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import {
   buildReportPack,
@@ -48,8 +49,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('Report pack generated', { companyId, packType, from, to }, 'accounting');
 
+  // The same answer the running footer and the PDF metadata carry, so the
+  // print view's watermark cannot disagree with them.
+  const draft = (await readPackDraftState(companyId, packType, from, to)).reasons.length > 0;
+
   return apiResponse.success(res, {
     pack,
+    draft,
     period: { from, to },
     unclassifiedAccounts: unclassifiedWarning(figures.cumulative),
   });
