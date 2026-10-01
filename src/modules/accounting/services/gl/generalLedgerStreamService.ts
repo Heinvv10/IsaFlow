@@ -92,7 +92,7 @@ export async function getGeneralLedgerLines(
   const term = search === undefined || search === '' ? null : `%${search}%`;
 
   try {
-    const basis = await streamFiscalBasis(companyId, periodStart, !anyFilter);
+    const basis = await streamFiscalBasis(companyId, periodStart, !anyFilter, periodEnd);
     const rows = (await sql`
       WITH matched AS (
         SELECT jl.id AS line_id, jl.journal_entry_id, ga.id AS account_id,

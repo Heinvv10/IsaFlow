@@ -14,6 +14,7 @@ import { log } from '@/lib/logger';
 import { toMoney } from '@/lib/money/decimalSum';
 import { DEFAULT_FY_START_MONTH, resolveFiscalYearStartMonth } from '../gl/fiscalYearBasis';
 import { fiscalYearStartsWithin, incomeStatementOpeningFloor } from '../gl/fiscalYearCloseRows';
+import { assertLedgerDates } from '../gl/ledgerDateRange';
 import { buildPageRows, loadYearEndCloses, netOfFirstLines, planPage, type LedgerScope } from './accountLedgerYearEnd';
 
 type Row = DbRow;
@@ -41,6 +42,7 @@ export async function getAccountLedger(
   const cc = costCentreId ?? null;
   const bu = businessUnitId ?? null;
 
+  assertLedgerDates(fromDate, toDate);
   if (!accountId && !accountCode) {
     throw new Error('Either accountId or accountCode is required');
   }

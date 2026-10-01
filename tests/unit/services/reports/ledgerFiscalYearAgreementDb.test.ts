@@ -188,6 +188,43 @@ describe('ledger listings agree with the trial balance (Postgres)', async () => 
     });
   }, 30000);
 
+  it.skipIf(!reachable)('year-0001 dates are refused before SQL, leaving the transaction usable (security round 3)', async () => {
+    await withLedger(3, async () => {
+      const probes: Array<[string, () => Promise<unknown>]> = [
+        ['stream', () => getGeneralLedgerLines({ companyId: company, periodStart: '0001-01-01', periodEnd: '2026-09-30', limit: 10 })],
+        ['ledger', () => ledger('5200', '0001-01-01')],
+        ['report', () => getGeneralLedgerReport(company, '0001-01-01', '2026-09-30')],
+        ['transactions', () => getAccountTransactions(company, '5200', '0001-01-01', '2026-09-30')],
+      ];
+      for (const [name, run] of probes) {
+        // The bare Postgres cast error (22008, no year 0) is what this used to be.
+        await expect(run(), name).rejects.toThrow(/invalid ledger date/);
+        // A poisoned transaction would fail this with 25P02.
+        expect(await sql`SELECT 1 AS ok`, name).toEqual([{ ok: 1 }]);
+      }
+    });
+  }, 30000);
+
+  // 1900-01-01 is the earliest legal date. Under any FY start month after January the FY floor is
+  // 1899-<month>-01: a valid Postgres date, so the legal edge must work (nothing is lost, as no
+  // posting predates 1900), and must not be refused or throw.
+  it.skipIf(!reachable)('the legal edge 1900-01-01 floors into 1899 for every FY start month without error', async () => {
+    for (const fy of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
+      await withLedger(fy, async () => {
+        const l = await ledger('5200', '1900-01-01', '1900-12-31');
+        expect(l.openingBalance, `fy ${fy}`).toBe(0);
+        expect(l.rows).toEqual([]);
+        const page = await getGeneralLedgerLines({ companyId: company, periodStart: '1900-01-01', periodEnd: '1900-12-31', limit: 10 });
+        expect(page.lines, `fy ${fy}`).toEqual([]);
+        expect((await getGeneralLedgerReport(company, '1900-01-01', '1900-12-31')).length, `fy ${fy}`).toBe(0);
+        expect((await getAccountTransactions(company, '5200', '1900-01-01', '1900-12-31')).openingBalance).toBe(0);
+        // And a range from the edge up to the present still ties to the TB.
+        expect((await ledger('5200', '1900-01-01')).periodClosingBalance).toBe(
+          (await ledger('5200', '2026-09-01')).periodClosingBalance);
+      });
+    }
+  }, 60000);
+
   it.skipIf(!reachable)('non-March FY (July) ties to the TB; another tenant’s FY is not used', async () => {
     await withLedger(7, async () => {
       expect(tbClosing(await getTrialBalance(company, SEPT), '5200')).toBe(50);

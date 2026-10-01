@@ -21,6 +21,7 @@
 
 import { DEFAULT_FY_START_MONTH, fiscalYearStart, getFiscalYearStartMonth } from './fiscalYearBasis';
 import { isIncomeStatementType } from './fiscalYearCloseRows';
+import { assertLedgerDates } from './ledgerDateRange';
 import { BROUGHT_FORWARD_CODE, getRetainedEarningsBroughtForward } from './trialBalanceBasis';
 
 export interface StreamFiscalBasis {
@@ -34,7 +35,9 @@ export async function streamFiscalBasis(
   companyId: string,
   periodStart: string,
   unfiltered: boolean,
+  periodEnd: string,
 ): Promise<StreamFiscalBasis> {
+  assertLedgerDates(periodStart, periodEnd);
   // READ PATH: March fallback taken visibly, as the trial balance does.
   const month = await getFiscalYearStartMonth(companyId, { fallback: DEFAULT_FY_START_MONTH });
   const fyStart = fiscalYearStart(periodStart, month);
