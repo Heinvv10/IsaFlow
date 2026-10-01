@@ -184,32 +184,6 @@ describe.each(owners)('%s', (label, run) => {
   });
 });
 
-describe('withPlatformAdmin: a critical audit write failed, and the forced ROLLBACK fails too', () => {
-  it('the connection is destroyed, and the next admin request cannot commit the unaudited write', async () => {
-    const audited: Run = async (name, _outcome, fail, s) => {
-      const r = await call(withPlatformAdmin(async (_req: unknown, res: TestResponse) => {
-        await work(name, 'ok', fail, s);
-        als.getStore()!.criticalAuditFailed = true; // what auditService sets when the audit row cannot be written
-        return res.status(200);
-      }) as never, adminReq());
-      return r.threw === null && (r.body?.error as { code?: string } | undefined)?.code === 'AUDIT_WRITE_FAILED';
-    };
-    const first = seen(), name = `r176-${randomUUID()}`;
-    const failed = await audited(name, 'ok', ['ROLLBACK'], first);
-    first.disarm();
-    const state = await backendState(pool, first.pid, 'gone');
-    const next = seen();
-    const nextFailed = await viaPlatformAdmin(`${name}-next`, 'ok', [], next);
-    next.disarm();
-    expect(first.refused.ROLLBACK).toBe(1);
-    expect(failed).toBe(true); // still 500 AUDIT_WRITE_FAILED, not a rethrow
-    expect(nextFailed).toBe(false);
-    expect(await customers(name)).toBe(0);
-    expect(next.pid).not.toBe(first.pid);
-    expect(state).toBeNull();
-  });
-});
-
 describe('withPlatformAdmin (role gate)', () => {
   /** The gate reads one row and COMMITs; it writes nothing, so the proof is the backend. */
   const gate = async (fail: Statement[], s: Seen) => {

@@ -110,10 +110,10 @@ async function acceptThenNext(first: { userId: string; token: string }, fail: St
   };
 }
 
-it('EMAIL_IN_USE whose ROLLBACK fails: the connection is destroyed and the next invitee is still served', async () => {
+it('EMAIL_IN_USE whose ROLLBACK fails: still 409, the connection is destroyed and the next invitee is served', async () => {
   const r = await acceptThenNext(await invite(true), ['ROLLBACK'], 'gone');
-  expect(r.refused.ROLLBACK).toBe(2); // the route's own ROLLBACK, then the one in its catch
-  expect(r.status).toBe(500);
+  expect(r.refused.ROLLBACK).toBe(1);
+  expect(r.status).toBe(409); // the answer owed stands; the destroyed connection takes the membership with it
   expect(r.nextStatus).toBe(200); // not handed a connection inside an aborted transaction
   expect(r.member).toBe(0);
   expect(r.nextMember).toBe(1);

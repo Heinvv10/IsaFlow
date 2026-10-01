@@ -82,8 +82,10 @@ export function reportFinalizeFailure(
   err: unknown,
   ctx: ThrowContext & { handlerFailed: boolean; connectionDestroyed: boolean; component?: string },
 ): void {
+  // The path only: some routes carry a secret in the query string.
+  const route = sanitizeRoute(req.url);
   log.error(`${ctx.source}: transaction finalize failed after handler responded`, {
-    url: req.url,
+    url: route,
     status: res.statusCode,
     handlerFailed: ctx.handlerFailed, // distinguishes a failed COMMIT (2xx) from a failed ROLLBACK (5xx)
     connectionDestroyed: ctx.connectionDestroyed,
@@ -93,7 +95,6 @@ export function reportFinalizeFailure(
     message: describe(err).message,
   }, ctx.component ?? 'Auth');
   if (process.env.SENTRY_ENABLED !== 'true') return;
-  const route = sanitizeRoute(req.url);
   try {
     Sentry.captureException(err, {
       tags: { ...(ctx.companyId && { company_id: ctx.companyId }), ...(route && { route }) },

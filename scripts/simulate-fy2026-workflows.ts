@@ -53,11 +53,14 @@ import { ADMIN_ID, COMPANY_ID, DATABASE_URL, errText, firstDay, lastDay, pad, sq
  */
 let requestPool: pg.Pool | null = null;
 async function inRequestTx<T>(fn: () => Promise<T>): Promise<T> {
-  requestPool ??= new pg.Pool({
-    connectionString: DATABASE_URL,
-    max: 2,
-    ssl: DATABASE_URL!.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
-  });
+  if (!requestPool) {
+    requestPool = new pg.Pool({
+      connectionString: DATABASE_URL,
+      max: 2,
+      ssl: DATABASE_URL!.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
+    });
+    requestPool.on('error', (err) => console.error('[request pool]', err.message)); // unlistened, a client error is an uncaught exception
+  }
   const client = await requestPool.connect();
   let unusable = false;
   try {

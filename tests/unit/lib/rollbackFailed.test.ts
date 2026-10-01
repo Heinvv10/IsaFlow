@@ -1,22 +1,24 @@
 /**
  * R-176 — rollbackFailed / rollbackError: the one place a transaction owner rolls back. It
  * reports a failure instead of throwing, logs it, never waits for a ROLLBACK longer than
- * rollbackBound.ms, and asks Postgres to cancel what the connection was running before the
+ * ROLLBACK_TIMEOUT_MS, and asks Postgres to cancel what the connection was running before the
  * owner destroys it.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const h = vi.hoisted(() => ({ cancelBackend: vi.fn() }));
+const h = vi.hoisted(() => ({ cancelBackend: vi.fn(() => true) }));
 vi.mock('@/lib/logger', () => ({ log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/cancelBackend', () => ({ cancelBackend: h.cancelBackend }));
 import { log } from '@/lib/logger';
-import { rollbackBound, rollbackError, rollbackFailed } from '@/lib/rollbackFailed';
+import { ROLLBACK_TIMEOUT_MS, rollbackError, rollbackFailed, setRollbackBoundForTests } from '@/lib/rollbackFailed';
 
 const logged = () => vi.mocked(log.error).mock.calls;
-const usual = rollbackBound.ms;
+const usual = ROLLBACK_TIMEOUT_MS;
+let restore = () => undefined as void;
+const warned = () => vi.mocked(log.warn).mock.calls;
 
-beforeEach(() => { vi.useFakeTimers(); vi.mocked(log.error).mockClear(); h.cancelBackend.mockReset(); });
-afterEach(() => { vi.useRealTimers(); rollbackBound.ms = usual; });
+beforeEach(() => { vi.useFakeTimers(); vi.mocked(log.error).mockClear(); h.cancelBackend.mockReset(); h.cancelBackend.mockReturnValue(true); });
+afterEach(() => { vi.useRealTimers(); restore(); restore = () => undefined; vi.unstubAllEnvs(); });
 
 describe('rollbackFailed', () => {
   it('a ROLLBACK that succeeds: false, one statement, nothing logged or cancelled, no timer left behind', async () => {
@@ -61,14 +63,52 @@ describe('rollbackFailed', () => {
     expect(h.cancelBackend.mock.calls).toEqual([[client]]);
   });
 
-  it('the bound is read when the ROLLBACK is sent, so a test can shorten it', async () => {
-    rollbackBound.ms = 40;
+  it('a test can shorten the bound, and gets a restore', async () => {
+    restore = setRollbackBoundForTests(40);
     let settled: boolean | undefined;
     void rollbackFailed({ query: () => new Promise<never>(() => undefined) }, 'owner').then((v) => { settled = v; });
     await vi.advanceTimersByTimeAsync(39);
     expect(settled).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1);
     expect(settled).toBe(true);
+    restore();
+    let again: boolean | undefined;
+    void rollbackFailed({ query: () => new Promise<never>(() => undefined) }, 'owner').then((v) => { again = v; });
+    await vi.advanceTimersByTimeAsync(usual - 1);
+    expect(again).toBeUndefined(); // back to the production bound
+    await vi.advanceTimersByTimeAsync(1);
+    expect(again).toBe(true);
+  });
+
+  it.each(['production', 'development', ''])('outside a test run (NODE_ENV=%j) the bound cannot be changed', async (env) => {
+    vi.stubEnv('NODE_ENV', env);
+    expect(() => setRollbackBoundForTests(0)).toThrow(/only in a test run/);
+    let settled: boolean | undefined;
+    void rollbackFailed({ query: () => new Promise<never>(() => undefined) }, 'owner').then((v) => { settled = v; });
+    await vi.advanceTimersByTimeAsync(usual - 1);
+    expect(settled).toBeUndefined(); // still the production bound
+    await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toBe(true);
+  });
+
+  it('the production bound is exported read-only', async () => {
+    const mod = await import('@/lib/rollbackFailed');
+    expect(Object.keys(mod).sort()).toEqual(['ROLLBACK_TIMEOUT_MS', 'rollbackError', 'rollbackFailed', 'setRollbackBoundForTests']);
+    expect(() => { (mod as { ROLLBACK_TIMEOUT_MS: number }).ROLLBACK_TIMEOUT_MS = 1; }).toThrow();
+  });
+
+  it('a timed-out ROLLBACK whose backend cannot be cancelled is said once, at warn', async () => {
+    h.cancelBackend.mockReturnValue(false);
+    vi.mocked(log.warn).mockClear();
+    for (let i = 0; i < 2; i += 1) {
+      const result = rollbackFailed({ query: () => new Promise<never>(() => undefined) }, 'owner');
+      await vi.advanceTimersByTimeAsync(usual);
+      await expect(result).resolves.toBe(true);
+    }
+    expect(warned().filter((c) => String(c[0]).includes('cannot cancel'))).toHaveLength(1);
+    // A ROLLBACK that was refused outright had nothing known to be in flight: not worth a warning.
+    await rollbackFailed({ query: async () => { throw new Error('reset'); } }, 'owner');
+    expect(warned().filter((c) => String(c[0]).includes('cannot cancel'))).toHaveLength(1);
   });
 
   it('a cancel that throws does not escape: the owner still gets its answer', async () => {

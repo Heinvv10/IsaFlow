@@ -30,7 +30,7 @@ vi.mock('@/lib/rateLimit', async (importOriginal) => {
 import { sql } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
-import { rollbackBound } from '@/lib/rollbackFailed';
+import { setRollbackBoundForTests } from '@/lib/rollbackFailed';
 import { withAuth } from '@/lib/auth/withAuth';
 import { withBearerOrCookieAuth } from '@/lib/auth/withBearerOrCookieAuth';
 import { withBearerAuth } from '@/lib/auth/withBearerAuth';
@@ -167,8 +167,7 @@ describe('withAuth: a ROLLBACK that does not answer', () => {
   it('the wait is bounded: 500 is sent, the query in flight is cancelled, the connection is destroyed', async () => {
     const name = `r176-${randomUUID()}`;
     const s = seen();
-    const usual = rollbackBound.ms;
-    rollbackBound.ms = 300; // the production bound is seconds; the mechanism is the same
+    const restore = setRollbackBoundForTests(300); // the production bound is seconds; the mechanism is the same
     let r: Awaited<ReturnType<typeof call>>;
     try {
       r = await call(withAuth(async () => {
@@ -177,7 +176,7 @@ describe('withAuth: a ROLLBACK that does not answer', () => {
         busy(als.getStore()!.client, 60); // the ROLLBACK queues behind this
         throw new Error(`R-176 forced failure after the ${name} INSERT`);
       }) as never, cookieReq());
-    } finally { rollbackBound.ms = usual; }
+    } finally { restore(); }
     expect(r.threw).toBeNull();
     expect(r.status).toBe(500); // answered: the test would time out waiting for the 60s query otherwise
     expect(r.ends).toBe(1);

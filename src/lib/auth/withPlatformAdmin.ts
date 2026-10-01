@@ -176,7 +176,8 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
       await adminClient.query('COMMIT');
       drainAfterCommit(ctx); // R-075: background work starts only after COMMIT, off this client
     } catch (err) {
-      unusable = await rollbackFailed(adminClient, 'withPlatformAdmin');
+      // `||`: the forced ROLLBACK above may already have failed, and that still condemns the connection.
+      unusable = (await rollbackFailed(adminClient, 'withPlatformAdmin')) || unusable;
       throw err;
     } finally {
       adminClient.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it

@@ -206,3 +206,70 @@ AssertionError: expected [Function] to not throw an error but 'TypeError: __vi_i
 TypeError: reportFinalizeFailure is not a function
  Test Files  3 failed (3)
       Tests  5 failed | 55 passed (60)
+
+# Round 5 (review round 3). RED on 9d835c70e + the new and changed cases; source unchanged (2026-10-01T16:56:12Z).
+# rollbackFailed.test.ts and the wrapper-edges bounded-wait case need setRollbackBoundForTests, which does not exist on this head.
+## integration
+   × EMAIL_IN_USE whose ROLLBACK fails: still 409, the connection is destroyed and the next invitee is served 52ms
+ FAIL  tests/integration/r176-invite-accept-evicts-connection.int.test.ts > EMAIL_IN_USE whose ROLLBACK fails: still 409, the connection is destroyed and the next invitee is served
+AssertionError: expected 2 to be 1 // Object.is equality
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+     × the wait is bounded: 500 is sent, the query in flight is cancelled, the connection is destroyed 1ms
+     × the forced ROLLBACK fails, then the one in the catch succeeds: still destroyed 1059ms
+     × its memoised pool survives a destroyed client's error 6ms
+ FAIL  tests/integration/r176-platform-admin-edges.int.test.ts > withPlatformAdmin: a critical audit write failed > the forced ROLLBACK fails, then the one in the catch succeeds: still destroyed
+AssertionError: expected 95328 not to be 95328 // Object.is equality
+ FAIL  tests/integration/r176-platform-admin-edges.int.test.ts > scripts/_pg.ts > its memoised pool survives a destroyed client's error
+AssertionError: expected [ false ] to deeply equal [ true ]
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withAuth: a ROLLBACK that does not answer > the wait is bounded: 500 is sent, the query in flight is cancelled, the connection is destroyed
+TypeError: setRollbackBoundForTests is not a function
+ Test Files  2 failed | 1 passed (3)
+      Tests  3 failed | 52 passed (55)
+## unit
+     × sends the protocol CancelRequest with the backend pid and secret key 6ms
+     × opens no socket for a mock client, and says so 1ms
+     × opens no socket for a client that never connected, and says so 0ms
+     × opens no socket for null, and says so 0ms
+     × logs the request under the message an alert watches, with the tenant and what failed 4ms
+     × never logs the query string: some routes carry a secret there 2ms
+     × a file that constructs a pool listens for its errors, or is pinned with the reason 113ms
+     × unproven, fails closed: async function f(a, b) { const gone = await rollbackFailed(a, "s"); a.release(gone); b.release(gone); } 4ms
+     × unproven, fails closed: async function f(a, b) { let bad; try { await a.query("ROLLBACK"); } catch (e) { bad = e; } b.release(bad); } 1ms
+     × a ROLLBACK that never answers is abandoned at the bound, not before it, and the backend is cancelled 4ms
+     × a test can shorten the bound, and gets a restore 1ms
+     × outside a test run (NODE_ENV="production") the bound cannot be changed 2ms
+     × outside a test run (NODE_ENV="development") the bound cannot be changed 1ms
+     × outside a test run (NODE_ENV="") the bound cannot be changed 0ms
+     × the production bound is exported read-only 2ms
+     × a timed-out ROLLBACK whose backend cannot be cancelled is said once, at warn 10001ms
+     × an abandoned ROLLBACK that rejects later is handled: no unhandled rejection, no second log line 10010ms
+ FAIL  tests/unit/lib/cancelBackend.test.ts > cancelBackend > sends the protocol CancelRequest with the backend pid and secret key
+AssertionError: expected undefined to be true // Object.is equality
+ FAIL  tests/unit/lib/cancelBackend.test.ts > cancelBackend > opens no socket for a mock client, and says so
+ FAIL  tests/unit/lib/cancelBackend.test.ts > cancelBackend > opens no socket for a client that never connected, and says so
+ FAIL  tests/unit/lib/cancelBackend.test.ts > cancelBackend > opens no socket for null, and says so
+AssertionError: expected undefined to be false // Object.is equality
+ FAIL  tests/unit/lib/poolErrorListenerCensus.test.ts > R-176: every long-lived pool listens for errors > a file that constructs a pool listens for its errors, or is pinned with the reason
+AssertionError: add pool.on('error', …), or pin the file in UNLISTENED with the reason an uncaught pool error is acceptable there: expected { …(11) } to deeply equal { …(8) }
+ FAIL  tests/unit/lib/releaseCensus.test.ts > R-176: no transaction owner releases its connection bare > unproven, fails closed: async function f(a, b) { const gone = await rollbackFailed(a, "s"); a.release(gone); b.release(gone);
+ FAIL  tests/unit/lib/releaseCensus.test.ts > R-176: no transaction owner releases its connection bare > unproven, fails closed: async function f(a, b) { let bad; try { await a.query("ROLLBACK"); } catch (e) { bad = e; } b.release
+AssertionError: expected [] to deeply equal [ 'unproven' ]
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > a ROLLBACK that never answers is abandoned at the bound, not before it, and the backend is cancelled
+AssertionError: expected undefined to be true // Object.is equality
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > a test can shorten the bound, and gets a restore
+TypeError: setRollbackBoundForTests is not a function
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > outside a test run (NODE_ENV="production") the bound cannot be changed
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > outside a test run (NODE_ENV="development") the bound cannot be changed
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > outside a test run (NODE_ENV="") the bound cannot be changed
+AssertionError: expected [Function] to throw error matching /only in a test run/ but got '__vi_import_1__.setRollbackBoundForTe…'
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > the production bound is exported read-only
+AssertionError: expected [ 'rollbackBound', …(2) ] to deeply equal [ 'ROLLBACK_TIMEOUT_MS', …(3) ]
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > a timed-out ROLLBACK whose backend cannot be cancelled is said once, at warn
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > an abandoned ROLLBACK that rejects later is handled: no unhandled rejection, no second log line
+ FAIL  tests/unit/lib/auth/deferredEnd.test.ts > reportFinalizeFailure (R-176) > logs the request under the message an alert watches, with the tenant and what failed
+AssertionError: expected [ [ …(3) ] ] to deeply equal [ [ …(3) ] ]
+ FAIL  tests/unit/lib/auth/deferredEnd.test.ts > reportFinalizeFailure (R-176) > never logs the query string: some routes carry a secret there
+AssertionError: expected '[["withAuth: transaction finalize fai…' not to contain 's3cr3t'
+ Test Files  5 failed (5)
+      Tests  17 failed | 80 passed (97)

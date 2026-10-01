@@ -126,9 +126,17 @@ describe('reportFinalizeFailure (R-176)', () => {
     vi.mocked(log.error).mockClear();
     reportFinalizeFailure(req, r as never, new Error('ROLLBACK did not answer'), { ...ctx, extra: { connectionId: 'c-1' } });
     expect(vi.mocked(log.error).mock.calls).toEqual([['withAuth: transaction finalize failed after handler responded', {
-      url: '/api/invitations/revoke/abc?x=1', status: 503, handlerFailed: true, connectionDestroyed: true,
+      url: '/api/invitations/revoke/abc', status: 503, handlerFailed: true, connectionDestroyed: true,
       companyId: 'co-1', userId: 'u-1', connectionId: 'c-1', message: 'ROLLBACK did not answer',
     }, 'Auth']]);
+  });
+
+  it('never logs the query string: some routes carry a secret there', () => {
+    vi.mocked(log.error).mockClear();
+    const whatsapp = { url: '/api/accounting/capture/inbound/whatsapp?token=s3cr3t-inbound-key&x=1' } as never;
+    reportFinalizeFailure(whatsapp, res().r as never, new Error('COMMIT refused'), ctx);
+    expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain('s3cr3t');
+    expect(vi.mocked(log.error).mock.calls[0]![1]).toMatchObject({ url: '/api/accounting/capture/inbound/whatsapp' });
   });
 
   it('captures to Sentry with the tenant when Sentry is on, and not when it is off', () => {

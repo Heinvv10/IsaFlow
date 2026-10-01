@@ -9,7 +9,8 @@
  *      be pinned below, by its exact text, with the reason no later caller can get that connection;
  *   2. a per-run-pool pin must end its pool in the same `finally` as the release;
  *   3. any other call must release with a value that, in the same function, is (or is assigned
- *      from) a `rollbackFailed(` / `rollbackError(` result, or an error caught there;
+ *      from) a `rollbackFailed(` / `rollbackError(` result for THAT client, or an error caught
+ *      around a query on it;
  *   4. `.release` reached any other way (`.call`, `.apply`, `.bind`, a spread argument, an alias,
  *      destructuring) fails closed.
  *
@@ -66,26 +67,33 @@ const constantFalsy = (e: ts.Expression): boolean => {
     || (ts.isStringLiteralLike(x) && x.text === '')
     || (ts.isPrefixUnaryExpression(x) && x.operator === ts.SyntaxKind.ExclamationToken && constantTruthy(x.operand));
 };
-const callsRollback = (n: ts.Node) => find(n, (c) => ts.isCallExpression(c) && ts.isIdentifier(c.expression)
-  && (c.expression.text === 'rollbackFailed' || c.expression.text === 'rollbackError')).length > 0;
+/** A rollbackFailed / rollbackError call ON THIS CLIENT: a function may hold two (withPlatformAdmin does). */
+const callsRollback = (n: ts.Node, client: string) => find(n, (c) => ts.isCallExpression(c) && ts.isIdentifier(c.expression)
+  && (c.expression.text === 'rollbackFailed' || c.expression.text === 'rollbackError')
+  && c.arguments[0]?.getText() === client).length > 0;
+const queries = (n: ts.Node, client: string) => find(n, (c) => ts.isCallExpression(c) && ts.isPropertyAccessExpression(c.expression)
+  && c.expression.name.text === 'query' && c.expression.expression.getText() === client).length > 0;
 const isFunction = (n: ts.Node) => ts.isArrowFunction(n) || ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n)
   || ts.isMethodDeclaration(n) || ts.isSourceFile(n);
 
-/** Names that, inside `fn`, hold a ROLLBACK's outcome: assigned from rollbackFailed/rollbackError, from each other, or caught. */
-function outcomeNames(fn: ts.Node): Set<string> {
+/**
+ * Names that, inside `fn`, hold the outcome of a ROLLBACK on `client`: assigned from
+ * rollbackFailed/rollbackError called with that client, from each other, or caught around a query on it.
+ */
+function outcomeNames(fn: ts.Node, client: string): Set<string> {
   const names = new Set<string>();
   const sets: Array<{ name: string; from: ts.Node }> = [];
   for (const n of find(fn, () => true)) {
     if (ts.isVariableDeclaration(n) && n.initializer) sets.push({ name: n.name.getText(), from: n.initializer });
     if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
       && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment) sets.push({ name: n.left.getText(), from: n.right });
-    if (ts.isCatchClause(n) && n.variableDeclaration) names.add(n.variableDeclaration.name.getText());
+    if (ts.isCatchClause(n) && n.variableDeclaration && queries(n.parent.tryBlock, client)) names.add(n.variableDeclaration.name.getText());
   }
   const mentions = (from: ts.Node) => find(from, (m) => (ts.isIdentifier(m) || ts.isPropertyAccessExpression(m)) && names.has(m.getText())).length > 0;
   for (let grew = true; grew;) {
     grew = false;
     for (const s of sets) {
-      if (!names.has(s.name) && (callsRollback(s.from) || mentions(s.from))) { names.add(s.name); grew = true; }
+      if (!names.has(s.name) && (callsRollback(s.from, client) || mentions(s.from))) { names.add(s.name); grew = true; }
     }
   }
   return names;
@@ -103,9 +111,10 @@ function releases(file: string, text: string): Finding[] {
     if (call.arguments.every(constantFalsy)) { out.push({ kind: 'bare', text: call.getText(), node: call }); continue; }
     let fn: ts.Node = call;
     while (!isFunction(fn)) fn = fn.parent;
-    const names = outcomeNames(fn);
+    const client = (ref as ts.PropertyAccessExpression | ts.ElementAccessExpression).expression.getText();
+    const names = outcomeNames(fn, client);
     const arg = call.arguments[0]!;
-    const proven = callsRollback(arg)
+    const proven = callsRollback(arg, client)
       || find(arg, (m) => (ts.isIdentifier(m) || ts.isPropertyAccessExpression(m)) && names.has(m.getText())).length > 0;
     if (!proven) out.push({ kind: 'unproven', text: call.getText(), node: call });
   }
@@ -156,7 +165,10 @@ describe('R-176: no transaction owner releases its connection bare', () => {
     inFn('u = true; c.release(u);'),
     'function f(c, unusable) { c.release(unusable); }',
     'c.release(true);', 'c.release(err);', "c.release(new Error('x'));",
-    // the outcome belongs to another function's ROLLBACK, on another client
+    // the outcome belongs to a ROLLBACK on another client, in the same function (withPlatformAdmin holds two)
+    'async function f(a, b) { const gone = await rollbackFailed(a, "s"); a.release(gone); b.release(gone); }',
+    'async function f(a, b) { let bad; try { await a.query("ROLLBACK"); } catch (e) { bad = e; } b.release(bad); }',
+    // the outcome belongs to another function's ROLLBACK
     'async function a(d) { const u = await rollbackFailed(d, "s"); return u; } async function f(c) { let u = false; c.release(u); }',
   ])('unproven, fails closed: %s', (snippet) => { expect(kinds(snippet)).toEqual(['unproven']); });
 
