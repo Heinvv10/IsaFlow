@@ -7,6 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { accountUpdateBodyError, isServiceRefusal } from '@/lib/accountUpdateBody';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -79,6 +80,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       accountSubtype, parentAccountId,
     } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
+    if (typeof id !== 'string') return apiResponse.badRequest(res, 'id must be a single account id');
+    const bodyError = accountUpdateBodyError(req.body);
+    if (bodyError) return apiResponse.badRequest(res, bodyError);
 
     // Reclassification runs FIRST and on its own guards. `undefined` means
     // "leave alone" and `null` means "clear", so both have to be
@@ -122,9 +126,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       log.error('Failed to update account', { error: err }, 'accounting-api');
       if (reclassified) throw err;
       if (respondIfLockTimeout(res, err)) return;
-      return apiResponse.badRequest(
-        res, err instanceof Error ? err.message : 'Failed to update account',
-      );
+      // Only a refusal is a 400 (which COMMITS); anything unexpected is a 500.
+      if (!isServiceRefusal(err)) throw err;
+      return apiResponse.badRequest(res, err.message);
     }
   }
 

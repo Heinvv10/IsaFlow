@@ -125,8 +125,11 @@ describeIfDb('PR #593 breaker', () => {
       'an array body is accepted and poisons GET').toEqual({ status: '4xx', mappings: before.body.data?.mappings });
   });
 
-  it('REPRO 5: prototype keys are not ignored like other unknown keys', async () => {
+  // Round 6: an unknown key is no longer ignored (it was stored as sent); it is
+  // refused. A prototype key must get exactly that refusal, not a 500.
+  it('REPRO 5: a prototype key is refused like any other unknown key (400, not 500)', async () => {
     const state = await call('POST', { mappings: { constructor: SPARE_ASSET } });
-    expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+    expect(JSON.stringify(state.body)).toMatch(/'constructor' is not a default account setting/);
   });
 });

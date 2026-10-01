@@ -168,43 +168,46 @@ export async function seedChartOfAccountsFromTemplate(
   // second holder for the resolver to choose between.
   const isRoleRow = (acc: TemplateLine) => acc.isSystem === true && isSystemAccountKey(acc.subtype);
 
-  // Pass 1: insert all accounts (no parent yet)
-  for (const acc of lines) {
-    await sql`
-      INSERT INTO gl_accounts (
-        company_id, account_code, account_name, account_type, account_subtype,
-        normal_balance, level, display_order, is_system_account
-      )
-      SELECT
-        ${companyId}, ${acc.code}, ${acc.name}, ${acc.type},
-        ${acc.subtype ?? null}, ${acc.normalBalance}, ${acc.level},
-        ${acc.displayOrder}, ${acc.isSystem ?? false}
-      -- One late-claim clearing account per company: migration 701 may have
-      -- given it one already, under another code (a second system account with
-      -- the subtype would leave the resolver choosing by heap order).
-      WHERE (${acc.subtype ?? null}::TEXT IS DISTINCT FROM 'vat_input_late_claim'
-         OR NOT EXISTS (SELECT 1 FROM gl_accounts WHERE company_id = ${companyId}::UUID
-                          AND account_subtype = 'vat_input_late_claim'))
-        AND (NOT ${isRoleRow(acc)}::BOOLEAN
-         OR NOT EXISTS (SELECT 1 FROM gl_accounts WHERE company_id = ${companyId}::UUID
-                          AND account_subtype = ${acc.subtype ?? null}::TEXT
-                          AND is_system_account AND is_active))
-      ON CONFLICT (company_id, account_code) DO NOTHING
-    `;
-  }
+  // Two statements, not two per account: the lock above is exclusive for the
+  // company, so the seed holds it for as short a time as it can.
+  const rows = JSON.stringify(lines.map((acc) => ({
+    code: acc.code, name: acc.name, type: acc.type, subtype: acc.subtype ?? null,
+    normal_balance: acc.normalBalance, level: acc.level, display_order: acc.displayOrder,
+    is_system: acc.isSystem ?? false, is_role: isRoleRow(acc), parent_code: acc.parentCode ?? null,
+  })));
 
-  // Pass 2: wire up parent_account_id
-  const withParent = lines.filter(a => a.parentCode);
-  for (const acc of withParent) {
-    await sql`
-      UPDATE gl_accounts
-      SET parent_account_id = (
-        SELECT id FROM gl_accounts
-        WHERE company_id = ${companyId} AND account_code = ${acc.parentCode!}
-      )
-      WHERE company_id = ${companyId} AND account_code = ${acc.code}
-    `;
-  }
+  // Pass 1: insert all accounts (no parent yet)
+  await sql`
+    INSERT INTO gl_accounts (
+      company_id, account_code, account_name, account_type, account_subtype,
+      normal_balance, level, display_order, is_system_account
+    )
+    SELECT ${companyId}::UUID, t.code, t.name, t.type, t.subtype, t.normal_balance, t.level, t.display_order, t.is_system
+    FROM jsonb_to_recordset(${rows}::jsonb) AS t(
+      code TEXT, name TEXT, type TEXT, subtype TEXT, normal_balance TEXT,
+      level INT, display_order INT, is_system BOOLEAN, is_role BOOLEAN)
+    -- One late-claim clearing account per company: migration 701 may have
+    -- given it one already, under another code (a second system account with
+    -- the subtype would leave the resolver choosing by heap order).
+    WHERE (t.subtype IS DISTINCT FROM 'vat_input_late_claim'
+       OR NOT EXISTS (SELECT 1 FROM gl_accounts WHERE company_id = ${companyId}::UUID
+                        AND account_subtype = 'vat_input_late_claim'))
+      AND (NOT t.is_role
+       OR NOT EXISTS (SELECT 1 FROM gl_accounts WHERE company_id = ${companyId}::UUID
+                        AND account_subtype = t.subtype AND is_system_account AND is_active))
+    ON CONFLICT (company_id, account_code) DO NOTHING
+  `;
+
+  // Pass 2: wire up parent_account_id (NULL when the parent's code is absent)
+  await sql`
+    UPDATE gl_accounts c
+    SET parent_account_id = (
+      SELECT p.id FROM gl_accounts p
+      WHERE p.company_id = ${companyId}::UUID AND p.account_code = t.parent_code
+    )
+    FROM jsonb_to_recordset(${rows}::jsonb) AS t(code TEXT, parent_code TEXT)
+    WHERE c.company_id = ${companyId}::UUID AND c.account_code = t.code AND t.parent_code IS NOT NULL
+  `;
 
   clearSystemAccountCacheAfterCommit(companyId);
   log.info('COA seeded from template', { companyId, template, count: lines.length }, 'accounting');

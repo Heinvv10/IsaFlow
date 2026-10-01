@@ -9,6 +9,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { accountUpdateBodyError, isServiceRefusal } from '@/lib/accountUpdateBody';
 import { apiResponse } from '@/lib/apiResponse';
 import { ErrorCode } from '@/lib/apiResponse.types';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -23,7 +24,8 @@ import {
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
-  const id = (req.query.id || req.body?.id) as string;
+  const id = (req.query.id || req.body?.id) as unknown;
+  if (id !== undefined && typeof id !== 'string') return apiResponse.badRequest(res, 'id must be a single account id');
 
   if (req.method === 'GET') {
     if (!id) return apiResponse.badRequest(res, 'id is required');
@@ -39,15 +41,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'PUT') {
     if (!id) return apiResponse.badRequest(res, 'id is required');
+    const bodyError = accountUpdateBodyError(req.body);
+    if (bodyError) return apiResponse.badRequest(res, bodyError);
     try {
       const { accountName, description, isActive, displayOrder } = req.body;
       const account = await updateAccount(companyId, id, { accountName, description, isActive, displayOrder });
       return apiResponse.success(res, account);
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;
-      const message = err instanceof Error ? err.message : 'Failed to update account';
       log.error('Failed to update account', { id, error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, message);
+      // Only a refusal is a 400: a 4xx COMMITS, so anything unexpected goes to withErrorHandler (500, rolled back).
+      if (!isServiceRefusal(err)) throw err;
+      return apiResponse.badRequest(res, err.message);
     }
   }
 
@@ -67,6 +72,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (code === 'HAS_TRANSACTIONS') {
         return apiResponse.error(res, ErrorCode.CONFLICT, message, { reason: 'HAS_TRANSACTIONS' });
       }
+      if (!isServiceRefusal(err)) throw err;
       return apiResponse.badRequest(res, message);
     }
   }
@@ -78,9 +84,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;
-      const message = err instanceof Error ? err.message : 'Failed to delete account';
       log.error('Failed to delete account', { id, error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, message);
+      if (!isServiceRefusal(err)) throw err;
+      return apiResponse.badRequest(res, err.message);
     }
   }
 

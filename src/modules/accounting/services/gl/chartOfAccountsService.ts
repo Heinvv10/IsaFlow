@@ -343,6 +343,12 @@ export async function renameAccountCode(
 
 export async function updateAccount(companyId: string, id: string, input: UpdateAccountInput): Promise<GLAccount> {
   try {
+    // The guards below test `=== true` / `=== false`; "true", 1 or [true] from
+    // an unvalidated caller would skip them and Postgres would still cast and
+    // apply it. Refused here so no caller can.
+    for (const flag of ['isActive', 'vatInputDenied'] as const) {
+      if (input[flag] !== undefined && typeof input[flag] !== 'boolean') throw new Error(`${flag} must be true or false`);
+    }
     // Deactivating could empty a system role and reactivating could double
     // one: serialise with every writer of role flags (a Default Accounts save
     // choosing this account) BEFORE the reads below, so they judge settled rows.
