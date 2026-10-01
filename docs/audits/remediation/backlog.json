@@ -14685,7 +14685,8 @@
         "R-167"
       ],
       "testNames": [
-        "tests/integration/r177-portal-payment-followups.int.test.ts",
+        "tests/integration/r177-pay-now-standing-link.int.test.ts",
+        "tests/integration/r178-r180-portal-link-rules.int.test.ts",
         "tests/unit/accounting/utils/payNowCheckout.test.ts"
       ],
       "evidencePaths": [
@@ -14713,7 +14714,7 @@
       "claim": "pages/api/accounting/customer-invoices/[id]/pay-now.ts initialised a Paystack transaction inside withAuth's transaction: a connection and a transaction held across an unbounded gateway call. The balance was computed in float (a NaN amount_paid answered 500), each click inserted a new payable paystack_payment_requests row, and a cancelled link named by payment_url was reused.",
       "severityRationale": "Staff-only route. No money is lost: a second paid checkout is banked as an unapplied receipt. A slow gateway holds one pool connection per click.",
       "historicalDataImpact": "Unknown. Census (read-only, for Hein): invoices with more than one completed paystack_payment_requests row of purpose customer_invoice.",
-      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 18 mutants RED. pay-now now ensures the invoice's one standing link (ensureStandingLink, invoice row locked) and answers {token, paymentUrl}; the page starts the checkout through the public create route. Response contract changed; the invoice page is the only caller.",
+      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 21 mutants RED on the final code. pay-now now ensures the invoice's one standing link (ensureStandingLink, invoice row locked) and answers {token, paymentUrl}; the page starts the checkout through the public create route. Response contract changed; the invoice page is the only caller. Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link.",
       "reportedSeverity": "low"
     },
     {
@@ -14729,7 +14730,8 @@
         "R-167"
       ],
       "testNames": [
-        "tests/integration/r177-portal-payment-followups.int.test.ts",
+        "tests/integration/r177-pay-now-standing-link.int.test.ts",
+        "tests/integration/r178-r180-portal-link-rules.int.test.ts",
         "tests/unit/accounting/utils/payNowCheckout.test.ts"
       ],
       "evidencePaths": [
@@ -14753,7 +14755,7 @@
       "claim": "pages/api/portal/payments/paystack/verify.ts mapped Paystack's 'abandoned' (open, unpaid) to status 'cancelled'. The reuse lookup needs a pending request, so the next click started a second checkout while the first stayed payable at Paystack.",
       "severityRationale": "Two payable checkouts for one balance; the excess of a double payment is banked unapplied, not lost.",
       "historicalDataImpact": "Requests already marked cancelled stay cancelled; a payment on one is still completed by the webhook.",
-      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 18 mutants RED. verify writes nothing on 'abandoned', re-reads the stored status and reports cancelled to the page.",
+      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 21 mutants RED on the final code. verify writes nothing on 'abandoned', re-reads the stored status and reports cancelled to the page. Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link.",
       "reportedSeverity": "low"
     },
     {
@@ -14769,7 +14771,8 @@
         "R-167"
       ],
       "testNames": [
-        "tests/integration/r177-portal-payment-followups.int.test.ts",
+        "tests/integration/r177-pay-now-standing-link.int.test.ts",
+        "tests/integration/r178-r180-portal-link-rules.int.test.ts",
         "tests/unit/accounting/utils/payNowCheckout.test.ts"
       ],
       "evidencePaths": [
@@ -14787,15 +14790,15 @@
       "severity": "low",
       "title": "The invoice's standing payment link expires 30 days after it is minted",
       "affectedPaths": [
+        "src/modules/accounting/services/ar/portalLinkCharge.ts",
         "src/modules/accounting/services/ar/standingPaymentLink.ts",
-        "scripts/migrations/sql/719_standing_payment_links_do_not_expire.sql",
         "src/modules/accounting/services/ar/portalService.ts"
       ],
       "sourceLabel": "R-167 blind review follow-ups, 2026-10-01",
       "claim": "portal_payment_links.expires_at defaults to now() + 30 days and the standing link minted by pay-now and enableOnlinePayment took the default, so the link emailed with an invoice stopped working after 30 days while the invoice still owed money.",
       "severityRationale": "A customer paying late cannot pay online until staff press Pay Now again. No wrong figure.",
-      "historicalDataImpact": "Migration 719 clears the expiry of the active standing link each invoice names. Census SQL in R-177/fix.md.",
-      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 18 mutants RED. Hein: never expire. Standing links are minted with expires_at NULL; migration 719 (data only) revives the named active ones and nothing else.",
+      "historicalDataImpact": "None written. The standing link an invoice names is payable again at read time, whatever its stored expiry.",
+      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 21 mutants RED on the final code. Hein: never expire. Standing links are minted with expires_at NULL. Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link.",
       "reportedSeverity": "low"
     },
     {
@@ -14811,7 +14814,8 @@
         "R-167"
       ],
       "testNames": [
-        "tests/integration/r177-portal-payment-followups.int.test.ts",
+        "tests/integration/r177-pay-now-standing-link.int.test.ts",
+        "tests/integration/r178-r180-portal-link-rules.int.test.ts",
         "tests/unit/accounting/utils/payNowCheckout.test.ts"
       ],
       "evidencePaths": [
@@ -14827,7 +14831,7 @@
       "branch": "fix/r177-portal-followups-20261001",
       "area": "accounting/ar portal",
       "severity": "low",
-      "title": "A draft invoice can get a payment link, and a link on a draft can be paid",
+      "title": "An unapproved invoice (draft or awaiting approval) can get a payment link, and a link on one can be paid",
       "affectedPaths": [
         "src/modules/accounting/services/ar/portalLinkCharge.ts",
         "src/modules/accounting/services/ar/standingPaymentLink.ts",
@@ -14837,8 +14841,8 @@
       "sourceLabel": "R-167 blind review follow-ups, 2026-10-01",
       "claim": "The payment-link POST, pay-now and enableOnlinePayment refused only cancelled and soft-deleted invoices, and resolveLinkCharge charged a link on a draft. A draft is not posted to the ledger.",
       "severityRationale": "A receipt against an invoice that is not in the ledger. Needs a staff member to mint the link on a draft.",
-      "historicalDataImpact": "Unknown. Census (read-only, for Hein): active portal_payment_links whose invoice status is 'draft'; they stop working until the invoice is approved.",
-      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 18 mutants RED. Hein: refuse drafts. Only 'draft' is refused; 'pending_approval' stays payable (Hein may want it refused too).",
+      "historicalDataImpact": "Unknown. Census (read-only, for Hein) in R-177/fix.md: active links whose invoice is draft or pending_approval stop working until it is approved.",
+      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 21 mutants RED on the final code. Hein: refuse drafts. Hein was asked about drafts only; pending_approval is refused too after review (say if only drafts should be). Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link.",
       "reportedSeverity": "low"
     },
     {
@@ -14868,7 +14872,7 @@
         "pages/api/portal/payments/paystack/verify.ts"
       ],
       "sourceLabel": "R-167 blind review follow-ups, 2026-10-01",
-      "claim": "handleChargeSuccess (paystackEventHandlers.ts) and the return-page verify bank paystack_payment_requests.amount_cents. Neither compares it with event.data.amount / the verified amount. Paystack charges what was initialised, so a mismatch is not expected, but if one occurs the receipt is banked at the wrong value with no log line.",
+      "claim": "handleChargeSuccess (paystackEventHandlers.ts) and the return-page verify bank paystack_payment_requests.amount_cents. Neither compares it with event.data.amount / the verified amount. Paystack charges what was initialised, so a mismatch is not expected, but if one occurs the receipt is banked at the wrong value with no log line. Also (R-180 review): settlement has no status rule, so a checkout already open on a draft or pending_approval invoice banks a receipt against an invoice that is not in the ledger.",
       "severityRationale": "Theoretical: needs Paystack to settle a different amount than was initialised.",
       "historicalDataImpact": "Unknown. Census (read-only, for Hein): compare amount_cents with the amount in paystack_webhook_events payloads for completed requests.",
       "processNotes": "2026-10-01: recorded by the R-167 adversarial review. Not fixed: what to do on a mismatch (bank the reported amount, or refuse and alert) is a decision for Hein.",
