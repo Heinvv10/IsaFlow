@@ -3,7 +3,7 @@
  * Phase 3: GL account drill-down with running balance
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
@@ -69,18 +69,26 @@ export default function AccountTransactionsPage() {
     }).catch(() => setError('Failed to load chart of accounts'));
   }, []);
 
+  const requestRef = useRef(0);
+
   const load = useCallback(async () => {
     if (!periodStart || !periodEnd || !accountCode) return;
+    // Only the latest request may set state (same pattern as the account detail page).
+    const requestId = ++requestRef.current;
+    const latest = () => requestId === requestRef.current;
+    const failure = 'Could not load the account transactions - try again';
     setLoading(true);
     setError('');
+    setReport(null);
     try {
       const params = new URLSearchParams({
         account_code: accountCode, period_start: periodStart, period_end: periodEnd,
       });
       if (costCentreFilter) params.set('cost_centre', costCentreFilter);
-      setReport(await apiJson(`/api/accounting/reports-account-transactions?${params}`, { credentials: 'include' }));
-    } catch (err) { setError(apiErrorMessage(err, 'Failed to load the account transactions')); }
-    finally { setLoading(false); }
+      const result = await apiJson(`/api/accounting/reports-account-transactions?${params}`, { credentials: 'include' }, failure);
+      if (latest()) setReport(result);
+    } catch (err) { if (latest()) setError(apiErrorMessage(err, failure)); }
+    finally { if (latest()) setLoading(false); }
   }, [periodStart, periodEnd, accountCode, costCentreFilter]);
 
   useEffect(() => { void load(); }, [load]);
