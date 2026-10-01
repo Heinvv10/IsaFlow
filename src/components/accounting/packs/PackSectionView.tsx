@@ -3,7 +3,7 @@
  * figure arrives already chosen by buildPackDocument.
  */
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
-import { waterfallOption, trendOption } from '@/modules/accounting/services/packs/packChartOptions';
+import { waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
 import type { MoneyScale } from '@/lib/format/money';
 
 /**
@@ -16,6 +16,8 @@ import type { MoneyScale } from '@/lib/format/money';
 const LEGACY_PACK_SCALE: MoneyScale = 'R';
 import type { PackBlock, PackDocumentSection } from '@/modules/accounting/services/packs/packDocument';
 import { formatPackKv, scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
+import { legacyTrendCaption, legacyTrendChartOption } from '@/modules/accounting/services/packs/packLegacyTrend';
+import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { PackChart } from './PackChart';
 import { PACK_FONT_STACK } from '@/lib/charts/packFont';
 
@@ -61,10 +63,12 @@ export function legacyWaterfallOption(
 }
 
 /** The twelve-month trend this view draws — revenue, the series a reader
- *  quotes off the page; the other two are on the statements a page earlier. */
-export function legacyTrendOption(points: Array<{ label: string; revenue: number }>) {
-  return inPrintFace(trendOption(points.map((p) => ({ label: p.label, value: p.revenue })), LEGACY_PACK_SCALE));
+ *  quotes off the page; the other two are on the statements a page earlier.
+ *  See `packLegacyTrend` for what it says and where it starts. */
+export function legacyTrendOption(points: PackTrendPoint[]) {
+  return inPrintFace(legacyTrendChartOption(points, LEGACY_PACK_SCALE));
 }
+export { legacyTrendCaption };
 
 const NO_COMPARATORS = { prior: false, budget: false, variance: false, trend: false } as const;
 
@@ -118,7 +122,12 @@ function Block({ block }: { block: PackBlock }) {
       return <PackChart height={LEGACY_WATERFALL_BOX.heightPx} width={LEGACY_WATERFALL_BOX.widthPx} option={legacyWaterfallOption(block.steps)} />;
 
     case 'trend':
-      return <PackChart option={legacyTrendOption(block.points)} />;
+      return (
+        <>
+          <PackChart option={legacyTrendOption(block.points)} />
+          <p className="text-xs text-[var(--ff-text-secondary)]">{legacyTrendCaption(block.points)}</p>
+        </>
+      );
 
     case 'text':
       return <p className="text-sm text-[var(--ff-text-secondary)]">{block.text}</p>;
