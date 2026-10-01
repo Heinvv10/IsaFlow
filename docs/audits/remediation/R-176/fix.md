@@ -75,12 +75,14 @@ cancel what the backend is running, and return the error (`rollbackError`) or `t
 calls `client.release(flag)`, so pg-pool destroys the client. A ROLLBACK that succeeds keeps the
 connection, including after a failed COMMIT. No owner needed a per-owner option.
 
-The wait is bounded at `rollbackBound.ms` = 5000 ms. A healthy server answers in milliseconds;
-five seconds is far beyond a loaded one and well inside the pools' 15 s checkout timeout, so a
-connection that has stopped answering gives its slot back before the callers queued for it give
-up. No answer in that time counts as a failed ROLLBACK. The abandoned query's promise stays
-handled, so its late rejection cannot surface as an unhandled rejection. The bound is an object
-field so a test can shorten it; nothing in production writes it.
+The wait is bounded at `ROLLBACK_TIMEOUT_MS` = 5000 ms, a constant. A healthy server answers in
+milliseconds; five seconds is far beyond a loaded one and well inside the pools' 15 s checkout
+timeout, so a connection that has stopped answering gives its slot back before the callers
+queued for it give up. No answer in that time counts as a failed ROLLBACK. The abandoned query's
+promise stays handled, so its late rejection cannot surface as an unhandled rejection. Tests
+shorten the bound through `setRollbackBoundForTests`, which throws unless `NODE_ENV` is `test`.
+Next.js inlines `NODE_ENV` at build time, so in the server bundle that is an unconditional
+throw; a script would have to be started with `NODE_ENV=test` to get past it.
 
 What `client.release(true)` does with a query still in flight, read from the installed source:
 
@@ -103,7 +105,24 @@ reads. Freeing the pool slot at the bound would let a burst put more backends on
 the pool's `max`. `src/lib/cancelBackend.ts` therefore sends the protocol's CancelRequest for
 that backend before the owner destroys the connection. It uses a socket of its own (no pooled
 connection), is not awaited, tears its socket down after 2 s at the latest, and swallows its
-own errors. A cancel that reaches an idle backend is ignored by Postgres.
+own errors. A cancel that reaches an idle backend is ignored by Postgres. Both timers are
+unref'd, so neither delays a script's exit.
+
+The request is sent in plaintext, before any TLS negotiation, as node-postgres's own
+`Client#cancel` sends it. Production's pools negotiate TLS with a server that has `ssl = on`, so
+this was measured: with `ssl = on` set on the fixture for the length of the run (a throwaway
+self-signed certificate, `ALTER SYSTEM` plus a reload, restored and verified afterwards), a
+client connected over TLSv1.3 (`pg_stat_ssl.ssl = true`) ran `pg_sleep(20)`, and a plaintext
+CancelRequest for its backend ended it with 57014 at once (502 ms after the statement began,
+500 ms of which was the wait before sending). The cancel socket therefore has no TLS. Not
+measured: a server whose `pg_hba.conf` has only `hostssl` lines; I could not edit `pg_hba.conf`.
+
+`cancelBackend` returns whether it could attempt the cancel. It cannot for a client that is not
+a connected pg client, or if node-postgres stops exposing what it reads (`Client#connection`
+with `connect`, `cancel`, `on`; `processID`, `secretKey`, `host`, `port`). A unit case builds a
+real `pg.Client` and asserts those on the installed version, so an upgrade that moves them turns
+CI red. When a ROLLBACK timed out and no cancel could be sent, `rollbackError` says so once per
+process, at warn.
 
 In the three deferred-flush wrappers:
 
@@ -114,8 +133,11 @@ In the three deferred-flush wrappers:
   buffered 2xx is replaced by 500 `COMMIT_FAILED` (or the response is aborted if its headers
   are out), through `answerCommitFailed` in `deferredEnd.ts`;
 - both failures are reported by `reportFinalizeFailure` (`deferredEnd.ts`): one line,
-  `<source>: transaction finalize failed after handler responded`, with the url, status,
-  `handlerFailed`, `connectionDestroyed`, company and user, and a Sentry capture with the tenant;
+  `<source>: transaction finalize failed after handler responded`, with the path, status,
+  `handlerFailed`, `connectionDestroyed`, company and user, and a Sentry capture with the tenant.
+  The path is `sanitizeRoute(req.url)`, the one the Sentry tag already used: no query string,
+  because some routes carry a secret there. The line on `origin/master` logged `req.url` whole
+  for `withAuth` and the Bearer pipeline, so this logs less than before, not more;
 - the throw log's `rolledBack` is the result of the ROLLBACK that the `catch` itself ran.
 
 The early returns, and what had been written before each:
@@ -131,21 +153,32 @@ The early returns, and what had been written before each:
 | `withExtensionToken` | connection inactive or unknown, 403 | nothing (one SELECT) | yes |
 | `withExtensionToken` | wrong provider, 403 | nothing | no |
 | `withPlatformAdmin` | critical audit write failed, 500 `AUDIT_WRITE_FAILED` | the handler's writes | yes |
+| invite accept | address held by another profile, 409 `EMAIL_IN_USE` | the membership row | yes |
 
-Every one now goes through `rollbackFailed`. The last one has written, and still keeps its
-answer: it is a 500 either way, and a destroyed connection discards the unaudited write.
+Every one now goes through `rollbackFailed`. The last two have written, and still keep their
+answer: a destroyed connection discards the write, which is what the answer says happened.
+
+The flag is sticky wherever an owner can roll back twice. The three wrappers and
+`withPlatformAdmin`'s handler transaction `||` the second result into the first: a ROLLBACK that
+failed has had a cancel sent after it, and pooling that connection would let the cancel land on
+the next request's statement. Invite accept clears `opened` after its inner ROLLBACK, so its
+`catch` does not roll back again. The other owners roll back once.
 
 Pools and the `error` event (pg-pool index.js 51–63, pg client.js 387–394): on release pg-pool
 attaches its idle listener to the client, and that listener re-emits a client error as
 `pool.emit('error')`. A pool with no `error` listener turns that into an uncaught exception.
 With `_ending` set by `client.end()`, the socket's close does not emit an error (client.js
 179–205), but a socket error (a reset) still does. The pools in `withInviteToken`,
-`withExtensionToken` and invite accept had no listener; they have one now.
+`withExtensionToken`, invite accept, `scripts/_pg.ts` and the two simulate scripts had no
+listener; they have one now. `tests/unit/lib/poolErrorListenerCensus.test.ts` fails on a file
+that constructs more pools than it registers `error` listeners. Eight files are pinned there:
+`verify-email.ts` and seven scripts, each with one pool built for a single run and ended by it,
+where an uncaught pool error ending the run is the wanted outcome.
 
 The census matcher treats `Reflect.defineProperty` like `Object.defineProperty`.
 
-Sizes: `bearerPipeline.ts` 292, `withAuth.ts` 264, `accept.ts` 290 (was 292), `neon.ts` 478
-(was 483; it was already over 300 and shrank).
+Sizes: `bearerPipeline.ts` 292, `withAuth.ts` 264, `accept.ts` 290 (was 292),
+`simulate-fy2026-workflows.ts` 298, `neon.ts` 478 (was 483; it was already over 300 and shrank).
 
 ## Strongest argument against
 
@@ -174,12 +207,15 @@ the failed row is absent after the next user commits. The healthy cases assert t
   behind a 60 s query, abandoned at a bound shortened to 300 ms: the 500 goes out and the backend
   is gone within 4 s (cancelled, not left to finish); and a real client-side `query_timeout` of
   300 ms, where the COMMIT and then the ROLLBACK time out in the queue. No case asserts elapsed
-  time.
-- `r176-other-owners-evict-connection.int.test.ts`, 36 cases: `withInviteToken`, the
+  time: the bounded-wait case shortens the bound through `setRollbackBoundForTests`.
+- `r176-other-owners-evict-connection.int.test.ts`, 35 cases: `withInviteToken`, the
   `withPlatformAdmin` handler, `withAlsTransaction`, `withTransaction`, `sql.transaction`,
-  `withTransactionPg` from `scripts/_pg.ts` (5 each); the role gate (2); a failed critical audit
-  write whose forced ROLLBACK fails (1); the portfolio workbench (3, one of them a BEGIN that
-  fails after reaching the server).
+  `withTransactionPg` from `scripts/_pg.ts` (5 each); the role gate (2); the portfolio workbench
+  (3, one of them a BEGIN that fails after reaching the server).
+- `r176-platform-admin-edges.int.test.ts`, 4 cases: a failed critical audit write whose forced
+  ROLLBACK fails (500 `AUDIT_WRITE_FAILED`, destroyed); the same, where the ROLLBACK in the
+  `catch` then succeeds (still destroyed); a healthy forced ROLLBACK (reused); the `_pg.ts` pool
+  surviving a client error.
 - `r176-invite-accept-evicts-connection.int.test.ts`, 6 cases through the real route on the
   K-041 harness (GoTrue stubbed at `fetch`), one of them the BEGIN case.
 - `r176-evict.helpers.ts`, `r176-wrapper-fixture.helpers.ts`: the arming, the backend probe and
@@ -188,20 +224,25 @@ the failed row is absent after the next user commits. The healthy cases assert t
 Unit:
 
 - `tests/unit/lib/rollbackFailed.test.ts`: success, rejection, a `query()` that throws, the
-  bound under fake timers (pending one tick before it, failed at it; a shortened bound is
-  honoured), the cancel on a failure and none on success, a cancel that throws, a late rejection
-  after abandonment, no timer left behind.
+  bound under fake timers (pending one tick before it, failed at it), the test seam (shortens,
+  restores, throws when `NODE_ENV` is `production`, `development` or empty, and the bound is
+  unchanged afterwards), the module's exports being read-only, the cancel on a failure and none
+  on success, a cancel that throws, the cannot-cancel warning (once, only after a timeout), a
+  late rejection after abandonment, no timer left behind.
 - `tests/unit/lib/cancelBackend.test.ts`: against a plain TCP listener, the 16-byte
-  CancelRequest carries the pid and key; no socket for a client that is not a connected pg
-  client; the socket is torn down at 2 s; a refused connection raises nothing.
+  CancelRequest carries the pid and key; no socket, and `false`, for a client that is not a
+  connected pg client; the socket is torn down at 2 s; a refused connection raises nothing; a
+  real `pg.Client` on the installed version has the fields the cancel reads.
 - `tests/unit/lib/auth/deferredEnd.test.ts`: `reportFinalizeFailure` logs the request and
-  tenant, captures to Sentry only when it is on, and never throws.
+  tenant, never the query string (a `?token=` url), captures to Sentry only when it is on, and
+  never throws.
 - `tests/unit/lib/releaseCensus.test.ts`, on `git ls-files` of `src/`, `pages/`, `scripts/`,
   `middleware.ts`, `instrumentation.ts`. A release with no argument or a constant-falsy one
   (`false`, `null`, `undefined`, `0`, `''`, `void 0`, `!1`) must be pinned by exact text with its
   reason. A pinned per-run-pool release must sit in a `finally` that also ends a pool. Any other
   release must pass a value that, in the same function, is or is assigned from a
-  `rollbackFailed(` / `rollbackError(` result, or an error caught there. `.call`, `.apply`,
+  `rollbackFailed(` / `rollbackError(` result for that same client variable, or an error caught
+  around a query on it. `.call`, `.apply`,
   `.bind`, a spread argument, an alias, a callback and destructuring fail closed. Each escape
   has a fixture. Its limits are in the file header: untracked files, a key held in a variable,
   a client handed to another function, and that it proves derivation, not every path.
@@ -211,10 +252,11 @@ Unit:
 bare release too. It is left as it is; the `withPublicRouteTransaction` cases above are the
 guard.
 
-Evidence: `red.int.log` (four rounds), `green.log`, `mutations.log`. The last batch, round 4c,
-ran 140 mutants on `860cc7fd2` with the baseline green three times before and once after:
-140 of 140 RED. Before it, round 4 had three survivors, all in the release census's own
-matcher, which got fixtures; round 4b was discarded because its baseline failed once.
+Evidence: `red.int.log` (five rounds), `green.log`, `mutations.log`. The last batch, round 5c,
+ran 160 mutants on `7cc0741a3` with the baseline green three times before and once after:
+160 of 160 RED. Rounds 5 and 5b each found one survivor (a warning no case could tell apart,
+and a census fixture the new same-client rule had made toothless); each got a case and the
+whole list was re-run.
 
 ## Not covered
 
@@ -225,26 +267,44 @@ matcher, which got fixtures; round 4b was discarded because its baseline failed 
   (`markUifDeclarationPaid` is not exported) and runs `main` on import, so it is type-checked
   ad hoc only. Only the census guards them.
 - Early returns not driven by a test: see the table under Fix.
-- Still unbounded: `BEGIN`, `COMMIT` and every handler query. A COMMIT is left unbounded on
-  purpose: abandoning one leaves its outcome unknown.
 - A half-open socket is exercised at unit level only (a `query` that never settles). The
   integration cases put a slow query ahead of the ROLLBACK instead. Not exercised: the
   finalising COMMIT itself in flight on the server when it times out, with the ROLLBACK queued
   behind that COMMIT.
-- The cancel request is sent without TLS negotiation, as node-postgres's own `Client#cancel`
-  does. Not tested against a server that requires TLS.
-- A checked-out client that is idle between queries has no `error` listener. A FATAL that
-  reaches it then (an administrator terminates the backend) is an uncaught exception
-  (pg client.js 397–410). This is not new and not changed here; it surfaced as an intermittent
-  failure in `public-route-tx.int.test.ts` under load, and that test now listens.
-- One unit file failed 3 tests in one baseline run under load average ~31. It was not
-  identified and did not recur in 20 further runs.
+- The cancel request against a server whose `pg_hba.conf` allows only `hostssl`.
+- Timer `unref` is not asserted by any test.
+- Intermittent failures seen under machine load (load average 24–33), recorded in `green.log`:
+  - whole unit suite, 1 run in 7: two 10 s timeouts in DB-backed unit tests this change does not
+    touch (`tests/unit/mcp/allocateByReferenceLedger.integration.test.ts` and
+    `tests/unit/services/bankAllocatedAccountColumnDb.test.ts`);
+  - the unit subset, once, during review round 2: one file, three failing tests. It did not
+    recur in 25 repeats of the subset, 7 of the whole suite, or any baseline since, and its
+    name was not captured. The baseline script now keeps the output of any failing run;
+  - `public-route-tx.int.test.ts`, once: an uncaught FATAL (see Accepted). That test now listens.
 - `withInviteToken`'s test row is written after `SET LOCAL ROLE NONE`, because `app_user` with
   no tenant cannot insert a customer.
 - These fail on unchanged source too in the fixture environment and are outside the run set:
   `tests/integration/withAuth.test.ts` (2), `admin-forbidden.test.ts` (1),
   `admin-rls-bypass.test.ts` (1), `k104-k105-invitation-token-encoding.int.test.ts` (1). The
   K-041 and K-042 suites pass only with `GOTRUE_URL` at the origin (no `/auth/v1`).
+
+## Accepted, with the reason
+
+- `BEGIN` and `COMMIT` stay unbounded, as does every handler query. Abandoning a COMMIT leaves
+  its outcome unknown, which is worse than waiting; a `BEGIN` that hangs has written nothing and
+  the request's own timeout is the caller's. Only the ROLLBACK is bounded, because it is the one
+  statement whose loss the owner can make safe by destroying the connection.
+- A checked-out client that is idle between two queries has no `error` listener. A FATAL that
+  reaches it then (an administrator terminates the backend, the server restarts) is emitted as
+  an `error` event with no listener and becomes an uncaught exception (pg client.js 397–410).
+  This predates the change and is not altered by it. The change narrows it slightly: an owner no
+  longer sits on a checked-out, idle client for an unbounded ROLLBACK, and once released the
+  client is under the pool's listener, which every long-lived pool now has. It needs its own
+  item.
+- The cancel request carries the backend's pid and secret key, as node-postgres received them at
+  connect. Production connects to Postgres directly. Behind a pooler in transaction mode those
+  would be the pooler's, and the cancel would be the pooler's to route; this would need
+  re-checking before such a move.
 
 ## Review round 1
 
@@ -293,6 +353,29 @@ test-only follow-ups in `85624ab1c`, `41b2ae8fa` and `860cc7fd2`.
    unchanged code and runs on import, so it stays type-checked only. (c) Three pools had no
    `error` listener and could turn a destroyed client's socket error into an uncaught exception;
    they have one now, with a test.
+
+## Review round 3
+
+Both blind reviewers said SHIP on `9d835c70e` with LOWs. Each is fixed in `3cdb96a4e`, with
+test-only follow-ups in `f73f1198b` and `7cc0741a3`.
+
+1. `withPlatformAdmin`'s flag was not sticky across its two ROLLBACKs. It is now. Every owner
+   was checked; invite accept's inner ROLLBACK was still bare and goes through the helper too.
+2. `rollbackBound` was a mutable export. The bound is a constant; the test seam throws outside
+   a test run.
+3. The restored report logged `req.url`. It logs the sanitised path, which is less than the
+   line logged before this branch.
+4. `scripts/_pg.ts` and the two simulate scripts had no pool `error` listener. Added, with a
+   census that pins the one-run pools that go without.
+5. `cancelBackend` depended on pg internals silently. A unit case pins them on a real
+   `pg.Client`; a cancel that cannot be attempted after a timeout is warned once.
+6. The plaintext cancel was measured against a TLS session: it lands (see Fix). The two timers
+   are unref'd.
+7. The release census tied a release to any ROLLBACK in the function. It ties it to a ROLLBACK
+   on the same client variable.
+8. Recorded under Accepted.
+9. Recorded under Not covered and in `green.log`: two named timeouts in unrelated DB-backed
+   unit tests; the earlier one-file failure did not recur and stays unnamed.
 
 ## Migration / rollback
 
