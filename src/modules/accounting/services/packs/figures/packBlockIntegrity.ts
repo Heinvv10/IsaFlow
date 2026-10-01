@@ -105,15 +105,6 @@ function checkChartClaims(
 }
 
 /**
- * Checks 4 and 6 and the matters cross-reference, all of which walk the page
- * blocks rather than figures.
- *
- * `scale` is the document's own, narrowed by the caller: the plug disclosure
- * it re-derives prints a rand amount, and a sentence built at a different
- * scale from the one the page printed would never match the page's text —
- * the gate would refuse a pack that says exactly what it must.
- */
-/**
  * THE ACTION PANEL AND THE MATTERS TABLE ARE ONE LIST, AND THE DOCUMENT MUST
  * SAY SO.
  *
@@ -278,6 +269,15 @@ export function checkMattersAmounts(doc: PackPagesDocument, scale: MoneyScale): 
   ];
 }
 
+/**
+ * Checks 4 and 6 and the matters cross-reference, all of which walk the page
+ * blocks rather than figures.
+ *
+ * `scale` is the document's own, narrowed by the caller: the plug disclosure
+ * it re-derives prints a rand amount, and a sentence built at a different
+ * scale from the one the page printed would never match the page's text —
+ * the gate would refuse a pack that says exactly what it must.
+ */
 export function checkBlocks(doc: PackPagesDocument, scale: MoneyScale): string[] {
   const failures: string[] = [...checkMattersCrossReference(doc), ...checkMattersAmounts(doc, scale)];
   for (const page of doc.pages) {

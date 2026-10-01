@@ -341,19 +341,6 @@ export function trendWindowNote(
   // entire, which is measured, not feared (252.47mm of 255 with the clause,
   // 236.04 with three characters added, the difference being the note).
   //
-  // AND THE UNIT IS THE MONEY, NOT A DAY COUNT. It read "taken on the days
-  // posted", which page 12 disproves in its own words: the trends page
-  // "multiplies each month's ratio by the days in that month", and Sep's 60
-  // debtor days is 59 over 30 times THIRTY, not times the seven days posted.
-  // The clause was describing the numerator's window with the denominator's
-  // multiplier and got a reader to the wrong arithmetic either way, so it
-  // names the sums the ratio is taken on and makes no claim about days at
-  // all. "sums" for "days" is character-for-character, which is the whole of
-  // why it is that word: this note has ZERO characters of slack — three more
-  // takes it to another line and `fitPageToBox` answers by dropping the note
-  // entire, which is measured, not feared (252.47mm of 255 with the clause,
-  // 236.04 with three characters added, the difference being the note).
-  //
   // ONE CLAUSE, AND THE LENGTH IS AGAIN THE WHOLE OF THE DESIGN — the same
   // lesson the `debtorDays` clause above records. The first wording named the
   // panels ("Gross margin and Debtor days end on the part month: a ratio

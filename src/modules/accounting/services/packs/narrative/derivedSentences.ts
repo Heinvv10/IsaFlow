@@ -389,45 +389,8 @@ export function negativeEquitySentence(equity: number, scale: MoneyScale): strin
 }
 
 
-/**
- * AND THE THIRD IMPOSSIBLE NUMBER, WHICH GOT NOTHING AT ALL.
- *
- * Brightsphere's pack heads its income statement with revenue of (5 535) and
- * puts the same figure on a highlights tile, with no callout anywhere —
- * while negative ASSETS, two sheets later and no stranger, get a full
- * explanatory block. A pack that explains one anomaly and stays silent about
- * another of the same class reads as though the silent one is normal.
- *
- * Negative turnover is at least as likely to be a posting error as a negative
- * asset side, and it is more consequential: every margin, every ratio with
- * revenue underneath it and the whole scorecard's profitability group are
- * computed off it, and each of them is then reported as not meaningful for a
- * reason the reader has to assemble from footnotes.
- *
- * Same shape as the other two: what it is, what causes it, what it does to
- * the rest of the pack, and that the ledger is reported as it stands.
- */
-/**
- * AND IT WAS THE REVENUE LINE ONLY, ON A SHEET WITH FOUR OF THEM.
- *
- * The same asymmetry the balance sheet's check had, one page earlier.
- * Brightsphere's income statement prints revenue of (5 535) under a headed
- * block AND operating expenses of (3 717), other expenses of (411) and other
- * income of (1) with no comment at all — three more lines the wrong side of
- * zero, on the sheet the block is about. They reach the pack's matters page
- * as "months whose expenses are a net credit", eleven sheets later, with
- * nothing on page 6 pointing there.
- *
- * So the check runs over every income and cost line the page prints, the way
- * `impossibleBalancesSentence` runs over every asset and liability row.
- * Subtotals are not in it: a negative gross profit, operating profit or net
- * profit is a real result a real business can post, and folding those in
- * would tell a director that a loss is a posting error.
- *
- * THE TWO SIDES HAVE DIFFERENT CAUSES and are stated separately, because an
- * income account in net debit and a cost account in net credit are different
- * postings to go looking for.
- */
+/** Which side of the income statement the lines below zero sit on — see
+ *  `impossibleIncomeLinesSentence`. */
 export type ImpossibleIncomeSide = 'income' | 'cost' | 'both';
 
 const IMPOSSIBLE_INCOME_CAUSE: Record<ImpossibleIncomeSide, string> = {
@@ -453,6 +416,44 @@ const NEGATIVE_REVENUE_CONSEQUENCE =
   ' Every margin divides by revenue, so each is reported as not meaningful rather than computed '
   + 'off a negative base.';
 
+/**
+ * AND THE THIRD IMPOSSIBLE NUMBER, WHICH GOT NOTHING AT ALL.
+ *
+ * Brightsphere's pack heads its income statement with revenue of (5 535) and
+ * puts the same figure on a highlights tile, with no callout anywhere —
+ * while negative ASSETS, two sheets later and no stranger, get a full
+ * explanatory block. A pack that explains one anomaly and stays silent about
+ * another of the same class reads as though the silent one is normal.
+ *
+ * Negative turnover is at least as likely to be a posting error as a negative
+ * asset side, and it is more consequential: every margin, every ratio with
+ * revenue underneath it and the whole scorecard's profitability group are
+ * computed off it, and each of them is then reported as not meaningful for a
+ * reason the reader has to assemble from footnotes.
+ *
+ * Same shape as the other two: what it is, what causes it, what it does to
+ * the rest of the pack, and that the ledger is reported as it stands.
+ *
+ * AND IT WAS THE REVENUE LINE ONLY, ON A SHEET WITH FOUR OF THEM.
+ *
+ * The same asymmetry the balance sheet's check had, one page earlier.
+ * Brightsphere's income statement prints revenue of (5 535) under a headed
+ * block AND operating expenses of (3 717), other expenses of (411) and other
+ * income of (1) with no comment at all — three more lines the wrong side of
+ * zero, on the sheet the block is about. They reach the pack's matters page
+ * as "months whose expenses are a net credit", eleven sheets later, with
+ * nothing on page 6 pointing there.
+ *
+ * So the check runs over every income and cost line the page prints, the way
+ * `impossibleBalancesSentence` runs over every asset and liability row.
+ * Subtotals are not in it: a negative gross profit, operating profit or net
+ * profit is a real result a real business can post, and folding those in
+ * would tell a director that a loss is a posting error.
+ *
+ * THE TWO SIDES HAVE DIFFERENT CAUSES and are stated separately, because an
+ * income account in net debit and a cost account in net credit are different
+ * postings to go looking for.
+ */
 export function impossibleIncomeLinesSentence(
   lines: ReadonlyArray<{ label: string; amount: number }>,
   side: ImpossibleIncomeSide,
