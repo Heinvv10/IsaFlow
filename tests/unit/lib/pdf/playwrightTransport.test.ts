@@ -23,7 +23,9 @@ const pdfBytes = Buffer.from(
 );
 
 /** A Playwright double: a browser whose connection state we control. */
-function makeBrowser() {
+const waitCalls: Array<{ fn: (a: string[]) => boolean; arg: string[] }> = [];
+
+function makeBrowser(printError: string | null = null) {
   const contexts: Array<{ closed: boolean }> = [];
   const listeners: Array<() => void> = [];
   const browser = {
@@ -39,7 +41,8 @@ function makeBrowser() {
         close: vi.fn(async () => { ctx.closed = true; }),
         newPage: vi.fn(async () => ({
           goto: vi.fn(async () => {}),
-          waitForSelector: vi.fn(async () => {}),
+          waitForFunction: vi.fn(async (fn: (a: string[]) => boolean, arg: string[]) => { waitCalls.push({ fn, arg }); }),
+          evaluate: vi.fn(async () => printError),
           emulateMedia: vi.fn(async () => {}),
           pdf: vi.fn(async () => pdfBytes),
         })),
@@ -73,6 +76,33 @@ const request = {
 
 beforeEach(() => { launchMock.mockReset(); vi.mocked(log.warn).mockClear(); });
 afterEach(async () => { await closeSharedBrowser(); });
+
+describe('playwrightTransport — a print page that reports it cannot render', () => {
+  it('fails the render with the reported reason instead of waiting out the timeout', async () => {
+    launchMock.mockResolvedValue(makeBrowser('fonts: footer face unreachable'));
+    await expect(playwrightTransport.render(request)).rejects.toThrow(/cannot render: fonts: footer face unreachable/);
+  });
+
+  it('waits on ready OR error: the predicate is true for either, false for neither', async () => {
+    waitCalls.length = 0;
+    launchMock.mockResolvedValue(makeBrowser(null));
+    await playwrightTransport.render(request);
+    const { fn, arg } = waitCalls[0]!;
+    const run = (ready: boolean, error: boolean) => {
+      vi.stubGlobal('document', {
+        querySelector: () => (ready ? {} : null),
+        documentElement: { hasAttribute: (a: string) => error && a === 'data-print-error' },
+      });
+      try { return fn(arg); } finally { vi.unstubAllGlobals(); }
+    };
+    expect([run(false, false), run(true, false), run(false, true)]).toEqual([false, true, true]);
+  });
+
+  it('renders normally when the page reports nothing', async () => {
+    launchMock.mockResolvedValue(makeBrowser(null));
+    await expect(playwrightTransport.render(request)).resolves.toBeInstanceOf(Buffer);
+  });
+});
 
 describe('playwrightTransport — browser reuse', () => {
   it('launches Chromium once across two renders', async () => {

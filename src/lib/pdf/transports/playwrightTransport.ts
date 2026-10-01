@@ -7,7 +7,7 @@
 
 import { chromium, type Browser } from 'playwright';
 import {
-  FOOTER_HTML, HEADER_HTML, PDF_MARGIN_MM, PRINT_READY_SELECTOR, PRINT_READY_TIMEOUT_MS,
+  FOOTER_HTML, HEADER_HTML, PDF_MARGIN_MM, PRINT_ERROR_ATTRIBUTE, PRINT_READY_SELECTOR, PRINT_READY_TIMEOUT_MS,
   mm, type PdfRenderRequest, type PdfTransport,
 } from '../pdfTransport';
 import { writePdfInfoDictionary } from '../pdfInfoDictionary';
@@ -86,7 +86,22 @@ export const playwrightTransport: PdfTransport = {
       // 'load', not 'networkidle': the app keeps background connections open
       // that never go quiet. waitForSelector is the real readiness gate.
       await page.goto(request.url, { waitUntil: 'load' });
-      await page.waitForSelector(PRINT_READY_SELECTOR, { timeout: PRINT_READY_TIMEOUT_MS });
+      // Ready OR failed: a print page that reports `data-print-error` will
+      // never become ready, so waiting out the timeout only delays the same
+      // failure and hides its reason.
+      await page.waitForFunction(
+        ([ready, errorAttribute]) => document.querySelector(ready!) !== null
+          || document.documentElement.hasAttribute(errorAttribute!),
+        [PRINT_READY_SELECTOR, PRINT_ERROR_ATTRIBUTE],
+        { timeout: PRINT_READY_TIMEOUT_MS },
+      );
+      const printError = await page.evaluate(
+        (errorAttribute) => document.documentElement.getAttribute(errorAttribute),
+        PRINT_ERROR_ATTRIBUTE,
+      );
+      if (printError !== null) {
+        throw new Error(`playwrightTransport: the print page reported it cannot render: ${printError}`);
+      }
       await page.emulateMedia({ media: 'print' });
 
       const pdf = await page.pdf({
