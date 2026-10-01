@@ -773,6 +773,13 @@ Mutants: 142, all red, baseline green before and after (`mutations.log`, round 8
 run was void (two runners overlapped after a batch overran its time limit) and was re-run
 sequentially.
 
+### After the merge with master
+
+`send-for-signing` now checks that the rendered HTML file exists (`fs.access`, no read)
+before the company charge, and reads it after. A document with no rendered HTML answered 400
+after the charge and the unit was not given back. Tested: a missing file leaves the bucket
+untouched. Mutant HT1 red.
+
 ## Rollback
 
 Revert the branch's commits. No migration, no data change, no configuration. Counters written

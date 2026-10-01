@@ -79,3 +79,89 @@ int: Tests  59 passed (59)
 unit: Tests  226 passed (226)
 
 DONE BASELINE MC1 MC2 MC3 P1 P2 P3 U3 BASELINE
+
+==================================================================
+### send-for-signing: the rendered HTML must exist before the company charge (commit 82f60a2a7)
+Whole unit suite:
+ Test Files  1132 passed (1132)
+      Tests  15089 passed | 6 skipped (15095)
+Limiter integration set: 59 passed (baseline lines below). Mutants: HT1 (no existence check) is new; the signing mutants G1, G2, H6-H8 and census P3 re-run. All RED; baseline green before and after.
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  227 passed (227)
+
+HT1 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: no HTML existence check before the charge
+int: Tests  59 passed (59)
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 2ms
+unit: Tests  1 failed | 226 passed (227)
+
+G1 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: no per-user abuse limiter
+int: Tests  59 passed (59)
+unit: × a request refused because nothing matches "FROM afs_documents" leaves the company bucket untouched 2ms
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 0ms
+unit: × counts the attempt against the user, and a malformed request never reaches the company bucket 2ms
+unit: × refuses a user over the abuse limit before the company bucket 0ms
+unit: Tests  4 failed | 223 passed (227)
+
+G2 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged before validation
+int: Tests  59 passed (59)
+unit: × a request refused because nothing matches "FROM afs_documents" leaves the company bucket untouched 3ms
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 1ms
+unit: × charges the company bucket once every check has passed 1ms
+unit: × counts the attempt against the user, and a malformed request never reaches the company bucket 1ms
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 1ms
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 1ms
+unit: Tests  6 failed | 221 passed (227)
+
+H6 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged before the document and contact checks
+int: Tests  59 passed (59)
+unit: × a request refused because nothing matches "FROM afs_documents" leaves the company bucket untouched 3ms
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 1ms
+unit: × charges the company bucket once every check has passed 1ms
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 1ms
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 1ms
+unit: Tests  5 failed | 222 passed (227)
+
+Traceback (most recent call last):
+  File "/tmp/claude-1003/-home-hein-Workspace-IsaFlow/9882fc2d-64e0-4669-a7af-c7ad80a74560/scratchpad/r8-mut.py", line 177, in <module>
+    assert s.count(a)==1,(sys.argv[1],a[:50],s.count(a)); s=s.replace(a,b)
+           ^^^^^^^^^^^^^
+AssertionError: ('H7', '  // Charged once the document and every signer ar', 0)
+APPLY FAILED H7
+
+Traceback (most recent call last):
+  File "/tmp/claude-1003/-home-hein-Workspace-IsaFlow/9882fc2d-64e0-4669-a7af-c7ad80a74560/scratchpad/r8-mut.py", line 177, in <module>
+    assert s.count(a)==1,(sys.argv[1],a[:50],s.count(a)); s=s.replace(a,b)
+           ^^^^^^^^^^^^^
+AssertionError: ('H8', '  // Charged once the document and every signer ar', 0)
+APPLY FAILED H8
+
+P3 | pages/api/accounting/ar/dunning/send.ts | a limiter is passed as a value
+int: Tests  59 passed (59)
+unit: × no file reaches the limiter under another name 4ms
+unit: Tests  1 failed | 226 passed (227)
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  227 passed (227)
+
+DONE BASELINE HT1 G1 G2 H6 H7 H8 P3 BASELINE
+(H7 and H8 were redefined for the new comment text and re-run:)
+H7 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged before the signer check again (round-5 position)
+int: Tests  59 passed (59)
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 3ms
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 1ms
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 1ms
+unit: Tests  3 failed | 224 passed (227)
+
+H8 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged after the company query and file read again
+int: Tests  59 passed (59)
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 4ms
+unit: Tests  1 failed | 226 passed (227)
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  227 passed (227)
+
+DONE H7 H8 BASELINE
