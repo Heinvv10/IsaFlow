@@ -20,6 +20,10 @@
  *
  * Limits: text that reaches `.query(` through another module (the `sql` tag in neon.ts, the tag in
  * scripts/_pg.ts) is not seen here; those modules are pinned as passing their callers' text on.
+ * Also not seen: a literal with a leading comment or another statement before the ROLLBACK
+ * ('-- why\nROLLBACK', 'SELECT 1; ROLLBACK'); a call through element access
+ * (client['query']('ROLLBACK')); and unreadable text in a file whose own BEGIN is itself
+ * unreadable or absent, which is therefore not seen as owning a transaction. None exists today.
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
