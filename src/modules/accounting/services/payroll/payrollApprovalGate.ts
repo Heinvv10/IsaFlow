@@ -8,7 +8,9 @@
  *   1. status: draft / calculated / processed, or approved with no journal;
  *   2. a run that already carries its posted journal (reopened) may be
  *      re-approved onto it only while that journal is still live and its
- *      lines match what the run's header would post now. Live = status
+ *      lines match what the run's header would post now — per GL account, to
+ *      the cent, save for the labour split's rounding sitting on another
+ *      labour account (onlyRoundingPlacement). Live = status
  *      'posted' AND reversed_at IS NULL: reverseJournalEntry leaves the
  *      original at status 'posted' and marks it with reversed_at alone
  *      (journalEntryReversalClaim). A reversal is always whole — the contra
@@ -29,6 +31,7 @@ import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
+import { labourRoundingSlack, type LabourRoundingSlack } from './payrollJournalParts';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -96,10 +99,30 @@ function byAccount(lines: Array<{ glAccountId: string | null; debit: number; cre
   return m;
 }
 
-function sameJournal(plan: PayrollJournalPlan, posted: PostedPayrollJournal): boolean {
-  const a = byAccount(plan.lines);
-  const b = byAccount(posted.lines);
-  return a.size === b.size && [...a].every(([k, v]) => b.get(k) === v);
+/** Net cents per account by which the plan differs from the posted journal. Empty when they are the same journal. */
+function journalDrift(plan: PayrollJournalPlan, posted: PostedPayrollJournal): Map<string, number> {
+  const drift = byAccount(plan.lines);
+  for (const [k, v] of byAccount(posted.lines)) {
+    const d = (drift.get(k) ?? 0) - v;
+    if (d === 0) drift.delete(k); else drift.set(k, d);
+  }
+  return drift;
+}
+
+/**
+ * True when the drift is only the labour split's rounding sitting on another
+ * labour account: confined to the accounts the split routes to, netting to
+ * zero, and no larger than the cents whose account once depended on read order
+ * (labourRoundingSlack). A journal posted before those reads were ordered can
+ * differ from the plan by exactly that, with nothing recalculated. Any real
+ * change — a cent on a credit, a moved allocation — fails one of the three.
+ */
+function onlyRoundingPlacement(drift: Map<string, number>, slack: LabourRoundingSlack): boolean {
+  const values = [...drift.values()];
+  const moved = values.filter((v) => v > 0).reduce((s, v) => s + v, 0);
+  return values.reduce((s, v) => s + v, 0) === 0
+    && moved <= slack.cents
+    && [...drift.keys()].every((k) => slack.accountIds.includes(k));
 }
 
 function hashOf(plan: PayrollJournalPlan): string {
@@ -111,7 +134,7 @@ function hashOf(plan: PayrollJournalPlan): string {
   })).digest('hex');
 }
 
-function judge(plan: PayrollJournalPlan, posted: PostedPayrollJournal | null): PayrollJournalNote | null {
+function judge(plan: PayrollJournalPlan, posted: PostedPayrollJournal | null, sameJournal: boolean): PayrollJournalNote | null {
   const statusRefusal = approvalStatusRefusal(plan.status, plan.alreadyPostedJournalId);
   if (statusRefusal) return { code: 'status_not_approvable', detail: statusRefusal };
   if (plan.alreadyPostedJournalId) {
@@ -122,7 +145,7 @@ function judge(plan: PayrollJournalPlan, posted: PostedPayrollJournal | null): P
         detail: `The journal this run posted (${plan.alreadyPostedJournalId}) is ${state ?? 'missing'}, so the run cannot be re-approved onto it.`,
       };
     }
-    if (!sameJournal(plan, posted)) {
+    if (!sameJournal) {
       return {
         code: 'recalculated_after_posting',
         detail: 'This run was recalculated after its journal posted, so its figures no longer match that journal — reverse the posted journal first.',
@@ -138,5 +161,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
   const plan = await buildPayrollJournalPlan(companyId, runId);
   if (!plan) return null;
   const posted = plan.alreadyPostedJournalId ? await readPostedJournal(companyId, plan.alreadyPostedJournalId) : null;
-  return { plan, posted, blocker: judge(plan, posted), planHash: hashOf(plan) };
+  const drift = posted ? journalDrift(plan, posted) : new Map<string, number>();
+  // Every debit of the plan is labour, so its total debit is the labour debit.
+  const sameJournal = drift.size === 0 || onlyRoundingPlacement(
+    drift, await labourRoundingSlack(companyId, runId, plan.totalDebit, plan.totals.gross, plan.totals.etiUsed));
+  return { plan, posted, blocker: judge(plan, posted, sameJournal), planHash: hashOf(plan) };
 }

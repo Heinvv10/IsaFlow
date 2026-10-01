@@ -10,9 +10,14 @@
  *   • cancelled runs cannot be reopened (create a new run instead)
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import {
+  PayrollLoanLockTimeoutError,
+  isLockTimeout,
+  setLocalLockTimeout,
+} from './payrollRunLoanApplication';
 
 export type PayrollRunStatus = 'draft' | 'calculated' | 'approved' | 'paid' | 'cancelled';
 
@@ -36,6 +41,40 @@ export class PayrollRunLockedError extends Error {
     this.name = 'PayrollRunLockedError';
     this.status = status;
   }
+}
+
+/**
+ * The run's header row, locked FOR UPDATE until the caller's transaction ends
+ * — null when the run is not in this company. The wait is bounded at 5s, as
+ * the loan lock is (applyRunLoans): a peer holding the row surfaces as the
+ * retryable PayrollLoanLockTimeoutError instead of pinning the connection.
+ *
+ * In a savepoint (withTransaction), for two reasons. A 55P03 aborts whatever
+ * (sub)transaction raised it; the callers answer this refusal as a 4xx / tool
+ * error, which COMMITs / RELEASEs, so the abort must not reach their
+ * transaction. And the savepoint rollback puts lock_timeout back by itself.
+ * On success the savepoint is released, which keeps both the row lock and the
+ * SET LOCAL — so the previous timeout is restored by hand, or the 5s would
+ * bound every later statement of the request.
+ */
+export async function lockPayrollRunHeader(runId: string, companyId: string): Promise<DbRow | null> {
+  return withTransaction(async (tx) => {
+    const previousLockTimeout = await setLocalLockTimeout(tx, '5s');
+    let rows: DbRow[];
+    try {
+      rows = (await tx`
+        SELECT * FROM payroll_run_headers
+        WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+        FOR UPDATE
+      `) as DbRow[];
+    } catch (err) {
+      // No restore: the transaction is aborted and the savepoint rollback restores it.
+      if (isLockTimeout(err)) throw new PayrollLoanLockTimeoutError(runId);
+      throw err;
+    }
+    await setLocalLockTimeout(tx, previousLockTimeout);
+    return rows[0] ?? null;
+  });
 }
 
 export async function reopenPayrollRun(opts: {
