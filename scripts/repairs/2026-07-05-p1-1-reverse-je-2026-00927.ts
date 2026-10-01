@@ -33,6 +33,7 @@
 
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
+import { rollbackFailed } from '../../src/lib/rollbackFailed';
 
 const DEMO_COMPANY = '00000000-0000-0000-0000-000000000001';
 const ENTRY_NUMBER = 'JE-2026-00927';
@@ -176,7 +177,9 @@ async function main(): Promise<void> {
       }
       await client.query('COMMIT');
     } catch (err) {
-      await client.query('ROLLBACK');
+      // Bounded, logged, cancels the backend, and never throws over err (R-176). The client is
+      // ended in the finally below, so nothing can reuse the connection.
+      await rollbackFailed(client, 'reverse-je-2026-00927');
       throw err;
     }
 

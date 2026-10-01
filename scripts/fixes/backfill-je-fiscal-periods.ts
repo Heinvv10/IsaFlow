@@ -20,6 +20,7 @@
  */
 
 import pg from 'pg';
+import { rollbackFailed } from '../../src/lib/rollbackFailed';
 
 const apply = process.argv.includes('--apply');
 const allCompanies = process.argv.includes('--all-companies');
@@ -170,7 +171,9 @@ async function main(): Promise<void> {
       console.log(`\nDONE. ${updated.rowCount} entries backfilled; balance cache rebuilt for ${companies.length} company(ies).`);
       console.log('Verify: bun scripts/integrity-check.ts');
     } catch (err) {
-      await client.query('ROLLBACK');
+      // Bounded, logged, cancels the backend, and never throws over err (R-176). The client is
+      // ended in the finally below, so nothing can reuse the connection.
+      await rollbackFailed(client, 'backfill-je-fiscal-periods');
       throw err;
     }
   } finally {
