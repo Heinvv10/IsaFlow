@@ -18,7 +18,7 @@ import {
   PACK_FOOTER_FACE_FILE, PACK_FOOTER_FONT_FAMILY, packFooterFaceCss,
 } from '@/lib/charts/packFont';
 import { escapeHtml } from '@/modules/accounting/services/packs/escapeHtml';
-import type { PdfMetadata } from './pdfTransport';
+import { PDF_MARGIN_MM, type PdfMetadata } from './pdfTransport';
 
 /**
  * The footer's face, inlined.
@@ -66,33 +66,37 @@ export const FOOTER_PT = 7.5;
 export const FOOTER_GAP_MM = 6;
 /** Wide enough for "NN / NN" at the footer's size, with tabular figures. */
 export const FOOTER_PAGE_BOX_MM = 14;
-/** The A4 sheet less the 18mm side margins the footer is padded by. */
-export const FOOTER_CONTENT_MM = 210 - 2 * 18;
 
-/** The two blocks' words, unescaped — what the width check measures. */
-export function footerTitleText(f: PackFurniture): string {
-  return [f.companyName, f.packLabel, f.period].join(' · ');
-}
 export function footerRightText(f: PackFurniture): string {
   return f.draft ? `${f.confidentiality} · DRAFT` : f.confidentiality;
 }
 
 export function buildFooterHtml(f: PackFurniture): string {
-  const left = [f.companyName, f.packLabel, f.period].map(escapeHtml).join(' · ');
+  const company = escapeHtml(f.companyName);
+  const rest = escapeHtml(` · ${f.packLabel} · ${f.period}`);
   const right = escapeHtml(footerRightText(f));
-  // TWO COLUMNS. The title takes whatever the right block leaves and never
-  // wraps across it (`min-width:0` lets it shrink, ellipsis is the last
-  // resort). The right block is `flex:none`: the confidentiality line and a
-  // page-number box of FIXED width and tabular figures, sized for "NN / NN",
-  // so nothing moves between page 9 and page 10. An earlier `space-between`
-  // moved the centre with the page number; `1fr auto 1fr` fixed that but
-  // squeezed the title onto two lines and broke it mid-date.
+  // TWO COLUMNS, AND ONLY THE COMPANY NAME MAY GIVE WAY.
+  //
+  // Left: [company — shrinks, ellipsis][" · pack · period" — never shrinks].
+  // Right: the confidentiality line and a page-number box of FIXED width and
+  // tabular figures, sized for "NN / NN", both `flex:none`: they are never
+  // clipped or pushed, and nothing moves between page 9 and page 10.
+  //
+  // THE OUTER ROW NEEDS `box-sizing:border-box` AND `min-width:0`. Without the
+  // first, its `width:100%` plus the side padding is wider than the sheet; the
+  // padding is the transport's own margins (`PDF_MARGIN_MM`), not a literal.
+  // Without the second a long company name made the row as wide as its text,
+  // pushing the page number to x = 595pt on a 595pt sheet, and a longer one
+  // clipped the right block to "us" — measured in Chromium, which is what
+  // `tests/unit/print/packFooterLayout.test.ts` now does.
   return (
     footerStyleBlock() +
-    `<div style="font-family:'${PACK_FOOTER_FONT_FAMILY}';font-size:${FOOTER_PT}pt;color:#8a8a8a;width:100%;` +
-    `padding:0 18mm;border-top:0.5pt solid #d8d8d8;display:flex;align-items:baseline;gap:${FOOTER_GAP_MM}mm">` +
-    '<span style="flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
-    `${left}</span>` +
+    `<div style="box-sizing:border-box;min-width:0;font-family:'${PACK_FOOTER_FONT_FAMILY}';font-size:${FOOTER_PT}pt;color:#8a8a8a;width:100%;` +
+    `padding:0 ${PDF_MARGIN_MM.right}mm 0 ${PDF_MARGIN_MM.left}mm;border-top:0.5pt solid #d8d8d8;` +
+    `display:flex;align-items:baseline;gap:${FOOTER_GAP_MM}mm">` +
+    '<span style="flex:1 1 auto;min-width:0;display:flex;white-space:nowrap">' +
+    `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${company}</span>` +
+    `<span style="flex:none;white-space:pre">${rest}</span></span>` +
     `<span style="flex:none;white-space:nowrap;display:flex;gap:${FOOTER_GAP_MM / 3}mm">` +
     `<span>${right}</span>` +
     `<span style="display:inline-block;width:${FOOTER_PAGE_BOX_MM}mm;text-align:right;font-variant-numeric:tabular-nums">` +
