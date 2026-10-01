@@ -57,7 +57,7 @@ describe('PackSectionView', () => {
 
   it('renders a percentage KV item as a percentage, not as money', () => {
     render(<PackSectionView section={statementSection} />);
-    expect(screen.getByText('+54.5%')).toBeTruthy();
+    expect(screen.getByText('54.5%')).toBeTruthy();
   });
 
   it('renders a day count in days, not as a bare ratio', () => {

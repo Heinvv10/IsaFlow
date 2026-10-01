@@ -13,14 +13,14 @@
  * name and a unit here is a compile error, not a row that quietly prints a
  * raw key in the wrong unit.
  */
-import { formatDays, formatMoney, formatPct, formatRatio } from '@/lib/format/money';
+import { formatDays, formatMoney, formatPctLevel, formatRatio } from '@/lib/format/money';
 import type { ExtendedRatioResult } from './ratioTypes';
 
 export type RatioKey = Exclude<keyof ExtendedRatioResult, 'notMeaningful'>;
 
 /**
  * The unit a figure is written in.
- *   pct    a margin or a return                      45.0%
+ *   pct    a margin, a return or a rate — a LEVEL    45.0%   (never +45.0%)
  *   times  a cover or a turnover — a multiple        3.20×
  *   ratio  a proportion with no unit of its own      1.85
  *   days   a day count                               73 days
@@ -94,19 +94,38 @@ export function isRatioKey(key: string): key is RatioKey {
 }
 
 /**
- * The name a reader sees. A key this table does not know is split on its
- * capitals, as every surface used to do for all of them — a fallback for a
- * caller's own key, not a path any engine ratio takes.
+ * A ratio key this table has no row for.
+ *
+ * THROWN, NOT WORKED AROUND. An unknown key used to get a label split on its
+ * capitals and two decimals, or was dropped from the pack document without a
+ * word — so a ratio added to the engine and missed here would print unnamed
+ * in the wrong unit, or vanish from a document a client is sent. The compiler
+ * catches that for the engine's own type; this catches it for a blob.
  */
+export class UnknownRatioError extends Error {
+  constructor(public readonly ratioKey: string) {
+    super(`No name or unit is defined for the ratio '${ratioKey}' — add it to ratioPresentation.ts.`);
+    this.name = 'UnknownRatioError';
+  }
+}
+
+function presentationOf(key: string): { label: string; format: RatioFormat } {
+  if (!isRatioKey(key)) throw new UnknownRatioError(key);
+  return RATIOS[key];
+}
+
+/** The name a reader sees. @throws UnknownRatioError for a key with no row. */
 export function ratioLabel(key: string): string {
-  if (isRatioKey(key)) return RATIOS[key].label;
-  return key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase()).trim();
+  return presentationOf(key).label;
 }
 
 /** A figure in its unit, in the pack's number convention. */
 export function formatRatioFigure(format: RatioFormat, value: number): string {
   switch (format) {
-    case 'pct': return formatPct(value, 1, { pack: true });
+    // A LEVEL, so unsigned: every `pct` ratio here is a margin, a return or a
+    // rate. The signed formatter is for a CHANGE — "+45.0%" on a gross margin
+    // reads as growth of 45%.
+    case 'pct': return formatPctLevel(value, 1);
     case 'times': return `${formatRatio(value)}×`;
     case 'ratio': return formatRatio(value);
     case 'days': return formatDays(value);
@@ -135,17 +154,19 @@ export function ratioLine(
   value: number | null,
   reasons: Record<string, string>,
 ): RatioLine {
-  const label = ratioLabel(key);
+  const { label, format } = presentationOf(key);
   const reason = reasons[key];
   if (value === null || reason !== undefined) {
     return { key, label, text: reason ?? RATIO_NOT_MEANINGFUL, stated: false };
   }
-  return { key, label, text: formatRatioFigure(isRatioKey(key) ? RATIOS[key].format : 'ratio', value), stated: true };
+  return { key, label, text: formatRatioFigure(format, value), stated: true };
 }
 
 /**
  * Every ratio in an engine result (or a pack's `ratios` section blob), in the
  * order it carries them. The reasons map is not itself a ratio.
+ * @throws UnknownRatioError if the result carries a ratio this table has no
+ *   row for — the rest is not printed without it.
  */
 export function ratioLines(result: Record<string, unknown>): RatioLine[] {
   const raw = result.notMeaningful;

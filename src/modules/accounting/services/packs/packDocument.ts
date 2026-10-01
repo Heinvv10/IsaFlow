@@ -87,10 +87,16 @@ export interface PackDocument {
 // and the KPI scorecard read it too. Re-exported: this was its home.
 export { RATIO_FORMATS };
 
-/** A ratio field the map knows, whether or not the service could compute it.
- *  `null` is kept: it is a row the pack must still print, with its reason. */
+/**
+ * A ratio entry of the section blob, whether or not the service could compute
+ * it: `null` is kept, because it is a row the pack must still print, with its
+ * reason. Anything that is neither a number nor null (the reasons map) is not
+ * a ratio. A ratio the presentation table does not know is NOT skipped — it
+ * used to be, so a new engine ratio would vanish from the document — and
+ * `ratioLabel` throws on it below.
+ */
 const isRatioEntry = (e: [string, unknown]): e is [RatioKey, number | null] =>
-  e[0] in RATIO_FORMATS && (typeof e[1] === 'number' || e[1] === null);
+  typeof e[1] === 'number' || e[1] === null;
 
 /** Why a margin row can have no figure. `marginPct` returns null on zero or
  *  negative turnover, and dividing by a negative prints a healthy-looking

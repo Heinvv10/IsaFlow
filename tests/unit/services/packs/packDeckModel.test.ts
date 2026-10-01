@@ -64,7 +64,7 @@ describe('buildPackDeck', () => {
 
   it('formats a percentage as a percentage', () => {
     const rows = buildPackDeck(doc).flatMap((s) => (s.kind === 'table' ? s.rows : []));
-    expect(rows.find((r) => r.label === 'Gross Margin')!.value).toBe('+54.5%');
+    expect(rows.find((r) => r.label === 'Gross Margin')!.value).toBe('54.5%');
   });
 
   it('prints a KV item reason INSTEAD of a figure when the figure is unavailable', () => {
@@ -171,7 +171,7 @@ function figuresInText(text: string): Array<{ value: number; tolerance: number }
 }
 
 /** A printed figure is explained when SOME pack figure rounds to it at the
- *  precision it was printed at. Comparing exactly would fail on "+54.5%",
+ *  precision it was printed at. Comparing exactly would fail on "54.5%",
  *  which is a one-decimal rounding of the pack's own 54.49. */
 function isExplained(printed: { value: number; tolerance: number }, allowed: number[]): boolean {
   // `<=`, because a half-way figure rounds AWAY from zero: the pack's own
