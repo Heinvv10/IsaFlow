@@ -796,6 +796,17 @@ leaves unrun stay charged, as before. Mutants MB1 to MB4 red.
 The new cases are in `tests/unit/mcp/transportBatchCharge.test.ts`. `tests/unit/mcp/transport.test.ts`,
 already 347 lines on master (over the 300-line cap), is kept at 347.
 
+An earlier report here said the role-lock test asserts the full batch is charged. It did not: a
+comment edit had swallowed the assertion. It is restored, and mutants that charge 1 or charge
+per call now turn that test red.
+
+The skipped-call text (`src/lib/mcp/batchSkip.ts`) said "Nothing was written or charged". On
+master "charged" meant the Flows wallet, which is true, but the call is covered by the batch's
+rate-limit charge and a caller reading "charged" would think otherwise. It now reads "Nothing was
+written and no Flows were debited for this call; it still counted towards the batch's rate
+limit". The two tests that match it are updated: the transport unit test and master's
+`w2-28-system-role-round12` integration test.
+
 ## Rollback
 
 Revert the branch's commits. No migration, no data change, no configuration. Counters written
