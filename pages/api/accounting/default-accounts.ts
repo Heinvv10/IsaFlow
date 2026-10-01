@@ -2,12 +2,16 @@
  * Default Accounts Configuration API
  * GET /api/accounting/default-accounts - Get default account mappings
  * POST /api/accounting/default-accounts - Save default account mappings
+ *   body: { mappings: {uiKey: accountId} (only the keys changed),
+ *           loaded: {uiKey: accountId} (the holder the page showed for each) }
+ *   `loaded` is required for every key that moves a role: an omitted `loaded`
+ *   (or key) means "the page showed Not configured", so a role that has a
+ *   holder answers 409. A `loaded` that is not an object is 400.
  * Sage equivalent: Accounts > Default Accounts
  *
- * Stores mappings in app_settings AND syncs is_system_account + account_subtype
- * on the selected GL accounts so systemAccountResolver picks them up.
- * All GL mutations run inside a single transaction so a partial failure
- * cannot leave system flags in a corrupt state.
+ * The rules live in defaultAccountsService: GET shows the live role holders;
+ * a save moves only the roles it changes and refuses (rolled back) anything
+ * that would leave a role on an account the user did not choose.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -16,55 +20,20 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { sql, withTransaction } from '@/lib/neon';
+import { withTransaction } from '@/lib/neon';
+import { runAfterCommit } from '@/lib/afterCommit';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
-import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import {
-  assertAccountChangesKeepVatLocks, type AccountAttributeChange,
-} from '@/modules/accounting/services/gl/vatLockLineClassification';
-
-const SETTINGS_KEY = 'accounting_default_accounts';
-
-// Maps UI setting keys → system account subtypes used by systemAccountResolver.
-const KEY_TO_SYSTEM_SUBTYPE: Record<string, string> = {
-  sales_revenue:       'default_revenue',
-  sales_vat_output:    'vat_output',
-  accounts_receivable: 'receivable',
-  cost_of_sales:       'default_expense',
-  purchase_vat_input:  'vat_input',
-  accounts_payable:    'payable',
-  primary_bank:        'bank',
-  retained_earnings:   'retained_earnings',
-};
-
-// Expected account_type for each subtype — guards against assigning an
-// asset account as "revenue" or similar cross-category mistakes.
-const SUBTYPE_EXPECTED_TYPE: Record<string, string> = {
-  default_revenue:  'revenue',
-  vat_output:       'liability',
-  receivable:       'asset',
-  default_expense:  'expense',
-  vat_input:        'asset',
-  payable:          'liability',
-  bank:             'asset',
-  retained_earnings:'equity',
-};
-
-type Row = Record<string, unknown>;
+  DefaultAccountsRefusal, plainMapping, readDefaultAccountMappings, saveDefaultAccountMappings,
+} from '@/modules/accounting/services/gl/defaultAccountsService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     try {
-      let mappings: Record<string, string> = {};
-      const [row] = await sql`
-        SELECT value FROM app_settings WHERE key = ${SETTINGS_KEY} AND company_id = ${companyId}
-      `;
-      if (row?.value) {
-        mappings = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
-      }
-      return apiResponse.success(res, { mappings });
+      return apiResponse.success(res, { mappings: await readDefaultAccountMappings(companyId) });
     } catch (err) {
       log.error('Failed to fetch default accounts', { error: err instanceof Error ? err.message : String(err), module: 'accounting' });
       return apiResponse.databaseError(res, err, 'Failed to fetch default accounts');
@@ -72,103 +41,32 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    const { mappings } = req.body;
+    const { mappings, loaded } = req.body;
 
-    if (!mappings || typeof mappings !== 'object') {
+    if (!mappings || typeof mappings !== 'object' || Array.isArray(mappings)) {
       return apiResponse.validationError(res, { mappings: 'Object of key-value mappings required' });
     }
 
-    // Validate account_type compatibility before touching the DB, and collect
-    // every subtype this save will REWRITE: marking an account as the system
-    // account for a role sets its account_subtype, and the filed VAT201 was
-    // built from the subtypes its lines carried.
-    const changes: AccountAttributeChange[] = [];
-    for (const [uiKey, accountId] of Object.entries(mappings)) {
-      const subtype = KEY_TO_SYSTEM_SUBTYPE[uiKey];
-      if (!subtype || !accountId) continue;
-      const expectedType = SUBTYPE_EXPECTED_TYPE[subtype];
-
-      const rows = await sql`
-        SELECT account_code, account_type, account_subtype FROM gl_accounts
-        WHERE id = ${accountId as string}
-          AND company_id = ${companyId}
-        LIMIT 1
-      ` as Row[];
-
-      if (rows.length === 0) {
-        if (!expectedType) continue;
-        return apiResponse.badRequest(res, `Account for '${uiKey}' not found`);
-      }
-      if (expectedType && rows[0]!.account_type !== expectedType) {
-        return apiResponse.badRequest(
-          res,
-          `Account for '${uiKey}' must be of type '${expectedType}' (got '${rows[0]!.account_type}')`,
-        );
-      }
-      const type = String(rows[0]!.account_type);
-      changes.push({
-        accountId: accountId as string,
-        accountCode: String(rows[0]!.account_code),
-        from: { accountType: type, accountSubtype: rows[0]!.account_subtype == null ? null : String(rows[0]!.account_subtype) },
-        to: { accountType: type, accountSubtype: subtype },
-      });
-    }
-
-    // Before the first write: a subtype change that would move a line inside a
-    // locked (filed) VAT period into a different box is refused, naming the
-    // account and the period. Nothing has been written, so the 400 commits
-    // nothing.
-    try {
-      await assertAccountChangesKeepVatLocks(companyId, changes);
-    } catch (err) {
-      if (err instanceof VatPeriodLockedError) return apiResponse.badRequest(res, err.message);
-      throw err;
+    if (loaded != null && (typeof loaded !== 'object' || Array.isArray(loaded))) {
+      return apiResponse.badRequest(res, '`loaded` must be an object of the holders the page showed');
     }
 
     try {
-      await withTransaction(async (tx) => {
-        // Persist the JSON mappings.
-        await tx`
-          INSERT INTO app_settings (key, value, company_id, updated_at)
-          VALUES (${SETTINGS_KEY}, ${JSON.stringify(mappings)}::jsonb, ${companyId}, NOW())
-          ON CONFLICT (key, company_id) DO UPDATE
-          SET value = ${JSON.stringify(mappings)}::jsonb, updated_at = NOW()
-        `;
-
-        // Clear existing system designations for all managed subtypes so that
-        // swapping an account doesn't leave stale system flags.
-        const managedSubtypes = Object.values(KEY_TO_SYSTEM_SUBTYPE);
-        for (const subtype of managedSubtypes) {
-          await tx`
-            UPDATE gl_accounts
-            SET is_system_account = false
-            WHERE company_id = ${companyId}
-              AND account_subtype = ${subtype}
-              AND is_system_account = true
-          `;
-        }
-
-        // Mark the newly-selected accounts as system accounts.
-        for (const [uiKey, accountId] of Object.entries(mappings)) {
-          const subtype = KEY_TO_SYSTEM_SUBTYPE[uiKey];
-          if (!subtype || !accountId) continue;
-          await tx`
-            UPDATE gl_accounts
-            SET is_system_account = true,
-                account_subtype   = ${subtype}
-            WHERE id = ${accountId as string}
-              AND company_id = ${companyId}
-          `;
-        }
-      });
-
-      clearSystemAccountCache(companyId);
-      log.info('Default accounts saved and system flags synced', { keys: Object.keys(mappings), module: 'accounting' });
-      return apiResponse.success(res, { saved: true });
+      await withTransaction((tx) => saveDefaultAccountMappings(
+        tx, companyId, mappings as Record<string, unknown>, plainMapping(loaded)));
     } catch (err) {
+      if (err instanceof DefaultAccountsRefusal) {
+        return err.status === 409 ? apiResponse.conflict(res, err.message) : apiResponse.badRequest(res, err.message);
+      }
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Failed to save default accounts', { error: err instanceof Error ? err.message : String(err), module: 'accounting' });
       return apiResponse.databaseError(res, err, 'Failed to save default accounts');
     }
+    // After COMMIT: cleared earlier, a concurrent read in the gap re-caches the
+    // old holder for up to the cache TTL and posts to it.
+    runAfterCommit('default-accounts: clear system account cache', async () => clearSystemAccountCache(companyId));
+    log.info('Default accounts saved and system flags synced', { keys: Object.keys(mappings), module: 'accounting' });
+    return apiResponse.success(res, { saved: true });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);

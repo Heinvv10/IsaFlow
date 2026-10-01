@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { ArrowRight, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { AccountMappingTable } from './AccountMappingTable';
 import {
@@ -115,12 +115,11 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source, accounts, customers, suppliers }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Import failed');
-      setImportResult(json.data);
+      await assertOk(res, 'Import failed');
+      setImportResult((await res.json()).data);
       setStep('verify');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import failed');
+      setError(apiErrorMessage(err, 'Import failed'));
     } finally {
       setImporting(false);
     }

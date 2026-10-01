@@ -7,17 +7,21 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { withAlsTransaction } from '@/lib/alsTransaction';
 import { log } from '@/lib/logger';
-import { clearSystemAccountCache } from '../gl/systemAccountResolver';
+import { clearSystemAccountCacheAfterCommit } from '../gl/systemAccountResolver';
 import { updateSession } from './migrationService';
 import type { ImportResult, MigrationError } from './migrationService';
 import type { GLAccountType } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
-import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
 import { subtypeErrorFor } from '../gl/accountSubtypeRules';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { assertAccountChangesKeepVatLocks } from '../gl/vatLockLineClassification';
+import { boundedRowWait, isRetryableLockError, lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 import { accountAttributes, attributeChanges } from './migrationCoaVatLock';
 import { importRowSubtype } from './migrationCoaSubtype';
+import { holderParentConflicts, mappedHolders, roleMapConflicts, validateSystemAccountMap } from './migrationCoaRoleMap';
+import { assertRolesKept, snapshotRoles, SystemRoleInvariantError } from '../gl/systemRoleInvariant';
+
+export { validateSystemAccountMap };
 
 
 export interface AccountImportRow {
@@ -40,50 +44,6 @@ export interface SystemAccountMap {
   default_revenue: string;
   default_expense: string;
   admin_expense: string;
-}
-
-const SYSTEM_MAP_KEYS: readonly (keyof SystemAccountMap)[] = [
-  'bank', 'receivable', 'payable', 'vat_input', 'vat_output', 'retained_earnings',
-  'default_revenue', 'default_expense', 'admin_expense',
-];
-
-/**
- * The map arrives as raw request JSON. Its keys become `account_subtype` and
- * its values are flagged `is_system_account = true` verbatim, and the
- * resolver hands those rows to every auto-posting path — so an unknown key,
- * or a mapped account whose type cannot carry the role (an expense account as
- * vat_input), must refuse the whole import BEFORE any row is written.
- * Returns the refusals; empty means proceed.
- */
-export function validateSystemAccountMap(
-  map: Record<string, unknown>,
-  accounts: readonly AccountImportRow[],
-): MigrationError[] {
-  const errors: MigrationError[] = [];
-  const byCode = new Map(accounts.map((a) => [a.accountCode, a]));
-  for (const [key, code] of Object.entries(map)) {
-    if (!(SYSTEM_MAP_KEYS as readonly string[]).includes(key)) {
-      errors.push({ step: 'coa', row: -1, field: `systemAccountMap.${key}`, message: `Unknown system account role "${key}"` });
-      continue;
-    }
-    if (typeof code !== 'string' || !code.trim()) {
-      errors.push({ step: 'coa', row: -1, field: `systemAccountMap.${key}`, message: 'Account code is required' });
-      continue;
-    }
-    const acct = byCode.get(code);
-    if (!acct) {
-      errors.push({ step: 'coa', row: -1, field: `systemAccountMap.${key}`, message: `Account ${code} is not in this import` });
-      continue;
-    }
-    const allowed = GL_ACCOUNT_SUBTYPES_BY_TYPE[acct.accountType] as readonly string[] | undefined;
-    if (!allowed?.includes(key)) {
-      errors.push({
-        step: 'coa', row: -1, field: `systemAccountMap.${key}`,
-        message: `Account ${code} is ${acct.accountType}; the ${key} role needs one of: ${Object.entries(GL_ACCOUNT_SUBTYPES_BY_TYPE).filter(([, v]) => (v as readonly string[]).includes(key)).map(([t]) => t).join(', ')}`,
-      });
-    }
-  }
-  return errors;
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -117,8 +77,15 @@ export async function importChartOfAccounts(
   // withAlsTransaction joins the request transaction (or opens one for a
   // non-request caller), so the savepoint always has something to roll back.
   const refusal = await withAlsTransaction({ userId: als.getStore()?.userId ?? 'system', companyId }, async () => {
+    // The role map below rewrites system-account flags: serialise with the
+    // Default Accounts save, which takes the same lock.
+    await lockSystemRoleWrites(companyId);
+    const conflicts = [...await roleMapConflicts(companyId, systemAccountMap, accounts), ...await holderParentConflicts(companyId, systemAccountMap, accounts)];
+    if (conflicts.length > 0) return conflicts;
+    const roles = await snapshotRoles(companyId);
     try {
-      await withSavepoint('coa_import_vat_lock', async () => {
+      // Bounded: every statement below waits at most 5s for any lock while this import holds the role lock.
+      await boundedRowWait(() => withSavepoint('coa_import_vat_lock', async () => {
         const before = await accountAttributes(companyId);
         // Sort: accounts without parents first, then those with parents (preserves hierarchy)
         const sorted = [...accounts.filter(a => !a.parentCode), ...accounts.filter(a => a.parentCode)];
@@ -158,7 +125,7 @@ export async function importChartOfAccounts(
               }
             }
 
-            await sql`
+            const written = ((await sql`
               INSERT INTO gl_accounts (
                 company_id, account_code, account_name, account_type, account_subtype,
                 normal_balance, parent_account_id, description, is_system_account,
@@ -178,14 +145,29 @@ export async function importChartOfAccounts(
               )
               ON CONFLICT (company_id, account_code) DO UPDATE SET
                 account_name      = EXCLUDED.account_name,
-                account_type      = EXCLUDED.account_type,
-                account_subtype   = COALESCE(${explicitSubtype}, gl_accounts.account_subtype, EXCLUDED.account_subtype),
+                -- An existing system account keeps its type and classification:
+                -- its subtype is its ROLE, and a row that re-typed or
+                -- re-classified it emptied or mistyped the role. Only the role
+                -- map below places roles. is_active is never touched here.
+                account_type      = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_type
+                                         ELSE EXCLUDED.account_type END,
+                account_subtype   = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_subtype
+                  ELSE COALESCE(${explicitSubtype}, gl_accounts.account_subtype, EXCLUDED.account_subtype) END,
                 normal_balance    = EXCLUDED.normal_balance,
                 description       = COALESCE(EXCLUDED.description, gl_accounts.description),
                 is_system_account = EXCLUDED.is_system_account OR gl_accounts.is_system_account
-            `;
+              RETURNING account_type, account_subtype
+            `) as DbRow[])[0];
+            const keptSubtype = written?.account_subtype == null ? null : String(written.account_subtype);
+            if (written && !isSystem && (written.account_type !== acct.accountType
+              || (explicitSubtype !== null && keptSubtype !== explicitSubtype))) {
+              errors.push({ step: 'coa', row: i, field: 'accountType',
+                message: `Account ${acct.accountCode} is a system account: its name was updated, its type and subtype (${String(written.account_type)} / ${keptSubtype ?? 'none'}) were kept.` });
+            }
             imported++;
           } catch (err) {
+            // A lock timeout or deadlock aborted the savepoint: not a row to skip — the whole import retries.
+            if (isRetryableLockError(err)) throw err;
             const msg = err instanceof Error ? err.message : String(err);
             errors.push({ step: 'coa', row: i, field: 'accountCode', message: msg });
             skipped++;
@@ -222,19 +204,27 @@ export async function importChartOfAccounts(
         }
 
         await assertAccountChangesKeepVatLocks(companyId, attributeChanges(before, await accountAttributes(companyId)));
-      });
+        // Last, on what was ACTUALLY written (skipped rows and all): every role
+        // held before, or mapped, has exactly one usable holder — else the
+        // savepoint is rolled back and the import refused whole.
+        await assertRolesKept(companyId, roles, await mappedHolders(companyId, systemAccountMap));
+      }));
       return null;
     } catch (err) {
-      if (err instanceof VatPeriodLockedError) return err;
+      if (err instanceof VatPeriodLockedError || err instanceof SystemRoleInvariantError) return err;
       throw err;
     }
   });
+  if (Array.isArray(refusal)) {
+    log.warn('COA import refused: the role map would take an account from another role', { companyId, errors: refusal }, 'migration');
+    return { imported: 0, skipped: accounts.length, errors: refusal };
+  }
   if (refusal) {
-    log.warn('COA import refused: it would change a filed VAT period', { companyId, error: refusal.message }, 'migration');
+    log.warn('COA import refused: it would change a filed VAT period or leave a role unheld', { companyId, error: refusal.message }, 'migration');
     return { imported: 0, skipped: accounts.length, errors: [{ step: 'coa', row: -1, field: 'accountCode', message: refusal.message }] };
   }
 
-  clearSystemAccountCache(companyId);
+  clearSystemAccountCacheAfterCommit(companyId);
 
   await updateSession(sessionId, companyId, {
     coaRecordsImported: imported,

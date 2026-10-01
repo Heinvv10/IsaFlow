@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { CoaImportResult, type CoaImportSummary } from '@/components/accounting/migration/CoaImportResult';
 
 const COA_FIELDS = ['account_code', 'account_name', 'account_type', 'account_subtype', 'normal_balance', 'parent_code', 'description'] as const;
@@ -134,11 +134,10 @@ export default function ChartOfAccountsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, accounts, systemAccountMap: systemMap }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Import failed');
-      setImportResult(json.data);
+      await assertOk(res, 'Import failed');
+      setImportResult((await res.json()).data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import failed');
+      setError(apiErrorMessage(err, 'Import failed'));
     } finally {
       setIsImporting(false);
     }

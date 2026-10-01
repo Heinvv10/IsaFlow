@@ -31,7 +31,10 @@ import {
 } from '@/modules/accounting/types/gl.types';
 import { GL_ACCOUNT_SUBTYPES } from '@/modules/accounting/types/glAccountSubtypes';
 import { UUID_RE } from '@/lib/validation';
-import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { ChartRefusal } from '@/modules/accounting/services/gl/chartRefusal';
+import { ParentAccountError } from '@/modules/accounting/services/gl/accountParentRules';
+import { reactivationRefusal } from '@/modules/accounting/services/gl/systemRoleReactivation';
+import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const VAT_CODES = ['none', 'standard', 'zero_rated', 'exempt'] as const;
 
@@ -141,10 +144,11 @@ export const createGlAccountTool: McpTool = {
       });
       return ok(account);
     } catch (err) {
-      // Every refusal createAccount raises (duplicate code, invalid subtype,
-      // missing parent) happens BEFORE its INSERT, so flattening them into a
-      // tool error keeps nothing written. A pg error still generic-ifies.
-      return toolError(safeErrorText(err, 'Failed to create account.'));
+      // A tool error only for createAccount's own typed refusals (duplicate
+      // code, invalid subtype, unusable parent): each is raised BEFORE its
+      // INSERT. Anything else is thrown — the registry rolls its savepoint back.
+      if (err instanceof ChartRefusal || err instanceof ParentAccountError) return toolError(err.message);
+      throw err;
     }
   },
 };
@@ -207,7 +211,8 @@ export const updateGlAccountTool: McpTool = {
     const rawSubtype = optionalNullable(args, 'account_subtype');
     if (rawSubtype === BAD_TYPE) return toolError('invalid account_subtype');
     const subtype = rawSubtype as GLAccountSubtype | null | undefined;
-    const isActive = typeof args.is_active === 'boolean' ? args.is_active : undefined;
+    if (args.is_active !== undefined && typeof args.is_active !== 'boolean') return toolError('invalid is_active');
+    const isActive = args.is_active as boolean | undefined;
     const accountName = strArg(args, 'account_name');
     const description = strArg(args, 'description');
 
@@ -218,6 +223,9 @@ export const updateGlAccountTool: McpTool = {
       return toolError('Nothing to update — pass at least one field besides account_id.');
     }
 
+    // Before any write: reactivating a former role holder beside the current one is refused.
+    const reactivation = isActive === true ? await reactivationRefusal(ctx.companyId, accountId) : null;
+    if (reactivation) return toolError(reactivation);
     try {
       // Reclassification carries the structural guards (cycles, the leaf rule,
       // orphaned bank transactions) and refuses BEFORE writing, so it runs
@@ -278,10 +286,14 @@ export const deactivateGlAccountTool: McpTool = {
     try {
       await deleteAccount(ctx.companyId, accountId);
     } catch (err) {
-      // Every refusal deleteAccount raises is checked before its UPDATE, so a
-      // tool error here leaves nothing written and the message (balance,
-      // children, unreconciled transactions) is what the agent needs.
-      return toolError(safeErrorText(err, 'Failed to deactivate account.'));
+      // A tool error only for deleteAccount's own typed refusals: each is
+      // checked before its UPDATE, and the message (balance, children,
+      // unreconciled transactions) is what the agent needs. Anything else is
+      // THROWN so the registry rolls its savepoint back: a lock timeout, a
+      // failed role post-condition, or a driver error raised AFTER the UPDATE
+      // (returned as a tool error, that write was committed and its text shown).
+      if (err instanceof ChartRefusal) return toolError(err.message);
+      throw err;
     }
     return ok({ id: accountId, is_active: false, already_inactive: false });
   },

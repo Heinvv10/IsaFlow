@@ -6,6 +6,8 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { accountUpdateBodyError, isServiceRefusal } from '@/lib/accountUpdateBody';
+import { ParentAccountError } from '@/modules/accounting/services/gl/accountParentRules';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -45,6 +47,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
+    const postBodyError = accountUpdateBodyError(req.body);
+    if (postBodyError) return apiResponse.badRequest(res, postBodyError);
     try {
       const { accountCode, accountName, accountType, accountSubtype, parentAccountId, description, normalBalance, defaultVatCode, vatInputDenied } = req.body;
 
@@ -66,9 +70,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       return apiResponse.success(res, account);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create account';
       log.error('Failed to create account', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, message);
+      // Only a refusal is a 400 (which COMMITS). A lock timeout reaches
+      // withErrorHandler as 503 + Retry-After; anything else is a 500.
+      if (!isServiceRefusal(err) && !(err instanceof ParentAccountError)) throw err;
+      return apiResponse.badRequest(res, err.message);
     }
   }
 
@@ -78,6 +84,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       accountSubtype, parentAccountId,
     } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
+    if (typeof id !== 'string') return apiResponse.badRequest(res, 'id must be a single account id');
+    const bodyError = accountUpdateBodyError(req.body);
+    if (bodyError) return apiResponse.badRequest(res, bodyError);
 
     // Reclassification runs FIRST and on its own guards. `undefined` means
     // "leave alone" and `null` means "clear", so both have to be
@@ -120,9 +129,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } catch (err) {
       log.error('Failed to update account', { error: err }, 'accounting-api');
       if (reclassified) throw err;
-      return apiResponse.badRequest(
-        res, err instanceof Error ? err.message : 'Failed to update account',
-      );
+      // Only a refusal is a 400 (which COMMITS); anything unexpected is a 500.
+      if (!isServiceRefusal(err)) throw err;
+      return apiResponse.badRequest(res, err.message);
     }
   }
 

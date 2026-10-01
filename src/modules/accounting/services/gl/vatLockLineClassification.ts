@@ -39,7 +39,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { classifyVatJournalLine } from '../reports/vatBoxBasis';
 import { vatEntryMemberLineSql, vatEntrySourceAdmitsSql } from '../reports/vatEntryMembership';
-import { VatPeriodLockedError, takeVatLockShared, type ActiveVatLock } from './journalVatLockGuard';
+import { VatPeriodLockedError, takeVatLockShared, type ActiveVatLock, type SqlExec } from './journalVatLockGuard';
 
 export interface AccountVatAttrs {
   accountType: string;
@@ -185,15 +185,15 @@ export function memberLineUnderSql(side: 'from' | 'to') {
  * entries are ignored.
  */
 export async function findLockedReclassification(
-  companyId: string, changes: readonly AccountAttributeChange[],
+  companyId: string, changes: readonly AccountAttributeChange[], q: SqlExec = sql,
 ): Promise<LockedReclassification | null> {
   const last = new Map<string, AccountAttributeChange>();
   for (const c of changes) last.set(c.accountId, c);
   const real = [...last.values()].filter(changed);
   if (real.length === 0) return null;
-  await takeVatLockShared(companyId);
+  await takeVatLockShared(companyId, q);
   const ids = real.map((c) => c.accountId);
-  const rows = (await sql`
+  const rows = (await q`
     WITH ch AS (${changedAccountsSql(real)}),
     jr AS (
       SELECT DISTINCT e.id, vpl.id AS lock_id, vpl.period_start, vpl.period_end
@@ -253,12 +253,14 @@ export function lockedReclassMessage(found: LockedReclassification, what: string
  * applied TOGETHER, would move a filed VAT figure. For default-accounts and the
  * same-source re-import (checked before their first write, from the intended
  * attributes) and the COA import (checked after its writes inside a savepoint,
- * from the attributes actually written).
+ * from the attributes actually written). `q` runs the check (and its shared
+ * advisory lock) on the caller's transaction; the pool default holds that
+ * xact lock only for its own statement.
  */
 export async function assertAccountChangesKeepVatLocks(
-  companyId: string, changes: readonly AccountAttributeChange[],
+  companyId: string, changes: readonly AccountAttributeChange[], q: SqlExec = sql,
 ): Promise<void> {
-  const found = await findLockedReclassification(companyId, changes);
+  const found = await findLockedReclassification(companyId, changes, q);
   if (found) {
     throw new VatPeriodLockedError(found.periodStart, found, undefined,
       lockedReclassMessage(found, 'this change of account type / subtype'));

@@ -23,9 +23,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
-
-/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
-const LOCK_NOT_AVAILABLE = '55P03';
+import { isRetryableLockError, lockSystemRoleWrites, SystemRoleLockTimeoutError } from './systemRoleWriteLock';
 
 /**
  * Raised when another request holds one of the accounts longer than the 5s
@@ -49,15 +47,11 @@ const LOCK_NOT_AVAILABLE = '55P03';
  */
 export class GlAccountLockTimeoutError extends Error {
   readonly code = 'GL_ACCOUNT_LOCK_TIMEOUT';
-  constructor(accountId: string) {
-    super(`GL account ${accountId} is being changed by another request — retry in a moment.`);
+  /** `message`: the role lock's own wording when it was that lock, not a row, that timed out. */
+  constructor(accountId: string, message = `GL account ${accountId} is being changed by another request — retry in a moment.`) {
+    super(message);
     this.name = 'GlAccountLockTimeoutError';
   }
-}
-
-function isLockTimeout(err: unknown): boolean {
-  return typeof err === 'object' && err !== null
-    && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE;
 }
 
 /**
@@ -119,9 +113,20 @@ export async function lockGlAccountsForUpdate(
   // failed savepoint would answer with a bare 25P02 before the guarded SELECT
   // below is reached.
   assertTxUsable();
+  const previous = await client.query("SELECT current_setting('lock_timeout') AS v");
   await client.query("SET LOCAL lock_timeout = '5s'");
 
   const ordered = [...new Set(accountIds)].sort();
+  // The role-write lock comes before ANY row lock, as in every writer of
+  // system-role flags: a merge moves children and deactivates its source, and
+  // taking rows first inverted a Default Accounts save's order (40P01). It has
+  // its own 5s bound and restores the 5s set above for the row locks below.
+  try {
+    await lockSystemRoleWrites(companyId);
+  } catch (err) {
+    if (err instanceof SystemRoleLockTimeoutError) throw new GlAccountLockTimeoutError(ordered[0] ?? '', err.message);
+    throw err;
+  }
   const rows: DbRow[] = [];
   for (const id of ordered) {
     try {
@@ -131,9 +136,14 @@ export async function lockGlAccountsForUpdate(
          FOR UPDATE`) as DbRow[];
       if (found[0]) rows.push(found[0]);
     } catch (err) {
-      if (isLockTimeout(err)) throw new GlAccountLockTimeoutError(id);
+      // 55P03 (the wait timed out) or 40P01 (this request is the deadlock victim): both are a retry.
+      if (isRetryableLockError(err)) throw new GlAccountLockTimeoutError(id);
       throw err;
     }
   }
+  // The bound is for THESE locks. Left in place it turned any later lock wait
+  // of the request into a 55P03 that nothing maps (not after a timeout above:
+  // the transaction is aborted then, and its rollback restores the setting).
+  await client.query("SELECT set_config('lock_timeout', $1, true)", [String(previous?.rows?.[0]?.v ?? '0')]);
   return rows;
 }

@@ -35,7 +35,10 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { clearSystemAccountCache } from './systemAccountResolver';
+import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
+import { boundedRowWait, lockSystemRoleWrites } from './systemRoleWriteLock';
+import { assertRolesKept, snapshotRoles } from './systemRoleInvariant';
+import { roleBarringChildren } from './roleTargetRules';
 
 export const OPENING_BALANCE_EQUITY_SUBTYPE = 'opening_balance_equity';
 export const OPENING_BALANCE_EQUITY_NAME = 'Opening Balance Equity';
@@ -93,22 +96,28 @@ async function freeCode(companyId: string): Promise<string> {
 export async function ensureOpeningBalanceEquityAccount(
   companyId: string,
 ): Promise<OpeningBalanceEquityAccount> {
+  // Before findExisting: a Default Accounts save placing the role elsewhere
+  // must not interleave with this create (two holders, posting using either).
+  await lockSystemRoleWrites(companyId);
   const existing = await findExisting(companyId);
   if (existing) return existing;
 
   const code = await freeCode(companyId);
+  const roles = await snapshotRoles(companyId);
   const parents = (await sql`
-    SELECT id, level FROM gl_accounts
+    SELECT id, level, account_type, account_subtype, is_system_account FROM gl_accounts
     WHERE company_id = ${companyId}::UUID AND account_code = ${EQUITY_HEADER_CODE} AND account_type = 'equity'
     LIMIT 1
   `) as DbRow[];
-  const parent = parents[0];
+  // Not under a 3000 that holds a role (retained earnings, say): a balance-sheet
+  // role holder cannot have sub-accounts. The account goes at the top level instead.
+  const parent = parents[0] && !roleBarringChildren(parents[0]) ? parents[0] : undefined;
   const parentId = parent ? String(parent.id) : null;
   const level = parent ? Number(parent.level ?? 1) + 1 : 1;
 
   let rows: DbRow[];
   try {
-    rows = (await sql`
+    rows = (await boundedRowWait(() => sql`
     INSERT INTO gl_accounts (
       company_id, account_code, account_name, account_type, account_subtype,
       normal_balance, level, display_order, is_system_account, parent_account_id, is_active, description
@@ -118,7 +127,7 @@ export async function ensureOpeningBalanceEquityAccount(
       'Clearing account for opening balances. Should net to zero once the full opening trial balance is captured.'
     )
     RETURNING id, account_code, account_name
-  `) as DbRow[];
+  `)) as DbRow[];
   } catch (err) {
     // Two first calls in flight: both saw no account and picked the same
     // code, and the unique index on (company_id, account_code) refused the
@@ -131,7 +140,8 @@ export async function ensureOpeningBalanceEquityAccount(
     throw err;
   }
   const r = rows[0]!;
-  clearSystemAccountCache(companyId);
+  await assertRolesKept(companyId, roles);
+  clearSystemAccountCacheAfterCommit(companyId);
   log.info('Created Opening Balance Equity account', { companyId, code }, 'accounting');
   return { id: String(r.id), accountCode: String(r.account_code), accountName: String(r.account_name), created: true };
 }

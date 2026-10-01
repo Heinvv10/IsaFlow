@@ -23,7 +23,9 @@ import { log } from '@/lib/logger';
 import type { GLAccount, GLAccountSubtype, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { ParentAccountError, assertParentUsable } from './accountParentRules';
-import { clearSystemAccountCache } from './systemAccountResolver';
+import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
+import { boundedRowWait, lockSystemRoleWrites } from './systemRoleWriteLock';
+import { assertRolesKept, snapshotRoles } from './systemRoleInvariant';
 import { getAccountById } from './chartOfAccountsService';
 import { isBankSubtype } from './accountSubtypes';
 import { findLockedReclassification, lockedReclassMessage } from './vatLockLineClassification';
@@ -91,16 +93,17 @@ async function loadAccount(companyId: string, id: string): Promise<AccountRow> {
  * a clear here would re-open the hole `createAccount` closes.
  */
 function assertSubtypeAllowed(account: AccountRow, subtype: GLAccountSubtype | null): void {
-  if (subtype === null) {
-    const missing = missingSubtypeError(account.account_type, null);
-    if (missing) throw new ReclassifyError(missing);
-    return;
-  }
+  // First, and for a clear too: clearing a role holder's subtype empties the role.
   if (account.is_system_account) {
     throw new ReclassifyError(
       `Cannot change the subtype of system account ${account.account_code} — ` +
         'auto-posting resolves this account by its subtype',
     );
+  }
+  if (subtype === null) {
+    const missing = missingSubtypeError(account.account_type, null);
+    if (missing) throw new ReclassifyError(missing);
+    return;
   }
   const error = subtypeErrorFor(
     { accountType: account.account_type, currentSubtype: account.account_subtype },
@@ -180,7 +183,12 @@ async function assertParentAllowed(
   return childLevel;
 }
 
-export async function reclassifyAccount(
+/** Bounded: every statement it runs while it holds the role lock waits at most 5s for any lock (a timeout or deadlock is the retryable refusal). */
+export function reclassifyAccount(companyId: string, id: string, input: ReclassifyAccountInput): Promise<GLAccount> {
+  return boundedRowWait(() => reclassifyUnderLock(companyId, id, input));
+}
+
+async function reclassifyUnderLock(
   companyId: string,
   id: string,
   input: ReclassifyAccountInput,
@@ -191,6 +199,13 @@ export async function reclassifyAccount(
     throw new ReclassifyError('Nothing to reclassify — pass accountSubtype or parentAccountId');
   }
 
+  // The role-write lock is ALWAYS the first lock a request takes on the chart.
+  // A subtype change could take a role from its holder; a parent-only change
+  // locks this account's row, and the same request may then need the role lock
+  // (the chart PUT's updateAccount) — row-then-role is the inverse of the
+  // Default Accounts save's order and deadlocked with it (40P01).
+  await lockSystemRoleWrites(companyId);
+  const roles = await snapshotRoles(companyId);
   const account = await loadAccount(companyId, id);
 
   if (changingSubtype) {
@@ -255,7 +270,8 @@ export async function reclassifyAccount(
     throw err;
   }
 
-  clearSystemAccountCache(companyId);
+  await assertRolesKept(companyId, roles);
+  clearSystemAccountCacheAfterCommit(companyId);
 
   const updated = await getAccountById(companyId, id);
   if (!updated) throw new ReclassifyError('Account not found');

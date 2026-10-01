@@ -14,6 +14,11 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { BANK_SUBTYPES, isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
+import { boundedRowWait, lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
+import { reactivationRefusal } from '@/modules/accounting/services/gl/systemRoleReactivation';
+import { assertRolesKept, snapshotRoles } from '@/modules/accounting/services/gl/systemRoleInvariant';
+import { holderAsParentRefusal, roleBarringChildren } from '@/modules/accounting/services/gl/roleTargetRules';
+import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 // Fields are nullable as well as optional. The UI clears a field by sending
 // `null` (e.g. `description: editForm.description.trim() || null`), and the
@@ -48,13 +53,16 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
   if (parentId === id) return 'An account cannot be its own group';
   if (parentId) {
     const [parent] = await sql`
-      SELECT id, parent_account_id, account_subtype,
+      SELECT id, parent_account_id, account_type, account_subtype, account_code, is_system_account,
         (SELECT p.account_subtype FROM gl_accounts p
           WHERE p.id = gl_accounts.parent_account_id AND p.company_id = ${companyId}) AS parent_subtype
       FROM gl_accounts
       WHERE id = ${parentId} AND company_id = ${companyId}
     `;
     if (!parent || !isBankSubtype(parent.account_subtype as string | null)) return 'Group must be a bank account in this company';
+    // The primary bank cannot become a group: its own postings would sit behind a header.
+    const heldRole = roleBarringChildren(parent);
+    if (heldRole) return holderAsParentRefusal(String(parent.account_code), heldRole);
     if (isBankSubtype(parent.parent_subtype as string | null)) return 'Group account is already a sub-account of another group';
     const [self] = await sql`
       SELECT 1 FROM gl_accounts
@@ -73,10 +81,10 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
     `;
     if (parentTx) return 'Group account has its own bank transactions — pick an account without transactions as the group';
   }
-  await sql`
+  await boundedRowWait(() => sql`
     UPDATE gl_accounts SET parent_account_id = ${parentId}, updated_at = NOW()
     WHERE id = ${id} AND account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND company_id = ${companyId}
-  `;
+  `);
   return null;
 }
 
@@ -96,12 +104,33 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         v !== undefined && v !== null && v !== '' ? Number(v) : null;
       const bool = (v: boolean | null | undefined) => (typeof v === 'boolean' ? v : null);
 
-      if (Object.prototype.hasOwnProperty.call(req.body, 'parentAccountId')) {
+      // Deactivating the primary bank would empty the bank role (posting then
+      // fails). Checked before ANY write: a 4xx commits what came before it.
+      // Under the role-write lock, so a Default Accounts save choosing this
+      // account has either committed (refused here) or waits for this request.
+      // Reactivating a former primary bank beside the current one would give
+      // the role two holders: refused the same way.
+      const changesParent = Object.prototype.hasOwnProperty.call(req.body, 'parentAccountId');
+      // The role-write lock is the FIRST lock of every write here (the row may
+      // be the bank holder a Default Accounts save is waiting for); the role
+      // snapshot only when a holder can change: an active-state change or a grouping.
+      await lockSystemRoleWrites(companyId);
+      const roles = typeof b.isActive === 'boolean' || changesParent ? await snapshotRoles(companyId) : null;
+      if (typeof b.isActive === 'boolean') {
+        const [acct] = await sql`SELECT is_system_account FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}`;
+        if (acct?.is_system_account && !b.isActive) {
+          return apiResponse.badRequest(res, 'Cannot deactivate the primary bank account — choose another primary bank in Default Accounts first');
+        }
+        const refusal = b.isActive ? await reactivationRefusal(companyId, id) : null;
+        if (refusal) return apiResponse.badRequest(res, refusal);
+      }
+
+      if (changesParent) {
         const parentError = await assignParent(companyId, id, b.parentAccountId ?? null);
         if (parentError) return apiResponse.badRequest(res, parentError);
       }
 
-      await sql`
+      await boundedRowWait(() => sql`
         UPDATE gl_accounts SET
           bank_account_number = COALESCE(${s(b.bankAccountNumber)}, bank_account_number),
           bank_name = COALESCE(${s(b.bankName)}, bank_name),
@@ -117,11 +146,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           is_active = COALESCE(${bool(b.isActive)}, is_active),
           updated_at = NOW()
         WHERE id = ${id} AND account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND company_id = ${companyId}
-      `;
+      `);
+      if (roles) await assertRolesKept(companyId, roles);
+      clearSystemAccountCacheAfterCommit(companyId);   // the resolver caches the holder's name and active state
       return apiResponse.success(res, { updated: true });
     } catch (err) {
       log.error('Failed to update bank account', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, 'Failed to update bank account');
+      // Every refusal above is RETURNED; whatever is thrown here is unexpected.
+      // A 400 would COMMIT, so it goes to withErrorHandler: 500, rolled back —
+      // or 503 + Retry-After for a role-lock timeout.
+      throw err;
     }
   }
 

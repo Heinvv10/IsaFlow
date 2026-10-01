@@ -2,6 +2,10 @@ import { useState } from 'react';
 import { Layers, Loader2, CheckCircle2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { useCompany } from '@/contexts/CompanyContext';
+
+/** The roles `POST /api/accounting/coa-seed` accepts — the chart write routes' gate. */
+const SEED_ROLES = ['owner', 'admin'];
 
 type TemplateId = 'isaflow_standard' | 'xero_compatible' | 'sage_compatible' | 'blank';
 
@@ -41,6 +45,8 @@ export function CoaSeedEmptyState({ onSeeded }: { onSeeded: () => void }) {
   const [selected, setSelected] = useState<TemplateId>('isaflow_standard');
   const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState('');
+  // The route refuses every other role (403), so they are told who can do it instead of being offered the button.
+  const canSeed = SEED_ROLES.includes(useCompany().companyRole ?? '');
 
   async function seed() {
     setSeeding(true);
@@ -113,14 +119,18 @@ export function CoaSeedEmptyState({ onSeeded }: { onSeeded: () => void }) {
           <p className="text-xs text-[var(--ff-text-tertiary)]">
             Prefer to start from scratch? Pick any template and delete the accounts you don&apos;t need, or add accounts manually with the <strong>Add Account</strong> button once the ledger is set up.
           </p>
-          <button
-            onClick={() => void seed()}
-            disabled={seeding}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 text-white rounded-lg text-sm font-semibold transition-colors"
-          >
-            {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {seeding ? 'Seeding…' : 'Seed chart of accounts'}
-          </button>
+          {canSeed ? (
+            <button
+              onClick={() => void seed()}
+              disabled={seeding}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 text-white rounded-lg text-sm font-semibold transition-colors"
+            >
+              {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {seeding ? 'Seeding…' : 'Seed chart of accounts'}
+            </button>
+          ) : (
+            <p className="text-sm text-[var(--ff-text-secondary)]">Only an owner or admin can set up the chart of accounts.</p>
+          )}
         </div>
       </div>
     </div>
