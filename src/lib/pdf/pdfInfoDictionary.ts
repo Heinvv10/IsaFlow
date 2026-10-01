@@ -107,9 +107,15 @@ function readTrailer(pdf: string): Trailer | null {
 
 /** The body of `N 0 obj << … >>`, so the keys already there survive. Null when
  *  the object is not written as a plain literal — every object in a Skia PDF
- *  is, and anything else is a file this writer will not touch. */
+ *  is, and anything else is a file this writer will not touch.
+ *
+ *  THE NEWEST REVISION, which is the LAST occurrence: an incremental update
+ *  appends a new `N 0 obj` and leaves the old one in place, so the first match
+ *  is the stale one. Gotenberg's exiftool pass does exactly that to the Info
+ *  object, and reading the first lost every key exiftool had added. */
 function readObjectDictionary(pdf: string, objectNumber: number): string | null {
-  const at = new RegExp(`(?:^|[\\r\\n])${objectNumber}\\s+0\\s+obj`).exec(pdf);
+  const matches = [...pdf.matchAll(new RegExp(`(?:^|[\\r\\n])${objectNumber}\\s+0\\s+obj`, 'g'))];
+  const at = matches[matches.length - 1];
   if (at?.index === undefined) return null;
   const open = pdf.indexOf('<<', at.index);
   const close = pdf.indexOf('>>', open);
