@@ -14,6 +14,7 @@ import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/ac
 import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
 import { formatPackKv } from '@/components/accounting/packs/PackSectionView';
 import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
+import { packToCashFlowUnavailable, packToRatioReasons } from '@/modules/accounting/services/packs/packSectionData';
 import { marginKvItem } from '@/modules/accounting/services/packs/packDocument';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 
@@ -54,19 +55,8 @@ export function SectionCard({ section, defaultOpen }: { section: PackSection; de
               <ManagementBalanceSheetRows bs={packToBsTotals(d)} detail={packToBsDetail(d)} />
             </div>
           )}
-          {section.type === 'cash_flow' && (
-            <>
-              <KVItem label="Operating CF" value={fmt(d.operatingCashFlow)} />
-              <KVItem label="Investing CF" value={fmt(d.investingCashFlow)} />
-              <KVItem label="Financing CF" value={fmt(d.financingCashFlow)} />
-              <KVItem label="Net Cash Flow" value={fmt(d.netCashFlow)} />
-              <KVItem label="Opening Cash" value={fmt(d.openingCash)} />
-              <KVItem label="Closing Cash" value={fmt(d.closingCash)} />
-            </>
-          )}
-          {section.type === 'ratios' && Object.entries(d).slice(0, 12).map(([k, v]) => (
-            <KVItem key={k} label={k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())} value={typeof v === 'number' ? v.toFixed(2) : String(v)} />
-          ))}
+          {section.type === 'cash_flow' && <CashFlowItems d={d} />}
+          {section.type === 'ratios' && <RatioItems d={d} />}
           {section.type === 'kpis' && Array.isArray((d as { scorecard?: unknown[] }).scorecard) && (
             <div className="col-span-full min-w-0 grid grid-cols-3 gap-2">
               {((d as { scorecard: KPIScorecardItem[] }).scorecard).map((item) => (
@@ -85,6 +75,46 @@ export function SectionCard({ section, defaultOpen }: { section: PackSection; de
         </div>
       )}
     </div>
+  );
+}
+
+const CASH_FLOW_LINES: Array<[string, string, string]> = [
+  ['operatingCashFlow', 'Operating CF', 'operating'],
+  ['investingCashFlow', 'Investing CF', 'investing'],
+  ['financingCashFlow', 'Financing CF', 'financing'],
+  ['netCashFlow', 'Net Cash Flow', 'net'],
+  ['openingCash', 'Opening Cash', 'opening'],
+  ['closingCash', 'Closing Cash', 'closing'],
+];
+
+/** A line the section marks unavailable prints its REASON, never the
+ *  service's stand-in number — which, for a cash flow statement that could not
+ *  be read, is net profit under the label "Operating CF". */
+function CashFlowItems({ d }: { d: Record<string, unknown> }) {
+  const unavailable = packToCashFlowUnavailable(d);
+  return (
+    <>
+      {CASH_FLOW_LINES.map(([field, label, key]) => (
+        <KVItem key={field} label={label} value={unavailable[key] ?? fmt(d[field])} />
+      ))}
+    </>
+  );
+}
+
+/** A ratio the service could not compute prints its stated reason, as the
+ *  scorecard tile does. `notMeaningful` is the reasons map, not a ratio. */
+function RatioItems({ d }: { d: Record<string, unknown> }) {
+  const reasons = packToRatioReasons(d);
+  return (
+    <>
+      {Object.entries(d).filter(([k]) => k !== 'notMeaningful').slice(0, 12).map(([k, v]) => (
+        <KVItem
+          key={k}
+          label={k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}
+          value={reasons[k] ?? (typeof v === 'number' ? v.toFixed(2) : String(v))}
+        />
+      ))}
+    </>
   );
 }
 
