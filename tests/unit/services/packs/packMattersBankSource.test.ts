@@ -111,6 +111,23 @@ describe('the unreconciled bank matter', () => {
     expect(await bankMatter([bankRow(), bankRow({ id: 'b' })])).toBeUndefined();
   });
 
+  it('still raises the matter for a closed account that carries unreconciled lines', async () => {
+    // `is_active` decides whether an account is offered in a picker. A
+    // deactivated account still holds its unmatched lines, and the status
+    // service leaves such accounts out unless a caller asking about money
+    // opts in — which this one did not.
+    const matter = await bankMatter([
+      bankRow({ is_active: false, unreconciled_balance: 8_250, unallocated_count: 2 }),
+    ]);
+    expect(matter!.issue).toMatch(/^2 unreconciled bank items across 1 bank account/);
+    // The stub answers whatever is asked, so the opt-in is read where it is
+    // made: the value bound to the query's inactive-accounts switch.
+    const [strings, ...values] = sqlSpy.mock.calls[0] as [readonly string[], ...unknown[]];
+    const at = strings.findIndex((fragment) => /AND \($/.test(fragment));
+    expect(strings[at + 1]).toMatch(/^::boolean = true OR ga\.is_active = TRUE\)/);
+    expect(values[at]).toBe(true);
+  });
+
   it('asks the status service about the pack\'s own company', async () => {
     await bankMatter([bankRow()]);
     const [, ...values] = sqlSpy.mock.calls[0] as [readonly string[], ...unknown[]];

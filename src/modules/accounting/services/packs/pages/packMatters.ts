@@ -236,7 +236,10 @@ async function agedDebtorConcentrationMatters(
 }
 
 async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]> {
-  const rows = await getBankAccountsStatus(companyId);
+  // A MONEY QUESTION, SO INACTIVE ACCOUNTS ARE IN. The service leaves them out
+  // by default for the pickers; a deactivated account still holds its
+  // unmatched lines.
+  const rows = await getBankAccountsStatus(companyId, { includeInactive: true });
   // THE SERVICE'S OWN KEYS. It maps every row to camelCase before returning
   // it; this read `unreconciled_count` and `unreconciled_balance`, the column
   // names, which are on no row it returns — so the count was always 0 and
