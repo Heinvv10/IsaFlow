@@ -38,6 +38,11 @@ import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis'
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 import type { ReconcilingItem } from '@/modules/accounting/services/reconciliation/reconcilingItemTypes';
+import {
+  buildControlBridgeItems,
+  unexplainedItem,
+  type ItemInputs,
+} from '@/modules/accounting/services/reconciliation/reconcilingItemBuilders';
 
 /**
  * A receivables read with NO decomposition — the shape the pack composes when
@@ -697,7 +702,13 @@ describe('the decomposition says whether it closes', () => {
    * pack would print a partial decomposition under "Together they account for
    * all of it, before rounding."
    */
-  it('refuses the closure claim when an item it cannot word is dropped', () => {
+  it('refuses the whole decomposition when it meets an item it cannot word', () => {
+    // It used to print the items it could word and withhold only the closure
+    // sentence: a list a reader takes for the whole, with money missing from
+    // it and nothing saying so. A partial decomposition is not a shorter
+    // one, so the block falls back to the note that names the two sources
+    // and says they are not reconciled — the same refusal it makes when the
+    // two readings of the control account disagree.
     const withUnknown: PackReceivablesRead = {
       ...read(['document_not_linked_to_journal', 'posting_with_no_document']),
       unexplained: 0,
@@ -710,14 +721,31 @@ describe('the decomposition says whether it closes', () => {
           amount: 250_000,
           documentIds: ['x'],
           documentNumbers: ['X-1'],
-        },
+        } as unknown as ReconcilingItem,
       ],
     };
     const block = receivablesReconciliationNote(withUnknown, -330_000, PACK_SCALE);
     const body = block?.kind === 'disclosure' ? block.disclosure.notes.map((n) => n.body).join(' ') : '';
     expect(body, 'nothing was built, so nothing is being checked').not.toBe('');
-    expect(body, 'the list omits an item with money in it and still claims to account for all of it')
-      .not.toMatch(/account for all of it/);
+    expect(body, 'a partial list was printed').not.toMatch(/open documents carrying no link/);
+    expect(body).not.toMatch(/account for all of it/);
+    expect(body).toMatch(/the first is the open customer subledger/i);
+    expect(body).toMatch(/the two do not agree/);
+  });
+
+  it('is not refused by an unworded item that carries no money', () => {
+    const withNil: PackReceivablesRead = {
+      ...read(['document_not_linked_to_journal']),
+      unexplained: 0,
+      items: [
+        ...items(['document_not_linked_to_journal']),
+        { bridge: 'subledger_to_control', type: 'unmapped', amount: 0, description: '', documentIds: [], documentNumbers: [] } as unknown as ReconcilingItem,
+      ],
+    };
+    const block = receivablesReconciliationNote(withNil, -330_000, PACK_SCALE);
+    const body = block?.kind === 'disclosure' ? block.disclosure.notes.map((n) => n.body).join(' ') : '';
+    expect(body).toMatch(/open documents carrying no link/);
+    expect(body).toMatch(/That accounts for all of it/);
   });
 
   it('refuses the closure claim on a non-zero residual the service reported', () => {
@@ -737,5 +765,74 @@ describe('the decomposition says whether it closes', () => {
     const ok = receivablesReconciliationNote(closed, -330_000, PACK_SCALE);
     expect(ok?.kind === 'disclosure' ? ok.disclosure.notes.map((n) => n.body).join(' ') : '')
       .toMatch(/account for all of it/);
+  });
+});
+
+/**
+ * EVERY ITEM THE RECONCILIATION CAN PUT ON THE CONTROL BRIDGE HAS WORDING.
+ *
+ * `ITEM_CLAUSE` was written when the service emitted five types. It gained
+ * `unapplied_credit_note` and `settlement_before_document`, and on a tenant
+ * carrying either the pack listed the other items, left these out, and
+ * withheld the closure sentence — a decomposition with money missing from it.
+ *
+ * The items are built by the SERVICE'S OWN builders from one member of every
+ * group they can emit, not written out by hand: a type added there that this
+ * page has no clause for fails here, on the amount it would have dropped.
+ */
+describe('the decomposition has wording for every item the reconciliation emits', () => {
+  const doc = (id: string, amount: number, over: Record<string, unknown> = {}) => ({
+    id, documentNumber: id, amount, gross: Math.abs(amount), documentDate: '2026-08-15', ...over,
+  });
+  const emitted: ReconcilingItem[] = [
+    ...buildControlBridgeItems({
+      asAtDate: '2026-08-31',
+      cash: {
+        withPaymentRecord: [doc('pay-1', 11_000)],
+        withoutPaymentRecord: [doc('je-1', 22_000)],
+      },
+      creditNotes: [doc('cn-1', 33_000), doc('cn-2', 1_000)],
+      unposted: [
+        doc('inv-1', 44_000, { reason: 'document_not_linked_to_journal' }),
+        doc('inv-2', 55_000, { reason: 'document_not_on_control_account' }),
+        // Dated after the reporting date: its own group whatever its reason.
+        doc('inv-3', 66_000, { reason: 'document_not_on_control_account', documentDate: '2026-09-04' }),
+      ],
+    } as unknown as ItemInputs),
+    unexplainedItem(77_000),
+  ];
+  const subledgerTotal = 1_000_000;
+  const controlBalance = subledgerTotal - emitted.reduce((s, i) => s + i.amount, 0);
+  const note = (): string => {
+    const block = receivablesReconciliationNote({
+      agedDebtorsTotal: null, subledgerTotal, controlBalance, items: emitted, unexplained: 77_000,
+    }, controlBalance, PACK_SCALE);
+    return block?.kind === 'disclosure' ? block.disclosure.notes.map((n) => n.body).join(' ') : '';
+  };
+
+  it('is fed one item of each of the seven types', () => {
+    expect(emitted.map((i) => i.type).sort()).toEqual([
+      'document_not_linked_to_journal', 'document_not_on_control_account',
+      'posting_with_no_document', 'settlement_before_document',
+      'unapplied_credit_note', 'unapplied_receipt', 'unexplained_difference',
+    ]);
+  });
+
+  it('prints every one of them, by its own amount', () => {
+    const text = note();
+    for (const item of emitted) {
+      expect(text, `${item.type} is missing from the list`)
+        .toMatch(figure(String(item.amount / 1_000)));
+    }
+  });
+
+  it('words approved credit that no document has consumed', () => {
+    expect(note()).toMatch(figure('34 across 2 approved credit notes not applied to any document'));
+  });
+
+  it('words settlement posted ahead of a document dated after the reporting date', () => {
+    expect(note()).toMatch(
+      figure('66 across 1 documents dated after the reporting date and settled on or before it'),
+    );
   });
 });

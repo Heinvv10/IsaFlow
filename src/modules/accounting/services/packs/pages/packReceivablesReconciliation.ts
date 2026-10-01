@@ -117,7 +117,7 @@ export interface PackReceivablesRead {
 /**
  * ONE CLAUSE PER RECONCILING TYPE, written for a director.
  *
- * A `Record` over the closed set rather than the service's own
+ * A `Record` over the types the service emits rather than its own
  * `description`, for two reasons. The descriptions carry a developer's
  * plural — "984 posted journal(s)", "169 open document(s)" — which is the
  * exact thing `packMatters.plural` exists to keep off these sheets; and they
@@ -134,6 +134,12 @@ const ITEM_CLAUSE: Record<string, string> = {
   posting_with_no_document: 'postings that reference no document',
   document_not_linked_to_journal: 'open documents carrying no link to a journal entry',
   document_not_on_control_account: 'open documents whose linked journal has not reached the control account',
+  // Credit the note's journal put on the control account and no document has
+  // yet consumed, so the subledger does not carry it.
+  unapplied_credit_note: 'approved credit notes not applied to any document',
+  // Timing: the documents are not in the subledger at the reporting date and
+  // the cash applied to them in advance is already on the control account.
+  settlement_before_document: 'documents dated after the reporting date and settled on or before it',
   // The residual carries no population, so `across N` is suppressed for it
   // by `documentIds` being empty — which is the service's own shape, not a
   // special case written here.
@@ -278,8 +284,21 @@ function decomposition(
   // items are allowed to describe the difference between them.
   if (round2(controlBalance) !== round2(tradeReceivables)) return '';
 
+  // A TYPE THIS PAGE CANNOT WORD REFUSES THE DECOMPOSITION, NOT JUST ITS
+  // CLOSURE SENTENCE. `ReconcilingItem['type']` is an open set by design, and
+  // the list used to print whatever it had a clause for: on a tenant carrying
+  // `unapplied_credit_note` or `settlement_before_document` — both added to
+  // the service after this table was written — a director was shown a list
+  // of parts with money missing from it and nothing saying so. A partial
+  // decomposition is not a shorter one. The fallback is the note that names
+  // the two sources and says they are not reconciled, the same refusal as the
+  // guard above.
+  if (items.some((item) => ITEM_CLAUSE[item.type] === undefined && round2(item.amount) !== 0)) {
+    return '';
+  }
+
   const named = items
-    .filter((item) => ITEM_CLAUSE[item.type] !== undefined && round2(item.amount) !== 0)
+    .filter((item) => round2(item.amount) !== 0)
     .slice()
     .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
   if (named.length === 0) return '';
@@ -362,21 +381,10 @@ function decomposition(
   // docblock, and never looked at, while the closure claim was re-derived
   // from the presence of an `unexplained_difference` ITEM.
   //
-  // THE LIST MUST ALSO BE THE WHOLE LIST. `ReconcilingItem['type']` is an
-  // open set by design and `ITEM_CLAUSE` covers five keys; a sixth type
-  // added to `reconcilingItemBuilders.ts` is dropped from the list by the
-  // filter above and left the closure claim standing, so the pack would
-  // print a partial decomposition under "Together they account for all of
-  // it". Anything with an amount that this page cannot word refuses the
-  // claim rather than disappearing from under it.
-  const dropped = items.filter(
-    (item) => ITEM_CLAUSE[item.type] === undefined && round2(item.amount) !== 0,
-  );
-  // All three, and the item test stays for the null residual: a service that
+  // Both, and the item test stays for the null residual: a service that
   // could not read a subledger reports no residual at all, and a claim of
   // closure must not be reachable by a figure being absent.
-  const closes = dropped.length === 0
-    && round2(read.unexplained ?? 0) === 0
+  const closes = round2(read.unexplained ?? 0) === 0
     && named.every((item) => item.type !== 'unexplained_difference');
   // AND THE CLAIM SAYS WHICH PRECISION IT IS TRUE AT.
   //

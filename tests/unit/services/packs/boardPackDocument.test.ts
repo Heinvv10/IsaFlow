@@ -38,10 +38,11 @@ const getPeriodStatusForDate = vi.fn(async () => 'open');
 // escapes the authenticated company. Unmocked it also reaches the real
 // service, which issues reads of its own and makes the call counts here
 // count something other than what they say.
-const reconcileSubledger = vi.fn(async () => ({
+const reconcileSubledger = vi.fn(async (): Promise<Record<string, unknown>> => ({
   controlAccountBalance: -329_700,
   reconcilingItems: [],
   unexplainedDifference: 0,
+  invariants: [],
 }));
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
@@ -112,7 +113,7 @@ beforeEach(() => {
   getLedgerPostedThrough.mockResolvedValue('2026-08-31T10:00:00.000Z');
   getPeriodStatusForDate.mockResolvedValue('open');
   reconcileSubledger.mockResolvedValue({
-    controlAccountBalance: -329_700, reconcilingItems: [], unexplainedDifference: 0,
+    controlAccountBalance: -329_700, reconcilingItems: [], unexplainedDifference: 0, invariants: [],
   });
 });
 
@@ -276,7 +277,7 @@ describe('the receivables decomposition failing inside the request transaction',
   it('is rolled back, and the pack is built without it', async () => {
     reconcileSubledger.mockImplementation(async () => {
       await touchLedger('reconciliation');
-      return { controlAccountBalance: -329_700, reconcilingItems: [], unexplainedDifference: 0 };
+      return { controlAccountBalance: -329_700, reconcilingItems: [], unexplainedDifference: 0, invariants: [] };
     });
     getBrandProfile.mockImplementation(async () => { await touchLedger('brand'); return null; });
     getLedgerPostedThrough.mockImplementation(async () => {
@@ -301,5 +302,49 @@ describe('the receivables decomposition failing inside the request transaction',
   it('is not degraded when what failed was the code rather than the read', async () => {
     reconcileSubledger.mockRejectedValue(new TypeError('items.filter is not a function'));
     await expect(buildBoardPackDocument(request())).rejects.toBeInstanceOf(TypeError);
+  });
+});
+
+/**
+ * THE RECONCILIATION REPORTS WHEN ITS OWN ARITHMETIC DOES NOT HOLD, AND THE
+ * PACK HAS TO LISTEN.
+ *
+ * `reconcileSubledger` returns its invariants rather than throwing on them —
+ * "an item claims more than the documents it cites are worth" is a finding for
+ * whoever is fixing the ledger. It is not something to itemise for a board:
+ * an item summed off the wrong column prints as a fact about the company's
+ * debtors. Where an invariant fails the pack keeps the two figures and drops
+ * the decomposition, as it does when the reconciliation cannot be read.
+ */
+describe('a reconciliation that fails its own invariants', () => {
+  const control = demoSet.current.accountsReceivable;
+  const subledger = control + 5_000_000;
+  const reconciliation = (holds: boolean) => ({
+    controlAccountBalance: control,
+    unexplainedDifference: 0,
+    reconcilingItems: [{
+      bridge: 'subledger_to_control', type: 'posting_with_no_document', description: 'x',
+      amount: 5_000_000, documentIds: ['je-1', 'je-2'], documentNumbers: [],
+      citedGross: 5_000_000, citedAbsAmount: 5_000_000,
+    }],
+    invariants: [
+      { name: 'control_plus_items_equals_subledger', holds: true, detail: '' },
+      { name: 'item_within_cited_gross', holds, detail: 'posting_with_no_document claims …' },
+    ],
+  });
+  const build = async (holds: boolean): Promise<string> => {
+    buildMatters.mockResolvedValue({ matters, agedDebtorsTotal: subledger, subledgerTotal: subledger } as typeof mattersRead);
+    reconcileSubledger.mockResolvedValue(reconciliation(holds));
+    return JSON.stringify(await buildBoardPackDocument(request()));
+  };
+
+  it('prints the decomposition while every invariant holds', async () => {
+    expect(await build(true)).toContain('across 2 postings that reference no document');
+  });
+
+  it('withholds the decomposition, and keeps the two figures, when one does not', async () => {
+    const doc = await build(false);
+    expect(doc).not.toContain('postings that reference no document');
+    expect(doc).toContain('The first is the open customer subledger');
   });
 });

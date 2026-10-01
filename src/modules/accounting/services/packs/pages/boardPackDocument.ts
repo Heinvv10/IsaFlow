@@ -104,6 +104,21 @@ export async function buildBoardPackDocument(
       'packs',
     );
   }
+  // AND ONLY WHILE ITS OWN ARITHMETIC HOLDS. The service returns its
+  // invariants rather than throwing on them, because a violation is a finding
+  // for whoever fixes the ledger. It is not a list to itemise for a board: an
+  // item that claims more than the documents it cites are worth prints as a
+  // fact about the company's debtors.
+  const broken = receivablesItems?.invariants.filter((invariant) => !invariant.holds) ?? [];
+  if (broken.length > 0) {
+    log.warn(
+      'buildBoardPackDocument: the receivables reconciliation failed its own invariants; '
+        + 'page 11 states the difference without decomposing it',
+      { companyId, invariants: broken.map((invariant) => invariant.name) },
+      'packs',
+    );
+    receivablesItems = null;
+  }
   const brand = await resolvePackBrandForRender(await getBrandProfile(companyId));
 
   // R-P46: the real ledger watermark, or an explicit absence — never a proxy.
