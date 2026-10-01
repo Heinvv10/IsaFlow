@@ -107,13 +107,15 @@ function reasonsOrNone(
   }
 }
 
-const CASH_FLOW_LINES: Array<[string, string, string]> = [
-  ['operatingCashFlow', 'Operating CF', 'operating'],
-  ['investingCashFlow', 'Investing CF', 'investing'],
-  ['financingCashFlow', 'Financing CF', 'financing'],
-  ['netCashFlow', 'Net Cash Flow', 'net'],
-  ['openingCash', 'Opening Cash', 'opening'],
-  ['closingCash', 'Closing Cash', 'closing'],
+/** [field, label]. The `unavailable` map is keyed by the FIELD name, as
+ *  `reportPackService` writes it. */
+const CASH_FLOW_LINES: Array<[string, string]> = [
+  ['operatingCashFlow', 'Operating CF'],
+  ['investingCashFlow', 'Investing CF'],
+  ['financingCashFlow', 'Financing CF'],
+  ['netCashFlow', 'Net Cash Flow'],
+  ['openingCash', 'Opening Cash'],
+  ['closingCash', 'Closing Cash'],
 ];
 
 /** A line the section marks unavailable prints its REASON, never the
@@ -123,8 +125,8 @@ function CashFlowItems({ d }: { d: Record<string, unknown> }) {
   const unavailable = reasonsOrNone(d, 'unavailable', () => packToCashFlowUnavailable(d), 'cash_flow');
   return (
     <>
-      {CASH_FLOW_LINES.map(([field, label, key]) => (
-        <KVItem key={field} label={label} value={unavailable[key] ?? fmt(d[field])} />
+      {CASH_FLOW_LINES.map(([field, label]) => (
+        <KVItem key={field} label={label} value={unavailable[field] ?? fmt(d[field])} />
       ))}
     </>
   );
