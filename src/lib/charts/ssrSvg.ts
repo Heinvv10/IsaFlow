@@ -38,7 +38,6 @@ export type { TrustedChartSvg } from '@/lib/charts/trustedChartSvg';
 
 import {
   assertNoExternalReferences,
-  assertStyleBlockIsOurs,
   type TrustedChartSvg,
 } from '@/lib/charts/trustedChartSvg';
 
