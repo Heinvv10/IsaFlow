@@ -19,6 +19,7 @@ import type { DbRow } from '@/lib/neon';
 import { getMappingLookup } from './costCentreGlMappingService';
 import {
   buildLabourDebitLines,
+  placeLabourRounding,
   type RunLabourLine,
   type AllocationShare,
 } from './payrollJournalSplitBuilder';
@@ -49,6 +50,24 @@ export function lastDayOfMonthIso(year: number, month: number): string {
   const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
   const day = month === 2 && isLeap ? 29 : daysInMonth[month - 1]!;
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/**
+ * The `closed_period` blocker for a journal dated `entryDate`, or null. One
+ * copy: the plan builder asks it for the run's month, and the approval gate
+ * asks it again when a replacement journal is dated elsewhere.
+ */
+export async function closedPeriodBlocker(companyId: string, entryDate: string): Promise<{ code: string; detail: string } | null> {
+  const periodRows = (await sql`
+    SELECT status FROM fiscal_periods
+    WHERE company_id = ${companyId}::uuid
+      AND start_date <= ${entryDate}::date AND end_date >= ${entryDate}::date
+    ORDER BY start_date, id
+  `) as Row[];
+  const closed = periodRows.find((p) => String(p.status) !== 'open');
+  return closed
+    ? { code: 'closed_period', detail: `The fiscal period covering ${entryDate} is '${String(closed.status)}', so the payroll journal cannot post into it.` }
+    : null;
 }
 
 export async function resolveAccounts(companyId: string): Promise<Map<string, ResolvedAccount>> {
@@ -135,6 +154,7 @@ export async function buildLabourLines(
       FROM payroll_run_lines prl
       JOIN payroll_employees e ON e.id = prl.employee_id
      WHERE prl.run_id = ${runId}::uuid
+     ORDER BY prl.employee_id
   `) as Row[];
   if (lineRows.length === 0) return fallback;
 
@@ -144,6 +164,7 @@ export async function buildLabourLines(
       JOIN payroll_run_lines prl ON prl.employee_id = a.employee_id
      WHERE prl.run_id = ${runId}::uuid
        AND a.company_id = ${companyId}::uuid
+     ORDER BY a.employee_id, a.cost_centre_id
   `) as Row[];
 
   const mappings = await getMappingLookup(companyId);
@@ -159,16 +180,17 @@ export async function buildLabourLines(
     employeeCostCentre[employeeId] = r.cost_centre_id == null ? null : String(r.cost_centre_id);
     runLines.push({ employeeId, labourAmount: round2(grossShare * costBeforeEti - etiShare * etiUsed) });
   }
-  // Tie only ROUNDING — at most half a cent per line. A bigger gap means the
-  // run lines disagree with the header; absorbing it would move real cost onto
-  // one cost centre silently, so it is left for the plan's exact balance check
-  // to refuse as 'unbalanced'.
-  const residual = round2(labourDebit - runLines.reduce((s, l) => s + l.labourAmount, 0));
-  const roundingCents = Math.ceil(runLines.length / 2);
-  if (residual !== 0 && Math.abs(Math.round(residual * 100)) <= roundingCents) {
-    const largest = runLines.reduce((a, b) => (b.labourAmount > a.labourAmount ? b : a));
-    largest.labourAmount = round2(largest.labourAmount + residual);
-  }
+  // Both reads are ORDER BY'd (the allocation split puts its own residual on
+  // the LAST share), and the rounding tie is broken by employee — so the split,
+  // the posted journal and the plan hash never depend on heap order (R2-5).
+  //
+  // Neither read had an ORDER BY before that, and the tie went to the first
+  // largest line read — heap order, never fixed and not reproducible now. A
+  // journal posted then may carry those rounding cents on another cost-centre
+  // account than this plan does. That is why the approval gate compares a
+  // posted journal's labour as a TOTAL, never account by account
+  // (payrollApprovalGate#figures).
+  const tied = placeLabourRounding(runLines, labourDebit);
 
   const employeeAllocations: Record<string, AllocationShare[]> = {};
   for (const r of allocRows) {
@@ -181,7 +203,7 @@ export async function buildLabourLines(
   }
 
   return buildLabourDebitLines({
-    runLines, employeeCostCentre, employeeAllocations, mappings, defaultAccountId,
+    runLines: tied, employeeCostCentre, employeeAllocations, mappings, defaultAccountId,
   }).map((l) => ({
     glAccountId: l.glAccountId,
     debit: l.debit,

@@ -21,10 +21,10 @@ import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
 import type { CompanyAuthedRequest } from './withAuth';
 
-const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-export const DEFAULT_WRITE_ROLES = ['owner', 'admin', 'manager'] as const;
+import { DEFAULT_WRITE_ROLES } from './writeRoles';
 
-export type WriteRole = (typeof DEFAULT_WRITE_ROLES)[number];
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+export { DEFAULT_WRITE_ROLES, type WriteRole } from './writeRoles';
 
 interface WithWriteAccessOptions {
   /**

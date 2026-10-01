@@ -21,6 +21,7 @@ import {
   PackagePlus,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -69,7 +70,6 @@ interface PurchaseOrder {
   items: PoItem[];
 }
 
-interface Supplier { id: string; name: string; }
 interface GlAccount { id: string; name: string; code: string; }
 
 interface EditForm {
@@ -101,7 +101,6 @@ export default function PurchaseOrderDetailPage() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState('');
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [accounts, setAccounts] = useState<GlAccount[]>([]);
   const [form, setForm] = useState<EditForm | null>(null);
 
@@ -125,11 +124,6 @@ export default function PurchaseOrderDetailPage() {
 
   useEffect(() => {
     if (!editing) return;
-    apiFetch('/api/accounting/suppliers-list', { credentials: 'include' })
-      .then(r => r.json()).then(j => {
-        const d = j.data ?? j;
-        setSuppliers(Array.isArray(d) ? d : (d.suppliers ?? []));
-      }).catch(() => {});
     apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
       .then(r => r.json()).then(j => setAccounts((j.data || []).filter((a: GlAccount & { is_active?: boolean }) => a.is_active !== false))).catch(() => {});
   }, [editing]);
@@ -175,6 +169,7 @@ export default function PurchaseOrderDetailPage() {
 
   const handleSave = async () => {
     if (!form || !poId) return;
+    if (!form.supplier_id) { setSaveError('Please select a supplier'); return; }
     setSaving(true);
     setSaveError('');
     try {
@@ -423,12 +418,8 @@ export default function PurchaseOrderDetailPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Supplier *</label>
-                    <select name="supplierId" required value={form.supplier_id}
-                      onChange={e => setForm(f => f ? { ...f, supplier_id: e.target.value } : f)}
-                      className="ff-select w-full">
-                      <option value="">Select supplier...</option>
-                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    <SupplierSelect required value={form.supplier_id}
+                      onChange={id => setForm(f => f ? { ...f, supplier_id: id } : f)} />
                   </div>
                   <div>
                     <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Reference</label>

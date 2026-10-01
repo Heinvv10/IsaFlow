@@ -57,6 +57,12 @@ it('payment detail shows why Process was refused', async () => {
   expect(await screen.findByText(text)).toBeTruthy();
 });
 
+// The supplier column is a server-searched SupplierSelect (PUR-01): open it and click the hit.
+async function pickSupplier(container: HTMLElement, name: string) {
+  fireEvent.focus(container.querySelector('input[name="supplierIdSearch"]')!);
+  fireEvent.click(await screen.findByRole('button', { name }));
+}
+
 it('new batch shows why the batch was refused, not a bare "Failed"', async () => {
   const text = 'R1500.00 exceeds the R1000.00 outstanding on invoice INV-7.';
   vi.mocked(apiFetch).mockImplementation(async (url: string) => {
@@ -73,8 +79,7 @@ it('new batch shows why the batch was refused, not a bare "Failed"', async () =>
     return refusal(text);
   });
   const { container } = render(<NewBatch />);
-  await screen.findByText('Supplier One');
-  fireEvent.change(container.querySelector('select[name="supplierId"]')!, { target: { value: 's1' } });
+  await pickSupplier(container, 'Supplier One');
   await screen.findByText(/INV-7/);
   fireEvent.change(container.querySelector('select[name="invoiceId"]')!, { target: { value: 'i1' } });
   fireEvent.change(container.querySelector('input[name="amount"]')!, { target: { value: '1500' } });
@@ -93,8 +98,7 @@ it('new batch offers a bill at what is still available after reservations, not i
     return ok({});
   });
   const { container } = render(<NewBatch />);
-  await screen.findByText('Supplier One');
-  fireEvent.change(container.querySelector('select[name="supplierId"]')!, { target: { value: 's1' } });
+  await pickSupplier(container, 'Supplier One');
   const option = await screen.findByText(/INV-5/);
   expect(option.textContent).toMatch(/300,00 available \(R\s?200,00 reserved\)/);
   fireEvent.change(container.querySelector('select[name="invoiceId"]')!, { target: { value: 'i1' } });
@@ -113,8 +117,7 @@ it('new batch still lists bills, at their outstanding, when reservations cannot 
   const { container } = render(<NewBatch />);
   expect(await screen.findByRole('status')).toBeTruthy();
   expect(screen.getByRole('status').textContent).toContain('could not be loaded');
-  await screen.findByText('Supplier One');
-  fireEvent.change(container.querySelector('select[name="supplierId"]')!, { target: { value: 's1' } });
+  await pickSupplier(container, 'Supplier One');
   const option = await screen.findByText(/INV-8/);
   expect(option.textContent).toMatch(/500,00/);
   expect(option.textContent).not.toContain('reserved');

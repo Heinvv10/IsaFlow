@@ -15,7 +15,7 @@
  *   offset       — integer >= 0  (default: 0)
  *   cost_centre_id / business_unit_id — optional cumulative dimension filters
  *
- * Response: { success: true, data: { rows, total, openingBalance, periodNet, periodClosingBalance, meta } }
+ * Response: { success: true, data: { rows, total, openingBalance, periodNet, closedToRetainedEarnings, periodClosingBalance, meta } }
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -23,14 +23,19 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { UUID_RE } from '@/lib/validation';
+import { hasNul, NUL_MESSAGE } from '@/lib/validation';
+import { isLedgerDate, LEDGER_DATE_MESSAGE, parseBoundedInt } from '@/modules/accounting/services/gl/ledgerDateRange';
+import { LedgerAccountNotFoundError } from '@/modules/accounting/services/gl/ledgerErrors';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_OFFSET = 10_000_000;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
+
+  if (hasNul(req.query)) return apiResponse.badRequest(res, NUL_MESSAGE);
 
   const costCentreId = req.query.cost_centre_id;
   if (costCentreId !== undefined && (typeof costCentreId !== 'string' || !UUID_RE.test(costCentreId))) {
@@ -62,43 +67,46 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'account_id must be a valid UUID');
   }
 
-  if (!from || typeof from !== 'string' || !ISO_DATE_RE.test(from)) {
-    return apiResponse.badRequest(res, 'from must be a valid ISO date (YYYY-MM-DD)');
+  if (!from || typeof from !== 'string' || !isLedgerDate(from)) {
+    return apiResponse.badRequest(res, `from ${LEDGER_DATE_MESSAGE}`);
   }
-  if (!to || typeof to !== 'string' || !ISO_DATE_RE.test(to)) {
-    return apiResponse.badRequest(res, 'to must be a valid ISO date (YYYY-MM-DD)');
+  if (!to || typeof to !== 'string' || !isLedgerDate(to)) {
+    return apiResponse.badRequest(res, `to ${LEDGER_DATE_MESSAGE}`);
   }
   if (from > to) {
     return apiResponse.badRequest(res, 'from must not be after to');
   }
 
-  const limit = parseInt(String(limitParam), 10);
-  const offset = parseInt(String(offsetParam), 10);
-  if (isNaN(limit) || limit < 1 || limit > 500) {
-    return apiResponse.badRequest(res, 'limit must be between 1 and 500');
-  }
-  if (isNaN(offset) || offset < 0) {
-    return apiResponse.badRequest(res, 'offset must be >= 0');
-  }
+  // Plain integers only (typeof first: a repeated parameter is an array). A huge offset used to
+  // reach a bigint cast and 500; the cap is far past any real ledger.
+  const limit = parseBoundedInt(limitParam, 1, 500);
+  const offset = parseBoundedInt(offsetParam, 0, MAX_OFFSET);
+  if (limit === null) return apiResponse.badRequest(res, 'limit must be a whole number between 1 and 500');
+  if (offset === null) return apiResponse.badRequest(res, `offset must be a whole number between 0 and ${MAX_OFFSET}`);
 
   const postedOnly = String(posted_only).toLowerCase() !== 'false';
 
   // withErrorHandler catches any thrown error — no local try/catch needed here.
   // Service-level log.error provides structured context for Bugsink.
-  const result = await getAccountLedger({
-    companyId,
-    accountId: hasId ? (account_id as string) : undefined,
-    accountCode: !hasId && hasCode ? (account_code as string) : undefined,
-    costCentreId,
-    businessUnitId,
-    fromDate: from,
-    toDate: to,
-    postedOnly,
-    limit,
-    offset,
-  });
-
-  return apiResponse.success(res, result);
+  try {
+    const result = await getAccountLedger({
+      companyId,
+      accountId: hasId ? (account_id as string) : undefined,
+      accountCode: !hasId && hasCode ? (account_code as string) : undefined,
+      costCentreId,
+      businessUnitId,
+      fromDate: from,
+      toDate: to,
+      postedOnly,
+      limit,
+      offset,
+    });
+    return apiResponse.success(res, result);
+  } catch (err) {
+    // A missing account and another company's look the same: 404, not a 500.
+    if (err instanceof LedgerAccountNotFoundError) return apiResponse.notFound(res, 'Account');
+    throw err;
+  }
 }
 
 export default withAuth(withErrorHandler(withWriteAccess(handler)));

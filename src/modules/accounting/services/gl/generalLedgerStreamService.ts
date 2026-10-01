@@ -34,13 +34,14 @@
  * selects whole accounts and leaves each one's sequence intact, so the balances
  * survive and equal the ones the full ledger reports.
  *
+ * Income-statement lines past a fiscal-year start: see generalLedgerStreamYearEnd.
+ *
  * `balanced` is `null` under ANY filter. Debits equalling credits is a property
  * of the complete period — every posted journal balances, so a whole-period
  * slice must — and over a subset it is a coincidence, not a check.
  */
 
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import {
@@ -55,13 +56,9 @@ import {
   type GeneralLedgerQuery,
   type StreamTotals,
 } from './generalLedgerStreamTypes';
-
-export type {
-  GeneralLedgerCursor,
-  GeneralLedgerLine,
-  GeneralLedgerPage,
-  GeneralLedgerQuery,
-} from './generalLedgerStreamTypes';
+import { incomeStatementBalanceNullFrom, runningBalanceIsDefined, streamFiscalBasis, withRetainedBf } from './generalLedgerStreamYearEnd';
+import { INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
+export type { GeneralLedgerCursor, GeneralLedgerLine, GeneralLedgerPage, GeneralLedgerQuery } from './generalLedgerStreamTypes';
 
 /**
  * Every filter is passed as an array, and an EMPTY array disables its clause —
@@ -95,17 +92,18 @@ export async function getGeneralLedgerLines(
   const term = search === undefined || search === '' ? null : `%${search}%`;
 
   try {
+    const basis = await streamFiscalBasis(companyId, periodStart, !anyFilter, periodEnd);
     const rows = (await sql`
       WITH matched AS (
         SELECT jl.id AS line_id, jl.journal_entry_id, ga.id AS account_id,
                ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
                je.entry_date, je.entry_number, je.description, je.source,
                jl.debit, jl.credit, je.created_at,
-               to_char(je.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS created_key,
+               to_char(COALESCE(je.created_at, 'epoch'::timestamptz) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS created_key,
                SUM(CASE WHEN ga.normal_balance = 'debit'
                         THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END)
                  OVER (PARTITION BY ga.id
-                       ORDER BY je.entry_date, je.created_at, jl.id
+                       ORDER BY je.entry_date, COALESCE(je.created_at, 'epoch'::timestamptz), jl.id
                        ROWS UNBOUNDED PRECEDING) AS cumulative,
                -- The window's order and the page's order MUST be the same, or
                -- the running balance does not follow the rows it is printed
@@ -169,6 +167,7 @@ export async function getGeneralLedgerLines(
                            AND ga.company_id = ${companyId}::UUID
         WHERE jl.company_id = ${companyId}::UUID
           AND je.entry_date < ${periodStart}::DATE
+          AND (ga.account_type <> ALL(${[...INCOME_STATEMENT_TYPES]}::text[]) OR je.entry_date >= ${basis.fyStart}::DATE)
           AND ga.account_code IN (SELECT account_code FROM matched)
         GROUP BY ga.account_code
       ),
@@ -226,6 +225,7 @@ export async function getGeneralLedgerLines(
             openingBalances: openingMap(agg.opening_all),
           };
 
+    const nullFrom = incomeStatementBalanceNullFrom(basis.fyStart, periodEnd);
     const lines: GeneralLedgerLine[] = rows.map((r) => ({
       lineId: String(r.line_id),
       journalEntryId: String(r.journal_entry_id),
@@ -240,7 +240,8 @@ export async function getGeneralLedgerLines(
       source: String(r.source ?? 'manual'),
       debit: Number(r.debit ?? 0),
       credit: Number(r.credit ?? 0),
-      runningBalance: lineLevelFilter
+      runningBalance: lineLevelFilter || !runningBalanceIsDefined(
+        String(r.account_type ?? ''), fmtDate(r.entry_date as string | Date), nullFrom)
         ? null
         : round2(Number(r.opening_balance ?? 0) + Number(r.cumulative ?? 0)),
     }));
@@ -268,7 +269,8 @@ export async function getGeneralLedgerLines(
         ? null
         : Math.abs(totals.totalDebit - totals.totalCredit) < BALANCE_TOLERANCE,
       runningBalanceSuppressed: lineLevelFilter,
-      openingBalances: totals.openingBalances,
+      incomeStatementBalanceNullFrom: nullFrom,
+      openingBalances: withRetainedBf(totals.openingBalances, basis),
       postedThrough: totals.postedThrough,
     };
   } catch (err) {

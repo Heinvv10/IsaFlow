@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { TrialBalanceRow } from '@/components/reports/TrialBalanceRow';
 import AccountDetailPage from '@/../pages/accounting/reports/account-detail/[accountId]';
 import { apiFetch } from '@/lib/apiFetch';
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 vi.mock('@/contexts/TableDensityContext', () => ({ useTableDensity: () => ({ rowClass: '' }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: {children: React.ReactNode}) => <>{children}</> }));
 const route = vi.hoisted(() => ({ query: {accountId: '5000', from: '2026-04-01', to: '2026-04-30', cost_centre_id: 'centre-a', business_unit_id: 'bu-a'}, pathname: '/accounting/reports/account-detail/[accountId]', push: vi.fn() }));
@@ -126,7 +128,9 @@ describe('report drill cost centre selection', () => {
   it('shows transaction and evidence API failures instead of treating error envelopes as data', async () => {
     vi.mocked(apiFetch).mockImplementation(async () => response({message:'Unavailable'}, 503));
     const drill = render(<AccountDrillDown accountCode="5000" {...dates} />);
-    expect(await screen.findByText('Failed to load transactions')).toBeInTheDocument();
+    // A failure with no server message shows a plain sentence, never the request URL.
+    expect(await screen.findByText('Could not load the transactions - try again')).toBeInTheDocument();
+    expect(screen.queryByText(/\/api\//)).not.toBeInTheDocument();
     drill.unmount();
 
     render(<EvidenceDrillModal accountId="5000" accountName="Expense" {...dates} onClose={vi.fn()} />);

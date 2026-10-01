@@ -7,11 +7,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
+import { apiFetch, apiJson } from '@/lib/apiFetch';
+import type { ResponseFor } from '@/lib/apiRoutes';
 import { Loader2, AlertCircle, Upload, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { StatementReviewPanel, type BankStatementImport } from '@/components/accounting/bank-transactions/StatementReviewPanel';
 
-interface BankAccount { id: string; name: string; accountNumber?: string; }
+type BankAccount = Extract<ResponseFor<'/api/accounting/bank-accounts'>, unknown[]>[number];
 
 type Toast = { msg: string; kind: 'ok' | 'err' } | null;
 
@@ -55,6 +57,7 @@ export default function ImportPdfPage() {
   const [committing, setCommitting] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
   const [error, setError] = useState('');
+  const [accountsFailed, setAccountsFailed] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
 
   const showToast = useCallback((msg: string, kind: 'ok' | 'err') => {
@@ -64,12 +67,14 @@ export default function ImportPdfPage() {
 
   const loadAccounts = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/accounting/bank-accounts');
-      const json = await res.json() as { data?: BankAccount[] };
-      const list = Array.isArray(json.data) ? json.data : [];
+      const data = await apiJson('/api/accounting/bank-accounts');
+      const list = Array.isArray(data) ? data : [];
       setAccounts(list);
       if (list.length > 0) setSelectedAccount(list[0]!.id);
-    } catch { /* non-fatal */ }
+    } catch (err) {
+      log.error('Failed to load bank accounts for statement import', { error: err }, 'accounting-ui');
+      setAccountsFailed(true);
+    }
   }, []);
 
   const loadImport = useCallback(async (id: string) => {
@@ -186,9 +191,10 @@ export default function ImportPdfPage() {
             <label className="block text-sm font-medium text-[var(--ff-text-primary)] mb-1.5">Bank account</label>
             <select value={selectedAccount} onChange={e => setSelectedAccount(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-indigo-500/50">
-              {accounts.length === 0 && <option value="">Loading accounts…</option>}
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.name}{a.accountNumber ? ` (${a.accountNumber})` : ''}</option>)}
+              {accounts.length === 0 && <option value="">{accountsFailed ? 'No accounts available' : 'Loading accounts…'}</option>}
+              {accounts.map(a => <option key={a.id} value={a.id}>{a.accountName}{a.bankAccountNumber ? ` (${a.bankAccountNumber})` : ''}</option>)}
             </select>
+            {accountsFailed && <p role="alert" className="mt-1.5 text-sm text-red-400">Could not load bank accounts — reload the page to try again.</p>}
           </div>
 
           <div

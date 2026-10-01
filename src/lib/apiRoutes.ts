@@ -43,12 +43,19 @@ import type { serialisePackPagesDocument } from '@/modules/accounting/services/p
 import type { createShareLink, listShareLinks } from '@/modules/accounting/services/share/shareLinkService';
 import type { CommentaryRow, generateDrafts, listCommentary } from '@/modules/accounting/services/commentary/commentaryService';
 import type { createAnnotation, listAnnotations } from '@/modules/accounting/services/annotations/annotationService';
+import type { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
+import type { getAccountTransactions } from '@/modules/accounting/services/gl/accountTransactionsService';
+import type { getGeneralLedgerReport } from '@/modules/accounting/services/gl/generalLedgerReportService';
 import type { getMonthlyMovements } from '@/modules/accounting/services/reports/trendRowsService';
 import type { getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
 import type { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
 import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
 import type { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
 import type { mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
+import type { approvePayrollRun, previewPayrollApproval } from '@/modules/accounting/services/payroll/payrollApprovalService';
+import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
+import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
+import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -83,6 +90,13 @@ import type { mergeCustomers } from '@/modules/accounting/services/ar/customerMe
 interface StaticRoutes {
   '/api/accounting/currencies': Currency[];
   '/api/accounting/customer-merge': Awaited<ReturnType<typeof mergeCustomers>>;
+  // W1-02. GET lists accounts, PUT returns `{ updated }` — disjoint on Array.isArray.
+  '/api/accounting/bank-accounts': Awaited<ReturnType<typeof getBankAccountsStatus>> | { updated: true };
+  // GET and POST (regenerate) both return `{ inbox }`.
+  '/api/accounting/capture/inbox-address': { inbox: Awaited<ReturnType<typeof getOrCreateEmailInbox>> | { id: string; address: string } };
+  // W1-02. GET list = array, POST upload = `{ document, extracted }`. The
+  // by-id read has its own query key below (`QueryRoutes`).
+  '/api/accounting/document-capture': CapturedDocument[] | { document: CapturedDocument; extracted: ExtractedDocument };
   '/api/accounting/migration/session': { session: MigrationSession | null };
   '/api/accounting/reports-vat-return': Awaited<ReturnType<typeof getVATReturn>>;
   '/api/accounting/vat-allocation-mismatches': Awaited<ReturnType<typeof findVatAllocationMismatches>>;
@@ -97,6 +111,9 @@ interface StaticRoutes {
   '/api/accounting/annotations':
     | { annotations: Awaited<ReturnType<typeof listAnnotations>> }
     | { annotation: Awaited<ReturnType<typeof createAnnotation>> };
+  '/api/accounting/reports-account-ledger': Awaited<ReturnType<typeof getAccountLedger>>;
+  '/api/accounting/reports-account-transactions': Awaited<ReturnType<typeof getAccountTransactions>>;
+  '/api/accounting/reports-general-ledger': { accounts: Awaited<ReturnType<typeof getGeneralLedgerReport>> };
   '/api/accounting/reports-account-trends': Awaited<ReturnType<typeof getMonthlyMovements>>;
   '/api/accounting/reports-budget-comparator': {
     fiscalYear: Awaited<ReturnType<typeof getBudgetVariance>>['fiscalYear'];
@@ -145,9 +162,22 @@ interface DynamicRoutes {
   '/api/accounting/commentary/{}/approve': { commentary: CommentaryRow };
   '/api/accounting/commentary/{}/reject': { commentary: CommentaryRow };
   '/api/accounting/annotations/{}/resolve': { resolved: true };
+  // PAY-01. GET only / POST only respectively; the handlers are passthroughs.
+  '/api/payroll/runs/{}/journal-plan': NonNullable<Awaited<ReturnType<typeof previewPayrollApproval>>>;
+  '/api/payroll/runs/{}/approve': Awaited<ReturnType<typeof approvePayrollRun>>;
 }
 
-export type ApiRouteMap = StaticRoutes & DynamicRoutes;
+/**
+ * Routes whose payload is selected by a query parameter. Write the variable
+ * value as `{}`. Matching is on the FULL url and takes precedence over the
+ * path-only tables above, because `?id=` on a list route returns a different
+ * payload from the list — the situation the path-only matcher cannot express.
+ */
+interface QueryRoutes {
+  '/api/accounting/document-capture?id={}': CapturedDocument;
+}
+
+export type ApiRouteMap = StaticRoutes & DynamicRoutes & QueryRoutes;
 
 export type KnownRoute = keyof ApiRouteMap;
 
@@ -175,13 +205,35 @@ type MatchDynamic<P extends string> = {
     : never;
 }[keyof DynamicRoutes];
 
+/** The value of query parameter `Name` in `Seg` (one `k=v` pair), else `never`. */
+type ParamValue<Seg extends string, Name extends string> = Seg extends `${Name}=${infer V}`
+  ? [Segment<V>] extends [never]
+    ? never
+    : V
+  : never;
+
+/** Parameter `Name` anywhere in a query string, matched by name per `&`-pair. */
+type QueryParam<Q extends string, Name extends string> = Q extends `${infer Seg}&${infer Rest}`
+  ? ParamValue<Seg, Name> | QueryParam<Rest, Name>
+  : ParamValue<Q, Name>;
+
+type MatchQuery<U extends string> = {
+  [K in keyof QueryRoutes]: K extends `${infer P}?${infer Name}={}`
+    ? U extends `${P}?${infer Q}`
+      ? [QueryParam<Q, Name>] extends [never]
+        ? never
+        : K
+      : never
+    : never;
+}[keyof QueryRoutes];
+
 /**
  * Resolve a concrete request URL to its registered route key, or `never` when
  * the route is not registered (which `ResponseFor` maps to `unknown`).
  */
-export type RouteFor<U extends string> =
-  | MatchStatic<Path<U>>
-  | MatchDynamic<Path<U>>;
+export type RouteFor<U extends string> = [MatchQuery<U>] extends [never]
+  ? MatchStatic<Path<U>> | MatchDynamic<Path<U>>
+  : MatchQuery<U>;
 
 /**
  * The unwrapped `data` payload for a given request URL — or `unknown` when the

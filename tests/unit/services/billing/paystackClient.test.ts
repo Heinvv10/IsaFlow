@@ -72,6 +72,38 @@ describe('paystackClient — REST surface', () => {
     });
   });
 
+  it('initializeTransaction with timeoutMs aborts a gateway that never answers (R-167)', async () => {
+    const fetchMock = vi.fn((_url: string, init: { signal?: AbortSignal }) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { initializeTransaction } = await import('@/modules/billing/services/paystackClient');
+    await expect(initializeTransaction({ email: 'a@b.co.za', amountCents: 100, reference: 'ref_t', timeoutMs: 20 }))
+      .rejects.toThrow();
+    expect(fetchMock.mock.calls[0]![1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('verifyTransaction with timeoutMs aborts a gateway that never answers, and without it sends no signal (R-167)', async () => {
+    const fetchMock = vi.fn((_url: string, init: { signal?: AbortSignal }) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+      if (!init.signal) reject(new Error('no signal'));
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { verifyTransaction } = await import('@/modules/billing/services/paystackClient');
+    await expect(verifyTransaction('ref_v', { timeoutMs: 20 })).rejects.toThrow(/timeout|abort/i);
+    await expect(verifyTransaction('ref_v')).rejects.toThrow('no signal');
+  });
+
+  it('initializeTransaction without timeoutMs sends no abort signal (the other callers are unchanged)', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      mockFetchOk({ authorization_url: 'https://checkout.paystack.com/x', access_code: 'ac', reference: 'ref_u' }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { initializeTransaction } = await import('@/modules/billing/services/paystackClient');
+    await initializeTransaction({ email: 'a@b.co.za', amountCents: 100, reference: 'ref_u' });
+    expect((fetchMock.mock.calls[0]![1] as { signal?: AbortSignal }).signal).toBeUndefined();
+  });
+
   it('verifyTransaction maps statuses + extracts authorization', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(
       mockFetchOk({

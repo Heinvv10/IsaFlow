@@ -5,6 +5,11 @@
  * for the live state. The webhook is the canonical source of truth; this
  * endpoint is a UX-side fallback so the return page does not have to wait
  * for the webhook to arrive.
+ *
+ * Only a customer-invoice request is asked about and moved here: this route settles nothing
+ * else, and the webhook skips a request it finds already completed, so completing a Flow
+ * bundle or a subscription charge here would leave it unsettled (R-167). A failed request is
+ * asked about too: a checkout swept while starting can still be paid.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -20,6 +25,7 @@ import { recordGatewayInvoiceReceipt } from '@/modules/accounting/services/ar/ga
 interface PrRow {
   id: string;
   company_id: string;
+  purpose: string;
   customer_invoice_id: string | null;
   paystack_reference: string;
   amount_cents: string;
@@ -29,6 +35,9 @@ interface PrRow {
   invoice_amount_paid: string | null;
   company_name: string | null;
 }
+
+/** Bound on the gateway call: a public route must not wait on a slow gateway without limit. */
+const GATEWAY_TIMEOUT_MS = 10_000;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -44,7 +53,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const rows = await sql<PrRow>`
-    SELECT pr.id, pr.company_id, pr.customer_invoice_id, pr.paystack_reference,
+    SELECT pr.id, pr.company_id, pr.purpose, pr.customer_invoice_id, pr.paystack_reference,
            pr.amount_cents, pr.status,
            ci.invoice_number, ci.total_amount::text AS invoice_total,
            ci.amount_paid::text AS invoice_amount_paid,
@@ -59,9 +68,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!pr) return apiResponse.notFound(res, 'Payment');
 
   let status = pr.status;
-  if (status === 'pending') {
+  if (pr.purpose === 'customer_invoice' && (status === 'pending' || status === 'failed')) {
     try {
-      const live = await verifyTransaction(pr.paystack_reference);
+      const live = await verifyTransaction(pr.paystack_reference, { timeoutMs: GATEWAY_TIMEOUT_MS });
       let mapped: 'completed' | 'failed' | 'cancelled' | 'pending' = 'pending';
       if (live.status === 'success') mapped = 'completed';
       else if (live.status === 'failed') mapped = 'failed';
@@ -72,15 +81,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // fall together, so a GL failure cannot leave the request completed
         // (and the invoice paid) with nothing in the books. On a throw the
         // catch below logs and the webhook remains free to apply it later.
-        await withPublicRouteTransaction('paystack-verify', async () => {
-          await sql`
+        status = await withPublicRouteTransaction('paystack-verify', async () => {
+          // A request the webhook completed while Paystack was being asked is never overwritten
+          // by a stale 'abandoned' or 'failed'; a real success still completes one that is not
+          // completed yet, as the webhook does (R-167).
+          const moved = await sql<{ id: string }>`
             UPDATE paystack_payment_requests
             SET status = ${mapped},
                 completed_at = CASE WHEN ${mapped} = 'completed' THEN COALESCE(completed_at, now()) ELSE completed_at END,
                 paystack_transaction_id = ${live.id ?? null},
                 paystack_authorization_code = COALESCE(${live.authorization?.authorizationCode ?? null}, paystack_authorization_code),
                 channel = COALESCE(${live.channel ?? null}, channel)
-            WHERE id = ${pr.id} AND company_id = ${pr.company_id}
+            WHERE id = ${pr.id} AND company_id = ${pr.company_id} AND purpose = 'customer_invoice'
+              AND status <> 'completed' AND (${mapped} = 'completed' OR status = 'pending')
+            RETURNING id
           `;
           // If the webhook hasn't run yet, record the receipt so the return
           // page doesn't have to wait for it. Idempotent on the reference, so
@@ -97,8 +111,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               paidAt: live.paidAt ?? null,
             });
           }
+          if (moved.length > 0) return mapped;
+          // Not moved: report what is stored, not what this stale read would have written.
+          const current = await sql<{ status: string }>`
+            SELECT status FROM paystack_payment_requests WHERE id = ${pr.id} AND company_id = ${pr.company_id}
+          `;
+          return current[0]?.status ?? mapped;
         });
-        status = mapped;
       }
     } catch (err) {
       log.warn(

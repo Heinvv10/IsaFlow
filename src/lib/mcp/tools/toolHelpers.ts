@@ -3,7 +3,7 @@
  * every tool file uses these to build results and sanitise inputs.
  */
 import type { McpToolResult } from '../types';
-import { UUID_RE, isRealCalendarDate } from '@/lib/validation';
+import { UUID_RE, hasNul, isRealCalendarDate, NUL_MESSAGE } from '@/lib/validation';
 
 export function ok(data: unknown): McpToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -16,6 +16,11 @@ export function toolError(text: string): McpToolResult {
 }
 
 export const NOT_FOUND = 'Not found';
+
+/** A tool error when any string argument (deep) holds a NUL byte, which Postgres text cannot store. Null otherwise. */
+export function nulArgError(args: Record<string, unknown>): McpToolResult | null {
+  return hasNul(args) ? toolError(`invalid arguments: ${NUL_MESSAGE}`) : null;
+}
 
 export function strArg(args: Record<string, unknown>, key: string): string | undefined {
   const v = args[key];
@@ -201,6 +206,8 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'PAYMENT_POSTED_DURING_VOID',
   'PAYROLL_LOAN_LOCK_TIMEOUT',
   'PAYROLL_RUN_JOURNAL_POSTED',
+  // W3-01 round 6: the payroll reversal guard's 5s wait ran out (payrollJournalReversalGuard).
+  'PAYROLL_RUN_LOCK_TIMEOUT',
   // R-073 practice client fence: names only the id the caller passed; raised before any write.
   'PRACTICE_CLIENT_NOT_FOUND',
   // Another request is posting a document with the same content (R-088): one

@@ -1,0 +1,98 @@
+# GREEN: the regression set on 31a911930 (round 6); on 8805fcb5e (round 7, verify timeout only) re-run: r167 suites 47 passed, k095-r5, k095-r6, k096-mandate-verify-scoping, k-036 21 passed (its verify assertion now carries the timeout), paystackClient unit 17 passed. 64-hex tokens redacted.
+## k-033-subscription-period-advances-before-settlement.int.test.ts
+ Test Files  1 passed (1)
+      Tests  20 passed (20)
+## k-036-paystack-invoice-payment-not-in-gl.int.test.ts
+ Test Files  1 passed (1)
+      Tests  21 passed (21)
+## k095-flow-purchase-fails-open-without-paystack.int.test.ts
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+## k095-flow-purchase-fallback-gate.int.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## k095-mandate-activation-guards.int.test.ts
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+## k095-r4-fallback-attribution.int.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## k095-r5-verify-webhook-race.int.test.ts
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+## k095-r6-unlinked-failed-fallback.int.test.ts
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+## k096-mandate-link-persisted.int.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## k096-mandate-verify-activates-all-pending.int.test.ts
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+## k096-mandate-verify-scoping.int.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## k096-webhook-mandate-scoping.int.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## k101-portal-routes-use-active-company.int.test.ts
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+## k122b-portal-token-race.int.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## k122c-dunning-cron-savepoint-isolation.int.test.ts
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+## k122d-dunning-send-durability.int.test.ts
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+## k122-dunning-portal-link-404.int.test.ts
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+## k122e-dispute-resolve-atomicity.int.test.ts
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+## k122f-email-log-savepoint.int.test.ts
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+## r095-portal-round4.int.test.ts
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+## r095-portal-session-scoping.int.test.ts
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+## r095-portal-statement-matches-inapp.int.test.ts
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+## r155-157-portal-mint-guards.int.test.ts
+ Test Files  1 passed (1)
+      Tests  30 passed (30)
+## r157-payment-link-throw-responds.int.test.ts
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+## r158-payment-link-creation-guards.int.test.ts
+ Test Files  1 passed (1)
+      Tests  20 passed (20)
+## r159-auth-wrapper-throw-responds.int.test.ts
+ Test Files  1 passed (1)
+      Tests  47 passed | 1 skipped (48)
+## r159-invitation-revoke-throw-responds.int.test.ts
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+## r166-payment-link-amount-cap.int.test.ts
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+## r167-link-charges-link-amount.int.test.ts
+ Test Files  1 passed (1)
+      Tests  28 passed (28)
+## r167-standing-links-and-checkout.int.test.ts
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+## customer-ownership-fence-routes (isaflow_test clone)
+ Test Files  1 passed (1)
+      Tests  32 passed (32)
+## unit: paystackClient
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+## k-035-webhook-redelivery-discarded: 4 failed | 2 passed here AND on clean origin/master 66e776d81 (pre-existing; the mandate branch, untouched)
