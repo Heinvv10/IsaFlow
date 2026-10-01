@@ -871,6 +871,18 @@ trade: an AI provider answering 529 overloaded, which the provider documents as 
 now costs the unit. A provider outage that shows as 5xx answers can again use up a company's
 daily allowance. Tests per class in five files; mutants ST1 to ST8 red.
 
+Then, on the team lead's decision: an Anthropic 529 gives the unit back, for the four callers
+of api.anthropic.com that refund (`nl-query`, `ai-narrative`, `ai-forecast`, and the AFS note
+writer through the SDK). Anthropic's error page
+(https://platform.claude.com/docs/en/api/errors) says only "529 - overloaded_error: The API is
+temporarily overloaded." It does not state that the request was not processed. 529 is treated
+as no work because it is Anthropic's own code for turning a request away under load; a proxy
+does not produce it. Every other 5xx and the 408 still count as use, for Anthropic too. The
+VLM client (a vLLM server, OpenAI-compatible) and Signum document no such status, so they keep
+the general rule. The other Anthropic callers in the code (`ai-categorize`, portal chat, pack
+summaries, the categorisation pass, the cash-flow forecast) do not refund and are unaffected.
+Mutants AN1 to AN6 red.
+
 ## Rollback
 
 Revert the branch's commits. No migration, no data change, no configuration. Counters written
