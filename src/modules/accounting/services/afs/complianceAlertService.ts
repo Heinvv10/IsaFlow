@@ -129,6 +129,10 @@ async function detectPisThresholdAlerts(companyId: string): Promise<void> {
 
 // ── Detector: Filing deadline approaching ────────────────────────────────────
 
+const DEADLINE_UNKNOWN_MESSAGE = 'AFS filing deadline cannot be assessed: the financial year start is not set';
+const DEADLINE_UNKNOWN_DETAIL =
+  'Set the financial year start in Company Settings. Until then no filing deadline reminder can be raised.';
+
 async function detectFilingDeadlineAlerts(companyId: string): Promise<void> {
   const rows = (await sql`
     SELECT d.id, d.fiscal_year, c.financial_year_start
@@ -145,23 +149,31 @@ async function detectFilingDeadlineAlerts(companyId: string): Promise<void> {
   // count moved with the hour the detector happened to run at.
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg' }).format(new Date());
 
+  // The year start is the company's, so one alert covers every open statement.
+  let unknownRaised = false;
+
   for (const row of rows) {
     const fiscalYear = Number(row.fiscal_year);
     // ONE DEADLINE RULE, shared with the board pack's overdue-filings matter
     // (`afsFilingDeadline.ts`). This detector had its own: `setMonth(+6)` on
     // a month-end, which overflows (31 March gave 1 October), and `|| 3`,
     // which dated a company with no financial year start as a February year
-    // end. A company whose year start is unusable gets NO alert rather than
-    // one about a date nobody can stand behind, and the log says why.
+    // end. A company whose year start is unusable gets no alert about a
+    // date nobody can stand behind — it gets one saying the deadline cannot
+    // be assessed, because an empty alert list reads as "nothing is due".
     let deadline: string;
     try {
       deadline = afsFilingDeadline(fiscalYear, row.financial_year_start, companyId);
     } catch (err) {
       if (!(err instanceof FilingDeadlineUnknownError)) throw err;
-      log.warn(
-        'complianceAlertService: no AFS filing deadline alert — the company has no usable financial_year_start',
-        { companyId, fiscalYear },
-      );
+      if (!unknownRaised) {
+        unknownRaised = true;
+        log.warn(
+          'complianceAlertService: AFS filing deadline cannot be assessed — the company has no usable financial_year_start',
+          { companyId, fiscalYear },
+        );
+        await fireAlert(companyId, 'afs_filing_deadline_unknown', DEADLINE_UNKNOWN_MESSAGE, DEADLINE_UNKNOWN_DETAIL);
+      }
       continue;
     }
 

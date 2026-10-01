@@ -421,7 +421,8 @@ export type AfsAlertType =
   | 'pis_threshold_350'
   | 'afs_filing_deadline_30'
   | 'afs_filing_deadline_14'
-  | 'afs_filing_deadline_7';
+  | 'afs_filing_deadline_7'
+  | 'afs_filing_deadline_unknown';
   // 'cipc_overdue' and 'bank_unreconciled_30d' removed — columns do not exist
 
 export interface AfsComplianceAlert {
