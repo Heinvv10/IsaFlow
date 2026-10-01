@@ -14671,6 +14671,47 @@
       "historicalDataImpact": "None known.",
       "processNotes": "2026-09-30: Noted by the R-168 fixer and its blind reviewer; not verified under RLS. Census the callers first.",
       "reportedSeverity": "low"
+    },
+    {
+      "area": "auth",
+      "affectedPaths": [
+        "src/lib/auth/withAuth.ts",
+        "src/lib/auth/bearerPipeline.ts",
+        "src/lib/auth/withExtensionToken.ts",
+        "tests/unit/lib/auth/deferredEndCensus.test.ts"
+      ],
+      "sourceLabel": "R-159 adversarial review follow-up, 2026-09-30",
+      "sourceIds": [
+        "R-159"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Latent: needs a ROLLBACK that fails on a connection that stays alive. No auth pool sets a client-side query_timeout today, and pg-pool already evicts a dead socket. If reached, the next request on that connection commits the failed request's writes.",
+      "auditedSha": "090497265",
+      "currentSha": "090497265",
+      "status": "in-progress",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/r176-failed-rollback-evicts-connection.int.test.ts",
+        "tests/unit/lib/auth/deferredEndCensus.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-176/fix.md",
+        "docs/audits/remediation/R-176/red.int.log",
+        "docs/audits/remediation/R-176/green.log",
+        "docs/audits/remediation/R-176/mutations.log"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None known: the trigger is not reachable with the current pool configuration.",
+      "canonicalItem": null,
+      "branch": "fix/r176-rollback-evict-20261001",
+      "id": "R-176",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "An auth wrapper whose ROLLBACK fails returns the connection to the pool inside its open transaction; the res.end census misses Reflect.defineProperty",
+      "claim": "(a) withAuth, bearerPipeline and withExtensionToken call client.release() bare on every path. When the wrapper's ROLLBACK (or a failed COMMIT's secondary ROLLBACK) fails on a live connection, the client is pooled inside its open transaction and the next request's COMMIT lands the failed request's writes. withPublicRouteTransaction and withAlsTransaction already release with the failure. (b) tests/unit/lib/auth/deferredEndCensus.test.ts does not flag Reflect.defineProperty(res, 'end', ...).",
+      "processNotes": "2026-10-01: Confirmed on real Postgres before the fix: a throw whose ROLLBACK is refused leaves the backend idle in transaction, and the next request commits the row (red.int.log, 16 of 29 red on 090497265). Fixed: each wrapper sets a flag where a ROLLBACK fails and releases with it, so pg-pool destroys the client; a clean ROLLBACK still reuses the connection. Census matcher extended, with fixture cases both ways. Mutants: 21/21 RED (M6 survived once and got a case). Same defect left as a follow-up, not fixed here: withInviteToken, withPlatformAdmin (two clients), neon.ts sql.transaction and withTransaction, pages/api/auth/verify-email.ts, pages/api/invitations/[token]/accept.ts."
     }
   ],
   "sourceInventory": [
