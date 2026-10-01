@@ -18,12 +18,9 @@
  * This does (2). A cursor-carried balance is a figure the CALLER supplies, and
  * a stale, hand-edited or out-of-order cursor then produces a running balance
  * that is wrong and looks authoritative — on a ledger, the single worst
- * failure available. (2) recomputes the window each page, which costs a scan of
- * at most ~22k rows on the largest production company and is measured in
- * milliseconds. Correctness that does not depend on the caller is worth that.
- *
- * It also means a page's balances are IDENTICAL at any page size, which is what
- * the DB-gated test asserts.
+ * failure available. (2) recomputes the window each page: a scan of at most ~22k
+ * rows on the largest production company, in milliseconds. Correctness that does
+ * not depend on the caller is worth that, and balances are IDENTICAL at any page size.
  *
  * ── WHAT IS SUPPRESSED, AND WHY THAT IS NOT TIMIDITY ───────────────────────
  *
@@ -33,6 +30,9 @@
  * An ACCOUNT-level filter (`accountCodes`, `accountIds`, `accountTypes`)
  * selects whole accounts and leaves each one's sequence intact, so the balances
  * survive and equal the ones the full ledger reports.
+ *
+ * Across a fiscal-year start an income-statement line from that date has a `null`
+ * balance, named in `incomeStatementBalanceNullFrom` (see generalLedgerStreamYearEnd).
  *
  * `balanced` is `null` under ANY filter. Debits equalling credits is a property
  * of the complete period — every posted journal balances, so a whole-period
@@ -54,14 +54,11 @@ import {
   type GeneralLedgerQuery,
   type StreamTotals,
 } from './generalLedgerStreamTypes';
-import { streamFiscalBasis, withRetainedBf } from './generalLedgerStreamYearEnd';
+import {
+  incomeStatementBalanceNullFrom, runningBalanceIsDefined, streamFiscalBasis, withRetainedBf,
+} from './generalLedgerStreamYearEnd';
 import { INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
-export type {
-  GeneralLedgerCursor,
-  GeneralLedgerLine,
-  GeneralLedgerPage,
-  GeneralLedgerQuery,
-} from './generalLedgerStreamTypes';
+export type { GeneralLedgerCursor, GeneralLedgerLine, GeneralLedgerPage, GeneralLedgerQuery } from './generalLedgerStreamTypes';
 
 /**
  * Every filter is passed as an array, and an EMPTY array disables its clause —
@@ -228,6 +225,7 @@ export async function getGeneralLedgerLines(
             openingBalances: openingMap(agg.opening_all),
           };
 
+    const nullFrom = incomeStatementBalanceNullFrom(basis.fyStart, periodEnd);
     const lines: GeneralLedgerLine[] = rows.map((r) => ({
       lineId: String(r.line_id),
       journalEntryId: String(r.journal_entry_id),
@@ -242,7 +240,8 @@ export async function getGeneralLedgerLines(
       source: String(r.source ?? 'manual'),
       debit: Number(r.debit ?? 0),
       credit: Number(r.credit ?? 0),
-      runningBalance: lineLevelFilter
+      runningBalance: lineLevelFilter || !runningBalanceIsDefined(
+        String(r.account_type ?? ''), fmtDate(r.entry_date as string | Date), nullFrom)
         ? null
         : round2(Number(r.opening_balance ?? 0) + Number(r.cumulative ?? 0)),
     }));
@@ -270,6 +269,7 @@ export async function getGeneralLedgerLines(
         ? null
         : Math.abs(totals.totalDebit - totals.totalCredit) < BALANCE_TOLERANCE,
       runningBalanceSuppressed: lineLevelFilter,
+      incomeStatementBalanceNullFrom: nullFrom,
       openingBalances: withRetainedBf(totals.openingBalances, basis),
       postedThrough: totals.postedThrough,
     };

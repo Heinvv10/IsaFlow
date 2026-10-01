@@ -11,14 +11,16 @@
  * credit-normal openings plus `RE-BF`, i.e. the opening trial balance foots.
  * A filtered read gets no `RE-BF` (the retained earnings of a subset is meaningless).
  *
- * NOT done here: a range that crosses a fiscal-year start does not reset an
- * income-statement account's running balance at the boundary. The stream is an
- * audit extract of posted lines with a count/universe contract, and a derived
- * close line would sit inside it. See gl/fiscalYearCloseRows for the listings
- * that do insert one.
+ * NOT done here: a derived close line. The stream is an audit extract of posted
+ * lines with a count/universe contract, and one would sit inside it. So when the
+ * range crosses a fiscal-year start, an income-statement line dated on or after
+ * that start has `runningBalance` null (a cumulative total would not be the
+ * trial balance's), and the page says where in `incomeStatementBalanceNullFrom`.
+ * See gl/fiscalYearCloseRows for the listings that do insert a close line.
  */
 
 import { DEFAULT_FY_START_MONTH, fiscalYearStart, getFiscalYearStartMonth } from './fiscalYearBasis';
+import { isIncomeStatementType } from './fiscalYearCloseRows';
 import { BROUGHT_FORWARD_CODE, getRetainedEarningsBroughtForward } from './trialBalanceBasis';
 
 export interface StreamFiscalBasis {
@@ -47,4 +49,19 @@ export function withRetainedBf(
 ): Record<string, number> {
   if (basis.retainedBf === null || Math.abs(basis.retainedBf) < 0.01) return openingBalances;
   return { ...openingBalances, [BROUGHT_FORWARD_CODE]: basis.retainedBf };
+}
+
+/**
+ * First fiscal-year start after `fyStart` when the range reaches it, else null. From that
+ * date an income-statement account's cumulative running balance no longer equals its
+ * balance (the TB restarts it), and the stream inserts no close line, so it is withheld.
+ */
+export function incomeStatementBalanceNullFrom(fyStart: string, periodEnd: string): string | null {
+  const next = `${String(Number(fyStart.slice(0, 4)) + 1).padStart(4, '0')}${fyStart.slice(4)}`;
+  return periodEnd >= next ? next : null;
+}
+
+/** False for an income-statement line on or after `nullFrom`; true otherwise. */
+export function runningBalanceIsDefined(accountType: string, date: string, nullFrom: string | null): boolean {
+  return nullFrom === null || date < nullFrom || !isIncomeStatementType(accountType);
 }

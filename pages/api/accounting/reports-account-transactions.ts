@@ -10,6 +10,7 @@ import { UUID_RE } from '@/lib/validation';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { getAccountTransactions } from '@/modules/accounting/services/reports/transactionReportingService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -28,6 +29,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { account_code, period_start, period_end } = req.query;
     if (!account_code || !period_start || !period_end) {
       return apiResponse.badRequest(res, 'account_code, period_start, and period_end required');
+    }
+    if (!isLedgerDate(period_start) || !isLedgerDate(period_end)) {
+      return apiResponse.badRequest(res, `period_start and period_end ${LEDGER_DATE_MESSAGE}`);
     }
     const report = await getAccountTransactions(companyId,
       String(account_code), String(period_start), String(period_end), costCentreId, businessUnitId

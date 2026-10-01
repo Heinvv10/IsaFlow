@@ -285,7 +285,7 @@ export async function getAccountLedger(
     const periodClosingBalance = toMoney(openingBalance + periodNet + closedToRetainedEarnings);
     const total = lineTotal + closes.length;
 
-    return { rows, total, openingBalance, periodNet, closedToRetainedEarnings, periodClosingBalance, meta };
+    return { rows, total, derivedRows: closes.length, openingBalance, periodNet, closedToRetainedEarnings, periodClosingBalance, meta };
   } catch (err) {
     // companyId is already tagged on the Bugsink event via setTenantTags — omit here.
     log.error(

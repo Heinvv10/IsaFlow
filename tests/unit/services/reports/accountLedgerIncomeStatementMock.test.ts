@@ -68,7 +68,7 @@ describe('getAccountLedger — income-statement account (mocked SQL)', () => {
       .mockResolvedValueOnce(meta('expense', 'debit', 7))
       .mockResolvedValueOnce([{ total_debit: '0', total_credit: '0' }])  // opening (floor 2024-07-01)
       .mockResolvedValueOnce([{ total: '2' }])                           // line count
-      .mockResolvedValueOnce([{ d: '300', c: '0', n: '1' }])             // close before 2025-07-01
+      .mockResolvedValueOnce([{ bucket: 0, d: '300', c: '0', n: '1' }]) // grouped: the year closing 2025-07-01
       .mockResolvedValueOnce([txn('2025-06-15', 300), txn('2025-08-01', 50)])
       .mockResolvedValueOnce([{ period_debit: '350', period_credit: '0' }]);
 
@@ -80,6 +80,6 @@ describe('getAccountLedger — income-statement account (mocked SQL)', () => {
       ['2025-06-30', 0, 300, 0, true],
       ['2025-08-01', 50, 0, 50, false],
     ]);
-    expect(r).toMatchObject({ total: 3, periodNet: 350, closedToRetainedEarnings: -300, periodClosingBalance: 50 });
+    expect(r).toMatchObject({ total: 3, derivedRows: 1, periodNet: 350, closedToRetainedEarnings: -300, periodClosingBalance: 50 });
   });
 });

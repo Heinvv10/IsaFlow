@@ -13,6 +13,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import { getAccountTransactions } from '@/modules/accounting/services/reports/transactionReportingService';
+import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { csvCell } from '@/lib/csv';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -27,6 +28,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!periodStart) return apiResponse.badRequest(res, 'period_start is required');
   if (!periodEnd) return apiResponse.badRequest(res, 'period_end is required');
 
+  if (!isLedgerDate(periodStart) || !isLedgerDate(periodEnd)) {
+    return apiResponse.badRequest(res, `period_start and period_end ${LEDGER_DATE_MESSAGE}`);
+  }
+
   if (!(await checkReportRateLimit(companyId, 'account-transactions-export'))) {
     log.warn('Account transactions export rate limit exceeded', { companyId }, 'rateLimit');
     return apiResponse.tooManyRequests(res, 'Too many export requests. Please try again shortly.');
@@ -36,7 +41,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const report = await getAccountTransactions(companyId, accountCode, periodStart, periodEnd);
 
     const csvLines = [
-      `Date,Entry Number,Description,Debit,Credit,Balance,Source`,
+      `Date,Entry Number,Description,Debit,Credit,Balance,Source,Derived`,
       // Opening balance sentinel row
       [
         csvCell(periodStart),
@@ -46,6 +51,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         '',
         report.openingBalance.toFixed(2),
         csvCell(''),
+        '',
       ].join(','),
       // Transaction rows
       ...report.transactions.map(r =>
@@ -57,6 +63,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           r.credit > 0 ? r.credit.toFixed(2) : '',
           r.balance.toFixed(2),
           csvCell(r.source),
+          r.derived ? 'derived' : '',
         ].join(',')
       ),
       // Closing balance sentinel row
@@ -68,6 +75,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         '',
         report.closingBalance.toFixed(2),
         csvCell(''),
+        '',
       ].join(','),
     ];
 

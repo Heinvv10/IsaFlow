@@ -23,9 +23,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { UUID_RE } from '@/lib/validation';
+import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
-
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -62,11 +61,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'account_id must be a valid UUID');
   }
 
-  if (!from || typeof from !== 'string' || !ISO_DATE_RE.test(from)) {
-    return apiResponse.badRequest(res, 'from must be a valid ISO date (YYYY-MM-DD)');
+  if (!from || typeof from !== 'string' || !isLedgerDate(from)) {
+    return apiResponse.badRequest(res, `from ${LEDGER_DATE_MESSAGE}`);
   }
-  if (!to || typeof to !== 'string' || !ISO_DATE_RE.test(to)) {
-    return apiResponse.badRequest(res, 'to must be a valid ISO date (YYYY-MM-DD)');
+  if (!to || typeof to !== 'string' || !isLedgerDate(to)) {
+    return apiResponse.badRequest(res, `to ${LEDGER_DATE_MESSAGE}`);
   }
   if (from > to) {
     return apiResponse.badRequest(res, 'from must not be after to');

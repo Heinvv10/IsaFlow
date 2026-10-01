@@ -4,6 +4,7 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 
 import {
   buildPageRows,
+  loadYearEndCloses,
   planPage,
   type YearEndClose,
 } from '@/modules/accounting/services/reports/accountLedgerYearEnd';
@@ -89,4 +90,49 @@ describe('buildPageRows', () => {
     const rows = buildPageRows([], [close(0, 30)], { offset: 0, limit: 1 }, 30, 'debit');
     expect(rows[0]).toMatchObject({ debit: 0, credit: 30, runningBalance: 0 });
   });
+});
+
+describe('loadYearEndCloses — one grouped query, not one per fiscal year', () => {
+  const scope = {
+    companyId: 'c', accountId: 'a', cc: null, bu: null, postedOnly: true,
+    fromDate: '2025-01-01', toDate: '2027-06-30', normalBalance: 'credit',
+  };
+
+  it('issues a single query however many boundaries the range holds', async () => {
+    const { sql } = await import('@/lib/neon');
+    const mocked = vi.mocked(sql);
+    mocked.mockReset();
+    mocked.mockResolvedValue([] as never);
+    const boundaries = Array.from({ length: 300 }, (_, i) => `${1901 + i}-03-01`);
+    await loadYearEndCloses({ ...scope, fromDate: '1900-01-01', toDate: '2200-12-31' }, '1900-03-01', boundaries);
+    expect(mocked).toHaveBeenCalledTimes(1);
+  }, 5000);
+
+  it('derives each close from its bucket; an empty year has no close; positions follow line counts', async () => {
+    const { sql } = await import('@/lib/neon');
+    const mocked = vi.mocked(sql);
+    mocked.mockReset();
+    // bucket k = the year ending at boundary k. Bucket 2 (2026-03 .. 2027-03) holds nothing.
+    mocked.mockResolvedValue([
+      { bucket: 0, d: '0', c: '100', n: '2' },
+      { bucket: 1, d: '20', c: '70', n: '1' },
+    ] as never);
+    const closes = await loadYearEndCloses(scope, '2024-03-01', ['2025-03-01', '2026-03-01', '2027-03-01']);
+    expect(closes).toEqual([
+      { boundary: '2025-03-01', balanceBefore: 100, position: 2 },
+      { boundary: '2026-03-01', balanceBefore: 50, position: 4 },
+    ]);
+  }, 5000);
+
+  it('keeps a bucket whose lines net to zero out of the closes but still counts its lines', async () => {
+    const { sql } = await import('@/lib/neon');
+    const mocked = vi.mocked(sql);
+    mocked.mockReset();
+    mocked.mockResolvedValue([
+      { bucket: 0, d: '30', c: '30', n: '3' },
+      { bucket: 1, d: '0', c: '9', n: '1' },
+    ] as never);
+    const closes = await loadYearEndCloses(scope, '2024-03-01', ['2025-03-01', '2026-03-01']);
+    expect(closes).toEqual([{ boundary: '2026-03-01', balanceBefore: 9, position: 4 }]);
+  }, 5000);
 });
