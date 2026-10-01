@@ -8,7 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { markQuotaUsed } from '@/lib/quotaUse';
+import { markQuotaUsed, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
 import { checkAiRateLimit } from '@/lib/rateLimit';
 import {
   buildNarrativePrompt, parseNarrativeResponse, buildVarianceCommentary, buildTrendAnalysis,
@@ -54,7 +54,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         const data = await response.json() as { content?: { text?: string }[] };
         narrative = parseNarrativeResponse(data.content?.[0]?.text || '');
       }
-    } catch (err) { log.error('Narrative generation failed', { error: err }, 'ai'); }
+    } catch (err) { markQuotaUsedUnlessNoWork('ai', err); log.error('Narrative generation failed', { error: err }, 'ai'); }
   }
 
   log.info('Report narrative generated', { reportType: reportData.reportType, tone, aiUsed: !!narrative }, 'ai');

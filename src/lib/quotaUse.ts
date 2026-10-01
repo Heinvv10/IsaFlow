@@ -13,13 +13,26 @@
  * a charge simply stands.
  */
 
-import { als } from '@/lib/als';
+import { als, type QuotaKind } from '@/lib/als';
 
-export type QuotaKind = 'ai' | 'send';
+export type { QuotaKind } from '@/lib/als';
 
-/** Called by the limiter: this request charged `units` of `key`, refundable if unused. */
-export function noteQuotaCharge(kind: QuotaKind, key: string, units: number): void {
-  als.getStore()?.quotaCharges?.push({ kind, key, charged: units, used: 0 });
+/**
+ * Called by the limiter: this request charged `units` of `key`, in the window
+ * that began at `windowStart`, refundable if unused.
+ */
+export function noteQuotaCharge(kind: QuotaKind, key: string, units: number, windowStart: string | null): void {
+  als.getStore()?.quotaCharges?.push({ kind, key, charged: units, used: 0, windowStart });
+}
+
+/**
+ * Called when the request hands work to something that runs after it has
+ * ended (`runAfterCommit`). Use recorded there cannot reach the settle, so the
+ * request can no longer show that anything was left unused: every noted charge
+ * is kept. Fail safe: a deferred send can cost a refund, never grant one.
+ */
+export function forfeitQuotaRefund(): void {
+  for (const charge of als.getStore()?.quotaCharges ?? []) charge.used = Math.max(charge.used, charge.charged);
 }
 
 /**
@@ -35,4 +48,25 @@ export function markQuotaUsed(kind: QuotaKind, units = 1): void {
   for (const charge of als.getStore()?.quotaCharges ?? []) {
     if (charge.kind === kind) charge.used += units;
   }
+}
+
+/**
+ * Failures that prove a provider call never left this machine: the connection
+ * was refused, the name did not resolve, or the connect itself timed out.
+ */
+const NEVER_SENT = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT']);
+
+/**
+ * Called when a provider call THREW. The unit is used unless the error proves
+ * no work was done: the request never reached the provider (NEVER_SENT), or
+ * the provider answered with an error status (`err.status`, as the Anthropic
+ * SDK reports a 4xx/5xx). A timeout or an abort proves nothing: the provider
+ * may have done, and billed, the work, so it counts as use. Otherwise a tenant
+ * whose prompts reliably time out would be bounded only by the 15-minute bucket.
+ */
+export function markQuotaUsedUnlessNoWork(kind: QuotaKind, err: unknown): void {
+  const e = (err ?? {}) as { status?: unknown; code?: unknown; cause?: { code?: unknown } | null };
+  if (typeof e.status === 'number') return;
+  if (NEVER_SENT.has(String(e.cause?.code ?? e.code))) return;
+  markQuotaUsed(kind);
 }

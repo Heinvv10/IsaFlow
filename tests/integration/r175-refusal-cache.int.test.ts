@@ -16,6 +16,7 @@ import { Pool } from 'pg';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { checkRateLimit, clearRateLimitCache, refundRateLimit } from '@/lib/rateLimit';
+import { getRateLimitPool, RATE_LIMIT_POOL_MAX } from '@/lib/rateLimitPool';
 
 assertDisposable();
 
@@ -32,11 +33,11 @@ async function storedCount(key: string): Promise<number | undefined> {
   return rows[0]?.count as number | undefined;
 }
 
-/** Charges `key` until the database refuses it once: count is then max + 1. */
+/** Fills `key` and has the database refuse it once. A refusal changes nothing: count stays at max. */
 async function driveOverLimit(key: string): Promise<void> {
   for (let i = 0; i < MAX; i++) expect(await checkRateLimit(key, opts)).toBe(true);
   expect(await checkRateLimit(key, opts)).toBe(false);
-  expect(await storedCount(key)).toBe(MAX + 1);
+  expect(await storedCount(key)).toBe(MAX);
 }
 
 beforeEach(() => clearRateLimitCache());
@@ -47,14 +48,24 @@ afterAll(async () => {
 });
 
 describe('R-175 — an over-limit key is refused from memory', () => {
-  it('answers a flood on an over-limit key without writing to the database', async () => {
+  it('answers a flood on a full key without touching the database', async () => {
     const key = newKey();
     await driveOverLimit(key);
 
-    const verdicts = await Promise.all(Array.from({ length: 200 }, () => checkRateLimit(key, opts)));
+    // With every limiter connection held, a call that needed the database would
+    // wait for one and time out. The flood is answered anyway.
+    const limiterPool = getRateLimitPool();
+    const held = await Promise.all(Array.from({ length: RATE_LIMIT_POOL_MAX }, () => limiterPool.connect()));
+    let verdicts: boolean[];
+    try {
+      verdicts = await Promise.all(Array.from({ length: 200 }, () => checkRateLimit(key, opts)));
+    } finally {
+      held.forEach((client) => client.release());
+    }
 
+    expect(verdicts).toHaveLength(200);
     expect(verdicts.some(Boolean)).toBe(false);
-    expect(await storedCount(key)).toBe(MAX + 1);
+    expect(await storedCount(key)).toBe(MAX);
   });
 
   it('never admits from memory: a deleted row is not noticed until the cache is cleared', async () => {
@@ -77,10 +88,11 @@ describe('R-175 — an over-limit key is refused from memory', () => {
 
     await refundRateLimit(key, 2);
 
-    // 21 - 2 = 19: exactly one more call fits.
+    // 20 - 2 = 18: exactly two more calls fit.
+    expect(await checkRateLimit(key, opts)).toBe(true);
     expect(await checkRateLimit(key, opts)).toBe(true);
     expect(await checkRateLimit(key, opts)).toBe(false);
-    expect(await storedCount(key)).toBe(MAX + 1);
+    expect(await storedCount(key)).toBe(MAX);
   });
 
   it('re-admits when the window rolls over, without the cache being cleared', async () => {
@@ -90,7 +102,7 @@ describe('R-175 — an over-limit key is refused from memory', () => {
     expect(await checkRateLimit(key, short)).toBe(true);
     expect(await checkRateLimit(key, short)).toBe(false);
     expect(await checkRateLimit(key, short)).toBe(false);
-    expect(await storedCount(key)).toBe(3);
+    expect(await storedCount(key)).toBe(2);
 
     await sleep(2300);
 
@@ -119,9 +131,20 @@ describe('R-175 — an over-limit key is refused from memory', () => {
     const key = newKey();
     await driveOverLimit(key);
 
-    // 21 is over 20 but not over 100: this caller must be asked of the database.
+    // 20 + 1 does not fit under 20 but fits under 100: this caller must be asked of the database.
     expect(await checkRateLimit(key, { max: 100, windowSecs: 900 })).toBe(true);
-    expect(await storedCount(key)).toBe(MAX + 2);
+    expect(await storedCount(key)).toBe(MAX + 1);
+  });
+
+  it('a remembered refusal of a large call does not refuse a smaller call that fits', async () => {
+    const key = newKey();
+    expect(await checkRateLimit(key, { ...opts, cost: 15 })).toBe(true);
+    expect(await checkRateLimit(key, { ...opts, cost: 10 })).toBe(false);
+
+    // 15 + 5 fits. Memory holds "15 and a refusal"; it must not turn this away.
+    expect(await checkRateLimit(key, { ...opts, cost: 5 })).toBe(true);
+    expect(await storedCount(key)).toBe(MAX);
+    expect(await checkRateLimit(key, opts)).toBe(false);
   });
 
   it('does not remember an admission: a key at its limit is still checked', async () => {
@@ -142,6 +165,6 @@ describe('R-175 — an over-limit key is refused from memory', () => {
     expect(await checkRateLimit(key, month)).toBe(true);
     expect(await checkRateLimit(key, month)).toBe(false);
     expect(await checkRateLimit(key, month)).toBe(false);
-    expect(await storedCount(key)).toBe(3);
+    expect(await storedCount(key)).toBe(2);
   });
 });

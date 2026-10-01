@@ -17,7 +17,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
-import { checkSendRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, checkSendRateLimit } from '@/lib/rateLimit';
 import { sendDunning } from '@/modules/accounting/services/ar/dunningService';
 import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
 import { log } from '@/lib/logger';
@@ -34,8 +34,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   }
   const { companyId, user } = req as CompanyAuthedRequest;
 
-  const sendAllowed = await checkSendRateLimit(req, companyId, 'dunning', { refundUnused: true });
-  if (!sendAllowed) {
+  // Abuse limit: every attempt counts, per user, and is never given back. The
+  // company's send bucket below is shared by every colleague, so it is charged
+  // only once the request is known to be well formed (R-175).
+  if (!(await checkRateLimit(`dunning:attempts:${user.id}`, { max: 30, windowSecs: 900 }))) {
     apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
     return;
   }
@@ -43,6 +45,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   const parsed = BodySchema.safeParse(req.body);
   if (!parsed.success) {
     apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+    return;
+  }
+
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'dunning', { refundUnused: true });
+  if (!sendAllowed) {
+    apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
     return;
   }
   const { invoiceId, templateId } = parsed.data;

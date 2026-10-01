@@ -68,17 +68,18 @@ describe('checkRateLimit — Neon-backed persistence (BL-21)', () => {
   });
 
   it(
-    'rejects a single call whose cost alone exceeds max, and stores the attempted charge',
+    'rejects a single call whose cost alone exceeds max, and charges nothing for it',
     async () => {
       await checkRateLimit(KEY, { max: 50, windowSecs: 60, cost: 1 });
       // A single call costing more than the remaining budget must be rejected.
       const blocked = await checkRateLimit(KEY, { max: 50, windowSecs: 60, cost: 200 });
       expect(blocked).toBe(false);
-      // The DB reflects the attempted charge: the call was decided there.
+      // A refused call consumes nothing (R-175 review round 3): the count is
+      // still the one unit charged above.
       const rows = (await sql`SELECT count FROM rate_limit_counters WHERE key = ${KEY}`) as {
         count: number;
       }[];
-      expect(rows[0]?.count).toBeGreaterThan(50);
+      expect(rows[0]?.count).toBe(1);
     },
   );
 

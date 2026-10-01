@@ -15,7 +15,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { als, type RequestContext } from '@/lib/als';
 import { markQuotaUsed } from '@/lib/quotaUse';
-import { checkAiRateLimit, checkSendRateLimit } from '@/lib/rateLimit';
+import { chargeRateLimit, checkAiRateLimit, checkSendRateLimit, refundRateLimit } from '@/lib/rateLimit';
 import { settleQuotaCharges } from '@/lib/rateLimitQuota';
 
 assertDisposable();
@@ -102,6 +102,57 @@ describe('R-175 — charged minus used comes back, on every exit', () => {
     await asRequest(async () => { await checkAiRateLimit(req, CO, name, { dailyMax: 1, ...refundable }); markQuotaUsed('ai'); });
     await asRequest(async () => { expect(await checkAiRateLimit(req, CO, name, { dailyMax: 1, ...refundable })).toBe(false); });
 
-    expect((await counts('ai', name)).day).toBe(2);
+    expect((await counts('ai', name)).day).toBe(1);
+  });
+
+  // Review round 3: a refund must only reduce the window it was charged in.
+  it('a refund that arrives after the window rolled over does not touch the new window', async () => {
+    const name = `${RUN}-roll`;
+    const dayKey = `send:${name}:co:${CO}:day`;
+    const bulk = { count: 100, companyMax: 2000, dailyMax: 10_000, ...refundable };
+    // Request A charges 100 at the end of a window; none of its emails go out.
+    const a: RequestContext = { client: {} as RequestContext['client'], userId: 'u', claims: {}, quotaCharges: [] };
+    await als.run(a, async () => { await checkSendRateLimit(req, CO, name, bulk); });
+    // The day ends.
+    await pool.query(`UPDATE rate_limit_counters SET window_start = window_start - INTERVAL '25 hours' WHERE key = $1`, [dayKey]);
+    // Request B charges 100 in the new window and sends all 100.
+    await asRequest(async () => {
+      await checkSendRateLimit(req, CO, name, bulk);
+      for (let i = 0; i < 100; i++) markQuotaUsed('send');
+    });
+    expect((await counts('send', name)).day).toBe(100);
+
+    // A settles now. Its 100 belonged to yesterday's count.
+    await settleQuotaCharges(a);
+
+    expect((await counts('send', name)).day).toBe(100);
+  });
+
+  it('the same refund, with no rollover, lands', async () => {
+    const name = `${RUN}-noroll`;
+    const a: RequestContext = { client: {} as RequestContext['client'], userId: 'u', claims: {}, quotaCharges: [] };
+    await als.run(a, async () => { await checkSendRateLimit(req, CO, name, { count: 100, companyMax: 2000, dailyMax: 10_000, ...refundable }); });
+    await asRequest(async () => {
+      await checkSendRateLimit(req, CO, name, { count: 100, companyMax: 2000, dailyMax: 10_000, ...refundable });
+      for (let i = 0; i < 100; i++) markQuotaUsed('send');
+    });
+    expect(a.quotaCharges![0]!.windowStart).toMatch(/^\d{4}-\d{2}-\d{2} /);
+
+    await settleQuotaCharges(a);
+
+    expect((await counts('send', name)).day).toBe(100);
+  });
+
+  it('refundRateLimit with a window is a no-op on any other window, and unchanged without one', async () => {
+    const key = `send:${RUN}-direct:co:${CO}:day`;
+    const charge = await chargeRateLimit(key, { max: 50, windowSecs: 86_400, cost: 10 });
+    expect(charge.admitted).toBe(true);
+
+    await refundRateLimit(key, 3, '2020-01-01 00:00:00+00');
+    expect((await pool.query('SELECT count FROM rate_limit_counters WHERE key = $1', [key])).rows[0].count).toBe(10);
+    await refundRateLimit(key, 3, charge.windowStart);
+    expect((await pool.query('SELECT count FROM rate_limit_counters WHERE key = $1', [key])).rows[0].count).toBe(7);
+    await refundRateLimit(key, 2);
+    expect((await pool.query('SELECT count FROM rate_limit_counters WHERE key = $1', [key])).rows[0].count).toBe(5);
   });
 });

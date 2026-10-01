@@ -15,25 +15,35 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: H) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: H) => h }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-const { sqlMock, withTransactionMock, checkAi, markUsed } = vi.hoisted(() => ({
-  sqlMock: vi.fn(), withTransactionMock: vi.fn(), checkAi: vi.fn(), markUsed: vi.fn(),
+const { sqlMock, withTransactionMock, checkAi } = vi.hoisted(() => ({
+  sqlMock: vi.fn(), withTransactionMock: vi.fn(), checkAi: vi.fn(),
 }));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: withTransactionMock }));
 vi.mock('@/lib/rateLimit', () => ({ checkAiRateLimit: checkAi }));
-vi.mock('@/lib/quotaUse', () => ({ markQuotaUsed: markUsed }));
 vi.mock('@/lib/apiResponse', () => ({
   apiResponse: { success: vi.fn(), badRequest: vi.fn(), tooManyRequests: vi.fn(), methodNotAllowed: vi.fn() },
 }));
 
 import { apiResponse } from '@/lib/apiResponse';
+import { als, type RequestContext } from '@/lib/als';
 import nlQuery from '../../../pages/api/accounting/nl-query';
 
 const COMPANY = '11111111-1111-4111-9111-111111111111';
 const fetchMock = vi.fn();
-const call = (question: unknown) => (nlQuery as unknown as H)(
-  { method: 'POST', body: { question }, companyId: COMPANY } as unknown as NextApiRequest,
-  {} as NextApiResponse,
-);
+/** Runs the route as a request that charged one daily AI unit (quotaUse is real); returns how much was used. */
+async function call(question: unknown): Promise<number> {
+  const ctx: RequestContext = {
+    client: {} as RequestContext['client'], userId: 'u', claims: {},
+    quotaCharges: [{ kind: 'ai', key: `ai:nl-query:co:${COMPANY}:day`, charged: 1, used: 0, windowStart: null }],
+  };
+  await als.run(ctx, async () => {
+    await (nlQuery as unknown as H)(
+      { method: 'POST', body: { question }, companyId: COMPANY } as unknown as NextApiRequest,
+      {} as NextApiResponse,
+    );
+  });
+  return ctx.quotaCharges![0]!.used;
+}
 const answer = (text: string) => ({ ok: true, json: async () => ({ content: [{ text }] }) });
 const SCOPED_SQL = `SELECT id FROM customers WHERE company_id = '${COMPANY}' LIMIT 5`;
 
@@ -53,11 +63,10 @@ describe('nl-query — the daily AI unit is marked used only when the provider a
 
   it('asks for refundUnused, and does nothing more when the limiter refuses', async () => {
     checkAi.mockResolvedValue(false);
-    await call('How many customers do we have?');
+    expect(await call('How many customers do we have?')).toBe(0);
 
     expect(apiResponse.tooManyRequests).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(markUsed).not.toHaveBeenCalled();
     expect(checkAi.mock.calls[0]![3]).toMatchObject({ dailyMax: 300, refundUnused: true });
   });
 
@@ -66,56 +75,56 @@ describe('nl-query — the daily AI unit is marked used only when the provider a
     ['a question that is not a string', 42],
     ['a question that is too long', 'x'.repeat(501)],
   ])('leaves the unit unused for %s', async (_label, question) => {
-    await call(question);
+    expect(await call(question)).toBe(0);
 
     expect(apiResponse.badRequest).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(markUsed).not.toHaveBeenCalled();
   });
 
   it('leaves the unit unused when no provider key is configured', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', '');
-    await call('How many customers do we have?');
 
+    expect(await call('How many customers do we have?')).toBe(0);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(markUsed).not.toHaveBeenCalled();
   });
 
   it('leaves the unit unused when the provider answers with an error status', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 529 });
-    await call('How many customers do we have?');
 
-    expect(markUsed).not.toHaveBeenCalled();
+    expect(await call('How many customers do we have?')).toBe(0);
   });
 
-  it('leaves the unit unused when the provider call throws', async () => {
-    fetchMock.mockRejectedValue(new Error('network down'));
-    await call('How many customers do we have?');
+  it('leaves the unit unused when the provider cannot be reached', async () => {
+    fetchMock.mockRejectedValue(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } }));
 
-    expect(markUsed).not.toHaveBeenCalled();
+    expect(await call('How many customers do we have?')).toBe(0);
+  });
+
+  it('uses the unit when the provider call times out or is aborted: the work may have been done', async () => {
+    fetchMock.mockRejectedValue(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }));
+
+    expect(await call('How many customers do we have?')).toBe(1);
   });
 
   it('marks the unit used when the provider answered, even if its answer could not be used', async () => {
     fetchMock.mockResolvedValue(answer('I cannot help with that.'));
-    await call('How many customers do we have?');
 
+    expect(await call('How many customers do we have?')).toBe(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(markUsed.mock.calls).toEqual([['ai']]);
   });
 
   it('marks the unit used when the provider answered and the generated query then fails', async () => {
     fetchMock.mockResolvedValue(answer('```sql\n' + SCOPED_SQL + '\n```\nCounts customers.'));
-    withTransactionMock.mockRejectedValue(new Error('statement timeout'));
-    await call('How many customers do we have?');
+    withTransactionMock.mockRejectedValue(Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNREFUSED' } }));
 
-    expect(markUsed.mock.calls).toEqual([['ai']]);
+    // The later failure even looks like "never sent"; the answer already counted.
+    expect(await call('How many customers do we have?')).toBe(1);
   });
 
   it('marks the unit used once on success', async () => {
     fetchMock.mockResolvedValue(answer('```sql\n' + SCOPED_SQL + '\n```\nCounts customers.'));
-    await call('How many customers do we have?');
 
-    expect(markUsed.mock.calls).toEqual([['ai']]);
+    expect(await call('How many customers do we have?')).toBe(1);
     expect(apiResponse.success).toHaveBeenCalledTimes(1);
   });
 });

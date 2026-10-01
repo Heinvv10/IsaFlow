@@ -13,7 +13,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID, requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { checkSendRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, checkSendRateLimit } from '@/lib/rateLimit';
 import { sendForSigning } from '@/modules/accounting/services/afs/signumIntegrationService';
 import { notifySigningRequested } from '@/modules/accounting/services/afs/portalNotificationService';
 import type { PortalRole } from '@/modules/accounting/services/afs/afsTypes';
@@ -29,10 +29,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
 
-  const sendAllowed = await checkSendRateLimit(req, companyId, 'afs-signing', { refundUnused: true });
-  if (!sendAllowed) {
+  // Abuse limit: every attempt counts, per user, and is never given back. The
+  // company's send bucket below is shared by every colleague, so it is charged
+  // only once the request is known to be well formed (R-175).
+  if (!(await checkRateLimit(`afs-signing:attempts:${user.id}`, { max: 30, windowSecs: 900 }))) {
     return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
 
@@ -42,6 +44,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const parsed = BodySchema.safeParse(req.body);
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   const { signerContactIds } = parsed.data;
+
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'afs-signing', { refundUnused: true });
+  if (!sendAllowed) {
+    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
+  }
 
   // 1. Load and verify the document
   const docs = (await sql`

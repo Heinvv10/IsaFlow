@@ -4,7 +4,7 @@
  */
 
 import { log } from '@/lib/logger';
-import { markQuotaUsed } from '@/lib/quotaUse';
+import { markQuotaUsed, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
 import type { ExtractedLineItem, VendorBankDetails } from '@/modules/accounting/types/documentCapture.types';
 
 // ---------------------------------------------------------------------------
@@ -95,6 +95,8 @@ export async function callVlmChat(
     };
     return result.choices?.[0]?.message?.content ?? null;
   } catch (err) {
+    // A timeout proves nothing about the work; a refused connection does (R-175).
+    markQuotaUsedUnlessNoWork('ai', err);
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('aborted') || msg.includes('AbortError')) {
       log.error('vLLM request timed out', { timeout: config.timeout }, 'vlm-core');

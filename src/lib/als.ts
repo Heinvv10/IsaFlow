@@ -3,6 +3,9 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { log } from '@/lib/logger';
 import type { PoolClient } from 'pg';
 
+/** The usage quotas a request can be given back: AI calls and emails. */
+export type QuotaKind = 'ai' | 'send';
+
 export interface RequestContext {
   client: PoolClient;
   userId: string;
@@ -47,7 +50,7 @@ export interface RequestContext {
    * owner gives back `charged - used` (`@/lib/rateLimitQuota`). Present only
    * when the owner does that; without it a charge simply stands.
    */
-  quotaCharges?: Array<{ kind: 'ai' | 'send'; key: string; charged: number; used: number }>;
+  quotaCharges?: Array<{ kind: QuotaKind; key: string; charged: number; used: number; windowStart: string | null }>;
 }
 
 export const als = new AsyncLocalStorage<RequestContext>();

@@ -54,9 +54,8 @@ describe('R-175 — checkRateLimit never admits more than max per window', () =>
     // The first max calls are the admitted ones; nothing is admitted after a refusal.
     expect(verdicts.slice(0, MAX).every(Boolean)).toBe(true);
     expect(verdicts.slice(MAX).some(Boolean)).toBe(false);
-    // Every admitted call is stored, and the first refusal. The rest of the
-    // refusals are answered from memory (r175-refusal-cache.int.test.ts).
-    expect(await storedCount(key)).toBe(MAX + 1);
+    // Every admitted call is stored. A refused call changes nothing.
+    expect(await storedCount(key)).toBe(MAX);
   });
 
   it('admits exactly max of 100 concurrent calls', async () => {
@@ -64,7 +63,7 @@ describe('R-175 — checkRateLimit never admits more than max per window', () =>
     const verdicts = await Promise.all(Array.from({ length: 100 }, () => checkRateLimit(key, opts)));
 
     expect(verdicts.filter(Boolean).length).toBe(MAX);
-    expect(await storedCount(key)).toBe(100);
+    expect(await storedCount(key)).toBe(MAX);
   });
 
   it('writes a call far below the limit to the shared counter', async () => {
@@ -90,7 +89,10 @@ describe('R-175 — checkRateLimit never admits more than max per window', () =>
 
     // 6 x 3 = 18 admitted; the 7th would make 21.
     expect(verdicts).toEqual([true, true, true, true, true, true, false, false]);
-    expect(await storedCount(key)).toBe(21);
+    // The refused 3-unit calls took nothing: the 2 units left are still there.
+    expect(await storedCount(key)).toBe(18);
+    expect(await admittedSequentially(key, 5)).toBe(2);
+    expect(await storedCount(key)).toBe(MAX);
   });
 
   it('starts a fresh allowance of exactly max when the window rolls over', async () => {
@@ -104,7 +106,7 @@ describe('R-175 — checkRateLimit never admits more than max per window', () =>
     clearRateLimitCache();
 
     expect(await admittedSequentially(key, 30)).toBe(MAX);
-    expect(await storedCount(key)).toBe(MAX + 1);
+    expect(await storedCount(key)).toBe(MAX);
   });
 
   it('keeps counting inside a window that has not ended', async () => {
@@ -115,7 +117,7 @@ describe('R-175 — checkRateLimit never admits more than max per window', () =>
       `UPDATE rate_limit_counters SET window_start = NOW() - INTERVAL '890 seconds' WHERE key = $1`, [key]);
 
     expect(await checkRateLimit(key, opts)).toBe(false);
-    expect(await storedCount(key)).toBe(MAX + 1);
+    expect(await storedCount(key)).toBe(MAX);
   });
 
   it('a refund gives back exactly the refunded units', async () => {
@@ -159,8 +161,7 @@ describe('R-175 — checkRateLimit never admits more than max per window', () =>
     }
 
     expect(admitted).toBe(MAX);
-    // 20 admitted, then one stored refusal per instance; each remembers its own.
-    expect(await storedCount(key)).toBe(MAX + 2);
+    expect(await storedCount(key)).toBe(MAX);
   });
 
   it('two module instances called concurrently together admit exactly max', async () => {
@@ -172,5 +173,40 @@ describe('R-175 — checkRateLimit never admits more than max per window', () =>
       (i % 2 === 0 ? checkRateLimit : second.checkRateLimit)(key, opts)));
 
     expect(verdicts.filter(Boolean).length).toBe(MAX);
+  });
+
+  // Review round 3: a refused charge must not consume units.
+  it('a refused large charge leaves the room it could not use: 9,950 of 10,000', async () => {
+    const key = newKey();
+    const volume = { max: 10_000, windowSecs: 86_400 };
+    expect(await checkRateLimit(key, { ...volume, cost: 9_950 })).toBe(true);
+
+    expect(await checkRateLimit(key, { ...volume, cost: 100 })).toBe(false);
+    expect(await storedCount(key)).toBe(9_950);
+
+    // The 50 real units left are still spendable, by this process and by another.
+    clearRateLimitCache();
+    expect(await checkRateLimit(key, { ...volume, cost: 49 })).toBe(true);
+    expect(await checkRateLimit(key, { ...volume, cost: 2 })).toBe(false);
+    expect(await checkRateLimit(key, volume)).toBe(true);
+    expect(await checkRateLimit(key, volume)).toBe(false);
+    expect(await storedCount(key)).toBe(10_000);
+  });
+
+  it('a charge larger than the whole allowance is refused and creates no row', async () => {
+    const key = newKey();
+    expect(await checkRateLimit(key, { ...opts, cost: MAX + 1 })).toBe(false);
+    expect(await storedCount(key)).toBeUndefined();
+    expect(await checkRateLimit(key, { ...opts, cost: MAX })).toBe(true);
+    expect(await storedCount(key)).toBe(MAX);
+  });
+
+  it('weighted concurrent charges never pass max, and fill it when they can', async () => {
+    const key = newKey();
+    // 30 calls of 3 units against 20: at most 6 fit.
+    const verdicts = await Promise.all(Array.from({ length: 30 }, () => checkRateLimit(key, { ...opts, cost: 3 })));
+
+    expect(verdicts.filter(Boolean).length).toBe(6);
+    expect(await storedCount(key)).toBe(18);
   });
 });

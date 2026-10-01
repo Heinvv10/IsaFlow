@@ -132,8 +132,7 @@ describe('K-103 rate-limit counter survives the request that spent it', () => {
       withAlsTransaction(actor, () => checkRateLimit(key, opts))));
 
     expect(verdicts.filter(Boolean).length).toBe(opts.max);
-    // Later refusals may be answered from memory, so not all 40 are stored.
-    expect(await storedCount(key)).toBeGreaterThan(opts.max);
+    expect(await storedCount(key)).toBe(opts.max);
   });
 
   it('still answers while every request connection is held by an open request', async () => {
