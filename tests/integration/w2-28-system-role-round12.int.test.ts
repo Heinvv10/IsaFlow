@@ -72,7 +72,7 @@ describeIfDb('W2-28 round 12', () => {
   });
   afterAll(async () => { await fx.wipe(); await fx.query('DELETE FROM fiscal_periods WHERE company_id = $1', [CO]); await fx.teardown(); });
 
-  it('item 2: a 5-call MCP batch under a held role lock answers in about ONE wait, each call with the retry refusal — and other methods still answer', async () => {
+  it('item 2: a 5-call MCP batch under a held role lock answers in about ONE wait: the first call gets the retry refusal, the rest are skipped, audited and say why — other methods and a malformed call still answer as before', async () => {
     const release = await holdRoleLock();
     const tx = await fx.openTx(drainAfterCommit);
     h.run = tx.run; h.auth = { user: { id: USER }, companyId: CO, scopes: ['write:accounts'], patId: 'w228r12', authMethod: 'pat' };
@@ -83,14 +83,24 @@ describeIfDb('W2-28 round 12', () => {
     try {
       const t0 = Date.now();
       await within(40_000, (mcpRoute as (a: never, b: never) => Promise<unknown>)({ method: 'POST', url: '/api/mcp', headers: { authorization: 'Bearer pat_x' },
-        body: [call(1, 'a'), call(2, 'b'), call(3, 'c'), { jsonrpc: '2.0', id: 4, method: 'ping' }, call(5, 'd'), call(6, 'e')] } as never, res as never));
+        body: [call(1, 'a'), call(2, 'b'), call(3, 'c'), { jsonrpc: '2.0', id: 4, method: 'ping' }, call(5, 'd'), call(6, 'e'),
+          { jsonrpc: '2.0', id: 7, method: 'tools/call', params: {} }] } as never, res as never));
       const ms = Date.now() - t0;
-      const body = out.body as { id: number; result?: { isError?: boolean; content?: { text: string }[] } }[];
-      expect({ aboutOneWait: ms >= 4500 && ms < 9000, ids: body.map((r) => r.id),
-        texts: [...new Set(body.filter((r) => r.id !== 4).map((r) => `${r.result?.isError}:${r.result?.content?.[0]?.text}`))], ping: body.find((r) => r.id === 4)?.result })
-        .toEqual({ aboutOneWait: true, ids: [1, 2, 3, 4, 5, 6], texts: [`true:${RETRY}`], ping: {} });
+      await tx.commit();                                   // as the bearer middleware does: the audit rows are the request's
+      const body = out.body as { id: number; error?: { message: string }; result?: { isError?: boolean; content?: { text: string }[] } }[];
+      const text = (id: number) => { const r = body.find((b) => b.id === id)?.result; return `${r?.isError}:${r?.content?.[0]?.text}`; };
+      expect({ aboutOneWait: ms >= 4500 && ms < 9000, ids: body.map((r) => r.id), first: text(1), ping: body.find((r) => r.id === 4)?.result,
+        skipped: [...new Set([2, 3, 5, 6].map(text))], malformed: body.find((r) => r.id === 7)?.error?.message })
+        .toEqual({ aboutOneWait: true, ids: [1, 2, 3, 4, 5, 6, 7], first: `true:${RETRY}`, ping: {}, malformed: 'tool name required',
+          skipped: [expect.stringMatching(/^true:Not run: an earlier call in this batch found the chart of accounts being changed by another request.*Nothing was written or charged.*retry/)] });
     } finally { await tx.rollback(); await release(); }
     expect((await fx.query('SELECT account_name FROM gl_accounts WHERE id = $1', [X])).rows[0].account_name).toBe('W228R12 1115');
+    // Every call is on the audit trail: the one that waited as an error, the four that were not run as rejected —
+    // none holding its idempotency key (the retry must run), and nothing debited.
+    const audit = (await fx.query(`SELECT status, count(*)::int AS n, count(idempotency_key)::int AS keys FROM mcp_tool_calls
+      WHERE company_id = $1 AND tool = 'update_gl_account' GROUP BY status ORDER BY status`, [CO])).rows;
+    const debits = (await fx.query('SELECT count(*)::int AS n FROM flow_ledger WHERE company_id = $1', [CO])).rows[0].n;
+    expect({ audit, debits }).toEqual({ audit: [{ status: 'error', n: 1, keys: 0 }, { status: 'rejected', n: 4, keys: 0 }], debits: 0 });
   }, 60_000);
 
   it('item 4: a rollback that falls to its per-account loop works through at most the cap, leaves the rest tagged, and says how many remain', async () => {
@@ -258,6 +268,17 @@ describeIfDb('W2-28 round 12', () => {
   });
 
   describe('item 7: what a user can cause is refused before any write, in words the user can act on', () => {
+    it('round 13: a row parented under an account the SAME import\'s role map makes a balance-sheet holder is named too — not left to the post-condition', async () => {
+      const session = await createSession(CO, 'sage', USER);
+      const r = await fx.call(coaImport, 'POST', '/api/accounting/migration/chart-of-accounts', { sessionId: session.id, systemAccountMap: { payable: 'P200' },
+        accounts: [{ accountCode: 'P200', accountName: 'Creditors', accountType: 'liability', normalBalance: 'credit' },
+          { accountCode: 'P201', accountName: 'Creditors - foreign', accountType: 'liability', normalBalance: 'credit', parentCode: 'P200' }] });
+      const data = r.body.data as { imported: number; errors: { message: string; field: string }[] };
+      const texts = data.errors.map((e) => `${e.field}: ${e.message}`);
+      expect({ imported: data.imported, row: texts.filter((t) => t.startsWith('parentCode:')), vague: texts.filter((t) => /without exactly one usable/.test(t)) })
+        .toEqual({ imported: 0, vague: [], row: [expect.stringMatching(/^parentCode: Account P201 cannot go under P200: Account P200 holds the payable role/)] });
+    });
+
     it('a CoA import row parented under a balance-sheet role holder names the row and the holder — not "would leave bank without exactly one usable account"', async () => {
       const session = await createSession(CO, 'sage', USER);
       const r = await fx.call(coaImport, 'POST', '/api/accounting/migration/chart-of-accounts', { sessionId: session.id, systemAccountMap: {},
@@ -275,7 +296,8 @@ describeIfDb('W2-28 round 12', () => {
         accounts: [{ accountCode: '4200', accountName: 'Sales', accountType: 'revenue', normalBalance: 'credit' }] });
       const data = r.body.data as { imported: number; errors: { message: string }[] };
       expect({ imported: data.imported, text: data.errors[0]?.message }).toEqual({ imported: 0,
-        text: expect.stringMatching(/Account 4200 is classified 'revenue'.*Chart of Accounts.*edit account 4200.*classification to 'other'.*run this import again/) });
+        text: expect.stringMatching(/^Account 4200 has the subtype 'revenue'.*Chart of Accounts: edit account 4200, set its subtype to 'other' and save — then run this import again\.$/) });
+      expect(data.errors[0]?.message).not.toMatch(/classif/i);
     });
 
     it('a merge whose source has sub-accounts, into a balance-sheet role holder, is a merge refusal naming both accounts — before anything moves', async () => {

@@ -162,7 +162,7 @@ export async function importChartOfAccounts(
             if (written && !isSystem && (written.account_type !== acct.accountType
               || (explicitSubtype !== null && keptSubtype !== explicitSubtype))) {
               errors.push({ step: 'coa', row: i, field: 'accountType',
-                message: `Account ${acct.accountCode} is a system account: its name was updated, its type and classification (${String(written.account_type)} / ${keptSubtype ?? 'none'}) were kept.` });
+                message: `Account ${acct.accountCode} is a system account: its name was updated, its type and subtype (${String(written.account_type)} / ${keptSubtype ?? 'none'}) were kept.` });
             }
             imported++;
           } catch (err) {

@@ -125,7 +125,10 @@ export async function roleMapConflicts(
  * have sub-accounts (`roleBarringChildren`). Named row by row BEFORE any write:
  * left to the role post-condition, the whole import was refused with "would
  * leave bank without exactly one usable account", which names nothing to fix.
- * A holder the map moves its role away from in this same import is not one,
+ * A holder the map moves its role away from in this same import is not one;
+ * an account the map MAKES a balance-sheet holder in this import is (judged
+ * by the type it will have: a system account keeps its own, any other takes
+ * the file's);
  * and a row that is ALREADY that holder's sub-account (an existing chart that
  * breaks the rule, re-imported) is not being given to it: only a new one is.
  */
@@ -141,12 +144,19 @@ export async function holderParentConflicts(
     FROM gl_accounts
     WHERE company_id = ${companyId}::UUID AND account_code = ANY(${parentCodes}::TEXT[])
   `) as DbRow[];
+  const existing = new Map(rows.map((r) => [String(r.account_code), r]));
+  const fileType = new Map(accounts.map((a) => [a.accountCode, a.accountType]));
   const mapped: Record<string, string | undefined> = { ...map };
-  const barred = new Map(rows.flatMap((r) => {
-    const role = roleBarringChildren(r);
-    const code = String(r.account_code);
-    return role && (mapped[role] === undefined || mapped[role] === code)
-      ? [[code, { role, children: new Set((r.child_codes as string[] | null) ?? []) }] as const] : [];
+  const roleGiven = new Map(Object.entries(mapped).flatMap(([role, code]) => (code ? [[code, role] as const] : [])));
+  const barred = new Map(parentCodes.flatMap((code) => {
+    const r = existing.get(code);
+    const held = r && roleBarringChildren(r);
+    // What the parent will be once this import has run.
+    const role = held && (mapped[held] === undefined || mapped[held] === code) ? held : roleBarringChildren({
+      account_type: r?.is_system_account === true ? r.account_type : fileType.get(code) ?? r?.account_type,
+      account_subtype: roleGiven.get(code), is_system_account: roleGiven.has(code),
+    });
+    return role ? [[code, { role, children: new Set((r?.child_codes as string[] | null) ?? []) }] as const] : [];
   }));
   return accounts.flatMap((a, row) => {
     const holder = a.parentCode ? barred.get(a.parentCode) : undefined;

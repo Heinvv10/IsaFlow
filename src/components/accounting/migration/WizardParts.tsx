@@ -157,8 +157,11 @@ export function RollbackButton({ source }: { source: MigrationSource }) {
         body: JSON.stringify({ source }),
       });
       await assertOk(res, 'Rollback failed');
-      const json = await res.json() as { data: RollbackResult };
-      setResult(json.data);
+      const { data } = await res.json() as { data: RollbackResult };
+      // Totals across "Continue rollback" passes: an account kept in an earlier
+      // pass is untagged, so no later answer mentions it — only this can.
+      setResult(prev => ({ ...data, deleted: (prev?.deleted ?? 0) + data.deleted, retained: (prev?.retained ?? 0) + data.retained,
+        retainedCodes: [...(prev?.retainedCodes ?? []), ...data.retainedCodes] }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Rollback failed');
     } finally {

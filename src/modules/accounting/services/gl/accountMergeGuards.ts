@@ -22,6 +22,7 @@ import { reportingClassFor } from './accountReportingClass';
 import { isBankSubtype } from './accountSubtypes';
 import { hasChildAccounts, isSubjectToLeafRule } from './isReportVisibleLeaf';
 import { openBillLinesRefusal } from './accountMergeBillLines';
+import { AccountMergeError } from './accountMergeError';
 import { assertTargetMayTakeChildren } from './accountMergeRoleGuard';
 import {
   CONFIGURATION_REFERENCE_EXCLUSIONS,
@@ -44,17 +45,7 @@ export {
  * forever while holding its row locks. Observed once; it wedged the dev
  * database until the backend was terminated by hand.
  */
-/** Every refusal, so a caller can map the whole class to one toolError / 400. */
-export class AccountMergeError extends Error {
-  constructor(
-    message: string,
-    readonly code: MergeRefusalCode,
-    readonly references: ConfigurationReference[] = [],
-  ) {
-    super(message);
-    this.name = 'AccountMergeError';
-  }
-}
+export { AccountMergeError };
 
 export interface MergeAccount {
   id: string;

@@ -95,11 +95,11 @@ it('after a refused save (400) puts the row back to the holder it loaded and kee
   const select = await screen.findByRole('combobox', { name: 'Accounts Receivable' }) as HTMLSelectElement;
   const answered = vi.mocked(apiFetch).getMockImplementation()!;
   vi.mocked(apiFetch).mockImplementation(async (url, init) => (init?.method === 'POST'
-    ? json({ success: false, error: { code: 'BAD_REQUEST', message: "Account 1121 is classified 'inventory'; it must be reclassified to 'other' first." } }, 400)
+    ? json({ success: false, error: { code: 'BAD_REQUEST', message: "Account 1121 has the subtype 'inventory'; change its subtype to 'other' first." } }, 400)
     : answered(url, init)));
   fireEvent.change(select, { target: { value: 'ar-2' } });
   expect(select.value).toBe('ar-2');
   fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
-  expect(await screen.findByText(/is classified 'inventory'/)).toBeTruthy();
+  expect(await screen.findByText(/has the subtype 'inventory'/)).toBeTruthy();
   await waitFor(() => expect(select.value).toBe('ar-1'));
 });

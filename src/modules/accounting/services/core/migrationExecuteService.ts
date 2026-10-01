@@ -10,7 +10,7 @@ import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationPa
 import type { DbRow } from '@/types/db';
 import { defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
-import { boundedRowWait, isRetryableLockError, lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
+import { boundedRowWait, lockSystemRoleWrites, textUnlessLockError } from '../gl/systemRoleWriteLock';
 import { clearSystemAccountCacheAfterCommit } from '../gl/systemAccountResolver';
 import { assertAccountChangesKeepVatLocks, type AccountAttributeChange } from '../gl/vatLockLineClassification';
 
@@ -87,9 +87,10 @@ async function executeUnderLock(
   // would move a posted line inside a locked (filed) VAT period into a
   // different box refuses the WHOLE migration, naming account and period —
   // later steps post opening balances against these accounts.
-  // The role-write lock first, for lock ORDER rather than for a holder: the upsert
-  // locks account rows in file order, a Default Accounts save in id order, and
-  // without one lock taken first by both the two deadlocked (40P01).
+  // The role-write lock comes first, for lock ORDER rather than for a holder:
+  // the upsert below locks account rows in the order the file lists them, a
+  // Default Accounts save locks the same rows in id order, and without one
+  // lock taken first by both the two deadlocked (40P01).
   await lockSystemRoleWrites(companyId);
   try {
     await assertAccountChangesKeepVatLocks(companyId, await reimportAttributeChanges(companyId, source, validAccounts));
@@ -126,9 +127,11 @@ async function executeUnderLock(
           )
           ON CONFLICT (company_id, account_code) DO UPDATE SET
             account_name    = EXCLUDED.account_name,
-            -- A system account keeps its type and subtype. The subtype is its ROLE:
-            -- only Default Accounts and the COA import's role map place one (this fill
-            -- would make a second holder), and its type is what the role requires.
+            -- A system account keeps its type and subtype. The subtype is its
+            -- ROLE: only Default Accounts and the COA import's role map place
+            -- one, never this fill (it would make the account a holder, beside
+            -- the role's own). Its type is what the role requires: re-typing
+            -- the bank holder as an expense would leave posting on a mistyped account.
             account_type    = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_type
                                    ELSE EXCLUDED.account_type END,
             account_subtype = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_subtype
@@ -145,8 +148,7 @@ async function executeUnderLock(
         );
       });
     } catch (err) {
-      if (isRetryableLockError(err)) throw err;   // not a batch to report and skip: the whole request retries (503)
-      errors.push(`Accounts batch: ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(`Accounts batch: ${textUnlessLockError(err)}`);   // a lock wait is not a batch to report: thrown, the whole request retries (503)
     }
   }
 
@@ -157,8 +159,7 @@ async function executeUnderLock(
   try {
     openingBalancesSet = await postOpeningBalances(companyId, userId, source, accounts);
   } catch (err) {
-    if (isRetryableLockError(err)) throw err;   // as above, in each step below: a lock wait is never a row error on a 200
-    errors.push(`Opening balances: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(`Opening balances: ${textUnlessLockError(err)}`);
   }
 
   // 3. Import customers
@@ -181,8 +182,7 @@ async function executeUnderLock(
       );
       customersImported = validCustomers.length;
     } catch (err) {
-      if (isRetryableLockError(err)) throw err;
-      errors.push(`Customers batch: ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(`Customers batch: ${textUnlessLockError(err)}`);
     }
   }
 
@@ -206,8 +206,7 @@ async function executeUnderLock(
       );
       suppliersImported = validSuppliers.length;
     } catch (err) {
-      if (isRetryableLockError(err)) throw err;
-      errors.push(`Suppliers batch: ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(`Suppliers batch: ${textUnlessLockError(err)}`);
     }
   }
 
