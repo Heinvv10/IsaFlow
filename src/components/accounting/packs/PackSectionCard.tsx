@@ -15,8 +15,9 @@ import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/m
 import { formatPackKv } from '@/components/accounting/packs/PackSectionView';
 import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 import { log } from '@/lib/logger';
+import { ratioLines } from '@/modules/accounting/services/reports/ratioPresentation';
 import { ProfitWaterfall } from '@/components/accounting/charts/ProfitWaterfall';
-import { MissingPackFieldError, packToCashFlowUnavailable, packToRatioReasons, packToWaterfallSteps } from '@/modules/accounting/services/packs/packSectionData';
+import { MissingPackFieldError, packToCashFlowUnavailable, packToWaterfallSteps } from '@/modules/accounting/services/packs/packSectionData';
 import { marginKvItem } from '@/modules/accounting/services/packs/packDocument';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 
@@ -147,18 +148,17 @@ function CashFlowItems({ d }: { d: Record<string, unknown> }) {
   );
 }
 
-/** A ratio the service could not compute prints its stated reason, as the
- *  scorecard tile does. `notMeaningful` is the reasons map, not a ratio. */
+/** Ratios, named and written by the ONE table every surface reads
+ *  (`ratioPresentation`): "EBITDA 1 883 824.19", "Gross Profit Margin 45.0%",
+ *  and a ratio the service could not compute prints its stated reason. The
+ *  card used to split the key on its capitals and `toFixed(2)` everything, so
+ *  a rand amount and a margin read alike ("Ebitda -1883824.19"). A saved
+ *  payload with no reasons map simply has no reasons: the lines still read. */
 function RatioItems({ d }: { d: Record<string, unknown> }) {
-  const reasons = reasonsOrNone(d, 'notMeaningful', () => packToRatioReasons(d), 'ratios');
   return (
     <>
-      {Object.entries(d).filter(([k]) => k !== 'notMeaningful').slice(0, 12).map(([k, v]) => (
-        <KVItem
-          key={k}
-          label={k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}
-          value={reasons[k] ?? (typeof v === 'number' ? v.toFixed(2) : String(v))}
-        />
+      {ratioLines(d).slice(0, 12).map((line) => (
+        <KVItem key={line.key} label={line.label} value={line.text} />
       ))}
     </>
   );
