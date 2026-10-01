@@ -41,7 +41,10 @@ const KPI_SPARKLINE_MM = 33;
  * one line; `down 12.0%`, `down 100.0%`, `down 3.0 pp` and `down 12.0 pp`
  * wrap. The model reproduces all twelve between 38.0 and 39.5mm and this is
  * the narrow end of that range, which is the direction that over-counts.
- * `packKpiTileDeltaHeight.test.ts` holds the twelve.
+ * `packKpiTileDeltaHeight.test.ts` holds the twelve, and sixteen more from a
+ * second render — three-digit points, the grouped four-digit forms. Across the
+ * twenty-eight the model never charges less than the paper took, and charges
+ * one line more in a single case ("up 100.0 pp").
  */
 const KPI_DELTA_MEASURE_MM = 38;
 

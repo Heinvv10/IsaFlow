@@ -43,6 +43,9 @@ function neededMm(d: PackKpiDelta): number {
 
 describe('kpiTileHeight charges the delta line the tile prints', () => {
   const CASES: Array<[string, PackKpiDelta]> = [
+    ['down 100.0 pp', delta(-100, 'points')],
+    ['down 1 310.8%', delta(-1310.8, 'percent')],
+    ['down 1 310.8 pp', delta(-1310.8, 'points')],
     ['up 12.0%', delta(12, 'percent')],
     ['down 12.0%', delta(-12, 'percent')],
     ['down 2.0%', delta(-2, 'percent')],
@@ -86,9 +89,58 @@ describe('the delta line wraps in the model where it wrapped on the paper', () =
     ['down 100.0%', delta(-100, 'percent'), TWO_LINES],
     ['down 3.0 pp', delta(-3, 'points'), TWO_LINES],
     ['down 12.0 pp', delta(-12, 'points'), TWO_LINES],
+    // A SECOND RENDER, OUTSIDE THE TWELVE THE MEASURE WAS CALIBRATED ON:
+    // three-digit points, the grouped four-digit forms, and the boundaries
+    // either side of the first twelve.
+    ['up 10.0 pp', delta(10, 'points'), ONE_LINE],
+    ['up 99.9 pp', delta(99.9, 'points'), ONE_LINE],
+    ['up 100.0 pp', delta(100, 'points'), ONE_LINE],
+    ['flat 0.0 pp', delta(0, 'points'), ONE_LINE],
+    ['up 999.9%', delta(999.9, 'percent'), ONE_LINE],
+    ['down 0.1%', delta(-0.1, 'percent'), ONE_LINE],
+    ['down 10.0%', delta(-10, 'percent'), TWO_LINES],
+    ['down 99.9%', delta(-99.9, 'percent'), TWO_LINES],
+    ['down 1.0 pp', delta(-1, 'points'), TWO_LINES],
+    ['down 9.9 pp', delta(-9.9, 'points'), TWO_LINES],
+    ['down 100.0 pp', delta(-100, 'points'), TWO_LINES],
+    ['up 1 310.8%', delta(1310.8, 'percent'), TWO_LINES],
+    ['down 1 310.8%', delta(-1310.8, 'percent'), TWO_LINES],
+    ['up 1 310.8 pp', delta(1310.8, 'points'), TWO_LINES],
+    ['down 1 310.8 pp', delta(-1310.8, 'points'), TWO_LINES],
   ];
 
-  it.each(OBSERVED)('%s', (_text, d, observed) => {
+  // NEVER LESS THAN THE PAPER TOOK — the property a sheet count rests on.
+  it.each(OBSERVED)('%s is not charged less than it printed at', (_text, d, observed) => {
+    expect(deltaMm(d)).toBeGreaterThanOrEqual(observed - 1e-6);
+  });
+
+  // And not a line more, where it printed on one: an over-charge on this
+  // sheet is paid for out of a disclosure.
+  //
+  // ONE KNOWN OVER-CHARGE: "up 100.0 pp" printed on one line and the model
+  // charges two. No single measure reproduces all twenty-eight — at 40mm that
+  // case comes right and three falling percentages are charged a line short —
+  // so the model keeps the side that cannot spill a sheet.
+  const OVER_CHARGED = new Set(['up 100.0 pp']);
+  it.each(OBSERVED.filter(([text]) => !OVER_CHARGED.has(text)))('%s is charged exactly what it printed at', (_text, d, observed) => {
     expect(deltaMm(d)).toBeCloseTo(observed, 6);
+  });
+});
+
+/**
+ * A FOUR-DIGIT MOVEMENT IS GROUPED LIKE EVERY OTHER FIGURE IN THE PACK. The
+ * pack prints "1 310.8%"; a points delta went through `toFixed` and printed
+ * "1310.8 pp" beside it. The separator is the non-breaking one, so the
+ * number cannot split across the tile's two lines.
+ */
+describe('a points delta is grouped the way the pack groups a percentage', () => {
+  it('prints 1 310.8 pp, with the separator a line cannot break at', () => {
+    expect(deltaWithWord(delta(-1310.8, 'points'), 'up', 'down', 'pp')).toBe('down 1\u00a0310.8 pp');
+    expect(deltaWithWord(delta(1310.8, 'points'), 'up', 'down')).toBe('up 1\u00a0310.8 points');
+    expect(deltaWithWord(delta(-1310.8, 'percent'), 'up', 'down', 'pp')).toBe('down 1\u00a0310.8%');
+  });
+
+  it('leaves a three-digit movement as it was', () => {
+    expect(deltaWithWord(delta(-100, 'points'), 'up', 'down', 'pp')).toBe('down 100.0 pp');
   });
 });

@@ -5,7 +5,7 @@
  * `derivedCaptions.ts` re-exports every exported name here.
  */
 
-import { pctWithWord } from '@/lib/format/money';
+import { formatPctLevel, pctWithWord } from '@/lib/format/money';
 import type {
   PackKpiDelta,
   PackKpiDeltaAbsence,
@@ -33,7 +33,11 @@ export function deltaWithWord(
   points: 'points' | 'pp' = 'points',
 ): string {
   if (delta.unit === 'percent') return pctWithWord(delta.value, up, down);
-  return `${delta.value < 0 ? down : up} ${Math.abs(delta.value).toFixed(1)} ${points}`;
+  // The magnitude through the pack's own percentage formatter, less its sign:
+  // "1 310.8", grouped as every other figure on the sheet is. `toFixed` here
+  // printed "1310.8 pp" beside a tile reading "1 310.8%".
+  const magnitude = formatPctLevel(Math.abs(delta.value)).replace('%', '');
+  return `${delta.value < 0 ? down : up} ${magnitude} ${points}`;
 }
 
 /**
