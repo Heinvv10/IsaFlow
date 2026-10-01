@@ -71,7 +71,9 @@ export function formatPackTimestamp(value: string): string {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false,
+    // `hour12: false` is h24 on some ICU builds, which prints midnight as
+    // "24:15". `h23` is the cycle that says 00.
+    hourCycle: 'h23',
   }).formatToParts(at);
   const part = (type: Intl.DateTimeFormatPartTypes): string =>
     parts.find((p) => p.type === type)?.value ?? '';
