@@ -55,18 +55,17 @@
     color-scheme: light;
   }
 
-  /* Explicit page breaks between report sections. */
-  html.print-mode [data-print-break] {
-    break-before: page;
-  }
+  /* No forced break between report sections: the legacy pack's short portrait
+     sections share a sheet (a landscape section starts its own through its
+     named page, below). A heading stays with its first rows and a label with
+     its value — see `.pack-legacy-*` in packPrintPage.css. */
 
   /* Never split a table row across a page boundary. */
   html.print-mode tr {
     break-inside: avoid;
   }
 
-  /* Pack pagination. The cover and the contents each own a page; every
-     section already starts a new one via [data-print-break] above. */
+  /* Pack pagination. The cover and the contents each own a page. */
   html.print-mode [data-pack-cover],
   html.print-mode [data-pack-toc] {
     break-after: page;

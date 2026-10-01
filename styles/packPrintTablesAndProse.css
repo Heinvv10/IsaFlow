@@ -156,3 +156,17 @@
   border-left: 2pt solid var(--pack-unfavourable, #b3261e);
   padding-left: 3mm;
 }
+
+/* THE LEGACY (MANAGEMENT) PRINT VIEW'S FLOW.
+ * A label and its value never split across a page, and a section heading
+ * never sits alone at a page foot. */
+html.print-mode .pack-legacy-kv > * { break-inside: avoid; }
+html.print-mode .pack-legacy-heading { break-after: avoid; }
+/* The legacy view's DRAFT mark: `position: fixed` repeats on every printed
+ * sheet, the cover included. Same size, tone and angle as the board pack's. */
+[data-pack-draft] [data-pack-watermark] {
+  position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  font-size: 96pt; font-weight: 600; color: var(--pack-ink);
+  opacity: 0.06; pointer-events: none; white-space: nowrap; z-index: 0;
+}

@@ -97,9 +97,9 @@ describe('PackSectionView', () => {
     expect(container.querySelector('[data-print-landscape]')).toBeNull();
   });
 
-  it('breaks the page before every section', () => {
+  it('forces no page break before a portrait section: short sections share a sheet', () => {
     const { container } = render(<PackSectionView section={statementSection} />);
-    expect(container.querySelector('[data-print-break]')).toBeTruthy();
+    expect(container.querySelector('[data-print-break]')).toBeNull();
   });
 });
 

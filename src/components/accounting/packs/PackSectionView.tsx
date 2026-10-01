@@ -79,7 +79,7 @@ function Block({ block }: { block: PackBlock }) {
 
     case 'kv':
       return (
-        <dl className="grid grid-cols-3 gap-3">
+        <dl className="pack-legacy-kv grid grid-cols-3 gap-3">
           {block.items.map((item) => (
             <div key={item.label}>
               <dt className="text-xs text-[var(--ff-text-tertiary)]">{item.label}</dt>
@@ -91,7 +91,7 @@ function Block({ block }: { block: PackBlock }) {
 
     case 'scorecard':
       return (
-        <div className="grid grid-cols-3 gap-2">
+        <div className="pack-legacy-kv grid grid-cols-3 gap-2">
           {block.items.map((item) => {
             // The scored/unscored decision is `scorecardFigure`'s, not this
             // renderer's — the screen wrote its own and called .toFixed(2) on
@@ -128,12 +128,11 @@ function Block({ block }: { block: PackBlock }) {
 export function PackSectionView({ section }: { section: PackDocumentSection }) {
   return (
     <section
-      data-print-break
       {...(section.landscape ? { 'data-print-landscape': '' } : {})}
       id={`pack-section-${section.type}`}
       className="space-y-4"
     >
-      <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">{section.title}</h2>
+      <h2 className="pack-legacy-heading text-lg font-semibold text-[var(--ff-text-primary)]">{section.title}</h2>
       {section.blocks.map((block, i) => (
         <Block key={`${section.type}-${i}`} block={block} />
       ))}
