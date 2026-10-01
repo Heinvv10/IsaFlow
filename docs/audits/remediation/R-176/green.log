@@ -1,15 +1,15 @@
-# GREEN on 0f989e7a2 (2026-10-01T10:57:47Z); fixture isaflow-fixture-r175.
-# unit: files 128 passed (128); tests 1097 passed | 3 skipped (1100) | int: files 11 passed (11); tests 130 passed | 2 skipped (132) | int (invite, GoTrue origin): files 4 passed (4); tests 24 passed (24)
-# r176 suites: 29 passed | 1 skipped (30); 29 passed (29); 5 passed (5).
-# unit set: tests/unit/lib, tests/unit/auth, tests/unit/api/bankFeedExtensionIngestRoute.test.ts.
-# int set: the three r176 suites, r159 (both), public-route-tx, r157-payment-link-throw-responds, k097, r-032 (both), k106.
+# GREEN on c04a52944 (2026-10-01T15:24:25Z); fixture isaflow-fixture-r175.
+# unit: files 130 passed (130); tests 1121 passed | 3 skipped (1124) | int: files 12 passed (12); tests 152 passed | 2 skipped (154) | int (invite, GoTrue origin): files 4 passed (4); tests 24 passed (24)
+# r176 integration suites: 29 passed | 1 skipped (30); 36 passed (36); 6 passed (6); wrapper edges 14 passed (14).
+# unit set: tests/unit/lib (incl. rollbackFailed, releaseCensus), tests/unit/auth, tests/unit/api/bankFeedExtensionIngestRoute.test.ts.
+# int set: the four r176 suites, r159 (both), public-route-tx, r157-payment-link-throw-responds, k097, r-032 (both), k106.
 # int (invite) set, run with GOTRUE_URL=http://127.0.0.1:1: k-041 (three), k-042.
-# Whole unit suite (env -u DATABASE_URL vitest run tests/unit): Test Files  1116 passed (1116); Tests  14877 passed | 6 skipped (14883).
-# tsc --noEmit -p .: clean. eslint on the nine changed src/pages files: clean (tests/** is outside the eslint project).
+# Whole unit suite (env -u DATABASE_URL vitest run tests/unit): Test Files  1118 passed (1118); Tests  14901 passed | 6 skipped (14907).
+# tsc --noEmit -p .: clean. eslint on the twelve changed src/pages files: clean. tests/** and scripts/** are outside both projects; the three changed scripts were type-checked ad hoc (one unrelated error in simulate-fy2026-workflows.ts, on unchanged code).
 # Fail on unchanged source too, outside the set: tests/integration/withAuth.test.ts (2), admin-forbidden (1), admin-rls-bypass (1), k104-k105 (1).
-# NOT run: bun run ci, the production build, the whole integration suite.
+# NOT run: bun run ci, the production build, the whole integration suite, the simulate scripts.
 ## integration
+ Test Files  12 passed (12)
+      Tests  152 passed | 2 skipped (154)
  Test Files  4 passed (4)
       Tests  24 passed (24)
- Test Files  11 passed (11)
-      Tests  130 passed | 2 skipped (132)
