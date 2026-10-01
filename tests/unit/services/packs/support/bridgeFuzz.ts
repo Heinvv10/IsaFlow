@@ -121,5 +121,27 @@ export function bridgeFuzz(seedValue: number) {
     return { steps, plot, ask, compact: isCompact(box), box: svgBoxPx(plot), tag: `${shape} via ${caller} ${box.heightMm}mm ask${ask}` };
   };
 
-  return { rnd, pick, profit, cash, random, print };
+  /**
+   * WIDE FIGURES BESIDE A NEIGHBOUR'S BAR — the class that sets a figure over
+   * a bar that is not its own. A falling bridge in the trillions alternates
+   * short steps (a percent or two, so the figure is wider than its band)
+   * with longer ones a line or two tall: each short step's figure, set below
+   * it, stands at the height of the next step's bar, and clears it only by
+   * going a line or two further down.
+   */
+  const neighbours = (): WaterfallStep[] => {
+    const total = Math.round(Math.pow(10, 12 + rnd() * 2));
+    const steps: WaterfallStep[] = [{ label: 'Opening', start: 0, end: total, value: total, isSubtotal: true, color: 'teal' }];
+    let running = total;
+    const count = 4 + Math.floor(rnd() * 3);
+    for (let i = 0; i < count; i += 1) {
+      const move = -Math.round(total * (i % 2 === 0 ? 0.005 + rnd() * 0.02 : 0.03 + rnd() * 0.05));
+      steps.push({ label: `Movement ${i + 1}`, start: running, end: running + move, value: move, isSubtotal: false, color: 'red' });
+      running += move;
+    }
+    steps.push({ label: 'Closing', start: 0, end: running, value: running, isSubtotal: true, color: 'teal' });
+    return steps;
+  };
+
+  return { rnd, pick, profit, cash, random, print, neighbours };
 }

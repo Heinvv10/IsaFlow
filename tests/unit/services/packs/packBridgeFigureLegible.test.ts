@@ -27,7 +27,7 @@ import { waterfallOption } from '@/modules/accounting/services/packs/packChartOp
 import { MIN_TICK_PITCH_PX } from '@/modules/accounting/services/packs/packChartAxes';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { bars, clipRect, figures, haloOrder, illegible, onNeighbourBars, outsideClip, straddlesOwnBar, textOnText, wrongSide } from './support/bridgeSvg';
+import { bars, boxOf, clipRect, figures, haloOrder, illegible, onNeighbourBars, outsideClip, straddlesOwnBar, textOnText, wrongSide } from './support/bridgeSvg';
 import { outsideSvg } from './support/svgBounds';
 import { yAxisTicks } from './support/svgTicks';
 import { bridgeFuzz } from './support/bridgeFuzz';
@@ -66,6 +66,8 @@ const SEEDS = [424_242, 777_001, 13_579, 20_260_930, 5_550_123, 31_415_927];
 /** Per seed and per path. Sized so the pack's fuzz tests together stay near a
  *  minute of the unit run; the raster harness runs thousands more per seed. */
 const PER_SEED = 320;
+/** Per seed, for the neighbour-bar class. */
+const NEIGHBOUR_CASES = 24;
 /** The one box the management pack's print view draws its bridge in. */
 const BOX = LEGACY_WATERFALL_BOX;
 
@@ -121,6 +123,27 @@ describe('a bridge figure is whole and legible', () => {
     }
     expect(found.slice(0, 5), `${found.length} faults in ${PER_SEED} charts`).toEqual([]);
   }, 180_000);
+
+  it.each(SEEDS)('wide figures on short bars between tall ones stay off the neighbours\' bars — seed %i', (seed) => {
+    const fuzz = bridgeFuzz(seed);
+    const found: string[] = [];
+    let wide = 0;
+    for (let i = 0; i < NEIGHBOUR_CASES; i += 1) {
+      const steps = fuzz.neighbours();
+      // The management pack in its print box, in rands, and the board pack's
+      // tallest rung in thousands — where the same shape is a figure wide.
+      const legacy = renderLegacyBridge(steps, BOX.widthPx, BOX.heightPx);
+      const print = String(renderChartSvg(waterfallOption(steps, 'R', undefined, 11, false, undefined, { widthPx: 658, heightPx: 391 }), { widthMm: 174, heightMm: 103.4 }));
+      for (const [path, svg] of [['legacy', legacy], ['print', print]] as const) {
+        const own = bars(svg);
+        wide += figures(svg).filter((f, k) => own[k] !== undefined && boxOf(f).right - boxOf(f).left > (own[k]!.right! - own[k]!.left!) * 2).length;
+        for (const fault of faults(svg, steps)) found.push(`#${i} ${path} ${JSON.stringify(steps.map((s) => [s.start, s.end]))}: ${fault}`);
+      }
+    }
+    // NOT VACUOUS: the shape does put figures twice their bar's width there.
+    expect(wide).toBeGreaterThan(NEIGHBOUR_CASES);
+    expect(found.slice(0, 5), `${found.length} faults`).toEqual([]);
+  }, 60_000);
 
   it.each(SEEDS)('the management pack in its print box, profit and random shapes — seed %i', (seed) => {
     const fuzz = bridgeFuzz(seed);
