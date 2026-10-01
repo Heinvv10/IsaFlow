@@ -50,6 +50,7 @@ import { checkBlocks } from './packBlockIntegrity';
 import { checkProse } from './packProseIntegrity';
 import { integrityRefusal, type IntegrityCheck, type IntegrityFailure } from './packIntegrityRefusal';
 import { locateFigures, type Located } from './packLocatedFigures';
+import { PackFiguresDisagree } from './packFigureProvenance';
 
 /** One basis point, in the percentage POINTS a `pct` figure is stated in. */
 const PCT_TOLERANCE = 0.01;
@@ -173,9 +174,12 @@ export function assertPackIntegrity(doc: PackPagesDocument): void {
   try {
     doc.provenance.assertConsistent();
   } catch (error) {
+    // ONLY ITS OWN FINDING. This caught everything, so a defect in the check
+    // became a 422 telling the reader a figure was stated at two values.
+    if (!(error instanceof PackFiguresDisagree)) throw error;
     // Its message already names every disagreeing source; it is folded in
     // here so one render reports every integrity failure at once.
-    add('consistency', [error instanceof Error ? error.message : String(error)]);
+    add('consistency', [error.message]);
   }
 
   add('resolution', checkResolution(doc, located));

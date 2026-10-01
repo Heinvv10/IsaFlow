@@ -60,6 +60,19 @@ function describe(figure: PackFigure): string {
   return figure.value === null ? `unavailable (${figure.unavailable})` : String(figure.value);
 }
 
+/**
+ * What `assertConsistent` throws for its OWN finding — one source, two values.
+ * A type of its own so the integrity gate can tell that finding, which is a
+ * refusal of the document, from anything else the check might throw, which is
+ * a defect in this code.
+ */
+export class PackFiguresDisagree extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PackFiguresDisagree';
+  }
+}
+
 export class PackFigureProvenance {
   private readonly figures = new Map<string, PackFigure[]>();
 
@@ -155,7 +168,7 @@ export class PackFigureProvenance {
       }
     }
     if (conflicts.length > 0) {
-      throw new Error(
+      throw new PackFiguresDisagree(
         `Pack figures disagree with themselves — the same service field was ` +
           `rendered with different values on different pages:\n  ` +
           conflicts.join('\n  '),

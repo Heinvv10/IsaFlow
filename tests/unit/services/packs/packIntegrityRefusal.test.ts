@@ -132,7 +132,66 @@ const BROKEN: Array<{ gate: string; doc: () => PackPagesDocument; says: RegExp; 
       },
     })),
     says: /A bridge chart does not add up/,
-    diagnostic: /./,
+    diagnostic: /Waterfall 'profit-bridge'.*does not/s,
+  },
+  {
+    gate: 'one source stated at two values',
+    doc: () => {
+      const p = new PackFigureProvenance();
+      p.figure('packFigureSet.current.totalAssets', 3_900_000, 'money');
+      p.figure('packFigureSet.current.totalLiabilities', 1_640_000, 'money');
+      p.figure('packFigureSet.current.totalEquity', 2_260_000, 'money');
+      p.figure('packFigureSet.current.revenue', 4_200_000, 'money');
+      p.figure('packFigureSet.current.revenue', 4_200_001, 'money');
+      return { ...clean, provenance: p, pages: [], comparativePeriod: null };
+    },
+    says: /One figure is stated at two different values in different places of the pack\./,
+    diagnostic: /Pack figures disagree with themselves/,
+  },
+  {
+    gate: 'a percentage that cannot say which two figures it is taken from',
+    doc: () => {
+      const p = new PackFigureProvenance();
+      p.figure('packFigureSet.current.totalAssets', 3_900_000, 'money');
+      p.figure('packFigureSet.current.totalLiabilities', 1_640_000, 'money');
+      p.figure('packFigureSet.current.totalEquity', 2_260_000, 'money');
+      const margin = p.figure('marginPct.grossMargin', 45, 'pct');
+      const page: PackPage = {
+        ...clean.pages[5]!,
+        blocks: [{ kind: 'table', table: { scale: "R'000", columns: ['actual'], rows: [{ label: 'Gross margin', level: 0, role: 'line', figures: { actual: margin } }] } }],
+        footnotes: [],
+      };
+      return { ...clean, provenance: p, pages: [page], comparativePeriod: null };
+    },
+    says: /A percentage in the pack is not the percentage its two figures give\./,
+    diagnostic: /states no numerator and denominator/,
+  },
+  {
+    gate: 'a cash bridge that opens somewhere other than the opening balance',
+    doc: () => mapBlocks((block) => (block.kind !== 'chart' || block.chart.id !== 'cash-bridge' ? block : {
+      ...block,
+      chart: {
+        ...block.chart,
+        waterfallBars: block.chart.waterfallBars?.map((bar, i) => (i === 0 ? { ...bar, end: bar.end + 5_000 } : bar)),
+      },
+    })),
+    says: /The cash bridge does not open and close on the balances the cash statement prints\./,
+    diagnostic: /The cash bridge opens at/,
+  },
+  {
+    gate: 'a scale no formatter knows',
+    doc: () => ({ ...clean, numberConvention: { ...clean.numberConvention, scale: 'R bn' as never } }),
+    says: /The pack states its figures at a scale it cannot print them in\./,
+    diagnostic: /which is not a scale any formatter knows/,
+  },
+  {
+    gate: 'a chart stating a figure its own page\'s table states differently',
+    doc: () => mapBlocks((block) => (block.kind !== 'chart' || block.chart.claims === undefined ? block : {
+      ...block,
+      chart: { ...block.chart, claims: block.chart.claims.map((claim) => ({ ...claim, value: claim.value + 5_000 })) },
+    })),
+    says: /A chart and the table on its page state one figure at two values\./,
+    diagnostic: /twice at two values/,
   },
   {
     gate: 'a comparative period no statement compares against',
@@ -163,6 +222,21 @@ describe('assertPackIntegrity refuses with a PackRefusal', () => {
     expect(refusal.userMessage).toContain('The balance sheet does not foot');
     expect(refusal.userMessage).toContain('a difference of R 450.00');
     expectReadable(refusal.userMessage);
+  });
+
+  it('re-throws a defect in the consistency check itself, rather than calling it a refusal', () => {
+    // Only the check's OWN finding is a refusal of the document. Anything
+    // else it throws is a bug in this code, and wording that as "one figure
+    // is stated at two values" would answer a 500 with a 422 and a sentence
+    // about the company's books.
+    const defect = new TypeError("Cannot read properties of undefined (reading 'value')");
+    const broken = { ...clean, provenance: Object.assign(Object.create(clean.provenance), {
+      assertConsistent: () => { throw defect; },
+    }) } as PackPagesDocument;
+    let thrown: unknown = null;
+    try { assertPackIntegrity(broken); } catch (error) { thrown = error; }
+    expect(thrown).toBe(defect);
+    expect(thrown).not.toBeInstanceOf(PackRefusal);
   });
 
   it('names each failed check once, however many failures it produced', () => {
