@@ -210,17 +210,17 @@ export type PrintErrorProducer = 'fonts' | 'pages';
 /** Tell the renderer this page will never become print-ready. EACH PRODUCER
  *  HAS ITS OWN ATTRIBUTE (`data-print-error-fonts`, `data-print-error-pages`),
  *  so a second failure cannot overwrite the first and one producer recovering
- *  cannot withdraw the other's. The transport fails the render if any is
- *  present, rather than waiting out its timeout. */
+ *  cannot withdraw the other's. A transport that observes any of them fails the
+ *  render at once, rather than waiting out its timeout — and a withdrawal later
+ *  does not undo a failure already observed. */
 export function markPrintError(producer: PrintErrorProducer, reason: string): void {
   document.documentElement.setAttribute(`${PRINT_ERROR_ATTRIBUTE_PREFIX}-${producer}`, `${producer}: ${reason}`);
-  // AND AN UNCAUGHT EXCEPTION, ALWAYS, for the transport that cannot read the
-  // DOM: Gotenberg runs the page itself and fails the request on a console
-  // exception (`failOnConsoleExceptions`). `reportError` raises one without
-  // throwing through React; where a browser lacks it the same error is thrown
-  // from a macrotask, which is uncaught by construction. Never neither: the
-  // wait expression resolves on the attribute, so a page that set it and
-  // raised nothing would be printed unready with a 200.
+  // AND AN UNCAUGHT ERROR, for VISIBILITY: it reaches the browser console and
+  // error reporting, and `reportError` raises one without throwing through
+  // React (where a browser lacks it the same error is thrown from a macrotask,
+  // which is uncaught by construction). It is NOT what fails a render: the
+  // Playwright transport reads the attribute, and under Gotenberg the wait
+  // expression THROWS on any `data-print-error*` attribute (a 400, no PDF).
   const error = new Error(`print page cannot render — ${producer}: ${reason}`);
   if (typeof reportError === 'function') reportError(error);
   else window.setTimeout(() => { throw error; }, 0);
