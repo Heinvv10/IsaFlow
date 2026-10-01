@@ -170,6 +170,7 @@ describe('R-176: no transaction owner releases its connection bare', () => {
     'async function f(a, b) { let bad; try { await a.query("ROLLBACK"); } catch (e) { bad = e; } b.release(bad); }',
     // the outcome belongs to another function's ROLLBACK
     'async function a(d) { const u = await rollbackFailed(d, "s"); return u; } async function f(c) { let u = false; c.release(u); }',
+    'async function a(c) { const u = await rollbackFailed(c, "s"); return u; } async function f(c) { let u = false; c.release(u); }',
   ])('unproven, fails closed: %s', (snippet) => { expect(kinds(snippet)).toEqual(['unproven']); });
 
   it.each([
