@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import Link from 'next/link';
 
 const fmt = (n: number) =>
@@ -28,12 +28,16 @@ interface Transaction {
   credit: number;
   balance: number;
   source: string;
+  /** Year-end close row — derived, not posted. */
+  derived?: boolean;
 }
 
 interface DrillDownData {
   accountCode: string;
   accountName: string;
   openingBalance: number;
+  /** Movement for the period — equals the statement line the panel was opened from. */
+  periodNet: number;
   closingBalance: number;
   transactions: Transaction[];
 }
@@ -87,20 +91,15 @@ export function AccountDrillDown({
     if (costCentreId) params.set('cost_centre_id', costCentreId);
     if (businessUnitId) params.set('business_unit_id', businessUnitId);
 
-    apiFetch(`/api/accounting/reports-account-transactions?${params}`)
-      .then(async r => {
-        const json = await r.json();
-        if (!r.ok) throw new Error('Failed to load transactions');
-        return json;
-      })
-      .then(json => {
+    apiJson(`/api/accounting/reports-account-transactions?${params}`, undefined, 'Could not load the transactions - try again')
+      .then(d => {
         if (cancelled) return;
-        const d = json.data || json;
         if (!d || !Array.isArray(d.transactions)) throw new Error('Invalid transaction response');
         setData(d);
       })
-      .catch(() => {
-        if (!cancelled) setError('Failed to load transactions');
+      .catch(err => {
+        // The server's own 400/404 message, not a generic line.
+        if (!cancelled) setError(apiErrorMessage(err, 'Could not load the transactions - try again'));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -108,6 +107,8 @@ export function AccountDrillDown({
 
     return () => { cancelled = true; };
   }, [accountCode, periodStart, periodEnd, costCentreId, businessUnitId]);
+
+  const postedCount = data ? data.transactions.filter(t => !t.derived).length : 0;
 
   const content = (
     <div className="bg-[var(--ff-bg-primary)] border-t border-[var(--ff-border-light)]">
@@ -149,7 +150,7 @@ export function AccountDrillDown({
           {data.transactions.map((tx, i) => (
             <div
               key={`${tx.entryNumber}-${i}`}
-              className="px-4 py-1 flex items-center gap-3 text-xs border-b border-[var(--ff-border-light)]/40 hover:bg-[var(--ff-bg-tertiary)]/20"
+              className={`px-4 py-1 flex items-center gap-3 text-xs border-b border-[var(--ff-border-light)]/40 hover:bg-[var(--ff-bg-tertiary)]/20${tx.derived ? ' italic' : ''}`}
             >
               <span className="w-20 text-[var(--ff-text-tertiary)]">{fmtDate(tx.date)}</span>
               <span className="w-24 font-mono text-[var(--ff-text-secondary)]">{tx.entryNumber}</span>
@@ -166,10 +167,16 @@ export function AccountDrillDown({
             </div>
           ))}
 
+          {/* Movement for period — the figure on the statement line */}
+          <div className="px-4 py-1.5 flex items-center justify-between text-xs border-t border-[var(--ff-border-light)]">
+            <span className="text-[var(--ff-text-tertiary)] font-medium">Movement for period</span>
+            <span className="font-mono text-[var(--ff-text-secondary)]">{fmt(data.periodNet)}</span>
+          </div>
+
           {/* Closing balance */}
           <div className="px-4 py-1.5 flex items-center justify-between text-xs bg-[var(--ff-bg-tertiary)]/50 border-t border-[var(--ff-border-light)]">
             <span className="text-[var(--ff-text-tertiary)] font-medium">
-              Closing Balance ({data.transactions.length} transaction{data.transactions.length !== 1 ? 's' : ''})
+              Closing Balance ({postedCount} transaction{postedCount !== 1 ? 's' : ''})
             </span>
             <span className="font-mono font-medium text-[var(--ff-text-primary)]">{fmt(data.closingBalance)}</span>
           </div>

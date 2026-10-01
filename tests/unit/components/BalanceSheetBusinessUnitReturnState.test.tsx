@@ -1,9 +1,11 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import BalanceSheetPage from '@/../pages/accounting/reports/balance-sheet';
 import { apiFetch } from '@/lib/apiFetch';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({children}: {children: React.ReactNode}) => <>{children}</> }));
 vi.mock('@/contexts/TableDensityContext', () => ({ useTableDensity: () => ({rowClass: ''}) }));
 vi.mock('@/components/accounting/BalanceSheetBody', () => ({

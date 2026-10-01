@@ -17,6 +17,8 @@ import {
   type GeneralLedgerCursor,
 } from '@/modules/accounting/services/gl/generalLedgerStreamService';
 import { GL_ACCOUNT_TYPES } from '@/modules/accounting/types/gl.types';
+import { UUID_RE } from '@/lib/validation';
+import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import {
   buildEnvelope,
   decodeCursor,
@@ -24,12 +26,17 @@ import {
   isDetailLevel,
   type DetailLevel,
 } from '@/lib/mcp/contracts';
-import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { clampLimit, guardCastableArgs, nulArgError, ok, strArg, toolError } from './toolHelpers';
 
 /** A read that consumed no ledger row has no `posted_through`. */
 const NO_LEDGER_READ = '1970-01-01T00:00:00.000Z';
 
 const CURSOR_PARTS = 4;
+
+const CREATED_KEY_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/;
+function isCursorKey(p: readonly string[]): boolean {
+  return isLedgerDate(p[1]) && !p[0]!.includes('\u0000') && CREATED_KEY_RE.test(p[2]!) && UUID_RE.test(p[3]!);
+}
 
 /** Every element of a string-array argument, or undefined when absent. */
 function strArrayArg(args: Record<string, unknown>, key: string): string[] | undefined {
@@ -53,6 +60,8 @@ export const generalLedgerTool: McpTool = {
     'Filters. Account-level (account_codes, account_ids, account_types) select whole accounts and PRESERVE runningBalance. Line-level (sources, min_amount, search) select some of an account’s lines, so runningBalance is null and runningBalanceSuppressed is true — a running total over a subset is not a balance the account ever held. ' +
     'balanced is true only when the period is read UNFILTERED and its debits equal its credits; under any filter it is null, because debits matching credits over a subset is a coincidence and not a check. ' +
     'totalDebit, totalCredit, lineCount and accountCount are over the WHOLE filtered set, never just the page. openingBalances carries an entry for every account in the set, zero included. ' +
+    'FISCAL YEAR. Revenue and expense accounts open at the start of the fiscal year containing period_start, not at inception; balance-sheet accounts open cumulatively from inception. If the range crosses a later fiscal-year start, a revenue or expense line dated on or after it has runningBalance null (a cumulative total would not be the trial balance’s, and no year-end line is inserted here), and incomeStatementBalanceNullFrom names that start date; it is null when the range crosses none. Balance-sheet lines are never nulled. search_gl, for one account, inserts derived year-end close rows and keeps the balance. ' +
+    'RE-BF: an UNFILTERED read adds an openingBalances key RE-BF, the retained earnings brought forward — the profit earned before that fiscal-year start, credit positive (negative is an accumulated loss), omitted when under 1 cent. It is derived, not a posted account: it has no lines and is not counted in accountCount. A filtered read never carries it. ' +
     'Paging: call again with cursor set and every other argument unchanged until next_cursor is null. Every line is served exactly once. ' +
     'COMPLETENESS: universeTotal is the UNFILTERED posted line count for the period, so rowsTotal below it means you are holding an extract and excludedTotal says how many lines your filters removed. An unfiltered call has excludedTotal 0 and rowsTotal equal to universeTotal. ' +
     'detail: "summary" returns totals only; "standard" (default) and "full" return lines.',
@@ -95,6 +104,8 @@ export const generalLedgerTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    const nul = nulArgError(args);
+    if (nul) return nul;
     const periodStart = strArg(args, 'period_start');
     const periodEnd = strArg(args, 'period_end');
     if (!periodStart || !periodEnd) {
@@ -105,6 +116,10 @@ export const generalLedgerTool: McpTool = {
     // so a 22P02 raised after it aborts the whole request transaction.
     const bad = guardCastableArgs(args, { date: ['period_start', 'period_end'] });
     if (bad) return bad;
+    // isRealCalendarDate allows years 1-9999; the ledger's FY floor does not survive year 0.
+    if (!isLedgerDate(periodStart)) return toolError(`period_start ${LEDGER_DATE_MESSAGE}`);
+    if (!isLedgerDate(periodEnd)) return toolError(`period_end ${LEDGER_DATE_MESSAGE}`);
+    if (periodStart > periodEnd) return toolError('period_start must not be after period_end');
     if (accountIds?.some((id) => guardCastableArgs({ id }, { uuid: ['id'] }) !== null)) {
       return toolError('invalid account_ids');
     }
@@ -124,7 +139,8 @@ export const generalLedgerTool: McpTool = {
     let after: GeneralLedgerCursor | null = null;
     if (rawCursor !== undefined) {
       const decoded = decodeCursor(rawCursor, CURSOR_PARTS);
-      if (!decoded) return toolError('invalid cursor');
+      // Every part is cast in SQL (::DATE, ::UUID): refuse one that cannot be before any query.
+      if (!decoded || !isCursorKey(decoded.parts)) return toolError('invalid cursor');
       after = {
         accountCode: decoded.parts[0]!,
         date: decoded.parts[1]!,
@@ -198,6 +214,7 @@ export const generalLedgerTool: McpTool = {
       // From the service. Never recomputed from the rows on this page.
       balanced: page.balanced,
       runningBalanceSuppressed: page.runningBalanceSuppressed,
+      incomeStatementBalanceNullFrom: page.incomeStatementBalanceNullFrom,
       openingBalances: page.openingBalances,
     });
   },
