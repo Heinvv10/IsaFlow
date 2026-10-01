@@ -63,7 +63,9 @@ function faults(svg: string, steps: WaterfallStep[]): string[] {
 }
 
 const SEEDS = [424_242, 777_001, 13_579, 20_260_930, 5_550_123, 31_415_927];
-const PER_SEED = 1_200;
+/** Per seed and per path. Sized so the pack's fuzz tests together stay near a
+ *  minute of the unit run; the raster harness runs thousands more per seed. */
+const PER_SEED = 320;
 /** The one box the management pack's print view draws its bridge in. */
 const BOX = LEGACY_WATERFALL_BOX;
 

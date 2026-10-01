@@ -1,5 +1,5 @@
 /**
- * TWENTY THOUSAND BRIDGES, RENDERED BY ECHARTS AND READ BACK OFF THE SVG.
+ * SEEDED BRIDGES, RENDERED BY ECHARTS AND READ BACK OFF THE SVG.
  *
  * Three rounds fixed bridge labels one case at a time and each fix opened the
  * next, because each was checked against a model of the plot rather than the
@@ -22,7 +22,11 @@ import type { WaterfallStep } from '@/modules/accounting/services/reports/waterf
 import { bars, clipRect, figures, illegible, outsideClip, wrongSide } from './support/bridgeSvg';
 import { yAxisTicks } from './support/svgTicks';
 
-const BRIDGES = 20_000;
+/** It was twenty thousand, and over a minute of the unit run: the round-10
+ *  fuzz (`packBridgeFigureLegible`) now draws the callers' own bridges on six
+ *  seeds. This keeps its own seed, its odd asks and in-between heights, and
+ *  the one assertion only it makes — the clip is the plot the layout chose. */
+const BRIDGES = 1_500;
 const HEIGHTS_MM = [48, 55, 60, 66.56, 72, 90, 110];
 const LONG = 'Other, not separately captured';
 const MIN_PITCH_PX = 18;
