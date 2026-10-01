@@ -5,11 +5,13 @@
  * re-implementation of the contract here.
  * Use: vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
  */
-import { vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 
 export async function mockedApiFetchModule() {
   const real = await vi.importActual<typeof import('@/lib/apiFetch')>('@/lib/apiFetch');
   const apiFetch = vi.fn();
-  vi.stubGlobal('fetch', (url: unknown, init?: unknown) => apiFetch(url, init));
+  // Stub per test and undo after it, so the stub never leaks into another test in the file.
+  beforeEach(() => { vi.stubGlobal('fetch', (url: unknown, init?: unknown) => apiFetch(url, init)); });
+  afterEach(() => { vi.unstubAllGlobals(); });
   return { ...real, apiFetch };
 }

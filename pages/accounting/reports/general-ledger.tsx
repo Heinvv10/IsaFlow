@@ -60,26 +60,33 @@ export default function GeneralLedgerPage() {
   const [reports, setReports] = useState<AccountReport[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
 
   const requestRef = useRef(0);
 
   const load = useCallback(async () => {
-    if (!periodStart || !periodEnd) return;
+    if (!periodStart || !periodEnd) {
+      // Clearing an input invalidates in-flight requests and clears data and loading.
+      requestRef.current += 1;
+      setReports([]); setError(''); setLoading(false);
+      return;
+    }
     // Only the latest request may set state (same pattern as the account detail page).
     const requestId = ++requestRef.current;
     const latest = () => requestId === requestRef.current;
     const failure = 'Could not load the general ledger - try again';
     setLoading(true);
     setError('');
+    setLoaded(false);
     try {
       const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
       // ONE request for every account. The previous version fanned out one
       // request per account from the browser and capped the list at 20, which
       // silently truncated the report (issue #287).
       const data = await apiJson(`/api/accounting/reports-general-ledger?${params}`, { credentials: 'include' }, failure);
-      if (latest()) setReports(data.accounts ?? []);
+      if (latest()) { setReports(data.accounts ?? []); setLoaded(true); }
     } catch (err) {
       if (latest()) {
         // The server's own 400 message (bad date, inverted range); nothing stale stays on screen.
@@ -176,7 +183,7 @@ export default function GeneralLedgerPage() {
           ) : visible.length === 0 ? (
             <div className="text-center py-12 text-[var(--ff-text-secondary)]">
               {reports.length === 0
-                ? 'No account activity for the selected period'
+                ? (loaded ? 'No account activity for the selected period' : '')
                 : `No account matches "${filter}"`}
             </div>
           ) : (

@@ -72,7 +72,12 @@ export default function AccountTransactionsPage() {
   const requestRef = useRef(0);
 
   const load = useCallback(async () => {
-    if (!periodStart || !periodEnd || !accountCode) return;
+    if (!periodStart || !periodEnd || !accountCode) {
+      // Clearing an input invalidates in-flight requests and clears data and loading.
+      requestRef.current += 1;
+      setReport(null); setError(''); setLoading(false);
+      return;
+    }
     // Only the latest request may set state (same pattern as the account detail page).
     const requestId = ++requestRef.current;
     const latest = () => requestId === requestRef.current;

@@ -54,8 +54,10 @@ export function AccountLedgerSummary({
         {closedYears > 0 && (
           <p className="text-xs text-[var(--ff-text-tertiary)]">
             {/* closedToRetainedEarnings is the negated NET of the normal-side balances closed: show it unsigned, direction in words. */}
-            {closedYears} year-end close{closedYears === 1 ? '' : 's'} (derived): net {fmt(Math.abs(closedToRetainedEarnings))}
-            {closedToRetainedEarnings > 0 ? ' returned from' : ' closed to'} retained earnings
+            {closedYears} year-end close{closedYears === 1 ? '' : 's'} (derived):{' '}
+            {closedToRetainedEarnings === 0
+              ? `net ${fmt(0)} — the closed years offset`
+              : `net ${fmt(Math.abs(closedToRetainedEarnings))}${closedToRetainedEarnings > 0 ? ' returned from' : ' closed to'} retained earnings`}
           </p>
         )}
       </div>

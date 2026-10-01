@@ -59,7 +59,9 @@ export default function AccountDetailPage() {
 
   const load = useCallback(async () => {
     if (!accountId || typeof accountId !== 'string' || !from || !to) {
+      // Clearing an input invalidates in-flight requests and clears data and loading.
       requestRef.current += 1;
+      setData(null); setError(''); setLoading(false);
       return;
     }
     const requestId = ++requestRef.current;

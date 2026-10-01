@@ -31,7 +31,8 @@ describe('AccountLedgerSummary year-end close wording', () => {
   it('two years closed on opposite sides that net to zero still show the line, with the year count', () => {
     const t = text(0, 2);
     expect(t).toContain('2 year-end closes');
-    expect(t).toContain(`net ${fmt(0)}`);
+    expect(t).toContain(`net ${fmt(0)} — the closed years offset`);
+    expect(t).not.toContain('closed to retained earnings');
   });
 
   it('mixed years: the count is stated and the net direction follows the net', () => {
