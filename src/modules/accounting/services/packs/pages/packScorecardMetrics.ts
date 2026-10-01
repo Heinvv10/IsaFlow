@@ -14,10 +14,12 @@ import {
   DEBTOR_DAYS_SOURCE,
   CREDITOR_DAYS_SOURCE,
   DEBT_TO_EQUITY_SOURCE,
+  INTEREST_COVER_SOURCE,
   operatingProfitOf,
   readCreditorDays,
   readDebtToEquity,
   readDebtorDays,
+  readInterestCover,
   readOverCurrentLiabilities,
   type PackMetricRead,
 } from '@/modules/accounting/services/packs/figures/packMetricReads';
@@ -164,18 +166,17 @@ export const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: Metr
         read: (r, raw) => readDebtToEquity(r, raw),
       },
       {
-        // R-P44: the pack captures no interest expense at all, so
-        // `interestCoverage`'s `interestExp > 0 ? ... : 0` branch can never
-        // fire — its 0 is an artefact, not a measurement, and would tell a
-        // director "cannot service debt from earnings" falsely.
+        // R-P44, AND WHAT CHANGED. The figure set once carried no interest
+        // expense, and the engine's cover on a missing input was an artefact
+        // zero that told a director "cannot service debt from earnings"
+        // falsely — so this row refused to state it. The set now carries the
+        // ledger's interest, the engine states no cover without it and says
+        // why, and this row prints what the engine gives. No target: unscored.
         metric: 'Interest cover',
         format: 'ratio',
-        source: 'calculateExtendedRatios.interestCoverage',
+        source: INTEREST_COVER_SOURCE,
         lowerIsBetter: false,
-        read: () => ({
-          value: null,
-          unavailable: 'Interest expense is not captured in the pack figure set.',
-        }),
+        read: readInterestCover,
       },
     ],
   },

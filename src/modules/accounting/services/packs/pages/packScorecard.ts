@@ -65,6 +65,19 @@ export function packFiguresToFinancialData(f: ReportPackFigures): FinancialData 
     // operating line to the rand. `accountSubtypes` folds amortisation into
     // the same `depreciation_expense` band, so one field carries both.
     depreciation: f.depreciation,
+    // OFF THE LEDGER, AS ON FINANCIAL ANALYSIS — the six inputs
+    // `readReportPackInput` reads for the window, all or none. They were read
+    // and not handed over, so page 9 said interest expense "is not captured in
+    // the pack figure set" of a figure set that carried it. Where the read
+    // failed none is set and the engine is told so, which is a different
+    // sentence from a ledger that holds none.
+    interestExpense: f.interestExpense,
+    interestIncome: f.interestIncome,
+    employeeCosts: f.employeeCosts,
+    employeeCount: f.employeeCount,
+    taxExpense: f.taxExpense,
+    directMaterialCosts: f.directMaterialCosts,
+    ledgerInputsNotRead: f.ratioInputsUnavailable,
   };
 }
 

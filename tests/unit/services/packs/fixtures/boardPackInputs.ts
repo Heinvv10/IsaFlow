@@ -13,6 +13,7 @@
  * client: negative revenue, negative equity, no prior period, no budget, and
  * no approved commentary on either narrative page.
  */
+import { RATIO_INPUTS_NOT_READ } from '@/modules/accounting/services/reports/reportPackDataService';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
@@ -20,6 +21,12 @@ import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTre
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import { BOARD_DECISIONS } from '@/modules/accounting/services/packs/pages/packMatterDecisions';
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
+
+/** The six ledger ratio inputs of a company that was read and records none
+ *  of them in the window — a different state from a read that failed. */
+export const NO_LEDGER_RATIO_INPUTS = {
+  interestExpense: 0, interestIncome: 0, taxExpense: 0, employeeCosts: 0, employeeCount: 0, directMaterialCosts: 0,
+} as const;
 
 export function figures(overrides: Partial<ReportPackFigures>): ReportPackFigures {
   return {
@@ -53,6 +60,18 @@ export function figures(overrides: Partial<ReportPackFigures>): ReportPackFigure
     // A real charge, so the fixtures exercise the EBITDA add-back rather
     // than a nil one that any implementation would satisfy.
     depreciation: 96_000,
+    // THE LEDGER'S INTEREST, TAX AND EMPLOYEE FIGURES, which the figure set
+    // reads for every window (`readReportPackInput`) — all six or none. They
+    // are the demo company's own: operating profit of 750 000 less other
+    // expenses of 15 000, net interest of 42 000 and tax of 181 000 is the
+    // 512 000 above. A company whose ledger holds none spreads
+    // `NO_LEDGER_RATIO_INPUTS` instead.
+    interestExpense: 48_000,
+    interestIncome: 6_000,
+    taxExpense: 181_000,
+    employeeCosts: 640_000,
+    employeeCount: 9,
+    directMaterialCosts: 1_650_000,
     inventoryCaveat: null,
     classificationCaveat: null,
     cashFlowUnavailable: null,
@@ -149,6 +168,9 @@ export const demoSet: PackFigureSet = {
   current: figures({}),
   currentWindow: { start: '2026-03-01', end: '2026-08-31' },
   prior: figures({
+    interestExpense: 52_000,
+    interestIncome: 4_000,
+    taxExpense: 135_000,
     revenue: 3_750_000,
     costOfSales: 2_100_000,
     operatingExpenses: 1_090_000,
@@ -233,6 +255,23 @@ export const demoInput: BoardPackInput = {
 export const noRatioPanelsInput: BoardPackInput = { ...demoInput, trend: zeroRevenueTrend };
 
 /**
+ * The demo company on a day its interest, tax and employee figures COULD NOT
+ * BE READ: `readReportPackInput` sets none of the six and says so. A third
+ * state beside "stated" and "the ledger holds none", with the longest reason
+ * of the three under page 9's scorecard — in both columns.
+ */
+const unread = (f: ReportPackFigures): ReportPackFigures => ({
+  ...f,
+  interestExpense: undefined, interestIncome: undefined, taxExpense: undefined,
+  employeeCosts: undefined, employeeCount: undefined, directMaterialCosts: undefined,
+  ratioInputsUnavailable: RATIO_INPUTS_NOT_READ,
+});
+export const ratioInputsUnreadInput: BoardPackInput = {
+  ...demoInput,
+  set: { ...demoSet, current: unread(demoSet.current), prior: demoSet.prior === null ? null : unread(demoSet.prior) },
+};
+
+/**
  * THE PACK THE GATE MUST REFUSE — and the reason it is a fixture rather than
  * a company.
  *
@@ -276,6 +315,7 @@ export const outOfBalanceInput: BoardPackInput = {
  */
 export const brightsphereSet: PackFigureSet = {
   current: figures({
+    ...NO_LEDGER_RATIO_INPUTS,
     companyName: 'Brightsphere (Pty) Ltd',
     revenue: -5_535_000,
     costOfSales: 0,
@@ -354,6 +394,7 @@ export const brightsphereInput: BoardPackInput = {
 export const brightspherePriorSet: PackFigureSet = {
   ...brightsphereSet,
   prior: figures({
+    ...NO_LEDGER_RATIO_INPUTS,
     companyName: 'Brightsphere (Pty) Ltd',
     revenue: -2_100_000,
     costOfSales: 0,
@@ -549,6 +590,7 @@ export function basisPage<T>(doc: { pages: T[] }): T {
  */
 export const brightsphereLiveSet: PackFigureSet = {
   current: figures({
+    ...NO_LEDGER_RATIO_INPUTS,
     companyName: 'Brightsphere Technologies (Pty) Ltd',
     period: '2026-01-01 to 2026-09-07',
     revenue: -5_535_000,
@@ -581,6 +623,7 @@ export const brightsphereLiveSet: PackFigureSet = {
   // `largestMoverCaption` says no percentage change is meaningful, in three
   // lines.
   prior: figures({
+    ...NO_LEDGER_RATIO_INPUTS,
     companyName: 'Brightsphere Technologies (Pty) Ltd',
     period: '2025-04-26 to 2025-12-31',
     revenue: 0,

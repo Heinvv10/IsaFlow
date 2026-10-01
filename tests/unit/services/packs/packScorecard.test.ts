@@ -155,11 +155,11 @@ describe('buildScorecardGroups', () => {
     for (const row of groups.flatMap((g) => g.rows)) expect(row.prior).not.toBeNull();
   });
 
-  // R-P44: the pack figure set carries no interest-expense field at all, so
-  // `calculateExtendedRatios.interestCoverage`'s zero-branch would ALWAYS
-  // fire here — printing "0x" on every company, which reads as "cannot
-  // service its debt from earnings" rather than "we don't capture this".
-  it('marks interest cover notMeaningful rather than printing the artefact zero the service always returns', () => {
+  // R-P44: a figure set that carries no interest expense — this one was never
+  // given the ledger's — must not print the engine's old artefact zero, which
+  // reads as "cannot service its debt from earnings". The stated and
+  // none-recorded cases are `packInterestCover.test.ts`.
+  it('marks interest cover notMeaningful where the figure set carries no interest expense', () => {
     const groups = buildScorecardGroups(healthySet, new PackFigureProvenance());
     const interestCover = groups.flatMap((g) => g.rows).find((r) => r.metric.match(/interest cover/i));
     expect(interestCover?.status).toBe('notMeaningful');

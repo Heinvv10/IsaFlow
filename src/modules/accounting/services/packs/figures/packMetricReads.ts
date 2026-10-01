@@ -94,6 +94,29 @@ export function readDebtToEquity(ratios: ExtendedRatioResult, raw: ReportPackFig
       };
 }
 
+export const INTEREST_COVER_SOURCE = 'calculateExtendedRatios.interestCoverage';
+
+/** Reached only if the engine nulls the cover without recording why. */
+const INTEREST_COVER_NOT_STATED = 'Interest cover could not be stated on these figures.';
+
+/**
+ * Interest cover is operating profit over interest EXPENSE — gross finance
+ * costs, not net of interest earned — which is the engine's
+ * `interestCoverage`, the ratio Financial Analysis and the management pack
+ * print under this name. One producer, so the three cannot differ.
+ *
+ * Where it is not stated the reason is the engine's own and is not re-worded:
+ * the ledger records no interest expense in the period, or the interest
+ * figures could not be read. The basis is the pair it divided, so the
+ * integrity gate can recompute the printed multiple.
+ */
+export function readInterestCover(ratios: ExtendedRatioResult, raw: ReportPackFigures): PackMetricRead {
+  if (ratios.interestCoverage === null || raw.interestExpense === undefined) {
+    return { value: null, unavailable: ratios.notMeaningful.interestCoverage ?? INTEREST_COVER_NOT_STATED };
+  }
+  return { value: ratios.interestCoverage, basis: { numerator: operatingProfitOf(raw), denominator: raw.interestExpense } };
+}
+
 /**
  * The two current-liability ratios, which `safeDiv` reports as 0 when there
  * are no current liabilities at all.

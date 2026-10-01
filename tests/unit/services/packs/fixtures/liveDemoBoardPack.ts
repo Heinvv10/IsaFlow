@@ -29,7 +29,7 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import { BOARD_DECISIONS } from '@/modules/accounting/services/packs/pages/packMatterDecisions';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
-import { demoInput, figures } from './boardPackInputs';
+import { demoInput, figures, NO_LEDGER_RATIO_INPUTS } from './boardPackInputs';
 
 const NO_PRIOR_MEETING_RECORD = 'Not tracked — no prior board pack is stored to compare against.';
 
@@ -43,6 +43,7 @@ const NO_PRIOR_MEETING_RECORD = 'Not tracked — no prior board pack is stored t
  */
 export const liveDemoSet: PackFigureSet = {
   current: figures({
+    ...NO_LEDGER_RATIO_INPUTS,
     revenue: 98_800,
     costOfSales: 1_430_581,
     operatingExpenses: 225_571,
@@ -82,6 +83,7 @@ export const liveDemoSet: PackFigureSet = {
   // statement holds a sentence instead of a percentage — the density that
   // doubled the height of pages 5 to 8 on the first proof.
   prior: figures({
+    ...NO_LEDGER_RATIO_INPUTS,
     revenue: 0,
     costOfSales: 805_000,
     operatingExpenses: 112_000,

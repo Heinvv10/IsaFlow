@@ -33,6 +33,7 @@ import {
   demoInput,
   denseInput,
   noRatioPanelsInput,
+  ratioInputsUnreadInput,
 } from '../services/packs/fixtures/boardPackInputs';
 import {
   liveDemoBridgeInput,
@@ -95,6 +96,9 @@ const FIXTURES = {
   // paper. It is here because the model's own error, not the page, is what
   // dropped the facts, and this is the shape that shows it.
   'the live demo company whose EBITDA bridge rounds': liveDemoBridgeInput,
+  // Page 9's longest note: the interest, tax and employee figures could not
+  // be read, said under the scorecard for both columns.
+  'the demo company with its ratio inputs unread': ratioInputsUnreadInput,
 } as const;
 
 let browser: Browser;

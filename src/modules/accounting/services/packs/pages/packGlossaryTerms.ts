@@ -193,7 +193,7 @@ export const TERMS: PackDefinition[] = [
   },
   {
     term: 'Interest cover',
-    definition: 'Operating profit divided by net interest expense. This pack captures no interest expense line, so it is reported as not meaningful.',
+    definition: 'Operating profit divided by interest expense for the period — gross finance costs, before any interest earned. Not stated where the ledger records no interest expense in the period.',
   },
   {
     term: 'Debtor days',
