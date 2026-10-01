@@ -29,13 +29,14 @@ const h = vi.hoisted(() => ({
   timeouts: [] as (number | undefined)[],
   /** Runs inside the gateway call, before it answers; a test can hold it open or make it fail. */
   during: null as null | (() => Promise<void>),
+  accessCode: 'ac_r167',
 }));
 vi.mock('@/modules/billing/services/paystackClient', () => ({
   initializeTransaction: async (input: { amountCents: number; reference: string; timeoutMs?: number }) => {
     h.charged.push(input.amountCents);
     h.timeouts.push(input.timeoutMs);
     if (h.during) await h.during();
-    return { reference: input.reference, accessCode: 'ac_r167', authorizationUrl: `https://checkout.test/${input.reference}` };
+    return { reference: input.reference, accessCode: h.accessCode, authorizationUrl: `https://checkout.test/${input.reference}` };
   },
   verifyTransaction: vi.fn(),
   chargeAuthorization: vi.fn(async () => { throw new Error('Paystack must not be charged in this test'); }),
@@ -47,7 +48,7 @@ beforeAll(async () => {
   await seedCompany();
   clearSystemAccountCache();
 });
-beforeEach(() => { h.charged.length = 0; h.timeouts.length = 0; h.during = null; });
+beforeEach(() => { h.charged.length = 0; h.timeouts.length = 0; h.during = null; h.accessCode = 'ac_r167'; });
 afterAll(async () => { vi.unstubAllEnvs(); await cleanupCompany(); });
 
 describe("the invoice's standing link charges the live balance and is never spent", () => {
@@ -218,6 +219,18 @@ describe('create holds nothing across the gateway call', () => {
     expect(r.body.data).toBeUndefined();
     expect((await pool.query('SELECT status, authorization_url FROM paystack_payment_requests WHERE customer_invoice_id = $1', [invoiceId])).rows)
       .toEqual([{ status: 'failed', authorization_url: null }]);
+  });
+
+  it('when storing the URL throws, nothing is handed out and the checkout is swept a minute later', async () => {
+    const { invoiceId, token } = await invoiceWithLink(0, 40.5);
+    h.accessCode = 'ac\u0000'; // Postgres refuses a NUL byte, so the phase-3 write throws
+    expect((await create(token)).statusCode).toBe(500);
+    h.accessCode = 'ac_r167';
+    expect((await create(token)).statusCode).toBe(409);
+    await pool.query("UPDATE paystack_payment_requests SET created_at = NOW() - interval '61 seconds' WHERE customer_invoice_id = $1", [invoiceId]);
+    expect((await create(token)).statusCode).toBe(200);
+    expect((await pool.query('SELECT status FROM paystack_payment_requests WHERE customer_invoice_id = $1 ORDER BY created_at', [invoiceId])).rows)
+      .toEqual([{ status: 'failed' }, { status: 'pending' }]);
   });
 
   it('a checkout still starting blocks a second one even when the balance has moved', async () => {

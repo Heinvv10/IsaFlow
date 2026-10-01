@@ -215,6 +215,30 @@ describe('a completed payment spends the link it came from', () => {
     expect((await linkRow(linkId)).status).toBe('paid');
   });
 
+  it('verify completes a request already failed when Paystack says it was paid, and leaves it failed otherwise', async () => {
+    const { invoiceId, linkId, token } = await invoiceWithLink(0, 20);
+    expect((await create(token)).statusCode).toBe(200);
+    const [req] = await requests(invoiceId);
+    await pool.query("UPDATE paystack_payment_requests SET status = 'failed' WHERE paystack_reference = $1", [req!.ref]);
+    h.verifyTransaction.mockResolvedValue({ status: 'abandoned', id: 1674 });
+    expect((await verify(req!.ref)).body.data?.status).toBe('failed');
+    h.verifyTransaction.mockResolvedValue({ status: 'success', id: 1674, paidAt: new Date().toISOString(), channel: 'card' });
+    expect((await verify(req!.ref)).body.data?.status).toBe('completed');
+    expect(await banked(req!.ref)).toEqual([{ t: '20.00' }]);
+    expect((await linkRow(linkId)).status).toBe('paid');
+  });
+
+  it('verify leaves a request that is not for an invoice to the webhook, which alone can settle it', async () => {
+    const ref = `r167_auth_${randomUUID().slice(0, 8)}`;
+    await pool.query(`INSERT INTO paystack_payment_requests (company_id, purpose, paystack_reference, amount_cents, status)
+      VALUES ($1, 'authorization', $2, 100, 'pending')`, [CO, ref]);
+    h.verifyTransaction.mockResolvedValue({ status: 'success', id: 1675, paidAt: new Date().toISOString(), channel: 'card' });
+    expect((await verify(ref)).body.data?.status).toBe('pending');
+    expect(h.verifyTransaction).not.toHaveBeenCalled();
+    expect((await pool.query('SELECT status FROM paystack_payment_requests WHERE paystack_reference = $1', [ref])).rows)
+      .toEqual([{ status: 'pending' }]);
+  });
+
   it('a request naming a link of another invoice does not spend that link', async () => {
     const mine = await invoiceWithLink(0, 20);
     const other = await invoiceWithLink(0, 20);
