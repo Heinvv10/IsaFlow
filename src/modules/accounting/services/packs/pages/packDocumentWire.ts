@@ -14,7 +14,8 @@
  * compile-time brand: it does not survive `JSON.parse`, and a value that
  * merely looks branded on the far side has been through neither guard. Every
  * SVG-bearing field is therefore re-branded here by `adoptTrustedChartSvg`,
- * which re-runs `assertNoExternalReferences` and `assertStyleBlockIsOurs`.
+ * which re-runs `assertNoExternalReferences` (the grammar parse, with its
+ * style-body check).
  * There is no `as TrustedChartSvg` cast in this file, and there must never
  * be one: a cast here would silently reopen the `dangerouslySetInnerHTML`
  * sink that the brand exists to guard.

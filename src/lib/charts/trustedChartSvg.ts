@@ -20,9 +20,9 @@
 import { parseSvgGrammar, SvgGrammarError, urlReferenceProblem } from './svgGrammar';
 
 /**
- * A string that has passed `assertNoExternalReferences` and
- * `assertStyleBlockIsOurs` — which happens in exactly two places, both in
- * this file: `renderChartSvg` (in `ssrSvg.ts`, which calls the guards after
+ * A string that has passed `assertNoExternalReferences` — one grammar parse
+ * that also checks the `<style>` bodies it extracted — which happens in
+ * exactly two places: `renderChartSvg` (in `ssrSvg.ts`, which calls it after
  * rendering) and `adoptTrustedChartSvg` below. A page-model field typed
  * `TrustedChartSvg` instead of `string` cannot be filled from any other
  * source without an explicit, greppable `as TrustedChartSvg` cast, which is

@@ -10,11 +10,11 @@
  * than reading `document` themselves: that is what makes them callable here.
  * Keep it that way.
  */
-import { normaliseOptionText } from './normaliseOptionText';
 import { createHash } from 'node:crypto';
 
 import { echarts } from '@/lib/charts/echarts';
 import { PACK_FONT_STACK } from '@/lib/charts/packFont';
+import { normaliseOptionText } from './normaliseOptionText';
 
 export const PX_PER_MM = 96 / 25.4;
 
