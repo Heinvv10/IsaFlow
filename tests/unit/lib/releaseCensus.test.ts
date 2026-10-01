@@ -26,15 +26,11 @@ import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import ts from 'typescript';
 
-const PER_RUN_POOL = 'the pool is built for this one run and ended in the same finally, so nothing can check this connection out again';
+const PER_RUN_POOL = 'a migration tool whose pool is built for this one run and ended in the same finally, so nothing outside the run can check this connection out again; its ROLLBACK sits in a helper the release cannot see (see R-176 fix.md)';
 const IMAP_LOCK = 'an IMAP mailbox lock, not a Postgres client';
 const BARE: Record<string, { calls: string[]; reason: string }> = {
-  'pages/api/auth/verify-email.ts': { calls: ['client.release()'], reason: PER_RUN_POOL },
-  'scripts/ap-backfill-supplier-payments.ts': { calls: ['client.release()'], reason: PER_RUN_POOL },
   'scripts/apply-migrations.ts': { calls: ['client.release()'], reason: PER_RUN_POOL },
-  'scripts/auto-apply-unapplied-dryrun.ts': { calls: ['client.release()'], reason: PER_RUN_POOL },
   'scripts/migrations/resolve-checksum-conflicts.ts': { calls: ['client.release()'], reason: PER_RUN_POOL },
-  'scripts/r088-posted-receipt-key-census.ts': { calls: ['client.release()'], reason: PER_RUN_POOL },
   'src/modules/accounting/services/ar/sentMirrorService.ts': { calls: ['lock.release()'], reason: IMAP_LOCK },
   'src/modules/accounting/services/capture/imapMirrorService.ts': { calls: ['lock.release()'], reason: IMAP_LOCK },
 };
@@ -147,7 +143,7 @@ describe('R-176: no transaction owner releases its connection bare', () => {
   it('the tracked tree was read', () => {
     expect(sources.length).toBeGreaterThan(500);
     expect(Object.keys(scanned)).toEqual(expect.arrayContaining(['src/lib/auth/withAuth.ts', 'src/lib/neon.ts', 'scripts/_pg.ts',
-      'pages/api/auth/verify-email.ts', 'src/lib/publicRouteTx.ts', 'src/lib/alsTransaction.ts']));
+      'pages/api/auth/verify-email.ts', 'src/lib/publicRouteTx.ts', 'src/lib/alsTransaction.ts', 'scripts/apply-migrations.ts']));
     expect(sources).toEqual(expect.arrayContaining(['middleware.ts', 'instrumentation.ts']));
   });
 
