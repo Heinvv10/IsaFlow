@@ -8,6 +8,7 @@ import { ArrowLeft, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 interface Supplier { id: string; name: string }
 interface LineItem { key: string; description: string; quantity: string; unitPrice: string; taxRate: string }
@@ -33,7 +34,7 @@ export default function NewPurchaseOrderPage() {
   const [saveAndNew, setSaveAndNew] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [form, setForm] = useState({
-    supplierId: '', orderDate: new Date().toISOString().split('T')[0],
+    supplierId: '', orderDate: localISODate(),
     expectedDeliveryDate: '', notes: '', reference: '',
   });
   const [items, setItems] = useState<LineItem[]>([
@@ -72,7 +73,7 @@ export default function NewPurchaseOrderPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || 'Failed');
       if (andNew) {
-        setForm({ supplierId: '', orderDate: new Date().toISOString().split('T')[0], expectedDeliveryDate: '', notes: '', reference: '' });
+        setForm({ supplierId: '', orderDate: localISODate(), expectedDeliveryDate: '', notes: '', reference: '' });
         setItems([{ key: '1', description: '', quantity: '1', unitPrice: '0', taxRate: '15' }]);
         await router.push('/accounting/purchase-orders/new');
       } else {

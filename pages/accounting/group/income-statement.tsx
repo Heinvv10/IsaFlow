@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { BarChart3, Loader2, AlertCircle, Download, Building2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -53,9 +54,6 @@ interface EntityGroup {
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
-const today = new Date();
-const defaultPeriodStart = `${today.getFullYear()}-01-01`;
-const defaultPeriodEnd = today.toISOString().substring(0, 10);
 
 const selectClass =
   'px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm';
@@ -68,8 +66,8 @@ const inputClass = selectClass;
 export default function ConsolidatedIncomeStatementPage() {
   const [groups, setGroups] = useState<EntityGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
-  const [periodStart, setPeriodStart] = useState(defaultPeriodStart);
-  const [periodEnd, setPeriodEnd] = useState(defaultPeriodEnd);
+  const [periodStart, setPeriodStart] = useState(() => `${new Date().getFullYear()}-01-01`);
+  const [periodEnd, setPeriodEnd] = useState(() => localISODate());
 
   const [data, setData] = useState<ConsolidatedISResponse | null>(null);
   const [loading, setLoading] = useState(false);

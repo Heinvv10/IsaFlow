@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { UserPlus, Loader2, ArrowLeft } from 'lucide-react';
+import { localISODate } from '@/lib/dateUtils';
 
 type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
@@ -25,7 +26,7 @@ interface FormState {
   medicalAidDependantsCount: string;
 }
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => localISODate();
 
 export default function NewEmployeePage() {
   const router = useRouter();

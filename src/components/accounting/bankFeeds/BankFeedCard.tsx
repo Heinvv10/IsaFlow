@@ -15,15 +15,16 @@ import {
   isUnsupportedProvider, providerLabel,
   type BankFeedConnection, type SyncLog,
 } from './bankFeedTypes';
+import { localISODate } from '@/lib/dateUtils';
 
 const ABSA_MAX_DAYS = 180;
 
 function isoDaysAgo(days: number): string {
   const d = new Date();
-  d.setUTCDate(d.getUTCDate() - days);
-  return d.toISOString().slice(0, 10);
+  d.setDate(d.getDate() - days);
+  return localISODate(d);
 }
-function todayIso(): string { return new Date().toISOString().slice(0, 10); }
+function todayIso(): string { return localISODate(); }
 
 interface SyncRange { fromDate: string; toDate: string }
 
@@ -108,7 +109,7 @@ export function BankFeedCard({
   // syncs twice in one day — produces an empty fetch and looks broken.)
   // Capped at 180 days to match ABSA's server-side limit.
   const minFrom = isoDaysAgo(ABSA_MAX_DAYS);
-  const lastSyncIso = conn.lastSyncAt ? new Date(conn.lastSyncAt).toISOString().slice(0, 10) : null;
+  const lastSyncIso = conn.lastSyncAt ? localISODate(new Date(conn.lastSyncAt)) : null;
   const thirtyDaysAgo = isoDaysAgo(30);
   let defaultFrom = lastSyncIso && lastSyncIso < thirtyDaysAgo ? lastSyncIso : thirtyDaysAgo;
   if (defaultFrom < minFrom) defaultFrom = minFrom;

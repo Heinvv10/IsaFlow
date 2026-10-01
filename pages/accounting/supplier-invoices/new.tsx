@@ -18,6 +18,7 @@ import { BillLineItemsTable } from '@/components/accounting/suppliers/BillLineIt
 import type { BillLineItem, GLAccount } from '@/components/accounting/suppliers/BillLineItemsTable';
 import { InvoiceNumberField } from '@/components/accounting/suppliers/InvoiceNumberField';
 import { SupplierInvoiceSummaryCard } from '@/components/accounting/suppliers/SupplierInvoiceSummaryCard';
+import { localISODate } from '@/lib/dateUtils';
 
 interface Supplier { id: number; name: string }
 
@@ -37,7 +38,7 @@ export default function NewSupplierInvoicePage() {
     invoiceNumber: '',
     useSequence: true,
     supplierId: '',
-    invoiceDate: new Date().toISOString().split('T')[0],
+    invoiceDate: localISODate(),
     dueDate: '',
     paymentTerms: 'net30',
     reference: '',

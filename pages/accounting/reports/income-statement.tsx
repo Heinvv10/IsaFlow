@@ -18,12 +18,13 @@ import { PresentLink } from '@/components/accounting/reportControls/PresentLink'
 import { useStatementComparatorState } from '@/components/accounting/reportControls/useStatementComparatorState';
 import { ComparatorNotices } from '@/components/accounting/reportControls/ComparatorNotices';
 import { reportHref } from '@/components/reports/reportReturnState';
+import { localISODate } from '@/lib/dateUtils';
 
 interface CostCentre { id: string; code: string; name: string }
 interface BusinessUnit { id: string; code: string; name: string }
 
 function clampToToday(dateStr: string): string {
-  const today = new Date().toISOString().split('T')[0] ?? '';
+  const today = localISODate();
   return dateStr > today ? today : dateStr;
 }
 
@@ -31,8 +32,8 @@ function getDefaultDates(): { periodStart: string; periodEnd: string } {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
   return {
-    periodStart: start.toISOString().split('T')[0] ?? '',
-    periodEnd: now.toISOString().split('T')[0] ?? '',
+    periodStart: localISODate(start),
+    periodEnd: localISODate(now),
   };
 }
 

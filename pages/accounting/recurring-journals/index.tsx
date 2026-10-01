@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RotateCcw, Plus, Pause, Play, XCircle, Zap, Loader2, Trash2, Pencil, Save, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 interface RecurringJournal {
   id: string; templateName: string; description?: string; frequency: string;
@@ -133,7 +134,7 @@ export default function RecurringJournalsPage() {
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `recurring-journals-${new Date().toISOString().split('T')[0]}.csv`; a.click();
+    a.download = `recurring-journals-${localISODate()}.csv`; a.click();
   };
 
   return (
