@@ -23,7 +23,7 @@ import { validatePat } from './personalAccessTokens';
 import { validateOauthAccessToken, type OauthAccessContext } from './oauth';
 import type { CompanyAuthedRequest } from './withAuth';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
-import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } from './deferredEnd';
+import { deferEnd, answerThrow, replayEnd, answerCommitFailed, type DeferredEnd } from './deferredEnd';
 
 /**
  * Auto rate-limit table — must stay in sync with the equivalent table in
@@ -255,32 +255,26 @@ export async function runBearerRequest(
     // A 5xx means the request failed (withErrorHandler sits inside and may have
     // caught+responded 500) — never COMMIT its partial writes.
     const handlerFailed = res.statusCode >= 500;
-    try {
-      await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
-    } catch (finalizeErr) {
+    if (handlerFailed) {
+      // Nothing is meant to commit: the handler's own answer stands even if this ROLLBACK fails.
       unusable = await rollbackFailed(client, 'bearerPipeline');
-      log.error('bearerPipeline: transaction finalize failed after handler responded', {
-        url: req.url,
-        status: res.statusCode,
-        handlerFailed, connectionDestroyed: unusable,
-        message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
-      }, 'Auth');
-      if (process.env.SENTRY_ENABLED === 'true' && finalizeErr instanceof Error) {
-        Sentry.captureException(finalizeErr);
+    } else {
+      try {
+        await client.query('COMMIT');
+      } catch (finalizeErr) {
+        unusable = await rollbackFailed(client, 'bearerPipeline');
+        log.error('bearerPipeline: transaction finalize failed after handler responded', {
+          url: req.url,
+          status: res.statusCode,
+          connectionDestroyed: unusable,
+          message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
+        }, 'Auth');
+        if (process.env.SENTRY_ENABLED === 'true' && finalizeErr instanceof Error) {
+          Sentry.captureException(finalizeErr);
+        }
+        answerCommitFailed(res, flush); // replace the buffered 2xx with an honest 500 — the write did NOT land
+        return; // finally still runs (release + slow-request log)
       }
-      if (res.headersSent) {
-        abortResponse(res); // the status is on the wire; a clean close would read as success
-      } else {
-        // Replace the buffered 2xx with an honest 500 — the write did NOT land.
-        const body = JSON.stringify({
-          success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED',
-        });
-        res.statusCode = 500;
-        res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.setHeader('Content-Length', Buffer.byteLength(body));
-        flush.realEnd(body);
-      }
-      return; // finally still runs (release + slow-request log)
     }
 
     // Transaction durable — replay the buffered flush, then start after-commit work (R-075).
@@ -289,8 +283,9 @@ export async function runBearerRequest(
     if (!handlerFailed) drainAfterCommit(txCtx);
   } catch (err) {
     // R-159: answer the throw here; see withAuth.
-    unusable = (await rollbackFailed(client, 'bearerPipeline')) || unusable;
-    answerThrow(req, res, deferred, err, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId, rolledBack: !unusable });
+    const failed = await rollbackFailed(client, 'bearerPipeline');
+    unusable = unusable || failed; // an earlier failed ROLLBACK still condemns the connection
+    answerThrow(req, res, deferred, err, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId, rolledBack: !failed });
   } finally {
     client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
     const ms = Date.now() - startedAt;

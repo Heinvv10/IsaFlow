@@ -110,8 +110,9 @@ async function buildOneClientRow(
   // RLS-aware sub-query inside getMonthEndWorkbench inherits the right
   // tenant context. Also gives us transactional rollback if mid-iteration
   // queries fail.
-  await client.query('BEGIN READ ONLY');
   try {
+    // Inside the try (R-176): a BEGIN that reached the server but failed here must be rolled back too.
+    await client.query('BEGIN READ ONLY');
     await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [cu.companyId]);
 
     // Run the workbench for this company under an ALS context that points at

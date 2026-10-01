@@ -9,7 +9,7 @@
 import { getPool } from '@/lib/neon';
 import { als, assertTxUsable, type RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
-import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 
 /**
  * Run `fn` in one transaction that every nested `sql` call joins.
@@ -67,14 +67,9 @@ export async function withAlsTransaction<T>(
     drainAfterCommit(ctx);
     return result;
   } catch (err) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (rollbackErr) {
-      // A connection whose ROLLBACK failed is in an unknown state. Returning it
-      // to the pool hands the next caller an aborted transaction; destroy it.
-      poisoned = true;
-      log.error('withAlsTransaction: ROLLBACK failed, destroying the connection', { error: rollbackErr }, 'DB');
-    }
+    // A connection whose ROLLBACK failed is in an unknown state. Returning it
+    // to the pool hands the next caller an aborted transaction; destroy it.
+    poisoned = await rollbackFailed(client, 'withAlsTransaction');
     throw err;
   } finally {
     client.release(poisoned ? new Error('rollback failed') : undefined);

@@ -14,7 +14,7 @@ import { rollbackFailed } from '@/lib/rollbackFailed';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
-import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } from './deferredEnd';
+import { deferEnd, answerThrow, replayEnd, answerCommitFailed, type DeferredEnd } from './deferredEnd';
 
 // Re-exported so every existing `import { withRole } from '@/lib/auth/withAuth'`
 // keeps working; the implementation moved to withRole.ts (300-line ceiling).
@@ -218,44 +218,29 @@ export function withAuth(handler: Handler): NextApiHandler {
       // writes. <5xx commits (4xx keeps today's behaviour — handlers that
       // validate-then-4xx almost always return before any write).
       const handlerFailed = res.statusCode >= 500;
-      try {
-        await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
-      } catch (finalizeErr) {
-        // The transaction could not be finalised after the handler "responded".
-        // Best-effort rollback, then (for the common deferred-flush case where
-        // headers have NOT yet been sent) replace the buffered 2xx flush with an
-        // honest 500 — today that is a silent lie (a committed-failed 200).
+      if (handlerFailed) {
+        // Nothing is meant to commit, so the handler's own answer stands even if this ROLLBACK
+        // fails: the connection is then destroyed and the server discards the transaction (R-176).
         unusable = await rollbackFailed(client, 'withAuth');
-        log.error('withAuth: transaction finalize failed after handler responded', {
-          url: req.url,
-          status: res.statusCode,
-          handlerFailed, // distinguishes a failed COMMIT (2xx) from a failed ROLLBACK (5xx)
-          connectionDestroyed: unusable,
-          message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
-        }, 'Auth');
-        if (process.env.SENTRY_ENABLED === 'true' && finalizeErr instanceof Error) {
-          Sentry.captureException(finalizeErr);
+      } else {
+        try {
+          await client.query('COMMIT');
+        } catch (finalizeErr) {
+          // The COMMIT failed after the handler "responded": the write did not land, or its
+          // outcome is unknown. Roll back, then replace the buffered 2xx with an honest 500.
+          unusable = await rollbackFailed(client, 'withAuth');
+          log.error('withAuth: transaction finalize failed after handler responded', {
+            url: req.url,
+            status: res.statusCode,
+            connectionDestroyed: unusable,
+            message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
+          }, 'Auth');
+          if (process.env.SENTRY_ENABLED === 'true' && finalizeErr instanceof Error) {
+            Sentry.captureException(finalizeErr);
+          }
+          answerCommitFailed(res, flush);
+          return; // finally still runs (release + slow-request log)
         }
-        if (res.headersSent) {
-          // A streaming/redirect route already flushed headers before COMMIT
-          // (e.g. an xlsx export that pipes via res.write, or res.redirect's
-          // writeHead) — the status can't be rewritten. Abort rather than
-          // complete it: a clean close reads as a 2xx for a write that did not
-          // land (R-159). Never hung either way.
-          abortResponse(res);
-        } else {
-          const body = JSON.stringify({
-            success: false,
-            data: null,
-            message: 'An unexpected error occurred',
-            code: 'COMMIT_FAILED',
-          });
-          res.statusCode = 500;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.setHeader('Content-Length', Buffer.byteLength(body));
-          flush.realEnd(body);
-        }
-        return; // finally still runs (release + slow-request log)
       }
 
       // Transaction durable — now replay the buffered flush. If the handler
@@ -269,8 +254,9 @@ export function withAuth(handler: Handler): NextApiHandler {
     } catch (err) {
       // R-159: answer the throw here. Rethrowing left res.end swapped, so any later 500 was
       // buffered and never sent; routes without an inner withErrorHandler hung the client.
-      unusable = (await rollbackFailed(client, 'withAuth')) || unusable;
-      answerThrow(req, res, deferred, err, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub, rolledBack: !unusable });
+      const failed = await rollbackFailed(client, 'withAuth');
+      unusable = unusable || failed; // an earlier failed ROLLBACK still condemns the connection
+      answerThrow(req, res, deferred, err, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub, rolledBack: !failed });
     } finally {
       client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
       const ms = Date.now() - startedAt;

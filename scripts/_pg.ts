@@ -22,6 +22,7 @@
  */
 
 import pg from 'pg';
+import { rollbackFailed } from '../src/lib/rollbackFailed';
 
 let _pools: Map<string, pg.Pool> = new Map();
 
@@ -133,6 +134,7 @@ export async function withTransactionPg<T>(
   if (!url) throw new Error('withTransactionPg needs a connection string or DATABASE_URL');
   const pool = getOrCreatePool(url);
   const client = await pool.connect();
+  let unusable = false;
   try {
     await client.query('BEGIN');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -159,9 +161,9 @@ export async function withTransactionPg<T>(
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    try { await client.query('ROLLBACK'); } catch { /* secondary; swallow */ }
+    unusable = await rollbackFailed(client, 'withTransactionPg');
     throw err;
   } finally {
-    client.release();
+    client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
   }
 }

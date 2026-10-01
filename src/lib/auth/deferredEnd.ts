@@ -71,6 +71,23 @@ export function abortResponse(res: NextApiResponse): void {
 }
 
 /**
+ * Answers a COMMIT that failed. The buffered 2xx must not go out: the write did not land, or its
+ * outcome is unknown. 500 COMMIT_FAILED replaces it; a response whose status line is already on
+ * the wire is aborted, because a clean close would read as success.
+ */
+export function answerCommitFailed(res: NextApiResponse, deferred: DeferredEnd): void {
+  if (res.headersSent) {
+    abortResponse(res);
+    return;
+  }
+  const body = JSON.stringify({ success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED' });
+  res.statusCode = 500;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Length', Buffer.byteLength(body));
+  deferred.realEnd(body);
+}
+
+/**
  * Sends the buffered end once the transaction is final. It never throws: the transaction may
  * already have COMMITted, so a failure here (Node refuses `end({ id })`, for one) must not
  * reach the wrapper's catch, which would ROLLBACK a committed write and tell the client it

@@ -70,3 +70,59 @@ AssertionError: expected 500 to be 200 // Object.is equality
 AssertionError: expected 1 to be +0 // Object.is equality
  Test Files  1 failed (1)
       Tests  2 failed | 3 passed (5)
+
+# Round 3 (review round 1). RED on 6c30dbec8 + the new and changed cases; source unchanged (2026-10-01T11:18:20Z).
+# Pass on this head already, so they are proved by mutants instead: the early returns whose ROLLBACK throws, the real query_timeout case, the criticalAuditFailed case.
+## integration
+   × a BEGIN that fails after it reached the server: rolled back, not pooled inside the open transaction 15ms
+     × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 16ms
+     × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 17ms
+     × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 16ms
+     × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 15ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write 13ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write 10ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write 1046ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1040ms
+     × a BEGIN that fails after it reached the server: rolled back, so the next admin write is not read-only 4ms
+     × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 7ms
+     × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 4ms
+     × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 3ms
+     × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 3ms
+     × the wait is bounded: 500 is sent, the connection is destroyed in flight, the pool keeps no slot 9018ms
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withAuth > a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withBearerOrCookieAuth (PAT) > a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withBearerAuth (PAT) > a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withExtensionToken > a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets
+AssertionError: expected { status: 500, code: 'COMMIT_FAILED' } to deeply equal { status: 503, code: 'R176_BUSY' }
+ FAIL  tests/integration/r176-invite-accept-evicts-connection.int.test.ts > a BEGIN that fails after it reached the server: rolled back, not pooled inside the open transaction
+AssertionError: expected 'idle in transaction' to be 'idle' // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withTransaction > a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > sql.transaction > a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write
+AssertionError: expected 1 to be +0 // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withTransactionPg (scripts/_pg.ts) > a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write
+AssertionError: expected 1 to be +0 // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withTransactionPg (scripts/_pg.ts) > a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands
+AssertionError: expected 1 to be +0 // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > portfolio workbench (one READ ONLY transaction per client company) > a BEGIN that fails after it reached the server: rolled back, so the next admin write is not read-only
+AssertionError: expected 'idle in transaction' to be 'idle' // Object.is equality
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withAuth > a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withBearerOrCookieAuth (PAT) > a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withBearerAuth (PAT) > a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back
+AssertionError: expected { …(6) } to match object { rolledBack: true }
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withExtensionToken > a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back
+AssertionError: expected { …(7) } to match object { rolledBack: true }
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withAuth: a ROLLBACK that does not answer > the wait is bounded: 500 is sent, the connection is destroyed in flight, the pool keeps no slot
+AssertionError: expected 9017 to be less than 7500
+ Test Files  4 failed (4)
+      Tests  15 failed | 66 passed | 1 skipped (82)
+## unit (rollbackFailed bound, release census)
+     × every bare release is one of the pinned ones 153ms
+     × a ROLLBACK that never answers is abandoned at the bound, not before it 3ms
+     × the bound is a few seconds 1ms
+     × an abandoned ROLLBACK that rejects later is handled: no unhandled rejection, no second log line 10002ms
+AssertionError: a bare .release(): release with the result of rollbackFailed(), or pin it in BARE with the reason no later caller can receive that connection: expected { …(11) } to deeply equal { …(8) }
+AssertionError: expected undefined to be true // Object.is equality
+AssertionError: expected undefined to be 5000 // Object.is equality
+Error: Test timed out in 10000ms.
+ Test Files  2 failed (2)
+      Tests  4 failed | 20 passed (24)
