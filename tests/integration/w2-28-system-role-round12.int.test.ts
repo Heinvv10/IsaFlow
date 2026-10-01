@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { randomUUID } from 'crypto';
 import type { PoolClient } from 'pg';
-import { brkFixture, within } from './w2-28-brk593.helpers';
+import { brkFixture, sleep, within } from './w2-28-brk593.helpers';
 import { drainAfterCommit } from '@/lib/afterCommit';
 
 const h = vi.hoisted(() => ({ run: null as null | (<T>(fn: () => Promise<T>) => Promise<T>), auth: {} as Record<string, unknown> }));
@@ -23,6 +23,9 @@ vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true), get
 import mcpRoute from '../../pages/api/mcp/index';
 import migrationRollback from '../../pages/api/accounting/migration-rollback';
 import coaImport from '../../pages/api/accounting/migration/chart-of-accounts';
+import migrationExecute from '../../pages/api/accounting/migration-execute';
+import coa from '../../pages/api/accounting/chart-of-accounts';
+import { updateGlAccountTool } from '../../src/lib/mcp/tools/writeGlAccounts';
 import { McpRegistry } from '../../src/lib/mcp/registry';
 import { setOpeningBalanceTool } from '../../src/lib/mcp/tools/writeOpeningBalance';
 import { postReclassificationBatchTool } from '../../src/lib/mcp/tools/writeReclassification';
@@ -151,6 +154,109 @@ describeIfDb('W2-28 round 12', () => {
     }, 30_000);
   });
 
+  describe('item 8: a balance-sheet holder that is ALREADY a header gains no further sub-account, by any path', () => {
+    beforeEach(() => ins(KID, '1111', 'asset', 'bank', false, { parent: BANK, level: 4 }));   // the legacy child
+    const childrenOfBank = async () => (await fx.query('SELECT account_code FROM gl_accounts WHERE parent_account_id = $1 ORDER BY 1', [BANK])).rows.map((r) => r.account_code);
+    const importRows = async (accounts: Record<string, unknown>[]) => {
+      const session = await createSession(CO, 'sage', USER);
+      const r = await fx.call(coaImport, 'POST', '/api/accounting/migration/chart-of-accounts', { sessionId: session.id, accounts, systemAccountMap: {} });
+      const data = r.body.data as { imported: number; errors: { message: string }[] };
+      return { imported: data.imported, errors: data.errors.map((e) => e.message) };
+    };
+
+    it('the CoA import refuses a NEW row under it, naming the row; re-importing the child it already has is not a new sub-account', async () => {
+      const added = await importRows([{ accountCode: '1113', accountName: 'Call account', accountType: 'asset', normalBalance: 'debit', parentCode: '1110' }]);
+      const restated = await importRows([{ accountCode: '1111', accountName: 'Savings (renamed)', accountType: 'asset', accountSubtype: 'bank', normalBalance: 'debit', parentCode: '1110' }]);
+      expect({ added, restated, children: await childrenOfBank(), bank: await holders('bank') }).toEqual({
+        added: { imported: 0, errors: [expect.stringMatching(/^Account 1113 cannot go under 1110: Account 1110 holds the bank role/)] },
+        restated: { imported: 1, errors: [] }, children: ['1111'], bank: ['1110'] });
+    });
+
+    it('a merge whose source has a sub-account is refused into it, before anything moves', async () => {
+      await ins(SRC, '1120X', 'asset', 'bank', false);
+      const moved = randomUUID(); await ins(moved, '1121', 'asset', 'bank', false, { parent: SRC, level: 4 });
+      const before = await fx.hash();
+      const tx = await fx.openTx(drainAfterCommit);
+      const outcome = await tx.run(() => mergeAccounts(CO, SRC, BANK, USER)).then(() => 'merged', (e: Error & { code?: string }) => `${e.code}: ${e.message}`);
+      await tx.commit();
+      expect({ outcome, unchanged: (await fx.hash()) === before, children: await childrenOfBank() }).toEqual({ unchanged: true, children: ['1111'],
+        outcome: expect.stringMatching(/^target_becomes_header: 1120X has sub-accounts, which this merge would move under 1110\./) });
+    });
+  });
+
+  it('item 12: a lock timeout in the migration execute\'s later steps is the retryable 503 with NOTHING written — not a 200 carrying it as a row error', async () => {
+    const holder: PoolClient = await fx.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('LOCK TABLE customers IN SHARE ROW EXCLUSIVE MODE');   // the customers step cannot insert until this ends
+      const t0 = Date.now();
+      const r = await within(12_000, fx.call(migrationExecute, 'POST', '/api/accounting/migration-execute', { source: 'xero', suppliers: [],
+        accounts: [{ sourceCode: 'E100', sourceName: 'Executed', sourceType: 'BANK', openingBalance: 0, mappedType: 'asset', mappedNormalBalance: 'debit', mappedSubtype: 'other' }],
+        customers: [{ name: 'W228R12 customer' }] }));
+      const state = typeof r === 'string' ? { status: r, text: '' } : { status: r.statusCode, text: JSON.stringify(r.body) };
+      expect({ status: state.status, retry: /retry in a moment|SERVICE_UNAVAILABLE/i.test(state.text), boundedNear5s: Date.now() - t0 >= 4500,
+        accountWritten: (await fx.query("SELECT count(*)::int AS n FROM gl_accounts WHERE company_id = $1 AND account_code = 'E100'", [CO])).rows[0].n })
+        .toEqual({ status: 503, retry: true, boundedNear5s: true, accountWritten: 0 });
+    } finally { await holder.query('ROLLBACK'); holder.release(); }
+  }, 30_000);
+
+  describe('item 10: a REAL deadlock (Postgres picks the role writer as the victim: 40P01) is the retryable answer', () => {
+    const deadlocks = async () => (await fx.query('SELECT deadlocks::int AS n FROM pg_stat_database WHERE datname = current_database()')).rows[0].n as number;
+    const lockWaiters = async () => (await fx.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()")).rows[0].n as number;
+    /**
+     * The other transaction holds X's row FOR SHARE (a document-line guard) and, once the writer — holding the
+     * role lock — is waiting for that row, asks for the role lock itself: a cycle. The writer has waited longer,
+     * so its deadlock check runs first and it is the victim.
+     */
+    async function deadlockAgainst<T>(write: () => Promise<T>) {
+      const other: PoolClient = await fx.connect();
+      const d0 = await deadlocks();
+      try {
+        await other.query('BEGIN');
+        await other.query('SELECT 1 FROM gl_accounts WHERE id = $1 FOR SHARE', [X]);
+        const writing = write();
+        let waiting = false;
+        for (let i = 0; i < 160 && !waiting; i++) { waiting = (await lockWaiters()) > 0; if (!waiting) await sleep(25); }
+        const t0 = Date.now();
+        const otherGot = other.query('SELECT pg_advisory_xact_lock(hashtextextended($1::TEXT, 0))', [`default-accounts:${CO}`])
+          .then(() => 'got the role lock', (e: { code?: string }) => `victim ${e.code}`);
+        const out = await within(8000, writing);
+        const ms = Date.now() - t0;
+        const otherOutcome = await within(8000, otherGot);
+        // A backend reports its counters when its transaction ends, so the count is read by the caller, after that.
+        const deadlocksDetected = async () => {
+          let n = 0;
+          for (let i = 0; i < 40 && n === 0; i++) { await sleep(150); n = (await deadlocks()) - d0; }
+          return n;
+        };
+        return { result: { out, waiting, otherOutcome, answeredBeforeTheTimeout: ms < 3500 }, deadlocksDetected };
+      } finally { await other.query('ROLLBACK').catch(() => undefined); other.release(); }
+    }
+
+    it('a route: 503 with the retry wording, nothing written', async () => {
+      const before = await fx.hash();
+      const { result: r, deadlocksDetected } = await deadlockAgainst(() => fx.call(coa, 'PUT', '/api/accounting/chart-of-accounts', { id: X, accountName: 'renamed' }));
+      const out = r.out as { statusCode: number; body: Record<string, unknown> };
+      expect({ ...r, deadlocksDetected: await deadlocksDetected(), out: { status: out.statusCode, retry: /retry in a moment/.test(JSON.stringify(out.body)) }, unchanged: (await fx.hash()) === before })
+        .toEqual({ out: { status: 503, retry: true }, waiting: true, otherOutcome: 'got the role lock', answeredBeforeTheTimeout: true, deadlocksDetected: 1, unchanged: true });
+    }, 30_000);
+
+    it('an MCP tool in a batch: the retry refusal, nothing written, and the batch transaction is still usable', async () => {
+      const registry = new McpRegistry(); registry.register(updateGlAccountTool);
+      const rename = (id: string, name: string) => registry.call('update_gl_account', { account_id: id, account_name: name, idempotency_key: randomUUID() }, ctx())
+        .then((x) => `${x.isError ? 'refused' : 'ok'}: ${x.content[0]?.text.slice(0, 90)}`, (e: Error) => `thrown ${e.message}`);
+      const tx = await fx.openTx(drainAfterCommit);
+      try {
+        const { result: r, deadlocksDetected } = await deadlockAgainst(() => tx.run(() => rename(X, 'renamed by the victim')));
+        const next = await tx.run(() => rename(Y, 'batch still usable'));
+        await tx.commit();
+        const names = (await fx.query('SELECT account_code, account_name FROM gl_accounts WHERE id = ANY($1::uuid[]) ORDER BY 1', [[X, Y]])).rows.map((n) => `${n.account_code}=${n.account_name}`);
+        expect({ ...r, deadlocksDetected: await deadlocksDetected(), next: next.slice(0, 3), names }).toEqual({ out: `refused: ${RETRY}`, waiting: true, otherOutcome: 'got the role lock',
+          answeredBeforeTheTimeout: true, deadlocksDetected: 1, next: 'ok:', names: ['1115=W228R12 1115', '1116=batch still usable'] });
+      } finally { await tx.rollback(); }
+    }, 30_000);
+  });
+
   describe('item 7: what a user can cause is refused before any write, in words the user can act on', () => {
     it('a CoA import row parented under a balance-sheet role holder names the row and the holder — not "would leave bank without exactly one usable account"', async () => {
       const session = await createSession(CO, 'sage', USER);
@@ -160,6 +266,16 @@ describeIfDb('W2-28 round 12', () => {
       expect({ status: r.statusCode, imported: data.imported, errors: data.errors.map((e) => `${e.field}: ${e.message}`), bank: await holders('bank') })
         .toEqual({ status: 200, imported: 0, bank: ['1110'],
           errors: [expect.stringMatching(/^parentCode: Account 1119 cannot go under 1110: Account 1110 holds the bank role, and a balance-sheet account/)] });
+    });
+
+    it('item 14: an import role map onto an account carrying its type\'s default classification says where to change it and that the import can be re-run', async () => {
+      await ins(SRC, '4200', 'revenue', 'revenue', false);
+      const session = await createSession(CO, 'sage', USER);
+      const r = await fx.call(coaImport, 'POST', '/api/accounting/migration/chart-of-accounts', { sessionId: session.id, systemAccountMap: { default_revenue: '4200' },
+        accounts: [{ accountCode: '4200', accountName: 'Sales', accountType: 'revenue', normalBalance: 'credit' }] });
+      const data = r.body.data as { imported: number; errors: { message: string }[] };
+      expect({ imported: data.imported, text: data.errors[0]?.message }).toEqual({ imported: 0,
+        text: expect.stringMatching(/Account 4200 is classified 'revenue'.*Chart of Accounts.*edit account 4200.*classification to 'other'.*run this import again/) });
     });
 
     it('a merge whose source has sub-accounts, into a balance-sheet role holder, is a merge refusal naming both accounts — before anything moves', async () => {

@@ -125,7 +125,9 @@ export async function roleMapConflicts(
  * have sub-accounts (`roleBarringChildren`). Named row by row BEFORE any write:
  * left to the role post-condition, the whole import was refused with "would
  * leave bank without exactly one usable account", which names nothing to fix.
- * A holder the map moves its role away from in this same import is not one.
+ * A holder the map moves its role away from in this same import is not one,
+ * and a row that is ALREADY that holder's sub-account (an existing chart that
+ * breaks the rule, re-imported) is not being given to it: only a new one is.
  */
 export async function holderParentConflicts(
   companyId: string, map: SystemAccountMap, accounts: readonly AccountImportRow[],
@@ -133,17 +135,22 @@ export async function holderParentConflicts(
   const parentCodes = [...new Set(accounts.flatMap((a) => (a.parentCode ? [a.parentCode] : [])))];
   if (parentCodes.length === 0) return [];
   const rows = (await sql`
-    SELECT account_code, account_type, account_subtype, is_system_account FROM gl_accounts
+    SELECT account_code, account_type, account_subtype, is_system_account,
+           ARRAY(SELECT c.account_code FROM gl_accounts c
+                  WHERE c.parent_account_id = gl_accounts.id AND c.company_id = gl_accounts.company_id) AS child_codes
+    FROM gl_accounts
     WHERE company_id = ${companyId}::UUID AND account_code = ANY(${parentCodes}::TEXT[])
   `) as DbRow[];
   const mapped: Record<string, string | undefined> = { ...map };
   const barred = new Map(rows.flatMap((r) => {
     const role = roleBarringChildren(r);
     const code = String(r.account_code);
-    return role && (mapped[role] === undefined || mapped[role] === code) ? [[code, role] as [string, string]] : [];
+    return role && (mapped[role] === undefined || mapped[role] === code)
+      ? [[code, { role, children: new Set((r.child_codes as string[] | null) ?? []) }] as const] : [];
   }));
   return accounts.flatMap((a, row) => {
-    const role = a.parentCode ? barred.get(a.parentCode) : undefined;
+    const holder = a.parentCode ? barred.get(a.parentCode) : undefined;
+    const role = holder && !holder.children.has(a.accountCode) ? holder.role : undefined;
     return role ? [{ step: 'coa' as const, row, field: 'parentCode',
       message: `Account ${a.accountCode} cannot go under ${a.parentCode}: ${holderAsParentRefusal(a.parentCode!, role)}` }] : [];
   });

@@ -55,7 +55,8 @@ export function roleTargetRefusal(
   if (!target.isActive) return `Account ${code} for '${setting}' is inactive`;
   if (target.hasChildren) return HEADER_ADVICE[caller](code, setting);
   if (subtype !== null && subtype !== role && !UNCLASSIFIED.has(subtype)) {
-    return `Account ${code} is classified '${subtype}'; only an account classified 'other' (or unclassified), or one already classified '${role}', can hold that role. It must be reclassified to 'other' first.`;
+    return `Account ${code} is classified '${subtype}'; only an account classified 'other' (or unclassified), or one already classified '${role}', can hold that role. It must be reclassified to 'other' first.`
+      + (caller === 'import' ? ` Do that in Chart of Accounts: edit account ${code}, change its classification to 'other' and save — then run this import again.` : '');
   }
   return null;
 }

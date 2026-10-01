@@ -82,17 +82,21 @@ describe('brk-593 pass 3', () => {
     expect(out.deadlocksDetected).toBe(0);
   }, 30_000);
 
-  it('N2 batch: a document-line guard (FOR SHARE) on the bank holder, then an is_active change, racing a save: no deadlock', async () => {
+  it('N2 batch: a document-line guard (FOR SHARE) on the bank holder, then an is_active change, racing a save: the cycle is broken and exactly one side is told to retry', async () => {
     const out = await batchThenSave('N2', () => documentLineAccountRefusal(CO, [BANK]));
-    // Ported note: the breaker asserted `deadlocksDetected === 0`. Decided 2026-10-01: the line guards keep
-    // their FOR SHARE without the role lock, so this cycle can form; what must hold is that whoever
-    // Postgres picks as the victim is told to retry (never a 500 / generic failure) and the holder is unchanged.
-    expect([200, 400, 409, 503]).toContain(out.save);
-    expect(JSON.stringify(out.second)).not.toMatch(/operation failed|deadlock/i);
-    expect(out.bank).toEqual(['1110']);
+    // Ported note: the breaker's title and assertion were "no deadlock" (`deadlocksDetected === 0`). Decided
+    // 2026-10-01: the line guards keep their FOR SHARE without the role lock, so this cycle DOES form. What
+    // must hold: one side loses (the save: 503; or the tool: the retry refusal), the other goes through, and
+    // nobody gets a 500 or the generic failure. Round 12 tightened this from "any of 200/400/409/503".
+    const tool = JSON.stringify(out.second);
+    const saveLost = out.save === 503; const toolLost = /"isError":true/.test(tool) && /retry in a moment/.test(tool);
+    expect({ save: out.save, saveLost, toolLost, bank: out.bank }).toEqual(saveLost
+      ? { save: 503, saveLost: true, toolLost: false, bank: ['1110'] }
+      : { save: 200, saveLost: false, toolLost: true, bank: ['1115'] });
+    expect(tool).not.toMatch(/operation failed|deadlock/i);
   }, 30_000);
 
-  it('N3 two batches in reverse order (A: role write then rename of the bank holder; B: FOR SHARE on the bank holder then a role write): no deadlock', async () => {
+  it('N3 two batches in reverse order (A: role write then rename of the bank holder; B: FOR SHARE on the bank holder then a role write): both are told to retry, nothing of either is written', async () => {
     const d0 = await deadlocks();
     const a = await fx.openTx(drainAfterCommit); const b = await fx.openTx(drainAfterCommit);
     try {
@@ -106,12 +110,17 @@ describe('brk-593 pass 3', () => {
       await a.commit().catch(() => undefined);
       const out = { a1, aWaitsOnRow: aWaits, a2: a2out, b2, deadlocksDetected: (await deadlocks()) - d0 };
       show('N3', out);
-      // Ported note: as N2 — a deadlock may be detected; every participant that fails must get the retry wording.
+      // Ported note: as N2 — the breaker's "no deadlock" cannot hold. A waits for the row B holds; B waits for
+      // the role lock A holds until A's batch ends. Postgres ends A's wait (deadlock victim) and B's wait is
+      // bounded at 5s, so BOTH second calls are refused with the retry wording (round 12: tightened from
+      // "whoever fails"), and neither rename nor deactivation is written.
       for (const answer of [out.a2, out.b2]) {
         const text = JSON.stringify(answer);
-        if (/"isError":true/.test(text)) expect(text).toMatch(/retry in a moment/);
+        expect(text).toMatch(/"isError":true.*retry in a moment/);
         expect(text).not.toMatch(/operation failed|deadlock|STILL WAITING/i);
       }
+      const rows = (await fx.query('SELECT account_code, account_name, is_active FROM gl_accounts WHERE id = ANY($1::uuid[]) ORDER BY 1', [[BANK, Z]])).rows;
+      expect(rows.map((r) => `${r.account_code}:${r.account_name}:${r.is_active}`)).toEqual(['1110:BRK593P3 1110:true', '1117:BRK593P3 1117:true']);
       expect(await holders('bank')).toEqual(['1110']);
     } finally { await a.rollback().catch(() => undefined); await b.rollback().catch(() => undefined); }
   }, 40_000);
