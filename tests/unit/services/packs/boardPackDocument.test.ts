@@ -16,6 +16,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { demoSet, brand, matters, trend } from './fixtures/boardPackInputs';
+import { fakeRequestTx, pgError, touchLedger } from './support/fakeRequestTx';
 
 const getCompanyName = vi.fn(async () => 'ISAFlow Demo (Pty) Ltd');
 const buildPackFigureSet = vi.fn(async () => demoSet);
@@ -258,5 +259,47 @@ describe('draft, commentary and period', () => {
     // `new Date('2026-03-01')` is 28 February in local time here; a pack that
     // printed that would state a period it does not cover.
     expect(formatPackPeriod('2026-03-01', '2026-08-31')).toBe('1 March 2026 to 31 August 2026');
+  });
+});
+
+/**
+ * THE RECEIVABLES DECOMPOSITION IS THE ONE READ THIS FUNCTION MAY LOSE, AND
+ * LOSING IT MUST NOT COST THE READS AFTER IT.
+ *
+ * It was caught and logged, and under `withAuth` that left the request's one
+ * transaction aborted: the brand profile, the ledger watermark and the draft
+ * state — all read AFTER it — were refused with 25P02, so the "shorter note"
+ * the catch promised was a 500. Run against a client that aborts the way
+ * Postgres does.
+ */
+describe('the receivables decomposition failing inside the request transaction', () => {
+  it('is rolled back, and the pack is built without it', async () => {
+    reconcileSubledger.mockImplementation(async () => {
+      await touchLedger('reconciliation');
+      return { controlAccountBalance: -329_700, reconcilingItems: [], unexplainedDifference: 0 };
+    });
+    getBrandProfile.mockImplementation(async () => { await touchLedger('brand'); return null; });
+    getLedgerPostedThrough.mockImplementation(async () => {
+      await touchLedger('watermark');
+      return '2026-08-31T10:00:00.000Z';
+    });
+    const tx = fakeRequestTx((statement) =>
+      (statement.includes('/* reconciliation */') ? pgError('57014', 'canceling statement due to statement timeout') : null));
+
+    const doc = await tx.run(() => buildBoardPackDocument(request()));
+
+    expect(doc.pages).toHaveLength(12);
+    expect(tx.isAborted()).toBe(false);
+    const failed = tx.statements.indexOf('/* reconciliation */ SELECT 1');
+    expect(tx.statements[failed + 1]).toMatch(/^ROLLBACK TO SAVEPOINT \w+$/);
+    // Both reads after it reached the database and were answered.
+    expect(tx.statements.slice(failed)).toEqual(expect.arrayContaining([
+      '/* brand */ SELECT 1', '/* watermark */ SELECT 1',
+    ]));
+  });
+
+  it('is not degraded when what failed was the code rather than the read', async () => {
+    reconcileSubledger.mockRejectedValue(new TypeError('items.filter is not a function'));
+    await expect(buildBoardPackDocument(request())).rejects.toBeInstanceOf(TypeError);
   });
 });

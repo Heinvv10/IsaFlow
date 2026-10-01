@@ -30,7 +30,10 @@ vi.mock('@/modules/accounting/services/bank/bankAccountStatusService', () => ({
 vi.mock('@/modules/accounting/services/reports/unusualJournalsService', () => ({
   getUnusualJournals: journalSpy,
 }));
-vi.mock('@/modules/accounting/services/reports/statutoryFilingsService', () => ({
+vi.mock('@/modules/accounting/services/reports/statutoryFilingsService', async (orig) => ({
+  // The real module for `FilingDeadlineUnknownError`, which `buildMatters`
+  // tests a caught error against.
+  ...(await orig<Record<string, unknown>>()),
   getOverdueStatutoryFilings: filingSpy,
 }));
 vi.mock('@/lib/logger', () => ({
@@ -38,6 +41,8 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { buildMatters } from '@/modules/accounting/services/packs/pages/packMatters';
+import { FilingDeadlineUnknownError } from '@/modules/accounting/services/reports/statutoryFilingsService';
+import { fakeRequestTx, pgError, touchLedger } from './support/fakeRequestTx';
 
 const window: PeriodWindow = { start: '2026-01-01', end: '2026-08-31' };
 
@@ -138,7 +143,7 @@ describe('buildMatters', () => {
   });
 
   it('reports a source that failed rather than silently omitting its matters', async () => {
-    agingSpy.mockRejectedValue(new Error('timeout'));
+    agingSpy.mockRejectedValue(pgError('57014', 'canceling statement due to statement timeout'));
     const matters = (await buildMatters('c1', window)).matters;
     expect(matters.some((m) => m.issue.match(/aged debtors could not be assessed/i))).toBe(true);
     expect(warn).toHaveBeenCalled();
@@ -280,10 +285,62 @@ describe('buildMatters', () => {
     expect(logged.source).toBe('aged debtors');
   });
 
-  it('names the class alone where the failure carries no SQLSTATE', async () => {
+  it('does not turn a code bug into "could not be assessed"', async () => {
+    // It used to: a TypeError in a source was logged as its class and printed
+    // as a failed check, so a defect in this codebase reached a board as a
+    // matter to "re-run", and nothing went red.
     agingSpy.mockRejectedValue(new TypeError('cannot read properties of undefined'));
-    await buildMatters('c1', window);
-    expect((warn.mock.calls.at(-1)?.[1] as { error: string }).error).toBe('TypeError');
+    await expect(buildMatters('c1', window)).rejects.toBeInstanceOf(TypeError);
+  });
+
+  it('names a filing check that cannot date its deadline, rather than failing the pack', async () => {
+    // The company's financial year start is unusable. That is a refusal the
+    // filings service makes on purpose, and "could not be assessed" is true.
+    filingSpy.mockRejectedValue(new FilingDeadlineUnknownError('no usable financial_year_start'));
+    bankSpy.mockResolvedValue([{ unreconciled_count: 3, unreconciled_balance: 15_000 }]);
+    const matters = (await buildMatters('c1', window)).matters;
+    expect(matters.some((m) => m.issue.startsWith('overdue statutory filings could not be assessed'))).toBe(true);
+    expect(matters.some((m) => m.issue.match(/unreconciled bank item/i))).toBe(true);
+    expect((warn.mock.calls.at(-1)?.[1] as { error: string }).error).toBe('FilingDeadlineUnknownError');
+  });
+
+  /**
+   * A CAUGHT DATABASE ERROR IS NOT A RECOVERED TRANSACTION. Under `withAuth`
+   * the four sources share one transaction; the first to fail aborted it, and
+   * every source after it was then refused with 25P02 and became a failed
+   * check of its own — four "could not be assessed" rows for one timeout, and
+   * a 500 from the first read after the loop. Run against a client that
+   * aborts the way Postgres does, because a rejected mock cannot show that.
+   */
+  it('rolls a failed source back, so the sources after it are still assessed', async () => {
+    agingSpy.mockImplementation(async () => { await touchLedger('aging'); return emptyAging(); });
+    bankSpy.mockImplementation(async () => {
+      await touchLedger('bank');
+      return [{ unreconciled_count: 3, unreconciled_balance: 15_000 }];
+    });
+    journalSpy.mockImplementation(async () => { await touchLedger('journals'); return []; });
+    filingSpy.mockImplementation(async () => { await touchLedger('filings'); return []; });
+    const tx = fakeRequestTx((statement) =>
+      (statement.includes('/* aging */') ? pgError('57014', 'canceling statement due to statement timeout') : null));
+
+    const matters = (await tx.run(() => buildMatters('c1', window))).matters;
+
+    expect(matters.filter((m) => m.kind === 'checkFailed').map((m) => m.issue)).toEqual([
+      'aged debtors could not be assessed — the check failed and was not silently skipped',
+    ]);
+    expect(matters.some((m) => m.issue.match(/3 unreconciled bank items/))).toBe(true);
+    expect(tx.isAborted()).toBe(false);
+    // One savepoint per source, each closed before the next opens.
+    const savepoints = tx.statements.filter((st) => /SAVEPOINT/.test(st));
+    expect(savepoints.filter((st) => st.startsWith('SAVEPOINT'))).toHaveLength(4);
+    expect(savepoints.filter((st) => st.startsWith('ROLLBACK TO SAVEPOINT'))).toHaveLength(1);
+    let open = 0;
+    for (const st of savepoints) {
+      if (st.startsWith('SAVEPOINT')) open += 1;
+      if (st.startsWith('RELEASE')) open -= 1;
+      expect(open, `two savepoints open at once at: ${st}`).toBeLessThanOrEqual(1);
+    }
+    expect(open).toBe(0);
   });
 
   /**
@@ -341,7 +398,7 @@ describe('buildMatters', () => {
   });
 
   it('does not let one failed source suppress the matters from the others', async () => {
-    agingSpy.mockRejectedValue(new Error('timeout'));
+    agingSpy.mockRejectedValue(pgError('57014', 'canceling statement due to statement timeout'));
     bankSpy.mockResolvedValue([{ unreconciled_count: 3, unreconciled_balance: 15_000 }]);
     const matters = (await buildMatters('c1', window)).matters;
     expect(matters.some((m) => m.issue.match(/aged debtors could not be assessed/i))).toBe(true);

@@ -23,12 +23,17 @@
  */
 
 import { log } from '@/lib/logger';
+import { withSavepoint } from '@/lib/neon';
+import { isFailedRead } from '@/modules/accounting/services/packs/packFailedRead';
 import { getAgingReport } from '@/modules/accounting/services/reports/agingReportService';
 import { formatMoney, inScale } from '@/lib/format/money';
 import { PACK_SCALE } from './packBasis';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getUnusualJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
-import { getOverdueStatutoryFilings } from '@/modules/accounting/services/reports/statutoryFilingsService';
+import {
+  FilingDeadlineUnknownError,
+  getOverdueStatutoryFilings,
+} from '@/modules/accounting/services/reports/statutoryFilingsService';
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
 import { formatPackDate } from './packPeriodLabel';
 import { BOARD_DECISIONS } from './packMatterDecisions';
@@ -378,13 +383,24 @@ export async function buildMatters(
   // Sequential, not Promise.all — `sql` in @/lib/neon routes every query
   // through the ONE request-scoped pg connection held in the async-local
   // store (see packFigureSet.ts for the same discipline and its reason).
-  for (const source of SOURCES) {
+  //
+  // AND EACH IN ITS OWN SAVEPOINT. A source that fails aborts that one
+  // transaction, and catching the error does not un-abort it: every source
+  // after it was refused with 25P02 and became a failed check of its own.
+  for (const [index, source] of SOURCES.entries()) {
     try {
-      const result = await source.build(companyId, window);
+      const result = await withSavepoint(`pack_matter_source_${index}`, () =>
+        source.build(companyId, window));
       matters.push(...result.matters);
       if (result.agedDebtorsTotal !== undefined) agedDebtorsTotal = result.agedDebtorsTotal;
       if (result.subledgerTotal !== undefined) subledgerTotal = result.subledgerTotal;
     } catch (error) {
+      // ONLY A CHECK THAT COULD NOT BE RUN IS A FAILED CHECK: the database
+      // refusing the read, or the filings source refusing to date a deadline
+      // for a company with no usable financial year start. Anything else is a
+      // defect in this code, and a defect printed as "re-run the check" is a
+      // board being asked to act on a bug.
+      if (!isFailedRead(error) && !(error instanceof FilingDeadlineUnknownError)) throw error;
       // NOT `String(error)`, WHICH IS THE DRIVER'S OWN SENTENCE. A
       // node-postgres message carries whatever the server put in it —
       // "duplicate key value violates unique constraint … Key (email)=(…)"

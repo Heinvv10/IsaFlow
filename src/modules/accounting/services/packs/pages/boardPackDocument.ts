@@ -19,6 +19,8 @@
  */
 
 import { log } from '@/lib/logger';
+import { withSavepoint } from '@/lib/neon';
+import { isFailedRead } from '@/modules/accounting/services/packs/packFailedRead';
 import { getCompanyName } from '@/modules/accounting/services/reports/companyName';
 import { getBrandProfile } from '@/modules/accounting/services/afs/brandProfileService';
 import { readPackDraftState } from './packDraftState';
@@ -85,9 +87,16 @@ export async function buildBoardPackDocument(
   // it is the pack that shipped before this round. Sequential, like the rest
   // — one pg client, one query at a time.
   let receivablesItems: SubledgerReconciliation | null = null;
+  //
+  // IN ITS OWN SAVEPOINT, AND ONLY WHERE THE READ ITSELF FAILED. Caught bare,
+  // a database error left the request's transaction aborted and the brand,
+  // watermark and draft-state reads below were refused — the shorter note was
+  // a 500. And a defect in the reconciliation is not "no decomposition".
   try {
-    receivablesItems = await reconcileSubledger(companyId, 'ar', set.currentWindow.end);
+    receivablesItems = await withSavepoint('pack_receivables_recon', () =>
+      reconcileSubledger(companyId, 'ar', set.currentWindow.end));
   } catch (error) {
+    if (!isFailedRead(error)) throw error;
     log.warn(
       'buildBoardPackDocument: the receivables reconciliation failed; page 11 states the '
         + 'difference without decomposing it',

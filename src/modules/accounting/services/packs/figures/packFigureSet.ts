@@ -20,6 +20,8 @@
  */
 
 import { log } from '@/lib/logger';
+import { withSavepoint } from '@/lib/neon';
+import { isFailedRead } from '@/modules/accounting/services/packs/packFailedRead';
 import {
   getReportPackInput,
   type ReportPackFigures,
@@ -101,8 +103,12 @@ async function fetchPrior(
 ): Promise<ReportPackFigures | null> {
   let figures: ReportPackFigures;
   try {
-    figures = await getReportPackInput(companyId, companyName, window.start, window.end);
+    // In its own savepoint: a caught failure otherwise leaves the request's
+    // transaction aborted and the budget read below refused. See packFailedRead.
+    figures = await withSavepoint('pack_prior_period', () =>
+      getReportPackInput(companyId, companyName, window.start, window.end));
   } catch (error) {
+    if (!isFailedRead(error)) throw error;
     log.warn(
       'packFigureSet: prior period unavailable, comparative column omitted',
       { companyId, from: window.start, to: window.end, error: String(error) },
@@ -144,8 +150,10 @@ async function fetchBudget(
   window: PeriodWindow,
 ): Promise<PackBudgetFigures | null> {
   try {
-    return toPackBudget(await getBudgetVariance(companyId, window.start, window.end));
+    return toPackBudget(await withSavepoint('pack_budget', () =>
+      getBudgetVariance(companyId, window.start, window.end)));
   } catch (error) {
+    if (!isFailedRead(error)) throw error;
     // A missing budget must not cost the pack its actual and prior columns.
     log.warn(
       'packFigureSet: budget unavailable, budget column omitted',
