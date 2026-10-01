@@ -58,7 +58,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const { companyId, user } = req as CompanyAuthedRequest;
 
-  // Abuse limit: every attempt counts, whatever comes of it, and it is never
+  // Abuse limit: every attempt counts, per user and company (30), and per user
+  // across all their companies (90), whatever comes of it, and it is never
   // given back. It sits ahead of the ownership query below, which the volume
   // charge no longer does (R-175).
   if (!(await checkRateLimit(`statement-bulk-email:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))

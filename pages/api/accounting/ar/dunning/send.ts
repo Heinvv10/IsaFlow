@@ -35,9 +35,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   const { companyId, user } = req as CompanyAuthedRequest;
 
   // Abuse limit: every attempt counts, per user and company (30), and per user
-  // across all their companies (90), and is never given back. The company's send bucket below is shared by every colleague, so it
-  // is charged only once the request is well formed and names records the
-  // company owns (R-175).
+  // across all their companies (90), and is never given back. The company's
+  // send bucket below is shared by every colleague, so it is charged only once
+  // the request is well formed and names records the company owns (R-175).
   if (!(await checkRateLimit(`dunning:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))
     || !(await checkRateLimit(`dunning:user-attempts:${user.id}`, { max: 90, windowSecs: 900 }))) {
     apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
