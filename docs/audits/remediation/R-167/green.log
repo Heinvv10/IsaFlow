@@ -1,4 +1,4 @@
-# GREEN on 31a911930 (final code, round 6), fixture clone at 717 (2026-10-01T02:33:00Z); the fence suite on an isaflow_test clone of it. 64-hex tokens redacted.
+# GREEN: the regression set on 31a911930 (round 6); on 8805fcb5e (round 7, verify timeout only) re-run: r167 suites 47 passed, k095-r5, k095-r6, k096-mandate-verify-scoping, k-036 21 passed (its verify assertion now carries the timeout), paystackClient unit 17 passed. 64-hex tokens redacted.
 ## k-033-subscription-period-advances-before-settlement.int.test.ts
  Test Files  1 passed (1)
       Tests  20 passed (20)
