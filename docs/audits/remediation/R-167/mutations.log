@@ -1,3 +1,7 @@
+# Round 6: on 31a911930. Each: both r167 suites; baseline after the run 47 passed (47).
+Q61 verify does not ask about a failed request: RED | Tests 1 failed | 46 passed (47)
+Q62 verify asks about and moves a request of any purpose: RED | Tests 1 failed | 46 passed (47)
+
 # Round 5 (fresh reviewers): on 3915b9497. Each: both r167 suites; baseline after the run 44 passed (44). The mutation scripts of earlier rounds were lost in a host reboot; these were re-written.
 Q55 starting check only for the same amount: RED | 3 failed | 40 passed (43)
 Q56 spend not bound to the request invoice: RED | 1 failed | 42 passed (43)

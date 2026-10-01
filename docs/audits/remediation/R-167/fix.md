@@ -130,7 +130,7 @@ Two suites share `tests/integration/r167-portal-links.helpers.ts`. In both, Pays
 signed, and `verifyTransaction` is stubbed. Each run uses a fresh client IP, because verify
 rate-limits per IP and that counter persists between runs.
 
-`r167-link-charges-link-amount.int.test.ts` covers explicit links, 26 cases:
+`r167-link-charges-link-amount.int.test.ts` covers explicit links, 28 cases:
 
 - **`create` charges:**
   - 4050 for R40.50 on an unpaid invoice;
@@ -156,7 +156,7 @@ rate-limits per IP and that counter persists between runs.
 - **The GET** shows 30 for a R40.50 link with R30 left. It says "This invoice has no
   outstanding balance" on a paid invoice, and answers 404 on a cancelled one.
 
-`r167-standing-links-and-checkout.int.test.ts` covers the other rules, 18 cases:
+`r167-standing-links-and-checkout.int.test.ts` covers the other rules, 19 cases:
 
 - **A standing link:**
   - charges the live balance: 3000 when minted at 115 with R30 owed, and 15000 after the
@@ -199,7 +199,7 @@ Evidence:
   - r158, r166, k101, r155-157, r157 and the r159 suites;
   - the k122 suites and the three r095 portal suites;
   - customer-ownership-fence-routes, on an `isaflow_test` copy of the fixture.
-- `mutations.log`: every mutant is RED. That is 47 in round 2; in round 3, Q50–Q52 are added, Q39 is re-pointed and Q40 is removed with the dead code, 49 in all; the re-confirmation round adds Q53, the /review round adds Q54, and the fresh-review round adds Q55–Q60, 57 in all. Each run used both suites plus the
+- `mutations.log`: every mutant is RED. That is 47 in round 2; in round 3, Q50–Q52 are added, Q39 is re-pointed and Q40 is removed with the dead code, 49 in all; the re-confirmation round adds Q53, the /review round adds Q54, the fresh-review round adds Q55–Q60, and round 6 adds Q61 and Q62, 59 in all. Each run used both suites plus the
   `paystackClient` unit test. They cover:
   - every filter and each arm of the charge, both link kinds, and the clamp;
   - every refusal and its HTTP mapping, including the 409;
@@ -319,6 +319,31 @@ blind reviewers read the whole range at `6b244289f`. Both returned SHIP with LOW
   (follow-up).
 - Standing links still expire after 30 days (follow-up).
 - The register's `fixCommit` and status are set after merge, in the register PR.
+
+## Re-confirmation of round 5 (round 6)
+
+Both reviewers returned SHIP at `9b03ccc85`. The LOWs:
+
+**Fixed:**
+
+- **`verify` completed a pending request of any purpose** but settles only invoices. The
+  webhook skips a request it finds completed, so a Flow bundle or subscription charge verified
+  first was never settled. This predates R-167. `verify` now asks about and moves only a
+  customer-invoice request; any other is reported as stored and left to the webhook (Q62).
+- **`verify` asked Paystack only about a pending request.** One already `failed` (swept while
+  starting) that Paystack reports paid is now completed and banked here too. A `failed` request
+  Paystack does not report paid stays `failed` (Q61).
+- **Test gap:** the phase-3 URL write throwing. The answer is 500, nothing is handed out, the
+  next click gets 409, and the checkout is swept a minute later.
+
+**No change:**
+
+- **Migration 717's text changed during this branch.** A database that applied an earlier
+  version fails its next migrate on the checksum. Two local fixture containers have it:
+  `isaflow-fixture-r159` (this work's, removed at cleanup) and `isaflow-fixture-w204` (a peer's
+  clone). Production and dev never applied it.
+- The verify-race tests stand in for the webhook with a direct UPDATE. The webhook's own
+  delivery is covered by the settlement cases.
 
 ## Migration / rollback
 
