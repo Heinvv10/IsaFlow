@@ -50,10 +50,10 @@ export interface ReportPackInput {
    */
   investingCashFlow?: number;
   /**
-   * Interest, tax, employee cost, head count and direct materials for the
-   * window, off the ledger (`extendedRatioInputs.readLedgerRatioInputs` via
+   * Interest, tax and employee cost for the window, and the head count at its
+   * end, off the ledger (`extendedRatioInputs.readLedgerRatioInputs` via
    * `readReportPackInput`) — the inputs the Financial Analysis screen's
-   * ratios use, so the pack states the same figures. All six or none: where
+   * ratios use, so the pack states the same figures. All five or none: where
    * the read failed none is set and `ratioInputsUnavailable` says so.
    */
   interestExpense?: number;
@@ -61,8 +61,12 @@ export interface ReportPackInput {
   employeeCosts?: number;
   employeeCount?: number;
   taxExpense?: number;
+  /**
+   * Never populated: the ledger's classification has no direct-materials
+   * line (`ledgerRatioLines`). Kept so a hand-built input can carry one.
+   */
   directMaterialCosts?: number;
-  /** Set only when those six were asked for and could not be read. */
+  /** Set only when those five were asked for and could not be read. */
   ratioInputsUnavailable?: string;
 }
 

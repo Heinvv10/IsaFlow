@@ -41,7 +41,7 @@ vi.mock('@/modules/accounting/services/afs/cashFlowDirectService', () => ({
 // goes to whatever database the environment names.
 vi.mock('@/modules/accounting/services/reports/extendedRatioInputs', () => ({
   readLedgerRatioInputs: async () => ({
-    employeeCount: 0, interestExpense: 0, interestIncome: 0, employeeCosts: 0, taxExpense: 0, directMaterialCosts: 0,
+    employeeCount: 0, interestExpense: 0, interestIncome: 0, employeeCosts: 0, taxExpense: 0,
   }),
 }));
 vi.mock('@/modules/accounting/services/reports/budgetVarianceService', () => ({

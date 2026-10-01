@@ -68,7 +68,7 @@ async function read(failOn: (statement: string) => Error | null) {
 
 describe.each([
   ['the head count', 'payroll_employees'],
-  ['the subtype totals', 'interest_expense'],
+  ['the period\'s movement', 'GROUP BY ga.account_type'],
 ])('when %s cannot be read (statement timeout)', (_name, marker) => {
   const failing = (s: string) => (s.includes(marker) ? pgError('57014', 'canceling statement due to statement timeout') : null);
 
@@ -91,11 +91,12 @@ describe.each([
 
   it('says of each ratio that the figures could not be read, not that the report does not capture them', async () => {
     const { ratios } = await read(failing);
-    for (const key of ['interestCoverage', 'pbtToNetInterest', 'effectiveTaxRate', 'revenuePerEmployee', 'employeeCostToRevenue', 'directMaterialMargin']) {
+    for (const key of ['interestCoverage', 'pbtToNetInterest', 'effectiveTaxRate', 'revenuePerEmployee', 'employeeCostToRevenue']) {
       expect(ratios[key]).toBeNull();
       expect(ratios.notMeaningful[key]).toBe(RATIO_INPUTS_NOT_READ);
     }
-    // Dividends were never part of that read.
+    // Dividends and direct materials were never part of that read.
+    expect(ratios.notMeaningful.directMaterialMargin).toBe('Direct material cost is not captured in this report, so this ratio cannot be stated.');
     expect(ratios.notMeaningful.dividendCover).toBe('Dividends paid is not captured in this report, so this ratio cannot be stated.');
   });
 
@@ -110,7 +111,7 @@ describe.each([
 
 describe('when the read fails for a reason that is not a failed read', () => {
   it('re-throws a missing column (42703) — a defect, not weather', async () => {
-    await expect(read((s) => (s.includes('interest_expense') ? pgError('42703', 'column "x" does not exist') : null)))
+    await expect(read((s) => (s.includes('GROUP BY ga.account_type') ? pgError('42703', 'column "x" does not exist') : null)))
       .rejects.toMatchObject({ code: '42703' });
   });
 });

@@ -140,7 +140,7 @@ export const RATIO_INPUTS_NOT_READ =
  * screen that printed each as a figure for the same company and period.
  *
  * Degrades like the cash flows above and for the same reasons: its own
- * savepoint, only a failed read is an absence, and then all six are absent —
+ * savepoint, only a failed read is an absence, and then all five are absent —
  * the reason is one sentence, and half a set of inputs would state a tax rate
  * on a profit before tax that never had its interest taken off.
  */

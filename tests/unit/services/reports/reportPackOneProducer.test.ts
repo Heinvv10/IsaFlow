@@ -168,13 +168,13 @@ describe('the shared link (buildSharedPack)', () => {
     getCashFlowDirectMock.mockImplementation(async () => { order.push('cash:start'); await null; order.push('cash:end'); return CASH_FLOW; });
     sqlMock.mockImplementation(async (strings: unknown) => {
       const text = (strings as readonly string[]).join('?');
-      const what = text.includes('payroll_employees') ? 'headcount' : text.includes('interest_expense') ? 'subtypes' : 'commentary';
+      const what = text.includes('payroll_employees') ? 'headcount' : text.includes('GROUP BY ga.account_type') ? 'movement' : 'commentary';
       order.push(`${what}:start`); await null; order.push(`${what}:end`); return [];
     });
     await buildSharedPack(LINK);
     expect(order).toEqual([
       'figures:start', 'figures:end', 'cash:start', 'cash:end',
-      'headcount:start', 'headcount:end', 'subtypes:start', 'subtypes:end',
+      'headcount:start', 'headcount:end', 'movement:start', 'movement:end',
       'commentary:start', 'commentary:end',
     ]);
   });

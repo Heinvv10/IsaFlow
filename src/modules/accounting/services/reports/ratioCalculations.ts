@@ -10,7 +10,7 @@
  */
 import type { ExtendedRatioResult, FinancialData, RatioResult } from './ratioTypes';
 import {
-  dependsOnUnstated, equityBasisFailure, equityNotMeaningful, NET_INTEREST_IS_INCOME, NO_FREE_CASH_FLOW,
+  dependsOnUnstated, equityBasisFailure, equityNotMeaningful, NET_INTEREST_IS_INCOME, INTEREST_IS_NET_CREDIT, NO_FREE_CASH_FLOW,
   NO_OPERATING_CASH_FLOW_RATIO, noneRecorded, notCaptured, notPositive,
 } from './ratioBasis';
 
@@ -101,9 +101,9 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   const base = calculateFinancialRatios(data);
   const equityFailure = equityBasisFailure(data.totalEquity);
   const { why, on, given } = ledger(base.notMeaningful);
-  const notRead = data.ledgerInputsNotRead;
   // EBIT is the operating line: earnings before interest and tax, so other
   // income is in and finance cost and tax are out.
+  const notRead = data.ledgerInputsNotRead;
   const ebit = operatingProfitOf(data);
   const interestExp = data.interestExpense ?? 0;
   const interestInc = data.interestIncome ?? 0;
@@ -116,7 +116,13 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   const dividendsPaid = data.dividendsPaid ?? 0;
   const capitalEmployed = data.totalAssets - data.currentLiabilities;
   const ebitda = ebit + (data.depreciation ?? 0) + (data.amortization ?? 0);
-  const pbt = ebit - interestExp + interestInc; // Profit Before Tax
+  // PROFIT BEFORE TAX IS THE STATEMENT'S: net profit with the tax put back.
+  // It was `ebit - interest + interest income`, which counted interest income
+  // twice (it is inside the operating line) and never took off bank charges
+  // or the other-expense band — so the tax rate did not reconcile to the
+  // income statement beside it. No tax figure, no profit before tax.
+  const noTax = data.taxExpense === undefined ? notRead ?? notCaptured('Tax expense') : null;
+  const pbt = data.netProfit + (data.taxExpense ?? 0);
   // Net operating assets = Total Assets - Cash - Current Liabilities
   const netOperatingAssets = data.totalAssets - data.cash - data.currentLiabilities;
 
@@ -133,8 +139,11 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   const cycleParts = debtorDays === null || creditorDays === null || inventoryDays === null;
 
   const noHeadCount = unusable(data.employeeCount, 'The employee count', 'employees', notRead);
-  const noEmployeeCost = unusable(data.employeeCosts, 'Employee cost', 'employee cost', notRead);
-  const noInterest = unusable(data.interestExpense, 'Interest expense', 'interest expense', notRead);
+  // "None recorded" would be untrue of a company whose salaries sit in a
+  // general operating-expense account: what was looked for is the payroll band.
+  const noEmployeeCost = unusable(data.employeeCosts, 'Employee cost', 'employee cost under a payroll classification', notRead);
+  const noInterest = interestExp < 0 ? INTEREST_IS_NET_CREDIT
+    : unusable(data.interestExpense, 'Interest expense', 'interest expense', notRead);
   // Cover on NET interest: no base where nothing was paid, and none either
   // where more was earned than paid — which is not "no interest recorded".
   const noNetInterest = noInterest ?? (netInterest > 0 ? null : NET_INTEREST_IS_INCOME);
@@ -153,7 +162,7 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
     roce: on('roce', capitalEmployed, 'Capital employed', () => pct(ebit, capitalEmployed)),
     pbitMargin: on('pbitMargin', data.revenue, 'Revenue', () => pct(ebit, data.revenue)),
     directMaterialMargin: given('directMaterialMargin',
-      onRevenue(unusable(data.directMaterialCosts, 'Direct material cost', 'direct material cost', notRead)),
+      onRevenue(unusable(data.directMaterialCosts, 'Direct material cost', 'direct material cost')),
       () => pct(data.revenue - directMaterials, data.revenue)),
     // Leverage
     interestCoverage: given('interestCoverage', noInterest, () => r2(safeDiv(ebit, interestExp))),
@@ -185,7 +194,7 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
       () => r2((opCF ?? 0) - (capex ?? 0))),
     // Coverage (AFS Master v15 — interest coverage variants)
     ebitdaToNetInterest: onNetInterest('ebitdaToNetInterest', ebitda),
-    pbtToNetInterest: onNetInterest('pbtToNetInterest', pbt),
+    pbtToNetInterest: given('pbtToNetInterest', noTax ?? noNetInterest, () => r2(safeDiv(pbt, netInterest))),
     netProfitToNetInterest: onNetInterest('netProfitToNetInterest', data.netProfit),
     // Employee Productivity (AFS Master v15)
     revenuePerEmployee: perEmployee('revenuePerEmployee', data.revenue),
@@ -204,8 +213,7 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
         : data.netProfit > 0 ? null : notPositive('Net profit'),
       () => pct(data.netProfit - dividendsPaid, data.netProfit)),
     effectiveTaxRate: given('effectiveTaxRate',
-      data.taxExpense === undefined ? notRead ?? notCaptured('Tax expense')
-        : pbt > 0 ? null : notPositive('Profit before tax'),
+      noTax ?? (pbt > 0 ? null : notPositive('Profit before tax')),
       () => pct(data.taxExpense ?? 0, pbt)),
     // DuPont Decomposition
     dupontMargin: on('dupontMargin', data.revenue, 'Revenue', () => pct(data.netProfit, data.revenue)),

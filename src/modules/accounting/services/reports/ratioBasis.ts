@@ -76,6 +76,10 @@ export const NET_INTEREST_IS_INCOME =
   'Interest income is at least interest expense in the period, so there is no net interest cost to cover.';
 
 /** Why a ratio built from other ratios is not stated when one of them is not. */
+/** A reversal or refund larger than the period's charge: not "none recorded". */
+export const INTEREST_IS_NET_CREDIT =
+  'Interest expense is a net credit in the period, so cover on it is not meaningful.';
+
 export function dependsOnUnstated(parts: string): string {
   return `Not stated: it depends on ${parts}, and one of them could not be stated.`;
 }

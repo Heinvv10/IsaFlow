@@ -11,8 +11,12 @@
  * WHAT IT SUPPLIES IS WHAT THE ENGINE MAY CALL "RECORDED". A figure read here
  * and found nil is supplied as 0, which the engine reports as "none recorded
  * in the period" — true, because this looked. A figure this does NOT read
- * (dividends, cash flows, capital expenditure) is left undefined, which the
- * engine reports as "not captured in this report". See `ratioBasis.ts`.
+ * (dividends, cash flows, capital expenditure, direct materials) is left
+ * undefined, which the engine reports as "not captured in this report". See
+ * `ratioBasis.ts`.
+ *
+ * WHICH ACCOUNTS ARE INTEREST, TAX AND EMPLOYEE COST is the income
+ * statement's classifier's answer, not this file's: see `ledgerRatioLines`.
  *
  * The report pack takes the same inputs from `readLedgerRatioInputs`, so a
  * ratio it prints is the one this screen prints.
@@ -20,83 +24,80 @@
  * One query after another: under `withAuth` the request holds one pg client.
  */
 import { sql } from '@/lib/neon';
-import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
-import { TAX_EXPENSE_SUBTYPES } from '@/modules/accounting/services/gl/accountClassification';
+import type { ClassificationRow } from '@/modules/accounting/services/gl/accountClassification';
 import {
   getFinancialFigures, toFinancialData, type PeriodFigures,
 } from '@/modules/accounting/services/gl/financialFiguresService';
+import { ledgerRatioLines, type LedgerRatioLines } from './ledgerRatioLines';
 import type { FinancialData } from './ratioTypes';
 
-type Row = Record<string, unknown>;
-
-const amount = (value: unknown): number => {
-  const n = typeof value === 'number' ? value : parseFloat(String(value ?? '0'));
-  return Number.isFinite(n) ? n : 0;
-};
-
-/** What only the subtype read and the payroll head count supply. */
-export type LedgerRatioInputs = Required<Pick<
-  FinancialData,
-  'employeeCount' | 'interestExpense' | 'interestIncome' | 'employeeCosts' | 'taxExpense' | 'directMaterialCosts'
->>;
+/** What only the head count and the classified income-statement lines supply. */
+export type LedgerRatioInputs = LedgerRatioLines & { employeeCount: number };
 
 /**
- * Head count and the period's interest, tax, employee cost and direct
- * materials, by account subtype. On its own because the report pack has
- * already read the ledger figures and must not read them twice
- * (`reportPackDataService`); the Financial Analysis endpoints get both
- * through `readExtendedRatioInputs`.
+ * HEAD COUNT AS AT EACH DATE, IN ONE QUERY: the people employed on that day.
+ *
+ * It was `end_date IS NULL OR end_date > NOW()` — today's staff, whatever the
+ * window, so a comparative period, every month of a trend and any historical
+ * pack divided by the same number, and someone hired after the window was in
+ * it. An employee counts on a date when they had started by it and either
+ * left after it, or have no end date and are active now: a row that is
+ * inactive or terminated with no end date says nothing about when, so it is
+ * not counted on any date.
+ *
+ * As at the window END, not an average over it. A company that grew through
+ * the window divides its whole period's revenue by its closing staff.
  */
-export async function readLedgerRatioInputs(companyId: string, from: string, to: string): Promise<LedgerRatioInputs> {
-  const [headCount] = (await sql`
-    SELECT COUNT(*)::int AS count
-    FROM payroll_employees
-    WHERE company_id = ${companyId}::uuid AND (end_date IS NULL OR end_date > NOW())
-  `) as Row[];
-  // AFS Master v15: interest, employee costs, tax by account subtype
-  const [subtypeTotals] = (await sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${rawSubtypesFor('finance_cost')}::TEXT[])
-        THEN jl.debit - jl.credit ELSE 0 END), 0) AS interest_expense,
-      COALESCE(SUM(CASE WHEN ga.account_subtype = 'interest_income'
-        THEN jl.credit - jl.debit ELSE 0 END), 0) AS interest_income,
-      COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${[...rawSubtypesFor('payroll_expense'),
-        'uif', 'medical_aid', 'provident_fund', 'leave_pay', 'bonuses']}::TEXT[])
-        THEN jl.debit - jl.credit ELSE 0 END), 0) AS employee_costs,
-      -- Two hand-picked spellings reported R0.00 tax for a company whose tax
-      -- accounts use the vocabulary's own. account_type = 'expense' keeps the
-      -- raw 'tax' a VAT control account carries out of an income-tax figure.
-      COALESCE(SUM(CASE WHEN ga.account_type = 'expense'
-          AND ga.account_subtype = ANY(${TAX_EXPENSE_SUBTYPES as string[]}::TEXT[])
-        THEN jl.debit - jl.credit ELSE 0 END), 0) AS tax_expense,
-      COALESCE(SUM(CASE WHEN ga.account_subtype = 'raw_materials'
-        THEN jl.debit - jl.credit ELSE 0 END), 0) AS direct_materials
+export async function readHeadCounts(companyId: string, asAt: readonly string[]): Promise<number[]> {
+  const rows = (await sql`
+    SELECT d.as_at::text AS as_at, COUNT(e.id)::int AS count
+    FROM unnest(${asAt as string[]}::date[]) AS d(as_at)
+    LEFT JOIN payroll_employees e
+      ON e.company_id = ${companyId}::uuid
+     AND e.start_date <= d.as_at
+     AND (e.end_date > d.as_at OR (e.end_date IS NULL AND e.status = 'active'))
+    GROUP BY d.as_at
+  `) as Array<{ as_at: string; count: number | string }>;
+  const byDate = new Map(rows.map((r) => [String(r.as_at).slice(0, 10), Number(r.count)]));
+  return asAt.map((date) => byDate.get(date) ?? 0);
+}
+
+/**
+ * Head count at the window end and the period's interest, tax and employee
+ * cost. On its own because the report pack has already read the ledger
+ * figures and must not read them twice (`reportPackDataService`); the
+ * Financial Analysis endpoints get both through `readExtendedRatioInputs`.
+ *
+ * The movement is read grouped exactly as `getFinancialFigures` reads it —
+ * same joins, same predicates — and folded by the statement's classifier.
+ * `headCount` is passed by a caller that has already read it for many windows
+ * at once (ratio trends).
+ */
+export async function readLedgerRatioInputs(
+  companyId: string, from: string, to: string, headCount?: number,
+): Promise<LedgerRatioInputs> {
+  const employeeCount = headCount ?? (await readHeadCounts(companyId, [to]))[0]!;
+  const rows = (await sql`
+    SELECT ga.account_type, ga.account_subtype,
+           COALESCE(SUM(jl.debit), 0) AS debit, COALESCE(SUM(jl.credit), 0) AS credit
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+    JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
     WHERE je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID AND je.status = 'posted'
+      AND je.status = 'posted' AND ga.account_type IN ('revenue', 'expense')
       AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
-  `) as Row[];
-
-  return {
-    employeeCount: amount(headCount?.count),
-    interestExpense: amount(subtypeTotals?.interest_expense),
-    interestIncome: amount(subtypeTotals?.interest_income),
-    employeeCosts: amount(subtypeTotals?.employee_costs),
-    taxExpense: amount(subtypeTotals?.tax_expense),
-    directMaterialCosts: amount(subtypeTotals?.direct_materials),
-  };
+    GROUP BY ga.account_type, ga.account_subtype
+  `) as ClassificationRow[];
+  return { employeeCount, ...ledgerRatioLines(rows) };
 }
 
 export async function readExtendedRatioInputs(
   companyId: string,
   from: string,
   to: string,
+  headCount?: number,
 ): Promise<{ data: FinancialData; figures: PeriodFigures }> {
-  // Balance sheet + P&L come from the shared classification resolver; the AFS
-  // Master v15 amounts are subtype-specific and stay a separate query.
   const figures = await getFinancialFigures(companyId, from, to);
-  const ledger = await readLedgerRatioInputs(companyId, from, to);
+  const ledger = await readLedgerRatioInputs(companyId, from, to, headCount);
   return { data: { ...toFinancialData(figures), ...ledger }, figures };
 }

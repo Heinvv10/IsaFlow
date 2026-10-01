@@ -3,7 +3,7 @@
  * AS FINANCIAL ANALYSIS DOES.
  *
  * The pack's input carried no interest, tax, employee cost or head count, so
- * eleven of its ratio rows printed "not captured in this report" for a company
+ * ten of its ratio rows printed "not captured in this report" for a company
  * whose Financial Analysis screen, over the same ledger and period, printed
  * each of them as a figure. `readReportPackInput` now takes them from the same
  * read the screen's endpoints use (`extendedRatioInputs`).
@@ -67,13 +67,31 @@ const FIGURES = {
   },
 };
 
+/** The period's revenue and expense movement, as the read groups it. */
+const LEDGER = [
+  { account_type: 'expense', account_subtype: 'interest_expense', debit: '30000.00', credit: '0' },
+  { account_type: 'revenue', account_subtype: 'interest_income', debit: '0', credit: '5000.00' },
+  { account_type: 'expense', account_subtype: 'salaries', debit: '400000.00', credit: '0' },
+  { account_type: 'expense', account_subtype: 'income_tax', debit: '27000.00', credit: '0' },
+  { account_type: 'expense', account_subtype: 'bank_charges', debit: '8000.00', credit: '0' },
+];
+
+function serve(headCount: number, ledger: unknown[]): void {
+  sqlMock.mockImplementation(async (strings: unknown, ...values: unknown[]) => {
+    const text = (strings as readonly string[]).join('?');
+    if (text.includes('payroll_employees')) return (values[0] as string[]).map((as_at) => ({ as_at, count: headCount }));
+    if (text.includes('GROUP BY ga.account_type')) return ledger;
+    return [];
+  });
+}
+
 type Ratios = Record<string, number | null> & { notMeaningful: Record<string, string> };
 
 /** Every ratio that needs an input only the ledger's subtype read supplies. */
 const LEDGER_RATIOS = [
   'interestCoverage', 'ebitdaToNetInterest', 'pbtToNetInterest', 'netProfitToNetInterest',
   'revenuePerEmployee', 'pbitPerEmployee', 'ebitdaPerEmployee',
-  'employeeCostToRevenue', 'employeeCostPerHead', 'effectiveTaxRate', 'directMaterialMargin',
+  'employeeCostToRevenue', 'employeeCostPerHead', 'effectiveTaxRate',
 ];
 
 /** [statement with `?` for each bound value, the bound values]. */
@@ -100,28 +118,17 @@ beforeEach(() => {
   vi.clearAllMocks();
   getFinancialFiguresMock.mockResolvedValue(FIGURES);
   getCashFlowDirectMock.mockResolvedValue({ operatingTotal: 120_000, investingTotal: -30_000, financingTotal: 10_000, netChange: 100_000 });
-  sqlMock.mockImplementation(async (strings: unknown) => {
-    const text = (strings as readonly string[]).join('?');
-    if (text.includes('payroll_employees')) return [{ count: 12 }];
-    if (text.includes('interest_expense')) {
-      return [{
-        interest_expense: '30000.00', interest_income: '5000.00', employee_costs: '400000.00',
-        tax_expense: '27000.00', direct_materials: '350000.00',
-      }];
-    }
-    return [];
-  });
+  serve(12, LEDGER);
 });
 
 describe('the management pack\'s ratios', () => {
   it('state interest cover, the tax rate and the per-employee figures off the ledger', async () => {
     const ratios = await packRatios();
     expect(ratios.interestCoverage).toBe(5);            // 150 000 / 30 000
-    expect(ratios.pbtToNetInterest).toBe(5);            // (150 000 - 30 000 + 5 000) / 25 000
-    expect(ratios.effectiveTaxRate).toBe(21.6);         // 27 000 / 125 000
+    expect(ratios.pbtToNetInterest).toBe(4.8);          // (93 000 + 27 000) / 25 000
+    expect(ratios.effectiveTaxRate).toBe(22.5);         // 27 000 / (93 000 + 27 000)
     expect(ratios.revenuePerEmployee).toBe(83_333.33);  // 1 000 000 / 12
     expect(ratios.employeeCostToRevenue).toBe(40);      // 400 000 / 1 000 000
-    expect(ratios.directMaterialMargin).toBe(65);       // (1 000 000 - 350 000) / 1 000 000
   });
 
   it.each(LEDGER_RATIOS)('state %s as the figure Financial Analysis states', async (key) => {
@@ -132,6 +139,19 @@ describe('the management pack\'s ratios', () => {
     expect(pack.notMeaningful[key]).toBeUndefined();
   });
 
+  it('leave the bank charges out of the interest they cover', async () => {
+    serve(12, [{ account_type: 'expense', account_subtype: 'bank_charges', debit: '8000.00', credit: '0' }]);
+    const ratios = await packRatios();
+    expect(ratios.interestCoverage).toBeNull();
+    expect(ratios.notMeaningful.interestCoverage).toBe('No interest expense recorded in the period, so this ratio cannot be stated.');
+  });
+
+  it('say the direct material margin is not captured: the classification has no such line', async () => {
+    const ratios = await packRatios();
+    expect(ratios.directMaterialMargin).toBeNull();
+    expect(ratios.notMeaningful.directMaterialMargin).toBe('Direct material cost is not captured in this report, so this ratio cannot be stated.');
+  });
+
   it('still say dividends are not captured, because nothing reads them', async () => {
     const ratios = await packRatios();
     expect(ratios.dividendCover).toBeNull();
@@ -139,16 +159,12 @@ describe('the management pack\'s ratios', () => {
   });
 
   it('say none was recorded where the ledger was read and holds none', async () => {
-    sqlMock.mockImplementation(async (strings: unknown) => {
-      const text = (strings as readonly string[]).join('?');
-      if (text.includes('payroll_employees')) return [{ count: 0 }];
-      if (text.includes('interest_expense')) return [{ interest_expense: '0', interest_income: '0', employee_costs: '0', tax_expense: '0', direct_materials: '0' }];
-      return [];
-    });
+    serve(0, []);
     const ratios = await packRatios();
     expect(ratios.interestCoverage).toBeNull();
     expect(ratios.notMeaningful.interestCoverage).toBe('No interest expense recorded in the period, so this ratio cannot be stated.');
     expect(ratios.notMeaningful.revenuePerEmployee).toBe('No employees recorded in the period, so this ratio cannot be stated.');
+    expect(ratios.notMeaningful.employeeCostToRevenue).toBe('No employee cost under a payroll classification recorded in the period, so this ratio cannot be stated.');
     expect(ratios.effectiveTaxRate).toBe(0);
   });
 });
@@ -159,18 +175,23 @@ describe('the read behind them', () => {
     expect(getFinancialFiguresMock).toHaveBeenCalledTimes(1);
   });
 
-  it('binds the company to the head count and to every table of the subtype read', async () => {
+  it('binds the company to the head count and to every table of the movement read', async () => {
     await packRatios();
     const all = statements();
     const headCount = all.find(([text]) => text.includes('payroll_employees'))!;
-    const subtypes = all.find(([text]) => text.includes('interest_expense'))!;
-    expect(headCount[0]).toMatch(/WHERE company_id = \?::uuid/);
-    expect(headCount[1]).toEqual([COMPANY]);
+    const movement = all.find(([text]) => text.includes('GROUP BY ga.account_type'))!;
+    expect(headCount[0]).toMatch(/e\.company_id = \?::uuid/);
+    expect(headCount[1]).toEqual([[TO], COMPANY]);
     for (const alias of ['je', 'jl', 'ga']) {
-      expect(subtypes[0]).toMatch(new RegExp(`${alias}\\.company_id = \\?::UUID`));
+      expect(movement[0]).toMatch(new RegExp(`${alias}\\.company_id = \\?::UUID`));
     }
-    expect(subtypes[1].filter((v) => v === COMPANY)).toHaveLength(3);
-    expect(subtypes[1].slice(-2)).toEqual([FROM, TO]);
+    expect(movement[1]).toEqual([COMPANY, COMPANY, COMPANY, FROM, TO]);
+  });
+
+  it('counts heads as at the END of the window it was asked for', async () => {
+    await readReportPackInput(COMPANY, 'Acme Fibre (Pty) Ltd', '2025-03-01', '2025-08-31');
+    const headCount = statements().find(([text]) => text.includes('payroll_employees'))!;
+    expect(headCount[1][0]).toEqual(['2025-08-31']);
   });
 
   it('asks for the company and window the pack was asked for, and no other', async () => {

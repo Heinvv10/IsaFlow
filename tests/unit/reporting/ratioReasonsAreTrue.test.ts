@@ -46,7 +46,7 @@ describe.each([
   ['pbitPerEmployee', 'employeeCount', 'The employee count', 'employees'],
   ['ebitdaPerEmployee', 'employeeCount', 'The employee count', 'employees'],
   ['employeeCostPerHead', 'employeeCount', 'The employee count', 'employees'],
-  ['employeeCostToRevenue', 'employeeCosts', 'Employee cost', 'employee cost'],
+  ['employeeCostToRevenue', 'employeeCosts', 'Employee cost', 'employee cost under a payroll classification'],
   ['directMaterialMargin', 'directMaterialCosts', 'Direct material cost', 'direct material cost'],
   ['dividendCover', 'dividendsPaid', 'Dividends paid', 'dividends'],
 ] as const)('%s', (ratio, input, captured, recorded) => {

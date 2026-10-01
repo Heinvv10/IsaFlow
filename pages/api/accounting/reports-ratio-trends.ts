@@ -8,7 +8,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { getFinancialFigures, unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
-import { readExtendedRatioInputs } from '@/modules/accounting/services/reports/extendedRatioInputs';
+import { readExtendedRatioInputs, readHeadCounts } from '@/modules/accounting/services/reports/extendedRatioInputs';
 import { calculateRatioTrends } from '@/modules/accounting/services/reports/ratioTrendService';
 import type { FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
 
@@ -34,9 +34,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // One month after another: each is three queries on the request's one
   // connection, through the same read the scorecard and ratio list use.
+  // Each month's head count is its own, as at its month end, read for every
+  // month in one query rather than one per month.
+  const headCounts = await readHeadCounts(companyId, monthSlots.map((m) => m.to));
   const results: FinancialData[] = [];
-  for (const { from, to } of monthSlots) {
-    results.push((await readExtendedRatioInputs(companyId, from, to)).data);
+  for (const [i, { from, to }] of monthSlots.entries()) {
+    results.push((await readExtendedRatioInputs(companyId, from, to, headCounts[i])).data);
   }
 
   // Warn off the widest window in the series: an account unclassified in the
