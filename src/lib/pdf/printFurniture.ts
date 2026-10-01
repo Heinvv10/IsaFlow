@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import {
   PACK_FOOTER_FACE_FILE, PACK_FOOTER_FONT_FAMILY, packFooterFaceCss,
 } from '@/lib/charts/packFont';
+import { PT_MM, textWidthEms, WIDTH_SAFETY } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { escapeHtml } from '@/modules/accounting/services/packs/escapeHtml';
 import { PDF_MARGIN_MM, type PdfMetadata } from './pdfTransport';
 
@@ -71,12 +72,42 @@ export function footerRightText(f: PackFurniture): string {
   return f.draft ? `${f.confidentiality} · DRAFT` : f.confidentiality;
 }
 
+const MONTH_SHORT: Record<string, string> = {
+  January: 'Jan', February: 'Feb', March: 'Mar', April: 'Apr', June: 'Jun', July: 'Jul',
+  August: 'Aug', September: 'Sep', October: 'Oct', November: 'Nov', December: 'Dec',
+};
+
+/** "1 January 2026 to 7 September 2026" -> "1 Jan 2026 – 7 Sep 2026": the same
+ *  day, month and year, in less room. A period not in that form is returned
+ *  unchanged. */
+export function shortPeriod(period: string): string {
+  return period
+    .replace(/\b(January|February|March|April|June|July|August|September|October|November|December)\b/g, (m) => MONTH_SHORT[m] ?? m)
+    .replace(' to ', ' – ');
+}
+
+/** Millimetres the ruler says `text` needs at the footer's size — an upper bound. */
+const footerMm = (text: string): number => textWidthEms(text) * WIDTH_SAFETY * FOOTER_PT * PT_MM;
+
+/**
+ * THE LONG PERIOD, UNLESS IT CRUSHES THE TITLE. "Management Pack · 1 January
+ * 2026 to 7 September 2026" beside a long company name used to cut the COMPANY
+ * ("Brightsphere Technologies (Pt…"). The same dates in short form are tried
+ * first; the company name is cut (CSS ellipsis) only if that fails too.
+ */
+export function footerPeriod(f: PackFurniture): string {
+  const rightMm = footerMm(footerRightText(f)) + FOOTER_GAP_MM / 3 + FOOTER_PAGE_BOX_MM;
+  const availableMm = 210 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right - rightMm - FOOTER_GAP_MM;
+  const title = (period: string) => footerMm([f.companyName, f.packLabel, period].filter(Boolean).join(' · '));
+  return title(f.period) <= availableMm ? f.period : shortPeriod(f.period);
+}
+
 export function buildFooterHtml(f: PackFurniture): string {
   const company = escapeHtml(f.companyName);
   // No company name, no company span and no separator before the pack label:
   // an empty name used to leave an orphan leading "· ".
   const named = f.companyName.trim() !== '';
-  const rest = escapeHtml(`${named ? ' · ' : ''}${f.packLabel} · ${f.period}`);
+  const rest = escapeHtml(`${named ? ' · ' : ''}${f.packLabel} · ${footerPeriod(f)}`);
   const right = escapeHtml(footerRightText(f));
   // TWO COLUMNS, AND ONLY THE COMPANY NAME MAY GIVE WAY.
   //

@@ -24,7 +24,7 @@ import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser } from 'playwright';
 import { HEADER_HTML, PDF_MARGIN_MM, mm } from '@/lib/pdf/pdfTransport';
-import { buildFooterHtml, PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
+import { buildFooterHtml, PACK_CONFIDENTIALITY, shortPeriod } from '@/lib/pdf/printFurniture';
 import { PACK_FOOTER_FACE_FILE, PACK_FOOTER_FONT_FAMILY, packFooterFaceCss } from '@/lib/charts/packFont';
 
 const run = promisify(execFile);
@@ -126,7 +126,8 @@ describe('the running footer, printed by Chromium', () => {
       pageNumberEdges.push(total!.xMax);
 
       // The period and pack are never what gets cut.
-      expect(text, `${where}: the period was cut`).toContain(period);
+      // The period is never what is cut: the long form, or the same dates short.
+      expect(text.includes(period) || text.includes(shortPeriod(period)), `${where}: the period was cut`).toBe(true);
       expect(text, `${where}: the pack label was cut`).toContain(pack);
       if (nameLabel === 'a short name') expect(text).toContain(name);
     }
@@ -141,6 +142,27 @@ describe('the running footer, printed by Chromium', () => {
       expect(text).toContain(PERIODS[1]);
       expect(Math.max(...words.map((w) => w.xMax))).toBeLessThanOrEqual(RIGHT_MARGIN_X + 1);
     }
+  }, 60_000);
+
+  it('prints the FULL company name for Brightsphere + Management Pack + the long period, by shortening the period first', async () => {
+    const name = 'Brightsphere Technologies (Pty) Ltd';
+    const period = '1 January 2026 to 7 September 2026';
+    const html = buildFooterHtml({ companyName: name, packLabel: 'Management Pack', period, confidentiality: PACK_CONFIDENTIALITY, draft: true });
+    const sheets = await footerWords(html, 'bs-mgmt');
+    for (const words of sheets) {
+      const text = words.map((w) => w.text).join(' ');
+      expect(text, 'the company name was cut').toContain(name);
+      expect(text).not.toContain('…');
+      expect(text).toContain(shortPeriod(period));
+      expect(text).toMatch(/\bDRAFT\b/);
+      expect(Math.max(...words.map((w) => w.xMax))).toBeLessThanOrEqual(RIGHT_MARGIN_X + 1);
+    }
+  }, 60_000);
+
+  it('keeps the long period when the title fits with it', async () => {
+    const html = buildFooterHtml({ companyName: 'Acme (Pty) Ltd', packLabel: 'Board Pack', period: '1 January 2026 to 7 September 2026', confidentiality: PACK_CONFIDENTIALITY, draft: false });
+    const text = (await footerWords(html, 'short-name'))[0]!.map((w) => w.text).join(' ');
+    expect(text).toContain('1 January 2026 to 7 September 2026');
   }, 60_000);
 
   it('put the page number at one x, on every page of every case', () => {
