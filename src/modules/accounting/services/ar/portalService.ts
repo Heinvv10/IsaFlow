@@ -229,16 +229,17 @@ export async function createPaymentLink(invoiceId: string, clientId: string, amo
   return String(rows[0]!.token);
 }
 
+/** The link row for display. Whether it may be shown or paid is `resolveLinkCharge`'s call, not this one's. */
 export async function getPaymentLink(token: string): Promise<{
   invoiceId: string;
   clientId: string;
   amount: number;
   status: string;
-  expiresAt: string;
+  expiresAt: string | null;
 } | null> {
   const rows = (await sql`
     SELECT * FROM portal_payment_links
-    WHERE token = ${token} AND status = 'active' AND (expires_at IS NULL OR expires_at > NOW())
+    WHERE token = ${token}
   `) as DbRow[];
   if (!rows[0]) return null;
   return {
@@ -246,7 +247,7 @@ export async function getPaymentLink(token: string): Promise<{
     clientId: String(rows[0].client_id),
     amount: Number(rows[0].amount),
     status: String(rows[0].status),
-    expiresAt: String(rows[0].expires_at),
+    expiresAt: rows[0].expires_at == null ? null : String(rows[0].expires_at),
   };
 }
 

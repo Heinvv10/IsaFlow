@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { ArrowLeft, ArrowRight, FileText, Loader2, AlertCircle, Pencil } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { apiFetch } from '@/lib/apiFetch';
+import { startPayNowCheckout } from '@/modules/accounting/utils/payNowCheckout';
 import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { CustomerInvoiceSummary } from '@/components/invoices/CustomerInvoiceSummary';
@@ -113,16 +114,7 @@ export default function CustomerInvoiceDetailPage() {
     setPaymentLoading(true);
     setError('');
     try {
-      const res = await apiFetch(`/api/accounting/customer-invoices/${invoiceId}/pay-now`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.data?.checkoutUrl) {
-        throw new Error(json.error?.message || json.message || 'Failed to start payment');
-      }
-      window.open(json.data.checkoutUrl as string, '_blank', 'noopener,noreferrer');
+      window.open(await startPayNowCheckout(invoiceId as string), '_blank', 'noopener,noreferrer');
       await loadInvoice();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to start payment');
