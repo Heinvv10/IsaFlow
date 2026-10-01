@@ -1,20 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { formatDays, formatMoney, formatPct, formatPctLevel, formatRatio, pctWithWord, signOf, MONEY_SCALES, toMoneyScale } from '@/lib/format/money';
 
+const PACK = { pack: true } as const;
+
 describe('formatMoney', () => {
   it('uses thousands separators and no decimals by default', () => {
-    expect(formatMoney(4812345.67)).toBe('4\u00a0812\u00a0346');
+    expect(formatMoney(4812345.67, PACK)).toBe('4\u00a0812\u00a0346');
   });
   it('shows negatives in parentheses, never a minus', () => {
-    expect(formatMoney(-2190000)).toBe('(2\u00a0190\u00a0000)');
-    expect(formatMoney(-2190000)).not.toContain('-');
+    expect(formatMoney(-2190000, PACK)).toBe('(2\u00a0190\u00a0000)');
+    expect(formatMoney(-2190000, PACK)).not.toContain('-');
   });
   it('shows cents when asked', () => {
-    expect(formatMoney(53787.07, { cents: true })).toBe('53\u00a0787.07');
+    expect(formatMoney(53787.07, { cents: true, ...PACK })).toBe('53\u00a0787.07');
   });
   it('prefixes the rand symbol when asked', () => {
-    expect(formatMoney(1000, { symbol: true })).toBe('R 1\u00a0000');
-    expect(formatMoney(-1000, { symbol: true })).toBe('(R 1\u00a0000)');
+    expect(formatMoney(1000, { symbol: true, ...PACK })).toBe('R 1\u00a0000');
+    expect(formatMoney(-1000, { symbol: true, ...PACK })).toBe('(R 1\u00a0000)');
   });
   /**
    * THE SEPARATOR IS NOT A SPACE A LINE CAN BREAK AT.
@@ -34,10 +36,10 @@ describe('formatMoney', () => {
    */
   it('separates thousands with a space that cannot break a line', () => {
     for (const printed of [
-      formatMoney(4812345.67),
-      formatMoney(-2190000),
-      formatMoney(53787.07, { cents: true }),
-      formatMoney(1000, { symbol: true }),
+      formatMoney(4812345.67, PACK),
+      formatMoney(-2190000, PACK),
+      formatMoney(53787.07, { cents: true, ...PACK }),
+      formatMoney(1000, { symbol: true, ...PACK }),
       formatMoney(4_200_000, { scale: "R'000" }),
       formatDays(1035),
     ]) {
@@ -50,7 +52,7 @@ describe('formatMoney', () => {
     // missing from many faces and would render as a notdef box or as nothing
     // at all, which would turn `4 128` into `4128`. The one separator this
     // module emits is U+00A0.
-    expect(formatMoney(4812345.67)).not.toContain('\u202f');
+    expect(formatMoney(4812345.67, PACK)).not.toContain('\u202f');
   });
 
   it('renders zero as a dash', () => {
@@ -73,9 +75,51 @@ describe('formatPct', () => {
   // the percentage formatter kept its own marker while the money formatter
   // was pinned to brackets.
   it('shows a negative percentage in brackets, with no minus of either kind', () => {
-    expect(formatPct(-8.1)).toBe('(8.1%)');
-    expect(formatPct(-8.1)).not.toContain('-');       // ASCII hyphen U+002D
-    expect(formatPct(-8.1)).not.toContain('\u2212');  // minus sign U+2212
+    expect(formatPct(-8.1, 1, PACK)).toBe('(8.1%)');
+    expect(formatPct(-8.1, 1, PACK)).not.toContain('-');       // ASCII hyphen U+002D
+    expect(formatPct(-8.1, 1, PACK)).not.toContain('\u2212');  // minus sign U+2212
+  });
+});
+
+/**
+ * THE PACK'S CONVENTIONS DO NOT LEAK ONTO SCREENS.
+ *
+ * `formatMoney` and `formatPct` serve statements, KPI tiles, chart tooltips
+ * and the management-accounts page. Their output was pinned here against the
+ * pre-pack module (git 85cd87539) for a caller that opts into nothing.
+ */
+describe('non-pack callers keep their pre-pack output', () => {
+  it('separates thousands with an ASCII space, not U+00A0', () => {
+    expect(formatMoney(4812345.67)).toBe('4 812 346');
+    expect(formatMoney(-2190000)).toBe('(2 190 000)');
+    expect(formatMoney(53787.07, { cents: true })).toBe('53 787.07');
+    expect(formatMoney(1000, { symbol: true })).toBe('R 1 000');
+    expect(formatMoney(4812345.67)).not.toContain('\u00a0');
+  });
+  it('prints a negative percentage with U+2212, not brackets', () => {
+    expect(formatPct(-8.1)).toBe('\u22128.1%');
+    expect(formatPct(-0.006)).toBe('\u22120.0%');
+    expect(formatPct(6.94)).toBe('+6.9%');
+  });
+  it('prints an unscaled amount under half a rand as 0, not <1', () => {
+    expect(formatMoney(0.3)).toBe('0');
+    expect(formatMoney(-0.3)).toBe('(0)');
+    expect(formatMoney(0.3, { symbol: true })).toBe('R 0');
+  });
+});
+
+describe('pack callers opt in to the pack conventions', () => {
+  it('a scale selects the non-breaking separator and the <1 bound', () => {
+    expect(formatMoney(4_200_000, { scale: "R'000" })).toBe('4\u00a0200');
+    expect(formatMoney(400, { scale: "R'000" })).toBe('<1');
+    expect(formatMoney(-400, { scale: "R'000" })).toBe('(<1)');
+  });
+  it('pack: true on an unscaled amount takes the non-breaking separator and <1', () => {
+    expect(formatMoney(4812345.67, PACK)).toBe('4\u00a0812\u00a0346');
+    expect(formatMoney(0.3, PACK)).toBe('<1');
+  });
+  it('pack: true prints a negative percentage in brackets', () => {
+    expect(formatPct(-12, 1, PACK)).toBe('(12.0%)');
   });
 });
 
@@ -191,7 +235,7 @@ describe('formatMoney scaling', () => {
     expect(formatMoney(400, { scale: "R'000" })).toBe('<1');
     expect(formatMoney(-400, { scale: "R'000" })).toBe('(<1)');
     expect(formatMoney(400, { scale: "R'000", symbol: true })).toBe('R <1');
-    expect(formatMoney(0.4)).toBe('<1');
+    expect(formatMoney(0.4, PACK)).toBe('<1');
     // Cents already print the real amount, so there is nothing to bound.
     expect(formatMoney(0.4, { cents: true })).toBe('0.40');
     expect(formatMoney(0, { scale: "R'000" })).toBe('–');

@@ -220,7 +220,7 @@ describe('assertPackIntegrity — bridges', () => {
     // thousands it reads as R266 to anyone who takes the symbol at its word.
     expect(said).toMatch(/\b266 of this bridge\b/);
     expect(said).not.toMatch(/R 266/);
-    expect(said).not.toMatch(/266 000/);
+    expect(said).not.toMatch(/266\u00a0000/);
     const blocks: PackPageBlock[] = [
       { kind: 'chart', chart },
       { kind: 'disclosure', disclosure: { heading: 'How much of this bridge is unexplained', notes: [{ heading: 'Size', body: said }] } },

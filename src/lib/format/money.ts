@@ -1,9 +1,12 @@
 /**
  * Statement figure formatting. One place, so a number looks the same on the
  * screen, in the pack and in the PDF. Conventions: thousands separated by a
- * NON-BREAKING space (en-ZA), negatives in brackets, zero as an en dash.
+ * space (en-ZA), negative money in brackets, zero as an en dash. The BOARD
+ * PACK's stricter forms — a NON-BREAKING space, bracketed percentages, `<1` —
+ * are opt-in (`pack: true`, or a money `scale`); see `PackFormatOpt`. Screens
+ * print what they printed before the pack.
  *
- * ONE NEGATIVE CONVENTION, FOR EVERY KIND OF NUMBER (spec §7.1 criterion 8).
+ * ONE NEGATIVE CONVENTION, FOR EVERY KIND OF NUMBER IN THE PACK (spec §7.1 criterion 8).
  * A rendered board pack printed `(1 546)` for money, `−1348.0%` for a
  * percentage and `-0.14` for a ratio — three markers for one idea, the
  * second a U+2212 and the third an ASCII hyphen, all three within a few rows
@@ -12,14 +15,15 @@
  *
  * The bracket wins because it is the convention a financial statement is
  * read in and the one `formatMoney` has always used; `formatPct` and
- * `formatRatio` were the outliers and now follow it. There is no minus sign
- * left in this module: the sign character a reader sees is `(` and `)`, and
- * nothing else. PROSE is the one exception, and it is not an exception to
+ * `formatRatio` were the outliers and now follow it, in the pack. There is no
+ * minus sign in the pack's output: the sign character a reader sees is `(`
+ * and `)`, and nothing else. PROSE is the one exception, and it is not an exception to
  * the convention so much as to the notion of a figure position — a sentence
  * carries its direction in a WORD, through `pctWithWord` below, because
  * "margin is (12.0%)" reads as an aside rather than as a negative.
  */
 const ZERO_DASH = '–';
+const MINUS = '−';
 
 /**
  * A FORMATTED FIGURE, MOVED INTO A SENTENCE.
@@ -68,8 +72,9 @@ export function inScale(formatted: string, scale: MoneyScale): string {
  * RAW — a page or a model that divided would put arithmetic where no service
  * owns it, and the integrity gate compares raw values, so a display
  * transform must never reach them. Callers pass the document's own
- * `numberConvention.scale`; omitting it is exactly today's behaviour, which
- * is why every existing caller outside the pack is byte-identical.
+ * `numberConvention.scale`; omitting it (and `pack`) is exactly the
+ * pre-pack behaviour, which is why every existing caller outside the pack is
+ * byte-identical.
  */
 export const MONEY_SCALES = {
   R: 1,
@@ -118,6 +123,28 @@ function separated(formatted: string): string {
   return formatted.replace(/[\x20\xa0\u202f]/g, GROUP_SEPARATOR).replace(/,/g, '.');
 }
 
+/** What every screen printed before the board pack existed: an ASCII space. */
+function separatedLegacy(formatted: string): string {
+  return formatted.replace(/[\xa0\u202f]/g, ' ').replace(/,/g, '.');
+}
+
+/**
+ * THE BOARD PACK'S CONVENTIONS ARE OPT-IN, NOT SHARED.
+ *
+ * `formatMoney` and `formatPct` serve statement screens, KPI tiles, chart
+ * tooltips and the management-accounts page as well as the pack. The pack's
+ * non-breaking separator, bracketed negative percentage and `<1` bound were
+ * first written into the shared path, which changed every one of those
+ * screens. They are now taken only by a caller that asks: `pack: true`, or —
+ * for money — a `scale`, which only the pack passes. Everything else prints
+ * exactly what it printed before the pack: ASCII space, U+2212 minus, `0`.
+ * `formatRatio`, `formatDays` and `formatPctLevel` are pack-only formatters
+ * with no earlier behaviour, so they take no option.
+ */
+export interface PackFormatOpt {
+  pack?: boolean;
+}
+
 const whole = new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 0 });
 const cents = new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -155,37 +182,29 @@ const BELOW_SCALE = '<1';
 
 export function formatMoney(
   n: number,
-  opts: { cents?: boolean; symbol?: boolean; scale?: MoneyScale } = {},
+  opts: { cents?: boolean; symbol?: boolean; scale?: MoneyScale } & PackFormatOpt = {},
 ): string {
+  const pack = opts.pack === true || opts.scale !== undefined;
   const scaled = opts.scale ? n / MONEY_SCALES[opts.scale] : n;
-  // THE ZERO TEST IS ON THE AMOUNT MEASURED, NOT ON THE NUMBER PRINTED, and
-  // that is the correction. It read `signOf(scaled)`, which answers 'zero' for
-  // anything under half a printed unit — at `R'000` that is EVERY amount under
-  // R5 — so the dash, this formatter's word for a measured zero, was printed
-  // over real money and the `<1` branch below could not be reached under R5.
-  // The pack's basis page declares `<1` as one of the four notations it
-  // prints; an R4 exposure in the matters page's quantum column made that
-  // declaration false.
-  //
-  // The tolerance itself does not move: half a cent is still nothing, so
-  // float residue off a subtraction reads as the measured zero it is.
+  // The tolerance is half a cent on the amount measured: float residue off a
+  // subtraction reads as the measured zero it is. It is on `n`, not on the
+  // number printed — at `R'000` every amount under R5 is under half a printed
+  // unit, and the dash, this formatter's word for a measured zero, must not be
+  // printed over real money.
   const s = signOf(n);
   if (s === 'zero') return ZERO_DASH;
-  const body = separated((opts.cents ? cents : whole).format(Math.abs(scaled)));
-  // A REAL amount that rounds to nothing at this scale is not `0`.
+  const body = (pack ? separated : separatedLegacy)((opts.cents ? cents : whole).format(Math.abs(scaled)));
+  // PACK ONLY: a real amount that rounds to nothing at this scale is not `0`.
   //
   // The board pack's matters page listed journals for board decision with a
   // quantum column reading `0` under an `R'000` header: R400 of exposure,
-  // printed as the digit a reader takes to mean "no money involved". It is the
-  // mirror of the 1000x misread the scale mechanism exists to stop — one
-  // direction prints thousands as rands, the other prints rands as nothing —
-  // and `–` would be worse still, because the dash is this formatter's word
-  // for a measured zero. `<1` says what is true: there is an amount, and it is
-  // under one unit of the scale stated in the header.
+  // printed as the digit a reader takes to mean "no money involved". `<1`
+  // says what is true: there is an amount, and it is under one unit of the
+  // scale stated in the header. Screens keep `0`, as they always printed.
   //
   // Only on the whole-number path: `cents` already prints `0.40`, which is
   // both non-zero and exact.
-  if (!opts.cents && body === '0') {
+  if (pack && !opts.cents && body === '0') {
     const withSymbolBelow = opts.symbol ? `R ${BELOW_SCALE}` : BELOW_SCALE;
     return s === 'neg' ? `(${withSymbolBelow})` : withSymbolBelow;
   }
@@ -193,21 +212,22 @@ export function formatMoney(
   return s === 'neg' ? `(${withSymbol})` : withSymbol;
 }
 
-export function formatPct(n: number, dp = 1): string {
+export function formatPct(n: number, dp = 1, opt: PackFormatOpt = {}): string {
   // A dash, not "0.0%": a percentage that could not be computed must not read
   // as a percentage of zero.
   if (!Number.isFinite(n)) return ZERO_DASH;
   const s = signOf(n);
   const body = `${Math.abs(n).toFixed(dp)}%`;
-  if (s === 'zero') return `${(0).toFixed(dp)}%`;
+  if (s === 'zero') return opt.pack ? `${(0).toFixed(dp)}%` : `0.${'0'.repeat(dp)}%`;
+  if (!opt.pack) return s === 'neg' ? `${MINUS}${body}` : `+${body}`;
   // `signOf`'s threshold is half a cent and this carries a `dp`, so a change
   // of −0.006 cleared it and printed `(0.0%)` at one decimal — a bracketed
   // zero on a document whose negative convention IS the bracket.
   if (s === 'neg' && !bracketed(n, dp)) return `${(0).toFixed(dp)}%`;
-  // Brackets, not U+2212. See the module docblock: one negative convention.
-  // The leading `+` on a positive stays — it marks a change column's
-  // direction, and a bracket and a plus are the same convention read in two
-  // directions, not two conventions.
+  // Brackets, not U+2212, in the pack. See the module docblock: one negative
+  // convention. The leading `+` on a positive stays — it marks a change
+  // column's direction, and a bracket and a plus are the same convention read
+  // in two directions, not two conventions.
   return s === 'neg' ? `(${body})` : `+${body}`;
 }
 

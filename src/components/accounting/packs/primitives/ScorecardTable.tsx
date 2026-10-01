@@ -71,7 +71,7 @@ function formatTarget(target: number | null, format: PackFigureFormat, scale: Mo
     // beside an actual printed in thousands is the same 1000x contradiction,
     // in the one column a reader uses to judge whether the actual passed.
     case 'money': return formatMoney(target, { scale });
-    case 'pct': return formatPct(target);
+    case 'pct': return formatPct(target, 1, { pack: true });
     case 'ratio': return formatRatio(target);
     case 'days': return formatDays(target);
   }

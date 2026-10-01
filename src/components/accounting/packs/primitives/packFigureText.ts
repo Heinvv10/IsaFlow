@@ -11,7 +11,7 @@
  * bare `toFixed(2)` on a sheet whose money column read `(1 546)` — an ASCII
  * hyphen and an accounting bracket for the same idea, two rows apart.
  */
-import { formatDays, formatMoney, formatPct, formatRatio, signOf, type MoneyScale } from '@/lib/format/money';
+import { formatDays, formatMoney, formatPct, formatRatio, type MoneyScale } from '@/lib/format/money';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 
 /** The pack's one glyph for a figure measured and nil — page 12 defines it,
@@ -61,10 +61,14 @@ export function formatFigureText(figure: PackFigure, scale: MoneyScale): string 
   // rather than as an accounting nil. This function is the board pack's one
   // figure-to-text, so the convention lands exactly on the document that
   // declares it.
-  if (signOf(figure.value) === 'zero' && figure.format !== 'money') return ZERO_FIGURE;
+  //
+  // EXACT ZERO ONLY. `signOf`'s half-cent tolerance is a MONEY tolerance: on a
+  // ratio of 0.004 or 0.3 days it printed the dash, a measured nil, over a
+  // small figure that is not nil.
+  if (figure.value === 0 && figure.format !== 'money') return ZERO_FIGURE;
   switch (figure.format) {
     case 'money': return formatMoney(figure.value, { scale });
-    case 'pct': return formatPct(figure.value);
+    case 'pct': return formatPct(figure.value, 1, { pack: true });
     case 'ratio': return formatRatio(figure.value);
     case 'days': return formatDays(figure.value);
   }
