@@ -42,7 +42,7 @@
  */
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import { OPERATING_PROFIT_SOURCE, operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
-import { formatMoney } from '@/lib/format/money';
+import { formatMoney, MONEY_SCALES } from '@/lib/format/money';
 import { PACK_SCALE } from './packBasis';
 import { toFinancialData } from './packScorecard';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
@@ -74,11 +74,14 @@ export const EBITDA_SOURCE = 'calculateExtendedRatios.ebitda';
 export const DA_ADD_BACK = 'the movement on depreciation and amortisation';
 export const DEPRECIATION_SOURCE = 'packFigureSet.current.depreciation';
 
+/** The last of the margin terms — EBITDA is printed directly after it. */
+const EBITDA_FOLLOWS = 'Net profit margin';
+
 /** A raw rand amount as the page PRINTS it — the unit a reader adds. Half
  *  away from zero, which is what `Intl.NumberFormat` does inside
  *  `formatMoney`, so this cannot disagree with the cell beside it. */
 function atPackScale(rands: number): number {
-  return Math.sign(rands) * Math.round(Math.abs(rands) / 1_000);
+  return Math.sign(rands) * Math.round(Math.abs(rands) / MONEY_SCALES[PACK_SCALE]);
 }
 
 /**
@@ -593,6 +596,11 @@ export function buildDefinitions(
   };
 
   // EBITDA sits with the profitability terms rather than at the end: it is
-  // the one measure on this page a reader came looking for.
-  return [...terms.slice(0, 5), ebitdaDefinition, ...terms.slice(5)];
+  // the one measure on this page a reader came looking for. Placed by the
+  // term it follows, not by a position that moves when a term is added.
+  const after = terms.findIndex((t) => t.term === EBITDA_FOLLOWS);
+  if (after === -1) {
+    throw new Error(`buildDefinitions: the glossary has no '${EBITDA_FOLLOWS}' entry to place EBITDA after.`);
+  }
+  return [...terms.slice(0, after + 1), ebitdaDefinition, ...terms.slice(after + 1)];
 }

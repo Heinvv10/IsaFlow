@@ -19,6 +19,8 @@
  * defined.
  */
 import { describe, expect, it } from 'vitest';
+import { buildDefinitions } from '@/modules/accounting/services/packs/pages/packDefinitions';
+import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import {
   definitionsPrintedBy, NOTATION_TERMS, TERMS_COVERING,
@@ -136,5 +138,21 @@ describe('page 12 defines what the pack prints, and only that', () => {
       .find((e) => e.term === 'Cash conversion cycle');
     expect(cycle, 'the pack no longer defines the cash conversion cycle').toBeDefined();
     expect(cycle!.definition).toContain('inventory days (inventory over cost of sales, times 365)');
+  });
+});
+
+describe('EBITDA sits with the profitability terms', () => {
+  // It was spliced in at a hard-coded index 5, so a term added above it would
+  // have moved it into the liquidity terms without anything noticing. Read
+  // off `buildDefinitions` — the page prints only the terms the pack uses.
+  it.each([
+    ['the demo company', liveDemoShortPanelsInput],
+    ['Brightsphere', brightsphereLiveInput],
+  ])('directly after Net profit margin and before Working capital on %s', (_name, input) => {
+    const terms = buildDefinitions(input.set, new PackFigureProvenance()).map((e) => e.term);
+    const at = terms.indexOf('EBITDA');
+    expect(at).toBeGreaterThan(0);
+    expect(terms[at - 1]).toBe('Net profit margin');
+    expect(terms[at + 1]).toBe('Working capital');
   });
 });
