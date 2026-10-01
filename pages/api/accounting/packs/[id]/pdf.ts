@@ -53,7 +53,7 @@ import { renderPagePdf } from '@/lib/pdf/renderPagePdf';
 import { withRenderSlot } from '@/lib/pdf/withRenderSlot';
 import { buildFooterHtml, buildPdfMetadata } from '@/lib/pdf/printFurniture';
 import { buildBoardPackDocument } from '@/modules/accounting/services/packs/pages/boardPackDocument';
-import { packRefusalMessages } from '@/modules/accounting/services/packs/packRefusal';
+import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { buildPackFurniture } from '@/modules/accounting/services/packs/pages/packFurniture';
 import { packDownloadFilename } from '@/modules/accounting/services/packs/packDownloadName';
 import { packPrintApiPaths } from '@/modules/accounting/services/packs/packSections';
@@ -79,8 +79,16 @@ function hasUsablePrintSecret(): boolean {
 const PAGES_PACK_TYPE = 'board';
 
 /**
- * Why the render refused, in the words the gate used — or null when composing
- * the document succeeds and the failure was the renderer's own.
+ * Why a failed render refused, where the pack itself refused — or null when
+ * composing the document succeeds and the failure was the renderer's own.
+ *
+ * ONLY A `PackRefusal` IS A REFUSAL. This used to turn ANYTHING the compose
+ * threw into a 422 with a fixed sentence: a driver error or a `TypeError`
+ * from a composition module was reported to the user as a rule their own
+ * pack had broken, answered 4xx so nothing alerted, and the render error
+ * that led here was dropped. Anything that is not a refusal is re-thrown and
+ * becomes a 500 — after the render error has been logged, because the throw
+ * replaces it.
  *
  * Composing is READ-ONLY, like `pages.ts`, which matters: `withAuth` COMMITs
  * before the response flushes and only rolls back on a 5xx, so a 422 returned
@@ -89,13 +97,26 @@ const PAGES_PACK_TYPE = 'board';
 async function packRefusalReason(
   packType: string,
   request: { companyId: string; from: string; to: string; preparedBy: string },
-): Promise<{ user: string; diagnostic: string } | null> {
+  renderError: unknown,
+): Promise<PackRefusal | null> {
   if (packType !== PAGES_PACK_TYPE) return null;
   try {
     await buildBoardPackDocument({ ...request, generatedAt: new Date().toISOString() });
     return null;
   } catch (error) {
-    return packRefusalMessages(error);
+    if (error instanceof PackRefusal) return error;
+    log.error(
+      'Pack PDF render failed, and composing the pack to find out why failed too',
+      {
+        companyId: request.companyId,
+        packType,
+        from: request.from,
+        to: request.to,
+        renderError: renderError instanceof Error ? renderError.message : String(renderError),
+      },
+      'packs',
+    );
+    throw error;
   }
 }
 
@@ -168,24 +189,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       metadata: buildPdfMetadata(furniture),
     });
   } catch (error) {
-    const refusal = await packRefusalReason(id, { companyId, from, to, preparedBy });
+    const refusal = await packRefusalReason(id, { companyId, from, to, preparedBy }, error);
     if (refusal === null) throw error;
     log.warn(
       'Pack PDF refused by a compose-time gate',
-      { companyId, userId: user.id, packType: id, from, to, refusal: refusal.diagnostic },
+      { companyId, userId: user.id, packType: id, from, to, refusal: refusal.message },
       'packs',
     );
     // 422, not 500: the pack is unrenderable because of something about this
     // company's own pack rather than a fault in the renderer.
     //
-    // TWO SENTENCES, NOT ONE. An integrity refusal is written for a reader
-    // already — "the balance sheet is out by R450 on …" is the whole value of
-    // the gate and a paraphrase would lose the amount and the account, so
-    // `packRefusalMessages` returns it unchanged. A LAYOUT refusal is not:
-    // `fitPageToBox` names itself and quotes millimetres, which is what
-    // diagnoses it and not what a person reading a failed download can act on.
-    // The full text is logged above either way.
-    return apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, refusal.user);
+    // TWO SENTENCES, NOT ONE — see `PackRefusal`. `fitPageToBox` names itself
+    // and quotes millimetres, which is what diagnoses a layout refusal and not
+    // what a person reading a failed download can act on. The reader gets
+    // `userMessage`; the full text is logged above.
+    return apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, refusal.userMessage);
   }
 
   log.info('Pack PDF downloaded', { companyId, userId: user.id, packType: id, from, to, bytes: pdf.length }, 'packs');
