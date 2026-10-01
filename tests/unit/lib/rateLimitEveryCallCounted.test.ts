@@ -17,6 +17,7 @@ vi.mock('@/lib/rateLimitPool', () => ({
 }));
 
 import { chargeRateLimit, checkRateLimit, clearRateLimitCache, refundRateLimit } from '@/lib/rateLimit';
+import { isKnownFull } from '@/lib/rateLimitCore';
 
 const WINDOW = '2026-10-01 10:00:00.123456+00';
 const admitted = (count: number) => [{ admitted: true, count, window_start: WINDOW, remaining_ms: 60_000 }];
@@ -156,6 +157,18 @@ describe('checkRateLimit — only the database admits (R-175)', () => {
     expect(await checkRateLimit('k', limit)).toBe(false);
     sqlMock.mockResolvedValueOnce(admitted(1));
     expect(await checkRateLimit('k', limit)).toBe(true);
+  });
+
+  it('isKnownFull: true only for a key reported full at a max no higher than the one asked', async () => {
+    expect(isKnownFull('k', 20)).toBe(false);
+    sqlMock.mockResolvedValueOnce(refusedAt(20));
+    expect(await checkRateLimit('k', limit)).toBe(false);
+
+    expect(isKnownFull('k', 20)).toBe(true);
+    expect(isKnownFull('k', 5)).toBe(true);
+    // A caller with a higher limit on the same key is not bound by it.
+    expect(isKnownFull('k', 21)).toBe(false);
+    expect(isKnownFull('other', 20)).toBe(false);
   });
 
   // Review round 4: `max` is a SQL integer parameter.
