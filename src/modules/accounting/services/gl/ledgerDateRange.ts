@@ -13,6 +13,13 @@ export const LEDGER_MAX_YEAR = 2200;
 export const LEDGER_DATE_MESSAGE =
   `must be a real date, YYYY-MM-DD, with a year from ${LEDGER_MIN_YEAR} to ${LEDGER_MAX_YEAR}`;
 
+/** Refuse before any SQL: a date outside the ledger range reaches a ::date cast as a 22008 that poisons the transaction. */
+export function assertLedgerDates(...dates: unknown[]): void {
+  for (const d of dates) {
+    if (!isLedgerDate(d)) throw new Error(`invalid ledger date '${String(d)}': ${LEDGER_DATE_MESSAGE}`);
+  }
+}
+
 export function isLedgerDate(value: unknown): value is string {
   if (typeof value !== 'string' || !isRealCalendarDate(value)) return false;
   const year = Number(value.slice(0, 4));

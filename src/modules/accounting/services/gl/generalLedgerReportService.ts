@@ -18,6 +18,7 @@ import { log } from '@/lib/logger';
 import { DEFAULT_FY_START_MONTH, fiscalYearStart, resolveFiscalYearStartMonth } from './fiscalYearBasis';
 import { broughtForwardLine, getRetainedEarningsBroughtForward, INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
 import { withYearEndCloses } from './generalLedgerReportYearEnd';
+import { assertLedgerDates } from './ledgerDateRange';
 
 type Row = Record<string, unknown>;
 
@@ -70,6 +71,7 @@ export async function getGeneralLedgerReport(
   periodStart: string,
   periodEnd: string
 ): Promise<GeneralLedgerAccountReport[]> {
+  assertLedgerDates(periodStart, periodEnd);
   try {
     const acctRows = (await sql`
       SELECT ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,

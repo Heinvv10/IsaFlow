@@ -17,6 +17,7 @@ import {
   type GeneralLedgerCursor,
 } from '@/modules/accounting/services/gl/generalLedgerStreamService';
 import { GL_ACCOUNT_TYPES } from '@/modules/accounting/types/gl.types';
+import { isLedgerDate } from '@/modules/accounting/services/gl/ledgerDateRange';
 import {
   buildEnvelope,
   decodeCursor,
@@ -107,6 +108,9 @@ export const generalLedgerTool: McpTool = {
     // so a 22P02 raised after it aborts the whole request transaction.
     const bad = guardCastableArgs(args, { date: ['period_start', 'period_end'] });
     if (bad) return bad;
+    // isRealCalendarDate allows years 1-9999; the ledger's FY floor does not survive year 0.
+    if (!isLedgerDate(periodStart)) return toolError('invalid period_start');
+    if (!isLedgerDate(periodEnd)) return toolError('invalid period_end');
     if (accountIds?.some((id) => guardCastableArgs({ id }, { uuid: ['id'] }) !== null)) {
       return toolError('invalid account_ids');
     }

@@ -7,6 +7,7 @@ import type { McpTool } from '../types';
 import { fmtDate } from '@/lib/fmtDate';
 import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
+import { isLedgerDate } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { getChartOfAccounts } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { GL_ACCOUNT_TYPES } from '@/modules/accounting/types/gl.types';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
@@ -85,6 +86,9 @@ export const searchGlTool: McpTool = {
       date: ['from_date', 'to_date'],
     });
     if (bad) return bad;
+    // isRealCalendarDate allows years 1-9999; the ledger's FY floor does not survive year 0.
+    if (!isLedgerDate(fromDate)) return toolError('invalid from_date');
+    if (!isLedgerDate(toDate)) return toolError('invalid to_date');
     const result = await getAccountLedger({
       companyId: ctx.companyId, // from ctx ONLY
       accountId,

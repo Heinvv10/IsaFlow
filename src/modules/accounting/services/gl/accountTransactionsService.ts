@@ -15,6 +15,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { DEFAULT_FY_START_MONTH, resolveFiscalYearStartMonth } from './fiscalYearBasis';
+import { assertLedgerDates } from './ledgerDateRange';
 import {
   fiscalYearStartsWithin,
   incomeStatementOpeningFloor,
@@ -57,6 +58,7 @@ export async function getAccountTransactions(
   costCentreId?: string,
   businessUnitId?: string,
 ): Promise<AccountTransactionsReport> {
+  assertLedgerDates(periodStart, periodEnd);
   const cc = costCentreId ?? null;
   const bu = businessUnitId ?? null;
   try {
