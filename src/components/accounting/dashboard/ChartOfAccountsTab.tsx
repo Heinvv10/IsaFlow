@@ -17,7 +17,6 @@ import { CoaSeedEmptyState } from './CoaSeedEmptyState';
 import { AddAccountForm, type AddAccountFormState } from './AddAccountForm';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { notify } from '@/utils/toast';
-import { roleBarringChildren } from '@/modules/accounting/services/gl/roleTargetRules';
 
 function flattenAccounts(nodes: GLAccount[]): GLAccount[] {
   return nodes.flatMap(a => [a, ...(a.children ? flattenAccounts(a.children) : [])]);
@@ -182,9 +181,7 @@ export function ChartOfAccountsTab() {
   // `children` — filtering it directly gave a parent picker containing five
   // options. Flatten first so the candidate list is the same in both views.
   const flatAccounts = flattenAccounts(accounts);
-  // Not a balance-sheet role holder (the bank, receivable, payable…): the server refuses it as a parent.
-  const parentOptions = flatAccounts.filter(a => a.isActive
-    && !roleBarringChildren({ account_type: a.accountType, account_subtype: a.accountSubtype, is_system_account: a.isSystemAccount }));
+  const parentOptions = flatAccounts.filter(a => a.isActive);
 
   if (!isLoading && accounts.length === 0) {
     return <CoaSeedEmptyState onSeeded={loadAccounts} />;

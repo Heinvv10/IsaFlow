@@ -55,8 +55,9 @@ export function roleTargetRefusal(
   if (!target.isActive) return `Account ${code} for '${setting}' is inactive`;
   if (target.hasChildren) return HEADER_ADVICE[caller](code, setting);
   if (subtype !== null && subtype !== role && !UNCLASSIFIED.has(subtype)) {
-    return `Account ${code} is classified '${subtype}'; only an account classified 'other' (or unclassified), or one already classified '${role}', can hold that role. It must be reclassified to 'other' first.`
-      + (caller === 'import' ? ` Do that in Chart of Accounts: edit account ${code}, change its classification to 'other' and save — then run this import again.` : '');
+    // "Subtype" is what the Chart of Accounts screen calls this field.
+    return `Account ${code} has the subtype '${subtype}'; only an account with the subtype 'other' (or none), or one that already has the subtype '${role}', can hold that role. Change its subtype to 'other' first.`
+      + (caller === 'import' ? ` Do that in Chart of Accounts: edit account ${code}, set its subtype to 'other' and save — then run this import again.` : '');
   }
   return null;
 }

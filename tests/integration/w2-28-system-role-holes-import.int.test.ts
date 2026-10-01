@@ -55,7 +55,7 @@ describeIfDb('W2-28 the COA import role map, and after-commit cache clears', () 
     const before = await names();
     const out = await importing([row('1110'), row('1120')], { bank: '1120' });
     expect({ imported: out.imported, error: out.errors[0]?.message, bank: await holders('bank'), ar: await holders('receivable'), names: await names() })
-      .toEqual({ imported: 0, error: expect.stringContaining("1120 is classified 'receivable'"), bank: ['1110'], ar: ['1120'], names: before });
+      .toEqual({ imported: 0, error: expect.stringContaining("1120 has the subtype 'receivable'"), bank: ['1110'], ar: ['1120'], names: before });
   });
 
   it('refuses a role map that names one account for two roles, writing nothing', async () => {
@@ -89,7 +89,7 @@ describeIfDb('W2-28 the COA import role map, and after-commit cache clears', () 
     }],
     ['an account classified as something else', async () => {
       await ins(randomUUID(), '2999', 'liability', 'other_current_liability', false);
-      return { rows: [row('2999', 'liability')], message: "2999 is classified 'other_current_liability'" };
+      return { rows: [row('2999', 'liability')], message: "2999 has the subtype 'other_current_liability'" };
     }],
     ['a row the same import makes a header', async () => (
       { rows: [row('2999', 'liability'), { ...row('2998', 'liability'), parentCode: '2999' }], message: '2999 is a header with sub-accounts' })],

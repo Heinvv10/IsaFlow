@@ -60,6 +60,17 @@ export function isRoleLockRefusal(result: unknown): boolean {
   return r?.isError === true && r.content?.[0]?.text === SYSTEM_ROLE_LOCK_TIMEOUT_MESSAGE;
 }
 
+/**
+ * For a catch that reports a failure as text and carries on (a migration step's
+ * `errors[]`): the error's text — unless it is a lock timeout or a deadlock,
+ * which is thrown on. Reported as a row error on a 200, the steps before it
+ * stayed written; thrown, the whole request rolls back and answers 503.
+ */
+export function textUnlessLockError(err: unknown): string {
+  if (isRetryableLockError(err)) throw err;
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** Another request held the company's role-write lock for longer than 5s. */
 export class SystemRoleLockTimeoutError extends Error {
   readonly code = 'SYSTEM_ROLE_LOCK_TIMEOUT';

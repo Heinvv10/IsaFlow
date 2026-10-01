@@ -295,7 +295,7 @@ describe('/api/mcp transport', () => {
     expect((res.body as Array<{ id: number }>).map((b) => b.id)).toEqual([1, 2]);
   });
 
-  it('a batch stops running tool calls after the first role-lock refusal: the rest get the same refusal without waiting', async () => {
+  it('a batch stops running tool calls after the first role-lock refusal: the rest are answered at once as not run', async () => {
     // Each call behind a held role lock would wait 5s on the request's one pooled connection (20 calls: 100s).
     const res = makeRes();
     await route(makeReq('POST', [
@@ -307,9 +307,11 @@ describe('/api/mcp transport', () => {
     ]) as never, res);
     const body = res.body as Array<{ id: number; result: { isError?: boolean; content?: { text: string }[] } }>;
     const retry = 'The chart of accounts is being changed by another request — retry in a moment.';
-    expect({ roleBusyRuns: counts.roleBusy, echoRuns: seenContexts.length, ids: body.map((b) => b.id), ping: body[3]!.result,
-      refused: [2, 3, 5].map((id) => { const r = body.find((b) => b.id === id)!.result; return `${r.isError}:${r.content?.[0]?.text}`; }) })
-      .toEqual({ roleBusyRuns: 1, echoRuns: 1, ids: [1, 2, 3, 4, 5], ping: {}, refused: Array(3).fill(`true:${retry}`) });
+    const text = (id: number) => { const r = body.find((b) => b.id === id)!.result; return `${r.isError}:${r.content?.[0]?.text}`; };
+    // The call that waited gets the lock's own refusal; the calls not run say that, and that nothing was charged.
+    expect({ roleBusyRuns: counts.roleBusy, echoRuns: seenContexts.length, ids: body.map((b) => b.id), ping: body[3]!.result, waited: text(2), skipped: [text(3), text(5)] })
+      .toEqual({ roleBusyRuns: 1, echoRuns: 1, ids: [1, 2, 3, 4, 5], ping: {}, waited: `true:${retry}`,
+        skipped: Array(2).fill(expect.stringMatching(/^true:Not run: an earlier call in this batch found the chart of accounts being changed.*Nothing was written or charged/)) });
   });
 
   it('no other failure stops a batch: a thrown error, a returned tool error and a row-lock timeout each leave the later calls running', async () => {

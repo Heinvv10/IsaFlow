@@ -32,6 +32,7 @@ import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import { log } from '@/lib/logger';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
 import type { McpToolContext } from '@/lib/mcp/types';
+import { skippedForRoleLock } from '@/lib/mcp/batchSkip';
 import { isRoleLockRefusal } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import {
   CLIENT_MCP_TOOL_NAMES,
@@ -214,13 +215,13 @@ const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Prom
     const responses: JsonRpcResponse[] = [];
     // Once one call has waited out the company's role-write lock (5s), the tool
     // calls after it are not run — each would wait 5s more on this one pooled
-    // connection — and get the same retryable refusal. No other error stops a batch.
-    let roleLockBusy: unknown = null;
+    // connection: audited as rejected and told why (`batchSkip`). No other error stops a batch.
+    let roleLockBusy = false;
     for (const r of body as JsonRpcRequest[]) {
-      if (roleLockBusy && r?.method === 'tools/call') { responses.push(rpcResult(r.id, roleLockBusy)); continue; }
-      const resp = await handleRpc(r, ctx);
+      const skipped = roleLockBusy ? await skippedForRoleLock(r, ctx) : null;   // null: not a tool call — answered as usual
+      const resp = skipped ? rpcResult(r.id, skipped) : await handleRpc(r, ctx);
       if (resp !== null) responses.push(resp);
-      if (isRoleLockRefusal(resp?.result)) roleLockBusy = resp?.result;
+      roleLockBusy ||= isRoleLockRefusal(resp?.result);
     }
     if (responses.length === 0) {
       res.status(202).end();

@@ -3,7 +3,7 @@
  */
 
 import { useState } from 'react';
-import { systemAccountNote } from './systemAccountNote';
+import { mayBeParent, systemAccountNote } from './systemAccountNote';
 import { Loader2, Pencil, Trash2, Save, X, Lock } from 'lucide-react';
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
 import { apiFetch } from '@/lib/apiFetch';
@@ -133,8 +133,9 @@ export function AccountRow({
   // The server refuses a cross-type parent, the account itself, and anything
   // below it in the tree. It cannot know about descendants from this list
   // alone, so this filter is a convenience, not the guard — the API refusal is.
+  // A balance-sheet role holder is not offered — except to the account already under it (legacy data), so the form shows the truth.
   const eligibleParents = parentOptions.filter(
-    a => a.id !== account.id && a.accountType === account.accountType,
+    a => a.id !== account.id && a.accountType === account.accountType && (mayBeParent(a) || a.id === account.parentAccountId),
   );
 
   return (
@@ -217,7 +218,7 @@ export function AccountRow({
               >
                 <option value="">No parent (top level)</option>
                 {eligibleParents.map(a => (
-                  <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>
+                  <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}{mayBeParent(a) ? '' : ' (system account — cannot be chosen for other accounts)'}</option>
                 ))}
               </select>
               {/* Separate from the default above on purpose: an account can

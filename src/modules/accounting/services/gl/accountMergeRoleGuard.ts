@@ -7,9 +7,10 @@
  * it was the only check, and its answer ("would leave receivable without
  * exactly one usable account", a 500 on a route) named nothing to fix.
  *
- * In its own file because accountMergeGuards is at the 300-line cap.
+ * In its own file to keep accountMergeGuards under the 300-line cap.
  */
-import { AccountMergeError, type MergeAccount } from './accountMergeGuards';
+import { AccountMergeError } from './accountMergeError';
+import type { MergeAccount } from './accountMergeGuards';
 import { hasChildAccounts } from './isReportVisibleLeaf';
 import { holderAsParentRefusal, roleBarringChildren } from './roleTargetRules';
 

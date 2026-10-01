@@ -23,14 +23,28 @@ const answers = (...results: object[]) => {
 beforeEach(() => { vi.stubGlobal('confirm', () => true); });
 afterEach(() => { cleanup(); });
 
-it('with accounts still to go, keeps the button and says how many remain; the next run finishes', async () => {
+it('over two passes it reports the TOTALS: what was removed in both, and what the first pass kept', async () => {
+  // The first pass retains R3 and untags it, so the second pass never sees it again: only the page can
+  // remember it. The final line used to read "Rollback complete — 5 accounts removed".
   answers({ deleted: 999, retained: 1, retainedCodes: ['R3'], remaining: 5 }, { deleted: 5, retained: 0, retainedCodes: [] });
   render(<RollbackButton source="xero" />);
   fireEvent.click(screen.getByRole('button', { name: /rollback import/i }));
   expect(await screen.findByText(/999 accounts removed so far; 5 still to go/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: /continue rollback/i }));
-  expect(await screen.findByText(/Rollback complete — 5 accounts removed/)).toBeTruthy();
+  expect(await screen.findByText(/1004 accounts removed; 1 kept because they are in use \(R3\)/)).toBeTruthy();
+  expect(screen.queryByText(/Rollback complete/)).toBeNull();
   expect(screen.queryByRole('button')).toBeNull();
+});
+
+it('three passes with nothing kept end on the total removed', async () => {
+  answers({ deleted: 2000, retained: 0, retainedCodes: [], remaining: 2500 }, { deleted: 2000, retained: 0, retainedCodes: [], remaining: 500 },
+    { deleted: 500, retained: 0, retainedCodes: [] });
+  render(<RollbackButton source="xero" />);
+  fireEvent.click(screen.getByRole('button', { name: /rollback import/i }));
+  fireEvent.click(await screen.findByRole('button', { name: /continue rollback/i }));
+  expect(await screen.findByText(/4000 accounts removed so far; 500 still to go/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /continue rollback/i }));
+  expect(await screen.findByText(/Rollback complete — 4500 accounts removed/)).toBeTruthy();
 });
 
 it('a rollback done in one request reads as before', async () => {

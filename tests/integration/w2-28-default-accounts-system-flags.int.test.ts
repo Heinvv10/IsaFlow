@@ -270,7 +270,7 @@ describeIfDb('W2-28 — Default Accounts reflects and preserves system account f
     const state = await call(defaultAccounts, 'POST',
       await withLoaded({ accounts_receivable: ids.primary_bank!, primary_bank: ids.accounts_receivable! }));
     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
-    expect(JSON.stringify(state.body)).toMatch(/1110 is classified 'bank'.*It must be reclassified to 'other' first/);
+    expect(JSON.stringify(state.body)).toMatch(/1110 has the subtype 'bank'.*Change its subtype to 'other' first/);
     expect(await flagsOfA()).toEqual(before);
   });
 
