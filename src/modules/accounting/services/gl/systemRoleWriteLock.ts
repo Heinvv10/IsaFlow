@@ -24,8 +24,19 @@
 import { sql } from '@/lib/neon';
 import type { SqlExec } from './journalVatLockGuard';
 
-/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the lock. */
-const LOCK_NOT_AVAILABLE = '55P03';
+/**
+ * `lock_not_available` (the 5s `lock_timeout` elapsed) and `deadlock_detected`.
+ * A deadlock victim is in the same position as a timed-out waiter — its
+ * transaction is aborted, nothing it did stands, and a retry will succeed —
+ * so both reach the caller as the same typed, retryable refusal (503), never
+ * as a 500. A cycle can still form when an EARLIER statement of the same
+ * transaction row-locked an account without the role lock (an MCP batch: a
+ * bill line's FOR SHARE, then an account tool); the role lock taken first by
+ * every gl_accounts writer removes the cycles the chart itself could make.
+ */
+const RETRYABLE_LOCK_ERRORS = new Set(['55P03', '40P01']);
+const isRetryableLockError = (err: unknown) =>
+  RETRYABLE_LOCK_ERRORS.has(String((err as { code?: unknown } | null)?.code ?? ''));
 
 /** Another request held the company's role-write lock for longer than 5s. */
 export class SystemRoleLockTimeoutError extends Error {
@@ -44,15 +55,21 @@ export class SystemRoleLockTimeoutError extends Error {
 export async function withBoundedLockWait<T>(q: SqlExec, take: () => PromiseLike<T>): Promise<T> {
   const prev = (await q`SELECT current_setting('lock_timeout') AS v`) as { v?: unknown }[];
   await q`SELECT set_config('lock_timeout', '5s', true)`;
-  let taken: T;
+  let failure: unknown = null;
   try {
-    taken = await take();
+    return await take();
   } catch (err) {
-    if ((err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE) throw new SystemRoleLockTimeoutError();
+    failure = err;
+    if (isRetryableLockError(err)) throw new SystemRoleLockTimeoutError();
     throw err;
+  } finally {
+    // A database error has aborted the transaction (or the enclosing
+    // savepoint, whose rollback restores the setting); anything else leaves
+    // it usable, and later waits of the request must not inherit the 5s.
+    const sqlState = typeof (failure as { code?: unknown } | null)?.code === 'string'
+      && /^[0-9A-Z]{5}$/.test((failure as { code: string }).code);
+    if (!sqlState) await q`SELECT set_config('lock_timeout', ${String(prev[0]?.v ?? '0')}, true)`;
   }
-  await q`SELECT set_config('lock_timeout', ${String(prev[0]?.v ?? '0')}, true)`;
-  return taken;
 }
 
 export async function lockSystemRoleWrites(companyId: string, q: SqlExec = sql): Promise<void> {
@@ -62,7 +79,7 @@ export async function lockSystemRoleWrites(companyId: string, q: SqlExec = sql):
       SELECT CASE WHEN set_config('lock_timeout', '5s', true) IS NOT NULL
         THEN pg_advisory_xact_lock(hashtextextended(${`default-accounts:${companyId}`}::TEXT, 0))::TEXT END`;
   } catch (err) {
-    if ((err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE) throw new SystemRoleLockTimeoutError();
+    if (isRetryableLockError(err)) throw new SystemRoleLockTimeoutError();
     throw err;
   }
   await q`SELECT set_config('lock_timeout', ${String(prev[0]?.v ?? '0')}, true)`;

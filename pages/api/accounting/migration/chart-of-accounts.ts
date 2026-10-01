@@ -6,6 +6,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { migrationSizeError } from '@/modules/accounting/services/core/migrationRowCaps';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -30,6 +31,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!accounts || !Array.isArray(accounts) || accounts.length === 0) {
     return apiResponse.validationError(res, { accounts: 'Non-empty accounts array is required' });
   }
+  const sizeError = migrationSizeError({ accounts: accounts.length });
+  if (sizeError) return apiResponse.badRequest(res, sizeError);
   if (!systemAccountMap || typeof systemAccountMap !== 'object') {
     return apiResponse.validationError(res, { systemAccountMap: 'System account map is required' });
   }

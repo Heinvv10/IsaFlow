@@ -7,6 +7,8 @@
  * former role holder reactivated beside the current one, or the holder
  * switched off. Types only; every business rule stays in the service.
  */
+import { UUID_RE } from '@/lib/validation';
+
 const VAT_CODES = ['none', 'standard', 'zero_rated', 'exempt'];
 const isText = (v: unknown) => v === undefined || v === null || typeof v === 'string';
 
@@ -16,8 +18,12 @@ export function accountUpdateBodyError(body: unknown): string | null {
   const b = body as Record<string, unknown>;
   if (b.isActive !== undefined && typeof b.isActive !== 'boolean') return 'isActive must be true or false';
   if (b.vatInputDenied != null && typeof b.vatInputDenied !== 'boolean') return 'vatInputDenied must be true or false';
-  for (const key of ['accountName', 'description', 'accountSubtype', 'parentAccountId', 'accountCode']) {
+  for (const key of ['accountName', 'description', 'accountSubtype', 'parentAccountId', 'accountCode', 'accountType', 'normalBalance']) {
     if (!isText(b[key])) return `${key} must be text`;
+  }
+  // Ids go into ::UUID casts after the role lock is taken: a malformed one was a 500.
+  for (const key of ['id', 'parentAccountId']) {
+    if (typeof b[key] === 'string' && b[key] !== '' && !UUID_RE.test(b[key] as string)) return `${key} must be an account id`;
   }
   if (b.defaultVatCode != null && b.defaultVatCode !== '' && !VAT_CODES.includes(b.defaultVatCode as string)) {
     return `defaultVatCode must be one of: ${VAT_CODES.join(', ')}`;

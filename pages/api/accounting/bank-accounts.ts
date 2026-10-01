@@ -111,10 +111,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Reactivating a former primary bank beside the current one would give
       // the role two holders: refused the same way.
       const changesParent = Object.prototype.hasOwnProperty.call(req.body, 'parentAccountId');
-      // The role-write lock is the FIRST lock of any request that may touch a
-      // role holder: an active-state change, or a grouping (the parent check).
-      const roles = typeof b.isActive === 'boolean' || changesParent
-        ? (await lockSystemRoleWrites(companyId), await snapshotRoles(companyId)) : null;
+      // The role-write lock is the FIRST lock of every write here (the row may
+      // be the bank holder a Default Accounts save is waiting for); the role
+      // snapshot only when a holder can change: an active-state change or a grouping.
+      await lockSystemRoleWrites(companyId);
+      const roles = typeof b.isActive === 'boolean' || changesParent ? await snapshotRoles(companyId) : null;
       if (typeof b.isActive === 'boolean') {
         const [acct] = await sql`SELECT is_system_account FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}`;
         if (acct?.is_system_account && !b.isActive) {

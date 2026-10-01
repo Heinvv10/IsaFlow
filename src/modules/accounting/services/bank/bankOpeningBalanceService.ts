@@ -15,6 +15,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 
 export interface OpeningBalanceMeta {
   amount: number | null;
@@ -52,6 +53,9 @@ async function write(
   amount: number,
   asAt: string,
 ): Promise<void> {
+  // The role-write lock first, as every gl_accounts writer takes it: the row
+  // may be the bank holder a Default Accounts save is waiting for.
+  await lockSystemRoleWrites(companyId);
   await sql`
     UPDATE gl_accounts
        SET bank_opening_balance = ${amount},

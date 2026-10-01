@@ -22,9 +22,11 @@ export async function reactivationRefusal(companyId: string, accountId: string):
     SELECT a.account_code, a.account_subtype, h.account_code AS holder_code
     FROM gl_accounts a
     JOIN gl_accounts h ON h.company_id = a.company_id AND h.account_subtype = a.account_subtype
-      AND h.is_system_account AND h.is_active AND h.id <> a.id
+      AND h.is_system_account IS TRUE AND h.is_active IS TRUE AND h.id <> a.id
     WHERE a.id::TEXT = ${accountId} AND a.company_id = ${companyId}::UUID
-      AND a.is_system_account AND NOT a.is_active
+      -- IS [NOT] TRUE: both flags are nullable, and NOT NULL is NULL — a
+      -- row with a NULL is_active is inactive to the resolver and must be checked.
+      AND a.is_system_account IS TRUE AND a.is_active IS NOT TRUE
       AND a.account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[])
     ORDER BY h.account_code
     LIMIT 1
@@ -56,9 +58,12 @@ function finishWith(companyId: string, before: RoleSnapshot | null): FinishRoleW
  * `updateAccount`'s role guards, before its first read. A non-boolean flag is
  * refused (the guards test `=== true` / `=== false`; "true", 1 or [true] from
  * an unvalidated caller skipped them while Postgres still cast and applied
- * it). Any `is_active` change then takes the role-write lock — deactivating
- * could empty a role, reactivating could double one — so the caller's reads
- * judge settled rows, and a reactivation that would double a role is refused.
+ * it). Then the role-write lock, for EVERY update whatever it changes: it is
+ * the first lock any chart writer takes, so a row this request locks can never
+ * be one a Default Accounts save — holding the role lock — is waiting for (an
+ * MCP batch renamed the bank holder, then deactivated another account: 40P01).
+ * Under it the caller's reads judge settled rows, and a reactivation that
+ * would double a role is refused.
  */
 export async function guardActiveChange(
   companyId: string, id: string, input: { isActive?: unknown; vatInputDenied?: unknown },
@@ -66,8 +71,8 @@ export async function guardActiveChange(
   for (const flag of ['isActive', 'vatInputDenied'] as const) {
     if (input[flag] !== undefined && typeof input[flag] !== 'boolean') throw new Error(`${flag} must be true or false`);
   }
-  if (input.isActive === undefined) return finishWith(companyId, null);
   await lockSystemRoleWrites(companyId);
+  if (input.isActive === undefined) return finishWith(companyId, null);
   const refusal = input.isActive === true ? await reactivationRefusal(companyId, id) : null;
   if (refusal) throw new Error(refusal);
   return finishWith(companyId, await snapshotRoles(companyId));
@@ -89,3 +94,8 @@ export async function refuseSystemAccountDelete(companyId: string, id: string): 
 }
 
 export { clearSystemAccountCacheAfterCommit };
+
+/** The role-write lock, first, for a chart write that changes no role (a code, a name, a bank field). */
+export async function lockBeforeChartWrite(companyId: string): Promise<void> {
+  await lockSystemRoleWrites(companyId);
+}
