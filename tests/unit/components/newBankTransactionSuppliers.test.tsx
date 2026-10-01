@@ -8,11 +8,11 @@ import { act, render, screen, fireEvent } from '@testing-library/react';
 vi.mock('next/router', () => ({ useRouter: () => ({ push: vi.fn(), query: {}, isReady: true }) }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn(), apiJson: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/fetchAllSuppliers', async (original) => ({ ...await original<typeof import('@/lib/fetchAllSuppliers')>(), fetchAllSuppliers: vi.fn() }));
 
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiJson } from '@/lib/apiFetch';
 import { fetchAllSuppliers } from '@/lib/fetchAllSuppliers';
 import NewBankTransactionPage from '../../../pages/accounting/bank-transactions/new';
 
@@ -21,10 +21,10 @@ const json = (data: unknown) => new Response(JSON.stringify({ success: true, dat
 beforeEach(() => {
   vi.mocked(fetchAllSuppliers).mockReset();
   vi.mocked(apiFetch).mockReset();
-  vi.mocked(apiFetch).mockImplementation(async (url) => {
-    if (String(url).includes('bank-accounts')) return json([{ id: 'b1', accountCode: '1000', accountName: 'Cheque' }]);
-    return json([]);
-  });
+  vi.mocked(apiFetch).mockImplementation(async () => json([]));
+  // The page reads bank accounts through apiJson (W1-02), which hands back the unwrapped data.
+  vi.mocked(apiJson).mockReset();
+  vi.mocked(apiJson).mockResolvedValue([{ id: 'b1', accountCode: '1000', accountName: 'Cheque' }]);
 });
 
 async function openSupplierAllocation() {
