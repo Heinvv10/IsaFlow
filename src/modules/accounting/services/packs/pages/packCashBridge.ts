@@ -13,7 +13,7 @@ import { axisDomain } from '@/modules/accounting/services/packs/packChartAxes';
 import { MONEY_TOLERANCE } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { investingCashFlowOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
-import { CHART_MEASURE_MM, HALF } from './packChartRungs';
+import { CHART_MEASURE_MM, HALF, isBiggerPicture, rungAbove, type DrawnSize } from './packChartRungs';
 import { intervalsFor, isCompact, toBars } from './packWaterfallBars';
 import type { PackChartSpec } from './packPageModel';
 
@@ -184,22 +184,30 @@ export function buildCashWaterfallChart(
 
 /** How large each bridge built here was drawn — for `cashBridgeAtHeight`,
  *  and never part of the chart the pack carries. */
-const DRAWN = new WeakMap<PackChartSpec, { plotPx: number; tallestBarPx: number }>();
+const DRAWN = new WeakMap<PackChartSpec, DrawnSize>();
 
 /**
  * THE CASH BRIDGE AT ANOTHER HEIGHT, IF THAT IS A BIGGER PICTURE. Page 8
  * grows its bridge into whatever the sheet has left; a taller box is taken
- * only if the plot is taller and the tallest bar is drawn no shorter — a
- * taller box can redraw the axis coarser, and then every bar is smaller in
- * more paper. Null where it is not, and the caller keeps the chart it has.
+ * only if it is a bigger picture than the chart the page has and no bigger
+ * than the rung above it — see `isBiggerPicture`. Null where it is not, and
+ * the caller keeps the chart it has.
  */
 export function cashBridgeAtHeight(
   set: PackFigureSet, scale: MoneyScale, heightMm: number, current: PackCashBridge,
 ): (PackCashBridge & { drawn: true }) | null {
-  if (!current.drawn || heightMm <= current.chart.heightMm) return null;
-  const grown = buildCashWaterfallChart(set, scale, { widthMm: CHART_MEASURE_MM, heightMm });
-  if (!grown.drawn) return null;
-  const [was, now] = [DRAWN.get(current.chart), DRAWN.get(grown.chart)];
-  if (was === undefined || now === undefined) return null;
-  return now.plotPx > was.plotPx && now.tallestBarPx >= was.tallestBarPx ? grown : null;
+  if (!current.drawn) return null;
+  const was = DRAWN.get(current.chart);
+  if (was === undefined) return null;
+  const sizeOf = (bridge: PackCashBridge): DrawnSize | null => (bridge.drawn ? DRAWN.get(bridge.chart) ?? null : null);
+  // The tallest height that is a bigger picture, not the target or nothing.
+  const rungs = new Map<number, DrawnSize | null>();
+  for (let mm = heightMm; mm > current.chart.heightMm; mm -= 1) {
+    const grown = buildCashWaterfallChart(set, scale, { widthMm: CHART_MEASURE_MM, heightMm: mm });
+    const now = sizeOf(grown);
+    const rung = rungAbove(mm);
+    if (rung !== null && !rungs.has(rung.heightMm)) rungs.set(rung.heightMm, sizeOf(buildCashWaterfallChart(set, scale, rung)));
+    if (grown.drawn && now !== null && isBiggerPicture(now, was, rung === null ? null : rungs.get(rung.heightMm) ?? null)) return grown;
+  }
+  return null;
 }

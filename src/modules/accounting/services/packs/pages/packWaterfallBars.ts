@@ -5,6 +5,7 @@
  * cap.
  */
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
+import { CHART_HEIGHT_MM } from '@/lib/charts/ssrSvg';
 import { stepPaint, waterfallChromePx } from '@/modules/accounting/services/packs/packChartOptions';
 import { TICK_PITCH_PX } from '@/modules/accounting/services/packs/packWaterfallDomain';
 import type { PackWaterfallBar, PlugReason } from './packPageModel';
@@ -23,22 +24,22 @@ import type { PackWaterfallBar, PlugReason } from './packPageModel';
 export const PX_PER_MM = 96 / 25.4;
 
 /**
- * EVERY PRINT BRIDGE TAKES THE COMPACT CHROME — the tighter margins and the
- * category names a size smaller; see `WATERFALL_CHROME`.
+ * Every box SHORTER THAN THE HALF RUNG draws its axis chrome tighter and its
+ * category labels a size smaller — see `WATERFALL_CHROME`. The rungs at 72
+ * and 110mm, and every box from 72 up, take the full chrome and 12px names:
+ * that is the pack's look, and it is asserted (`packGrownBridge.test.ts`).
  *
- * The rule is: at every height, the chrome that leaves the TALLER plot, so a
- * chart that gets taller never gets a smaller plot. The full chrome is 28px
- * more margin and 12px names against 10, which under a long step name is 44:
- * it never leaves the taller plot in the same box, at any height from the
- * bottom rung to the top one (`packGrownBridge.test.ts` holds that premise).
- * It was once the bottom rung alone, and a bridge grown a millimetre past 48
- * had half the plot of the rung it grew from; then every box under the half
- * rung, and a bridge with room for 72mm had a smaller plot than one with room
- * for 71. Stated as a function of the box so a caller still asks, and so a
- * chrome that did win somewhere would be chosen here.
+ * It was the bottom rung alone, so a bridge grown a millimetre past 48 took
+ * the full chrome — 28px more of margin and 12px names — and had LESS plot
+ * than the rung it grew from: with a long step name under it, under 40px,
+ * and a value axis run out to a hundred billion to hold the figures.
+ *
+ * The compact chrome leaves the taller plot in the same box, so a bridge
+ * grown on it toward 72 would in the end out-draw the 72mm rung. It is not
+ * allowed to: see `isBiggerPicture`.
  */
-export function isCompact(_box: { heightMm: number }): boolean {
-  return true;
+export function isCompact(box: { heightMm: number }): boolean {
+  return box.heightMm < CHART_HEIGHT_MM.half;
 }
 
 /**

@@ -9,16 +9,19 @@
  * to hold the figures, and every bar was drawn as a one-pixel rule. It was
  * accepted because its BOX was taller.
  *
- * AND AT THE HALF RUNG IT HAPPENED AGAIN, by design that time: 72mm took the
- * full chrome, so a bridge with room for 72 had a smaller plot than one with
- * room for 71. A chart that gets taller never gets a smaller plot — so the
- * print bridges take the chrome that leaves the taller plot at every height,
- * and with these margins that is the compact one throughout.
+ * AND THE RUNG ABOVE MUST STILL BE THE BIGGER PICTURE. Below the half rung a
+ * grown bridge keeps the compact chrome; the rungs at 72 and 110mm take the
+ * full one, with 12px category names — the pack's look. The compact chrome
+ * leaves 28-44px more plot in the same box, so grown far enough toward 72 a
+ * compact bridge would out-draw the 72mm rung, and a page with a millimetre
+ * more room would get the smaller picture. It is grown only while it is
+ * still smaller than the rung above it.
  *
- * So, for every whole millimetre from the bottom rung to the top one, with
- * and without a plug, through the functions pages 6 and 8 call: the plot is
- * never shorter than a millimetre less gave, the tallest bar is never drawn
- * shorter, and the profit bridge's axis stays near the figures it carries.
+ * So, for every whole millimetre of room from the bottom rung to the top
+ * one, with and without a plug, through the functions pages 6 and 8 call:
+ * the plot is never shorter than a millimetre less gave, the tallest bar is
+ * never drawn shorter, the profit bridge's axis stays near its figures — and
+ * the rungs are drawn in the full chrome with 12px names.
  */
 import { describe, expect, it } from 'vitest';
 import { buildCashWaterfallChart, buildProfitWaterfallChart, cashBridgeAtHeight, profitBridgeAtHeight } from '@/modules/accounting/services/packs/pages/packPageCharts';
@@ -50,6 +53,9 @@ const tickValue = (text: string): number => {
   return text.startsWith('(') ? -n : n;
 };
 
+/** The size the category names under the bars are set at. */
+const namePx = (svg: string): number[] => [...new Set([...svg.matchAll(/<text[^>]*font-size:([\d.]+)px[^>]*transform="matrix\(/g)].map((m) => Number(m[1])))];
+
 function measure(svg: string) {
   const drawn = bars(svg);
   const ticks = yAxisTicks(svg).map((t) => tickValue(t.text)).sort((a, b) => a - b);
@@ -58,6 +64,8 @@ function measure(svg: string) {
     tallestBarPx: Math.max(...drawn.map((b) => b.bottom - b.top)),
     ticks,
     px: drawnFigures(svg)[0]!.px,
+    plotTop: clipRect(svg).top,
+    namePx: namePx(svg),
   };
 }
 
@@ -88,27 +96,57 @@ describe('a bridge grown from the bottom rung', () => {
       before = now;
     }
     // The page does grow it: most of these heights are a bigger picture, the
-    // two rungs above it among them.
-    expect(taken.length).toBeGreaterThan(40);
+    // two rungs above it among them — and no height between 48 and 72 is
+    // taken once its picture would be bigger than the 72mm rung's.
+    expect(taken.length).toBeGreaterThan(35);
     expect(taken).toContain(MID.heightMm);
     expect(taken).toContain(FULL.heightMm);
+    const rung = measure(String(buildProfitWaterfallChart(set, PACK_SCALE, false, MID).svg));
+    for (const mm of taken.filter((h) => h < MID.heightMm)) {
+      const grown = measure(String(buildProfitWaterfallChart(set, PACK_SCALE, false, { ...HALF, heightMm: mm }).svg));
+      expect(grown.plotPx, `${mm}mm is taken with more plot than the 72mm rung`).toBeLessThan(rung.plotPx);
+    }
   });
 
-  it('is drawn larger at each rung of the ladder than at the one below', () => {
+  it('given room past the cap, grows to the tallest height that is still smaller than the rung — not to nothing', () => {
+    for (const [name, set] of SETS) {
+      const bottom = buildProfitWaterfallChart(set, PACK_SCALE, false, HALF);
+      const rung = measure(String(buildProfitWaterfallChart(set, PACK_SCALE, false, MID).svg));
+      // 71mm of room: on the compact chrome that would out-draw the 72mm rung.
+      const over = measure(String(buildProfitWaterfallChart(set, PACK_SCALE, false, { ...HALF, heightMm: 71 }).svg));
+      expect(over.plotPx, `${name}: 71mm is not past the cap, so the cap is not under test`).toBeGreaterThan(rung.plotPx);
+      const grown = profitBridgeAtHeight(set, PACK_SCALE, false, 71, bottom);
+      expect(grown, `${name}: nothing was grown`).not.toBeNull();
+      expect(grown!.heightMm).toBeGreaterThan(HALF.heightMm);
+      expect(grown!.heightMm).toBeLessThan(71);
+      expect(measure(String(grown!.svg)).plotPx).toBeLessThan(rung.plotPx);
+      // And it is the tallest such height: a millimetre more is not taken.
+      const next = measure(String(buildProfitWaterfallChart(set, PACK_SCALE, false, { ...HALF, heightMm: grown!.heightMm + 1 }).svg));
+      const taller = next.plotPx < rung.plotPx && next.tallestBarPx <= rung.tallestBarPx && next.tallestBarPx >= measure(String(bottom.svg)).tallestBarPx;
+      expect(taller, `${name}: ${grown!.heightMm + 1}mm would also have been a bigger picture under the rung`).toBe(false);
+    }
+  });
+
+  it('draws the rungs at 72 and 110mm in the full chrome, with 12px names — and the bottom rung in the compact one', () => {
     for (const [, set] of SETS) {
       const [bottom, half, full] = [HALF, MID, FULL].map((box) => measure(String(buildProfitWaterfallChart(set, PACK_SCALE, false, box).svg)));
+      expect(half!.namePx).toEqual([12]);
+      expect(full!.namePx).toEqual([12]);
+      expect(half!.plotTop).toBe(WATERFALL_CHROME.full.top);
+      expect(full!.plotTop).toBe(WATERFALL_CHROME.full.top);
+      expect(bottom!.namePx).toEqual([10]);
+      expect(bottom!.plotTop).toBe(WATERFALL_CHROME.compact.top);
       expect(half!.plotPx).toBeGreaterThan(bottom!.plotPx);
       expect(full!.plotPx).toBeGreaterThan(half!.plotPx);
     }
   });
 
-  it('takes the chrome that leaves the taller plot — and that is the compact one, for any names', () => {
-    // The premise the builders rely on. If the two chromes are ever changed
-    // so that the full one wins somewhere, this says so.
+  it('caps the growth because the compact chrome leaves the taller plot in the same box', () => {
+    // The fact the cap exists for. If the two chromes are ever changed so
+    // that it stops being true, the cap is doing nothing and this says so.
     const names = ['Revenue', 'Operating Expenses', 'Other, not separately captured'];
     const margin = (chrome: { top: number; bottom: number; labelPx: number }) => chrome.top + Math.max(chrome.bottom, categoryDepthPx(names, chrome.labelPx));
     expect(margin(WATERFALL_CHROME.compact)).toBeLessThan(margin(WATERFALL_CHROME.full));
-    // With short names too, where each chrome's own floor is the margin.
     expect(WATERFALL_CHROME.compact.top + WATERFALL_CHROME.compact.bottom).toBeLessThan(WATERFALL_CHROME.full.top + WATERFALL_CHROME.full.bottom);
   });
 });
@@ -142,7 +180,12 @@ describe('the cash bridge, grown from the bottom rung', () => {
       expect(now.tallestBarPx, `${mm}mm: the tallest bar shrank from ${before.tallestBarPx}px`).toBeGreaterThanOrEqual(before.tallestBarPx - 0.01);
       before = now;
     }
-    expect(taken.length).toBeGreaterThan(30);
+    expect(taken.length).toBeGreaterThan(20);
     expect(taken).toContain(MID.heightMm);
+    // And the 72mm rung is the full chrome, 12px names, on this bridge too.
+    const rung = buildCashWaterfallChart(set, PACK_SCALE, MID);
+    if (!rung.drawn) throw new Error('the 72mm cash bridge is not drawn');
+    expect(measure(String(rung.chart.svg)).namePx).toEqual([12]);
+    expect(measure(String(rung.chart.svg)).plotTop).toBe(WATERFALL_CHROME.full.top);
   });
 });
