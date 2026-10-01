@@ -167,16 +167,23 @@ export function makeWaterfallRenderItem(
     // short to hold a line of type keeps the old fallbacks.
     const sameInkAsFill = stepColour(step, palette) === palette.ink;
     const inside = fitsInside && (noRoomAbove || sameInkAsFill);
-    // AND A SAME-INK BAR TOO SHORT TO HOLD ITS LABEL TAKES IT BELOW, where
-    // the plot has room for it. Brightsphere's opening cash of (267) is such
-    // a bar once page 8's axis draws only the steps its plot has room for: it
-    // printed its dark label four pixels above its own dark fill.
+    // AND A SAME-INK BAR TOO SHORT TO HOLD ITS LABEL: below a FALLING bar,
+    // where the plot has room — Brightsphere's opening cash of (267) runs down
+    // from zero, and its figure under the bar's end is where a reader looks.
+    // NOT below a rising one: page 6's thin gross profit over a loss-making
+    // year hung its figure under the zero line, where a positive reads as a
+    // negative. A rising bar keeps its label above, set in the axis ink so
+    // the type and the fill do not merge into one mark.
     const [, plotBottom = Infinity] = api.coord([params.dataIndex, domain.min]);
     const roomBelow = y + drawnHeight + LABEL_GAP_PX + LABEL_LINE_PX <= plotBottom;
-    const below = !inside && (noRoomAbove || (sameInkAsFill && roomBelow));
+    const falls = step.end < step.start;
+    const below = !inside && (noRoomAbove || (sameInkAsFill && falls && roomBelow));
+    const aboveInOwnInk = !inside && !below && sameInkAsFill;
 
     const text = formatMoney(step.labelValue ?? step.value, { scale });
-    const textY = inside ? y + LABEL_GAP_PX : below ? y + height + LABEL_GAP_PX : above;
+    // `drawnHeight`, not `height`: a floored bar is drawn a rule's width
+    // taller than its figure, and the gap is kept from what is drawn.
+    const textY = inside ? y + LABEL_GAP_PX : below ? y + drawnHeight + LABEL_GAP_PX : above;
     // THE GROUND UNDER A LABEL THAT IS NOT ON ITS BAR — see
     // `LABEL_KNOCKOUT_PAD_PX`. Inside the bar the fill is the ground already,
     // and a paper rect there would punch a hole in the bar.
@@ -237,7 +244,7 @@ export function makeWaterfallRenderItem(
             // the pack — carrying no value at all, which left red/green hue
             // as the only thing separating an increase from a decrease on
             // them. The label was being drawn the whole time.
-            fill: inside ? labelInkOn(stepColour(step, palette), palette) : palette.ink,
+            fill: inside ? labelInkOn(stepColour(step, palette), palette) : aboveInOwnInk ? palette.axis : palette.ink,
             // AND THE PACK'S FACE, NAMED HERE BECAUSE THIS IS A RAW ZRENDER
             // TEXT AND NOT AN ECHARTS LABEL.
             //
