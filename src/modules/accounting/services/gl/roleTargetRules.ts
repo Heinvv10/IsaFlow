@@ -12,6 +12,8 @@
  * from being taken from it). The account TYPE a role needs is checked by each
  * caller against its own source (the save's fixed map, the import's row).
  */
+import { isSystemAccountKey } from './systemAccountKeys';
+
 export interface RoleTarget {
   code: string;
   isActive: boolean;
@@ -33,4 +35,19 @@ export function roleTargetRefusal(role: string, setting: string, target: RoleTar
     return `Account ${code} is classified '${subtype}'; only an account classified 'other' (or unclassified), or one already classified '${role}', can hold that role. It must be reclassified to 'other' first.`;
   }
   return null;
+}
+
+/**
+ * The mirror of the header rule above: a role is refused a header, so the
+ * account that HOLDS a role may not be made one afterwards (a child created
+ * under it, an account moved under it, a bank account grouped under it). The
+ * role a row holds, or null.
+ */
+export function roleHeldBy(row: { account_subtype?: unknown; is_system_account?: unknown }): string | null {
+  return row.is_system_account === true && isSystemAccountKey(row.account_subtype) ? row.account_subtype : null;
+}
+
+export function holderAsParentRefusal(code: string, role: string): string {
+  return `Account ${code} holds the ${role} role, and an account that holds a system role cannot have sub-accounts `
+    + '(postings to it would be hidden behind a header). Choose another parent, or move the role in Default Accounts first.';
 }

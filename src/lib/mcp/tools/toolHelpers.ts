@@ -238,6 +238,9 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SUPPLIER_PAYMENT_REFUSED',
   // Another request is changing the chart's role holders: one fixed "retry"
   // sentence naming nothing, raised before any write.
+  // A write that would leave a role without exactly one usable holder: names
+  // only role keys, and is thrown so the registry's savepoint undoes the write.
+  'SYSTEM_ROLE_INVARIANT',
   'SYSTEM_ROLE_LOCK_TIMEOUT',
   'TAX_DIRECTIVE_ALREADY_APPLIED',
   'TIME_ENTRIES_NOT_CLAIMED',

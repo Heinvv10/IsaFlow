@@ -10,6 +10,7 @@ import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationPa
 import type { DbRow } from '@/types/db';
 import { defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
+import { lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 import { assertAccountChangesKeepVatLocks, type AccountAttributeChange } from '../gl/vatLockLineClassification';
 
 // Rollback lives in its own file for the 300-line cap; re-exported so the API
@@ -77,6 +78,11 @@ export async function executeMigration(
   // would move a posted line inside a locked (filed) VAT period into a
   // different box refuses the WHOLE migration, naming account and period —
   // later steps post opening balances against these accounts.
+  // The role-write lock comes first, for lock ORDER rather than for a holder:
+  // the upsert below locks account rows in the order the file lists them, a
+  // Default Accounts save locks the same rows in id order, and without one
+  // lock taken first by both the two deadlocked (40P01).
+  await lockSystemRoleWrites(companyId);
   try {
     await assertAccountChangesKeepVatLocks(companyId, await reimportAttributeChanges(companyId, source, validAccounts));
   } catch (err) {

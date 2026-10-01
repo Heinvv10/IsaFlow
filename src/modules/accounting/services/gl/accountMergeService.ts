@@ -34,6 +34,7 @@ import {
   DOCUMENT_ROW_TABLES, countsOf, repointDocumentRows, type DocumentRowCounts,
 } from './accountMergeDocumentRows';
 import { lockGlAccountsForUpdate } from './glAccountLock';
+import { assertRolesKept, snapshotRoles } from './systemRoleInvariant';
 import { openBillLinesRefusal } from './accountMergeBillLines';
 import { hasChildAccounts } from './isReportVisibleLeaf';
 import type { PostingActorOpts } from './journalEntryMeta';
@@ -124,7 +125,7 @@ async function mergeAccountsInner(
   // reclassification does not lock the account, and takes its own FOR UPDATE in
   // `admitReclassification` for exactly that reason.
   await lockGlAccountsForUpdate(companyId, [sourceId, targetId]);
-
+  const roles = await snapshotRoles(companyId);
   const source = await loadMergeAccount(companyId, sourceId);
   const target = await loadMergeAccount(companyId, targetId);
   // The same generic text a genuine miss gets: a distinct "belongs to another
@@ -255,6 +256,7 @@ async function mergeAccountsInner(
      WHERE id = ${sourceId}::UUID AND company_id = ${companyId}::UUID
   `;
 
+  await assertRolesKept(companyId, roles); // e.g. the source's children would make a role holder a header
   clearSystemAccountCacheAfterCommit(companyId);
 
   // The record is what makes this recoverable. Merging back does NOT undo a

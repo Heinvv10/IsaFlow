@@ -27,6 +27,7 @@ import { DocumentClaimLockTimeoutError } from '@/modules/accounting/services/cor
 import { RecurringTemplateLockTimeoutError } from '@/modules/accounting/services/core/recurringTemplateLock';
 import { WipEntriesLockedError } from '@/modules/accounting/services/practice/wipEntryLock';
 import { SystemRoleLockTimeoutError } from '@/modules/accounting/services/gl/systemRoleWriteLock';
+import { GlAccountLockTimeoutError } from '@/modules/accounting/services/gl/glAccountLock';
 
 export function respondIfLockTimeout(res: NextApiResponse, err: unknown): boolean {
   if (!(err instanceof DocumentNumberLockTimeoutError)
@@ -34,7 +35,8 @@ export function respondIfLockTimeout(res: NextApiResponse, err: unknown): boolea
     && !(err instanceof DocumentClaimLockTimeoutError)
     && !(err instanceof RecurringTemplateLockTimeoutError)
     && !(err instanceof WipEntriesLockedError)
-    && !(err instanceof SystemRoleLockTimeoutError)) {
+    && !(err instanceof SystemRoleLockTimeoutError)
+    && !(err instanceof GlAccountLockTimeoutError)) {
     return false;
   }
   res.setHeader('Retry-After', '2');

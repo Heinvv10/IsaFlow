@@ -7,19 +7,21 @@ import type { PoolClient } from 'pg';
 import { makeGate, roleWriterFixture, sleep, type Gate } from './w2-28-role-writers.helpers';
 
 let gate: Gate | null = null;
+let gateSkips = 0;   // role-coverage reads to let through before the gate stops one
 vi.mock('@/modules/accounting/services/gl/systemRoleCoverage', async (orig) => {
   const actual = await orig<typeof import('../../src/modules/accounting/services/gl/systemRoleCoverage')>();
   return {
     ...actual,
     getSystemRoleCoverage: async (...args: Parameters<typeof actual.getSystemRoleCoverage>) => {
       const out = await actual.getSystemRoleCoverage(...args);
-      if (gate) { const g = gate; gate = null; g.reached(); await g.release; }
+      if (gate && gateSkips-- <= 0) { const g = gate; gate = null; g.reached(); await g.release; }
       return out;
     },
   };
 });
 import defaultAccounts from '../../pages/api/accounting/default-accounts';
 import bankAccounts from '../../pages/api/accounting/bank-accounts';
+import chartOfAccounts from '../../pages/api/accounting/chart-of-accounts';
 import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
 import { updateAccount } from '../../src/modules/accounting/services/gl/chartOfAccountsService';
 
@@ -38,7 +40,7 @@ const within = <T>(ms: number, p: Promise<T>) => Promise.race([p, sleep(ms).then
 describeIfDb('W2-28 a save against postings and reactivations', () => {
   beforeAll(fx.setup);
   beforeEach(async () => {
-    gate = null; await fx.wipe(); clearSystemAccountCache(CO);
+    gate = null; gateSkips = 0; await fx.wipe(); clearSystemAccountCache(CO);
     await ins(AR, '1120', 'asset', 'receivable', true);
     await ins(BANK, '1110', 'asset', 'bank', true);
     await ins(X, '1115', 'asset', null, false);
@@ -120,4 +122,45 @@ describeIfDb('W2-28 a save against postings and reactivations', () => {
     await tx.commit();
     expect(await holders('receivable')).toEqual(['1125']);
   });
+
+  it('a role holder cannot be made a parent: creating a child, moving an account or grouping a bank account under it is 400', async () => {
+    const B2 = randomUUID();
+    await ins(B2, '1112', 'asset', 'bank', false);
+    const answers = {
+      create: (await fx.call(chartOfAccounts, 'POST', '/api/accounting/chart-of-accounts',
+        { accountCode: '1121', accountName: 'Sub debtor', accountType: 'asset', normalBalance: 'debit', parentAccountId: AR })).statusCode,
+      move: (await fx.call(chartOfAccounts, 'PUT', '/api/accounting/chart-of-accounts', { id: X, parentAccountId: AR })).statusCode,
+      group: (await fx.call(bankAccounts, 'PUT', '/api/accounting/bank-accounts', { id: B2, parentAccountId: BANK })).statusCode,
+    };
+    const children = (await fx.query(
+      'SELECT account_code FROM gl_accounts WHERE company_id = $1 AND parent_account_id IS NOT NULL', [CO])).rows;
+    expect({ answers, children }).toEqual({ answers: { create: 400, move: 400, group: 400 }, children: [] });
+  });
+
+  it('a child created under the account a save has just chosen waits for the save, then is refused: no holder becomes a header', async () => {
+    const g = makeGate(); gate = g.gate; gateSkips = 1;                // stop the save AFTER its post-condition read
+    const saving = save();
+    await g.reached;
+    const creating = fx.call(chartOfAccounts, 'POST', '/api/accounting/chart-of-accounts',
+      { accountCode: '1116', accountName: 'Sub', accountType: 'asset', normalBalance: 'debit', parentAccountId: X });
+    await sleep(300);
+    g.release();
+    const children = async () => (await fx.query(
+      'SELECT account_code FROM gl_accounts WHERE company_id = $1 AND parent_account_id = $2', [CO, X])).rows;
+    expect({ save: (await saving).statusCode, create: (await creating).statusCode, bank: await holders('bank'), children: await children() })
+      .toEqual({ save: 200, create: 400, bank: ['1115'], children: [] });
+  });
+
+  it('a chart write that cannot get an account ROW within 5s answers 503 too', async () => {
+    const HDR = randomUUID();
+    await ins(HDR, '1000', 'asset', null, false, { level: 1 });
+    const c = await fx.connect();                                     // e.g. a merge holding the parent row
+    try {
+      await c.query('BEGIN');
+      await c.query('SELECT 1 FROM gl_accounts WHERE id = $1 FOR UPDATE', [HDR]);
+      const answered = await within(9000, fx.call(chartOfAccounts, 'POST', '/api/accounting/chart-of-accounts',
+        { accountCode: '1001', accountName: 'Sub', accountType: 'asset', normalBalance: 'debit', parentAccountId: HDR }).then((a) => a.statusCode));
+      expect(answered).toBe(503);
+    } finally { await c.query('ROLLBACK'); c.release(); }
+  }, 30_000);
 });
