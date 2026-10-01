@@ -46,9 +46,15 @@ const DEPENDS_ON_UNREAD_CASH_FLOW =
 export const NO_FREE_CASH_FLOW =
   'Not stated: capital expenditure is not captured separately from other investing cash flows.';
 
+/** Why the pack states no operating cash flow ratio. */
+export const NO_OPERATING_CASH_FLOW_RATIO =
+  'Not stated: no operating cash flow figure was read for this period.';
+
 /**
  * The pack's ratios, with free cash flow marked not meaningful where there is
- * no capital expenditure to take off.
+ * no capital expenditure to take off, and the operating cash flow ratio where
+ * there is no operating cash flow to divide — the engine reads that absence
+ * as zero and printed 0.00 beside a cash flow section saying nothing was read.
  *
  * `calculateExtendedRatios` computes it as operating cash flow less capital
  * expenditure and reads an absent capex as zero — so it printed 0 while
@@ -59,10 +65,21 @@ export const NO_FREE_CASH_FLOW =
  * printed ratios read the same reason; the engine itself is shared with
  * surfaces outside the pack and is not changed.
  */
-function packRatios(financialData: FinancialData): ReturnType<typeof calculateExtendedRatios> {
+export function packRatios(financialData: FinancialData): ReturnType<typeof calculateExtendedRatios> {
   const ratios = calculateExtendedRatios(financialData);
-  if (financialData.capitalExpenditure !== undefined) return ratios;
-  return { ...ratios, notMeaningful: { ...ratios.notMeaningful, freeCashFlow: NO_FREE_CASH_FLOW } };
+  const unstated: Record<string, string> = {};
+  if (financialData.capitalExpenditure === undefined) unstated.freeCashFlow = NO_FREE_CASH_FLOW;
+  if (financialData.operatingCashFlow === undefined) unstated.operatingCashFlowRatio = NO_OPERATING_CASH_FLOW_RATIO;
+  // Nulled as well as explained, so no reader can print the stand-in by
+  // skipping the reason, and a scorecard target naming either scores it as
+  // not meaningful rather than against a zero. The result type keeps
+  // `number` for both: the engine's type is shared and is not changed here.
+  const nulled = Object.fromEntries(Object.keys(unstated).map((key) => [key, null]));
+  return {
+    ...ratios,
+    ...nulled,
+    notMeaningful: { ...ratios.notMeaningful, ...unstated },
+  } as ReturnType<typeof calculateExtendedRatios>;
 }
 
 function buildSectionData(
@@ -153,13 +170,8 @@ function buildSectionData(
     }
 
     case 'ratios': {
-      const ratios = packRatios(financialData);
-      // Nulled as well as explained, so no reader of this blob can print the
-      // stand-in by skipping the reason.
-      return {
-        ...ratios,
-        ...(ratios.notMeaningful.freeCashFlow === undefined ? {} : { freeCashFlow: null }),
-      } as unknown as Record<string, unknown>;
+      // Unstated ratios arrive nulled and explained — see `packRatios`.
+      return packRatios(financialData) as unknown as Record<string, unknown>;
     }
 
     case 'kpis': {
