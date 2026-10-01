@@ -81,7 +81,7 @@ const HOST = 'http://pack.print.local/';
  * measure, in the cascade position Tailwind's own output would put it.
  */
 const WRAPPER_UTILITIES = '.pack-pages{margin-left:auto;margin-right:auto;max-width:210mm}';
-function printStylesheet(): string {
+export function printStylesheet(): string {
   // The literal file `@tailwind base` emits. Read from the installed package
   // so a Tailwind upgrade moves this harness with the app rather than leaving
   // it measuring last year's defaults.
