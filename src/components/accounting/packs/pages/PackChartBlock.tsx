@@ -16,8 +16,9 @@
  *
  * The `dangerouslySetInnerHTML` is a sink for a `TrustedChartSvg` and does
  * NOT re-scan the string, for the reason `KpiTileWithSparkline` states: the
- * guards ran in `renderChartSvg`, which throws rather than returning unsafe
- * markup, and a second scan here would check shape rather than origin.
+ * guards ran in `renderChartSvg` and again in `adoptTrustedChartSvg` when the
+ * document crossed JSON into this browser, and a second scan here would
+ * check shape rather than origin.
  */
 import type { CSSProperties } from 'react';
 import type { PackChartSpec } from '@/modules/accounting/services/packs/pages/packPageModel';

@@ -21,6 +21,7 @@ import { execFile } from 'child_process';
 import { writeFile, mkdir } from 'fs/promises';
 import { dirname } from 'path';
 import { promisify } from 'util';
+import { log } from '@/lib/logger';
 import { renderPagePdf } from '@/lib/pdf/renderPagePdf';
 import { buildFooterHtml, buildPdfMetadata } from '@/lib/pdf/printFurniture';
 import { chooseTransportName } from '@/lib/pdf/selectTransport';
@@ -61,7 +62,6 @@ async function verifyTextLayer(
     `the rendered pack is missing ${failures.length} things it must print:\n${failures.join('\n')}`,
   );
 }
-import { log } from '@/lib/logger';
 
 const DEMO_COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 const DEMO_USER_ID = 'aeb3949e-6c93-4c17-bbdf-b6d2d99fa9a2';

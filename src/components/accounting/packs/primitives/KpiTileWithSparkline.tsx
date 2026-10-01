@@ -2,15 +2,14 @@
  * One KPI tile — the headline number, its movement against a stated basis,
  * and a pre-rendered sparkline.
  *
- * The `dangerouslySetInnerHTML` below is the FIRST real sink for a
- * `TrustedChartSvg` in this workstream. It does NOT re-scan the string:
- * `renderChartSvg` (src/lib/charts/ssrSvg.ts) already ran
- * `assertNoExternalReferences` and `assertStyleBlockIsOurs` and throws
- * rather than ever returning unsafe markup — a second scan here would
- * validate shape, not origin, and would fail OPEN the day a future sink
- * forgets to add it. The brand (R-P41) is sound only because the page model
- * is composed in the same process that renders it; this component does not
- * serialise `sparklineSvg` anywhere.
+ * The `dangerouslySetInnerHTML` below is a sink for a `TrustedChartSvg`. It
+ * does NOT re-scan the string: the brand (R-P41) says the guards already ran
+ * — `renderChartSvg` (src/lib/charts/ssrSvg.ts) ran them where the SVG was
+ * drawn, and the document then crossed JSON to reach this browser, where
+ * `adoptTrustedChartSvg` (via `adoptPackPagesDocument`) re-ran the same two
+ * guards on `sparklineSvg` before handing the brand back. A second scan here
+ * would validate shape, not origin, and would fail OPEN the day a future
+ * sink forgets to add it.
  *
  * The delta's basis is rendered beside its value, never implied — a
  * movement with no stated comparison ("up 12%… against what?") is the
