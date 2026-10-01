@@ -68,12 +68,22 @@ export interface ReportPackFigures extends ReportPackInput {
    * none, and page 12's reconciliation prints the add-back either way.
    */
   depreciation: number;
+  /**
+   * Set when the cash flow statement could not be read, so the three cash flow
+   * figures are absent because the read failed rather than because there is
+   * nothing to state. A sentence for the reader, like the two caveats above;
+   * null when the statement was read.
+   */
+  cashFlowUnavailable: string | null;
 }
 
 type PackCashFlows = Pick<
   ReportPackFigures,
-  'operatingCashFlow' | 'investingCashFlow' | 'financingCashFlow'
+  'operatingCashFlow' | 'investingCashFlow' | 'financingCashFlow' | 'cashFlowUnavailable'
 >;
+
+/** What a reader is told where the statement could not be read. */
+export const CASH_FLOW_NOT_READ = 'The cash flow statement could not be read for this period.';
 
 /**
  * THE WINDOW'S CASH FLOWS, FROM THE ONE SERVICE THAT COMPUTES THEM OFF THE
@@ -103,7 +113,7 @@ async function readCashFlows(companyId: string, from: string, to: string): Promi
       { companyId, from, to, error: error instanceof Error ? error.name : typeof error },
       'packs',
     );
-    return {};
+    return { cashFlowUnavailable: CASH_FLOW_NOT_READ };
   }
   // TO THE CENT, AND STILL FOOTING. The service apportions by division, so
   // its totals carry float dust, and three figures rounded apart can miss
@@ -114,7 +124,7 @@ async function readCashFlows(companyId: string, from: string, to: string): Promi
   const investingCashFlow = round2(cashFlow.investingTotal);
   const financingCashFlow = round2(cashFlow.financingTotal);
   const operatingCashFlow = round2(round2(cashFlow.netChange) - investingCashFlow - financingCashFlow);
-  return { operatingCashFlow, investingCashFlow, financingCashFlow };
+  return { operatingCashFlow, investingCashFlow, financingCashFlow, cashFlowUnavailable: null };
 }
 
 export async function getReportPackInput(

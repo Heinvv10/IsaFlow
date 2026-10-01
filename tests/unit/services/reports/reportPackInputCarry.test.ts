@@ -175,6 +175,7 @@ describe('getReportPackInput carries the cash flows of the window it was asked f
     expect(input.operatingCashFlow).toBe(345_678.12);
     expect(input.investingCashFlow).toBe(-98_765.43);
     expect(input.financingCashFlow).toBe(12_345.67);
+    expect(input.cashFlowUnavailable).toBeNull();
   });
 
   it('does not call net investing "capital expenditure"', async () => {
@@ -214,6 +215,9 @@ describe('getReportPackInput carries the cash flows of the window it was asked f
     expect(input.operatingCashFlow).toBeUndefined();
     expect(input.investingCashFlow).toBeUndefined();
     expect(input.financingCashFlow).toBeUndefined();
+    // And it says WHY they are absent, in a sentence for the reader: a page
+    // printing "no figure was captured" would be describing a different fact.
+    expect(input.cashFlowUnavailable).toBe('The cash flow statement could not be read for this period.');
     // The figures that were read are still there.
     expect(input.revenue).toBeCloseTo(13485163.41, 2);
     expect(warnMock).toHaveBeenCalledTimes(1);

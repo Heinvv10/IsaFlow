@@ -55,6 +55,7 @@ export function figures(overrides: Partial<ReportPackFigures>): ReportPackFigure
     depreciation: 96_000,
     inventoryCaveat: null,
     classificationCaveat: null,
+    cashFlowUnavailable: null,
     ...overrides,
   };
 }
