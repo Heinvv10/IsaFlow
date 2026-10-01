@@ -133,6 +133,16 @@ export function formatRatioFigure(format: RatioFormat, value: number): string {
   }
 }
 
+/**
+ * A figure in the named ratio's own unit — a value or a TARGET for it. A KPI
+ * tile printed "(1 310.83) / 35" for a gross margin the ratios page printed as
+ * "(1 310.8%)": the tile had no unit because it did not ask this table.
+ * @throws UnknownRatioError for a key with no row here.
+ */
+export function formatRatioOf(key: string, value: number): string {
+  return formatRatioFigure(presentationOf(key).format, value);
+}
+
 /** What a surface prints when a null ratio arrives with no reason. */
 export const RATIO_NOT_MEANINGFUL = 'Not meaningful';
 

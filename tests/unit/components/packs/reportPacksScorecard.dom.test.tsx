@@ -106,7 +106,7 @@ describe('Report Packs screen — the KPI Scorecard tile', () => {
     render(<ReportPacksPage />);
 
     await waitFor(() => expect(screen.getByText('2.32')).toBeInTheDocument());
-    expect(screen.getByText('/ 1.5')).toBeInTheDocument();
+    expect(screen.getByText('/ 1.50')).toBeInTheDocument();
   });
 
   it('shows both kinds side by side, which is what an insolvent company looks like', async () => {

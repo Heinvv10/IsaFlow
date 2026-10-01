@@ -7,8 +7,7 @@
  * Lives in the service layer rather than in PackSectionView so the PPTX route
  * can reuse it without pulling React and ECharts into an API bundle.
  */
-import { formatRatio } from '@/lib/format/money';
-import { formatRatioFigure } from '@/modules/accounting/services/reports/ratioPresentation';
+import { formatRatioFigure, formatRatioOf } from '@/modules/accounting/services/reports/ratioPresentation';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 import type { PackKvItem } from './packDocument';
 
@@ -43,15 +42,21 @@ export function formatPackKv(item: PackKvItem): string {
  * here, so a fourth surface cannot invent a fourth answer.
  */
 export type ScorecardFigure =
-  | { scored: false; reason: string }
-  | { scored: true; value: string; target: number };
+  | { scored: false; reason: string; target: string }
+  | { scored: true; value: string; target: string };
 
 export function scorecardFigure(item: KPIScorecardItem): ScorecardFigure {
   // The service's own reason, printed INSTEAD of a figure — the same rule
   // `formatPackKv` applies to an unavailable KV item, and the same string the
   // executive dashboard's KpiTile shows for the same ratio.
-  if (item.value === null) return { scored: false, reason: item.reason ?? NO_FIGURE };
-  return { scored: true, value: formatRatio(item.value), target: item.target };
+  //
+  // VALUE AND TARGET IN THE RATIO'S OWN UNIT, from the table every ratio
+  // surface reads. The tile printed `formatRatio` — "(1 310.83) / 35" for a
+  // gross margin, "213.23 / 30" for debtor days — beside a ratios page
+  // printing "(1 310.8%)" and "213 days" for the same two figures.
+  const target = formatRatioOf(item.ratioKey, item.target);
+  if (item.value === null) return { scored: false, reason: item.reason ?? NO_FIGURE, target };
+  return { scored: true, value: formatRatioOf(item.ratioKey, item.value), target };
 }
 
 /** The same decision as one line of text, for the deck. */

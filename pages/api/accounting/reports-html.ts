@@ -25,6 +25,7 @@ import {
   type PackSection,
 } from '@/modules/accounting/services/reports/reportPackService';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
+import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -174,7 +175,11 @@ export function renderSectionHtml(section: PackSection): string {
       const items = (d.scorecard as KPIScorecardItem[]) ?? [];
       rows = items.map(item => {
         const cls = item.status === 'green' ? 'status-green' : item.status === 'amber' ? 'status-amber' : 'status-red';
-        return `<tr><td>${escapeHtml(item.name)}</td><td class="num">${typeof item.value === 'number' ? item.value.toFixed(2) : escapeHtml(String(item.value))}</td><td class="num">${typeof item.target === 'number' ? item.target.toFixed(2) : '—'}</td><td><span class="${cls}">${escapeHtml(item.status.toUpperCase())}</span></td></tr>`;
+        // The tile's own decision: value and target in the ratio's unit, and
+        // the reason — not "null" — where the ratio has no value.
+        const figure = scorecardFigure(item);
+        const actual = figure.scored ? figure.value : figure.reason;
+        return `<tr><td>${escapeHtml(item.name)}</td><td class="num">${escapeHtml(actual)}</td><td class="num">${escapeHtml(figure.target)}</td><td><span class="${cls}">${escapeHtml(item.status.toUpperCase())}</span></td></tr>`;
       }).join('');
       return tableHtml(['KPI', 'Actual', 'Target', 'Status'], rows);
     }
