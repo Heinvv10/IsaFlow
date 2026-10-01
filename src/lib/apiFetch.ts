@@ -185,15 +185,19 @@ export function apiErrorMessage(err: unknown, fallback: string): string {
  * Unregistered routes return `unknown`, which cannot be used without
  * narrowing — so this is a ratchet, not a convention.
  *
+ * `failureMessage` is what a non-2xx WITHOUT a server message, or a 2xx that is not the envelope, says (default names the URL, which is
+ * for logs, not people: pages pass a plain sentence).
+ *
  * @throws {ApiRequestError} on any non-2xx status, carrying the server message.
  * @throws {ApiEnvelopeError} on a 2xx that is not a `{ success, data }` envelope.
  */
 export async function apiJson<U extends string>(
   url: U,
   options?: RequestInit,
+  failureMessage?: string,
 ): Promise<ResponseFor<U>> {
   const res = await apiFetch(url, options);
-  await assertOk(res, `Request to ${url} failed`);
+  await assertOk(res, failureMessage ?? `Request to ${url} failed`);
 
   // NOTE: a 204 is deliberately NOT special-cased into `undefined`. Casting an
   // empty body to `ResponseFor<U>` would lie to the type system — the caller
@@ -206,11 +210,11 @@ export async function apiJson<U extends string>(
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new ApiEnvelopeError(`${url} returned a non-JSON body`);
+    throw new ApiEnvelopeError(failureMessage ?? `${url} returned a non-JSON body`);
   }
 
   if (typeof parsed !== 'object' || parsed === null || !('data' in parsed)) {
-    throw new ApiEnvelopeError(`${url} returned a body without a 'data' envelope`);
+    throw new ApiEnvelopeError(failureMessage ?? `${url} returned a body without a 'data' envelope`);
   }
 
   return (parsed as { data: ResponseFor<U> }).data;

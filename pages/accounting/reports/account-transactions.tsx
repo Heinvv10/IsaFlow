@@ -3,12 +3,13 @@
  * Phase 3: GL account drill-down with running balance
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, apiJson } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { postedTotals } from '@/components/reports/generalLedgerRows';
 
 interface Txn {
   date: string;
@@ -18,6 +19,8 @@ interface Txn {
   credit: number;
   balance: number;
   source: string;
+  /** A year-end close row: derived, not posted. */
+  derived?: boolean;
 }
 interface Report {
   accountCode: string;
@@ -66,21 +69,31 @@ export default function AccountTransactionsPage() {
     }).catch(() => setError('Failed to load chart of accounts'));
   }, []);
 
+  const requestRef = useRef(0);
+
   const load = useCallback(async () => {
-    if (!periodStart || !periodEnd || !accountCode) return;
+    if (!periodStart || !periodEnd || !accountCode) {
+      // Clearing an input invalidates in-flight requests and clears data and loading.
+      requestRef.current += 1;
+      setReport(null); setError(''); setLoading(false);
+      return;
+    }
+    // Only the latest request may set state (same pattern as the account detail page).
+    const requestId = ++requestRef.current;
+    const latest = () => requestId === requestRef.current;
+    const failure = 'Could not load the account transactions - try again';
     setLoading(true);
     setError('');
+    setReport(null);
     try {
       const params = new URLSearchParams({
         account_code: accountCode, period_start: periodStart, period_end: periodEnd,
       });
       if (costCentreFilter) params.set('cost_centre', costCentreFilter);
-      const res = await apiFetch(`/api/accounting/reports-account-transactions?${params}`, { credentials: 'include' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
-      setReport(json.data || null);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
-    finally { setLoading(false); }
+      const result = await apiJson(`/api/accounting/reports-account-transactions?${params}`, { credentials: 'include' }, failure);
+      if (latest()) setReport(result);
+    } catch (err) { if (latest()) setError(apiErrorMessage(err, failure)); }
+    finally { if (latest()) setLoading(false); }
   }, [periodStart, periodEnd, accountCode, costCentreFilter]);
 
   useEffect(() => { void load(); }, [load]);
@@ -93,8 +106,8 @@ export default function AccountTransactionsPage() {
     window.location.href = `/api/accounting/account-transactions-export?${params}`;
   }
 
-  const totalDr = report?.transactions.reduce((s, t) => s + t.debit, 0) || 0;
-  const totalCr = report?.transactions.reduce((s, t) => s + t.credit, 0) || 0;
+  // Posted rows only: a derived close row would stop the totals tying to the income statement.
+  const { debit: totalDr, credit: totalCr } = postedTotals(report?.transactions ?? []);
 
   return (
     <AppLayout>
@@ -178,7 +191,7 @@ export default function AccountTransactionsPage() {
                   <tbody>
                     {report.transactions.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No transactions</td></tr>}
                     {report.transactions.map((t, i) => (
-                      <tr key={i} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
+                      <tr key={i} className={`border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50${t.derived ? ' italic' : ''}`}>
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{t.date}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)] font-mono text-xs">{t.entryNumber}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-primary)] truncate max-w-[200px]">{t.description}</td>

@@ -47,6 +47,9 @@ import {
   type GeneralLedgerLine,
 } from '@/modules/accounting/services/gl/generalLedgerStreamService';
 
+const isNulledByFyStart = (l: GeneralLedgerLine, from: string | null) =>
+  from !== null && l.date >= from && (l.accountType === 'revenue' || l.accountType === 'expense');
+
 describe('general-ledger line stream — real database', async () => {
   const reachable = await isDbReachable();
 
@@ -95,8 +98,11 @@ describe('general-ledger line stream — real database', async () => {
       const byId = new Map(whole.lines.map((l) => [l.lineId, l.runningBalance]));
       expect(small.lines.length).toBeGreaterThan(500);
       for (const line of small.lines) {
-        expect(line.runningBalance).not.toBeNull();
-        expect(line.runningBalance).toBeCloseTo(byId.get(line.lineId) as number, 2);
+        // Null only for an income-statement line on or after the first FY start in range.
+        const nulled = isNulledByFyStart(line, whole.incomeStatementBalanceNullFrom);
+        expect(line.runningBalance === null).toBe(nulled);
+        if (!nulled) expect(line.runningBalance).toBeCloseTo(byId.get(line.lineId) as number, 2);
+        else expect(byId.get(line.lineId)).toBeNull();
       }
     });
   }, 60000);
@@ -124,7 +130,8 @@ describe('general-ledger line stream — real database', async () => {
           expect(whole.lineCount).toBe(before.lineCount);
           const byId = new Map(whole.lines.map((l) => [l.lineId, l.runningBalance]));
           for (const line of before.lines) {
-            expect(line.runningBalance).toBeCloseTo(byId.get(line.lineId) as number, 2);
+            if (line.runningBalance === null) expect(byId.get(line.lineId)).toBeNull();
+            else expect(line.runningBalance).toBeCloseTo(byId.get(line.lineId) as number, 2);
           }
         });
       } finally {
@@ -156,6 +163,12 @@ describe('general-ledger line stream — real database', async () => {
           0,
         );
         const last = accountLines[accountLines.length - 1]!;
+        // An income-statement account whose range crosses a FY start has no balance from that
+        // start (the stream inserts no close line); every other account closes exactly.
+        if (isNulledByFyStart(last, page.incomeStatementBalanceNullFrom)) {
+          expect(last.runningBalance).toBeNull();
+          continue;
+        }
         expect(last.runningBalance).toBeCloseTo((opening as number) + movement, 2);
       }
     });

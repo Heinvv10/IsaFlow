@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('@/components/accounting/evidence/EvidenceDrillModal', () => ({ EvidenceDrillModal: () => null }));
 vi.mock('@/contexts/TableDensityContext', () => ({ useTableDensity: () => ({ rowClass: '' }) }));
 const { routerQuery } = vi.hoisted(() => ({ routerQuery: {} as Record<string, string> }));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: routerQuery, isReady: true }) }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 import { apiFetch } from '@/lib/apiFetch';
 import TrialBalancePage from '@/../pages/accounting/trial-balance';
 afterEach(() => {

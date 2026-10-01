@@ -1,6 +1,6 @@
 /**
  * AccountLedgerSummary
- * Three-column strip: Opening Balance | Period Net | Period Closing Balance.
+ * Three-column strip: Opening Balance | Movement for period | Closing Balance.
  * Uses server-returned period totals (not a client-side reduce over the paginated slice).
  */
 
@@ -9,17 +9,23 @@ const fmt = (n: number) =>
 
 interface Props {
   openingBalance: number;
-  /** Sum of (debits − credits) over the FULL date range from the server. */
+  /** Movement for the period (posted lines, FULL date range) — equals the statement line. */
   periodNet: number;
-  /** Opening + periodNet, computed server-side over the full range. */
+  /** Derived year-end closes inside the range (income-statement accounts only; else 0). */
+  closedToRetainedEarnings: number;
+  /** How many derived year-end close rows there are (the net can be zero while closes exist). */
+  closedYears: number;
+  /** Opening + periodNet + closedToRetainedEarnings — the balance as at the range end. */
   periodClosingBalance: number;
-  /** Total number of transactions (for the label). */
+  /** Number of posted journal lines in the range (derived close rows excluded), for the label. */
   total: number;
 }
 
 export function AccountLedgerSummary({
   openingBalance,
   periodNet,
+  closedToRetainedEarnings,
+  closedYears,
   periodClosingBalance,
   total,
 }: Props) {
@@ -33,7 +39,7 @@ export function AccountLedgerSummary({
       </div>
       <div className="px-6 py-3">
         <p className="text-xs text-[var(--ff-text-tertiary)]">
-          Transactions ({total.toLocaleString()}) — period net
+          Movement for period ({total.toLocaleString()} rows)
         </p>
         <p className="font-mono font-medium text-[var(--ff-text-primary)]">
           {fmt(periodNet)}
@@ -45,6 +51,15 @@ export function AccountLedgerSummary({
         <p className="font-mono font-medium text-[var(--ff-text-primary)]">
           {fmt(periodClosingBalance)}
         </p>
+        {closedYears > 0 && (
+          <p className="text-xs text-[var(--ff-text-tertiary)]">
+            {/* closedToRetainedEarnings is the negated NET of the normal-side balances closed: show it unsigned, direction in words. */}
+            {closedYears} year-end close{closedYears === 1 ? '' : 's'} (derived):{' '}
+            {closedToRetainedEarnings === 0
+              ? `net ${fmt(0)} — the closed years offset`
+              : `net ${fmt(Math.abs(closedToRetainedEarnings))}${closedToRetainedEarnings > 0 ? ' returned from' : ' closed to'} retained earnings`}
+          </p>
+        )}
       </div>
     </div>
   );
