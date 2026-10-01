@@ -53,8 +53,8 @@ const SYSTEM_MAP_KEYS: readonly (keyof SystemAccountMap)[] = [
  * its values are flagged `is_system_account = true` verbatim, and the
  * resolver hands those rows to every auto-posting path — so an unknown key,
  * or a mapped account whose type cannot carry the role (an expense account as
- * vat_input), must refuse the whole import BEFORE any row is written.
- * Returns the refusals; empty means proceed.
+ * vat_input), or one account named for two roles, must refuse the whole
+ * import BEFORE any row is written. Returns the refusals; empty means proceed.
  */
 export function validateSystemAccountMap(
   map: Record<string, unknown>,
@@ -62,6 +62,7 @@ export function validateSystemAccountMap(
 ): MigrationError[] {
   const errors: MigrationError[] = [];
   const byCode = new Map(accounts.map((a) => [a.accountCode, a]));
+  const roleOf = new Map<string, string>();
   for (const [key, code] of Object.entries(map)) {
     if (!(SYSTEM_MAP_KEYS as readonly string[]).includes(key)) {
       errors.push({ step: 'coa', row: -1, field: `systemAccountMap.${key}`, message: `Unknown system account role "${key}"` });
@@ -71,6 +72,13 @@ export function validateSystemAccountMap(
       errors.push({ step: 'coa', row: -1, field: `systemAccountMap.${key}`, message: 'Account code is required' });
       continue;
     }
+    const other = roleOf.get(code);
+    if (other) {
+      errors.push({ step: 'coa', row: -1, field: `systemAccountMap.${key}`,
+        message: `One account cannot hold two roles: '${other}' and '${key}' both name account ${code}` });
+      continue;
+    }
+    roleOf.set(code, key);
     const acct = byCode.get(code);
     if (!acct) {
       errors.push({ step: 'coa', row: -1, field: `systemAccountMap.${key}`, message: `Account ${code} is not in this import` });
@@ -88,6 +96,33 @@ export function validateSystemAccountMap(
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
+
+/** The classification the import itself gives an income-statement row that has none. */
+const TYPE_DEFAULT_SUBTYPE: Record<string, string> = { revenue: 'revenue', expense: 'operating_expense' };
+
+/**
+ * The Default Accounts rule, for the role map: a role may only go to an
+ * account that is unclassified ('other', NULL, or the type default this import
+ * assigns) or already classified for that role. Mapping it onto the account
+ * that holds ANOTHER role would take that account from its role and leave the
+ * role with no holder. Read under the role-write lock, before any write.
+ */
+async function roleMapConflicts(companyId: string, map: SystemAccountMap): Promise<MigrationError[]> {
+  const entries = Object.entries(map);
+  const rows = (await sql`
+    SELECT account_code, account_type, account_subtype FROM gl_accounts
+    WHERE company_id = ${companyId}::UUID AND account_code = ANY(${entries.map(([, code]) => code)}::TEXT[])
+  `) as DbRow[];
+  const existing = new Map(rows.map((r) => [String(r.account_code), r]));
+  return entries.flatMap(([role, code]) => {
+    const r = existing.get(code);
+    const subtype = r?.account_subtype == null ? null : String(r.account_subtype);
+    if (!r || subtype === null || subtype === 'other' || subtype === role
+      || subtype === TYPE_DEFAULT_SUBTYPE[String(r.account_type)]) return [];
+    return [{ step: 'coa' as const, row: -1, field: `systemAccountMap.${role}`,
+      message: `Account ${code} is classified '${subtype}'; only an unclassified account, or one already classified '${role}', can take the ${role} role. Move or reclassify it first.` }];
+  });
+}
 
 export async function importChartOfAccounts(
   companyId: string,
@@ -121,6 +156,8 @@ export async function importChartOfAccounts(
     // The role map below rewrites system-account flags: serialise with the
     // Default Accounts save, which takes the same lock.
     await lockSystemRoleWrites(companyId);
+    const conflicts = await roleMapConflicts(companyId, systemAccountMap);
+    if (conflicts.length > 0) return conflicts;
     try {
       await withSavepoint('coa_import_vat_lock', async () => {
         const before = await accountAttributes(companyId);
@@ -233,6 +270,10 @@ export async function importChartOfAccounts(
       throw err;
     }
   });
+  if (Array.isArray(refusal)) {
+    log.warn('COA import refused: the role map would take an account from another role', { companyId, errors: refusal }, 'migration');
+    return { imported: 0, skipped: accounts.length, errors: refusal };
+  }
   if (refusal) {
     log.warn('COA import refused: it would change a filed VAT period', { companyId, error: refusal.message }, 'migration');
     return { imported: 0, skipped: accounts.length, errors: [{ step: 'coa', row: -1, field: 'accountCode', message: refusal.message }] };
