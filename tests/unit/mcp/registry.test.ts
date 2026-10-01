@@ -84,6 +84,20 @@ describe('McpRegistry — fence order', () => {
     expect(inserts[0]!.values).toContain('ghost');
   });
 
+  it('a NUL byte anywhere in the arguments → rejected BEFORE the handler (Postgres text cannot hold it)', async () => {
+    const handler = vi.fn();
+    registry.register(makeTool({ scope: 'read:reports', handler }));
+    for (const args of [{ a: 'x\u0000y' }, { list: ['ok', 'x\u0000'] }, { deep: { deeper: { s: '\u0000' } } }]) {
+      const r = await registry.call('t', args, ctxWithScopes(['read:reports']));
+      expect(r.isError).toBe(true);
+    }
+    expect(handler).not.toHaveBeenCalled();
+    expect(auditInserts()[0]!.values).toContain('rejected');
+    const ok = await registry.call('t', { a: 'fine' }, ctxWithScopes(['read:reports']));
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(ok).toBeDefined();
+  });
+
   it('missing scope → rejected BEFORE handler runs', async () => {
     const handler = vi.fn();
     registry.register(makeTool({ scope: 'read:reports', handler }));

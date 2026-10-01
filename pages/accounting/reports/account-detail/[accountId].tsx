@@ -19,7 +19,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeft, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { UUID_RE } from '@/lib/validation';
 import { downloadAccountLedgerCsv } from '@/lib/csv/accountLedgerCsv';
 import { AccountLedgerSummary } from '@/components/reports/AccountLedgerSummary';
@@ -59,7 +59,9 @@ export default function AccountDetailPage() {
 
   const load = useCallback(async () => {
     if (!accountId || typeof accountId !== 'string' || !from || !to) {
+      // Clearing an input invalidates in-flight requests and clears data and loading.
       requestRef.current += 1;
+      setData(null); setError(''); setLoading(false);
       return;
     }
     const requestId = ++requestRef.current;
@@ -83,19 +85,11 @@ export default function AccountDetailPage() {
       }
 
       // Endpoint is now under /api/accounting/reports- prefix for auto-rate-limiting.
-      const res = await apiFetch(
-        `/api/accounting/reports-account-ledger?${params}`,
-        { credentials: 'include' },
-      );
-      if (!res.ok) {
-        const json = (await res.json().catch(() => ({}))) as { message?: string };
-        throw new Error(json.message ?? 'Failed to load ledger');
-      }
-      const json = (await res.json()) as { data?: AccountLedgerResult };
-      if (requestId === requestRef.current) setData(json.data ?? null);
+      const result = await apiJson(`/api/accounting/reports-account-ledger?${params}`, { credentials: 'include' }, 'Could not load the ledger - try again');
+      if (requestId === requestRef.current) setData(result);
     } catch (err) {
-      if (requestId === requestRef.current)
-        setError(err instanceof Error ? err.message : 'Failed to load ledger');
+      // The server's own 400/404 message (apiErrorMessage), not a generic line.
+      if (requestId === requestRef.current) setError(apiErrorMessage(err, 'Could not load the ledger - try again'));
     } finally {
       if (requestId === requestRef.current) setLoading(false);
     }
@@ -156,6 +150,7 @@ export default function AccountDetailPage() {
                     data.rows,
                     data.openingBalance,
                     data.periodClosingBalance,
+                    { page, totalPages },
                   )
                 }
                 className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium"
@@ -182,13 +177,16 @@ export default function AccountDetailPage() {
               <AccountLedgerSummary
                 openingBalance={data.openingBalance}
                 periodNet={data.periodNet}
+                closedToRetainedEarnings={data.closedToRetainedEarnings}
+                closedYears={data.derivedRows}
                 periodClosingBalance={data.periodClosingBalance}
-                total={data.total}
+                total={data.total - data.derivedRows}
               />
               <AccountLedgerTable
                 rows={data.rows}
                 openingBalance={data.openingBalance}
                 periodClosingBalance={data.periodClosingBalance}
+                normalBalance={data.meta.normalBalance}
                 page={page}
                 totalPages={totalPages}
                 onPageChange={goPage}

@@ -8,15 +8,18 @@
  *   [x] Period-totals aggregate: jl + je scoped
  */
 
-import { sql } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
-import type { DbRow } from '@/lib/neon';
+import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { RunningBalance, toMoney } from '@/lib/money/decimalSum';
+import { toMoney } from '@/lib/money/decimalSum';
+import { DEFAULT_FY_START_MONTH, resolveFiscalYearStartMonth } from '../gl/fiscalYearBasis';
+import { fiscalYearStartsWithin, incomeStatementOpeningFloor } from '../gl/fiscalYearCloseRows';
+import { assertLedgerRange } from '../gl/ledgerDateRange';
+import { LedgerAccountNotFoundError } from '../gl/ledgerErrors';
+import { buildPageRows, loadYearEndCloses, netOfFirstLines, planPage, type LedgerScope } from './accountLedgerYearEnd';
 
 type Row = DbRow;
 
-import type { AccountLedgerRow, AccountLedgerMeta, AccountLedgerResult, GetAccountLedgerParams } from './accountLedgerTypes';
+import type { AccountLedgerMeta, AccountLedgerResult, GetAccountLedgerParams } from './accountLedgerTypes';
 export type { AccountLedgerRow, AccountLedgerMeta, AccountLedgerResult, GetAccountLedgerParams } from './accountLedgerTypes';
 
 // WORKING: All WHERE clauses include company_id on both je and jl tables.
@@ -39,6 +42,7 @@ export async function getAccountLedger(
   const cc = costCentreId ?? null;
   const bu = businessUnitId ?? null;
 
+  assertLedgerRange(fromDate, toDate);
   if (!accountId && !accountCode) {
     throw new Error('Either accountId or accountCode is required');
   }
@@ -46,25 +50,30 @@ export async function getAccountLedger(
   try {
     // 1. Resolve account metadata — scoped to company.
     //    company_id is the FIRST condition in every WHERE.
+    //    The company's financial_year_start rides along (LEFT JOIN: no extra round-trip).
     const acctRows = accountId
       ? (await sql`
-          SELECT id, account_code, account_name, account_type, normal_balance
-          FROM gl_accounts
-          WHERE company_id = ${companyId}::UUID
-            AND id         = ${accountId}::UUID
+          SELECT ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
+                 c.financial_year_start
+          FROM gl_accounts ga
+          LEFT JOIN companies c ON c.id = ga.company_id
+          WHERE ga.company_id = ${companyId}::UUID
+            AND ga.id         = ${accountId}::UUID
           LIMIT 1
         `) as Row[]
       : (await sql`
-          SELECT id, account_code, account_name, account_type, normal_balance
-          FROM gl_accounts
-          WHERE company_id   = ${companyId}::UUID
-            AND account_code = ${accountCode as string}
+          SELECT ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
+                 c.financial_year_start
+          FROM gl_accounts ga
+          LEFT JOIN companies c ON c.id = ga.company_id
+          WHERE ga.company_id   = ${companyId}::UUID
+            AND ga.account_code = ${accountCode as string}
           LIMIT 1
         `) as Row[];
 
     if (!acctRows[0]) {
       const identifier = accountId ?? accountCode;
-      throw new Error(`Account ${identifier} not found for this company`);
+      throw new LedgerAccountNotFoundError(String(identifier));
     }
 
     const acct = acctRows[0] as Row;
@@ -79,7 +88,15 @@ export async function getAccountLedger(
     };
 
     // 2. Opening balance: sum of all movements BEFORE fromDate.
+    //    Income-statement accounts restart each fiscal year (trialBalanceBasis),
+    //    so their opening is floored at the start of the fiscal year containing
+    //    fromDate — otherwise the drill-down cannot tie to the TB row (LED-01).
+    //    READ PATH: the March fallback is taken here, visibly, as the TB does.
     //    company_id is the FIRST condition in both table scopes.
+    const fyStartMonth = resolveFiscalYearStartMonth(
+      acct.financial_year_start, companyId, { fallback: DEFAULT_FY_START_MONTH },
+    );
+    const openingFloor = incomeStatementOpeningFloor(meta.accountType, fromDate, fyStartMonth);
     const obRows = postedOnly
       ? (await sql`
           SELECT
@@ -94,6 +111,7 @@ export async function getAccountLedger(
               OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date    < ${fromDate}
+            AND (${openingFloor}::date IS NULL OR je.entry_date >= ${openingFloor}::date)
             AND je.status        = 'posted'
         `) as Row[]
       : (await sql`
@@ -109,6 +127,7 @@ export async function getAccountLedger(
               OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date    < ${fromDate}
+            AND (${openingFloor}::date IS NULL OR je.entry_date >= ${openingFloor}::date)
         `) as Row[];
 
     const obDebit = Number(obRows[0]?.total_debit ?? 0);
@@ -149,7 +168,18 @@ export async function getAccountLedger(
             AND je.entry_date   <= ${toDate}
         `) as Row[];
 
-    const total = Number(countRows[0]?.total ?? 0);
+    const lineTotal = Number(countRows[0]?.total ?? 0);
+
+    // 3b. Year-end closes when an income-statement range crosses a fiscal-year
+    //     start, and which journal lines this page of (lines + closes) needs.
+    const scope: LedgerScope = {
+      companyId, accountId: resolvedAccountId, cc, bu, postedOnly, fromDate, toDate, normalBalance,
+    };
+    const boundaries = openingFloor ? fiscalYearStartsWithin(fromDate, toDate, fyStartMonth) : [];
+    const closes = openingFloor && boundaries.length > 0
+      ? await loadYearEndCloses(scope, openingFloor, boundaries)
+      : [];
+    const plan = planPage(closes, offset, limit);
 
     // 4. Paginated journal lines — ordered by date then entry id.
     const txnRows = postedOnly
@@ -174,9 +204,9 @@ export async function getAccountLedger(
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
             AND je.status        = 'posted'
-          ORDER BY je.entry_date ASC, je.id ASC
-          LIMIT  ${limit}
-          OFFSET ${offset}
+          ORDER BY je.entry_date ASC, COALESCE(je.created_at, 'epoch'::timestamptz) ASC, jl.id ASC
+          LIMIT  ${plan.lineLimit}
+          OFFSET ${plan.lineOffset}
         `) as Row[]
       : (await sql`
           SELECT
@@ -198,30 +228,19 @@ export async function getAccountLedger(
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
-          ORDER BY je.entry_date ASC, je.id ASC
-          LIMIT  ${limit}
-          OFFSET ${offset}
+          ORDER BY je.entry_date ASC, COALESCE(je.created_at, 'epoch'::timestamptz) ASC, jl.id ASC
+          LIMIT  ${plan.lineLimit}
+          OFFSET ${plan.lineOffset}
         `) as Row[];
 
-    // 5. Compute running balance across the paginated slice.
-    const running = new RunningBalance(openingBalance);
-    const rows: AccountLedgerRow[] = txnRows.map((r: Row) => {
-      const d = toMoney(Number(r.debit ?? 0));
-      const c = toMoney(Number(r.credit ?? 0));
-      running.add(normalBalance === 'debit' ? d : c);
-      const runningBalance = running.subtract(normalBalance === 'debit' ? c : d);
-      return {
-        journalEntryId: String(r.journal_entry_id),
-        entryDate: fmtDate(r.entry_date),
-        entryNumber: String(r.entry_number ?? ''),
-        description: String(r.description ?? ''),
-        reference: String(r.reference ?? ''),
-        source: String(r.source ?? 'manual'),
-        debit: d,
-        credit: c,
-        runningBalance,
-      };
-    });
+    // 5. Running balance: a page opens at the balance after every row before it
+    //    (lines and closes), not at the period opening balance.
+    const pageOpening = toMoney(
+      openingBalance
+        + (await netOfFirstLines(scope, plan.lineOffset))
+        - plan.closesBefore.reduce((sum, c) => sum + c.balanceBefore, 0),
+    );
+    const rows = buildPageRows(txnRows, closes, { offset, limit }, pageOpening, normalBalance);
 
     // 6. Period totals aggregate — full date range, company_id scoped on BOTH tables.
     //    One extra round-trip; acceptable for a drill-down page.
@@ -264,16 +283,16 @@ export async function getAccountLedger(
     const periodNet = toMoney(
       normalBalance === 'debit' ? periodDebit - periodCredit : periodCredit - periodDebit,
     );
-    const periodClosingBalance = toMoney(openingBalance + periodNet);
+    const closedToRetainedEarnings = toMoney(-closes.reduce((sum, c) => sum + c.balanceBefore, 0));
+    const periodClosingBalance = toMoney(openingBalance + periodNet + closedToRetainedEarnings);
+    const total = lineTotal + closes.length;
 
-    return { rows, total, openingBalance, periodNet, periodClosingBalance, meta };
+    return { rows, total, derivedRows: closes.length, openingBalance, periodNet, closedToRetainedEarnings, periodClosingBalance, meta };
   } catch (err) {
     // companyId is already tagged on the Bugsink event via setTenantTags — omit here.
-    log.error(
-      'getAccountLedger failed',
-      { error: err, accountId, accountCode },
-      'accounting',
-    );
+    const context = { error: err, accountId, accountCode };
+    if (err instanceof LedgerAccountNotFoundError) log.warn('getAccountLedger: account not found', context, 'accounting');
+    else log.error('getAccountLedger failed', context, 'accounting');
     throw err;
   }
 }
