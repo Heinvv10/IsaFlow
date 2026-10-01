@@ -19,6 +19,14 @@ describe('buildFooterHtml', () => {
     expect(html).toContain('class="totalPages"');
   });
 
+  it('keeps the centre still: equal outer columns, not space-between', () => {
+    const html = buildFooterHtml(base);
+    expect(html).toContain('display:grid;grid-template-columns:1fr auto 1fr');
+    expect(html).not.toContain('space-between');
+    const cells = [...html.matchAll(/<span style="text-align:(left|center|right)">/g)].map((m) => m[1]);
+    expect(cells).toEqual(['left', 'center', 'right']);
+  });
+
   it('marks a draft pack in the footer', () => {
     expect(buildFooterHtml({ ...base, draft: true })).toMatch(/DRAFT/);
     expect(buildFooterHtml(base)).not.toMatch(/DRAFT/);

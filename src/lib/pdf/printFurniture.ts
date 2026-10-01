@@ -64,12 +64,17 @@ export type { PdfMetadata };
 export function buildFooterHtml(f: PackFurniture): string {
   const left = [f.companyName, f.packLabel, f.period].map(escapeHtml).join(' · ');
   const centre = escapeHtml(f.draft ? `${f.confidentiality} · DRAFT` : f.confidentiality);
+  // A GRID WITH EQUAL OUTER COLUMNS, NOT `space-between`. With space-between
+  // the centre sits wherever the two outer widths leave it, so it moved a few
+  // pixels when the page number grew from "9 / 12" to "10 / 12". `1fr auto 1fr`
+  // keeps the centre where the sheet's middle is whatever either side holds.
+  const cell = (align: string, html: string): string => `<span style="text-align:${align}">${html}</span>`;
   return (
     footerStyleBlock() +
     `<div style="font-family:'${PACK_FOOTER_FONT_FAMILY}';font-size:7.5pt;color:#8a8a8a;width:100%;` +
-    'padding:0 18mm;border-top:0.5pt solid #d8d8d8;display:flex;justify-content:space-between">' +
-    `<span>${left}</span><span>${centre}</span>` +
-    '<span><span class="pageNumber"></span> / <span class="totalPages"></span></span>' +
+    'padding:0 18mm;border-top:0.5pt solid #d8d8d8;display:grid;grid-template-columns:1fr auto 1fr">' +
+    cell('left', left) + cell('center', centre) +
+    cell('right', '<span class="pageNumber"></span> / <span class="totalPages"></span>') +
     '</div>'
   );
 }
