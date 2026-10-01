@@ -2,10 +2,10 @@
  * Overdue statutory filings for the board pack's page 11.
  *
  * Scoped to the one filing this schema actually tracks a deadline for: the
- * Annual Financial Statements, computed as fiscal year-end plus six months —
- * the same rule `complianceAlertService`'s `detectFilingDeadlineAlerts` uses
- * for its approaching-deadline alerts, applied here to entries where that
- * deadline has already passed.
+ * Annual Financial Statements, due six months after the fiscal year end
+ * (Companies Act s30(1)), applied here to entries where that deadline has
+ * already passed. The year end comes from `afsFiscalPeriod.fiscalRangeFor`,
+ * the one place that says which twelve months a fiscal year covers.
  *
  * CIPC annual-return and VAT/EMP filing due dates are NOT included.
  * `complianceAlertService`'s own `detectCipcOverdueAlerts` is a stub, with
@@ -16,6 +16,8 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fiscalRangeFor } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { resolveFiscalYearStartMonth } from '@/modules/accounting/services/gl/fiscalYearBasis';
 
 export interface OverdueFiling {
   filingType: string;
@@ -24,13 +26,38 @@ export interface OverdueFiling {
   daysOverdue: number;
 }
 
-function fiscalYearEndPlusSixMonths(fiscalYear: number, financialYearStartMonth: number): Date {
-  const endMonth = financialYearStartMonth === 1 ? 12 : financialYearStartMonth - 1;
-  const lastDay = new Date(fiscalYear, endMonth, 0).getDate();
-  const yearEnd = new Date(fiscalYear, endMonth - 1, lastDay);
-  const deadline = new Date(yearEnd);
-  deadline.setMonth(deadline.getMonth() + 6);
-  return deadline;
+/**
+ * The company's financial year start is unusable, so no deadline can be
+ * stated for its statements. Its own class so a caller that reports a failed
+ * check can tell this refusal from a crash.
+ */
+export class FilingDeadlineUnknownError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FilingDeadlineUnknownError';
+  }
+}
+
+/**
+ * SIX MONTHS AFTER A YEAR END IS THE END OF THE SIXTH MONTH.
+ *
+ * It was `setMonth(getMonth() + 6)` on the last day of the year-end month,
+ * which keeps the day NUMBER and lets the month absorb the overflow: 31 March
+ * became 1 October, 31 December 1 July, 31 August 3 March, and 28 February
+ * stopped at 28 August with three days of the month still to run. A year end
+ * is always a month end, so the deadline is too.
+ *
+ * Arithmetic on the numbers of a 'YYYY-MM-DD' string, never a local Date: see
+ * `afsFiscalPeriod.ts` for what a Date round-trip does on a UTC+2 host.
+ */
+function sixMonthsAfterYearEnd(yearEnd: string): string {
+  const [year, month] = yearEnd.split('-').map(Number);
+  const monthIndex = year! * 12 + (month! - 1) + 6;
+  const dueYear = Math.floor(monthIndex / 12);
+  const dueMonth = (monthIndex % 12) + 1;
+  // Day 0 of the next month is the last day of this one.
+  const lastDay = new Date(Date.UTC(dueYear, dueMonth, 0)).getUTCDate();
+  return `${String(dueYear).padStart(4, '0')}-${String(dueMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 }
 
 /**
@@ -47,27 +74,26 @@ function fiscalYearEndPlusSixMonths(fiscalYear: number, financialYearStartMonth:
  * Both dates are read as calendar days in UTC before subtracting, so no local
  * offset or DST hour can move the count.
  */
-function wholeDaysBetween(deadline: Date, asAt: string): number {
-  const [y, m, d] = asAt.split('-').map(Number);
-  return Math.round((Date.UTC(y!, m! - 1, d!) - utcMidnightOf(deadline)) / 86_400_000);
+function wholeDaysBetween(deadline: string, asAt: string): number {
+  return Math.round((utcMidnightOf(asAt) - utcMidnightOf(deadline)) / 86_400_000);
 }
 
-function utcMidnightOf(local: Date): number {
-  return Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
+function utcMidnightOf(date: string): number {
+  const [y, m, d] = date.split('-').map(Number);
+  return Date.UTC(y!, m! - 1, d!);
 }
 
 /**
- * THE DEADLINE AS THE CALENDAR DAY IT IS, NOT AS AN INSTANT SHIFTED WEST.
- *
- * It was `deadline.toISOString().slice(0, 10)`. `fiscalYearEndPlusSixMonths`
- * builds a LOCAL date, so on this server (UTC+2) local midnight on 28 August
- * is 27 August 22:00Z and the pack printed a due date one day before the one
- * its own count was measured from. The board pack put both on the page — "due
- * 28 August 2024 … 739 days overdue" — so the two halves of the same sentence
- * disagreed by a day.
+ * NO MARCH FALLBACK. It was `|| 3`, which `afsFiscalPeriod.ts` forbids for the
+ * reason it gives: a tenant whose setting is missing is told a deadline a
+ * quarter out with nothing flagging it. Refused instead, by name.
  */
-function calendarDateOf(local: Date): string {
-  return new Date(utcMidnightOf(local)).toISOString().slice(0, 10);
+function fyStartMonthOf(raw: unknown, companyId: string): number {
+  try {
+    return resolveFiscalYearStartMonth(raw, companyId);
+  } catch (error) {
+    throw new FilingDeadlineUnknownError(error instanceof Error ? error.message : String(error));
+  }
 }
 
 export async function getOverdueStatutoryFilings(
@@ -77,27 +103,37 @@ export async function getOverdueStatutoryFilings(
    *  whenever the render happened to run. */
   asAt: string,
 ): Promise<OverdueFiling[]> {
+  // OUTSTANDING AS AT THE PACK DATE, not as at the render. Every writer that
+  // sets `signed_off` stamps `locked_at`, so statements signed off AFTER the
+  // date a pack reports to were still outstanding on it, and a re-rendered
+  // historical pack must go on saying so. A signed-off row with no stamp
+  // cannot be dated and stays out, as it did before.
   const rows = (await sql`
     SELECT d.fiscal_year, c.financial_year_start
     FROM afs_documents d
     JOIN companies c ON c.id = d.company_id
     WHERE d.company_id = ${companyId}::UUID
       AND d.document_type = 'afs'
-      AND d.status NOT IN ('signed_off', 'filed')
+      AND d.fiscal_year IS NOT NULL
+      AND (
+        d.status NOT IN ('signed_off', 'filed')
+        OR (d.locked_at AT TIME ZONE 'Africa/Johannesburg')::DATE > ${asAt}::DATE
+      )
   `) as Array<Record<string, unknown>>;
 
   const overdue: OverdueFiling[] = [];
   for (const row of rows) {
-    const fiscalYear = row.fiscal_year as number;
-    const fyStartMonth = (row.financial_year_start as number) || 3;
-    const deadline = fiscalYearEndPlusSixMonths(fiscalYear, fyStartMonth);
+    const fiscalYear = Number(row.fiscal_year);
+    const deadline = sixMonthsAfterYearEnd(
+      fiscalRangeFor(fiscalYear, fyStartMonthOf(row.financial_year_start, companyId)).end,
+    );
     const daysOverdue = wholeDaysBetween(deadline, asAt);
 
     if (daysOverdue > 0) {
       overdue.push({
         filingType: 'Annual Financial Statements',
         fiscalYear,
-        deadline: calendarDateOf(deadline),
+        deadline,
         daysOverdue,
       });
     }
