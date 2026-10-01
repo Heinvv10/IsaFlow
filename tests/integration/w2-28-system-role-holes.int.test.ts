@@ -119,15 +119,18 @@ describeIfDb('W2-28 a role is never emptied or doubled by a rollback, a subtype 
     await ins(randomUUID(), '1190', 'asset', 'bank', true);
     await ins(randomUUID(), 'Z100', 'asset', null, true, { importedFrom: 'xero' });
     await ins(randomUUID(), 'Z200', 'asset', null, false, { importedFrom: 'xero' });
+    await ins(randomUUID(), 'Z300', 'asset', 'other', false, { importedFrom: 'xero' });   // classified by hand since the import
     const account = (sourceCode: string) => ({ sourceCode, sourceName: `Imported ${sourceCode}`, sourceType: 'BANK',
       openingBalance: 0, mappedType: 'asset' as const, mappedNormalBalance: 'debit' as const, mappedSubtype: 'bank' });
     const tx = await fx.openTx();
-    const out = await tx.run(() => executeMigration(CO, USER, 'xero', [account('Z100'), account('Z200')], [], []));
+    const out = await tx.run(() => executeMigration(CO, USER, 'xero', [account('Z100'), account('Z200'), account('Z300')], [], []));
     await tx.commit();
     const subtypes = (await fx.query(
       "SELECT account_code, account_subtype FROM gl_accounts WHERE company_id = $1 AND account_code LIKE 'Z%' ORDER BY 1", [CO])).rows;
-    expect({ imported: out.accountsImported, bank: await holders('bank'), subtypes }).toEqual({ imported: 2, bank: ['1190'],
-      subtypes: [{ account_code: 'Z100', account_subtype: null }, { account_code: 'Z200', account_subtype: 'bank' }] });
+    // A re-run fills a NULL subtype on an ordinary account and never overwrites one that is set.
+    expect({ imported: out.accountsImported, bank: await holders('bank'), subtypes }).toEqual({ imported: 3, bank: ['1190'],
+      subtypes: [{ account_code: 'Z100', account_subtype: null }, { account_code: 'Z200', account_subtype: 'bank' },
+        { account_code: 'Z300', account_subtype: 'other' }] });
   });
   it('a migration re-import never re-types a system account: the bank holder cannot become an expense', async () => {
     await ins(randomUUID(), 'Z300', 'asset', 'bank', true, { importedFrom: 'xero' });

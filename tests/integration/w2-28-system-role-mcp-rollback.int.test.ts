@@ -20,7 +20,9 @@ vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', async (orig) 
   };
 });
 import { McpRegistry } from '../../src/lib/mcp/registry';
-import { deactivateGlAccountTool } from '../../src/lib/mcp/tools/writeGlAccounts';
+import { createGlAccountTool, deactivateGlAccountTool } from '../../src/lib/mcp/tools/writeGlAccounts';
+import { mergeGlAccountsTool } from '../../src/lib/mcp/tools/writeMergeGlAccounts';
+import { lockSystemRoleWrites } from '../../src/modules/accounting/services/gl/systemRoleWriteLock';
 
 const describeIfDb = process.env.DATABASE_URL && process.env.JWT_SECRET
   && process.env.ISAFLOW_DISPOSABLE_AUTH_TEST === '1' ? describe : describe.skip;
@@ -43,4 +45,28 @@ describeIfDb('W2-28 deactivate_gl_account and the role post-condition', () => {
     expect({ isError: (out as { isError?: boolean }).isError, text: JSON.stringify(out), active })
       .toEqual({ isError: true, text: expect.stringContaining('without exactly one usable account'), active: true });
   });
+
+  it.each([
+    ['create_gl_account under a parent', (parent: string) => ({ tool: 'create_gl_account',
+      args: { account_code: '1191', account_name: 'Sub', account_type: 'asset', parent_account_id: parent } })],
+    ['merge_gl_accounts', (parent: string) => ({ tool: 'merge_gl_accounts', args: { source_account_id: A, target_account_id: parent } })],
+  ])('%s that cannot get the role lock tells the agent to retry, and the batch transaction stays usable', async (_name, build) => {
+    const P = randomUUID();
+    await fx.ins(P, `P${P.slice(0, 4)}`, 'asset', null, false);
+    const registry = new McpRegistry();
+    for (const t of [createGlAccountTool, mergeGlAccountsTool]) registry.register(t);
+    const holder = await fx.openTx(drainAfterCommit);
+    const batch = await fx.openTx(drainAfterCommit);
+    try {
+      await holder.run(() => lockSystemRoleWrites(fx.CO));
+      const { tool, args } = build(P);
+      const out = await batch.run(() => registry.call(tool, { ...args, idempotency_key: randomUUID() },
+        { userId: fx.USER, companyId: fx.CO, scopes: ['write:accounts', 'write:post', 'write:journals', 'read:accounts'], tokenJti: 'w228r9m', oauthAppId: null } as never)
+        .then((r) => JSON.stringify(r), (e: Error) => `thrown: ${e.message}`));
+      // The registry rolled its savepoint back: the next statement of the same transaction works.
+      if (!/retry/.test(out)) process.stdout.write(`\nW228R9M ${tool}: ${out}\n`);
+      const usable = await batch.run(async () => ((await sql`SELECT 1 AS one`) as { one: number }[])[0]!.one).catch((e: Error) => e.message);
+      expect({ retry: /retry in a moment/.test(out), isError: /"isError":true/.test(out), usable }).toEqual({ retry: true, isError: true, usable: 1 });
+    } finally { await batch.rollback(); await holder.rollback(); }
+  }, 30_000);
 });

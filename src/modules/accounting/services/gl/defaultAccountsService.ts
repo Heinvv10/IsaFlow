@@ -49,13 +49,6 @@ const UNMANAGED_KEYS: readonly string[] = ['sales_discount', 'petty_cash', 'roun
 /** Longer than any account id; a value is an id, '' or null — never free text. */
 const MAX_ID_LENGTH = 64;
 
-/** The account_type each role requires. */
-const SUBTYPE_EXPECTED_TYPE: Record<string, string> = {
-  default_revenue: 'revenue', vat_output: 'liability', receivable: 'asset', default_expense: 'expense',
-  vat_input: 'asset', payable: 'liability', bank: 'asset', retained_earnings: 'equity',
-  opening_balance_equity: 'equity',
-};
-
 type Row = Record<string, unknown>;
 
 /** A save that must not happen: 400, or 409 for a stale page. Rolls the save back. */
@@ -169,14 +162,10 @@ export async function saveDefaultAccountMappings(
     ` as Row[];
     if (!row) throw new DefaultAccountsRefusal(`Account for '${uiKey}' not found`);
     const code = String(row.account_code);
-    const expectedType = SUBTYPE_EXPECTED_TYPE[subtype];
-    if (row.account_type !== expectedType) {
-      throw new DefaultAccountsRefusal(`Account for '${uiKey}' must be of type '${expectedType}' (got '${String(row.account_type)}')`);
-    }
     const fromSubtype = row.account_subtype == null ? null : String(row.account_subtype);
-    // Active, not a header, unclassified or already this role: the rule the COA import's role map shares.
+    // Right type, active, not a header, unclassified or already this role: the rule the COA import's role map shares.
     const unfit = roleTargetRefusal(subtype, uiKey,
-      { code, isActive: row.is_active === true, hasChildren: row.has_children === true, subtype: fromSubtype });
+      { code, type: String(row.account_type), isActive: row.is_active === true, hasChildren: row.has_children === true, subtype: fromSubtype });
     if (unfit) throw new DefaultAccountsRefusal(unfit);
     // Last: an account that is wrong in itself is refused as such, stale page or not.
     if (idOrNull(loaded[uiKey]) !== current) {

@@ -87,6 +87,25 @@ describeIfDb('W2-28 the COA import role map, and after-commit cache clears', () 
       .toEqual({ imported: 0, error: expect.stringContaining(message), payable: ['2100'], names: before });
   });
 
+  it('a role cannot go to an existing system account of the wrong type, whatever type the import row claims', async () => {
+    await ins(randomUUID(), '1110', 'asset', 'bank', true);
+    await ins(randomUUID(), '2999', 'liability', null, true);        // a system row the upsert will keep as a liability
+    const before = await names();
+    const out = await importing([row('2999', 'asset')], { bank: '2999' });
+    expect({ imported: out.imported, error: out.errors[0]?.message, bank: await holders('bank'), names: await names() })
+      .toEqual({ imported: 0, error: "Account for 'bank' must be of type 'asset' (got 'liability')", bank: ['1110'], names: before });
+  });
+
+  it('a re-import keeps a classification made by hand unless the row states another; an unclassified expense gets the default', async () => {
+    await ins(randomUUID(), '5900', 'expense', 'cost_of_sales', false);
+    await ins(randomUUID(), '5910', 'expense', 'operating_expense', false);
+    await importing([row('5900', 'expense'), { ...row('5910', 'expense'), accountSubtype: 'cost_of_sales' }, row('5920', 'expense')], {});
+    const subtypes = (await fx.query(
+      "SELECT account_code AS code, account_subtype AS subtype FROM gl_accounts WHERE company_id = $1 ORDER BY 1", [CO])).rows;
+    expect(subtypes).toEqual([{ code: '5900', subtype: 'cost_of_sales' }, { code: '5910', subtype: 'cost_of_sales' },
+      { code: '5920', subtype: 'operating_expense' }]);
+  });
+
   it('a role mapped to a row the import would skip (parent not found) refuses the whole map before any write', async () => {
     await ins(randomUUID(), '1110', 'asset', 'bank', true);
     const out = await importing([{ ...row('1500'), parentCode: '9999' }, row('1600')], { bank: '1500' });

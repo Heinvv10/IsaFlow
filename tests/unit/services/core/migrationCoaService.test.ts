@@ -62,7 +62,7 @@ describe('validateSystemAccountMap', () => {
       'systemAccountMap.payable', 'systemAccountMap.vat_input',
     ]);
     expect(errors.find((e) => e.field === 'systemAccountMap.default_expense')!.message).toContain('One account cannot hold two roles');
-    expect(errors.find((e) => e.field === 'systemAccountMap.vat_input')!.message).toContain('is expense');
+    expect(errors.find((e) => e.field === 'systemAccountMap.vat_input')!.message).toContain("(got 'expense')");
   });
 });
 
@@ -143,19 +143,7 @@ describe('importChartOfAccounts — income-statement rows never land with a NULL
     expect(inserts.find((c) => c[2] === '1110')).toContain('bank');
   });
 
-  it('a re-import keeps a hand-made classification: the default never reaches ON CONFLICT', async () => {
-    const rows = [acct('5900', 'expense'), acct('5910', 'expense', { accountSubtype: 'cost_of_sales' })];
-    await importChartOfAccounts(CO, 'sess', [...ACCOUNTS, ...rows], MAP);
-    const upserts = mockSql.mock.calls
-      .filter((c) => (c[0] as TemplateStringsArray).join('').includes('INSERT INTO gl_accounts'))
-      .map((c) => ({ text: (c[0] as TemplateStringsArray).join('?'), params: c.slice(1) }));
-    for (const u of upserts) {
-      // explicit value → existing → default, in that order.
-      expect(u.text).toContain('ELSE COALESCE(?, gl_accounts.account_subtype, EXCLUDED.account_subtype) END');
-    }
-    const conflictParam = (u: { text: string; params: unknown[] }) =>
-      u.params[u.text.slice(0, u.text.indexOf('COALESCE(?, gl_accounts.account_subtype')).split('?').length - 1];
-    expect(conflictParam(upserts.find((u) => u.params[1] === '5900')!)).toBeNull();
-    expect(conflictParam(upserts.find((u) => u.params[1] === '5910')!)).toBe('cost_of_sales');
-  });
+  // "A re-import keeps a hand-made classification" used to be asserted here on the upsert's SQL text.
+  // It is a property of the ON CONFLICT clause and is proven against Postgres instead:
+  // tests/integration/w2-28-system-role-holes-import.int.test.ts, "a re-import keeps a classification made by hand…".
 });

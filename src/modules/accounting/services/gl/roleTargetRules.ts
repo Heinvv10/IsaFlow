@@ -9,13 +9,18 @@
  * posting — migration 484), and must be unclassified ('other' or NULL) or
  * already classified for that role (Hein, 2026-09-30: no reclassifying by
  * assignment — which is also what keeps an account that holds ANOTHER role
- * from being taken from it). The account TYPE a role needs is checked by each
- * caller against its own source (the save's fixed map, the import's row).
+ * from being taken from it). And its TYPE must be one the role allows
+ * (`typeFitsSubtype`, the resolver's own table) — the EFFECTIVE type, the one
+ * the row will have once the caller has written: the COA import keeps a system
+ * row's type, so judging its import row instead put the bank role on a liability.
  */
-import { isSystemAccountKey } from './systemAccountKeys';
+import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
+import { isSystemAccountKey, typeFitsSubtype } from './systemAccountKeys';
 
 export interface RoleTarget {
   code: string;
+  /** The account_type the account has, or will have after the caller's write. */
+  type: string;
   isActive: boolean;
   hasChildren: boolean;
   subtype: string | null;
@@ -27,6 +32,11 @@ const UNCLASSIFIED = new Set(['other']);
 /** Why `target` cannot take `role`, or null. `setting` is the name the caller's user knows it by. */
 export function roleTargetRefusal(role: string, setting: string, target: RoleTarget): string | null {
   const { code, subtype } = target;
+  if (!typeFitsSubtype(target.type, role)) {
+    const allowed = Object.entries(GL_ACCOUNT_SUBTYPES_BY_TYPE)
+      .filter(([, subtypes]) => (subtypes as readonly string[]).includes(role)).map(([type]) => type);
+    return `Account for '${setting}' must be of type '${allowed.join("' or '")}' (got '${target.type}')`;
+  }
   if (!target.isActive) return `Account ${code} for '${setting}' is inactive`;
   if (target.hasChildren) {
     return `Account ${code} is a header with sub-accounts; choose one of its sub-accounts for '${setting}'`;
