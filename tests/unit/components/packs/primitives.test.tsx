@@ -32,7 +32,7 @@ const sparklineSvg = renderChartSvg({}, { widthMm: 10, heightMm: 10 });
 describe('KpiTileWithSparkline', () => {
   const tile = {
     label: 'Revenue', figure: { value: 1_120_000, format: 'money' as const, source: 's.revenue' },
-    delta: { value: 12, basis: 'vs prior period', favourable: true },
+    delta: { value: 12, unit: 'percent' as const, basis: 'vs prior period', favourable: true },
     deltaAbsence: null,
     trendFootnote: 1, sparklineSvg,
   };
@@ -54,6 +54,22 @@ describe('KpiTileWithSparkline', () => {
       figure: { value: null, format: 'pct', source: 'r.roe', unavailable: 'Equity is not positive' } }} />);
     expect(screen.getByText('Equity is not positive')).toBeInTheDocument();
     expect(screen.queryByText('0.0%')).toBeNull();
+  });
+
+  it('states a percent delta in per cent', () => {
+    const { container } = render(<KpiTileWithSparkline scale="R" tile={tile} />);
+    const delta = container.querySelector('.pack-kpi-delta')!.textContent!;
+    expect(delta).toContain('up 12.0%');
+    expect(delta).not.toContain('pp');
+  });
+
+  it('states a points delta in pp, with no per cent sign', () => {
+    const { container } = render(<KpiTileWithSparkline scale="R" tile={{
+      ...tile, delta: { value: -3, unit: 'points' as const, basis: 'vs prior period', favourable: false },
+    }} />);
+    const delta = container.querySelector('.pack-kpi-delta')!.textContent!;
+    expect(delta).toContain('down 3.0 pp');
+    expect(delta).not.toContain('%');
   });
 
   it('omits the delta entirely when there is no comparative', () => {
