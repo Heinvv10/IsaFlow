@@ -70,8 +70,8 @@ describe('the EBITDA reconciliation', () => {
       // It does not add as printed, so the page has to say so ON THE LINE,
       // and say it in figures a reader can check rather than in the abstract.
       expect(entry.reconciliationNote).toBeDefined();
-      expect(entry.reconciliationNote).toContain(formatMoney(steps[0]!.figure.value as number, { cents: true }));
-      expect(entry.reconciliationNote).toContain(formatMoney(steps[2]!.figure.value as number, { cents: true }));
+      expect(entry.reconciliationNote).toContain(formatMoney(steps[0]!.figure.value as number, { cents: true, pack: true }));
+      expect(entry.reconciliationNote).toContain(formatMoney(steps[2]!.figure.value as number, { cents: true, pack: true }));
     });
   }
 
