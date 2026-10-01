@@ -1,5 +1,5 @@
 /**
- * The brand a rendered chart SVG carries, the two guards that earn it, and the
+ * The brand a rendered chart SVG carries, the guard that earns it, and the
  * only two ways to obtain one.
  *
  * Split out of `ssrSvg.ts` — which still re-exports every name here, so no
@@ -13,9 +13,10 @@
  * reachable from there. Nothing in this file touches Node, a DOM, or ECharts:
  * a tokenizer and a CSS-shape check over a string, and the type they hand out.
  *
- * `renderChartSvg` and `adoptTrustedChartSvg` call the SAME two guard
- * functions defined below — not two copies that could drift, which is the
- * whole point of the split being a move rather than a re-implementation.
+ * `renderChartSvg` and `adoptTrustedChartSvg` call the SAME guard,
+ * `assertNoExternalReferences` below — one grammar parse that also checks the
+ * `<style>` bodies it extracted — not two copies that could drift, which is
+ * the whole point of the split being a move rather than a re-implementation.
  */
 import { parseSvgGrammar, SvgGrammarError, urlReferenceProblem } from './svgGrammar';
 
@@ -41,7 +42,7 @@ import { parseSvgGrammar, SvgGrammarError, urlReferenceProblem } from './svgGram
  * run in a browser (it needs `node:crypto` and ECharts, and the client
  * webpack fallback sets `crypto: false`), so the boundary is not optional.
  * The remedy this comment prescribed is the one that was built:
- * `adoptTrustedChartSvg` re-runs both guards on the deserialised value before
+ * `adoptTrustedChartSvg` re-runs the guard on the deserialised value before
  * handing back the brand. What remains forbidden is what was forbidden then —
  * papering over the boundary with a bare `as TrustedChartSvg` cast at the
  * deserialising end. `adoptPackPagesDocument`
@@ -181,17 +182,16 @@ export function assertStyleBlockIsOurs(svg: string): void {
  * Re-brand a value that has crossed a JSON boundary.
  *
  * The ONLY sanctioned way to obtain a `TrustedChartSvg` from something that
- * was not produced by `renderChartSvg` in this process. It re-runs the two
- * guards above — the same functions, not a re-implementation — so a value
+ * was not produced by `renderChartSvg` in this process. It re-runs the guard
+ * above — the same function, not a re-implementation — so a value
  * that merely LOOKS branded on the far side of `res.json()` is refused here
  * rather than reaching `dangerouslySetInnerHTML`.
  *
- * DELIBERATELY NOT a blacklist scan over the whole SVG string. Both guards
- * are POSITIONAL, and this file has been bitten four times by matching a
- * pattern anywhere in a document instead of where it carries meaning — once
- * aborting a whole pack render on a customer name containing a URL. Adding a
- * "safety net" regex over the raw string here would reintroduce exactly that
- * defect on data the guards were carefully taught to leave alone.
+ * DELIBERATELY NOT a scan over the raw string. The guard is a grammar: it
+ * reads text as text and attributes as attributes, so a customer name that
+ * contains a URL aborts nothing. Adding a "safety net" regex over the raw
+ * string here would reintroduce exactly that defect, and a second reading of
+ * the markup that the browser's parser might disagree with.
  *
  * Takes `unknown`, because that is honestly what `JSON.parse` yields: the
  * non-string case is a real branch, not a formality — a chart field that

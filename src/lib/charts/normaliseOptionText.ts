@@ -22,11 +22,11 @@ const TO_SPACE = /[\t\r\u2028\u2029]/g;
 const DROPPED = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\ufeff\ufffe\uffff]/g;
 
 /** The callback keys the pack's options (and ECharts) use for text or the
- *  elements that carry it: tooltip/label/axis formatters, series colour
- *  callbacks, and the custom series' `renderItem`, whose returned element
+ *  elements that carry it: tooltip/label/axis formatters
+ *  and the custom series' `renderItem`, whose returned element
  *  descriptors hold `style.text`. */
 export const LABEL_CALLBACKS: ReadonlySet<string> = new Set([
-  'formatter', 'valueFormatter', 'color', 'renderItem',
+  'formatter', 'valueFormatter', 'renderItem',
 ]);
 
 export function cleanOptionString(s: string): string {

@@ -22,7 +22,7 @@ export const PX_PER_MM = 96 / 25.4;
 export const CHART_HEIGHT_MM = { inline: 48, half: 72, full: 110 } as const;
 
 /**
- * The brand and its two guards live in a sibling that imports nothing from
+ * The brand and its guard live in a sibling that imports nothing from
  * Node and nothing from ECharts, so the browser can adopt a serialised chart
  * (see `adoptTrustedChartSvg` there). They are re-exported here because every
  * existing caller — and the guards' own test batteries — import them from
