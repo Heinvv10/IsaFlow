@@ -18,6 +18,7 @@ import {
   totalEquity,
   unclassifiedWarning,
 } from '@/modules/accounting/services/gl/financialFiguresService';
+import { cashFlowPackRows, ratioPackRows } from '@/modules/accounting/services/reports/packUnstatedRows';
 import { buildDataQualityNotices } from '@/modules/accounting/services/reports/dataQualityNotices';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
@@ -164,21 +165,21 @@ export function renderSectionHtml(section: PackSection): string {
       return tableHtml(['Item', 'Amount'], rows);
 
     case 'cash_flow':
-      rows = [
-        ['Operating Cash Flow', fmtZAR(d.operatingCashFlow)],
-        ['Investing Cash Flow', fmtZAR(d.investingCashFlow)],
-        ['Financing Cash Flow', fmtZAR(d.financingCashFlow)],
-        ['Net Cash Flow', fmtZAR(d.netCashFlow)],
-        ['Opening Cash', fmtZAR(d.openingCash)],
-        ['Closing Cash', fmtZAR(d.closingCash)],
-      ].map(([l, v]) => `<tr><td>${l}</td><td class="num">${v}</td></tr>`).join('');
+      // One row list, shared with the PDF pack. A line the section marks
+      // unavailable prints its reason: the number still in the blob for it is
+      // a stand-in (net profit, where no operating cash flow was read).
+      rows = cashFlowPackRows(d as Record<string, unknown>)
+        .map(r => `<tr><td>${r.label}</td><td class="num">${r.value === null ? escapeHtml(r.reason) : fmtZAR(r.value)}</td></tr>`)
+        .join('');
       return tableHtml(['Item', 'Amount'], rows);
 
     case 'ratios':
-      rows = Object.entries(d as Record<string, unknown>)
-        .filter(([, v]) => v !== null && v !== undefined)
-        .slice(0, 20)
-        .map(([k, v]) => `<tr><td>${k.replace(/([A-Z])/g, ' $1').trim()}</td><td class="num">${typeof v === 'number' ? v.toFixed(2) : String(v)}</td></tr>`)
+      // The first twenty, as before — and every ratio with no figure, which
+      // keeps its row and prints why wherever it falls. They used to be
+      // dropped without a word, while the reasons map printed as a row.
+      rows = ratioPackRows(d as Record<string, unknown>)
+        .filter((r, i) => i < 20 || r.value === null)
+        .map(r => `<tr><td>${escapeHtml(r.label)}</td><td class="num">${r.value === null ? escapeHtml(r.reason) : r.value.toFixed(2)}</td></tr>`)
         .join('');
       return tableHtml(['Ratio', 'Value'], rows);
 

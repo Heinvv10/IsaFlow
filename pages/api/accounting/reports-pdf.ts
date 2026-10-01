@@ -28,6 +28,7 @@ import {
   getCompanyDetailsFromCompany,
   type CompanyDetails,
 } from '@/modules/accounting/services/core/pdfShared';
+import { cashFlowPackRows, ratioPackRows } from '@/modules/accounting/services/reports/packUnstatedRows';
 import { getReportPackInput } from '@/modules/accounting/services/reports/reportPackDataService';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 
@@ -173,25 +174,20 @@ export function renderSection(
         doc,
         autoTable,
         [['Item', 'Amount']],
-        [
-          ['Operating Cash Flow', fmtZAR(n(d.operatingCashFlow))],
-          ['Investing Cash Flow', fmtZAR(n(d.investingCashFlow))],
-          ['Financing Cash Flow', fmtZAR(n(d.financingCashFlow))],
-          ['Net Cash Flow', fmtZAR(n(d.netCashFlow))],
-          ['Opening Cash', fmtZAR(n(d.openingCash))],
-          ['Closing Cash', fmtZAR(n(d.closingCash))],
-        ],
+        // One row list, shared with the HTML pack. A line the section marks
+        // unavailable prints its reason: the number still in the blob for it
+        // is a stand-in (net profit, where no operating cash flow was read).
+        cashFlowPackRows(d as Record<string, unknown>)
+          .map(r => [r.label, r.value === null ? r.reason : fmtZAR(r.value)]),
         y,
         margin,
       );
 
     case 'ratios': {
-      const ratioRows = Object.entries(d as Record<string, unknown>)
-        .filter(([, v]) => v !== null && v !== undefined)
-        .map(([k, v]) => [
-          k.replace(/([A-Z])/g, ' $1').trim(),
-          typeof v === 'number' ? v.toFixed(2) : String(v),
-        ]);
+      // A ratio with no figure keeps its row and prints why — it used to be
+      // dropped without a word, while the reasons map printed as a row.
+      const ratioRows = ratioPackRows(d as Record<string, unknown>)
+        .map(r => [r.label, r.value === null ? r.reason : r.value.toFixed(2)]);
       return renderTable(doc, autoTable, [['Ratio', 'Value']], ratioRows, y, margin);
     }
 
