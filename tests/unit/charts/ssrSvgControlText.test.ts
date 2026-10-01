@@ -50,3 +50,34 @@ describe('normaliseOptionText', () => {
     expect(normaliseOptionText('a\nb')).toBe('a\nb');
   });
 });
+
+describe('normaliseOptionText callbacks and cycles', () => {
+  it('cleans the string a formatter returns, and keeps this and length', () => {
+    const formatter = function (this: { tag: string }, a: unknown, b: unknown) { return `${this.tag}${String(a)}\u0001${String(b)}`; };
+    const out = normaliseOptionText({ label: { formatter } }) as { label: { formatter: typeof formatter } };
+    expect(out.label.formatter.call({ tag: 'T' }, 'x', 'y')).toBe('Txy');
+    expect(out.label.formatter.length).toBe(2);
+  });
+  it('cleans the text inside the element a renderItem returns', () => {
+    const renderItem = () => ({ type: 'text', style: { text: 'fig\u0002' } });
+    const out = normaliseOptionText({ series: [{ renderItem }] }) as { series: Array<{ renderItem: () => { style: { text: string } } }> };
+    expect(out.series[0]!.renderItem().style.text).toBe('fig');
+  });
+  it('renders a chart whose formatter returns a control character', () => {
+    const svg = renderChartSvg({
+      xAxis: { type: 'category', data: ['a'] },
+      yAxis: { type: 'value', axisLabel: { formatter: (v: number) => `R${v}\u0001` } },
+      series: [{ type: 'bar', data: [3] }],
+    }, { widthMm: 60, heightMm: 40 });
+    expect(svg).toMatch(/>R\d/);
+  });
+  it('names the path of a circular option instead of overflowing the stack', () => {
+    const o: Record<string, unknown> = { series: [{ name: 'a' }] };
+    (o.series as Array<Record<string, unknown>>)[0]!.back = o;
+    expect(() => normaliseOptionText(o)).toThrow(/circular at option\.series\[0\]\.back/);
+  });
+  it('does not call a shared (non-circular) reference a cycle', () => {
+    const shared = { name: 'x\u0001' };
+    expect(normaliseOptionText({ a: shared, b: shared })).toEqual({ a: { name: 'x' }, b: { name: 'x' } });
+  });
+});

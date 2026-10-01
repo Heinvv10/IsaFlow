@@ -198,6 +198,6 @@ describe('every chart this repo draws still renders', () => {
   // its callback first.
   it('budget bullets are refused under SSR while their label colour is a callback', () => {
     expect(() => renderChartSvg(buildBudgetBulletOption(LINES, DEFAULT_PALETTE), { widthMm: 170, heightMm: CHART_HEIGHT_MM.half }))
-      .toThrow(/tab, CR or LF in the value of "fill"/);
+      .toThrow(/refusing a chart/);
   });
 });

@@ -10,12 +10,24 @@
  * multi-line label is legitimate), tab and carriage return become a space,
  * U+2028/2029 become a space, and a BOM is dropped.
  *
- * Plain objects and arrays are copied; anything else — a function, a gradient
- * instance, a Date — is passed through untouched, so an option's callbacks and
- * ECharts' own classes keep working. The caller's option is never mutated.
+ * Plain objects and arrays are copied. A FUNCTION under a label-producing key
+ * (`LABEL_CALLBACKS`) is wrapped so what it RETURNS is normalised too — a
+ * `formatter` builds label text from ledger data at draw time, after the
+ * static strings have been cleaned — with `this` and `length` preserved.
+ * Other functions, and class instances (ECharts' gradients hold colour stops,
+ * not labels), pass through untouched. The caller's option is never mutated.
+ * A cycle is an error naming the path, not a stack overflow.
  */
 const TO_SPACE = /[\t\r\u2028\u2029]/g;
 const DROPPED = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\ufeff\ufffe\uffff]/g;
+
+/** The callback keys the pack's options (and ECharts) use for text or the
+ *  elements that carry it: tooltip/label/axis formatters, series colour
+ *  callbacks, and the custom series' `renderItem`, whose returned element
+ *  descriptors hold `style.text`. */
+export const LABEL_CALLBACKS: ReadonlySet<string> = new Set([
+  'formatter', 'valueFormatter', 'color', 'renderItem',
+]);
 
 export function cleanOptionString(s: string): string {
   return s.replace(TO_SPACE, ' ').replace(DROPPED, '');
@@ -26,13 +38,33 @@ function isPlain(v: object): boolean {
   return proto === Object.prototype || proto === null;
 }
 
-export function normaliseOptionText<T>(value: T): T {
-  if (typeof value === 'string') return cleanOptionString(value) as T;
-  if (Array.isArray(value)) return value.map((v) => normaliseOptionText(v)) as T;
-  if (typeof value === 'object' && value !== null && isPlain(value)) {
-    return Object.fromEntries(
-      Object.entries(value).map(([k, v]) => [cleanOptionString(k), normaliseOptionText(v)]),
-    ) as T;
+function wrapCallback<F extends (...args: never[]) => unknown>(fn: F): F {
+  const wrapped = function (this: unknown, ...args: never[]) {
+    return normaliseValue(fn.apply(this, args), '(returned)', []);
+  } as unknown as F;
+  Object.defineProperty(wrapped, 'length', { value: fn.length });
+  return wrapped;
+}
+
+function normaliseValue(value: unknown, path: string, ancestors: object[]): unknown {
+  if (typeof value === 'string') return cleanOptionString(value);
+  if (typeof value !== 'object' || value === null) return value;
+  if (!Array.isArray(value) && !isPlain(value)) return value;
+  if (ancestors.includes(value)) {
+    throw new Error(`normaliseOptionText: the chart option is circular at ${path}`);
   }
-  return value;
+  const next = [...ancestors, value];
+  if (Array.isArray(value)) return value.map((v, i) => normaliseValue(v, `${path}[${i}]`, next));
+  return Object.fromEntries(
+    Object.entries(value).map(([k, v]) => [
+      cleanOptionString(k),
+      typeof v === 'function' && LABEL_CALLBACKS.has(k)
+        ? wrapCallback(v as (...args: never[]) => unknown)
+        : normaliseValue(v, `${path}.${k}`, next),
+    ]),
+  );
+}
+
+export function normaliseOptionText<T>(value: T): T {
+  return normaliseValue(value, 'option', []) as T;
 }
