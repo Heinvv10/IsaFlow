@@ -97,11 +97,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   let paymentUrl = invoice.payment_url;
   if (!invoice.online_payment_enabled || !paymentUrl) {
     const linkRows = await sql<{ token: string }>`
-      INSERT INTO portal_payment_links (invoice_id, client_id, amount)
+      INSERT INTO portal_payment_links (invoice_id, client_id, amount, charges_balance)
       VALUES (
         ${invoice.id}::UUID,
         ${clientIdForPortal}::UUID,
-        ${(outstandingCents / 100).toFixed(2)}::NUMERIC
+        ${(outstandingCents / 100).toFixed(2)}::NUMERIC,
+        true -- R-167: the invoice's standing link charges the live balance and is never spent
       )
       RETURNING token
     `;
