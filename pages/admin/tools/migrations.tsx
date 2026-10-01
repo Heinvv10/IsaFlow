@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Upload, CheckCircle2, AlertCircle, Loader2, Database, Play } from 'lucide-react';
 
@@ -120,11 +120,10 @@ export default function AdminMigrationsPage() {
         headers: { 'Content-Type': 'application/json', 'X-Company-Id': companyId },
         body: JSON.stringify({ source, accounts: zones.accounts.parsed, customers: zones.customers.parsed, suppliers: zones.suppliers.parsed }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Migration failed');
-      setResult(json.data as ExecResult);
+      await assertOk(res, 'Migration failed');
+      setResult((await res.json()).data as ExecResult);
     } catch (err) {
-      setExecErr(err instanceof Error ? err.message : 'Migration failed');
+      setExecErr(apiErrorMessage(err, 'Migration failed'));
     } finally { setExecuting(false); }
   };
 

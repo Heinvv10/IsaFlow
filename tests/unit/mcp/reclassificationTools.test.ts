@@ -30,11 +30,21 @@ vi.mock('@/modules/accounting/services/gl/reclassification/plan', async (orig) =
 vi.mock('@/modules/accounting/services/gl/reclassification/post', () => ({
   postReclassBatch: mocks.postReclassBatch,
 }));
+// The role-write lock and the bounded wait issue real SQL. Stubbed, or this "unit" file opens a database
+// connection: it passed only where one was reachable (a developer's .env.local) and failed in CI, which
+// has none. Their behaviour against Postgres is proven in tests/integration/w2-28-system-role-round1*.int.test.ts;
+// here they are spies, so the ORDER the tool calls them in can be asserted.
+vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/gl/systemRoleWriteLock')>()),
+  lockSystemRoleWrites: vi.fn(async () => undefined),
+  boundedRowWait: vi.fn(<T,>(take: () => PromiseLike<T>) => take()),
+}));
 
 import { proposeReclassificationTool } from '@/lib/mcp/tools/reclassificationPropose';
 import { postReclassificationBatchTool } from '@/lib/mcp/tools/writeReclassification';
 import { assertEnvelopeSound } from '@/lib/mcp/contracts';
 import { GlAccountLockTimeoutError } from '@/modules/accounting/services/gl/glAccountLock';
+import { boundedRowWait } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import type { McpToolContext } from '@/lib/mcp/types';
 
 const CTX = {
@@ -268,6 +278,21 @@ describe('post_reclassification_batch', () => {
     await expect(postReclassificationBatchTool.handler(
       { source_account_id: SRC, target_account_id: TGT, idempotency_key: 'k' }, CTX,
     )).rejects.toThrow('period closed');
+  });
+
+  it('posts inside the bounded wait — the plan may hold the role lock — and a dry run takes no bound at all', async () => {
+    planReclassification.mockResolvedValue(plan());
+    vi.mocked(boundedRowWait).mockClear();
+    let insideBound = false; let postedInside: boolean | null = null;
+    vi.mocked(boundedRowWait).mockImplementationOnce(async (take) => { insideBound = true; try { return await take(); } finally { insideBound = false; } });
+    postReclassBatch.mockImplementationOnce(async () => { postedInside = insideBound; return { batchId: 'b1', journals: [], movedLineCount: 1 }; });
+    const args = { source_account_id: SRC, target_account_id: TGT, idempotency_key: 'k' };
+    await postReclassificationBatchTool.handler(args, CTX);
+    expect({ postedInside, bounds: vi.mocked(boundedRowWait).mock.calls.length }).toEqual({ postedInside: true, bounds: 1 });
+
+    vi.mocked(boundedRowWait).mockClear(); postReclassBatch.mockClear();
+    await postReclassificationBatchTool.handler({ ...args, dry_run: true }, CTX);
+    expect({ bounds: vi.mocked(boundedRowWait).mock.calls.length, posts: postReclassBatch.mock.calls.length }).toEqual({ bounds: 0, posts: 0 });
   });
 
   it('returns the batch id, the journal ids and the documented undo route', async () => {

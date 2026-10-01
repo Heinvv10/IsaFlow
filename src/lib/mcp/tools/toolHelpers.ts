@@ -4,6 +4,7 @@
  */
 import type { McpToolResult } from '../types';
 import { UUID_RE, hasNul, isRealCalendarDate, NUL_MESSAGE } from '@/lib/validation';
+import { SYSTEM_ROLE_REFUSAL_CODES } from './systemRoleRefusalCodes';
 
 export function ok(data: unknown): McpToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -243,6 +244,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SUPPLIER_PAYMENT_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_PROCESSABLE',
   'SUPPLIER_PAYMENT_REFUSED',
+  ...SYSTEM_ROLE_REFUSAL_CODES,
   'TAX_DIRECTIVE_ALREADY_APPLIED',
   'TIME_ENTRIES_NOT_CLAIMED',
   'TIME_ENTRY_LOCK_TIMEOUT',

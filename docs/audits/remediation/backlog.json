@@ -14740,6 +14740,220 @@
       "title": "A transaction owner whose ROLLBACK fails returns the connection to the pool inside its transaction; the res.end census misses Reflect.defineProperty",
       "claim": "(a) Thirteen transaction owners release their client bare after a failed ROLLBACK: withAuth, bearerPipeline, withExtensionToken, withInviteToken, withPlatformAdmin (role gate and handler), sql.transaction, withTransaction, pages/api/invitations/[token]/accept.ts, the portfolio workbench, scripts/_pg.ts withTransactionPg and two simulate scripts. The client is pooled inside its open or aborted transaction and the next user's COMMIT lands the failed work. withPublicRouteTransaction and withAlsTransaction already release with the failure; verify-email.ts and five scripts end a per-run pool. (b) tests/unit/lib/auth/deferredEndCensus.test.ts does not flag Reflect.defineProperty(res, 'end', ...).",
       "processNotes": "2026-10-01: Confirmed on real Postgres before the fix (red.int.log): for each owner the refused ROLLBACK leaves the backend idle in transaction and the next user commits the failed row, fails in an aborted transaction, or is refused as read-only. Every .release( and .connect( in src/ and pages/ is tabled in fix.md. Fixed: src/lib/rollbackFailed.ts sends the ROLLBACK, logs a failure and returns it; each owner releases with that result, so pg-pool destroys the client; a clean ROLLBACK still reuses the connection. Census matcher extended, with fixture cases both ways. Mutants: round 1 21/21 RED (M6 survived once and got a case); round 2, every mutant on the final head, 48/48 RED. Left alone: verify-email.ts (per-request pool ended in the same finally; untested). Not covered: an early-return ROLLBACK that throws in the three wrappers; a real query_timeout. 2026-10-01, review round 1 (both blind reviewers SHIP with LOWs; all fixed in 6ab2cf3b7): rollbackFailed waits at most 5 s and treats no answer as a failure; a handler's own 5xx is replayed when its ROLLBACK fails, and only a failed COMMIT answers 500 COMMIT_FAILED (answerCommitFailed); the throw log's rolledBack is the result of the ROLLBACK that path ran; sql.transaction and withTransaction no longer log 'rolled back' after a failed ROLLBACK; withPublicRouteTransaction and withAlsTransaction use rollbackFailed; scripts/_pg.ts and the two simulate scripts fixed; BEGIN moved inside the guarded region in the portfolio workbench and invite accept; tests/unit/lib/releaseCensus.test.ts pins every bare .release() in src/, pages/ and scripts/ and fails closed. Mutants: round 3, 83/84 RED with one survivor that got a case (c04a52944); round 3b, all 84 re-run on that head, 84/84 RED. Still unbounded: BEGIN, COMMIT, the early-return ROLLBACKs. The simulate scripts were changed but never executed. 2026-10-01, review round 2 (both blind reviewers SHIP with LOWs; all fixed in 4dcfecf94): early-return and forced ROLLBACKs go through rollbackFailed and keep the 403/429/AUDIT_WRITE_FAILED owed; a handler 5xx whose ROLLBACK fails is reported again under 'transaction finalize failed after handler responded' with the tenant and a Sentry capture (reportFinalizeFailure); a failed ROLLBACK sends a cancel request before the connection is destroyed, because on PostgreSQL 16.15 a destroyed socket leaves the statement running to completion (pg_sleep(12): 11.5 s without the cancel, 0.1 s with it); the bound is read from rollbackBound.ms so no test asserts wall-clock time; withInviteToken, withExtensionToken and invite-accept pools got an 'error' listener; the release census proves each released value derives from a ROLLBACK outcome and asserts the per-run-pool pins. scripts/_pg.ts verified importable under bun and tsx. Mutants: round 4c, 140/140 RED on 860cc7fd2 with a green baseline before and after. Open, not changed: a FATAL reaching a checked-out idle client is an uncaught exception (pre-existing); BEGIN and COMMIT are unbounded; the simulate scripts were never executed. 2026-10-01, review round 3 (both blind reviewers SHIP with LOWs; all fixed in 3cdb96a4e): withPlatformAdmin's flag is sticky across its two ROLLBACKs and invite accept's EMAIL_IN_USE ROLLBACK goes through the helper (409 kept); the bound is a constant and setRollbackBoundForTests throws unless NODE_ENV is 'test'; the finalize report logs the sanitised path, not the query string; scripts/_pg.ts and the simulate scripts' pools have an 'error' listener and a census pins the one-run pools without one; a unit case pins the pg internals cancelBackend reads, and a cancel that cannot be attempted after a timeout is warned once; measured on the fixture with ssl = on: a plaintext CancelRequest cancels a TLSv1.3 session's statement at once, so the cancel socket has no TLS; the release census ties each release to a ROLLBACK on the same client. Mutants: round 5c, 160/160 RED on 7cc0741a3 with a green baseline before and after. Accepted and recorded in fix.md: BEGIN and COMMIT unbounded; the pre-existing uncaught FATAL on a checked-out idle client; the cancel's pid/key would be a pooler's behind one. Intermittents under load recorded in green.log; one remains unnamed. 2026-10-01, review round 4 (both blind reviewers SHIP with LOWs; fixed in 16500ef2a): verify-email's pool listens for errors (it runs in the server) and its pin is gone; the cannot-cancel warning also fires on pg's query_timeout; cancelBackend writes the CancelRequest itself, so it reads only processID/secretKey/host/port and sends a Buffer key byte for byte, and an integration case cancels a real connection's statement; the pool census ties a listener to the pool's own name in its function. NODE_ENV checked: vitest sets it to test when unset and no CI, deploy or config path exports another value; nothing changed. Mutants: round 6b, 172/172 RED on 0d1f36ba6 with a green baseline before and after."
+    },
+    {
+      "id": "R-177",
+      "sourceIds": [
+        "R-167"
+      ],
+      "correctedTrigger": null,
+      "auditedSha": "8dd80c335",
+      "currentSha": "090497265",
+      "status": "in-progress",
+      "dependencies": [
+        "R-167"
+      ],
+      "testNames": [
+        "tests/integration/r177-pay-now-standing-link.int.test.ts",
+        "tests/integration/r178-r180-portal-link-rules.int.test.ts",
+        "tests/unit/accounting/utils/payNowCheckout.test.ts",
+        "tests/unit/accounting/hooks/useCustomerInvoiceActionsPayNow.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-177/fix.md",
+        "docs/audits/remediation/R-177/red.int.log",
+        "docs/audits/remediation/R-177/red.r1.int.log",
+        "docs/audits/remediation/R-177/green.log",
+        "docs/audits/remediation/R-177/mutations.log"
+      ],
+      "fixCommit": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/601",
+      "deployedSha": null,
+      "canonicalItem": null,
+      "branch": "fix/r177-portal-followups-20261001",
+      "area": "accounting/ar portal",
+      "severity": "low",
+      "title": "Pay Now calls Paystack inside its request transaction, reads the balance in float and opens a new checkout on every click",
+      "affectedPaths": [
+        "pages/api/accounting/customer-invoices/[id]/pay-now.ts",
+        "src/modules/accounting/services/ar/standingPaymentLink.ts",
+        "src/modules/accounting/utils/payNowCheckout.ts",
+        "pages/accounting/customer-invoices/[invoiceId].tsx",
+        "src/modules/accounting/services/core/paymentGatewayPortalService.ts"
+      ],
+      "sourceLabel": "R-167 blind review follow-ups, 2026-10-01",
+      "claim": "pages/api/accounting/customer-invoices/[id]/pay-now.ts initialised a Paystack transaction inside withAuth's transaction: a connection and a transaction held across an unbounded gateway call. The balance was computed in float (a NaN amount_paid answered 500), each click inserted a new payable paystack_payment_requests row, and a cancelled link named by payment_url was reused.",
+      "severityRationale": "Staff-only route. No money is lost: a second paid checkout is banked as an unapplied receipt. A slow gateway holds one pool connection per click.",
+      "historicalDataImpact": "Unknown. Census (read-only, for Hein): invoices with more than one completed paystack_payment_requests row of purpose customer_invoice.",
+      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 31 mutants RED on the final code. pay-now now ensures the invoice's one standing link (ensureStandingLink, invoice row locked) and answers {token, paymentUrl}; the page starts the checkout through the public create route. Response contract changed; the invoice page is the only caller. Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link. Review round 2 (both SHIP on 00ea768b5): the enable route answers 400 with the reason for an unapproved invoice; tests for its lock timeout, the bare service and the Pay Now button; red.r1.int.log (19/23 red on master). Browser proof of the Pay Now button done on a local dev server against the fixture. Recorded for Hein: a standing link has no revoke action. /review (fresh blind agent, SHIP on aba4b1244, PR #601): fixed the localhost fallback in enableOnlinePayment (portalAppUrl) and the LIKE match on the token (exact now). Re-confirmation (all three reviewers SHIP on 2087a2e7b): a found link's stored URL is corrected to the public origin; red.r1.int.log re-run on the final suites (22/26 red on master).",
+      "reportedSeverity": "low"
+    },
+    {
+      "id": "R-178",
+      "sourceIds": [
+        "R-167"
+      ],
+      "correctedTrigger": null,
+      "auditedSha": "8dd80c335",
+      "currentSha": "090497265",
+      "status": "in-progress",
+      "dependencies": [
+        "R-167"
+      ],
+      "testNames": [
+        "tests/integration/r177-pay-now-standing-link.int.test.ts",
+        "tests/integration/r178-r180-portal-link-rules.int.test.ts",
+        "tests/unit/accounting/utils/payNowCheckout.test.ts",
+        "tests/unit/accounting/hooks/useCustomerInvoiceActionsPayNow.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-177/fix.md",
+        "docs/audits/remediation/R-177/red.int.log",
+        "docs/audits/remediation/R-177/red.r1.int.log",
+        "docs/audits/remediation/R-177/green.log",
+        "docs/audits/remediation/R-177/mutations.log"
+      ],
+      "fixCommit": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/601",
+      "deployedSha": null,
+      "canonicalItem": null,
+      "branch": "fix/r177-portal-followups-20261001",
+      "area": "accounting/ar portal",
+      "severity": "low",
+      "title": "The return-page verify makes an abandoned Paystack checkout terminal, so the next click opens a second payable checkout",
+      "affectedPaths": [
+        "pages/api/portal/payments/paystack/verify.ts"
+      ],
+      "sourceLabel": "R-167 blind review follow-ups, 2026-10-01",
+      "claim": "pages/api/portal/payments/paystack/verify.ts mapped Paystack's 'abandoned' (open, unpaid) to status 'cancelled'. The reuse lookup needs a pending request, so the next click started a second checkout while the first stayed payable at Paystack.",
+      "severityRationale": "Two payable checkouts for one balance; the excess of a double payment is banked unapplied, not lost.",
+      "historicalDataImpact": "Requests already marked cancelled stay cancelled; a payment on one is still completed by the webhook.",
+      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 31 mutants RED on the final code. verify writes nothing on 'abandoned', re-reads the stored status and reports cancelled to the page. Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link. Review round 2 (both SHIP on 00ea768b5): the enable route answers 400 with the reason for an unapproved invoice; tests for its lock timeout, the bare service and the Pay Now button; red.r1.int.log (19/23 red on master). Browser proof of the Pay Now button done on a local dev server against the fixture. Recorded for Hein: a standing link has no revoke action. /review (fresh blind agent, SHIP on aba4b1244, PR #601): fixed the localhost fallback in enableOnlinePayment (portalAppUrl) and the LIKE match on the token (exact now). Re-confirmation (all three reviewers SHIP on 2087a2e7b): a found link's stored URL is corrected to the public origin; red.r1.int.log re-run on the final suites (22/26 red on master).",
+      "reportedSeverity": "low"
+    },
+    {
+      "id": "R-179",
+      "sourceIds": [
+        "R-167"
+      ],
+      "correctedTrigger": null,
+      "auditedSha": "8dd80c335",
+      "currentSha": "090497265",
+      "status": "in-progress",
+      "dependencies": [
+        "R-167"
+      ],
+      "testNames": [
+        "tests/integration/r177-pay-now-standing-link.int.test.ts",
+        "tests/integration/r178-r180-portal-link-rules.int.test.ts",
+        "tests/unit/accounting/utils/payNowCheckout.test.ts",
+        "tests/unit/accounting/hooks/useCustomerInvoiceActionsPayNow.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-177/fix.md",
+        "docs/audits/remediation/R-177/red.int.log",
+        "docs/audits/remediation/R-177/red.r1.int.log",
+        "docs/audits/remediation/R-177/green.log",
+        "docs/audits/remediation/R-177/mutations.log"
+      ],
+      "fixCommit": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/601",
+      "deployedSha": null,
+      "canonicalItem": null,
+      "branch": "fix/r177-portal-followups-20261001",
+      "area": "accounting/ar portal",
+      "severity": "low",
+      "title": "The invoice's standing payment link expires 30 days after it is minted",
+      "affectedPaths": [
+        "src/modules/accounting/services/ar/portalLinkCharge.ts",
+        "src/modules/accounting/services/ar/standingPaymentLink.ts",
+        "src/modules/accounting/services/ar/portalService.ts"
+      ],
+      "sourceLabel": "R-167 blind review follow-ups, 2026-10-01",
+      "claim": "portal_payment_links.expires_at defaults to now() + 30 days and the standing link minted by pay-now and enableOnlinePayment took the default, so the link emailed with an invoice stopped working after 30 days while the invoice still owed money.",
+      "severityRationale": "A customer paying late cannot pay online until staff press Pay Now again. No wrong figure.",
+      "historicalDataImpact": "None written. The standing link an invoice names is payable again at read time, whatever its stored expiry.",
+      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 31 mutants RED on the final code. Hein: never expire. Standing links are minted with expires_at NULL. Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link. Review round 2 (both SHIP on 00ea768b5): the enable route answers 400 with the reason for an unapproved invoice; tests for its lock timeout, the bare service and the Pay Now button; red.r1.int.log (19/23 red on master). Browser proof of the Pay Now button done on a local dev server against the fixture. Recorded for Hein: a standing link has no revoke action. /review (fresh blind agent, SHIP on aba4b1244, PR #601): fixed the localhost fallback in enableOnlinePayment (portalAppUrl) and the LIKE match on the token (exact now). Re-confirmation (all three reviewers SHIP on 2087a2e7b): a found link's stored URL is corrected to the public origin; red.r1.int.log re-run on the final suites (22/26 red on master).",
+      "reportedSeverity": "low"
+    },
+    {
+      "id": "R-180",
+      "sourceIds": [
+        "R-167"
+      ],
+      "correctedTrigger": null,
+      "auditedSha": "8dd80c335",
+      "currentSha": "090497265",
+      "status": "in-progress",
+      "dependencies": [
+        "R-167"
+      ],
+      "testNames": [
+        "tests/integration/r177-pay-now-standing-link.int.test.ts",
+        "tests/integration/r178-r180-portal-link-rules.int.test.ts",
+        "tests/unit/accounting/utils/payNowCheckout.test.ts",
+        "tests/unit/accounting/hooks/useCustomerInvoiceActionsPayNow.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-177/fix.md",
+        "docs/audits/remediation/R-177/red.int.log",
+        "docs/audits/remediation/R-177/red.r1.int.log",
+        "docs/audits/remediation/R-177/green.log",
+        "docs/audits/remediation/R-177/mutations.log"
+      ],
+      "fixCommit": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/601",
+      "deployedSha": null,
+      "canonicalItem": null,
+      "branch": "fix/r177-portal-followups-20261001",
+      "area": "accounting/ar portal",
+      "severity": "low",
+      "title": "An unapproved invoice (draft or awaiting approval) can get a payment link, and a link on one can be paid",
+      "affectedPaths": [
+        "src/modules/accounting/services/ar/portalLinkCharge.ts",
+        "src/modules/accounting/services/ar/standingPaymentLink.ts",
+        "pages/api/portal/payment-link.ts",
+        "pages/api/portal/payments/paystack/create.ts"
+      ],
+      "sourceLabel": "R-167 blind review follow-ups, 2026-10-01",
+      "claim": "The payment-link POST, pay-now and enableOnlinePayment refused only cancelled and soft-deleted invoices, and resolveLinkCharge charged a link on a draft. A draft is not posted to the ledger.",
+      "severityRationale": "A receipt against an invoice that is not in the ledger. Needs a staff member to mint the link on a draft.",
+      "historicalDataImpact": "Unknown. Census (read-only, for Hein) in R-177/fix.md: active links whose invoice is draft or pending_approval stop working until it is approved.",
+      "processNotes": "2026-10-01: Hein: fix the R-167 follow-ups. One PR for R-177..R-180 (docs/audits/remediation/R-177/fix.md). RED 11/14 on origin/master 090497265; 31 mutants RED on the final code. Hein: refuse drafts. Hein was asked about drafts only; pending_approval is refused too after review (say if only drafts should be). Review round 1 (both blind reviewers SHIP on 44aee3c94): migration 719 dropped — the expiry exemption is decided at read time in resolveLinkCharge; pending_approval refused like draft (R-082's population rule); the invoice lock is bounded (5s) and NO KEY; online_payment_enabled restored on a found link. Review round 2 (both SHIP on 00ea768b5): the enable route answers 400 with the reason for an unapproved invoice; tests for its lock timeout, the bare service and the Pay Now button; red.r1.int.log (19/23 red on master). Browser proof of the Pay Now button done on a local dev server against the fixture. Recorded for Hein: a standing link has no revoke action. /review (fresh blind agent, SHIP on aba4b1244, PR #601): fixed the localhost fallback in enableOnlinePayment (portalAppUrl) and the LIKE match on the token (exact now). Re-confirmation (all three reviewers SHIP on 2087a2e7b): a found link's stored URL is corrected to the public origin; red.r1.int.log re-run on the final suites (22/26 red on master).",
+      "reportedSeverity": "low"
+    },
+    {
+      "id": "R-181",
+      "sourceIds": [
+        "R-167"
+      ],
+      "correctedTrigger": null,
+      "auditedSha": "8dd80c335",
+      "currentSha": "090497265",
+      "status": "candidate",
+      "dependencies": [
+        "R-167"
+      ],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "canonicalItem": null,
+      "branch": null,
+      "area": "accounting/ar portal",
+      "severity": "low",
+      "title": "Gateway settlement banks the request's amount and never compares it with the amount Paystack reports",
+      "affectedPaths": [
+        "src/modules/billing/services/paystackEventHandlers.ts",
+        "pages/api/portal/payments/paystack/verify.ts"
+      ],
+      "sourceLabel": "R-167 blind review follow-ups, 2026-10-01",
+      "claim": "handleChargeSuccess (paystackEventHandlers.ts) and the return-page verify bank paystack_payment_requests.amount_cents. Neither compares it with event.data.amount / the verified amount. Paystack charges what was initialised, so a mismatch is not expected, but if one occurs the receipt is banked at the wrong value with no log line. Also (R-180 review): settlement has no status rule, so a checkout already open on a draft or pending_approval invoice banks a receipt against an invoice that is not in the ledger.",
+      "severityRationale": "Theoretical: needs Paystack to settle a different amount than was initialised.",
+      "historicalDataImpact": "Unknown. Census (read-only, for Hein): compare amount_cents with the amount in paystack_webhook_events payloads for completed requests.",
+      "processNotes": "2026-10-01: recorded by the R-167 adversarial review. Not fixed: what to do on a mismatch (bank the reported amount, or refuse and alert) is a decision for Hein.",
+      "reportedSeverity": "low"
     }
   ],
   "sourceInventory": [

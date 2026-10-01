@@ -10,6 +10,8 @@ import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationPa
 import type { DbRow } from '@/types/db';
 import { defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
+import { boundedRowWait, lockSystemRoleWrites, textUnlessLockError } from '../gl/systemRoleWriteLock';
+import { clearSystemAccountCacheAfterCommit } from '../gl/systemAccountResolver';
 import { assertAccountChangesKeepVatLocks, type AccountAttributeChange } from '../gl/vatLockLineClassification';
 
 // Rollback lives in its own file for the 300-line cap; re-exported so the API
@@ -36,7 +38,15 @@ export interface VerifyEntry {
 
 // ── Execute ──────────────────────────────────────────────────────────────────
 
-export async function executeMigration(
+/** Bounded: every statement it runs while it holds the role lock waits at most 5s for any lock. */
+export function executeMigration(
+  companyId: string, userId: string, source: MigrationSource,
+  accounts: ParsedAccount[], customers: ParsedEntity[], suppliers: ParsedEntity[],
+): Promise<ExecuteMigrationResult> {
+  return boundedRowWait(() => executeUnderLock(companyId, userId, source, accounts, customers, suppliers));
+}
+
+async function executeUnderLock(
   companyId: string,
   userId: string,
   source: MigrationSource,
@@ -77,6 +87,11 @@ export async function executeMigration(
   // would move a posted line inside a locked (filed) VAT period into a
   // different box refuses the WHOLE migration, naming account and period —
   // later steps post opening balances against these accounts.
+  // The role-write lock comes first, for lock ORDER rather than for a holder:
+  // the upsert below locks account rows in the order the file lists them, a
+  // Default Accounts save locks the same rows in id order, and without one
+  // lock taken first by both the two deadlocked (40P01).
+  await lockSystemRoleWrites(companyId);
   try {
     await assertAccountChangesKeepVatLocks(companyId, await reimportAttributeChanges(companyId, source, validAccounts));
   } catch (err) {
@@ -112,8 +127,15 @@ export async function executeMigration(
           )
           ON CONFLICT (company_id, account_code) DO UPDATE SET
             account_name    = EXCLUDED.account_name,
-            account_type    = EXCLUDED.account_type,
-            account_subtype = COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype)
+            -- A system account keeps its type and subtype. The subtype is its
+            -- ROLE: only Default Accounts and the COA import's role map place
+            -- one, never this fill (it would make the account a holder, beside
+            -- the role's own). Its type is what the role requires: re-typing
+            -- the bank holder as an expense would leave posting on a mistyped account.
+            account_type    = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_type
+                                   ELSE EXCLUDED.account_type END,
+            account_subtype = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_subtype
+                                   ELSE COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype) END
           WHERE gl_accounts.imported_from = EXCLUDED.imported_from
           RETURNING account_code
         `)
@@ -126,7 +148,7 @@ export async function executeMigration(
         );
       });
     } catch (err) {
-      errors.push(`Accounts batch: ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(`Accounts batch: ${textUnlessLockError(err)}`);   // a lock wait is not a batch to report: thrown, the whole request retries (503)
     }
   }
 
@@ -137,7 +159,7 @@ export async function executeMigration(
   try {
     openingBalancesSet = await postOpeningBalances(companyId, userId, source, accounts);
   } catch (err) {
-    errors.push(`Opening balances: ${err instanceof Error ? err.message : String(err)}`);
+    errors.push(`Opening balances: ${textUnlessLockError(err)}`);
   }
 
   // 3. Import customers
@@ -160,7 +182,7 @@ export async function executeMigration(
       );
       customersImported = validCustomers.length;
     } catch (err) {
-      errors.push(`Customers batch: ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(`Customers batch: ${textUnlessLockError(err)}`);
     }
   }
 
@@ -184,7 +206,7 @@ export async function executeMigration(
       );
       suppliersImported = validSuppliers.length;
     } catch (err) {
-      errors.push(`Suppliers batch: ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(`Suppliers batch: ${textUnlessLockError(err)}`);
     }
   }
 
@@ -192,6 +214,7 @@ export async function executeMigration(
     companyId, source, accountsImported, customersImported, suppliersImported,
   }, 'migration');
 
+  clearSystemAccountCacheAfterCommit(companyId);   // a re-import renames its own accounts, a role holder among them
   return { accountsImported, customersImported, suppliersImported, openingBalancesSet, errors };
 }
 
@@ -256,7 +279,7 @@ async function reimportAttributeChanges(
   const codes = accounts.map((a) => a.sourceCode || a.sourceName.substring(0, 20));
   if (codes.length === 0) return [];
   const rows = (await sql`
-    SELECT id, account_code, account_type, account_subtype FROM gl_accounts
+    SELECT id, account_code, account_type, account_subtype, is_system_account FROM gl_accounts
     WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
       AND account_code = ANY(${codes}::TEXT[])`) as DbRow[];
   const byCode = new Map(accounts.map((a, i) => [codes[i]!, a]));
@@ -267,7 +290,9 @@ async function reimportAttributeChanges(
     return [{
       accountId: String(r.id), accountCode: String(r.account_code),
       from: { accountType: String(r.account_type), accountSubtype: subtype },
-      to: { accountType: String(acct.mappedType), accountSubtype: subtype ?? acct.mappedSubtype ?? null },
+      to: r.is_system_account === true
+        ? { accountType: String(r.account_type), accountSubtype: subtype }
+        : { accountType: String(acct.mappedType), accountSubtype: subtype ?? acct.mappedSubtype ?? null },
     }];
   });
 }

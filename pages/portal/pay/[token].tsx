@@ -14,7 +14,7 @@ interface PaymentLinkData {
   clientId: string;
   amount: number;
   status: string;
-  expiresAt: string;
+  expiresAt: string | null;
   companyName?: string;
   invoiceNumber?: string;
   dueDate?: string;

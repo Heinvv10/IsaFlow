@@ -19,6 +19,7 @@
 import pg from 'pg';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
+import { logTransactionRollback } from '@/lib/transactionRefusal';
 // Static, not the `await import` used elsewhere in this file. assertTxUsable
 // must be synchronous, and it lives in als.ts because the flag it reads is on
 // RequestContext — keeping it there also keeps it out of every test's
@@ -360,11 +361,7 @@ export async function withTransaction<T>(
     try {
       return await withSavepoint(`with_tx_${withTxSeq}`, () => fn(tx));
     } catch (err) {
-      log.error(
-        'withTransaction rolled back (request savepoint)',
-        err instanceof Error ? { message: err.message } : { error: err },
-        'DB'
-      );
+      logTransactionRollback('withTransaction rolled back (request savepoint)', err);
       throw err;
     }
   }
@@ -386,10 +383,9 @@ export async function withTransaction<T>(
     return result;
   } catch (err) {
     unusable = await rollbackFailed(client, 'withTransaction');
-    log.error(
+    logTransactionRollback(
       unusable ? 'withTransaction failed; its ROLLBACK failed too, connection destroyed' : 'withTransaction rolled back',
-      err instanceof Error ? { message: err.message } : { error: err },
-      'DB'
+      err,
     );
     throw err;
   } finally {

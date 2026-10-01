@@ -17,6 +17,7 @@ import { isDbReachable } from '../helpers/dbReachable';
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
 import { withTransaction, getPoolForTests, sql } from '@/lib/neon';
+import { TransactionRefusal } from '@/lib/transactionRefusal';
 
 type Ctx = Parameters<typeof als.run>[0];
 function fakeCtx(client: unknown): Ctx {
@@ -54,6 +55,17 @@ describe('withTransaction — request tx in flight (unit, mocked client)', () =>
     vi.mocked(log.error).mockClear();
     await als.run(fakeCtx(client), () => withTransaction(async () => { throw new Error('boom'); })).catch(() => undefined);
     expect(vi.mocked(log.error)).toHaveBeenCalledWith(expect.stringContaining('withTransaction rolled back'), expect.anything(), 'DB');
+  });
+
+  it('logs a TransactionRefusal (an expected 4xx) at info, not error, and still rolls back and rethrows', async () => {
+    const { log } = await import('@/lib/logger');
+    vi.mocked(log.error).mockClear();
+    vi.mocked(log.info).mockClear();
+    await expect(als.run(fakeCtx(client), () =>
+      withTransaction(async () => { throw new TransactionRefusal('no'); }))).rejects.toThrow('no');
+    expect(queries.some((q) => /^ROLLBACK TO SAVEPOINT /.test(q))).toBe(true);
+    expect(vi.mocked(log.error)).not.toHaveBeenCalled();
+    expect(vi.mocked(log.info)).toHaveBeenCalledWith(expect.stringContaining('withTransaction rolled back'), { refusal: 'no' }, 'DB');
   });
 });
 
