@@ -1,4 +1,4 @@
-# GREEN on 3915b9497 (final code, round 5), fixture clone at 717 (2026-10-01T02:23:02Z); the fence suite on an isaflow_test clone of it. 64-hex tokens redacted.
+# GREEN on 31a911930 (final code, round 6), fixture clone at 717 (2026-10-01T02:33:00Z); the fence suite on an isaflow_test clone of it. 64-hex tokens redacted.
 ## k-033-subscription-period-advances-before-settlement.int.test.ts
  Test Files  1 passed (1)
       Tests  20 passed (20)
@@ -85,10 +85,10 @@
       Tests  7 passed (7)
 ## r167-link-charges-link-amount.int.test.ts
  Test Files  1 passed (1)
-      Tests  26 passed (26)
+      Tests  28 passed (28)
 ## r167-standing-links-and-checkout.int.test.ts
  Test Files  1 passed (1)
-      Tests  18 passed (18)
+      Tests  19 passed (19)
 ## customer-ownership-fence-routes (isaflow_test clone)
  Test Files  1 passed (1)
       Tests  32 passed (32)
