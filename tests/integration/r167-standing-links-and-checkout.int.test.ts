@@ -208,6 +208,18 @@ describe('create holds nothing across the gateway call', () => {
       .toEqual([{ status: 'failed', failure_reason: 'abandoned while starting' }]);
   });
 
+  it('a checkout swept while the gateway was answering never has its URL handed out', async () => {
+    const { invoiceId, token } = await invoiceWithLink(0, 40.5);
+    h.during = async () => { // a stall past the starting window, and a later click's sweep
+      await pool.query("UPDATE paystack_payment_requests SET status = 'failed' WHERE customer_invoice_id = $1", [invoiceId]);
+    };
+    const r = await create(token);
+    expect(r.statusCode).toBe(500);
+    expect(r.body.data).toBeUndefined();
+    expect((await pool.query('SELECT status, authorization_url FROM paystack_payment_requests WHERE customer_invoice_id = $1', [invoiceId])).rows)
+      .toEqual([{ status: 'failed', authorization_url: null }]);
+  });
+
   it('a gateway failure marks the recorded checkout failed, and the next click starts afresh', async () => {
     const { invoiceId, token } = await invoiceWithLink(0, 40.5);
     h.during = async () => { throw new Error('gateway timed out'); };

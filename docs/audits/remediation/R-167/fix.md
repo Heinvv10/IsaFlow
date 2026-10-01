@@ -59,8 +59,10 @@ Hein decided on 2026-09-30:
   2. **The gateway call.** `initializeTransaction` runs outside any transaction, bounded at 10
      seconds. It takes a new, optional `timeoutMs`; other callers leave it unset and are
      unchanged.
-  3. **The result.** On success the recorded checkout gets its access code and URL. On failure or
-     timeout it is marked `failed`, and a later click starts afresh.
+  3. **The result.** On success the recorded checkout gets its access code and URL. If it is no
+     longer `pending`, because a stall let a later click sweep it, the URL is not handed out and
+     the click gets 500. On failure or timeout it is marked `failed`, and a later click starts
+     afresh.
 
   If phase 2 or 3 never finishes (the process dies), the checkout keeps no URL. It stops blocking
   after 60 seconds, and the next click on that link marks it `failed` ("abandoned while
@@ -90,7 +92,7 @@ Hein decided on 2026-09-30:
 
 - **Links created before this change** are all standing, so they behave exactly as before: they
   charge the live balance and are never spent. That includes any explicit-amount link created
-  before the deploy, which is a decision, not an oversight (review round 3, LOW 1). Marking
+  before the deploy. Hein decided this on 2026-10-01 (review round 3, LOW 1). Marking
   links `false` whenever no `payment_url` names them would reopen the two round-2 gaps. The pay
   page now shows the full balance before the customer pays, so what they see is what they are
   charged. The R-155 prod census found 3 active links, all in ISAFlow Demo. A request created
@@ -255,6 +257,11 @@ Both reviewers returned SHIP on `7ec334794`. The adversarial reviewer added thre
 - rows abandoned while starting that stayed `pending` forever; now marked `failed`, and Q50–Q52
   cover it;
 - the per-link limit as a denial for a token holder; accepted above.
+
+Re-confirmation on `5c6a9dc98`: both SHIP. The adversarial reviewer added an optional LOW: a
+checkout swept during a stall still had its URL handed out. Now the URL write reports whether it
+stored anything, and create answers 500 when it did not (Q53). The general reviewer noted that
+the old-links rule named no decider, so it went to Hein, who confirmed it on 2026-10-01.
 
 ## Migration / rollback
 
