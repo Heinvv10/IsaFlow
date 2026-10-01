@@ -35,7 +35,8 @@ Review round 1 changed two of the designs below; the section after the fix says 
   - The lookup is a statement of its own after the lock. As a subquery of the locking statement
     it read the old snapshot, and two simultaneous calls minted two links (found by the test).
   - It never adopts a link the invoice does not name, nor an explicit-amount link.
-  - It sets `online_payment_enabled` when it finds the link with the flag off.
+  - When it finds the link, it sets `online_payment_enabled` if the flag is off and rewrites the
+    stored URL if it is on another origin.
 - **`pay-now`** calls `ensureStandingLink` and answers `{ token, paymentUrl }`. It no longer calls
   Paystack. A lock timeout is a 400 with code `CUSTOMER_INVOICE_LOCK_TIMEOUT`.
 - **`src/modules/accounting/utils/payNowCheckout.ts` (new)** is what the Pay Now button calls.
@@ -111,7 +112,7 @@ Both blind reviewers returned SHIP on `00ea768b5`, with LOWs. Fixed:
 - **Nothing tested `enableOnlinePayment` outside a request transaction.** It throws; tested.
 - **A stale comment** in the R-167 suite named a file this branch deleted.
 - **`red.int.log` was the red run of the first suite only.** `red.r1.int.log` is the final suites
-  on unchanged `origin/master` source: 19 of 23 fail.
+  on unchanged `origin/master` source: 22 of 26 fail (re-run after the last cases were added).
 
 Recorded, not changed:
 
@@ -134,8 +135,15 @@ A fresh blind reviewer returned SHIP on `aba4b1244` (posted on PR #601), with LO
 - **The link an invoice names was matched with `LIKE`**, so a token containing `%` or `_` would
   be a pattern. It is an exact comparison of the URL's tail now. Tokens are hex today.
 
+- **Re-confirmation of this round (all three SHIP on `2087a2e7b`):** an invoice whose stored
+  `payment_url` is on another origin (the old localhost fallback) kept that stored value, so
+  "Copy Payment Link" kept copying it. `ensureStandingLink` now rewrites the stored URL when it
+  finds the link.
+
 Recorded, not changed:
 
+- The enable route now answers 500 on a server whose origin is unset or on localhost, as Pay Now
+  already did. No UI code and no end-to-end spec calls that route.
 - The 30-minute reuse window (above).
 - `window.open` now follows two awaited calls instead of one, so a popup blocker is somewhat
   more likely to stop it. The old code had the same weakness with one call.
@@ -151,7 +159,8 @@ files, with shared callers in `tests/integration/r177-portal-followups.helpers.t
 
 - no gateway call and no request row in `pay-now`;
 - the token starts one checkout for the live balance, and a second click reuses it;
-- two simultaneous calls keep one link, and the flag is restored on a legacy row;
+- two simultaneous calls keep one link; on a legacy row the flag is restored and a stored URL on
+  another origin is corrected;
 - the lock does not wait behind a row that references the invoice (NO KEY);
 - a cancelled named link is replaced; an unnamed link or a named explicit link is never adopted;
 - NaN and paid invoices get 400 and no link; a negative `amount_paid` charges the total;
@@ -181,8 +190,8 @@ refusal thrown with the server's message.
 offered for approved, sent, overdue and partially paid invoices with a balance, and for nothing else.
 
 `red.int.log`: 11 of 14 failed on unchanged `origin/master` (the first version of the suite).
-`red.r1.int.log`: the final suites on unchanged `origin/master` source, 19 of 23 failed.
-`mutations.log`: 30 mutants on the final code, all RED.
+`red.r1.int.log`: the final suites on unchanged `origin/master` source, 22 of 26 failed.
+`mutations.log`: 31 mutants on the final code, all RED.
 
 **Browser proof (2026-10-01):** a dev server from this branch against the disposable fixture, a
 Playwright Chromium session signed in as a seeded user, and the public create route answered by
