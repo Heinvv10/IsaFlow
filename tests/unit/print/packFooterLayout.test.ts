@@ -132,6 +132,17 @@ describe('the running footer, printed by Chromium', () => {
     }
   }, 60_000);
 
+  it.each([['an empty', ''], ['a whitespace-only', '   ']])('%s company name leaves no orphan separator', async (_l, name) => {
+    const html = buildFooterHtml({ companyName: name, packLabel: 'Management Pack', period: PERIODS[1], confidentiality: PACK_CONFIDENTIALITY, draft: true });
+    const sheets = await footerWords(html, `empty-name-${name.length}`);
+    for (const words of sheets) {
+      const text = words.map((w) => w.text).join(' ');
+      expect(text.startsWith('Management Pack'), `footer began with "${text.slice(0, 30)}"`).toBe(true);
+      expect(text).toContain(PERIODS[1]);
+      expect(Math.max(...words.map((w) => w.xMax))).toBeLessThanOrEqual(RIGHT_MARGIN_X + 1);
+    }
+  }, 60_000);
+
   it('put the page number at one x, on every page of every case', () => {
     expect(pageNumberEdges.length).toBe(rows.length * SHEETS);
     const spread = Math.max(...pageNumberEdges) - Math.min(...pageNumberEdges);

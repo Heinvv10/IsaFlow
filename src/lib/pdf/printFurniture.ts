@@ -73,7 +73,10 @@ export function footerRightText(f: PackFurniture): string {
 
 export function buildFooterHtml(f: PackFurniture): string {
   const company = escapeHtml(f.companyName);
-  const rest = escapeHtml(` · ${f.packLabel} · ${f.period}`);
+  // No company name, no company span and no separator before the pack label:
+  // an empty name used to leave an orphan leading "· ".
+  const named = f.companyName.trim() !== '';
+  const rest = escapeHtml(`${named ? ' · ' : ''}${f.packLabel} · ${f.period}`);
   const right = escapeHtml(footerRightText(f));
   // TWO COLUMNS, AND ONLY THE COMPANY NAME MAY GIVE WAY.
   //
@@ -95,7 +98,7 @@ export function buildFooterHtml(f: PackFurniture): string {
     `padding:0 ${PDF_MARGIN_MM.right}mm 0 ${PDF_MARGIN_MM.left}mm;border-top:0.5pt solid #d8d8d8;` +
     `display:flex;align-items:baseline;gap:${FOOTER_GAP_MM}mm">` +
     '<span style="flex:1 1 auto;min-width:0;display:flex;white-space:nowrap">' +
-    `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${company}</span>` +
+    (named ? `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${company}</span>` : '') +
     `<span style="flex:none;white-space:pre">${rest}</span></span>` +
     `<span style="flex:none;white-space:nowrap;display:flex;gap:${FOOTER_GAP_MM / 3}mm">` +
     `<span>${right}</span>` +
