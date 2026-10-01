@@ -5,7 +5,7 @@
  */
 
 import { calculateExtendedRatios, type FinancialData } from './reportingEngineService';
-import { buildKPIScorecard, type KPITargetConfig } from './kpiScorecardService';
+import { buildKPIScorecard, type KPITargetConfig, type ScorableRatios } from './kpiScorecardService';
 import { buildProfitWaterfall } from './waterfallDataService';
 import { marginPct, marginPct2dp } from './marginPct';
 import type { PackSection, PackType, ReportPack, ReportPackInput } from './reportPackTypes';
@@ -65,21 +65,25 @@ export const NO_OPERATING_CASH_FLOW_RATIO =
  * printed ratios read the same reason; the engine itself is shared with
  * surfaces outside the pack and is not changed.
  */
-export function packRatios(financialData: FinancialData): ReturnType<typeof calculateExtendedRatios> {
+export function packRatios(financialData: FinancialData): ScorableRatios {
   const ratios = calculateExtendedRatios(financialData);
-  const unstated: Record<string, string> = {};
-  if (financialData.capitalExpenditure === undefined) unstated.freeCashFlow = NO_FREE_CASH_FLOW;
-  if (financialData.operatingCashFlow === undefined) unstated.operatingCashFlowRatio = NO_OPERATING_CASH_FLOW_RATIO;
+  const noCapex = financialData.capitalExpenditure === undefined;
+  const noOperating = financialData.operatingCashFlow === undefined;
   // Nulled as well as explained, so no reader can print the stand-in by
   // skipping the reason, and a scorecard target naming either scores it as
-  // not meaningful rather than against a zero. The result type keeps
-  // `number` for both: the engine's type is shared and is not changed here.
-  const nulled = Object.fromEntries(Object.keys(unstated).map((key) => [key, null]));
+  // not meaningful rather than against a zero. The type says so: both are
+  // `number | null` here, so a caller cannot format one without handling
+  // the null. The engine's own type is shared and is not changed.
   return {
     ...ratios,
-    ...nulled,
-    notMeaningful: { ...ratios.notMeaningful, ...unstated },
-  } as ReturnType<typeof calculateExtendedRatios>;
+    freeCashFlow: noCapex ? null : ratios.freeCashFlow,
+    operatingCashFlowRatio: noOperating ? null : ratios.operatingCashFlowRatio,
+    notMeaningful: {
+      ...ratios.notMeaningful,
+      ...(noCapex ? { freeCashFlow: NO_FREE_CASH_FLOW } : {}),
+      ...(noOperating ? { operatingCashFlowRatio: NO_OPERATING_CASH_FLOW_RATIO } : {}),
+    },
+  };
 }
 
 function buildSectionData(
@@ -171,7 +175,7 @@ function buildSectionData(
 
     case 'ratios': {
       // Unstated ratios arrive nulled and explained — see `packRatios`.
-      return packRatios(financialData) as unknown as Record<string, unknown>;
+      return packRatios(financialData);
     }
 
     case 'kpis': {

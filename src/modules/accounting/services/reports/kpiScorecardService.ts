@@ -5,6 +5,16 @@
 
 import type { ExtendedRatioResult } from './reportingEngineService';
 
+/**
+ * The ratios a scorecard can be built from: the engine's own result, or one
+ * in which a ratio is null because the caller could not state it (the report
+ * pack's `packRatios`). Every engine result is one of these, so callers
+ * passing the engine's result are unaffected.
+ */
+export type ScorableRatios =
+  Omit<ExtendedRatioResult, 'freeCashFlow' | 'operatingCashFlowRatio'>
+  & { freeCashFlow: number | null; operatingCashFlowRatio: number | null };
+
 export interface KPITargetConfig {
   ratioKey: string;
   target: number;
@@ -73,7 +83,7 @@ const RATIO_NAMES: Record<string, string> = {
  * Build a KPI scorecard from ratio results and target configuration.
  */
 export function buildKPIScorecard(
-  ratios: ExtendedRatioResult,
+  ratios: ScorableRatios,
   targets: KPITargetConfig[],
 ): KPIScorecardItem[] {
   return targets.map(config => {
