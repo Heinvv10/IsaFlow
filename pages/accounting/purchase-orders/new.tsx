@@ -2,15 +2,15 @@
  * New Purchase Order Page
  * Route: /accounting/purchase-orders/new
  */
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeft, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { apiFetch } from '@/lib/apiFetch';
+import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
 
-interface Supplier { id: string; name: string }
 interface LineItem { key: string; description: string; quantity: string; unitPrice: string; taxRate: string }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
@@ -32,7 +32,6 @@ export default function NewPurchaseOrderPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [saveAndNew, setSaveAndNew] = useState(false);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [form, setForm] = useState({
     supplierId: '', orderDate: localISODate(),
     expectedDeliveryDate: '', notes: '', reference: '',
@@ -40,16 +39,6 @@ export default function NewPurchaseOrderPage() {
   const [items, setItems] = useState<LineItem[]>([
     { key: '1', description: '', quantity: '1', unitPrice: '0', taxRate: '15' },
   ]);
-
-  useEffect(() => {
-    apiFetch('/api/accounting/suppliers-list', { credentials: 'include' })
-      .then(r => r.json())
-      .then(j => {
-        const d = j.data ?? j;
-        setSuppliers(Array.isArray(d) ? d : (d.suppliers ?? []));
-      })
-      .catch(() => { /* non-critical */ });
-  }, []);
 
   const addItem = () => setItems(prev => [...prev, { key: String(Date.now()), description: '', quantity: '1', unitPrice: '0', taxRate: '15' }]);
   const removeItem = (key: string) => setItems(prev => prev.length > 1 ? prev.filter(i => i.key !== key) : prev);
@@ -61,7 +50,9 @@ export default function NewPurchaseOrderPage() {
   const tax = items.reduce((s, i) => s + lineTotal(i) * Number(i.taxRate || 0) / 100, 0);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>, andNew = false) => {
-    e.preventDefault(); setError(''); setSaving(true); setSaveAndNew(andNew);
+    e.preventDefault();
+    if (!form.supplierId) { setError('Please select a supplier'); return; }
+    setError(''); setSaving(true); setSaveAndNew(andNew);
     try {
       const res = await apiFetch('/api/accounting/purchase-orders', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
@@ -116,10 +107,7 @@ export default function NewPurchaseOrderPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={lbl}>Supplier *</label>
-                    <select name="supplierId" required value={form.supplierId} onChange={e => setForm(p => ({ ...p, supplierId: e.target.value }))} className={inp}>
-                      <option value="">Select supplier…</option>
-                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    <SupplierSelect required value={form.supplierId} inputClassName={inp} onChange={id => setForm(p => ({ ...p, supplierId: id }))} />
                   </div>
                   <div>
                     <label className={lbl}>Reference</label>

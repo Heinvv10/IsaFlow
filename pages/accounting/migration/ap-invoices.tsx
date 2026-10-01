@@ -4,6 +4,8 @@ import InvoiceImportResult, { type InvoiceImportResultData } from '@/components/
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { fetchAllSuppliers, truncatedSuppliersNotice } from '@/lib/fetchAllSuppliers';
+import { log } from '@/lib/logger';
 
 const AP_FIELDS = [
   'invoice_number', 'supplier_name', 'invoice_date', 'due_date',
@@ -32,19 +34,24 @@ export default function ApInvoicesPage() {
   const [rows, setRows] = useState<ParsedInvoice[]>([]);
   const [fieldMapping, setFieldMapping] = useState<FieldMapping>({});
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
+  const [suppliersTruncated, setSuppliersTruncated] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState<InvoiceImportResultData | null>(null);
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const loadSuppliers = async () => {
+  // The whole list is needed: rows are matched against it in memory.
+  const loadSuppliers = async (): Promise<SupplierOption[]> => {
     try {
-      const res = await apiFetch('/api/accounting/suppliers?limit=500');
-      const json = await res.json();
-      const list: SupplierOption[] = (json.data ?? json.suppliers ?? []).map((s: { id: string; name: string }) => ({ id: s.id, name: s.name }));
+      const { suppliers: all, truncated } = await fetchAllSuppliers();
+      const list = all.map(s => ({ id: String(s.id), name: s.name }));
       setSuppliers(list);
-    } catch {
-      // Non-fatal
+      setSuppliersTruncated(truncated);
+      return list;
+    } catch (err) {
+      log.warn('Failed to load suppliers for AP import', { error: err }, 'migration');
+      setError("Couldn't load suppliers — rows cannot be matched. Upload the file again to retry.");
+      return [];
     }
   };
 
@@ -60,7 +67,7 @@ export default function ApInvoicesPage() {
   const handleFile = async (file: File) => {
     setError('');
     setImportResult(null);
-    if (suppliers.length === 0) await loadSuppliers();
+    const supplierList = suppliers.length === 0 ? await loadSuppliers() : suppliers;
     const Papa = (await import('papaparse')).default;
     Papa.parse<Record<string, string>>(file, {
       header: true,
@@ -79,7 +86,7 @@ export default function ApInvoicesPage() {
             AP_FIELDS.filter(f => autoMapping[f]).map(f => [f, raw[autoMapping[f]!] ?? ''])
           ) as Partial<Record<ApField, string>>;
           const suppName = mapped.supplier_name ?? '';
-          const { id, confidence } = fuzzyMatch(suppName, suppliers);
+          const { id, confidence } = fuzzyMatch(suppName, supplierList);
           return { raw, mapped, matchedSupplierId: id, matchConfidence: confidence };
         }));
       },
@@ -176,6 +183,11 @@ export default function ApInvoicesPage() {
         {error && (
           <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
             <AlertCircle className="h-4 w-4" /> {error}
+          </div>
+        )}
+        {suppliersTruncated && (
+          <div role="status" className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 text-amber-500 text-sm mb-4">
+            <AlertCircle className="h-4 w-4" /> {truncatedSuppliersNotice()}
           </div>
         )}
         {importResult && <InvoiceImportResult result={importResult} />}

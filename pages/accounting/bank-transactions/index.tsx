@@ -19,6 +19,7 @@ import { BankTxModals } from '@/components/accounting/bank-transactions/BankTxMo
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
 import { Loader2, AlertCircle } from 'lucide-react';
+import { BankTxSuppliersNotice, type SuppliersStatus } from '@/components/accounting/bank-transactions/BankTxSuppliersNotice';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
 import { actionableIds } from '@/components/accounting/bank-transactions/pendingFeedRow';
@@ -44,8 +45,9 @@ export default function BankTransactionsPage() {
   const [bankAccounts, setBankAccounts] = useState<BankAcct[]>([]);
   const [selectedBank, setSelectedBank] = useState('');
   const [refDataLoaded, setRefDataLoaded] = useState(false);
+  const [suppliersStatus, setSuppliersStatus] = useState<SuppliersStatus>('loading');
   const didApplyQueryParam = useRef(false);
-  const { refreshBankAccounts } = useBankTxRefData({ setBankAccounts, setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded });
+  const { refreshBankAccounts } = useBankTxRefData({ setBankAccounts, setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded, setSuppliersStatus });
 
   // Pre-select bank account from query param (e.g. ?account_id=...)
   useEffect(() => {
@@ -298,9 +300,11 @@ export default function BankTransactionsPage() {
           onToggleBU={() => { const v = !showBU; setShowBU(v); localStorage.setItem('isaflow_bank_showBU', String(v)); }}
         />
 
+        <BankTxSuppliersNotice status={suppliersStatus} />
+
         <BankTxBatchPanel
           showBatchEdit={showBatchEdit} selectedCount={selectedIds.size} batchType={batchType}
-          batchSearch={batchSearch} glAccounts={glAccounts} suppliers={suppliers} customers={customers}
+          batchSearch={batchSearch} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'} customers={customers}
           transferTargets={transferTargets}
           rulePrompt={rulePrompt}
           onBatchTypeChange={t => { setBatchType(t); setBatchSearch(''); }}
@@ -333,7 +337,7 @@ export default function BankTransactionsPage() {
             </div>
           ) : (
             <BankTxTable
-              transactions={transactions} glAccounts={glAccounts} suppliers={suppliers}
+              transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
               customers={customers} transferTargets={transferTargets}
               cc1Options={cc1Options} cc2Options={cc2Options} buOptions={buOptions}
               showCC={showCC} showBU={showBU} selectedIds={selectedIds} rowSelections={rowSelections}

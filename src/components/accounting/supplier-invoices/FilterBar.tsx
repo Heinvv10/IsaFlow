@@ -69,6 +69,7 @@ export function FilterBar({
           selectedLabel={filters.supplierLabel}
           onSelect={selectSupplier}
           onClear={clearSupplier}
+          clearLabel="Clear supplier filter"
         />
 
         <select
