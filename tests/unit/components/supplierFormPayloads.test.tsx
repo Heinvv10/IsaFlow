@@ -55,7 +55,7 @@ describe('supplier-invoices/new', () => {
     const { container } = render(<NewSupplierInvoice />);
     fireEvent.click(screen.getByText('scan-alpha'));
     await waitFor(() => expect(supplierId(container)).toBe(SA), { timeout: 2000 });
-    fireEvent.click(screen.getByRole('button', { name: 'Clear supplier filter' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear supplier' }));
     await pick(container, 'Alpha Traders');
     expect(supplierId(container)).toBe(SA);
     fireEvent.click(screen.getByText('scan-beta'));
@@ -111,7 +111,7 @@ describe('supplier-payments/new', () => {
     const { container } = render(<NewSupplierPayment />);
     fireEvent.click(screen.getByText('scan-alpha'));
     await waitFor(() => expect(supplierId(container)).toBe(SA), { timeout: 2000 });
-    fireEvent.click(screen.getByRole('button', { name: 'Clear supplier filter' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear supplier' }));
     await pick(container, 'Alpha Traders');
     expect(supplierId(container)).toBe(SA);
     fireEvent.click(screen.getByText('scan-beta'));

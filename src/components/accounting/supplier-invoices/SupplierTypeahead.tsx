@@ -28,6 +28,8 @@ interface Props {
   loading?: boolean;
   testId?: string;
   ariaLabel?: string;
+  /** Accessible name of the clear button; the list page overrides it with the filter wording. */
+  clearLabel?: string;
 }
 
 const FILTER_INPUT = 'w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40';
@@ -35,7 +37,7 @@ const FILTER_INPUT = 'w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 
 export function SupplierTypeahead({
   selectedId, selectedLabel, onSelect, onClear,
   placeholder = 'Filter by supplier…', wrapperClassName = 'w-64', inputClassName = FILTER_INPUT, name = 'supplier',
-  required, invalidMessage, companyFirst, loading, testId, ariaLabel,
+  required, invalidMessage, companyFirst, loading, testId, ariaLabel, clearLabel = 'Clear supplier',
 }: Props) {
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<SupplierOption[]>([]);
@@ -110,7 +112,7 @@ export function SupplierTypeahead({
           type="button"
           onClick={() => { setQuery(''); onClear(); }}
           className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-200"
-          aria-label="Clear supplier filter"
+          aria-label={clearLabel}
         >
           <X className="h-3.5 w-3.5" />
         </button>
