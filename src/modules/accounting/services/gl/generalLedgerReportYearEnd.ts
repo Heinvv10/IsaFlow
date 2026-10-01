@@ -5,8 +5,10 @@
  *   derived close row at each boundary (gl/fiscalYearCloseRows), so their
  *   closing balance is the trial balance's as at periodEnd.
  * - A derived Retained Earnings b/f account (the TB's RE-BF) opens at the profit
- *   earned before the fiscal year of periodStart and receives each close, so the
- *   ledger's openings — and its closings — still net to zero across accounts.
+ *   earned before the fiscal year of periodStart and receives each close. Each
+ *   balance is signed to its own account's normal side, so the set does not sum
+ *   to zero; what holds is that debit-normal balances equal credit-normal balances
+ *   (RE-BF included), at the opening and at the closing.
  *
  * Posted totals (`totalDebit` / `totalCredit`) never include derived rows.
  */
