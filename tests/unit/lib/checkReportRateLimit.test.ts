@@ -4,8 +4,7 @@
  * Verifies it derives the correct namespaced key, applies the documented
  * defaults (25 requests / 900s), forwards overrides, and surfaces the
  * underlying limiter's allow/deny decision — by driving the real
- * checkRateLimit through a mocked `sql` (its only DB dependency), the same
- * way the pre-existing checkRateLimit.test.ts suite does.
+ * checkRateLimit through a mocked limiter pool (its only DB dependency).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -13,14 +12,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 const sqlMock = vi.fn();
-vi.mock('@/lib/neon', () => ({ sql: (...args: unknown[]) => sqlMock(...args) }));
+vi.mock('@/lib/rateLimitPool', () => ({
+  getRateLimitPool: () => ({ query: async (...args: unknown[]) => ({ rows: await sqlMock(...args) }) }),
+}));
 
 import { checkReportRateLimit, clearRateLimitCache } from '@/lib/rateLimit';
 
-/** The tagged-template call's second positional arg is the `key` interpolation. */
+/** The query's second arg is its parameter list; `key` is the first parameter. */
 function keyFromLastCall(): string {
   const call = sqlMock.mock.calls[sqlMock.mock.calls.length - 1]!;
-  return call[1] as string;
+  return (call[1] as unknown[])[0] as string;
 }
 
 describe('checkReportRateLimit', () => {

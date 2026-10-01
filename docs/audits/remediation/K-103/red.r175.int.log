@@ -1,0 +1,99 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r175-rate-limiter
+
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts (7 tests | 5 failed) 2783ms
+     × charges the counter even when the request transaction rolls back 17ms
+     × charges a request whose handler throws inside withAlsTransaction 5ms
+     × a refund made by a request that rolls back still lands 360ms
+     × does not hold the counter row lock for the rest of the request 2005ms
+     × fails in bounded time, and does not admit, when the limiter cannot get a connection 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts > K-103 rate-limit counter survives the request that spent it > charges the counter even when the request transaction rolls back
+AssertionError: expected undefined to be 1 // Object.is equality
+
+- Expected:
+1
+
++ Received:
+undefined
+
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts:70:38
+     68|       expect(await inRequest(client, () => checkRateLimit(key, opts)))…
+     69|       // Committed at once: another connection sees it while the reque…
+     70|       expect(await storedCount(key)).toBe(1);
+       |                                      ^
+     71|       await client.query('ROLLBACK');
+     72|     } finally { client.release(); }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts > K-103 rate-limit counter survives the request that spent it > charges a request whose handler throws inside withAlsTransaction
+AssertionError: expected undefined to be 1 // Object.is equality
+
+- Expected:
+1
+
++ Received:
+undefined
+
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts:85:36
+     83|
+     84|     await expect(failed).rejects.toThrow('handler failed after the cha…
+     85|     expect(await storedCount(key)).toBe(1);
+       |                                    ^
+     86|   });
+     87|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts > K-103 rate-limit counter survives the request that spent it > a refund made by a request that rolls back still lands
+AssertionError: expected 3 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 3
+
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts:95:38
+     93|       await client.query('BEGIN');
+     94|       await inRequest(client, () => refundRateLimit(key, 2));
+     95|       expect(await storedCount(key)).toBe(1);
+       |                                      ^
+     96|       await client.query('ROLLBACK');
+     97|     } finally { client.release(); }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts > K-103 rate-limit counter survives the request that spent it > does not hold the counter row lock for the rest of the request
+Error: still blocked after 2000ms
+ ❯ Timeout._onTimeout tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts:47:63
+     45|   return Promise.race([
+     46|     p,
+     47|     new Promise<never>((_, reject) => setTimeout(() => reject(new Erro…
+       |                                                               ^
+     48|   ]);
+     49| }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts > K-103 rate-limit counter survives the request that spent it > fails in bounded time, and does not admit, when the limiter cannot get a connection
+Error: Cannot find package '@/lib/rateLimitPool' imported from /home/hein/Workspace/IsaFlow/.worktrees/r175-rate-limiter/tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts:167:86
+    165|
+    166|   it('fails in bounded time, and does not admit, when the limiter cann…
+    167|     const { getRateLimitPool, RATE_LIMIT_POOL_MAX, RATE_LIMIT_CONNECT_…
+       |                                                                                      ^
+    168|     const limiterPool = getRateLimitPool();
+    169|     const held = await Promise.all(Array.from({ length: RATE_LIMIT_POO…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 2 passed (7)
+   Start at  12:42:03
+   Duration  2.97s (transform 48ms, setup 0ms, import 87ms, tests 2.78s, environment 0ms)
+

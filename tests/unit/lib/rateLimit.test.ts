@@ -77,22 +77,22 @@ describe('checkRateLimit — Neon-backed persistence (BL-21)', () => {
 
   afterEach(async () => {
     if (!hasRealDb) return;
-    // Clear both DB and LRU so each test starts from a clean state.
+    // Clear the DB row so each test starts from a clean state. (clearRateLimitCache
+    // is a no-op since R-175; the limiter has no in-process cache.)
     await sql`DELETE FROM rate_limit_counters WHERE key = ${KEY}`;
     clearRateLimitCache();
   });
 
   it.skipIf(!hasRealDb)('blocks the (N+1)-th request within the window', async () => {
-    // The LRU short-circuit may absorb 1 call per fresh-LRU window (when count
-    // is below 50% of max). Using max=5, the LRU masks exactly 1 call, so we
-    // make 6 calls to ensure the DB counter reaches 5 (all 5 allowed slots
-    // consumed) before the final blocked-check call.
+    // Written when an LRU short-circuit could absorb a call (removed in R-175).
+    // Every call now reaches the DB: the 5 calls use the 5 slots, the 6th is
+    // already over the limit, and the 7th is the one asserted.
     for (let i = 0; i < 5; i++) {
       await checkRateLimit(KEY, { max: 5, windowSecs: 60 });
     }
-    clearRateLimitCache(); // fresh pod sees the DB state
-    await checkRateLimit(KEY, { max: 5, windowSecs: 60 }); // ensures count=5 in DB
-    clearRateLimitCache(); // another fresh pod
+    clearRateLimitCache(); // no-op since R-175
+    await checkRateLimit(KEY, { max: 5, windowSecs: 60 }); // count=6 in DB
+    clearRateLimitCache(); // no-op since R-175
     const blocked = await checkRateLimit(KEY, { max: 5, windowSecs: 60 });
     expect(blocked).toBe(false);
   });
@@ -106,10 +106,9 @@ describe('checkRateLimit — Neon-backed persistence (BL-21)', () => {
   });
 
   it.skipIf(!hasRealDb)('two independent callers share the same counter (cross-pod)', async () => {
-    // "Pod A" makes 4 calls. The LRU short-circuit may absorb at most 1
-    // (count < 50% of max=5 → only when count=1), so DB sees at least 3.
+    // "Pod A" makes 4 calls. All 4 reach the DB (no LRU since R-175).
     for (let i = 0; i < 4; i++) await checkRateLimit(KEY, { max: 5, windowSecs: 60 });
-    // Simulate "pod B" with an empty LRU (fresh process/pod).
+    // "Pod B" — a no-op since R-175; pods share nothing but the table.
     clearRateLimitCache();
     // Pod B makes 3 more calls. DB counter is shared, so it accumulates.
     // Total DB increments >= 6 (> max=5), last call must be blocked.
@@ -132,7 +131,7 @@ describe('checkRateLimit — Neon-backed persistence (BL-21)', () => {
   it.skipIf(!hasRealDb)(
     'rejects a single high-cost call that alone would exceed max, without ever admitting via the LRU fast path',
     async () => {
-      // Prime the LRU with a low count so the (pre-fix) fast-path guard
+      // Was: prime the LRU with a low count so the (pre-R-175) fast-path guard
       // `cached.count < max*0.5` alone would have been satisfied.
       await checkRateLimit(KEY, { max: 50, windowSecs: 60, cost: 1 });
       // A single call costing more than the remaining budget must be
