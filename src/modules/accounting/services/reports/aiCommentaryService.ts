@@ -2,6 +2,8 @@
  * AI Commentary Service — Key drivers, risk assessment, executive summary.
  * Pure business logic — no database dependencies.
  */
+import { pctWithWord } from '@/lib/format/money';
+import { formatRatioOf } from './ratioPresentation';
 
 export interface ManagementPackData {
   companyName: string;
@@ -70,6 +72,14 @@ export function identifyKeyDrivers(
   return drivers.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
 }
 
+/**
+ * A risk sentence's figures, as the pack writes them. They were `toFixed`:
+ * "Gross margin -1310.8% is below 20%" — a hyphen for a minus and no
+ * grouping. A margin carries its sign in a word; a ratio is in its unit.
+ */
+const level = (pct: number): string => pctWithWord(pct, 'a positive', 'a negative');
+const ratio = (key: string, value: number): string => formatRatioOf(key, value);
+
 export function assessRiskAreas(data: ManagementPackData): RiskArea[] {
   const risks: RiskArea[] = [];
 
@@ -77,27 +87,27 @@ export function assessRiskAreas(data: ManagementPackData): RiskArea[] {
   // the figure, and there is none. Each rule below is skipped on a null.
   const currentRatio = data.balanceSheet.currentRatio;
   if (currentRatio !== null && currentRatio < 1.0) {
-    risks.push({ area: 'Liquidity Crisis', severity: 'high', description: `Current ratio ${currentRatio.toFixed(2)} is below 1.0 — unable to cover short-term obligations` });
+    risks.push({ area: 'Liquidity Crisis', severity: 'high', description: `Current ratio ${ratio('currentRatio', currentRatio)} is below ${ratio('currentRatio', 1)} — unable to cover short-term obligations` });
   } else if (currentRatio !== null && currentRatio < 1.5) {
-    risks.push({ area: 'Liquidity Pressure', severity: 'medium', description: `Current ratio ${currentRatio.toFixed(2)} is below recommended 1.5` });
+    risks.push({ area: 'Liquidity Pressure', severity: 'medium', description: `Current ratio ${ratio('currentRatio', currentRatio)} is below recommended ${ratio('currentRatio', 1.5)}` });
   }
 
   // Descending. Tested the other way round, `> 2.0` matched first and the
   // high-severity branch below was unreachable for every input — so the worst
   // gearing in the book reported as merely medium.
   if (data.balanceSheet.debtEquityRatio > 3.0) {
-    risks.push({ area: 'Leverage Crisis', severity: 'high', description: `Debt-to-equity ${data.balanceSheet.debtEquityRatio.toFixed(2)} exceeds 3.0` });
+    risks.push({ area: 'Leverage Crisis', severity: 'high', description: `Debt-to-equity ${ratio('debtToEquity', data.balanceSheet.debtEquityRatio)} exceeds ${ratio('debtToEquity', 3)}` });
   } else if (data.balanceSheet.debtEquityRatio > 2.0) {
-    risks.push({ area: 'Leverage Risk', severity: 'medium', description: `Debt-to-equity ${data.balanceSheet.debtEquityRatio.toFixed(2)} exceeds 2.0 — high financial leverage` });
+    risks.push({ area: 'Leverage Risk', severity: 'medium', description: `Debt-to-equity ${ratio('debtToEquity', data.balanceSheet.debtEquityRatio)} exceeds ${ratio('debtToEquity', 2)} — high financial leverage` });
   }
 
   const { grossMargin, netMargin } = data.ratios;
   if (grossMargin !== null && grossMargin < 20) {
-    risks.push({ area: 'Margin Pressure', severity: 'medium', description: `Gross margin ${grossMargin.toFixed(1)}% is below 20%` });
+    risks.push({ area: 'Margin Pressure', severity: 'medium', description: `Gross margin is ${level(grossMargin)}, below ${ratio('grossProfitMargin', 20)}` });
   }
 
   if (netMargin !== null && netMargin < 5) {
-    risks.push({ area: 'Profitability Risk', severity: 'medium', description: `Net margin ${netMargin.toFixed(1)}% is below 5%` });
+    risks.push({ area: 'Profitability Risk', severity: 'medium', description: `Net margin is ${level(netMargin)}, below ${ratio('netProfitMargin', 5)}` });
   }
 
   return risks;
