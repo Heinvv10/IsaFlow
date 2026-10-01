@@ -158,15 +158,18 @@ describe('the enable-online-payment route shares the standing link and its lock'
     expect((await pool.query('SELECT payment_url FROM customer_invoices WHERE id = $1', [id])).rows).toEqual([{ payment_url: null }]);
   });
 
-  it('a token is matched exactly, not as a pattern: a link whose token is "%" names nothing', async () => {
+  it('a token is matched exactly, not as a pattern: a link whose token is the named one with a "_" in it names nothing', async () => {
     const id = await invoice();
     const real = tokenOf(await payNow(id));
-    const wild = await pool.query<{ id: string }>(
-      "INSERT INTO portal_payment_links (invoice_id, client_id, amount, charges_balance, token, expires_at) SELECT invoice_id, client_id, amount, true, '%', NOW() - interval '1 day' FROM portal_payment_links WHERE token = $1 RETURNING id", [real]);
-    expect((await create('%')).statusCode).toBe(400); // expired: the invoice does not name it
+    const wild = `${real.slice(0, -1)}_`; // as a LIKE pattern this would match the invoice's payment_url
+    await pool.query(
+      `INSERT INTO portal_payment_links (invoice_id, client_id, amount, charges_balance, token, expires_at)
+       SELECT invoice_id, client_id, amount, true, $2, NOW() - interval '1 day' FROM portal_payment_links WHERE token = $1`, [real, wild]);
+    const c = await create(wild);
+    expect(c.statusCode).toBe(400);
+    expect(c.body.error?.message).toMatch(/expired/i); // the invoice does not name it
     await pool.query("UPDATE portal_payment_links SET status = 'cancelled' WHERE token = $1", [real]);
-    expect(tokenOf(await payNow(id))).not.toBe('%'); // and Pay Now does not adopt it
-    await pool.query('DELETE FROM portal_payment_links WHERE id = $1', [wild.rows[0]!.id]);
+    expect(tokenOf(await payNow(id))).not.toBe(wild); // and Pay Now does not adopt it
   });
 
   it('the service refuses to run outside a request transaction, where its lock would hold nothing', async () => {
