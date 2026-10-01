@@ -43,6 +43,7 @@ import {
   PACK_FONT_FAMILY, PACK_FONT_WEIGHTS, PACK_FOOTER_FACE_FILE, PACK_FOOTER_FONT_FAMILY,
   packFooterFaceCss,
 } from '@/lib/charts/packFont';
+import { log } from '@/lib/logger';
 import type { PackDocumentSection } from '@/modules/accounting/services/packs/packDocument';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 
@@ -192,6 +193,18 @@ export async function packFontsLoaded(target: Document): Promise<boolean> {
 }
 
 /**
+ * A font failure, said out loud. The page stays not-print-ready — that is the
+ * gate's policy — and the reason is logged and written to
+ * `<html data-print-error>` so whoever opens the print URL, or the transport
+ * once it reads it, can see why nothing rendered without waiting out a
+ * timeout.
+ */
+function reportFontFailure(reason: string): void {
+  log.error('Pack print fonts failed to load', { reason }, 'pdf');
+  document.documentElement.setAttribute('data-print-error', `fonts: ${reason}`);
+}
+
+/**
  * True once the fonts have loaded. Stays false forever when one never does —
  * see `packFontsLoaded`.
  */
@@ -203,6 +216,12 @@ function useFontsReady(): boolean {
     let live = true;
     void packFontsLoaded(document).then((loaded) => {
       if (live && loaded) setReady(true);
+      if (live && !loaded) reportFontFailure('a declared face is not available after loading');
+    }, (err: unknown) => {
+      // `loadFooterFace` and `fonts.load` reject BY DESIGN. Without this the
+      // rejection was unhandled: no log, and the page simply never became
+      // print-ready, surfacing only as the renderer's 30 s timeout.
+      if (live) reportFontFailure(err instanceof Error ? err.message : String(err));
     });
     return () => { live = false; };
   }, []);
