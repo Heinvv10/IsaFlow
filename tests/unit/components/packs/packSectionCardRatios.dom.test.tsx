@@ -64,8 +64,13 @@ describe('SectionCard ratios', () => {
     // Anti-vacuity: this fixture must put at least two reasons on the card.
     expect(shown.length).toBeGreaterThanOrEqual(2);
     open(section);
+    // The engine's own sentences (`ratioBasis.ts`), so the card cannot pass by
+    // echoing a placeholder: a base that is not positive, an input the report
+    // never read, an input read and nil, or a stated "Not stated: …".
+    const ENGINE_REASON = /is not positive, so this ratio has no meaning\.$|is not captured in this report, so this ratio cannot be stated\.$|^No .+ recorded in the period, so this ratio cannot be stated\.$|^Not stated: |^Interest income is at least interest expense|^Equity is negative — liabilities exceed assets, so this ratio inverts/;
     for (const line of shown) {
       expect(valueOf(line.label), line.label).toBe(reasons[line.key]);
+      expect(reasons[line.key], line.key).toMatch(ENGINE_REASON);
     }
     expect(document.body.textContent).not.toContain('null');
     expect(document.body.textContent).not.toContain('[object Object]');
