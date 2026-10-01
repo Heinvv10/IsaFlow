@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeft, Loader2, Receipt, Banknote } from 'lucide-react';
 import { notify } from '@/utils/toast';
+import { log } from '@/lib/logger';
 import { apiFetch, apiJson } from '@/lib/apiFetch';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
@@ -74,6 +75,9 @@ export default function NewBankTransactionPage() {
         const list: BankAcct[] = Array.isArray(data) ? data : [];
         setBankAccounts(list);
         if (list.length > 0) setForm(prev => ({ ...prev, bankAccountId: list[0]!.id }));
+      }).catch((err) => {
+        log.error('Failed to load bank accounts', { error: err }, 'accounting-ui');
+        if (mounted) notify.error('Could not load bank accounts — reload the page to try again');
       }),
       apiFetch('/api/accounting/chart-of-accounts').then(r => r.json()).then(json => {
         if (!mounted) return;
