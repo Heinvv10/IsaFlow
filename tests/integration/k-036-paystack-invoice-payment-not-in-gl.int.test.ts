@@ -250,7 +250,7 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
 
     const result = await callVerify(reference);
     expect(result.state.statusCode).toBe(200);
-    expect(verifyTransaction).toHaveBeenCalledWith(reference);
+    expect(verifyTransaction).toHaveBeenCalledWith(reference, { timeoutMs: 10_000 });
 
     await expectBalancedReceipt(INVOICE_TOTAL);
   });
