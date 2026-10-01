@@ -8,6 +8,7 @@ import { StrictMode, useState } from 'react';
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
 
 import { apiFetch } from '@/lib/apiFetch';
+import { SupplierTypeahead } from '@/components/accounting/supplier-invoices/SupplierTypeahead';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
 const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -72,6 +73,15 @@ describe('SupplierSelect', () => {
     await waitFor(() => expect(input.value).toBe('Supplier 40'), { timeout: 2000 });
     expect(input.placeholder).not.toBe('Loading supplier…');
     expect(input.getAttribute('aria-busy')).toBeNull();
+  });
+
+  it('names the clear button for the form by default and for the filter when told', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => fakeRoute(String(url)));
+    const { rerender } = render(<SupplierTypeahead selectedId="x" selectedLabel="Supplier 1" onSelect={vi.fn()} onClear={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Clear supplier' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Clear supplier filter' })).toBeNull();
+    rerender(<SupplierTypeahead selectedId="x" selectedLabel="Supplier 1" onSelect={vi.fn()} onClear={vi.fn()} clearLabel="Clear supplier filter" />);
+    expect(screen.getByRole('button', { name: 'Clear supplier filter' })).toBeTruthy();
   });
 
   it('resolves a preselected supplier under React.StrictMode (effects run twice)', async () => {
