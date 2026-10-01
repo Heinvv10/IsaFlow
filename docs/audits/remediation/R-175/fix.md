@@ -793,8 +793,8 @@ empty batch is not charged, as before. The per-IP check is a pre-auth abuse limi
 per HTTP request, so it does not have this shape and is unchanged. Calls a role-lock skip
 leaves unrun stay charged, as before. Mutants MB1 to MB4 red.
 
-`tests/unit/mcp/transport.test.ts` was already 347 lines on master (over the 300-line cap); this
-change brings it to 372. It was not split here.
+The new cases are in `tests/unit/mcp/transportBatchCharge.test.ts`. `tests/unit/mcp/transport.test.ts`,
+already 347 lines on master (over the 300-line cap), is kept at 347.
 
 ## Rollback
 

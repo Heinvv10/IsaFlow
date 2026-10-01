@@ -345,3 +345,41 @@ int: Tests  59 passed (59)
 unit: Tests  248 passed (248)
 
 DONE BASELINE MB1 MB2 MB3 MB4 MC1 MC2 MC3 P1 P2 P3 U3 BASELINE
+
+### MCP batch-charge cases moved to tests/unit/mcp/transportBatchCharge.test.ts (91e379abc); transport.test.ts back to 347 lines (its master length). MB mutants re-run:
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  249 passed (249)
+
+MB1 | pages/api/mcp/index.ts | mcp: batch charged one unit only
+int: Tests  59 passed (59)
+unit: × a batch larger than what is left is refused: nothing charged, nothing run 5ms
+unit: × the units left are still there for a batch that fits, which is charged its full count once 3ms
+unit: × a batch charges the per-company limiter its call count, once (R-175; more in transportBatchCharge) 4ms
+unit: Tests  3 failed | 246 passed (249)
+
+MB2 | pages/api/mcp/index.ts | mcp: batch charged one call at a time again, stopping at the first refusal
+int: Tests  59 passed (59)
+unit: × a batch larger than what is left is refused: nothing charged, nothing run 7ms
+unit: × the units left are still there for a batch that fits, which is charged its full count once 1ms
+unit: × per-company rate limit 120/min → -32000 when exceeded 5ms
+unit: × a batch charges the per-company limiter its call count, once (R-175; more in transportBatchCharge) 1ms
+unit: Tests  4 failed | 245 passed (249)
+
+MB3 | pages/api/mcp/index.ts | mcp: an empty batch is charged
+int: Tests  59 passed (59)
+unit: × an empty batch charges nothing 3ms
+unit: Tests  1 failed | 248 passed (249)
+
+MB4 | pages/api/mcp/index.ts | mcp: a refused batch still runs
+int: Tests  59 passed (59)
+unit: × a batch larger than what is left is refused: nothing charged, nothing run 5ms
+unit: × the units left are still there for a batch that fits, which is charged its full count once 3ms
+unit: × per-company rate limit 120/min → -32000 when exceeded 3ms
+unit: Tests  3 failed | 246 passed (249)
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  249 passed (249)
+
+DONE BASELINE MB1 MB2 MB3 MB4 BASELINE
