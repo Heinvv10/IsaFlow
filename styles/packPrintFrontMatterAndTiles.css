@@ -80,7 +80,11 @@
  * space that stops the two touching. */
 .pack-contents-list + [data-pack-block] { margin-top: 5mm; }
 .pack-contents-item { display: flex; justify-content: space-between; border-bottom: 0.5pt solid var(--pack-rule); padding: 1mm 0; }
-.pack-contents-number { font-family: var(--pack-font-figure); color: var(--pack-grey-mid); margin-right: 3mm; }
+/* A COLUMN TWO FIGURES WIDE, numbers set to its right. It took each number's
+ * own width, so "10" to "12" pushed their titles further in than "1" to "9"
+ * and the last three rows read as sub-entries. The figures are tabular
+ * (`packPrintPage.css`), so 2ch is exactly two of them. */
+.pack-contents-number { font-family: var(--pack-font-figure); color: var(--pack-grey-mid); margin-right: 3mm; flex: none; width: 2ch; text-align: right; }
 .pack-contents-title { flex: 1; }
 
 .pack-section-divider {
