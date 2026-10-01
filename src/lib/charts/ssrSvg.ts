@@ -10,6 +10,7 @@
  * than reading `document` themselves: that is what makes them callable here.
  * Keep it that way.
  */
+import { normaliseOptionText } from './normaliseOptionText';
 import { createHash } from 'node:crypto';
 
 import { echarts } from '@/lib/charts/echarts';
@@ -203,7 +204,7 @@ export function renderChartSvg(
     // can still say so; nothing in the pack does.
     chart.setOption({
       textStyle: { fontFamily: PACK_FONT_STACK },
-      ...(option as Record<string, unknown>),
+      ...(normaliseOptionText(option) as Record<string, unknown>),
       // `animation: false` is defensive, not load-bearing. Under `ssr: true`
       // zrender draws a complete frame regardless — measured: bar heights are
       // identical with the flag true, false, or absent. It is kept because the
