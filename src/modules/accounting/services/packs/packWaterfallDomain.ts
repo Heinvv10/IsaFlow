@@ -77,6 +77,10 @@ export interface WaterfallLayout {
 }
 
 const MAX_PASSES = 16;
+/** The plots a round axis may be given up on, in steps they hold, and the
+ *  gain in the bridge's height that buys it. */
+const TIGHT_BUDGET = 3;
+const TIGHT_GAIN = 1.25;
 /** How many lines out a figure may be staggered before the type is set a
  *  size smaller instead. */
 const MAX_STAGGER = 2;
@@ -129,11 +133,10 @@ function overrun(steps: WaterfallStep[], domain: AxisDomain, plotPx: number, fit
   const valueAt = (px: number) => domain.max - (px / plotPx) * (domain.max - domain.min);
   // In pixels, so float residue at a domain of a trillion is not a reach.
   const slack = 1e-6;
-  const reach = placed.flatMap((p) => {
-    if (p.inside) return [];
-    const far = p.below ? p.top + fontPx + NIL_STEP_RULE_PX : p.top - NIL_STEP_RULE_PX;
-    return (p.below ? far > plotPx + slack : far < -slack) ? [valueAt(far)] : [];
-  });
+  // The figure's own box, as `placeFigures` measured its room — a pixel more
+  // here than there asked the axis for room the placement never needed.
+  const outside = placed.filter((p) => !p.inside).map((p) => ({ p, far: p.below ? p.top + fontPx : p.top }));
+  const reach = outside.flatMap(({ p, far }) => ((p.below ? far > plotPx + slack : far < -slack) ? [valueAt(far)] : []));
   return { reach, level: Math.max(0, ...placed.map((p) => p.level)) };
 }
 
@@ -143,6 +146,35 @@ function ticksRepeat(domain: AxisDomain, fit?: FigureFit): boolean {
   const step = (domain.max - domain.min) / domain.splitNumber;
   const printed = Array.from({ length: domain.splitNumber + 1 }, (_, i) => fit.tickText!(domain.min + i * step));
   return new Set(printed).size !== printed.length;
+}
+
+/**
+ * The smallest domain that gives every figure its room, its ends rounded
+ * outward — drawn as one step, labelled at its two ends. Grown toward the
+ * figures' reach with a little overshoot, so it stops; null if it does not.
+ */
+function tightDomain(steps: WaterfallStep[], plotPx: number, fit: FigureFit | undefined, fontPx: number): AxisDomain | null {
+  const ends = steps.flatMap((step) => [step.start, step.end]);
+  let lo = Math.min(0, ...ends);
+  let hi = Math.max(0, ...ends);
+  if (!(hi > lo)) return null;
+  for (let pass = 0; pass < MAX_PASSES * 2; pass += 1) {
+    // Rounded outward at a tenth of the span: ends a reader can take in.
+    const round = axisDomain([lo, hi], 10);
+    const domain = { min: round.min, max: round.max, splitNumber: 1, interval: round.max - round.min };
+    const over = overrun(steps, domain, plotPx, fit, fontPx);
+    if (over.reach.length === 0) return over.level <= MAX_STAGGER ? domain : null;
+    const margin = (domain.max - domain.min) * 0.02;
+    lo = Math.min(lo, ...over.reach.map((r) => r - margin));
+    hi = Math.max(hi, ...over.reach.map((r) => r + margin));
+  }
+  return null;
+}
+
+/** The share of the axis the tallest bar spans. */
+function drawnShare(steps: WaterfallStep[], domain: AxisDomain): number {
+  const span = domain.max - domain.min;
+  return span > 0 ? Math.max(0, ...steps.map((s) => Math.abs(s.end - s.start))) / span : 0;
 }
 
 /** Whether every outside figure has room on its own side of its bar. */
@@ -205,7 +237,21 @@ export function waterfallLayout(
   const sizes = fit?.plotWidthPx === undefined ? [LABEL_LINE_PX] : FIGURE_SIZES_PX;
   let chosen = settle(sizes[0]!);
   for (const size of sizes.slice(1)) if (!chosen.clear) chosen = settle(size);
+  // ON A PLOT WITH ROOM FOR THREE STEPS OR FEWER, a round step can cost the
+  // bridge most of its height. Where the figures' headroom is most of the
+  // plot, every widening for it coarsens the round step and the coarser step
+  // needs more widening: a 49px plot under a long plug name ran its axis to
+  // (10 000)..10 000 for figures under two thousand, and drew the tallest bar
+  // 4.7px tall. The domain the figures actually need, its ends rounded and
+  // labelled, draws it about 36px. Where that draws the bridge a quarter
+  // taller or more, it is the axis: one step, every figure with its room, a
+  // rule through a figure covered by its ground. (Not for less: the round
+  // axis's gridlines are worth a few pixels.)
   let domain = chosen.domain;
+  if (budget <= TIGHT_BUDGET) {
+    const tight = tightDomain(steps, plotPx, fit, chosen.fontPx);
+    if (tight !== null && !ticksRepeat(tight, fit) && drawnShare(steps, tight) >= TIGHT_GAIN * drawnShare(steps, domain)) domain = tight;
+  }
   // A PLOT TOO SHORT FOR TWO LEGIBLE STEPS draws one. The ask cannot go
   // below one, and the rounding can still return two or three; the bounds
   // stay, and the axis labels its two ends only.
