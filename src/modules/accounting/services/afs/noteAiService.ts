@@ -1,7 +1,7 @@
 // src/modules/accounting/services/afs/noteAiService.ts
 import Anthropic from '@anthropic-ai/sdk';
 import { log } from '@/lib/logger';
-import { markQuotaUsed, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
+import { markAnthropicUsedUnlessNoWork, markQuotaUsed } from '@/lib/quotaUse';
 import type { NoteContent, SectionType, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
 
 export interface CompanyContext {
@@ -36,7 +36,7 @@ export async function generateNoteNarrative(
 
     return response.content[0]?.type === 'text' ? response.content[0].text : '';
   } catch (err) {
-    markQuotaUsedUnlessNoWork('ai', err);
+    markAnthropicUsedUnlessNoWork(err);
     const message = err instanceof Error ? err.message : String(err);
     log.error('AI narrative generation failed', { sectionType, companyName: companyContext.name, error: message }, 'noteAiService');
     throw new Error(`AI narrative generation failed: ${message}`);

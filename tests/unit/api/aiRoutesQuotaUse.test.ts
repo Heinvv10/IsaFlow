@@ -63,10 +63,11 @@ describe.each(ROUTES)('$name — the daily AI unit is used only when the provide
     expect(checkAi.mock.calls[0]![3]).toMatchObject({ refundUnused: true });
   });
 
-  it.each([[400, 0], [401, 0], [429, 0], [408, 1], [500, 1], [502, 1], [529, 1]])('answers 200 with its fallback after a provider %i, and uses %i unit', async (status, units) => {
+  it.each([[400, 0], [401, 0], [429, 0], [529, 0], [408, 1], [500, 1], [502, 1], [503, 1]])('answers 200 with its fallback after a provider %i, and uses %i unit', async (status, units) => {
     fetchMock.mockResolvedValue({ ok: false, status });
 
-    // A 4xx refused the request; a 5xx may follow the provider's work, a 408 is a timeout.
+    // A 4xx refused the request, and so did Anthropic's own 529 (overloaded); a 5xx may follow
+    // the provider's work, a 408 is a timeout.
     expect(await unitsUsed(route)).toBe(units);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(apiResponse.success).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ aiGenerated: false }));

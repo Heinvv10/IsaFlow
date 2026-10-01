@@ -92,7 +92,8 @@ describe('where usage-quota use is recorded (R-175)', () => {
       })).toEqual({ ai: 1, send: 0 });
     });
 
-    it.each([[400, 0], [429, 0], [408, 1], [503, 1]])('after a provider %i answer, records %i AI use', async (status, ai) => {
+    // vLLM (OpenAI-compatible) documents no not-processed status: its 529 is a 5xx like any other.
+    it.each([[400, 0], [429, 0], [408, 1], [503, 1], [529, 1]])('after a provider %i answer, records %i AI use', async (status, ai) => {
       fetchMock.mockResolvedValue({ ok: false, status, text: async () => 'no' });
       expect(await used(async () => {
         expect(await callVlmChat(VLM, 'sys', [])).toBeNull();
@@ -127,8 +128,13 @@ describe('where usage-quota use is recorded (R-175)', () => {
       expect(await used(() => generateNoteNarrative(...NOTE))).toEqual({ ai: 0, send: 0 });
     });
 
-    it('records one AI use on a 5xx answer: it may come after the work', async () => {
+    it('records nothing on an Anthropic 529 (overloaded): the request was turned away', async () => {
       createMessage.mockRejectedValue(Object.assign(new Error('529 overloaded'), { status: 529 }));
+      expect(await used(() => generateNoteNarrative(...NOTE))).toEqual({ ai: 0, send: 0 });
+    });
+
+    it('records one AI use on any other 5xx: it may come after the work', async () => {
+      createMessage.mockRejectedValue(Object.assign(new Error('500 api_error'), { status: 500 }));
       expect(await used(() => generateNoteNarrative(...NOTE))).toEqual({ ai: 1, send: 0 });
     });
 
@@ -141,6 +147,18 @@ describe('where usage-quota use is recorded (R-175)', () => {
       createMessage.mockRejectedValue(Object.assign(new Error('Request timed out.'), { name: 'APIConnectionTimeoutError' }));
       expect(await used(() => generateNoteNarrative(...NOTE))).toEqual({ ai: 1, send: 0 });
     });
+  });
+
+  it('the Anthropic rule differs from the general one only at 529', async () => {
+    const { markAnthropicUsedForStatus, markAnthropicUsedUnlessNoWork, markQuotaUsedForStatus } = await import('@/lib/quotaUse');
+    for (const status of [400, 408, 429, 500, 502, 503, 504, 529]) {
+      const general = await used(async () => markQuotaUsedForStatus('ai', status));
+      const anthropic = await used(async () => markAnthropicUsedForStatus(status));
+      const thrown = await used(async () => markAnthropicUsedUnlessNoWork(Object.assign(new Error('x'), { status })));
+      expect({ status, anthropic, thrown }).toEqual({ status, anthropic: status === 529 ? { ai: 0, send: 0 } : general, thrown: anthropic });
+    }
+    // A thrown error with no status keeps the timeout rule: it counts.
+    expect(await used(async () => markAnthropicUsedUnlessNoWork(new Error('Request timed out.')))).toEqual({ ai: 1, send: 0 });
   });
 
   it('use recorded outside any request is dropped, not an error', () => {

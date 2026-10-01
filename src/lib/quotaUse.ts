@@ -67,6 +67,27 @@ export function markQuotaUsedForStatus(kind: QuotaKind, status: number): void {
 }
 
 /**
+ * Anthropic's 529. https://platform.claude.com/docs/en/api/errors lists it as
+ * "529 - overloaded_error: The API is temporarily overloaded." It does not say
+ * in so many words that the request was not processed; it is treated as no
+ * work because it is Anthropic's own code for turning a request away under load
+ * (a proxy does not produce it, unlike a 502/503/504), and an overload is the
+ * outage these refunds exist for. Every other status follows
+ * `markQuotaUsedForStatus`. For the callers of api.anthropic.com only.
+ */
+const ANTHROPIC_OVERLOADED = 529;
+
+/** `markQuotaUsedForStatus` for an Anthropic answer: a 529 is no work. */
+export function markAnthropicUsedForStatus(status: number): void {
+  if (status !== ANTHROPIC_OVERLOADED) markQuotaUsedForStatus('ai', status);
+}
+
+/** `markQuotaUsedUnlessNoWork` for a thrown Anthropic SDK error: a 529 is no work. */
+export function markAnthropicUsedUnlessNoWork(err: unknown): void {
+  if ((err as { status?: unknown } | null)?.status !== ANTHROPIC_OVERLOADED) markQuotaUsedUnlessNoWork('ai', err);
+}
+
+/**
  * Called when a provider call THREW. The unit is used unless the error proves
  * no work was done: the request never reached the provider (NEVER_SENT), or
  * the provider refused it (`err.status`, as the Anthropic SDK and the Signum
