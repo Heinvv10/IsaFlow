@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { als } from '@/lib/als';
 import { getPoolForTests, sql } from '@/lib/neon';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
+import { getBankTransactions } from '@/modules/accounting/services/gl/transactionLedgerService';
 import { getAccountTransactions } from '@/modules/accounting/services/gl/accountTransactionsService';
 import { getGeneralLedgerReport } from '@/modules/accounting/services/gl/generalLedgerReportService';
 import { getGeneralLedgerLines } from '@/modules/accounting/services/gl/generalLedgerStreamService';
@@ -192,4 +193,22 @@ describe('ledger paging and ordering (Postgres)', async () => {
       expect(served).toEqual(seq.map(x => x[0]));
     });
   }, 60000);
+
+  // Round 7: the Bank Transactions report is the same kind of listing (one account, per-row running
+  // balance) over the same journals, so a bank account must show the same row order and balances there.
+  it.skipIf(!reachable)('getBankTransactions orders and balances a bank account exactly as the account ledger does', async () => {
+    const js = [
+      j('2026-04-10', [[BANK, 100, 0], [EXP, 0, 100]], null),
+      j('2026-04-10', [[BANK, 0, 7], [EXP, 7, 0]], '2026-04-10T08:00:00Z'),
+      j('2026-04-10', [[BANK, 3, 0], [EXP, 0, 3]], '2026-04-10T09:00:00Z'),
+      j('2026-04-10', [[BANK, 0, 1], [EXP, 1, 0]], null),
+    ];
+    await withData(js, async () => {
+      const ledger = await getAccountLedger({ companyId: A, accountCode: '1100', fromDate: '2026-04-01', toDate: '2026-04-30', limit: 500 });
+      const bank = await getBankTransactions(A, '2026-04-01', '2026-04-30', '1100');
+      expect(bank.transactions.map(t => [t.deposit - t.withdrawal, t.runningBalance]))
+        .toEqual(ledger.rows.map(r => [r.debit - r.credit, r.runningBalance]));
+    });
+  }, 60000);
 });
+

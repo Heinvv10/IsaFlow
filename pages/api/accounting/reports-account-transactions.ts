@@ -30,7 +30,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const { account_code, period_start, period_end } = req.query;
-    if (!account_code || !period_start || !period_end) {
+    if (typeof account_code !== 'string' || !account_code || !period_start || !period_end) {
       return apiResponse.badRequest(res, 'account_code, period_start, and period_end required');
     }
     if (!isLedgerDate(period_start) || !isLedgerDate(period_end)) {

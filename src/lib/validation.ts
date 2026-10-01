@@ -74,11 +74,32 @@ export function safeInt(value: unknown, fallback: number, max = 1000): number {
   return isNaN(n) ? fallback : Math.min(Math.max(n, 1), max);
 }
 
-/** True when a string, or any string inside an array/object, contains a NUL byte (Postgres text cannot hold one: 22021). */
-export function hasNul(value: unknown, depth = 0): boolean {
-  if (typeof value === 'string') return value.includes('\u0000');
-  if (depth > 6 || value === null || typeof value !== 'object') return false;
-  return Object.values(value as Record<string, unknown>).some(v => hasNul(v, depth + 1));
+const NUL_MAX_DEPTH = 8;
+const NUL_MAX_NODES = 100000;
+
+/**
+ * True when a string, an object key, or any value inside an array/object contains a NUL byte
+ * (Postgres text cannot hold one: 22021). Also true when the input is too deep or too large to
+ * vouch for — it refuses rather than stop looking. Iterative, bounded, never throws (a cycle is
+ * cut by the node budget).
+ */
+export function hasNul(value: unknown): boolean {
+  const stack: Array<[unknown, number]> = [[value, 0]];
+  let seen = 0;
+  while (stack.length > 0) {
+    const [v, depth] = stack.pop()!;
+    seen += 1;
+    if (seen > NUL_MAX_NODES || depth > NUL_MAX_DEPTH) return true;
+    if (typeof v === 'string') {
+      if (v.includes('\u0000')) return true;
+    } else if (v !== null && typeof v === 'object') {
+      for (const [k, child] of Object.entries(v as Record<string, unknown>)) {
+        if (k.includes('\u0000')) return true;
+        stack.push([child, depth + 1]);
+      }
+    }
+  }
+  return false;
 }
 
-export const NUL_MESSAGE = 'text parameters must not contain a NUL (\\u0000) character';
+export const NUL_MESSAGE = 'text must not contain a NUL (\\u0000) character, and arguments must not nest deeper than 8 levels or hold more than 100000 values';

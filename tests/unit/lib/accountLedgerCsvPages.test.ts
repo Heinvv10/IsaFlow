@@ -83,9 +83,14 @@ describe('buildAccountLedgerCsv across pages', () => {
     expect(buildAccountLedgerCsv(meta, all, 100, 12)).toBe(buildAccountLedgerCsv(meta, all, 100, 12, { page: 1, totalPages: 1 }));
   });
 
-  it('a page past the end (no rows) falls back to the ledger figures', () => {
+  it('a page past the end (no rows) is brought forward = closing = the period closing balance', () => {
     const empty = buildAccountLedgerCsv(meta, [], 100, 12, { page: 4, totalPages: 3 });
-    expect(sentinel(empty, 'first').balance).toBe(100);
-    expect(sentinel(empty, 'last').balance).toBe(12);
+    expect(sentinel(empty, 'first')).toEqual({ label: 'Balance Brought Forward', balance: 12 });
+    expect(sentinel(empty, 'last')).toEqual({ label: 'Closing Balance', balance: 12 });
+  });
+
+  it('an empty first page (no movement) still opens at the ledger opening', () => {
+    const empty = buildAccountLedgerCsv(meta, [], 100, 100, { page: 1, totalPages: 1 });
+    expect(sentinel(empty, 'first')).toEqual({ label: 'Opening Balance', balance: 100 });
   });
 });

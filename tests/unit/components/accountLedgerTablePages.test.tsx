@@ -46,6 +46,19 @@ describe('AccountLedgerTable page boundaries match the CSV', () => {
       expect(csv[csv.length - 1]).toContain(closeValue.toFixed(2));
     }, 10000);
 
+  it('a page past the end shows the balance carried to the period close on screen and in the CSV', () => {
+    const { container } = render(<AccountLedgerTable rows={[]} openingBalance={100} periodClosingBalance={12} page={4} totalPages={3}
+      onPageChange={() => undefined} normalBalance="credit" />);
+    const cells = Array.from(container.querySelectorAll('tbody tr')).map(tr => tr.textContent ?? '');
+    expect(cells[0]).toContain('Balance Brought Forward');
+    expect(cells[0]).toContain(fmt(12));
+    expect(cells[cells.length - 1]).toContain('Closing Balance');
+    expect(cells[cells.length - 1]).toContain(fmt(12));
+    const csv = buildAccountLedgerCsv(meta, [], 100, 12, { page: 4, totalPages: 3 }).split('\n');
+    expect(csv[1]).toContain('12.00');
+    expect(csv[csv.length - 1]).toContain('12.00');
+  });
+
   it('does not say Opening Balance on page 2 or Closing Balance before the last page', () => {
     render(<AccountLedgerTable rows={pages[1]!} openingBalance={100} periodClosingBalance={12} page={2} totalPages={3}
       onPageChange={() => undefined} normalBalance="credit" />);

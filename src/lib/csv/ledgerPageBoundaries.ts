@@ -26,13 +26,16 @@ export function ledgerPageBoundaries(
 ): LedgerPageBoundaries {
   const first = rows[0];
   const last = rows[rows.length - 1];
-  const fromPrevious = page > 1 && first !== undefined;
+  const fromPrevious = page > 1;
   const carriesForward = page < totalPages && last !== undefined;
+  // A later page with no rows (past the end) has no first row to read the balance from; the ledger
+  // ends at the period closing balance there, so it is brought forward AND closing.
+  const opening = first !== undefined && fromPrevious
+    ? toMoney(first.runningBalance - (normalBalance === 'debit' ? first.debit - first.credit : first.credit - first.debit))
+    : fromPrevious ? periodClosingBalance : openingBalance;
   return {
     openingLabel: fromPrevious ? 'Balance Brought Forward' : 'Opening Balance',
-    opening: fromPrevious
-      ? toMoney(first.runningBalance - (normalBalance === 'debit' ? first.debit - first.credit : first.credit - first.debit))
-      : openingBalance,
+    opening,
     closingLabel: carriesForward ? 'Balance Carried Forward' : 'Closing Balance',
     closing: carriesForward ? last.runningBalance : periodClosingBalance,
   };

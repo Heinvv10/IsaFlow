@@ -154,7 +154,8 @@ export async function getAccountTransactions(
       transactions: transactions.map(t => ({ ...t, balance: toMoney(t.balance) })),
     };
   } catch (err) {
-    log.error('Failed to generate account transactions', { error: err }, 'accounting');
+    // An unknown account is an expected refusal (a 404 upstream), not an error event.
+    (err instanceof LedgerAccountNotFoundError ? log.warn : log.error)('Failed to generate account transactions', { error: err }, 'accounting');
     throw err;
   }
 }
