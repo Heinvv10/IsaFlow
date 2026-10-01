@@ -201,7 +201,14 @@ export async function packFontsLoaded(target: Document): Promise<boolean> {
  */
 function reportFontFailure(reason: string): void {
   log.error('Pack print fonts failed to load', { reason }, 'pdf');
-  document.documentElement.setAttribute('data-print-error', `fonts: ${reason}`);
+  markPrintError(`fonts: ${reason}`);
+}
+
+/** Tell the renderer this page will never become print-ready. The prefix
+ *  (`fonts:`, `pages:`) says which producer; the transport fails the render on
+ *  the attribute rather than waiting out its timeout. */
+export function markPrintError(reason: string): void {
+  document.documentElement.setAttribute('data-print-error', reason);
 }
 
 /**

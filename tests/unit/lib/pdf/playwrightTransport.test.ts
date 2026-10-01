@@ -83,6 +83,11 @@ describe('playwrightTransport — a print page that reports it cannot render', (
     await expect(playwrightTransport.render(request)).rejects.toThrow(/cannot render: fonts: footer face unreachable/);
   });
 
+  it('carries a pages-fetch refusal through with its status', async () => {
+    launchMock.mockResolvedValue(makeBrowser('pages: HTTP 422'));
+    await expect(playwrightTransport.render(request)).rejects.toThrow(/cannot render: pages: HTTP 422$/);
+  });
+
   it('waits on ready OR error: the predicate is true for either, false for neither', async () => {
     waitCalls.length = 0;
     launchMock.mockResolvedValue(makeBrowser(null));
