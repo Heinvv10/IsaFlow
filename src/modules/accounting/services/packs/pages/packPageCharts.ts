@@ -558,7 +558,11 @@ function positionCompositionTitle(current: PackFigureSet['current'], scale: Mone
 }
 
 /** Page 7 — assets beside the funding that stands behind them, per period. */
-export function buildPositionCompositionChart(set: PackFigureSet, scale: MoneyScale): PackChartSpec {
+export function buildPositionCompositionChart(
+  set: PackFigureSet,
+  scale: MoneyScale,
+  box: ChartBox = MID,
+): PackChartSpec {
   const { current, prior } = set;
   const periods = prior ? ['Prior', 'Current'] : ['Current'];
   const at = (pick: (f: typeof current) => number): number[] =>
@@ -593,7 +597,9 @@ export function buildPositionCompositionChart(set: PackFigureSet, scale: MoneySc
   // negative, so it was already here), and the two companies' balance sheets
   // are the same shape rather than two heights decided by the sign of one
   // figure.
-  const box = MID;
+  //
+  // `box` is MID unless the page MEASURED itself short — see
+  // `positionCompositionChartAtHeight`.
   const compositionTitle = positionCompositionTitle(current, scale);
   const compositionPlot = svgBoxFor(box, compositionTitle);
 
@@ -607,3 +613,29 @@ export function buildPositionCompositionChart(set: PackFigureSet, scale: MoneySc
   };
 }
 
+/**
+ * The shortest the composition chart is drawn. Below this its y-axis ticks
+ * close up toward the overprinting the bottom rung had — 48mm is where
+ * `(1 000)`, `(2 000)` and `(3 000)` printed on top of one another, and at
+ * 60mm the live demo company's ticks are still 10.9px apart at 12px type.
+ * Held by `packChartAxisLegibility.test.ts`, at this height.
+ */
+export const POSITION_CHART_FLOOR_MM = 63;
+
+/**
+ * PAGE 7'S CHART AT THE HEIGHT ITS SHEET HAS LEFT, or null where that is
+ * under the floor.
+ *
+ * `profitBridgeAtHeight`'s construction, in the other direction: the middle
+ * rung is the starting height and the paper decides the last few millimetres.
+ * Whole millimetres, for the reason given there.
+ */
+export function positionCompositionChartAtHeight(
+  set: PackFigureSet,
+  scale: MoneyScale,
+  heightMm: number,
+): PackChartSpec | null {
+  const target = Math.floor(Math.min(MID.heightMm, heightMm));
+  if (target < POSITION_CHART_FLOOR_MM) return null;
+  return buildPositionCompositionChart(set, scale, { widthMm: CHART_MEASURE_MM, heightMm: target });
+}

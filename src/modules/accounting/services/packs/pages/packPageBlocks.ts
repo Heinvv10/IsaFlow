@@ -30,6 +30,7 @@ import { trendWindowNote } from './packTrendCrossReference';
 import { formatDays, formatMoney, formatPctLevel, inProse, type MoneyScale } from '@/lib/format/money';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { ROUNDING_COMPONENTS_NOTE } from './packBasis';
+import { TOTAL_EQUITY_AND_LIABILITIES_KEY } from './packStatementTables';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type {
@@ -378,7 +379,11 @@ export function impossibleBalanceLines(
   position: PackTable,
   set: PackFigureSet,
 ): ImpossibleBalanceLine[] {
+  // The closing total is left out BY KEY: its label ends in "liabilities" and
+  // it is the sum of two sides, not a balance held on either. It is negative
+  // exactly when total assets are, and that row is already named.
   const tabulated = position.rows
+    .filter((row) => row.key !== TOTAL_EQUITY_AND_LIABILITIES_KEY)
     .filter((row) => /assets$|liabilities$/i.test(row.label))
     .map((row) => ({ label: row.label, amount: row.figures.actual?.value ?? 0 }));
   const memorandum = [

@@ -269,19 +269,45 @@ export function buildIncomeStatementTable(set: PackFigureSet, p: PackFigureProve
   ], set, true);
 }
 
-/** Page 7 — the position, current/non-current split on both sides. */
+/**
+ * What the closing row of page 7 is issued as. Exported so the identity that
+ * holds it to the two totals above it names the source rather than a copy.
+ */
+export const TOTAL_EQUITY_AND_LIABILITIES_SOURCE = 'packStatementTables.totalEquityAndLiabilities';
+
+/** That row's key. It is a total OF two sides, not a line on either, and its
+ *  label ends in "liabilities" — so a reader that sorts rows into sides by
+ *  label has to be able to leave it out by name. */
+export const TOTAL_EQUITY_AND_LIABILITIES_KEY = 'sofp.totalEquityAndLiabilities';
+
+/**
+ * Page 7 — the position, current/non-current split on both sides.
+ *
+ * EQUITY BEFORE LIABILITIES, CLOSING ON THEIR COMBINED TOTAL — the order
+ * `toBalanceSheetRows` and `toManagementBsRows` print on screen, in the AFS
+ * and in the legacy pack. This table had liabilities first and closed on
+ * Total equity, so the pack and the statement it summarises laid one balance
+ * sheet out two ways, and the pack never printed the figure a reader checks
+ * against Total assets.
+ *
+ * The closing total is DERIVED, on the same terms as the statement layer's:
+ * the classifier has no field for it. `packStatementIdentities` holds it to
+ * the two totals it is the sum of.
+ */
 export function buildPositionTable(set: PackFigureSet, p: PackFigureProvenance): PackTable {
   const { current, prior } = set;
   const nonCurrentAssets = (f: ReportPackFigures): number => f.totalAssets - f.currentAssets;
   const nonCurrentLiabilities = (f: ReportPackFigures): number => f.totalLiabilities - f.currentLiabilities;
+  const equityAndLiabilities = (f: ReportPackFigures): number => f.totalEquity + f.totalLiabilities;
   return buildTable(p, [
     { label: 'Current assets', key: 'sofp.currentAssets', source: 'packFigureSet.current.currentAssets', level: 1, actual: current.currentAssets, prior: prior?.currentAssets ?? null },
     { label: 'Non-current assets', key: 'sofp.nonCurrentAssets', source: 'packStatementTables.nonCurrentAssets', level: 1, actual: nonCurrentAssets(current), prior: prior ? nonCurrentAssets(prior) : null },
     { label: 'Total assets', key: 'sofp.totalAssets', source: 'packFigureSet.current.totalAssets', role: 'subtotal', actual: current.totalAssets, prior: prior?.totalAssets ?? null },
+    { label: 'Total equity', key: 'sofp.totalEquity', source: 'packFigureSet.current.totalEquity', role: 'subtotal', actual: current.totalEquity, prior: prior?.totalEquity ?? null },
     { label: 'Current liabilities', key: 'sofp.currentLiabilities', source: 'packFigureSet.current.currentLiabilities', level: 1, actual: current.currentLiabilities, prior: prior?.currentLiabilities ?? null },
     { label: 'Non-current liabilities', key: 'sofp.nonCurrentLiabilities', source: 'packStatementTables.nonCurrentLiabilities', level: 1, actual: nonCurrentLiabilities(current), prior: prior ? nonCurrentLiabilities(prior) : null },
     { label: 'Total liabilities', key: 'sofp.totalLiabilities', source: 'packFigureSet.current.totalLiabilities', role: 'subtotal', actual: current.totalLiabilities, prior: prior?.totalLiabilities ?? null },
-    { label: 'Total equity', key: 'sofp.totalEquity', source: 'packFigureSet.current.totalEquity', role: 'total', actual: current.totalEquity, prior: prior?.totalEquity ?? null },
+    { label: 'Total equity and liabilities', key: TOTAL_EQUITY_AND_LIABILITIES_KEY, source: TOTAL_EQUITY_AND_LIABILITIES_SOURCE, role: 'total', actual: equityAndLiabilities(current), prior: prior ? equityAndLiabilities(prior) : null },
   ], set, false);
 }
 

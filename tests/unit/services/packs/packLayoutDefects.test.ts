@@ -109,11 +109,14 @@ describe('no impossible balance on the balance sheet goes unremarked', () => {
     return null;
   };
 
-  /** Every asset or liability line the sheet prints below zero. */
+  /** Every asset or liability line the sheet prints below zero. The closing
+   *  "Total equity and liabilities" is neither — it is the sum of two sides,
+   *  negative exactly when Total assets is, and that row is named already. */
   const impossibleRows = (input: BoardPackInput): string[] => {
     const block = pageNamed(input, 'Balance sheet').blocks.find((b) => b.kind === 'table')!;
     const rows = block.kind === 'table' ? block.table.rows : [];
     return rows
+      .filter((r) => r.label !== 'Total equity and liabilities')
       .filter((r) => /assets$|liabilities$/i.test(r.label) && (r.figures.actual?.value ?? 0) < 0)
       .map((r) => r.label);
   };

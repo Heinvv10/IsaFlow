@@ -45,6 +45,7 @@ import {
   buildCashTrendChart,
   buildCashWaterfallChart,
   buildPositionCompositionChart,
+  positionCompositionChartAtHeight,
   buildTrendPanels,
   TRENDS_PANELS_SPECIFIED,
 } from './packPageCharts';
@@ -70,6 +71,7 @@ import { withDerivedMatters } from './packDerivedMatters';
 import { partialMonthClauseFor, partialMonthOf } from './packPartialMonth';
 import { selectPrintedMatters } from './packMattersPrinted';
 import { fitPageToBox } from './packPageFit';
+import { pageBoxMm, pageMm } from './packPageMetrics';
 import { relaidNarrative } from './packNarrativeLayout';
 import { definitionsPrintedBy } from './packDefinitions';
 import {
@@ -106,6 +108,7 @@ import {
 } from './packReceivablesReconciliation';
 import type { PackDraftReason } from './packDraftStatus';
 import type {
+  PackChartSpec,
   PackComparativePeriod,
   PackTable,
   PackNarrative,
@@ -375,9 +378,35 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       statementNotes.length + 1),
     (row) => row.label.toLowerCase() === 'current liabilities', statementNotes.length + 1,
   );
-  const positionBlocks = buildPositionBlocks(
-    positionTable, buildPositionCompositionChart(set, scale), set, scale, page7Impossible,
+  // PAGE 7, AS A FUNCTION OF THE CHART ON IT — the construction page 6 uses
+  // for its bridge. It carries the two balances the day counts are taken on
+  // as a footnote — see `packTradeBalances.ts` for why it is a footnote
+  // rather than two memorandum rows, and what that cost.
+  const positionSheet = (chart: PackChartSpec): UnnumberedPage => page(
+    positionTitle(set, scale), 'Balance sheet', 'Financials', 'high',
+    buildPositionBlocks(positionTable, chart, set, scale, page7Impossible),
+    'portrait',
+    [...statementNotes, tradeBalancesFootnote(set, scale, statementNotes.length + 1)],
   );
+  // AND THE CHART GIVES BACK WHAT THE SHEET IS SHORT BY, MEASURED. The table
+  // gained its closing "Total equity and liabilities" row, and on a company
+  // carrying both the below-zero block and the negative-equity disclosure the
+  // sheet had under two millimetres to give it: `fitPageToBox` paid for the
+  // row out of the page's three footnotes, the trade-balances memorandum
+  // among them. The chart is the one thing here with a height the spec lets
+  // us choose, so it takes the overrun and no more — a sheet that fits keeps
+  // the middle rung, and one the shorter chart cannot rescue is left to the
+  // fitter as before.
+  const positionChart = buildPositionCompositionChart(set, scale);
+  let positionPage = positionSheet(positionChart);
+  const positionOverrun = pageMm(positionPage) - pageBoxMm(positionPage);
+  if (positionOverrun > 0) {
+    const shorter = positionCompositionChartAtHeight(set, scale, positionChart.heightMm - positionOverrun);
+    const shorterPage = shorter === null ? null : positionSheet(shorter);
+    if (shorterPage !== null && pageMm(shorterPage) <= pageBoxMm(shorterPage)) {
+      positionPage = shorterPage;
+    }
+  }
   // WHICH DESTINATION CELLS ACTUALLY CARRY A COMPARATIVE, read off the tables
   // and the scorecard this pack composed rather than off the figure set they
   // came from. Page 10's note claims "all against the comparative but gross
@@ -470,12 +499,8 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     incomeSheet,
     // PAGE 7 CARRIES THE TWO BALANCES THE DAY COUNTS ARE TAKEN ON. Debtor
     // days and creditor days print on pages 3 and 9 and their numerators
-    // printed nowhere in either pack — see `packTradeBalances.ts` for why it
-    // is a footnote rather than two memorandum rows, and what that cost.
-    page(positionTitle(set, scale), 'Balance sheet', 'Financials', 'high', positionBlocks, 'portrait', [
-      ...statementNotes,
-      tradeBalancesFootnote(set, scale, statementNotes.length + 1),
-    ]),
+    // printed nowhere in either pack — see `positionSheet` above.
+    positionPage,
     cashPage,
     scorecardPage,
     // PORTRAIT, like the other eleven. This was the one landscape sheet in

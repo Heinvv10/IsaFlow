@@ -20,7 +20,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
-import { buildCashTrendChart, buildPositionCompositionChart } from '@/modules/accounting/services/packs/pages/packPageCharts';
+import {
+  buildCashTrendChart,
+  buildPositionCompositionChart,
+  positionCompositionChartAtHeight,
+  POSITION_CHART_FLOOR_MM,
+} from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { CHART_HEIGHT_MM } from '@/lib/charts/ssrSvg';
 import { brightsphereSet, demoSet } from './fixtures/boardPackInputs';
@@ -106,6 +111,26 @@ describe("page 7's composition chart", () => {
       ).toBeGreaterThanOrEqual(size);
     });
   }
+
+  /**
+   * AND AT THE SHORTEST HEIGHT THE PAGE MAY TAKE IT TO. Page 7 hands the
+   * chart whatever its sheet is short by — see `positionCompositionChartAtHeight`
+   * — so the floor is the height this axis has to survive, not the rung.
+   */
+  for (const [name, set] of CASES) {
+    it(`stays legible at the floor for ${name}`, () => {
+      const chart = positionCompositionChartAtHeight(set, PACK_SCALE, POSITION_CHART_FLOOR_MM);
+      expect(chart, 'the floor itself is a height the chart is drawn at').not.toBeNull();
+      expect(chart!.heightMm).toBe(POSITION_CHART_FLOOR_MM);
+      const ticks = yAxisTicks(String(chart!.svg));
+      expect(ticks.length, 'no y-axis tick labels were found in the SVG').toBeGreaterThan(2);
+      expect(tightestGap(ticks)).toBeGreaterThanOrEqual(ticks[0]!.size);
+    });
+  }
+
+  it('refuses a height under the floor rather than drawing an axis that overprints', () => {
+    expect(positionCompositionChartAtHeight(demoSet, PACK_SCALE, POSITION_CHART_FLOOR_MM - 1)).toBeNull();
+  });
 
   /**
    * THE MIDDLE RUNG, ON EVERY COMPANY, AND NOT THE BOTTOM ONE.

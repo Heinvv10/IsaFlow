@@ -25,6 +25,7 @@ import type { PackPagesDocument } from '../pages/packPageModel';
 // COPY of a source name silently stops checking anything the day that source
 // is renamed.
 import { DEPRECIATION_SOURCE, EBITDA_SOURCE } from '../pages/packDefinitions';
+import { TOTAL_EQUITY_AND_LIABILITIES_SOURCE } from '../pages/packStatementTables';
 import { OPERATING_PROFIT_SOURCE } from './packMetricReads';
 import { MONEY_TOLERANCE } from './packWaterfallIntegrity';
 
@@ -64,6 +65,18 @@ const IDENTITIES: readonly Identity[] = [
     terms: [
       { source: 'packFigureSet.current.totalLiabilities', label: 'total liabilities', sign: 1 },
       { source: 'packFigureSet.current.totalEquity', label: 'total equity', sign: 1 },
+    ],
+  },
+  {
+    // The row page 7 closes on. The footing identity above proves the two
+    // sides agree; this one proves the line a reader checks against total
+    // assets IS the two totals printed above it, and not a third figure.
+    statement: 'Total equity and liabilities does not equal total equity plus total liabilities',
+    target: TOTAL_EQUITY_AND_LIABILITIES_SOURCE,
+    targetLabel: 'total equity and liabilities',
+    terms: [
+      { source: 'packFigureSet.current.totalEquity', label: 'total equity', sign: 1 },
+      { source: 'packFigureSet.current.totalLiabilities', label: 'total liabilities', sign: 1 },
     ],
   },
   {
