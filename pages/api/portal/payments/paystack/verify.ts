@@ -5,6 +5,11 @@
  * for the live state. The webhook is the canonical source of truth; this
  * endpoint is a UX-side fallback so the return page does not have to wait
  * for the webhook to arrive.
+ *
+ * Only a customer-invoice request is asked about and moved here: this route settles nothing
+ * else, and the webhook skips a request it finds already completed, so completing a Flow
+ * bundle or a subscription charge here would leave it unsettled (R-167). A failed request is
+ * asked about too: a checkout swept while starting can still be paid.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -20,6 +25,7 @@ import { recordGatewayInvoiceReceipt } from '@/modules/accounting/services/ar/ga
 interface PrRow {
   id: string;
   company_id: string;
+  purpose: string;
   customer_invoice_id: string | null;
   paystack_reference: string;
   amount_cents: string;
@@ -44,7 +50,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const rows = await sql<PrRow>`
-    SELECT pr.id, pr.company_id, pr.customer_invoice_id, pr.paystack_reference,
+    SELECT pr.id, pr.company_id, pr.purpose, pr.customer_invoice_id, pr.paystack_reference,
            pr.amount_cents, pr.status,
            ci.invoice_number, ci.total_amount::text AS invoice_total,
            ci.amount_paid::text AS invoice_amount_paid,
@@ -59,7 +65,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!pr) return apiResponse.notFound(res, 'Payment');
 
   let status = pr.status;
-  if (status === 'pending') {
+  if (pr.purpose === 'customer_invoice' && (status === 'pending' || status === 'failed')) {
     try {
       const live = await verifyTransaction(pr.paystack_reference);
       let mapped: 'completed' | 'failed' | 'cancelled' | 'pending' = 'pending';
@@ -83,7 +89,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
                 paystack_transaction_id = ${live.id ?? null},
                 paystack_authorization_code = COALESCE(${live.authorization?.authorizationCode ?? null}, paystack_authorization_code),
                 channel = COALESCE(${live.channel ?? null}, channel)
-            WHERE id = ${pr.id} AND company_id = ${pr.company_id}
+            WHERE id = ${pr.id} AND company_id = ${pr.company_id} AND purpose = 'customer_invoice'
               AND status <> 'completed' AND (${mapped} = 'completed' OR status = 'pending')
             RETURNING id
           `;
