@@ -13,13 +13,11 @@
  *
  * A row here has a figure or a reason, never both and never neither.
  */
+import { ratioLines, type RatioLine } from './ratioPresentation';
 
 export type PackValueRow =
   | { label: string; value: number; reason?: undefined }
   | { label: string; value: null; reason: string };
-
-/** Reached only if a section nulls a figure without recording why. */
-const NOT_MEANINGFUL = 'Not meaningful';
 
 const CASH_FLOW_ROWS: ReadonlyArray<[field: string, label: string]> = [
   ['operatingCashFlow', 'Operating Cash Flow'],
@@ -50,22 +48,11 @@ export function cashFlowPackRows(d: Record<string, unknown>): PackValueRow[] {
 }
 
 /**
- * Every ratio the section carries, in the order it carries them. A ratio the
- * engine or the pack marked not meaningful keeps its row and prints the
- * reason. Anything in the blob that is neither a number nor null — the
- * reasons map itself — is not a ratio and gets no row.
+ * Every ratio the section carries, in the order it carries them, each under
+ * its name and in its unit — see `ratioPresentation.ts`. A ratio the engine
+ * could not state keeps its row and prints the reason; anything in the blob
+ * that is neither a number nor null (the reasons map) gets no row.
  */
-export function ratioPackRows(d: Record<string, unknown>): PackValueRow[] {
-  const reasons = reasonsIn(d.notMeaningful);
-  const rows: PackValueRow[] = [];
-  for (const [key, value] of Object.entries(d)) {
-    const label = key.replace(/([A-Z])/g, ' $1').trim();
-    const reason = reasons[key];
-    if (reason !== undefined || value === null) {
-      rows.push({ label, value: null, reason: reason ?? NOT_MEANINGFUL });
-    } else if (typeof value === 'number') {
-      rows.push({ label, value });
-    }
-  }
-  return rows;
+export function ratioPackRows(d: Record<string, unknown>): RatioLine[] {
+  return ratioLines(d);
 }

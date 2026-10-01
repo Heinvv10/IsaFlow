@@ -55,7 +55,9 @@ describe('the day counts page 12 defines', () => {
       // Not vacuous on a company whose base is nil: `safeDiv` returns 0 and
       // both sides agree at 0 for the wrong reason, so those cases are
       // asserted to be the ones the pack reports as not meaningful instead.
-      if (data.revenue !== 0) {
+      // A base that is not positive has no day count at all — the engine
+      // states none, and the pack prints its reason. See ratioCalculations.
+      if (data.revenue > 0) {
         const days = statedDays(set, 'Debtor days');
         expect(
           (data.accountsReceivable / data.revenue) * days,
@@ -63,7 +65,7 @@ describe('the day counts page 12 defines', () => {
         ).toBeCloseTo(ratios.debtorDays, 1);
       }
 
-      if (data.costOfSales !== 0) {
+      if (data.costOfSales > 0) {
         const days = statedDays(set, 'Creditor days');
         expect(
           (data.accountsPayable / data.costOfSales) * days,

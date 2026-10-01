@@ -51,6 +51,27 @@ export interface MetricSpec {
  * Exported because page 12's caveat says the same thing about the same fact,
  * and the pack must not describe one condition two ways.
  */
+/** Reached only if the engine nulls the cycle without recording why. */
+const CYCLE_NOT_STATED = 'The cash conversion cycle could not be stated on these figures.';
+
+/**
+ * WHY THERE IS NO CYCLE, IN THE WORDS THE ROW ABOVE IT ALREADY USES.
+ *
+ * The engine states no cash conversion cycle where one of the day counts it
+ * is built from has no base. It used to: on a comparative period with
+ * negative revenue it added a negative debtor-days figure to the other two
+ * and printed the sum. The day count that failed is on this same scorecard
+ * with its own reason, so the cycle takes that reason verbatim — one lettered
+ * note for the two rows rather than a second sentence saying the same thing.
+ */
+function cycleNotStated(r: ExtendedRatioResult, raw: ReportPackFigures): PackMetricRead {
+  const debtor = readDebtorDays(r, raw);
+  if (debtor.value === null) return debtor;
+  const creditor = readCreditorDays(r, raw);
+  if (creditor.value === null) return creditor;
+  return { value: null, unavailable: r.notMeaningful.cashConversionCycle ?? CYCLE_NOT_STATED };
+}
+
 export const NO_INVENTORY_CLASSIFIED =
   'No inventory could be identified in the chart of accounts, so the cash conversion cycle cannot be computed.';
 
@@ -193,7 +214,7 @@ export const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: Metr
                 value: null,
                 unavailable: NO_INVENTORY_CLASSIFIED,
               }
-            : { value: r.cashConversionCycle },
+            : r.cashConversionCycle === null ? cycleNotStated(r, raw) : { value: r.cashConversionCycle },
       },
     ],
   },

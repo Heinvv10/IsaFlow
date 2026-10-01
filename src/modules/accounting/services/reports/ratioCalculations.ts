@@ -1,0 +1,197 @@
+/**
+ * The ratio engine: every financial ratio the reports print, computed once.
+ * Pure — no database. Moved out of `reportingEngineService.ts`, which
+ * re-exports both functions, for the 300-line limit.
+ *
+ * A RATIO IS STATED ONLY ON A POSITIVE BASE AND FROM INPUTS THAT WERE
+ * SUPPLIED. Everything else is null with a reason — see `RatioResult` and
+ * `ratioBasis.ts`. The quotients themselves are unchanged from what the
+ * engine always computed where it could compute them.
+ */
+import type { ExtendedRatioResult, FinancialData, RatioResult } from './ratioTypes';
+import {
+  dependsOnUnstated, equityBasisFailure, equityNotMeaningful, NO_FREE_CASH_FLOW,
+  NO_OPERATING_CASH_FLOW_RATIO, notPositive, notRecorded,
+} from './ratioBasis';
+
+function safeDiv(numerator: number, denominator: number): number {
+  return denominator === 0 ? 0 : Math.round((numerator / denominator) * 10000) / 10000;
+}
+
+function pct(numerator: number, denominator: number): number {
+  return Math.round(safeDiv(numerator, denominator) * 10000) / 100;
+}
+
+const r2 = (n: number): number => Math.round(n * 100) / 100;
+
+/**
+ * The operating line, from the classifier when the caller carried it. Other
+ * income is ABOVE this line; only finance cost and tax sit below. Deriving it
+ * locally is what made eight ratio endpoints disagree with the income statement.
+ */
+function operatingProfitOf(data: FinancialData): number {
+  return data.operatingProfit
+    ?? (data.revenue - data.costOfSales + (data.otherIncome ?? 0) - data.operatingExpenses);
+}
+
+/**
+ * Collects the reasons as the ratios are computed, so a null and its reason
+ * cannot be written apart: `on` and `given` are the only two ways a ratio
+ * becomes null here, and each records why under the ratio's own key.
+ */
+function ledger(seed: Record<string, string>) {
+  const why: Record<string, string> = { ...seed };
+  return {
+    why,
+    /** `compute()` where `base` is positive; otherwise null, and why. */
+    on(key: string, base: number, baseName: string, compute: () => number): number | null {
+      if (base > 0) return compute();
+      why[key] = notPositive(baseName);
+      return null;
+    },
+    /** `compute()` where no `problem` is given; otherwise null, and why. */
+    given(key: string, problem: string | null, compute: () => number): number | null {
+      if (problem === null) return compute();
+      why[key] = problem;
+      return null;
+    },
+  };
+}
+
+export function calculateFinancialRatios(data: FinancialData): RatioResult {
+  const grossProfit = data.revenue - data.costOfSales;
+  const equityFailure = equityBasisFailure(data.totalEquity);
+  const operatingProfit = operatingProfitOf(data);
+  const { why, on } = ledger(equityNotMeaningful(data.totalEquity));
+
+  return {
+    grossProfitMargin: on('grossProfitMargin', data.revenue, 'Revenue', () => pct(grossProfit, data.revenue)),
+    netProfitMargin: on('netProfitMargin', data.revenue, 'Revenue', () => pct(data.netProfit, data.revenue)),
+    operatingProfitMargin: on('operatingProfitMargin', data.revenue, 'Revenue', () => pct(operatingProfit, data.revenue)),
+    currentRatio: on('currentRatio', data.currentLiabilities, 'Current liabilities',
+      () => r2(safeDiv(data.currentAssets, data.currentLiabilities))),
+    quickRatio: on('quickRatio', data.currentLiabilities, 'Current liabilities',
+      () => r2(safeDiv(data.currentAssets - data.inventory, data.currentLiabilities))),
+    debtToEquity: equityFailure ? null : r2(safeDiv(data.totalLiabilities, data.totalEquity)),
+    returnOnAssets: on('returnOnAssets', data.totalAssets, 'Total assets', () => pct(data.netProfit, data.totalAssets)),
+    returnOnEquity: equityFailure ? null : pct(data.netProfit, data.totalEquity),
+    debtorDays: on('debtorDays', data.revenue, 'Revenue',
+      () => r2(safeDiv(data.accountsReceivable, data.revenue) * 365)),
+    creditorDays: on('creditorDays', data.costOfSales, 'Cost of sales',
+      () => r2(safeDiv(data.accountsPayable, data.costOfSales) * 365)),
+    inventoryTurnover: on('inventoryTurnover', data.inventory, 'Inventory',
+      () => r2(safeDiv(data.costOfSales, data.inventory))),
+    notMeaningful: why,
+  };
+}
+
+/** The reason an optional input stops a ratio, or null where it was supplied. */
+const missing = (value: number | undefined, what: string): string | null =>
+  (value === undefined ? notRecorded(what) : null);
+
+export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResult {
+  const base = calculateFinancialRatios(data);
+  const equityFailure = equityBasisFailure(data.totalEquity);
+  const { why, on, given } = ledger(base.notMeaningful);
+  // EBIT is the operating line: earnings before interest and tax, so other
+  // income is in and finance cost and tax are out.
+  const ebit = operatingProfitOf(data);
+  const interestExp = data.interestExpense ?? 0;
+  const interestInc = data.interestIncome ?? 0;
+  const netInterest = interestExp - interestInc;
+  const opCF = data.operatingCashFlow;
+  const capex = data.capitalExpenditure;
+  const employees = data.employeeCount ?? 0;
+  const employeeCosts = data.employeeCosts ?? 0;
+  const directMaterials = data.directMaterialCosts ?? 0;
+  const dividendsPaid = data.dividendsPaid ?? 0;
+  const capitalEmployed = data.totalAssets - data.currentLiabilities;
+  const ebitda = ebit + (data.depreciation ?? 0) + (data.amortization ?? 0);
+  const pbt = ebit - interestExp + interestInc; // Profit Before Tax
+  // Net operating assets = Total Assets - Cash - Current Liabilities
+  const netOperatingAssets = data.totalAssets - data.cash - data.currentLiabilities;
+
+  // INVENTORY DAYS IS INVENTORY OVER COST OF SALES, so its base is cost of
+  // sales — not inventory. A company that holds no stock has a turnover with
+  // no meaning and an inventory-days figure of exactly nil, and its cash
+  // conversion cycle is its debtor days less its creditor days. Where stock
+  // is held the figure is 365 over the turnover, as it always was.
+  const turnover = base.inventoryTurnover;
+  const inventoryDays = given('inventoryDays',
+    data.costOfSales > 0 ? (data.inventory < 0 ? notPositive('Inventory') : null) : notPositive('Cost of sales'),
+    () => (turnover !== null && turnover > 0 ? r2(365 / turnover) : 0));
+  const { debtorDays, creditorDays } = base;
+  const cycleParts = debtorDays === null || creditorDays === null || inventoryDays === null;
+
+  const perEmployee = (key: string, numerator: number): number | null =>
+    given(key, employees > 0 ? null : notRecorded('employee count'), () => r2(safeDiv(numerator, employees)));
+  const onNetInterest = (key: string, numerator: number): number | null =>
+    given(key, netInterest > 0 ? null : notRecorded('net interest expense'), () => r2(safeDiv(numerator, netInterest)));
+
+  return {
+    ...base,
+    // Profitability
+    ebitda: r2(ebitda),
+    ebitdaMargin: on('ebitdaMargin', data.revenue, 'Revenue', () => pct(ebitda, data.revenue)),
+    roce: on('roce', capitalEmployed, 'Capital employed', () => pct(ebit, capitalEmployed)),
+    pbitMargin: on('pbitMargin', data.revenue, 'Revenue', () => pct(ebit, data.revenue)),
+    directMaterialMargin: given('directMaterialMargin',
+      directMaterials > 0 ? (data.revenue > 0 ? null : notPositive('Revenue')) : notRecorded('direct material cost'),
+      () => pct(data.revenue - directMaterials, data.revenue)),
+    // Leverage
+    interestCoverage: given('interestCoverage', interestExp > 0 ? null : notRecorded('interest expense'),
+      () => r2(safeDiv(ebit, interestExp))),
+    debtRatio: on('debtRatio', data.totalAssets, 'Total assets', () => r2(safeDiv(data.totalLiabilities, data.totalAssets))),
+    equityMultiplier: equityFailure ? null : r2(safeDiv(data.totalAssets, data.totalEquity)),
+    // Liquidity
+    cashRatio: on('cashRatio', data.currentLiabilities, 'Current liabilities',
+      () => r2(safeDiv(data.cash, data.currentLiabilities))),
+    workingCapital: r2(data.currentAssets - data.currentLiabilities),
+    operatingCashFlowRatio: given('operatingCashFlowRatio',
+      opCF === undefined ? NO_OPERATING_CASH_FLOW_RATIO
+        : data.currentLiabilities > 0 ? null : notPositive('Current liabilities'),
+      () => r2(safeDiv(opCF ?? 0, data.currentLiabilities))),
+    // Efficiency
+    assetTurnover: on('assetTurnover', data.totalAssets, 'Total assets', () => r2(safeDiv(data.revenue, data.totalAssets))),
+    receivablesTurnover: on('receivablesTurnover', data.accountsReceivable, 'Accounts receivable',
+      () => r2(safeDiv(data.revenue, data.accountsReceivable))),
+    payablesTurnover: on('payablesTurnover', data.accountsPayable, 'Accounts payable',
+      () => r2(safeDiv(data.costOfSales, data.accountsPayable))),
+    inventoryDays,
+    cashConversionCycle: given('cashConversionCycle',
+      cycleParts ? dependsOnUnstated('debtor days, inventory days or creditor days') : null,
+      () => r2((debtorDays ?? 0) + (inventoryDays ?? 0) - (creditorDays ?? 0))),
+    netOperatingAssetTurnover: on('netOperatingAssetTurnover', netOperatingAssets, 'Net operating assets',
+      () => r2(safeDiv(data.revenue, netOperatingAssets))),
+    // Cash Flow
+    freeCashFlow: given('freeCashFlow',
+      capex === undefined ? NO_FREE_CASH_FLOW : missing(opCF, 'operating cash flow'),
+      () => r2((opCF ?? 0) - (capex ?? 0))),
+    // Coverage (AFS Master v15 — interest coverage variants)
+    ebitdaToNetInterest: onNetInterest('ebitdaToNetInterest', ebitda),
+    pbtToNetInterest: onNetInterest('pbtToNetInterest', pbt),
+    netProfitToNetInterest: onNetInterest('netProfitToNetInterest', data.netProfit),
+    // Employee Productivity (AFS Master v15)
+    revenuePerEmployee: perEmployee('revenuePerEmployee', data.revenue),
+    pbitPerEmployee: perEmployee('pbitPerEmployee', ebit),
+    ebitdaPerEmployee: perEmployee('ebitdaPerEmployee', ebitda),
+    employeeCostToRevenue: given('employeeCostToRevenue',
+      employeeCosts > 0 ? (data.revenue > 0 ? null : notPositive('Revenue')) : notRecorded('employee costs'),
+      () => pct(employeeCosts, data.revenue)),
+    employeeCostPerHead: given('employeeCostPerHead',
+      employees > 0 ? (employeeCosts > 0 ? null : notRecorded('employee costs')) : notRecorded('employee count'),
+      () => r2(safeDiv(employeeCosts, employees))),
+    // Returns
+    dividendCover: given('dividendCover', dividendsPaid > 0 ? null : notRecorded('dividends paid'),
+      () => r2(safeDiv(data.netProfit, dividendsPaid))),
+    retentionRate: on('retentionRate', data.netProfit, 'Net profit', () => pct(data.netProfit - dividendsPaid, data.netProfit)),
+    effectiveTaxRate: given('effectiveTaxRate',
+      missing(data.taxExpense, 'tax expense') ?? (pbt > 0 ? null : notPositive('Profit before tax')),
+      () => pct(data.taxExpense ?? 0, pbt)),
+    // DuPont Decomposition
+    dupontMargin: on('dupontMargin', data.revenue, 'Revenue', () => pct(data.netProfit, data.revenue)),
+    dupontTurnover: on('dupontTurnover', data.totalAssets, 'Total assets', () => r2(safeDiv(data.revenue, data.totalAssets))),
+    dupontLeverage: equityFailure ? null : r2(safeDiv(data.totalAssets, data.totalEquity)),
+    notMeaningful: why,
+  };
+}

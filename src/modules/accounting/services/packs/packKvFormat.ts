@@ -7,7 +7,8 @@
  * Lives in the service layer rather than in PackSectionView so the PPTX route
  * can reuse it without pulling React and ECharts into an API bundle.
  */
-import { formatDays, formatMoney, formatPct, formatRatio } from '@/lib/format/money';
+import { formatRatio } from '@/lib/format/money';
+import { formatRatioFigure } from '@/modules/accounting/services/reports/ratioPresentation';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 import type { PackKvItem } from './packDocument';
 
@@ -21,12 +22,8 @@ export function formatPackKv(item: PackKvItem): string {
   // number, exactly as KpiTile.unavailable does on the executive dashboard.
   if (item.unavailable) return item.unavailable;
   if (item.value === null) return NO_FIGURE;
-  switch (item.format) {
-    case 'pct': return formatPct(item.value, 1, { pack: true });
-    case 'ratio': return formatRatio(item.value);
-    case 'days': return formatDays(item.value);
-    case 'money': return formatMoney(item.value, { cents: true, pack: true });
-  }
+  // One writing of each unit, shared with every other ratio surface.
+  return formatRatioFigure(item.format, item.value);
 }
 
 /**

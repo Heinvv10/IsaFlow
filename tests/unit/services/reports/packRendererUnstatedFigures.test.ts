@@ -20,6 +20,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 import { renderSectionHtml } from '@/../pages/api/accounting/reports-html';
 import { renderSection } from '@/../pages/api/accounting/reports-pdf';
 import { buildReportPack, type PackSection, type ReportPackInput } from '@/modules/accounting/services/reports/reportPackService';
+import { ratioLabel } from '@/modules/accounting/services/reports/ratioPresentation';
 
 const BASE: ReportPackInput = {
   companyName: 'Demo', period: '2026-03-01 to 2026-08-31',
@@ -98,7 +99,7 @@ describe.each(RENDERERS)('%s — cash flow section with the statement read', (_n
 describe.each(RENDERERS)('%s — ratios', (_name, rows) => {
   it('prints free cash flow with its reason where capital expenditure is not carried', () => {
     const cells = rows(section({ ...BASE, ...FLOWS }, 'ratios'));
-    expect(cells.get('free Cash Flow')).toMatch(/capital expenditure is not captured separately/i);
+    expect(cells.get('Free Cash Flow')).toMatch(/capital expenditure is not captured separately/i);
   });
 
   it('prints no reason for free cash flow where capital expenditure is carried', () => {
@@ -108,25 +109,29 @@ describe.each(RENDERERS)('%s — ratios', (_name, rows) => {
 
   it('prints an equity ratio with its reason on negative equity, rather than dropping the row', () => {
     const cells = rows(section({ ...BASE, totalEquity: -500_000, totalLiabilities: 4_400_000 }, 'ratios'));
-    expect(cells.get('debt To Equity')).toMatch(/negative/i);
+    expect(cells.get('Debt to Equity')).toMatch(/negative/i);
   });
 
   it('does not print the reasons map as a ratio of its own', () => {
     const cells = rows(section({ ...BASE, ...FLOWS }, 'ratios'));
-    expect([...cells.keys()]).not.toContain('not Meaningful');
+    expect([...cells.keys()].filter((k) => /meaningful/i.test(k))).toEqual([]);
     expect([...cells.values()].join('|')).not.toContain('[object Object]');
   });
 
   it('still prints the ordinary ratios as numbers', () => {
     const cells = rows(section({ ...BASE, ...FLOWS }, 'ratios'));
-    expect(cells.get('current Ratio')).toBe('2.00');
+    expect(cells.get('Current Ratio')).toBe('2.00');
+    // In its unit: a margin is a percentage, a turnover a multiple.
+    expect(cells.get('Gross Profit Margin')).toBe('+45.0%');
+    expect(cells.get('Inventory Turnover')).toBe('7.45×');
   });
 });
 
 describe('the PDF pack — ratios', () => {
   it('prints operating less capital expenditure as free cash flow', () => {
     const cells = pdfRows(section({ ...BASE, ...FLOWS, capitalExpenditure: 150_000 }, 'ratios'));
-    expect(cells.get('free Cash Flow')).toBe('195678.12');
+    // A rand amount, grouped — not "195678.12".
+    expect(cells.get('Free Cash Flow')).toBe('195\u00a0678.12');
   });
 });
 
@@ -145,7 +150,7 @@ describe('the HTML pack — which ratios print', () => {
     const reasons = (s.data as { notMeaningful: Record<string, string> }).notMeaningful;
     return Object.entries(s.data)
       .filter(([k, v]) => typeof v === 'number' && reasons[k] === undefined)
-      .map(([k]) => k.replace(/([A-Z])/g, ' $1').trim());
+      .map(([k]) => ratioLabel(k));
   }
   const SOUND = { ...BASE, ...FLOWS };
   const INSOLVENT = { ...SOUND, totalEquity: -500_000, totalLiabilities: 4_400_000 };
@@ -171,13 +176,14 @@ describe('the HTML pack — which ratios print', () => {
     const tail = [...cells.keys()].slice(20);
     expect(tail).toEqual(Object.keys(s.data)
       .filter((k) => reasons[k] !== undefined)
-      .map((k) => k.replace(/([A-Z])/g, ' $1').trim()));
-    for (const label of tail) expect(cells.get(label), label).not.toMatch(/^-?[0-9.]+$/);
+      .map((k) => ratioLabel(k)));
+    for (const label of tail) expect(cells.get(label), label).toMatch(/[a-z]{5,}/);
   });
 
   it('leaves a free cash flow that has a figure outside the twenty, as it always was', () => {
     const cells = htmlRows(section({ ...SOUND, capitalExpenditure: 150_000 }, 'ratios'));
-    expect(cells.size).toBe(20);
-    expect(cells.has('free Cash Flow')).toBe(false);
+    // Twenty rows carry a figure; the rest are ratios with a reason.
+    expect([...cells.values()].filter((v) => !/[a-z]{5,}/.test(v))).toHaveLength(20);
+    expect(cells.has('Free Cash Flow')).toBe(false);
   });
 });

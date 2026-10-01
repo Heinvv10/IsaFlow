@@ -44,3 +44,31 @@ export function equityNotMeaningful(totalEquity: number): Record<string, string>
   if (!reason) return {};
   return Object.fromEntries(EQUITY_DIVIDED_RATIOS.map((k) => [k, reason]));
 }
+
+/** Why a ratio on a base that is zero or negative is not stated. */
+export function notPositive(base: string): string {
+  return `${base} is not positive, so this ratio has no meaning.`;
+}
+
+/** Why a ratio whose input nobody supplied is not stated — never a zero. */
+export function notRecorded(input: string): string {
+  return `No ${input} is recorded, so this ratio cannot be stated.`;
+}
+
+/** Why a ratio built from other ratios is not stated when one of them is not. */
+export function dependsOnUnstated(parts: string): string {
+  return `Not stated: it depends on ${parts}, and one of them could not be stated.`;
+}
+
+/**
+ * Why no free cash flow is stated. It is operating cash flow less capital
+ * expenditure, and no caller supplies capex: the cash flow statement nets
+ * acquisitions against disposals. An absent capex read as zero printed
+ * operating cash flow under the name "free cash flow".
+ */
+export const NO_FREE_CASH_FLOW =
+  'Not stated: capital expenditure is not captured separately from other investing cash flows.';
+
+/** Why no operating cash flow ratio is stated where no cash flow was read. */
+export const NO_OPERATING_CASH_FLOW_RATIO =
+  'Not stated: no operating cash flow figure was read for this period.';

@@ -73,3 +73,40 @@ describe('Ratio Trend Calculator', () => {
     expect(names).toContain('returnOnEquity');
   });
 });
+
+/**
+ * A TREND BETWEEN TWO POINTS NEEDS TWO POINTS. Where a ratio could not be
+ * stated in a period the engine gives null, and the trend used to read that
+ * null as 0 — "stable, 0%" for a margin that did not exist at either end, or
+ * a percentage change measured from nothing.
+ */
+describe('a ratio that could not be stated in a period', () => {
+  const trading = {
+    revenue: 1_000_000, costOfSales: 600_000, operatingExpenses: 250_000, netProfit: 100_000,
+    totalAssets: 2_000_000, totalLiabilities: 800_000, totalEquity: 1_200_000,
+    currentAssets: 900_000, currentLiabilities: 450_000,
+    inventory: 150_000, accountsReceivable: 200_000, accountsPayable: 120_000, cash: 300_000,
+  };
+  const noRevenue = { ...trading, revenue: 0 };
+  const margin = (periods: Array<typeof trading>) =>
+    calculateRatioTrends(periods, periods.map((_, i) => `P${i + 1}`)).find((t) => t.ratioName === 'grossProfitMargin')!;
+
+  it('carries the missing point as null, not 0', () => {
+    expect(margin([noRevenue, trading]).values.map((v) => v.value)).toEqual([null, 40]);
+  });
+
+  it('states no change and no direction where the first or the last point is missing', () => {
+    for (const periods of [[noRevenue, trading], [trading, noRevenue], [noRevenue, noRevenue]]) {
+      const trend = margin(periods);
+      expect(trend.changePercent).toBeNull();
+      expect(trend.trend).toBe('not_meaningful');
+    }
+  });
+
+  it('still measures the change across a gap in the middle', () => {
+    const trend = margin([trading, noRevenue, { ...trading, costOfSales: 500_000 }]);
+    expect(trend.values.map((v) => v.value)).toEqual([40, null, 50]);
+    expect(trend.changePercent).toBe(25);
+    expect(trend.trend).toBe('improving');
+  });
+});

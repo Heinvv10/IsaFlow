@@ -21,7 +21,9 @@ import {
   packToBsDetail, packToBsTotals, packToMargins, packToTotals,
   toManagementBsRows, toManagementPandLRows,
 } from '@/modules/accounting/services/reports/statementRows/packMappers';
-import type { ExtendedRatioResult } from '@/modules/accounting/services/reports/reportingEngineService';
+import {
+  RATIO_FORMATS, RATIO_NOT_MEANINGFUL, ratioLabel, type RatioFormat, type RatioKey,
+} from '@/modules/accounting/services/reports/ratioPresentation';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import type { PackTrendPoint } from './packTrendService';
@@ -35,7 +37,7 @@ export interface PackKvItem {
   label: string;
   /** null when the figure could not be computed — see `unavailable`. */
   value: number | null;
-  format: 'money' | 'ratio' | 'pct' | 'days';
+  format: RatioFormat;
   /**
    * When set, the surface prints this text INSTEAD of the figure, exactly as
    * `KpiTile.unavailable` does on the executive dashboard. A ratio dividing by
@@ -80,71 +82,15 @@ export interface PackDocument {
  * to `ExtendedRatioResult` is a COMPILE ERROR here, not a row that quietly
  * defaults to the wrong unit.
  */
-type RatioKey = Exclude<keyof ExtendedRatioResult, 'notMeaningful'>;
-
-export const RATIO_FORMATS = {
-  // Base ratios
-  grossProfitMargin: 'pct',
-  netProfitMargin: 'pct',
-  operatingProfitMargin: 'pct',
-  currentRatio: 'ratio',
-  quickRatio: 'ratio',
-  debtToEquity: 'ratio',
-  returnOnAssets: 'pct',
-  returnOnEquity: 'pct',
-  debtorDays: 'days',
-  creditorDays: 'days',
-  inventoryTurnover: 'ratio',
-  // Profitability
-  ebitda: 'money',
-  ebitdaMargin: 'pct',
-  roce: 'pct',
-  pbitMargin: 'pct',
-  directMaterialMargin: 'pct',
-  // Leverage
-  interestCoverage: 'ratio',
-  debtRatio: 'ratio',
-  equityMultiplier: 'ratio',
-  // Liquidity
-  cashRatio: 'ratio',
-  workingCapital: 'money',
-  operatingCashFlowRatio: 'ratio',
-  // Efficiency
-  assetTurnover: 'ratio',
-  receivablesTurnover: 'ratio',
-  payablesTurnover: 'ratio',
-  inventoryDays: 'days',
-  cashConversionCycle: 'days',
-  netOperatingAssetTurnover: 'ratio',
-  // Cash flow
-  freeCashFlow: 'money',
-  // Coverage
-  ebitdaToNetInterest: 'ratio',
-  pbtToNetInterest: 'ratio',
-  netProfitToNetInterest: 'ratio',
-  // Employee productivity
-  revenuePerEmployee: 'money',
-  pbitPerEmployee: 'money',
-  ebitdaPerEmployee: 'money',
-  employeeCostToRevenue: 'pct',
-  employeeCostPerHead: 'money',
-  // Returns
-  dividendCover: 'ratio',
-  retentionRate: 'pct',
-  effectiveTaxRate: 'pct',
-  // DuPont
-  dupontMargin: 'pct',
-  dupontTurnover: 'ratio',
-  dupontLeverage: 'ratio',
-} as const satisfies Record<RatioKey, PackKvItem['format']>;
+// The table itself — each ratio's unit AND its name — lives with the engine
+// in `reports/ratioPresentation.ts`, where the legacy renderers, the screen
+// and the KPI scorecard read it too. Re-exported: this was its home.
+export { RATIO_FORMATS };
 
 /** A ratio field the map knows, whether or not the service could compute it.
  *  `null` is kept: it is a row the pack must still print, with its reason. */
 const isRatioEntry = (e: [string, unknown]): e is [RatioKey, number | null] =>
   e[0] in RATIO_FORMATS && (typeof e[1] === 'number' || e[1] === null);
-
-/** Reached only if the service nulls a ratio without recording why. */
-const NOT_MEANINGFUL = 'Not meaningful';
 
 /** Why a margin row can have no figure. `marginPct` returns null on zero or
  *  negative turnover, and dividing by a negative prints a healthy-looking
@@ -160,10 +106,6 @@ export function marginKvItem(label: string, value: number | null): PackKvItem {
   return value === null
     ? { label, value: null, format: 'pct', unavailable: NO_MARGIN_REASON }
     : { label, value, format: 'pct' };
-}
-
-function humanise(key: string): string {
-  return key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase());
 }
 
 /** A section type reportPackService emits that this file has no blocks for.
@@ -226,8 +168,8 @@ function blocksFor(sectionType: PackSectionType, section: PackSection, trend: Pa
           .map(([k, v]) => {
             const reason = reasons[k];
             return v === null || reason !== undefined
-              ? { label: humanise(k), value: null, format: RATIO_FORMATS[k], unavailable: reason ?? NOT_MEANINGFUL }
-              : { label: humanise(k), value: v, format: RATIO_FORMATS[k] };
+              ? { label: ratioLabel(k), value: null, format: RATIO_FORMATS[k], unavailable: reason ?? RATIO_NOT_MEANINGFUL }
+              : { label: ratioLabel(k), value: v, format: RATIO_FORMATS[k] };
           }),
       }];
     }

@@ -162,10 +162,10 @@ export function renderSectionHtml(section: PackSection): string {
       // figure off the end of the table.
       {
         const all = ratioPackRows(d as Record<string, unknown>);
-        const withFigures = all.filter(r => r.value !== null).slice(0, 20);
-        const withReasons = all.filter(r => r.value === null);
+        const withFigures = all.filter(r => r.stated).slice(0, 20);
+        const withReasons = all.filter(r => !r.stated);
         rows = [...withFigures, ...withReasons]
-          .map(r => `<tr><td>${escapeHtml(r.label)}</td><td class="num">${r.value === null ? escapeHtml(r.reason) : r.value.toFixed(2)}</td></tr>`)
+          .map(r => `<tr><td>${escapeHtml(r.label)}</td><td class="num">${escapeHtml(r.text)}</td></tr>`)
           .join('');
       }
       return tableHtml(['Ratio', 'Value'], rows);

@@ -42,48 +42,20 @@ const NO_CASH_FLOW_READ = (activity: string): string =>
 const DEPENDS_ON_UNREAD_CASH_FLOW =
   'Not stated: it depends on a cash flow figure that was not read for this period.';
 
-/** Why the pack states no free cash flow. */
-export const NO_FREE_CASH_FLOW =
-  'Not stated: capital expenditure is not captured separately from other investing cash flows.';
-
-/** Why the pack states no operating cash flow ratio. */
-export const NO_OPERATING_CASH_FLOW_RATIO =
-  'Not stated: no operating cash flow figure was read for this period.';
+// The two reasons the pack's ratios used to add for itself. The engine states
+// them now, for every caller; re-exported because tests and callers name them
+// from here.
+export { NO_FREE_CASH_FLOW, NO_OPERATING_CASH_FLOW_RATIO } from './ratioBasis';
 
 /**
- * The pack's ratios, with free cash flow marked not meaningful where there is
- * no capital expenditure to take off, and the operating cash flow ratio where
- * there is no operating cash flow to divide — the engine reads that absence
- * as zero and printed 0.00 beside a cash flow section saying nothing was read.
- *
- * `calculateExtendedRatios` computes it as operating cash flow less capital
- * expenditure and reads an absent capex as zero — so it printed 0 while
- * operating cash flow was absent too, and prints OPERATING cash flow under
- * the name "free cash flow" once that figure is carried. Nothing supplies
- * capex: the cash flow statement nets acquisitions against disposals. Marked
- * here, in the engine's own `notMeaningful` map, so the scorecard and the
- * printed ratios read the same reason; the engine itself is shared with
- * surfaces outside the pack and is not changed.
+ * The pack's ratios. Free cash flow with no capital expenditure, and the
+ * operating cash flow ratio with no operating cash flow, used to be marked
+ * not meaningful HERE, over an engine that read both absences as zero. The
+ * engine does it itself now (`ratioCalculations.ts`), for the screens as well
+ * as the pack, so this is the engine's result and nothing else.
  */
 export function packRatios(financialData: FinancialData): ScorableRatios {
-  const ratios = calculateExtendedRatios(financialData);
-  const noCapex = financialData.capitalExpenditure === undefined;
-  const noOperating = financialData.operatingCashFlow === undefined;
-  // Nulled as well as explained, so no reader can print the stand-in by
-  // skipping the reason, and a scorecard target naming either scores it as
-  // not meaningful rather than against a zero. The type says so: both are
-  // `number | null` here, so a caller cannot format one without handling
-  // the null. The engine's own type is shared and is not changed.
-  return {
-    ...ratios,
-    freeCashFlow: noCapex ? null : ratios.freeCashFlow,
-    operatingCashFlowRatio: noOperating ? null : ratios.operatingCashFlowRatio,
-    notMeaningful: {
-      ...ratios.notMeaningful,
-      ...(noCapex ? { freeCashFlow: NO_FREE_CASH_FLOW } : {}),
-      ...(noOperating ? { operatingCashFlowRatio: NO_OPERATING_CASH_FLOW_RATIO } : {}),
-    },
-  };
+  return calculateExtendedRatios(financialData);
 }
 
 function buildSectionData(
@@ -175,7 +147,7 @@ function buildSectionData(
 
     case 'ratios': {
       // Unstated ratios arrive nulled and explained — see `packRatios`.
-      return packRatios(financialData);
+      return { ...packRatios(financialData) };
     }
 
     case 'kpis': {

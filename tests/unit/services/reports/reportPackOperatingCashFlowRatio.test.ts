@@ -69,8 +69,8 @@ describe('the operating cash flow ratio where no cash flow was read', () => {
 
   it('prints its reason in the HTML pack', () => {
     const html = renderSectionHtml(ratiosSection(BASE));
-    expect(html).toContain(`<tr><td>operating Cash Flow Ratio</td><td class="num">${REASON}</td></tr>`);
-    expect(html).not.toMatch(/operating Cash Flow Ratio<\/td><td class="num">0\.00/);
+    expect(html).toContain(`<tr><td>Operating Cash Flow Ratio</td><td class="num">${REASON}</td></tr>`);
+    expect(html).not.toMatch(/Operating Cash Flow Ratio<\/td><td class="num">0\.00/);
   });
 
   it('is scored not meaningful, with the reason, by any scorecard target that names it', () => {

@@ -129,11 +129,12 @@ describe('Extended Financial Ratios', () => {
       operatingCashFlow: 0, capitalExpenditure: 0, employeeCount: 0,
     };
     const r = calculateExtendedRatios(zeroData);
-    expect(r.ebitdaMargin).toBe(0);
-    expect(r.interestCoverage).toBe(0);
-    expect(r.cashRatio).toBe(0);
-    expect(r.assetTurnover).toBe(0);
-    expect(r.revenuePerEmployee).toBe(0);
+    // A zero base is no base: each of these is null with its reason, where it
+    // used to be 0 — a figure that reads as a measurement.
+    for (const key of ['ebitdaMargin', 'interestCoverage', 'cashRatio', 'assetTurnover', 'revenuePerEmployee'] as const) {
+      expect(r[key], key).toBeNull();
+      expect(r.notMeaningful[key], key).toBeTruthy();
+    }
   });
 
   it('handles negative equity', () => {
@@ -151,8 +152,11 @@ describe('Extended Financial Ratios', () => {
     };
     const r = calculateExtendedRatios(minimal);
     expect(r.ebitda).toBeCloseTo(100000, 0);
-    expect(r.freeCashFlow).toBe(0);
-    expect(r.revenuePerEmployee).toBe(0);
+    // Not supplied is not zero: no capital expenditure, no employee count.
+    expect(r.freeCashFlow).toBeNull();
+    expect(r.notMeaningful.freeCashFlow).toMatch(/capital expenditure/i);
+    expect(r.revenuePerEmployee).toBeNull();
+    expect(r.notMeaningful.revenuePerEmployee).toMatch(/employee count/i);
   });
 
   it('includes all original ratio fields', () => {

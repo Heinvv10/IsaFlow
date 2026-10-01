@@ -102,11 +102,15 @@ describe('buildPackDocument', () => {
     // A rand amount printed as a bare ratio is the defect this map exists for.
     expect(items.find((i) => i.label === 'Working Capital')!.format).toBe('money');
     expect(items.find((i) => i.label === 'Free Cash Flow')!.format).toBe('money');
-    expect(items.find((i) => i.label === 'Ebitda Margin')!.format).toBe('pct');
-    expect(items.find((i) => i.label === 'Roce')!.format).toBe('pct');
+    expect(items.find((i) => i.label === 'EBITDA Margin')!.format).toBe('pct');
+    expect(items.find((i) => i.label === 'Return on Capital Employed (ROCE)')!.format).toBe('pct');
     expect(items.find((i) => i.label === 'Current Ratio')!.format).toBe('ratio');
     expect(items.find((i) => i.label === 'Debt Ratio')!.format).toBe('ratio');
-    expect(new Set(items.map((i) => i.format))).toEqual(new Set(['money', 'pct', 'ratio', 'days']));
+    // A cover or a turnover is a multiple, and is written as one.
+    expect(items.find((i) => i.label === 'Asset Turnover')!.format).toBe('times');
+    expect(new Set(items.map((i) => i.format))).toEqual(new Set(['money', 'pct', 'ratio', 'times', 'days']));
+    // No label is an engine key split on its capitals.
+    expect(items.map((i) => i.label).filter((l) => /\b(Ebitda|Roce|Pbit|Pbt|Dupont)\b/.test(l))).toEqual([]);
   });
 
   it('has a format for every numeric field calculateExtendedRatios returns', () => {
@@ -211,7 +215,7 @@ describe('buildPackDocument', () => {
     const ratios = doc.sections.find((s) => s.type === 'ratios')!;
     const items = (ratios.blocks.find((b) => b.kind === 'kv') as { items: PackKvItem[] }).items;
 
-    for (const label of ['Debt To Equity', 'Return On Equity', 'Equity Multiplier', 'Dupont Leverage']) {
+    for (const label of ['Debt to Equity', 'Return on Equity (ROE)', 'Equity Multiplier', 'DuPont Leverage']) {
       const item = items.find((i) => i.label === label);
       expect(item, `${label} must still appear`).toBeDefined();
       expect(item!.value).toBeNull();
@@ -230,7 +234,14 @@ describe('buildPackDocument', () => {
     const doc = buildPackDocument(packWithCashFlows, TREND);
     const ratios = doc.sections.find((s) => s.type === 'ratios')!;
     const items = (ratios.blocks.find((b) => b.kind === 'kv') as { items: PackKvItem[] }).items;
-    expect(items.filter((i) => i.unavailable !== undefined)).toEqual([]);
-    expect(items.filter((i) => i.value === null)).toEqual([]);
+    // No ratio is withheld for want of EQUITY. Ratios whose own input this
+    // pack does not carry (interest, employees, dividends, tax) are unstated
+    // for that reason, each with a figure of null and a reason — never one
+    // without the other.
+    expect(items.filter((i) => /equity/i.test(i.unavailable ?? ''))).toEqual([]);
+    for (const i of items) expect(i.value === null, i.label).toBe(i.unavailable !== undefined);
+    for (const label of ['Debt to Equity', 'Return on Equity (ROE)', 'Current Ratio', 'Gross Profit Margin', 'Free Cash Flow']) {
+      expect(items.find((i) => i.label === label)!.unavailable, label).toBeUndefined();
+    }
   });
 });

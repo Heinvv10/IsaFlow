@@ -108,11 +108,13 @@ const NO_CURRENT_LIABILITIES =
   'There are no current liabilities to cover, so this ratio has no denominator to measure against.';
 
 export function readOverCurrentLiabilities(
-  value: number,
+  /** The engine's ratio, which is null wherever current liabilities are not
+   *  positive — the same absence this function reports. */
+  value: number | null,
   numerator: number,
   currentLiabilities: number,
 ): PackMetricRead {
-  if (currentLiabilities === 0) return { value: null, unavailable: NO_CURRENT_LIABILITIES };
+  if (currentLiabilities === 0 || value === null) return { value: null, unavailable: NO_CURRENT_LIABILITIES };
   return { value, basis: { numerator, denominator: currentLiabilities } };
 }
 

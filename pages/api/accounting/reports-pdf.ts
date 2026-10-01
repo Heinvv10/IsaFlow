@@ -189,7 +189,7 @@ export function renderSection(
       // A ratio with no figure keeps its row and prints why — it used to be
       // dropped without a word, while the reasons map printed as a row.
       const ratioRows = ratioPackRows(d as Record<string, unknown>)
-        .map(r => [r.label, r.value === null ? r.reason : r.value.toFixed(2)]);
+        .map(r => [r.label, r.text]);
       return renderTable(doc, autoTable, [['Ratio', 'Value']], ratioRows, y, margin);
     }
 

@@ -7,9 +7,16 @@ export interface ManagementPackData {
   companyName: string;
   period: string;
   incomeStatement: { revenue: number; costOfSales: number; grossProfit: number; operatingExpenses: number; netProfit: number };
-  balanceSheet: { totalAssets: number; totalLiabilities: number; equity: number; currentRatio: number; debtEquityRatio: number };
+  /** `currentRatio` is null where there are no current liabilities to cover. */
+  balanceSheet: { totalAssets: number; totalLiabilities: number; equity: number; currentRatio: number | null; debtEquityRatio: number };
   priorPeriod?: { revenue: number; costOfSales: number; grossProfit: number; operatingExpenses: number; netProfit: number };
-  ratios: { grossMargin: number; netMargin: number; currentRatio: number; quickRatio: number };
+  /**
+   * Null where the ratio has no base: a margin on revenue that is not
+   * positive, a liquidity ratio with no current liabilities. Never 0 standing
+   * in for that — a 0% margin and a 0.00 current ratio are both findings, and
+   * each fired a risk sentence about a figure nobody measured.
+   */
+  ratios: { grossMargin: number | null; netMargin: number | null; currentRatio: number | null; quickRatio: number | null };
 }
 
 export interface KeyDriver {
@@ -29,7 +36,8 @@ export interface RiskArea {
 export interface ExecutiveSummary {
   profitDirection: 'up' | 'down' | 'flat';
   revenueGrowthPercent: number;
-  grossMarginPercent: number;
+  /** null where revenue is not positive — there is no margin to state. */
+  grossMarginPercent: number | null;
   netProfitAmount: number;
 }
 
@@ -65,10 +73,13 @@ export function identifyKeyDrivers(
 export function assessRiskAreas(data: ManagementPackData): RiskArea[] {
   const risks: RiskArea[] = [];
 
-  if (data.balanceSheet.currentRatio < 1.0) {
-    risks.push({ area: 'Liquidity Crisis', severity: 'high', description: `Current ratio ${data.balanceSheet.currentRatio.toFixed(2)} is below 1.0 — unable to cover short-term obligations` });
-  } else if (data.balanceSheet.currentRatio < 1.5) {
-    risks.push({ area: 'Liquidity Pressure', severity: 'medium', description: `Current ratio ${data.balanceSheet.currentRatio.toFixed(2)} is below recommended 1.5` });
+  // A ratio that could not be measured raises no risk: a risk sentence quotes
+  // the figure, and there is none. Each rule below is skipped on a null.
+  const currentRatio = data.balanceSheet.currentRatio;
+  if (currentRatio !== null && currentRatio < 1.0) {
+    risks.push({ area: 'Liquidity Crisis', severity: 'high', description: `Current ratio ${currentRatio.toFixed(2)} is below 1.0 — unable to cover short-term obligations` });
+  } else if (currentRatio !== null && currentRatio < 1.5) {
+    risks.push({ area: 'Liquidity Pressure', severity: 'medium', description: `Current ratio ${currentRatio.toFixed(2)} is below recommended 1.5` });
   }
 
   // Descending. Tested the other way round, `> 2.0` matched first and the
@@ -80,12 +91,13 @@ export function assessRiskAreas(data: ManagementPackData): RiskArea[] {
     risks.push({ area: 'Leverage Risk', severity: 'medium', description: `Debt-to-equity ${data.balanceSheet.debtEquityRatio.toFixed(2)} exceeds 2.0 — high financial leverage` });
   }
 
-  if (data.ratios.grossMargin < 20) {
-    risks.push({ area: 'Margin Pressure', severity: 'medium', description: `Gross margin ${data.ratios.grossMargin.toFixed(1)}% is below 20%` });
+  const { grossMargin, netMargin } = data.ratios;
+  if (grossMargin !== null && grossMargin < 20) {
+    risks.push({ area: 'Margin Pressure', severity: 'medium', description: `Gross margin ${grossMargin.toFixed(1)}% is below 20%` });
   }
 
-  if (data.ratios.netMargin < 5) {
-    risks.push({ area: 'Profitability Risk', severity: 'medium', description: `Net margin ${data.ratios.netMargin.toFixed(1)}% is below 5%` });
+  if (netMargin !== null && netMargin < 5) {
+    risks.push({ area: 'Profitability Risk', severity: 'medium', description: `Net margin ${netMargin.toFixed(1)}% is below 5%` });
   }
 
   return risks;
