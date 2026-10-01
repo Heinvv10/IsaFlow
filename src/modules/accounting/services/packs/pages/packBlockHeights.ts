@@ -260,14 +260,35 @@ const KPI_COLUMN_MM = 36;
 const KPI_SPARKLINE_MM = 33;
 
 /**
- * The words a tile's delta line is charged for. A percentage change is
- * charged at the widest the formatter emits; a movement in POINTS is charged
- * for what the tile prints, through the tile's own `deltaWithWord` call —
- * `pp` is a wider pair of glyphs than `%`, and the line this is set on has
- * no slack to assume it into.
+ * The words a tile's delta line is charged for: THE WORDS THE TILE PRINTS.
+ *
+ * It was the fixed string "up 00.0%" for every percentage delta. The tile
+ * prints its own direction word, and the line is set across a quarter of the
+ * measure with no slack — "down 12.0% prior period" takes a second line that
+ * "up 00.0% prior period" does not, so a falling figure was under-measured by
+ * a whole line. Same call the tile makes (`KpiTileWithSparkline`), with the
+ * direction word it derives from the sign, so the model cannot be charging
+ * for a different string from the one on the paper.
  */
+/**
+ * THE MEASURE THE DELTA LINE IS WRAPPED AT, calibrated against the printed
+ * sheet rather than taken from `KPI_COLUMN_MM`.
+ *
+ * At 36mm the model wraps "down 9.9% prior period", which Chromium sets on
+ * one line — a line of over-charge that cost the demo sheet a whole
+ * disclosure, because page 3 composes within half a millimetre of its box.
+ * Twelve delta lines were rendered through the print harness on that sheet:
+ * every `up` and `flat` form and a single-digit `down` percentage print on
+ * one line; `down 12.0%`, `down 100.0%`, `down 3.0 pp` and `down 12.0 pp`
+ * wrap. The model reproduces all twelve between 38.0 and 39.5mm and this is
+ * the narrow end of that range, which is the direction that over-counts.
+ * `packKpiTileDeltaHeight.test.ts` holds the twelve.
+ */
+const KPI_DELTA_MEASURE_MM = 38;
+
 function deltaWords(delta: PackKpiDelta): string {
-  return delta.unit === 'percent' ? 'up 00.0%' : deltaWithWord(delta, 'up', 'down', 'pp');
+  const direction = delta.value > 0 ? 'up' : (delta.value < 0 ? 'down' : 'flat');
+  return deltaWithWord(delta, direction, direction, 'pp');
 }
 
 export function kpiTileHeight(tile: KpiTile): number {
@@ -275,11 +296,10 @@ export function kpiTileHeight(tile: KpiTile): number {
   const figure = tile.figure.value === null
     ? lines(wrappedLines(tile.figure.unavailable ?? '', 11, KPI_COLUMN_MM), 14)
     : lines(1, 25);
-  // The delta prints as a glyph, a percentage and its basis — "↑ up 12.4%
-  // against prior period". The words around the basis are the widest the
-  // formatter emits.
+  // The delta prints as a glyph, its words and its basis — "↑ up 12.4% prior
+  // period". See `deltaWords`.
   const delta = tile.delta === null ? 0
-    : 1 + lines(wrappedLines(`X ${deltaWords(tile.delta)} ${tile.delta.basis}`, 9, KPI_COLUMN_MM), 12);
+    : 1 + lines(wrappedLines(`X ${deltaWords(tile.delta)} ${tile.delta.basis}`, 9, KPI_DELTA_MEASURE_MM), 12);
   const spark = tile.sparklineSvg === null ? 0 : 1 + KPI_SPARKLINE_MM;
   return label + 1 + figure + delta + spark;
 }
