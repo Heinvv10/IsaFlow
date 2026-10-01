@@ -137,8 +137,8 @@ files, with shared callers in `tests/integration/r177-portal-followups.helpers.t
 - a cancelled named link is replaced; an unnamed link or a named explicit link is never adopted;
 - NaN and paid invoices get 400 and no link; a negative `amount_paid` charges the total;
 - an invoice held by another request answers a retryable 400 after 5 seconds and mints nothing;
-- another company's invoice is 404 through the route and null through the service, which runs
-  there with no row security.
+- another company's invoice is 404 through both routes, also when it is a draft (never "not
+  approved"), and null through the service, which runs there with no row security.
 
 `tests/integration/r178-r180-portal-link-rules.int.test.ts`, 14 cases:
 
