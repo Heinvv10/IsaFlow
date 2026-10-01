@@ -1,5 +1,4 @@
-# Mutations on f72734030 (final code). Each integration mutant: r177-pay-now-standing-link + r178-r180-portal-link-rules + r167-link-charges-link-amount (54 cases). M25 is a unit mutant.
-# An earlier run of this list was discarded: a test left a fixed-token row behind, which failed every later run. The test now uses a token unique per run.
+# Mutations on 9da291234 (final code). Each integration mutant: r177-pay-now-standing-link + r178-r180-portal-link-rules + r167-link-charges-link-amount (54 cases). M25 is a unit mutant.
 # M24 fails 20 cases, not only its two targeted ones, so it is not an isolated proof of them; M20 and M22 cover the lock timeout and the bare-service case is asserted directly.
 M1 no invoice lock in ensureStandingLink: RED | 2 failed | 52 passed
 M2 invoice lock is FOR UPDATE (blocks rows referencing the invoice): RED | 1 failed | 53 passed
@@ -13,6 +12,7 @@ M9 minted with the 30-day default expiry: RED | 2 failed | 52 passed
 M10 payment_url not updated on mint: RED | 6 failed | 48 passed
 M11 lock query without the company predicate: RED | 1 failed | 53 passed
 M12 online_payment_enabled not restored on a found link: RED | 1 failed | 53 passed
+M31 a stored URL on another origin is not corrected: RED | 1 failed | 53 passed
 M13 a link on an unapproved invoice is payable (resolveLinkCharge): RED | 2 failed | 52 passed
 M14 the named standing link expires like any other: RED | 1 failed | 53 passed
 M15 a named explicit-amount link never expires: RED | 1 failed | 53 passed
