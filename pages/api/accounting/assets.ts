@@ -15,11 +15,33 @@ import { validateAsset, generateAssetNumber, assetNumberPrefix, type AssetInput 
 
 type Row = Record<string, unknown>;
 
+const ASSET_STATUSES: readonly string[] = ['available', 'assigned', 'in_maintenance', 'disposed', 'written_off'];
+
+/**
+ * `status` is a single value, a comma list (`available,assigned`) or a repeated
+ * param (string[]). Returns the validated list, null for "no filter" (absent, blank
+ * or `all`), or an error message for anything outside the asset status enum.
+ */
+function parseStatusFilter(raw: unknown): { statuses: string[] | null; error?: string } {
+  if (raw === undefined || (typeof raw === 'string' && raw.trim() === '')) return { statuses: null };
+  if (typeof raw !== 'string' && !(Array.isArray(raw) && raw.every(v => typeof v === 'string'))) {
+    return { statuses: null, error: 'status must be a string' };
+  }
+  const parts = (Array.isArray(raw) ? raw : [raw]).flatMap(v => (v as string).split(',')).map(v => v.trim());
+  if (parts.length === 1 && parts[0] === 'all') return { statuses: null };
+  if (parts.some(v => !ASSET_STATUSES.includes(v))) {
+    return { statuses: null, error: `Invalid status. Must be one of: ${ASSET_STATUSES.join(', ')}` };
+  }
+  return { statuses: parts };
+}
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
-    const { status, category, search } = req.query;
+    const { category, search } = req.query;
+    const { statuses, error: statusError } = parseStatusFilter(req.query.status);
+    if (statusError) return apiResponse.badRequest(res, statusError);
 
     let rows: Row[];
 
@@ -31,18 +53,18 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         WHERE a.company_id = ${companyId}::UUID AND (a.name ILIKE ${term} OR a.asset_number ILIKE ${term} OR a.serial_number ILIKE ${term})
         ORDER BY a.created_at DESC LIMIT 200
       ` as Row[];
-    } else if (status && status !== 'all' && category) {
+    } else if (statuses && category) {
       rows = await sql`
         SELECT a.*, ac.name as category_name, ac.sars_rate, ac.sars_years
         FROM assets a LEFT JOIN asset_categories ac ON a.category_id = ac.id
-        WHERE a.company_id = ${companyId}::UUID AND a.status = ${String(status)} AND (a.category = ${String(category)} OR ac.code = ${String(category)})
+        WHERE a.company_id = ${companyId}::UUID AND a.status = ANY(${statuses}::TEXT[]) AND (a.category = ${String(category)} OR ac.code = ${String(category)})
         ORDER BY a.created_at DESC LIMIT 200
       ` as Row[];
-    } else if (status && status !== 'all') {
+    } else if (statuses) {
       rows = await sql`
         SELECT a.*, ac.name as category_name, ac.sars_rate, ac.sars_years
         FROM assets a LEFT JOIN asset_categories ac ON a.category_id = ac.id
-        WHERE a.company_id = ${companyId}::UUID AND a.status = ${String(status)}
+        WHERE a.company_id = ${companyId}::UUID AND a.status = ANY(${statuses}::TEXT[])
         ORDER BY a.created_at DESC LIMIT 200
       ` as Row[];
     } else if (category) {
