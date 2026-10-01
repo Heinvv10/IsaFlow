@@ -113,13 +113,15 @@ function reasonsOrNone(
 /** The profit bridge, drawn by the component every other screen draws it with
  *  (`ProfitWaterfall`, which follows the theme). It used to print the sentence
  *  "Waterfall chart data available — render with WaterfallChart component". A
- *  saved payload with no `steps` shows a notice rather than throwing. */
+ *  saved payload whose steps are absent or are not steps shows a notice and a
+ *  warning rather than throwing into the page. */
 function BridgeChart({ d }: { d: Record<string, unknown> }) {
   try {
     return <ProfitWaterfall steps={packToWaterfallSteps(d)} title="Profit bridge" />;
   } catch (err) {
-    if (!(err instanceof MissingPackFieldError) || d.steps !== undefined) throw err;
-    return <p className="text-sm text-[var(--ff-text-tertiary)] italic">This saved pack carries no profit bridge.</p>;
+    if (!(err instanceof MissingPackFieldError)) throw err;
+    log.warn('SectionCard: the saved profit bridge is unusable', { field: err.field, reason: err.reason }, 'packs');
+    return <p className="text-sm text-[var(--ff-text-tertiary)] italic">This saved pack carries no usable profit bridge.</p>;
   }
 }
 

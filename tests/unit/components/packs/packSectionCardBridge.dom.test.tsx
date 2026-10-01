@@ -63,13 +63,20 @@ describe('SectionCard waterfall', () => {
     const { steps: _omitted, ...old } = bridge().data;
     open({ type: 'waterfall', title: 'Profit bridge', data: old });
     expect(screen.queryByTestId('echart')).toBeNull();
-    expect(screen.getByText(/carries no profit bridge/)).toBeTruthy();
+    expect(screen.getByText(/carries no usable profit bridge/)).toBeTruthy();
   });
 
-  it('still throws on a malformed steps field', () => {
-    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(() => open({ type: 'waterfall', title: 'Profit bridge', data: { steps: 'x' } })).toThrow(/steps/);
-    quiet.mockRestore();
+  it.each([
+    ['steps that are not an array', 'x'],
+    ['a step with no label', [{ start: 0, end: 1, value: 1, isSubtotal: false, color: 'green' }]],
+    ['a step with a non-numeric value', [{ label: 'a', start: 0, end: 1, value: 'many', isSubtotal: false, color: 'green' }]],
+    ['a step with a NaN end', [{ label: 'a', start: 0, end: Number.NaN, value: 1, isSubtotal: false, color: 'green' }]],
+    ['a step of an unknown kind', [{ label: 'a', start: 0, end: 1, value: 1, isSubtotal: false, color: 'purple' }]],
+    ['a null step', [null]],
+  ])('shows a notice, not a crash, for %s', (_what, steps) => {
+    open({ type: 'waterfall', title: 'Profit bridge', data: { steps } });
+    expect(screen.queryByTestId('echart')).toBeNull();
+    expect(screen.getByText(/carries no usable profit bridge/)).toBeTruthy();
   });
 
   it('repaints in the other theme: the light and dark palettes reach the chart', async () => {

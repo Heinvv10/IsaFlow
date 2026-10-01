@@ -12,6 +12,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 import { SectionCard } from '@/components/accounting/packs/PackSectionCard';
+import { ratioLines } from '@/modules/accounting/services/reports/ratioPresentation';
 import { buildReportPack, type ReportPackInput } from '@/modules/accounting/services/reports/reportPackService';
 
 const INPUT: ReportPackInput = {
@@ -56,8 +57,16 @@ describe('SectionCard ratios', () => {
     expect(valueOf('Current Ratio')).toMatch(/^\(?\d+\.\d\d\)?$/);
   });
 
-  it('prints a stated reason for a ratio the service could not compute, never "null" or "Not meaningful" alone', () => {
-    open(ratios({ ...INPUT, totalEquity: -500_000 }));
+  it('prints the service\'s own reason string for every ratio it could not compute', () => {
+    const section = ratios({ ...INPUT, totalEquity: -500_000, revenue: -1 });
+    const reasons = section.data.notMeaningful as Record<string, string>;
+    const shown = ratioLines(section.data).slice(0, 12).filter((l) => reasons[l.key] !== undefined);
+    // Anti-vacuity: this fixture must put at least two reasons on the card.
+    expect(shown.length).toBeGreaterThanOrEqual(2);
+    open(section);
+    for (const line of shown) {
+      expect(valueOf(line.label), line.label).toBe(reasons[line.key]);
+    }
     expect(document.body.textContent).not.toContain('null');
     expect(document.body.textContent).not.toContain('[object Object]');
   });
