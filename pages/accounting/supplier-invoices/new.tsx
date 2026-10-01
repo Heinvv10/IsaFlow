@@ -106,7 +106,8 @@ export default function NewSupplierInvoicePage() {
   const total = subtotal + totalTax;
 
   // A scan may fill an empty supplier or replace an earlier scan's; never the user's pick.
-  const { scan: matchVendor, notePick } = useVendorSupplierMatch(form.supplierId, id => setForm(f => ({ ...f, supplierId: id })));
+  // A new supplier drops the previous one's PO/GRN, exactly as a manual pick does.
+  const { scan: matchVendor, notePick } = useVendorSupplierMatch(form.supplierId, id => setForm(f => ({ ...f, supplierId: id, purchaseOrderId: '', grnId: '', copyLinesFromPo: false })));
 
   function handleExtracted(data: ExtractedDocument) {
     const updates: Partial<typeof form> = {};

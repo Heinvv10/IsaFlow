@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { UUID_RE } from '@/lib/validation';
 import { SupplierTypeahead } from './SupplierTypeahead';
 
 interface Props {
@@ -34,6 +35,9 @@ const LOAD_FAILED = "Couldn't load supplier";
 type Lookup = { kind: 'found'; label: string } | { kind: 'missing' } | { kind: 'error' };
 
 async function lookup(id: string, companyFirst?: boolean): Promise<Lookup> {
+  // The route casts ?id= to UUID and answers 500 for anything else; a corrupted id is
+  // missing, not a server fault worth retrying.
+  if (!UUID_RE.test(id)) return { kind: 'missing' };
   try {
     const res = await apiFetch(`/api/accounting/suppliers-list?id=${encodeURIComponent(id)}`);
     if (res.status === 404) return { kind: 'missing' };
