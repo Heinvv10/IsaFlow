@@ -71,7 +71,7 @@ const ROUTES = [
     name: 'afs-signing', handler: sendForSigningRoute as unknown as H, mails: 1,
     ok: { method: 'POST', query: { documentId: ID(3) }, body: { signerContactIds: [ID(4)] } },
     malformed: { method: 'POST', query: { documentId: ID(3) }, body: { signerContactIds: [] } },
-    notOwned: ['FROM afs_documents'],
+    notOwned: ['FROM afs_documents', 'FROM portal_contacts'],
   },
 ] as const;
 
@@ -228,7 +228,7 @@ it('invoice-email answers 400, before any query or charge, for an invoice id tha
   expect(checkSend).not.toHaveBeenCalled();
 });
 
-it('send-for-signing charges the company bucket after the document check and before the contact query and the file read (R-175)', async () => {
+it('send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175)', async () => {
   vi.clearAllMocks();
   checkAttempts.mockResolvedValue(true);
   checkSend.mockResolvedValue(false);
@@ -241,9 +241,11 @@ it('send-for-signing charges the company bucket after the document check and bef
   );
 
   const texts = sqlMock.mock.calls.map((c) => (c[0] as TemplateStringsArray).join(' '));
-  expect(texts).toHaveLength(1);
+  expect(texts).toHaveLength(2);
   expect(texts[0]).toContain('FROM afs_documents');
+  expect(texts[1]).toContain('FROM portal_contacts');
   expect(checkSend).toHaveBeenCalledTimes(1);
+  expect(sqlMock.mock.invocationCallOrder[1]!).toBeLessThan(checkSend.mock.invocationCallOrder[0]!);
   expect(fs.readFile).not.toHaveBeenCalled();
 });
 

@@ -32,9 +32,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyAuthedRequest;
 
   // Abuse limit: every attempt counts, per user and company (30), and per user
-  // across all their companies (90), and is never given back. The company's send bucket below is shared by every colleague, so it
-  // is charged only once the request is well formed and names records the
-  // company owns (R-175).
+  // across all their companies (90), and is never given back. The company's
+  // send bucket below is shared by every colleague, so it is charged only once
+  // the request is well formed and names records the company owns (R-175).
   if (!(await checkRateLimit(`afs-signing:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))
     || !(await checkRateLimit(`afs-signing:user-attempts:${user.id}`, { max: 90, windowSecs: 900 }))) {
     return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
@@ -68,13 +68,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Signing has already been requested for this document');
   }
 
-  // Charged once the document is known to be the company's and ready, before
-  // the heavier contact queries and the file read.
-  const sendAllowed = await checkSendRateLimit(req, companyId, 'afs-signing', { refundUnused: true });
-  if (!sendAllowed) {
-    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
-  }
-
   // 2. Load and verify signer contacts (IDOR guard: must belong to this company)
   const contacts = (await sql`
     SELECT id, name, email, role
@@ -95,6 +88,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         `Contact ${c.name} has role '${c.role}' — only directors and CFOs can sign`,
       );
     }
+  }
+
+  // Charged once the document and every signer are known to be the company's,
+  // before the company query and the file read.
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'afs-signing', { refundUnused: true });
+  if (!sendAllowed) {
+    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
 
   // 3. Load rendered AFS HTML (stored by render service)
