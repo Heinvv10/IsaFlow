@@ -91,7 +91,7 @@ export default function VAT201Page() {
         if (setting === 'none') return;
         const vp = setting;
         setAlignment(a); setVatPeriod(vp);
-        setQuickPeriods(vatQuickPeriods(new Date().getUTCFullYear(), vp, a));
+        setQuickPeriods(vatQuickPeriods(new Date().getFullYear(), vp, a));
         const def = defaultVatQuickPeriod(vp, a, new Date());
         setFrom(def.from); setTo(def.to);
       } catch {

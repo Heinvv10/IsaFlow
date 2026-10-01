@@ -13,6 +13,7 @@ import {
   Search, AlertCircle, Loader2, ChevronLeft, ChevronRight,
   ChevronsUpDown, Plus, UserCog, ShieldOff, ShieldCheck, X, Download,
 } from 'lucide-react';
+import { localISODate } from '@/lib/dateUtils';
 
 interface Company {
   id: string;
@@ -259,7 +260,7 @@ export default function AdminCompaniesPage() {
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = `companies-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `companies-export-${localISODate()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }

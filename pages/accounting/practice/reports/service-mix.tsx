@@ -12,12 +12,10 @@ import { PeriodPicker } from '@/components/practice/PeriodPicker';
 import type { PeriodRange } from '@/components/practice/PeriodPicker';
 import { downloadCsv, reportFilename } from '@/lib/csvExport';
 import type { CsvColumn } from '@/lib/csvExport';
+import { localISODate, monthStartISO } from '@/lib/dateUtils';
 
-function firstOfMonth() {
-  const d = new Date();
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().split('T')[0]!;
-}
-function todayIso() { return new Date().toISOString().slice(0, 10); }
+function firstOfMonth() { return monthStartISO(); }
+function todayIso() { return localISODate(); }
 
 const TH = 'text-left py-2 px-3 text-[10px] tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
 const TD = 'py-2 px-3 text-sm text-[var(--ff-text-secondary)]';
