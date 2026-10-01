@@ -8,6 +8,7 @@ import '@/lib/pgTypes';
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { rollbackFailed } from '@/lib/rollbackFailed';
+import { log } from '@/lib/logger';
 import { hashInviteToken } from './inviteToken';
 
 let _pool: pg.Pool | null = null;
@@ -25,6 +26,8 @@ function pool(): pg.Pool {
           ? false
           : { rejectUnauthorized: false },
   });
+  // pg-pool re-emits a pooled or removed client's 'error' on the pool; unlistened, that is an uncaught exception.
+  _pool.on('error', (err) => log.warn('withInviteToken pool error', { message: err.message }, 'Auth'));
   return _pool;
 }
 

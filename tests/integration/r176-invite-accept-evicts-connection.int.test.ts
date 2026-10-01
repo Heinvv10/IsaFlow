@@ -14,7 +14,7 @@ import {
   acceptRequest, extraAccounts, getAccept, inviter, newInviteeCompany, pool, setupInviteFixture, stored,
   teardownInviteFixture,
 } from './k-041-invite-accept.helpers';
-import { arm, backendState, seen, type ArmOptions, type Seen, type Statement } from './r176-evict.helpers';
+import { arm, backendState, seen, survivesClientError, type ArmOptions, type Seen, type Statement } from './r176-evict.helpers';
 
 /** What each invitee types; generated per run, so no credential is written down here. */
 const typed = `r176-${crypto.randomUUID()}`;
@@ -60,6 +60,7 @@ function armAcceptClient(fail: Statement[], s: Seen, opts: ArmOptions = {}): voi
   proto.connect = function watched(this: unknown, ...a: unknown[]) {
     const out = before.apply(this, a);
     if (a.length > 0) return out;
+    if (!s.pools.includes(this as pg.Pool)) s.pools.push(this as pg.Pool);
     return (out as Promise<PoolClient>).then((client) => {
       const real = client.query as (...q: unknown[]) => unknown;
       const restore = s.disarm;
@@ -104,7 +105,7 @@ async function acceptThenNext(first: { userId: string; token: string }, fail: St
   // Hygiene for a failing run only: a connection left in its transaction would fail every later case.
   if (want === 'gone' && state !== null) await pool.query('SELECT pg_terminate_backend($1)', [s.pid]);
   return {
-    status, refused: s.refused, state, samePid: n.pid === s.pid, nextStatus,
+    status, refused: s.refused, state, samePid: n.pid === s.pid, nextStatus, pools: s.pools,
     member: await member(first.userId), nextMember: await member(other.userId),
   };
 }
@@ -125,6 +126,8 @@ it('a COMMIT that fails, and then its ROLLBACK: the next accept cannot commit th
   expect(r.refused).toEqual({ COMMIT: 1, ROLLBACK: 1 });
   expect(r.status).toBe(500);
   expect(r.nextStatus).toBe(200);
+  // withInviteToken's pool and the route's admin pool: a destroyed client's error must not crash the process.
+  expect(r.pools.map(survivesClientError)).toEqual([true, true]);
   expect(r.member).toBe(0); // the invitee was told 500; the membership must not exist
   expect(r.nextMember).toBe(1);
   expect(r.samePid).toBe(false);

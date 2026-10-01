@@ -16,14 +16,14 @@ import '@/lib/pgTypes';
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
-import { rollbackFailed } from '@/lib/rollbackFailed';
+import { rollbackError, rollbackFailed } from '@/lib/rollbackFailed';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { validatePat } from './personalAccessTokens';
 import { validateOauthAccessToken, type OauthAccessContext } from './oauth';
 import type { CompanyAuthedRequest } from './withAuth';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
-import { deferEnd, answerThrow, replayEnd, answerCommitFailed, type DeferredEnd } from './deferredEnd';
+import { deferEnd, answerThrow, replayEnd, answerCommitFailed, reportFinalizeFailure, type DeferredEnd } from './deferredEnd';
 
 /**
  * Auto rate-limit table — must stay in sync with the equivalent table in
@@ -157,7 +157,7 @@ export async function runBearerRequest(
       // must propagate so they surface as 500, not a misleading FORBIDDEN.
       const code = (err as { code?: string } | null)?.code;
       if (code === PG_INVALID_TEXT_REPRESENTATION) {
-        await client.query('ROLLBACK');
+        unusable = await rollbackFailed(client, 'bearerPipeline');
         res
           .status(403)
           .json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
@@ -167,7 +167,7 @@ export async function runBearerRequest(
     }
 
     if (membership.rows.length === 0) {
-      await client.query('ROLLBACK');
+      unusable = await rollbackFailed(client, 'bearerPipeline');
       res
         .status(403)
         .json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
@@ -178,7 +178,7 @@ export async function runBearerRequest(
     // suspension, and must not be reported as one.
     const account = membership.rows[0]!;
     if (account.account_user_id === null) {
-      await client.query('ROLLBACK');
+      unusable = await rollbackFailed(client, 'bearerPipeline');
       log.warn('bearerPipeline: membership has no users profile', {
         userId: ctx.userId, companyId: ctx.companyId, authMethod: ctx.method, url: req.url,
       }, 'Auth');
@@ -186,7 +186,7 @@ export async function runBearerRequest(
       return;
     }
     if (!isActiveUserAccount(account)) {
-      await client.query('ROLLBACK');
+      unusable = await rollbackFailed(client, 'bearerPipeline');
       log.warn('bearerPipeline: account not in good standing', {
         userId: ctx.userId, companyId: ctx.companyId, authMethod: ctx.method, url: req.url,
       }, 'Auth');
@@ -217,7 +217,7 @@ export async function runBearerRequest(
         { max: bucket.max, windowSecs: bucket.windowSecs },
       );
       if (!allowed) {
-        await client.query('ROLLBACK');
+        unusable = await rollbackFailed(client, 'bearerPipeline');
         res.status(429).json({
           success: false,
           error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again shortly.' },
@@ -255,24 +255,22 @@ export async function runBearerRequest(
     // A 5xx means the request failed (withErrorHandler sits inside and may have
     // caught+responded 500) — never COMMIT its partial writes.
     const handlerFailed = res.statusCode >= 500;
+    const finalizeCtx = { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId };
     if (handlerFailed) {
-      // Nothing is meant to commit: the handler's own answer stands even if this ROLLBACK fails.
-      unusable = await rollbackFailed(client, 'bearerPipeline');
+      // Nothing is meant to commit, so the handler's own answer stands even if this ROLLBACK
+      // fails: the connection is then destroyed and the server discards the transaction (R-176).
+      const rollbackErr = await rollbackError(client, 'bearerPipeline');
+      unusable = rollbackErr !== null;
+      if (rollbackErr) reportFinalizeFailure(req, res, rollbackErr, { ...finalizeCtx, handlerFailed, connectionDestroyed: true });
     } else {
       try {
         await client.query('COMMIT');
       } catch (finalizeErr) {
+        // The COMMIT failed after the handler "responded": the write did not land, or its
+        // outcome is unknown. Roll back, then replace the buffered 2xx with an honest 500.
         unusable = await rollbackFailed(client, 'bearerPipeline');
-        log.error('bearerPipeline: transaction finalize failed after handler responded', {
-          url: req.url,
-          status: res.statusCode,
-          connectionDestroyed: unusable,
-          message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
-        }, 'Auth');
-        if (process.env.SENTRY_ENABLED === 'true' && finalizeErr instanceof Error) {
-          Sentry.captureException(finalizeErr);
-        }
-        answerCommitFailed(res, flush); // replace the buffered 2xx with an honest 500 — the write did NOT land
+        reportFinalizeFailure(req, res, finalizeErr, { ...finalizeCtx, handlerFailed, connectionDestroyed: unusable });
+        answerCommitFailed(res, flush);
         return; // finally still runs (release + slow-request log)
       }
     }

@@ -10,11 +10,11 @@ import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } 
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
-import { rollbackFailed } from '@/lib/rollbackFailed';
+import { rollbackError, rollbackFailed } from '@/lib/rollbackFailed';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
-import { deferEnd, answerThrow, replayEnd, answerCommitFailed, type DeferredEnd } from './deferredEnd';
+import { deferEnd, answerThrow, replayEnd, answerCommitFailed, reportFinalizeFailure, type DeferredEnd } from './deferredEnd';
 
 // Re-exported so every existing `import { withRole } from '@/lib/auth/withAuth'`
 // keeps working; the implementation moved to withRole.ts (300-line ceiling).
@@ -125,12 +125,12 @@ export function withAuth(handler: Handler): NextApiHandler {
       try {
         membership = await getCompanyMembership(client, claims.sub, activeCompanyId);
       } catch {
-        await client.query('ROLLBACK');
+        unusable = await rollbackFailed(client, 'withAuth');
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
       }
 
       if (membership.rows.length === 0) {
-        await client.query('ROLLBACK');
+        unusable = await rollbackFailed(client, 'withAuth');
         clearAuthCookies(res);
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
       }
@@ -140,7 +140,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       // hunting for a suspension that was never applied.
       const account = membership.rows[0]!;
       if (account.account_user_id === null) {
-        await client.query('ROLLBACK');
+        unusable = await rollbackFailed(client, 'withAuth');
         log.warn('withAuth: membership has no users profile', {
           userId: claims.sub,
           companyId: activeCompanyId,
@@ -150,7 +150,7 @@ export function withAuth(handler: Handler): NextApiHandler {
         return res.status(403).json({ success: false, error: { ...MISSING_PROFILE_ERROR } });
       }
       if (!isActiveUserAccount(account)) {
-        await client.query('ROLLBACK');
+        unusable = await rollbackFailed(client, 'withAuth');
         log.warn('withAuth: account not in good standing', {
           userId: claims.sub,
           companyId: activeCompanyId,
@@ -179,7 +179,7 @@ export function withAuth(handler: Handler): NextApiHandler {
           { max: bucket.max, windowSecs: bucket.windowSecs },
         );
         if (!allowed) {
-          await client.query('ROLLBACK');
+          unusable = await rollbackFailed(client, 'withAuth');
           return res.status(429).json({
             success: false,
             error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again shortly.' },
@@ -218,10 +218,13 @@ export function withAuth(handler: Handler): NextApiHandler {
       // writes. <5xx commits (4xx keeps today's behaviour — handlers that
       // validate-then-4xx almost always return before any write).
       const handlerFailed = res.statusCode >= 500;
+      const finalizeCtx = { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub };
       if (handlerFailed) {
         // Nothing is meant to commit, so the handler's own answer stands even if this ROLLBACK
         // fails: the connection is then destroyed and the server discards the transaction (R-176).
-        unusable = await rollbackFailed(client, 'withAuth');
+        const rollbackErr = await rollbackError(client, 'withAuth');
+        unusable = rollbackErr !== null;
+        if (rollbackErr) reportFinalizeFailure(req, res, rollbackErr, { ...finalizeCtx, handlerFailed, connectionDestroyed: true });
       } else {
         try {
           await client.query('COMMIT');
@@ -229,15 +232,7 @@ export function withAuth(handler: Handler): NextApiHandler {
           // The COMMIT failed after the handler "responded": the write did not land, or its
           // outcome is unknown. Roll back, then replace the buffered 2xx with an honest 500.
           unusable = await rollbackFailed(client, 'withAuth');
-          log.error('withAuth: transaction finalize failed after handler responded', {
-            url: req.url,
-            status: res.statusCode,
-            connectionDestroyed: unusable,
-            message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
-          }, 'Auth');
-          if (process.env.SENTRY_ENABLED === 'true' && finalizeErr instanceof Error) {
-            Sentry.captureException(finalizeErr);
-          }
+          reportFinalizeFailure(req, res, finalizeErr, { ...finalizeCtx, handlerFailed, connectionDestroyed: unusable });
           answerCommitFailed(res, flush);
           return; // finally still runs (release + slow-request log)
         }

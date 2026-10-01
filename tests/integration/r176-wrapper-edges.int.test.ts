@@ -1,16 +1,16 @@
 /**
  * R-176 review round 1 — the edges of the three deferred-flush wrappers:
- *   - an early return (403 / 429) whose own ROLLBACK throws;
+ *   - an early return (403 / 429) whose own ROLLBACK fails: still 403 / 429, connection destroyed;
  *   - a ROLLBACK that succeeds in the catch after an earlier one failed (the log must say so);
- *   - a ROLLBACK that does not answer: the wait is bounded, the response still goes out, and the
- *     connection is destroyed with a query in flight;
+ *   - a ROLLBACK that does not answer: the wait is bounded, the response still goes out, the
+ *     query in flight is cancelled and the connection destroyed;
  *   - a real client-side query_timeout, with the COMMIT and the ROLLBACK queued behind it.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { PoolClient } from 'pg';
 import { randomUUID } from 'crypto';
 import { call, response, type TestResponse } from './r159-auth-wrapper.helpers';
-import { arm, armAllCheckouts, backendState, seen, type Seen } from './r176-evict.helpers';
+import { arm, armAllCheckouts, backendState, seen, survivesClientError, type Seen } from './r176-evict.helpers';
 import {
   CO, bearerReq, cookieReq, customers, extReq, extTokenFor, pool, setupWrapperFixture, teardownWrapperFixture,
 } from './r176-wrapper-fixture.helpers';
@@ -30,7 +30,7 @@ vi.mock('@/lib/rateLimit', async (importOriginal) => {
 import { sql } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
-import { getAuthPool } from '@/lib/auth/authPool';
+import { rollbackBound } from '@/lib/rollbackFailed';
 import { withAuth } from '@/lib/auth/withAuth';
 import { withBearerOrCookieAuth } from '@/lib/auth/withBearerOrCookieAuth';
 import { withBearerAuth } from '@/lib/auth/withBearerAuth';
@@ -43,13 +43,13 @@ type Handler = (req: unknown, res: TestResponse) => Promise<unknown>;
 type Wrapped = (req: never, res: never) => unknown;
 const reportsUrl = (req: unknown) => ({ ...(req as object), url: '/api/accounting/reports-r176' });
 
-/** [label, wrap, a normal request, a request that takes an early return, what that early return is] */
-const wrappers: Array<[string, (handler: Handler) => Wrapped, () => unknown, () => Promise<unknown>, string]> = [
-  ['withAuth', (x) => withAuth(x), cookieReq, async () => cookieReq(randomUUID()), '403: not a member of the cookie\'s company'],
-  ['withBearerOrCookieAuth (PAT)', (x) => withBearerOrCookieAuth(x), bearerReq, async () => reportsUrl(bearerReq()), '429'],
-  ['withBearerAuth (PAT)', (x) => withBearerAuth(x), bearerReq, async () => reportsUrl(bearerReq()), '429'],
+/** [label, wrap, a normal request, a request that takes an early return, the status that return owes] */
+const wrappers: Array<[string, (handler: Handler) => Wrapped, () => unknown, () => Promise<unknown>, number]> = [
+  ['withAuth', (x) => withAuth(x), cookieReq, async () => cookieReq(randomUUID()), 403], // not a member of the cookie's company
+  ['withBearerOrCookieAuth (PAT)', (x) => withBearerOrCookieAuth(x), bearerReq, async () => reportsUrl(bearerReq()), 429],
+  ['withBearerAuth (PAT)', (x) => withBearerAuth(x), bearerReq, async () => reportsUrl(bearerReq()), 429],
   ['withExtensionToken', (x) => withExtensionToken(x), extReq,
-    async () => extReq(await extTokenFor(randomUUID())), '403: no such connection'],
+    async () => extReq(await extTokenFor(randomUUID())), 403], // no such connection
 ];
 
 const ok = (s: Seen): Handler => async (_req, res) => {
@@ -57,7 +57,7 @@ const ok = (s: Seen): Handler => async (_req, res) => {
   return res.status(200).json({ success: true });
 };
 
-/** The early return's ROLLBACK is refused, then the wrapper's own; a healthy request follows. */
+/** The early return's ROLLBACK is refused; a healthy request follows. */
 async function earlyReturn(wrap: (handler: Handler) => Wrapped, early: unknown, normal: () => unknown) {
   const s = seen();
   let ran = false;
@@ -67,24 +67,26 @@ async function earlyReturn(wrap: (handler: Handler) => Wrapped, early: unknown, 
   const state = await backendState(pool, s.pid, 'gone');
   const next = seen();
   const nextR = await call(wrap(ok(next)), normal());
-  return { r, ran, refused: s.refused.ROLLBACK, state, samePid: next.pid === s.pid, nextStatus: nextR.status };
+  return { r, ran, refused: s.refused.ROLLBACK, state, samePid: next.pid === s.pid, nextStatus: nextR.status, pools: s.pools };
 }
 
-describe.each(wrappers)('%s', (_label, wrap, normal, early, what) => {
-  it(`an early return (${what}) whose ROLLBACK throws: answered 500, and the connection is destroyed`, async () => {
-    h.refuseRate = what === '429';
+describe.each(wrappers)('%s', (_label, wrap, normal, early, owed) => {
+  it(`an early return (${owed}) whose ROLLBACK fails: still ${owed}, and the connection is destroyed`, async () => {
+    h.refuseRate = owed === 429;
     const before = h.refusedRate;
     let out: Awaited<ReturnType<typeof earlyReturn>>;
     try { out = await earlyReturn(wrap, await early(), normal); } finally { h.refuseRate = false; }
-    if (what === '429') expect(h.refusedRate).toBe(before + 1); // the limiter's refusal fired
+    if (owed === 429) expect(h.refusedRate).toBe(before + 1); // the limiter's refusal fired
     expect(out.ran).toBe(false);
-    expect(out.refused).toBe(2); // the early return's ROLLBACK, then the one in the catch
+    expect(out.refused).toBe(1);
     expect(out.r.threw).toBeNull();
-    expect(out.r.status).toBe(500);
+    expect(out.r.status).toBe(owed); // nothing was written before this return, so the answer owed stands
     expect(out.r.ends).toBe(1);
     expect(out.nextStatus).toBe(200);
     expect(out.samePid).toBe(false);
     expect(out.state).toBeNull();
+    // Destroying a client can surface its error on the pool; an unlistened pool would crash the process.
+    expect(out.pools.map(survivesClientError)).toEqual([true]);
   });
 
   it('a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back', async () => {
@@ -140,35 +142,55 @@ describe.each(wrappers)('%s', (_label, wrap, normal) => {
   });
 });
 
+describe('withAuth: its other early returns', () => {
+  it.each([
+    ['a company cookie that is not a UUID (the membership lookup throws)', () => cookieReq('not-a-uuid'), 403, false],
+    ['the per-company rate limit', () => reportsUrl(cookieReq()), 429, true],
+  ] as const)('%s, ROLLBACK fails: still answered, connection destroyed', async (_what, early, owed, limited) => {
+    h.refuseRate = limited;
+    let out: Awaited<ReturnType<typeof earlyReturn>>;
+    try { out = await earlyReturn((x) => withAuth(x), early(), cookieReq); } finally { h.refuseRate = false; }
+    expect(out.ran).toBe(false);
+    expect(out.refused).toBe(1);
+    expect(out.r.status).toBe(owed);
+    expect(out.samePid).toBe(false);
+    expect(out.state).toBeNull();
+  });
+});
+
 describe('withAuth: a ROLLBACK that does not answer', () => {
   /** Leaves a query in flight on the request's connection, so everything after it queues behind it. */
   const busy = (client: PoolClient, seconds: number) => {
     client.query(`SELECT pg_sleep(${seconds})`).catch(() => undefined); // ends with the connection
   };
 
-  it('the wait is bounded: 500 is sent, the connection is destroyed in flight, the pool keeps no slot', async () => {
+  it('the wait is bounded: 500 is sent, the query in flight is cancelled, the connection is destroyed', async () => {
     const name = `r176-${randomUUID()}`;
     const s = seen();
-    const started = Date.now();
-    const r = await call(withAuth(async () => {
-      s.pid = (await sql<{ pid: number }>`SELECT pg_backend_pid() AS pid`)[0]!.pid;
-      await sql`INSERT INTO customers (id, company_id, name) VALUES (${randomUUID()}::uuid, ${CO}::uuid, ${name})`;
-      busy(als.getStore()!.client, 9);
-      throw new Error(`R-176 forced failure after the ${name} INSERT`);
-    }) as never, cookieReq());
-    const elapsed = Date.now() - started;
-    const slots = getAuthPool().totalCount;
+    const usual = rollbackBound.ms;
+    rollbackBound.ms = 300; // the production bound is seconds; the mechanism is the same
+    let r: Awaited<ReturnType<typeof call>>;
+    try {
+      r = await call(withAuth(async () => {
+        s.pid = (await sql<{ pid: number }>`SELECT pg_backend_pid() AS pid`)[0]!.pid;
+        await sql`INSERT INTO customers (id, company_id, name) VALUES (${randomUUID()}::uuid, ${CO}::uuid, ${name})`;
+        busy(als.getStore()!.client, 60); // the ROLLBACK queues behind this
+        throw new Error(`R-176 forced failure after the ${name} INSERT`);
+      }) as never, cookieReq());
+    } finally { rollbackBound.ms = usual; }
     expect(r.threw).toBeNull();
-    expect(r.status).toBe(500);
+    expect(r.status).toBe(500); // answered: the test would time out waiting for the 60s query otherwise
     expect(r.ends).toBe(1);
-    expect(elapsed).toBeGreaterThanOrEqual(4900); // it did wait for the ROLLBACK
-    expect(elapsed).toBeLessThan(7500); // and gave up long before the 9s query ahead of it
-    expect(slots).toBe(0); // released and removed, not held or pooled
-    expect(await backendState(pool, s.pid, 'gone', 6000)).toBeNull();
+    // Postgres 16 runs a statement to completion after its client socket is destroyed, so the
+    // backend would linger for the rest of the 60s. The cancel request ends it now.
+    expect(await backendState(pool, s.pid, 'gone', 4000)).toBeNull();
     expect(await customers(name)).toBe(0);
-  }, 30000);
+    const next = seen();
+    expect((await call(withAuth(ok(next)) as never, cookieReq())).status).toBe(200);
+    expect(next.pid).not.toBe(s.pid);
+  }, 20000);
 
-  it('a real client-side query_timeout: COMMIT and ROLLBACK both time out in the queue, the connection is destroyed', async () => {
+  it('a real client-side query_timeout: COMMIT and ROLLBACK both time out in the queue; cancelled and destroyed', async () => {
     const name = `r176-${randomUUID()}`;
     const s = seen();
     let client: PoolClient | undefined;
@@ -179,19 +201,17 @@ describe('withAuth: a ROLLBACK that does not answer', () => {
       s.pid = (await sql<{ pid: number }>`SELECT pg_backend_pid() AS pid`)[0]!.pid;
       await sql`INSERT INTO customers (id, company_id, name) VALUES (${randomUUID()}::uuid, ${CO}::uuid, ${name})`;
       params().query_timeout = 300; // node-postgres reads it per query
-      busy(client, 3);
+      busy(client, 60);
       return res.status(200).json({ success: true });
     }) as never, cookieReq());
     const messages = logged.mock.calls.map((c) => `${String(c[0])} ${JSON.stringify(c[1])}`);
     logged.mockRestore();
     delete params().query_timeout;
-    const slots = getAuthPool().totalCount;
     expect(messages.some((m) => m.includes('transaction finalize failed') && m.includes('Query read timeout'))).toBe(true);
     expect(messages.some((m) => m.includes('ROLLBACK failed, destroying') && m.includes('Query read timeout'))).toBe(true);
     expect(r.status).toBe(500);
     expect(r.body).toMatchObject({ code: 'COMMIT_FAILED' });
-    expect(slots).toBe(0);
-    expect(await backendState(pool, s.pid, 'gone', 6000)).toBeNull();
+    expect(await backendState(pool, s.pid, 'gone', 4000)).toBeNull(); // cancelled, not left to finish its 60s
     expect(await customers(name)).toBe(0); // the COMMIT never reached the server
     const next = seen();
     expect((await call(withAuth(ok(next)) as never, cookieReq())).status).toBe(200);

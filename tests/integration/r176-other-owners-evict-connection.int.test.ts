@@ -190,9 +190,9 @@ describe('withPlatformAdmin: a critical audit write failed, and the forced ROLLB
       const r = await call(withPlatformAdmin(async (_req: unknown, res: TestResponse) => {
         await work(name, 'ok', fail, s);
         als.getStore()!.criticalAuditFailed = true; // what auditService sets when the audit row cannot be written
-        return res.status(200).json({ success: true });
+        return res.status(200);
       }) as never, adminReq());
-      return r.threw !== null || r.status >= 500;
+      return r.threw === null && (r.body?.error as { code?: string } | undefined)?.code === 'AUDIT_WRITE_FAILED';
     };
     const first = seen(), name = `r176-${randomUUID()}`;
     const failed = await audited(name, 'ok', ['ROLLBACK'], first);
@@ -201,8 +201,8 @@ describe('withPlatformAdmin: a critical audit write failed, and the forced ROLLB
     const next = seen();
     const nextFailed = await viaPlatformAdmin(`${name}-next`, 'ok', [], next);
     next.disarm();
-    expect(first.refused.ROLLBACK).toBe(2); // the forced ROLLBACK, then the one in the catch
-    expect(failed).toBe(true);
+    expect(first.refused.ROLLBACK).toBe(1);
+    expect(failed).toBe(true); // still 500 AUDIT_WRITE_FAILED, not a rethrow
     expect(nextFailed).toBe(false);
     expect(await customers(name)).toBe(0);
     expect(next.pid).not.toBe(first.pid);

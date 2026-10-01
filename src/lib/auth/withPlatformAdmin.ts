@@ -156,10 +156,12 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
       // response, the privileged mutation must NOT persist without its audit
       // row — ROLLBACK instead of COMMIT (fail-closed).
       if (ctx.criticalAuditFailed) {
-        await adminClient.query('ROLLBACK');
+        // Through rollbackFailed (R-176): bounded, and a failure destroys the connection, which
+        // discards the unaudited write just the same. The 500 below stands either way.
+        unusable = await rollbackFailed(adminClient, 'withPlatformAdmin');
         log.error(
           'withPlatformAdmin: critical audit write failed — admin action rolled back',
-          { url: req.url, userId: claims!.sub },
+          { url: req.url, userId: claims!.sub, connectionDestroyed: unusable },
           'Auth'
         );
         if (!res.headersSent) {

@@ -17,7 +17,7 @@ import { randomUUID } from 'crypto';
 import { call, type TestResponse } from './r159-auth-wrapper.helpers';
 import { arm, backendState, seen, type Seen, type Statement } from './r176-evict.helpers';
 import {
-  CO, bearerReq, cookieReq, customers, extReq, pool, setupWrapperFixture, teardownWrapperFixture,
+  CO, USER, bearerReq, cookieReq, customers, extReq, pool, setupWrapperFixture, teardownWrapperFixture,
 } from './r176-wrapper-fixture.helpers';
 import { sql } from '@/lib/neon';
 import { als } from '@/lib/als';
@@ -130,7 +130,7 @@ describe.each(owners)('%s', (label, run) => {
     expect(r.samePid).toBe(false);
     expect(r.rows).toBe(0);
     expect(r.nextRows).toBe(1);
-    if (isWrapper) expect(r.finalizeLog).toMatchObject({ connectionDestroyed: true });
+    if (isWrapper) expect(r.finalizeLog).toMatchObject({ handlerFailed: false, connectionDestroyed: true, companyId: CO, userId: USER });
   });
 
   it.runIf(isWrapper)('a 503 answer whose ROLLBACK fails: destroyed, and the handler\'s own 503 is what the client gets', async () => {
@@ -138,7 +138,11 @@ describe.each(owners)('%s', (label, run) => {
     // Nothing was meant to commit, so this is not a COMMIT failure: the buffered answer stands.
     expect(r.answer).toEqual({ status: 503, code: 'R176_BUSY' });
     expect(r.refused.ROLLBACK).toBe(1);
-    expect(r.finalizeLog).toBeUndefined();
+    // The request is still reported, under the message an alert already watches.
+    expect(r.finalizeLog).toMatchObject({
+      url: '/api/accounting/mfa-integration-fixture', status: 503, handlerFailed: true, connectionDestroyed: true,
+      companyId: CO, userId: USER, message: 'R-176 forced: ROLLBACK never reached the server',
+    });
     expect(r.rollbackLogs).toBe(1);
     expect(r.state).toBeNull();
     expect(r.samePid).toBe(false);
@@ -162,7 +166,7 @@ describe.each(owners)('%s', (label, run) => {
     expect(r.state).toBe('idle');
     expect(r.samePid).toBe(true);
     expect(r.rows).toBe(0);
-    if (isWrapper) expect(r.finalizeLog).toMatchObject({ connectionDestroyed: false });
+    if (isWrapper) expect(r.finalizeLog).toMatchObject({ handlerFailed: false, connectionDestroyed: false });
   });
 
   it('a 200: committed, and the connection is reused', async () => {
