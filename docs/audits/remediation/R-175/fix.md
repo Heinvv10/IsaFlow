@@ -436,8 +436,8 @@ Note 1: `customer-statements` charges 1 unit per request and sends up to 100 ema
 new and not changed here. With one or more emails accepted the unit is used.
 
 Use is "the provider answered with an OK status" or "the mail server accepted the message". A
-provider that answers and then the route fails still costs the unit. A provider timeout costs
-nothing, although the provider may have done the work.
+provider that answers and then the route fails still costs the unit. (Review round 3: a provider
+timeout now counts as use too.)
 
 `tests/unit/security/quotaCallerCensus.test.ts` lists every quota caller as refundable or as
 keeping its charge. It fails when a caller is in neither list, when a refundable caller cannot
@@ -534,6 +534,144 @@ For a decision:
 - `customer-statements` charges 1 unit for up to 100 emails (note 1).
 - The hourly per-company quotas and `portal-chat` daily still keep a failed request's charge.
 - About 60 unit files still run against the database `.env.local` names.
+
+## Review round 3
+
+Both blind reviewers said SHIP on d89110477 with no HIGH or MEDIUM. Every LOW is fixed.
+
+### 1. A refund could land in the next window
+
+Request A charges 100 at the end of a window and its sends fail. The window rolls. Request B
+charges and sends 100. A settles, and the new window read 0 with 100 sent.
+
+`chargeRateLimit` now returns the window it charged (`window_start`, as text, so the
+microseconds survive). The noted charge carries it, and `refundRateLimit(key, units, windowStart)`
+is a no-op when the row's window is a different one. `invite-accept` still refunds without a
+window: its refund follows its charge by seconds inside a one-hour window. Left as it was.
+
+### 2. A refused charge no longer consumes units
+
+Before: at 9,950 of 10,000, a 100-unit request pushed the count to 10,050 and was refused. A
+1-unit request was then refused for the rest of the day with 50 real units unspent.
+
+Now one atomic statement charges **only when the call fits** and returns whether it did
+(`INSERT ... ON CONFLICT DO UPDATE ... WHERE expired OR count + cost <= max`, read back in the
+same statement). A refused call changes nothing. The count never passes `max`. A cost above
+`max` is refused without a database call, because it can never fit.
+
+The refuse-only cache holds the count at the last refusal and turns a call away only while
+`remembered + cost > max`. So after a refused 100-unit call, a 1-unit call that fits is still
+sent to the database.
+
+The strongest argument against: a refused attempt now leaves no trace. The counter used to climb
+past `max` under attack, and that number showed how hard a key was being hit. It is gone; only
+the 429 logs show it. Also, small requests can now starve a large one for a whole window: at
+9,950, fifty 1-unit calls fit and the 100-unit batch never will. Before, the batch's refusal
+blocked everyone equally.
+
+Abuse limits behave as before for cost 1: the same calls are admitted and refused, and the
+window ends when it did. Tests that assumed a refused call increments the counter: 16
+integration cases and the mocked unit cases, all in this branch's own files or in the two files
+moved from the unit suite. They are corrected. I found no caller in `src` or `pages` that reads
+the count.
+
+### 3. Work after the request cannot be refunded
+
+`runAfterCommit` now forfeits the request's refund (`forfeitQuotaRefund`): every noted charge is
+kept. Use recorded after the request has ended would never reach the settle, so the route would
+otherwise get every unit back.
+
+The caller census also refuses a refundable route that reaches `als.exit(`, a detached
+`.exit(() =>`, `setImmediate` or `process.nextTick`, in any file it imports, except
+`src/lib/afterCommit.ts` itself. Fixture cases both ways.
+
+What it cannot see: a promise that is started and not awaited, a bare `setTimeout`, and an
+import it cannot resolve.
+
+### 4. A provider call that times out counts as use
+
+`markQuotaUsedUnlessNoWork(kind, err)` runs in the catch of every provider call. The unit is
+used unless the error proves no work was done: connection refused, name not resolved, DNS
+failure, connect timeout, or an error carrying a provider status (the SDK's 4xx or 5xx). A
+timeout, an abort, a reset after the request was sent, or an unknown error counts as use.
+A provider answer with an error status through `fetch` (`!response.ok`) is still no use.
+
+Email is not changed: a failed `sendMail` is still no use, though a timeout after the message
+body was sent may have delivered it.
+
+### 5. One `AUTO_RATE_LIMIT` table
+
+`src/lib/auth/autoRateLimit.ts` holds the table and `checkAutoRateLimit`. `withAuth` and the
+bearer pipeline both call it. The two pins in the key census are gone; the census reads the
+table.
+
+### 6. Key census blind spots
+
+- Different patterns are compared when one, read as a glob, can produce the other's keys:
+  `foo:*` and `foo:bar:*`. One real pair is reasoned and pinned (`portal-chat:*`, keyed by an
+  IP, against `portal-chat:co:*:day`). The wrappers' own 15-minute and daily company keys are
+  exempt by rule: the company id is a UUID and holds no colon.
+- Outside its import, a limiter function may appear only as a direct call. Assigned, put in an
+  object, passed as an argument or bound, it fails the test.
+
+### 7. Send routes: a malformed request no longer charges the shared bucket
+
+| Route | Before | Now |
+|---|---|---|
+| `customer-statements-send` | company bucket charged first | per-user limit, validate, then company bucket |
+| `invoice-email` | company bucket charged first | the same |
+| `ar/dunning/send` | company bucket charged first | the same |
+| `afs/[documentId]/send-for-signing` | company bucket charged first | the same |
+| `statement-bulk-email` | fixed in round 2 | unchanged |
+| `company-invitations` | already validates before charging; owner or admin only | unchanged, no per-user limit added |
+
+The per-user limit is `<name>:attempts:<user>`, 30 per 15 minutes, counted on every attempt and
+never given back.
+
+### 8. Tidy
+
+The spliced sentence in `rateLimit.claude.md` is repaired. `QuotaKind` is defined once, in
+`als.ts`. The `checkRateLimit` comment sits on its function. The doc now says what the daily
+bucket holds after the settle.
+
+### 9. Route-level tests
+
+`tests/unit/api/sendRoutesQuotaUse.test.ts` drives `send-for-signing`, `dunning` and
+`company-invitations` through their real services down to the real `sendEmail`. Only the mail
+transport, the database and outside services are stubbed. Each keeps its unit when the mail
+server accepts, and leaves it unused when the server is down or not configured.
+
+### Tests and mutants in this round
+
+- Integration, real PostgreSQL: 6 files, 51 tests, all pass. Red on d89110477: 23 of 51
+  (`red.r3.int.log`).
+- Limiter unit files: 16 files, 196 tests, all pass. Red on d89110477's sources: 49 of 186
+  (`red.r3.unit.log`).
+- Whole unit suite: 1125 files, 15011 pass, 6 skipped.
+- The 23 other integration files that mention the limiter: the same 15 tests fail as with
+  `origin/master`'s limiter.
+- Mutants on the final code: 113, all red, baseline green before and after (`mutations.log`,
+  round 5).
+
+Not verified in this round:
+
+- The new statement under real concurrency from several processes. It is tested with concurrent
+  calls from one process and two module instances.
+- Counter rows written by the old code with a count above `max`. They read as full until their
+  window ends, which is the old behaviour.
+- `withAuth` settling end to end over a real HTTP request; the k-041 and k-042 invite suites
+  (no GoTrue on the harness); load.
+
+For a decision:
+
+- Item 2's trade: small requests can starve a large one, and an attack no longer shows in the
+  counter.
+- `invite-accept`'s refund carries no window.
+- A failed `sendMail` after a timeout is treated as not sent.
+- `company-invitations` has no per-user limit.
+- Carried over: the five kept AI routes, `customer-statements` charging 1 unit for up to 100
+  emails, the hourly quotas and `portal-chat` daily, and about 60 unit files that run against
+  the database `.env.local` names.
 
 ## Rollback
 
