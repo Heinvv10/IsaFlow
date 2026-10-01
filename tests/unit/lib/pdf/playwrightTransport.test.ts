@@ -33,7 +33,12 @@ function attributesFor(printError: string | string[] | null): Array<{ name: stri
   }));
 }
 
-function makeBrowser(printError: string | string[] | null = null) {
+type PageState = { attrs: Array<{ name: string; value: string }>; ready: boolean };
+
+/** `script` is what the page looks like at each successive read after a wait;
+ *  by default it is whatever `printError` implies, ready when nothing failed. */
+function makeBrowser(printError: string | string[] | null = null, script?: PageState[]) {
+  let reads = 0;
   const contexts: Array<{ closed: boolean }> = [];
   const listeners: Array<() => void> = [];
   const browser = {
@@ -53,8 +58,13 @@ function makeBrowser(printError: string | string[] | null = null) {
           // Runs the transport's OWN function against a document that carries
           // the markers under their real names only, so reading any other
           // attribute name finds nothing and the render succeeds.
-          evaluate: vi.fn(async (fn: (a: string) => unknown, arg: string) => {
-            vi.stubGlobal('document', { documentElement: { attributes: attributesFor(printError) } });
+          evaluate: vi.fn(async (fn: (a: string[]) => unknown, arg: string[]) => {
+            const state = script?.[Math.min(reads++, script.length - 1)]
+              ?? { attrs: attributesFor(printError), ready: printError === null };
+            vi.stubGlobal('document', {
+              querySelector: () => (state.ready ? {} : null),
+              documentElement: { attributes: state.attrs },
+            });
             try { return fn(arg); } finally { vi.unstubAllGlobals(); }
           }),
           emulateMedia: vi.fn(async () => {}),
@@ -133,6 +143,23 @@ describe('playwrightTransport — a print page that reports it cannot render', (
       try { return fn(arg); } finally { vi.unstubAllGlobals(); }
     };
     expect([run(false, false), run(true, false), run(false, true)]).toEqual([false, true, true]);
+  });
+
+  it('fails on an attribute with an EMPTY value, by count, rather than printing a page that is not ready', async () => {
+    launchMock.mockResolvedValue(makeBrowser(null, [
+      { attrs: [{ name: 'data-print-error-fonts', value: '' }], ready: false },
+    ]));
+    await expect(playwrightTransport.render(request)).rejects.toThrow(/cannot render: no reason given$/);
+  });
+
+  it('waits again when the attribute was cleared and the page is not yet ready', async () => {
+    waitCalls.length = 0;
+    launchMock.mockResolvedValue(makeBrowser(null, [
+      { attrs: [], ready: false },
+      { attrs: [], ready: true },
+    ]));
+    await expect(playwrightTransport.render(request)).resolves.toBeInstanceOf(Buffer);
+    expect(waitCalls).toHaveLength(2);
   });
 
   it('renders normally when the page reports nothing', async () => {

@@ -86,26 +86,40 @@ export const playwrightTransport: PdfTransport = {
       // 'load', not 'networkidle': the app keeps background connections open
       // that never go quiet. waitForSelector is the real readiness gate.
       await page.goto(request.url, { waitUntil: 'load' });
-      // Ready OR failed: a print page that reports `data-print-error` will
+      // Ready OR failed: a print page that reports `data-print-error-*` will
       // never become ready, so waiting out the timeout only delays the same
       // failure and hides its reason.
-      await page.waitForFunction(
-        ([ready, prefix]) => document.querySelector(ready!) !== null
-          || Array.from(document.documentElement.attributes).some((a) => a.name.startsWith(prefix!)),
-        [PRINT_READY_SELECTOR, PRINT_ERROR_ATTRIBUTE_PREFIX],
-        { timeout: PRINT_READY_TIMEOUT_MS },
-      );
-      // Every producer's reason, so a font failure and a pages failure are
-      // both in the one error.
-      const printError = await page.evaluate(
-        (prefix) => Array.from(document.documentElement.attributes)
-          .filter((a) => a.name.startsWith(prefix))
-          .map((a) => a.value)
-          .join('; '),
-        PRINT_ERROR_ATTRIBUTE_PREFIX,
-      );
-      if (printError !== '') {
-        throw new Error(`playwrightTransport: the print page reported it cannot render: ${printError}`);
+      //
+      // THE WAIT RESOLVES ON EITHER, SO WHAT HAPPENED IS READ AFTER IT, by
+      // COUNT: an attribute with an empty value, or one cleared between the
+      // wait and the read, must neither pass for ready nor be reported as
+      // nothing. A failure present is a failure; if none is left and the page
+      // is not ready, wait again, against the same overall deadline.
+      const deadline = Date.now() + PRINT_READY_TIMEOUT_MS;
+      for (;;) {
+        await page.waitForFunction(
+          ([ready, prefix]) => document.querySelector(ready!) !== null
+            || Array.from(document.documentElement.attributes).some((a) => a.name.startsWith(prefix!)),
+          [PRINT_READY_SELECTOR, PRINT_ERROR_ATTRIBUTE_PREFIX],
+          { timeout: Math.max(1, deadline - Date.now()) },
+        );
+        const state = await page.evaluate(
+          ([ready, prefix]) => ({
+            ready: document.querySelector(ready!) !== null,
+            errors: Array.from(document.documentElement.attributes)
+              .filter((a) => a.name.startsWith(prefix!))
+              .map((a) => a.value),
+          }),
+          [PRINT_READY_SELECTOR, PRINT_ERROR_ATTRIBUTE_PREFIX],
+        );
+        if (state.errors.length > 0) {
+          const reasons = state.errors.filter((e) => e !== '').join('; ') || 'no reason given';
+          throw new Error(`playwrightTransport: the print page reported it cannot render: ${reasons}`);
+        }
+        if (state.ready) break;
+        if (Date.now() >= deadline) {
+          throw new Error('playwrightTransport: the print page was neither ready nor failed within the timeout');
+        }
       }
       await page.emulateMedia({ media: 'print' });
 
