@@ -1,11 +1,12 @@
 // tests/unit/print/fontsSelfHosted.test.ts
 import { describe, expect, it } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { PACK_FONT_FAMILY, PACK_FONT_WEIGHTS } from '@/components/accounting/packs/usePrintMode';
+import { readPackPrintCss } from './packPrintCss';
 
 const ROOT = process.cwd();
-const CSS = readFileSync(join(ROOT, 'styles/packPrint.css'), 'utf8');
+const CSS = readPackPrintCss(ROOT);
 
 const FACES = [
   'IBMPlexSans-Regular.woff2', 'IBMPlexSans-Medium.woff2', 'IBMPlexSans-SemiBold.woff2',

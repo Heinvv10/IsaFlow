@@ -22,7 +22,7 @@
  * ARE rather than what can be read off them.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readPackPrintCss } from '../../print/packPrintCss';
 import { contrastRatio, relativeLuminance } from '@/lib/brand/contrast';
 import { DEFAULT_CHART_PALETTE, labelInkOn } from '@/modules/accounting/services/packs/packChartOptions';
 
@@ -38,7 +38,7 @@ const CHART_TYPE: Array<[string, string]> = [
 /** The print stylesheet's own tokens, read from the file rather than
  *  restated here — a copy of a colour is a copy that can drift. */
 function cssToken(name: string): string {
-  const css = readFileSync('styles/packPrint.css', 'utf8');
+  const css = readPackPrintCss();
   const match = new RegExp(`--${name}:\\s*(#[0-9a-f]{3,8})`, 'i').exec(css);
   expect(match, `${name} is not defined in packPrint.css`).not.toBeNull();
   return match![1]!;

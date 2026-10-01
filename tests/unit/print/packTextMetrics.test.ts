@@ -23,6 +23,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, type Browser } from 'playwright';
 import { wrappedLines } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { readPackPrintCss } from './packPrintCss';
 
 const ROOT = path.resolve(__dirname, '../../..');
 const HOST = 'http://text.metrics.local/';
@@ -65,7 +66,7 @@ afterAll(async () => { await browser?.close(); });
 
 describe('the pack text ruler', () => {
   it('never counts fewer lines than Chromium sets, in any script', async () => {
-    const pack = readFileSync(path.join(ROOT, 'styles/packPrint.css'), 'utf8');
+    const pack = readPackPrintCss(ROOT);
     // One paragraph per sample per measure, at the real size, in the real
     // face — a fallback face has different advances and would measure a
     // different document.

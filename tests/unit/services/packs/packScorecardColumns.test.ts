@@ -12,7 +12,7 @@
  * narrower than its longest token clips it, which is a worse defect than the
  * one being fixed.
  */
-import { readFileSync } from 'node:fs';
+import { readPackPrintCss } from '../../print/packPrintCss';
 import { describe, expect, it } from 'vitest';
 import {
   SCORECARD_TABLE_MM,
@@ -29,7 +29,7 @@ import { liveDemoShortPanelsInput } from './fixtures/liveDemoBoardPack';
  * browser loads — `.pack-table td { padding: <vertical> <horizontal>; }`.
  */
 const CSS_CELL_PADDING_MM = ((): number => {
-  const css = readFileSync('styles/packPrint.css', 'utf8');
+  const css = readPackPrintCss();
   const rule = /\.pack-table td \{[^}]*padding:\s*[\d.]+mm\s+([\d.]+)mm/.exec(css);
   expect(rule, 'packPrint.css states no padding for .pack-table td').not.toBeNull();
   return Number.parseFloat(rule![1]!);

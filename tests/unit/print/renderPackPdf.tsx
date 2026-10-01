@@ -25,6 +25,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { chromium, type Browser, type Page } from 'playwright';
+import { readPackPrintCss } from './packPrintCss';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { HEADER_HTML, PDF_MARGIN_MM, mm } from '@/lib/pdf/pdfTransport';
 import {
@@ -93,7 +94,7 @@ function printStylesheet(): string {
   const globals = readFileSync(path.join(ROOT, 'styles/globals.css'), 'utf8')
     .replace(/@tailwind\s+[a-z]+;/g, '');
   const print = readFileSync(path.join(ROOT, 'styles/print.css'), 'utf8');
-  const pack = readFileSync(path.join(ROOT, 'styles/packPrint.css'), 'utf8');
+  const pack = readPackPrintCss(ROOT);
   return preflight + globals + WRAPPER_UTILITIES
     + print.replace(/@import\s+'\.\/packPrint\.css';/, pack);
 }

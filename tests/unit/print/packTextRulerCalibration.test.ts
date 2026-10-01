@@ -40,6 +40,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, type Browser } from 'playwright';
+import { readPackPrintCss } from './packPrintCss';
 import { textWidthEms, WIDTH_SAFETY } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { buildDefinitions } from '@/modules/accounting/services/packs/pages/packDefinitions';
 import { NO_INVENTORY_CLASSIFIED } from '@/modules/accounting/services/packs/pages/packScorecard';
@@ -130,7 +131,7 @@ afterAll(async () => { await browser?.close(); });
 
 describe('the pack text ruler, measured in width rather than in lines', () => {
   it('reads real pack prose short, by a known and bounded amount', async () => {
-    const pack = readFileSync(path.join(ROOT, 'styles/packPrint.css'), 'utf8');
+    const pack = readPackPrintCss(ROOT);
     const html = '<!doctype html><html class="print-mode"><head><meta charset="utf-8"><style>'
       + `body{margin:0;font-family:'IBM Plex Sans',sans-serif}${pack}`
       + `.probe{font-size:${PT}pt;white-space:pre;display:inline-block}</style></head><body>`
