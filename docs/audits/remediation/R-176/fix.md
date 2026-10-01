@@ -103,9 +103,11 @@ What the server then does, measured on the fixture (PostgreSQL 16.15,
 So the statement runs to completion: the backend only notices the dead socket when it next
 reads. Freeing the pool slot at the bound would let a burst put more backends on Postgres than
 the pool's `max`. `src/lib/cancelBackend.ts` therefore sends the protocol's CancelRequest for
-that backend before the owner destroys the connection. It uses a socket of its own (no pooled
-connection), is not awaited, tears its socket down after 2 s at the latest, and swallows its
-own errors. A cancel that reaches an idle backend is ignored by Postgres. Both timers are
+that backend before the owner destroys the connection. It writes the request itself on a plain
+socket of its own (no pooled connection, not through node-postgres's `Client#cancel`), so it
+reads only the client's `processID`, `secretKey`, `host` and `port`, and a longer key (protocol
+3.2, which pg would hold as a Buffer) goes out byte for byte. It is not awaited, tears its
+socket down after 2 s at the latest, and swallows its own errors. A cancel that reaches an idle backend is ignored by Postgres. Both timers are
 unref'd, so neither delays a script's exit.
 
 The request is sent in plaintext, before any TLS negotiation, as node-postgres's own
@@ -117,11 +119,12 @@ CancelRequest for its backend ended it with 57014 at once (502 ms after the stat
 500 ms of which was the wait before sending). The cancel socket therefore has no TLS. Not
 measured: a server whose `pg_hba.conf` has only `hostssl` lines; I could not edit `pg_hba.conf`.
 
-`cancelBackend` returns whether it could attempt the cancel. It cannot for a client that is not
-a connected pg client, or if node-postgres stops exposing what it reads (`Client#connection`
-with `connect`, `cancel`, `on`; `processID`, `secretKey`, `host`, `port`). A unit case builds a
-real `pg.Client` and asserts those on the installed version, so an upgrade that moves them turns
-CI red. When a ROLLBACK timed out and no cancel could be sent, `rollbackError` says so once per
+`cancelBackend` returns whether it could attempt the cancel: not for anything that is not a
+connected pg client, including one whose key fields change type. An integration case connects a
+real client to the fixture, asserts `processID` is a number and `secretKey` a number or Buffer,
+and cancels its `pg_sleep` (57014), so a pg release that changes them turns a test red. When a
+ROLLBACK timed out (no answer within the bound, or node-postgres's own `query_timeout`, whose
+error is `Query read timeout`) and no cancel could be sent, `rollbackError` says so once per
 process, at warn.
 
 In the three deferred-flush wrappers:
@@ -169,11 +172,12 @@ attaches its idle listener to the client, and that listener re-emits a client er
 `pool.emit('error')`. A pool with no `error` listener turns that into an uncaught exception.
 With `_ending` set by `client.end()`, the socket's close does not emit an error (client.js
 179–205), but a socket error (a reset) still does. The pools in `withInviteToken`,
-`withExtensionToken`, invite accept, `scripts/_pg.ts` and the two simulate scripts had no
-listener; they have one now. `tests/unit/lib/poolErrorListenerCensus.test.ts` fails on a file
-that constructs more pools than it registers `error` listeners. Eight files are pinned there:
-`verify-email.ts` and seven scripts, each with one pool built for a single run and ended by it,
-where an uncaught pool error ending the run is the wanted outcome.
+`withExtensionToken`, invite accept, `verify-email.ts`, `scripts/_pg.ts` and the two simulate
+scripts had no listener; they have one now. `tests/unit/lib/poolErrorListenerCensus.test.ts`
+fails on a pool whose own name has no `.on('error', …)` in the same function (or module); a
+client's listener, or another pool's, does not count. Seven scripts are pinned there, each with
+one pool built for a single run and ended by it, where an uncaught pool error ending the run is
+the wanted outcome.
 
 The census matcher treats `Reflect.defineProperty` like `Object.defineProperty`.
 
@@ -252,11 +256,10 @@ Unit:
 bare release too. It is left as it is; the `withPublicRouteTransaction` cases above are the
 guard.
 
-Evidence: `red.int.log` (five rounds), `green.log`, `mutations.log`. The last batch, round 5c,
-ran 160 mutants on `7cc0741a3` with the baseline green three times before and once after:
-160 of 160 RED. Rounds 5 and 5b each found one survivor (a warning no case could tell apart,
-and a census fixture the new same-client rule had made toothless); each got a case and the
-whole list was re-run.
+Evidence: `red.int.log` (six rounds), `green.log`, `mutations.log`. The last batch, round 6b,
+ran 172 mutants on `0d1f36ba6` with the baseline green three times before and once after:
+172 of 172 RED. Round 6 found two survivors (the cancel socket's bound, and two same-named
+pools in one file); each got a case and the whole list was re-run.
 
 ## Not covered
 
@@ -273,6 +276,8 @@ whole list was re-run.
   behind that COMMIT.
 - The cancel request against a server whose `pg_hba.conf` allows only `hostssl`.
 - Timer `unref` is not asserted by any test.
+- A 3.2-protocol (Buffer) key is tested against a plain listener only: the installed pg and
+  PostgreSQL 16 give a 4-byte numeric key.
 - Intermittent failures seen under machine load (load average 24–33), recorded in `green.log`:
   - whole unit suite, 1 run in 7: two 10 s timeouts in DB-backed unit tests this change does not
     touch (`tests/unit/mcp/allocateByReferenceLedger.integration.test.ts` and
@@ -376,6 +381,26 @@ test-only follow-ups in `f73f1198b` and `7cc0741a3`.
 8. Recorded under Accepted.
 9. Recorded under Not covered and in `green.log`: two named timeouts in unrelated DB-backed
    unit tests; the earlier one-file failure did not recur and stays unnamed.
+
+## Review round 4
+
+Both blind reviewers said SHIP on `496a26cfb` with LOWs. Each is fixed in `16500ef2a`, with a
+test-only follow-up in `0d1f36ba6`.
+
+1. `verify-email.ts` runs in the server, so its pin reason was false. Its pool listens for
+   errors now and the pin is gone.
+2. The cannot-cancel warning also fires when pg's `query_timeout` refused the ROLLBACK. A real
+   connected client's key types are asserted at integration level, with a real cancel. Buffer
+   keys are handled, not refused: `cancelBackend` now writes the CancelRequest itself.
+3. The pool census ties a listener to the pool's own name, scoped to its function.
+4. `NODE_ENV` for the test seam, checked by running and reading: vitest sets
+   `process.env.NODE_ENV ??= 'test'`, so an unset value becomes `test` and an exported one is
+   kept (`NODE_ENV=production vitest run` fails the seam's case). No path exports one:
+   `run-ci.sh` sets `NODE_ENV=production` only on its build step's own command; the GitHub job
+   sets `NODE_ENV: test`; `deploy.sh` runs `bun run ci` without it and sets it only on its own
+   build command; `vitest.config.ts` reads `.env*` through `loadEnv` into a local only (not into
+   `process.env`). A shell that exports `NODE_ENV` would fail that one case loudly. Nothing
+   changed.
 
 ## Migration / rollback
 
