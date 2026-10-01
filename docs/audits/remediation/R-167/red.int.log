@@ -1,0 +1,23 @@
+# RED on origin/master 66e776d81 + migration 717 + the new suite; fixture clone at 717 (2026-09-30T09:48:19Z). 64-hex tokens redacted.
+     × a part-payment link on an unpaid invoice 39ms
+     × a link over what is left after a part payment 21ms
+     × a legacy link over a negative amount_paid (never above the total) 18ms
+     × a NaN amount_paid is refused before the gateway is called 18ms
+     × a cancelled invoice is refused before the gateway is called 31ms
+     × a soft-deleted invoice is refused before the gateway is called 25ms
+     × the webhook marks the link paid, once, and banks what was charged 74ms
+     × the verify route marks the link paid when it settles first 56ms
+     × the public GET gives the link amount capped at the balance 13ms
+     × a link on a paid invoice is not offered for payment 13ms
+     × a link on a cancelled invoice is not offered for payment 26ms
+AssertionError: expected [ 11500 ] to deeply equal [ 4050 ]
+AssertionError: expected [ { amount_cents: '3000', …(2) } ] to deeply equal [ ObjectContaining{…} ]
+AssertionError: expected [ 16500 ] to deeply equal [ 11500 ]
+AssertionError: {"success":false,"error":{"code":"INTERNAL_ERROR","message":"An internal error occurred"},"meta":{"timestamp":"2026-09-30T09:48:20.417Z"}}: expected 500 to be 400 // Object.is equality
+AssertionError: {"success":true,"data":{"checkoutUrl":"https://checkout.test/r167","reference":"inv_605f79b6e796_faab06668574"},"meta":{"timestamp":"2026-09-30T09:48:20.448Z"}}: expected 200 to be 404 // Object.is equality
+AssertionError: {"success":true,"data":{"checkoutUrl":"https://checkout.test/r167","reference":"inv_4aae8810aff0_ce6a93e68091"},"meta":{"timestamp":"2026-09-30T09:48:20.472Z"}}: expected 200 to be 404 // Object.is equality
+AssertionError: expected { status: 'active', …(2) } to match object { status: 'paid', …(1) }
+AssertionError: expected { status: 'active', …(2) } to match object { status: 'paid', …(1) }
+AssertionError: expected 40.5 to be 30 // Object.is equality
+AssertionError: expected 200 to be 404 // Object.is equality
+      Tests  11 failed | 2 passed (13)

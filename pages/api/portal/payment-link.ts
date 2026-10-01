@@ -16,6 +16,7 @@ import { assertCustomerInCompany, CustomerNotInCompanyError } from '@/modules/ac
 import { sql } from '@/lib/neon';
 import { isUuidParam } from '@/lib/validation';
 import { log } from '@/lib/logger';
+import { resolveLinkCharge } from '@/modules/accounting/services/ar/portalLinkCharge';
 type Row = Record<string, unknown>;
 
 /** A body amount as text: plain decimal, at most cents (no '0x10', '1e3', ' 7 ', 12.345). */
@@ -28,8 +29,17 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     if (!token) return apiResponse.badRequest(res, 'token is required');
     const link = await getPaymentLink(token);
     if (!link) return apiResponse.notFound(res, 'Payment link');
+    // R-167: offer only what create would charge (the link amount capped at the balance, or the
+    // live balance for the invoice's standing link). An invoice that owes nothing says so; one
+    // that is cancelled or deleted is not found.
+    const resolved = await resolveLinkCharge(token);
+    if (!resolved.ok) {
+      return resolved.reason === 'nothing_owed'
+        ? apiResponse.badRequest(res, 'This invoice has no outstanding balance')
+        : apiResponse.notFound(res, 'Payment link');
+    }
 
-    const enriched: Record<string, unknown> = { ...link };
+    const enriched: Record<string, unknown> = { ...link, amount: resolved.charge.chargeCents / 100 };
     try {
       const invoiceRows = (await sql`
         SELECT ci.invoice_number, ci.due_date, ci.online_payment_enabled, ci.company_id,
