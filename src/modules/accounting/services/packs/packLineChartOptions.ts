@@ -69,6 +69,8 @@ export function smallMultipleOption(
   axis?: { unit: string } | { endpoints: true },
 ): EChartsCoreOption {
   const last = points[points.length - 1]?.value ?? 0;
+  // Whether the line comes DOWN into its last point — see `endLabel`.
+  const fallsIntoLast = points.length > 1 && points[points.length - 2]!.value > last;
   const unit = axis !== undefined && 'unit' in axis ? axis.unit : null;
   const endpoints = axis !== undefined && 'endpoints' in axis;
   return {
@@ -239,10 +241,15 @@ export function smallMultipleOption(
           // line to the paper ground instead — a rule reaching the label is
           // fine if the label is opaque, and is a strike-through if it is
           // not.
+          //
+          // AND ON THE SIDE THE LINE DID NOT ARRIVE FROM. Lifted above the
+          // last point, it sat across a line that FELL into its last month —
+          // the long demo's (300) to (548) — so a falling finish takes the
+          // label under the point instead.
           ...(unit === null ? {} : {
             align: 'right',
-            verticalAlign: 'bottom',
-            offset: [-3, -6],
+            verticalAlign: fallsIntoLast ? 'top' : 'bottom',
+            offset: [-3, fallsIntoLast ? 6 : -6],
             backgroundColor: palette.paper,
             padding: [1, 2, 1, 2],
           }),
