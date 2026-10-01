@@ -59,15 +59,37 @@ export type TrustedChartSvg = string & { readonly __trustedChartSvg: unique symb
  * renderer is a tracking beacon or an SSRF probe.
  *
  * So this is a runtime check, not just a test: a chart that tried to fetch
- * something is not a chart we print. A handful of checks over the rendered
- * MARKUP, deliberately not a parser — the legitimate output of this one code
- * path is narrow and known.
+ * something is not a chart we print. Three layers over the rendered MARKUP,
+ * deliberately not a parser:
+ *
+ *  1. A DENYLIST of the known fetch surfaces (`<script>`, `<foreignObject>`,
+ *     `<image>`, event handlers, `href`) — kept because each names what it
+ *     found, which is what whoever hits it needs.
+ *  2. AN ALLOWLIST OF ELEMENTS, which is the guard that does not depend on
+ *     having thought of the construct. Measured over every chart the board
+ *     pack draws (the demo, Brightsphere and the live-demo fixtures: waterfall
+ *     custom series, bars, lines, sparklines, scorecard) zrender emits exactly
+ *     `svg g defs clipPath rect path text style` and nothing else; a gradient
+ *     fill adds `linearGradient`/`radialGradient`/`stop`. Anything
+ *     else — `<use>`, `<animate>`, `<set>`, `<a>`, `<animateTransform>` — is
+ *     refused. If a future chart legitimately emits another element this
+ *     throws and names it; the fix is to admit that exact element here.
+ *  3. EVERY `url(…)` MUST BE A SAME-DOCUMENT REFERENCE, `url(#id)`. zrender
+ *     writes `clip-path="url(#zr…-0)"` on its clip groups and nothing else; a
+ *     `url(https://…)` in a `style` or presentation attribute is a fetch.
  *
  * Exported so its positive controls can be tested directly: several of the
  * constructs it refuses (`<use>`, an event handler) are ones no ECharts option
  * can make zrender emit, so a test that could only go through renderChartSvg
  * would silently cover the guard's cheapest half.
  */
+const ALLOWED_ELEMENTS = new Set([
+  'svg', 'g', 'defs', 'clipPath', 'rect', 'path', 'text', 'style',
+  // A gradient fill — a documented ECharts setting that ssrSvgStyleGuard.test
+  // renders for a line area, a bar and sankey links; no pack chart uses one.
+  'linearGradient', 'radialGradient', 'stop',
+]);
+
 export function assertNoExternalReferences(svg: string): void {
   // Positional, like the id rewrite above and for the same reason: a pattern
   // matched anywhere in the string is a pattern matched in DATA. Scanning the
@@ -100,6 +122,29 @@ export function assertNoExternalReferences(svg: string): void {
   for (const [pattern, what] of checks) {
     if (pattern.test(markup)) {
       throw new Error(`renderChartSvg: refusing a chart containing an external reference (${what})`);
+    }
+  }
+  // The `<style>` body is CSS, not markup, and `assertStyleBlockIsOurs` owns
+  // it — scanning it here would report an injected `url(…)` as an external
+  // reference before the style guard could say what shape it expected.
+  const structure = markup.replace(/(<style\b[^>]*>)[\s\S]*?(<\/style>)/g, '$1$2');
+  // The allowlist. A comment, doctype or processing instruction can hide an
+  // element from this scan. (The `<style>` CDATA was emptied above.)
+  if (/<[!?]/.test(structure)) {
+    throw new Error('renderChartSvg: refusing a chart containing a comment, doctype or processing instruction');
+  }
+  for (const [, name] of structure.matchAll(/<\/?([a-zA-Z][\w:.-]*)/g)) {
+    if (!ALLOWED_ELEMENTS.has(name!)) {
+      throw new Error(
+        `renderChartSvg: refusing a chart containing an element outside the allow-list (<${name}>)`,
+      );
+    }
+  }
+  for (const [, target] of structure.matchAll(/url\(([^)]*)\)/gi)) {
+    if (!/^#[A-Za-z0-9_-]+$/.test(target!.trim())) {
+      throw new Error(
+        `renderChartSvg: refusing a chart containing an external reference (url(${JSON.stringify(target!.slice(0, 60))}) that is not a same-document #id)`,
+      );
     }
   }
 }
