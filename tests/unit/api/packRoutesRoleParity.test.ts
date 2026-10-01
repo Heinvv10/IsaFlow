@@ -107,8 +107,28 @@ describe.each(ROLES)('a company %s', (role) => {
   });
 });
 
-describe('a method that is not GET', () => {
-  it.each(ROUTES)('is refused by %s whatever the role', async (_name, route, query) => {
-    expect(await call(route, query, 'owner', 'POST')).toBe(405);
+/**
+ * THE ROLE ON THE REQUEST IS THE ONE THE REAL GATE READS. Every GET above
+ * passes whatever the role string, because the gate does not look at a GET —
+ * so on their own those cases would pass with the role ignored altogether.
+ * These go through the branch that does read it: the screen's route refuses a
+ * write from the roles outside `DEFAULT_WRITE_ROLES` with 403 and lets the
+ * rest through to the handler's own 405. The downloads carry no write gate,
+ * so they answer 405 to everyone.
+ */
+describe('a write, which is where the role is read', () => {
+  const [, screen, screenQuery] = ROUTES[0]!;
+  const DOWNLOADS = ROUTES.slice(1);
+
+  it.each(['accountant', 'bookkeeper', 'viewer', 'no-such-role'])('from a company %s is refused by the screen route with 403', async (role) => {
+    expect(await call(screen, screenQuery, role, 'POST')).toBe(403);
+  });
+
+  it.each(['owner', 'admin', 'manager'])('from a company %s passes the gate and meets the handler\'s 405', async (role) => {
+    expect(await call(screen, screenQuery, role, 'POST')).toBe(405);
+  });
+
+  it.each(ROLES)('from a company %s gets 405 from every download', async (role) => {
+    for (const [, route, query] of DOWNLOADS) expect(await call(route, query, role, 'POST')).toBe(405);
   });
 });
