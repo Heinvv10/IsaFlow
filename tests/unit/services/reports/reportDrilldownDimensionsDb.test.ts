@@ -44,7 +44,8 @@ async function withLedger(run: () => Promise<void>) {
         entry_number text, description text, reference text, source text, created_at timestamp,
         posting_agent text, extraction_confidence numeric, source_document_id uuid) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_lines (company_id uuid, journal_entry_id uuid, gl_account_id uuid,
-        debit numeric, credit numeric, cost_center_id uuid, cc1_id uuid, cc2_id uuid, bu_id uuid) ON COMMIT DROP`;
+        debit numeric, credit numeric, cost_center_id uuid, cc1_id uuid, cc2_id uuid, bu_id uuid,
+        id uuid DEFAULT gen_random_uuid()) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE IF NOT EXISTS captured_documents (id uuid, company_id uuid, vendor_name text,
         reference_number text, document_date date) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE IF NOT EXISTS customer_invoices (id uuid, company_id uuid, gl_journal_entry_id uuid,
@@ -64,7 +65,7 @@ async function withLedger(run: () => Promise<void>) {
       ] as const) {
         const id = `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
         await sql`INSERT INTO gl_journal_entries VALUES (${id}::uuid, ${headerOwner}::uuid, ${status}, ${date}::date,
-          ${String(n)}, 'Fixture', '', 'manual', ${date}::timestamp, NULL, NULL, NULL)`;
+          ${String(n)}, 'Fixture', '', 'manual', ${date}::timestamp + ${n} * interval '1 minute', NULL, NULL, NULL)`;
         await sql`INSERT INTO gl_journal_lines VALUES (${lineOwner}::uuid, ${id}::uuid, ${account}::uuid, ${amount}, 0,
           ${dimension === 'none' ? null : legacy}::uuid, ${dimension === 'explicit' ? cc1 : null}::uuid,
           ${dimension === 'explicit' ? cc2 : null}::uuid,

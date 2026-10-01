@@ -32,12 +32,13 @@ const COMPANY = '11111111-1111-4111-8111-111111111111';
 type Row = Record<string, unknown>;
 const mockSql = sql as unknown as ReturnType<typeof vi.fn>;
 
-/** Queue the three result sets the service reads, in call order. */
-function seed(accounts: Row[], openings: Row[], txns: Row[]) {
+/** Queue the four result sets the service reads, in call order. */
+function seed(accounts: Row[], openings: Row[], txns: Row[], retainedBf = 0) {
   mockSql
     .mockResolvedValueOnce(accounts)
     .mockResolvedValueOnce(openings)
-    .mockResolvedValueOnce(txns);
+    .mockResolvedValueOnce(txns)
+    .mockResolvedValueOnce([{ retained: retainedBf }]); // trialBalanceBasis.getRetainedEarningsBroughtForward
 }
 
 function account(code: string, normal = 'debit'): Row {
@@ -88,8 +89,9 @@ describe('getGeneralLedgerReport', () => {
 
     await getGeneralLedgerReport(COMPANY, '2022-11-01', '2022-11-30');
 
-    // Three: accounts, opening balances, in-period lines. Never one per account.
-    expect(mockSql).toHaveBeenCalledTimes(3);
+    // Four: accounts, opening balances, in-period lines, retained earnings b/f.
+    // Never one per account.
+    expect(mockSql).toHaveBeenCalledTimes(4);
   });
 
   it('scopes every query to the requesting company', async () => {

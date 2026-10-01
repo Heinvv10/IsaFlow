@@ -6,6 +6,7 @@
  *   - newlines within a field are preserved inside the quotes
  */
 
+import { ledgerPageBoundaries } from './ledgerPageBoundaries';
 import type {
   AccountLedgerMeta,
   AccountLedgerRow,
@@ -21,19 +22,30 @@ export function csvField(value: string): string {
   return `"${escaped}"`;
 }
 
+export interface LedgerCsvPage {
+  page: number;
+  totalPages: number;
+}
+
 /**
- * Build a CSV string for the account ledger and trigger a browser download.
+ * The CSV text for one page of the account ledger. Page 1 opens at the ledger's
+ * opening balance; a later page opens at the balance its first row started from
+ * (derived year-end close rows included), so each page's opening is the previous
+ * page's closing. Only the last page closes at the period closing balance.
  */
-export function downloadAccountLedgerCsv(
+export function buildAccountLedgerCsv(
   meta: AccountLedgerMeta,
   rows: AccountLedgerRow[],
   openingBalance: number,
   periodClosingBalance: number,
-): void {
+  { page, totalPages }: LedgerCsvPage = { page: 1, totalPages: 1 },
+): string {
   const headers = [
     'Date', 'Entry #', 'Description', 'Reference', 'Source',
-    'Debit', 'Credit', 'Balance',
+    'Debit', 'Credit', 'Balance', 'Derived',
   ];
+
+  const b = ledgerPageBoundaries(meta.normalBalance, rows, openingBalance, periodClosingBalance, page, totalPages);
 
   const lines: string[] = [headers.join(',')];
 
@@ -41,12 +53,13 @@ export function downloadAccountLedgerCsv(
     [
       '', // Date
       '', // Entry #
-      csvField('Opening Balance'),
+      csvField(b.openingLabel),
       '', // Reference
       '', // Source
       '', // Debit
       '', // Credit
-      openingBalance.toFixed(2),
+      b.opening.toFixed(2),
+      '', // Derived
     ].join(','),
   );
 
@@ -61,6 +74,7 @@ export function downloadAccountLedgerCsv(
         r.debit > 0 ? r.debit.toFixed(2) : '',
         r.credit > 0 ? r.credit.toFixed(2) : '',
         r.runningBalance.toFixed(2),
+        r.derived ? 'derived' : '',
       ].join(','),
     );
   }
@@ -69,16 +83,31 @@ export function downloadAccountLedgerCsv(
     [
       '', // Date
       '', // Entry #
-      csvField('Closing Balance'),
+      csvField(b.closingLabel),
       '', // Reference
       '', // Source
       '', // Debit
       '', // Credit
-      periodClosingBalance.toFixed(2),
+      b.closing.toFixed(2),
+      '', // Derived
     ].join(','),
   );
 
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  return lines.join('\n');
+}
+
+/**
+ * Build a CSV string for the account ledger page and trigger a browser download.
+ */
+export function downloadAccountLedgerCsv(
+  meta: AccountLedgerMeta,
+  rows: AccountLedgerRow[],
+  openingBalance: number,
+  periodClosingBalance: number,
+  pageInfo?: LedgerCsvPage,
+): void {
+  const csv = buildAccountLedgerCsv(meta, rows, openingBalance, periodClosingBalance, pageInfo);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
