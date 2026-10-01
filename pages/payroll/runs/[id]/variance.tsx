@@ -87,7 +87,17 @@ function DiffCell({ totals, status }: { totals: VarianceTotals; status?: string 
   );
 }
 
-function SummaryCard({ label, totals }: { label: string; totals: VarianceTotals }) {
+/** Whether `prior` is the calendar month immediately before `current`. */
+function isPreviousMonth(current: { month: number; year: number }, prior: { month: number; year: number }): boolean {
+  return current.year * 12 + current.month - (prior.year * 12 + prior.month) === 1;
+}
+
+function SummaryCard({ label, totals, format = formatCurrency }: {
+  label: string;
+  totals: VarianceTotals;
+  /** A headcount is a count, not Rand (PAY-09). */
+  format?: (n: number) => string;
+}) {
   const isUp = totals.diff > 0;
   const Icon = isUp ? TrendingUp : TrendingDown;
   const color = totals.diff === 0
@@ -96,13 +106,13 @@ function SummaryCard({ label, totals }: { label: string; totals: VarianceTotals 
   return (
     <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
       <div className="text-xs text-[var(--ff-text-tertiary)] mb-1">{label}</div>
-      <div className="text-xl font-mono text-[var(--ff-text-primary)]">{formatCurrency(totals.current)}</div>
+      <div className="text-xl font-mono text-[var(--ff-text-primary)]">{format(totals.current)}</div>
       <div className={`text-xs font-mono mt-1 flex items-center gap-1 ${color}`}>
         {totals.diff !== 0 && <Icon className="h-3 w-3" />}
-        {totals.diff > 0 ? '+' : ''}{formatCurrency(totals.diff)} <span className="opacity-80">({fmtPct(totals.pct)})</span>
+        {totals.diff > 0 ? '+' : ''}{format(totals.diff)} <span className="opacity-80">({fmtPct(totals.pct)})</span>
       </div>
       <div className="text-xs text-[var(--ff-text-tertiary)] mt-1">
-        prior {formatCurrency(totals.prior)}
+        prior {format(totals.prior)}
       </div>
     </div>
   );
@@ -191,6 +201,12 @@ export default function PayrollRunVariancePage() {
             </div>
           )}
 
+          {data.priorPeriod && !isPreviousMonth(data.currentPeriod, data.priorPeriod) && (
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm">
+              <AlertTriangle className="h-4 w-4" /> The prior run ({priorLabel}) is not the previous month — these deltas span more than one pay period.
+            </div>
+          )}
+
           {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             <SummaryCard label="Gross"     totals={data.totals.grossPay} />
@@ -198,7 +214,7 @@ export default function PayrollRunVariancePage() {
             <SummaryCard label="UIF"       totals={data.totals.uif} />
             <SummaryCard label="SDL"       totals={data.totals.sdl} />
             <SummaryCard label="Net Pay"   totals={data.totals.netPay} />
-            <SummaryCard label="Employees" totals={data.totals.employeeCount} />
+            <SummaryCard label="Employees" totals={data.totals.employeeCount} format={String} />
           </div>
 
           {/* Filter toggle */}

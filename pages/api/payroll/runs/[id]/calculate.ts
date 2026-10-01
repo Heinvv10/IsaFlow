@@ -8,6 +8,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   withAuth,
+  withWriteAccess,
   type AuthenticatedNextApiRequest,
   type CompanyAuthedRequest,
 } from '@/lib/auth';
@@ -18,6 +19,8 @@ import {
   PayrollLoanLockTimeoutError,
   PayrollRunJournalPostedError,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -30,7 +33,7 @@ async function handler(
   const { companyId } = req as CompanyAuthedRequest;
   const { id } = req.query;
 
-  if (typeof id !== 'string') {
+  if (typeof id !== 'string' || !UUID_RE.test(id)) {
     return apiResponse.badRequest(res, 'Invalid run ID');
   }
 
@@ -52,4 +55,5 @@ async function handler(
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+// A viewer must not recalculate a run (W3-01 review): the same roles as approve.
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

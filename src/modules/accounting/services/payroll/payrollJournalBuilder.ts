@@ -36,10 +36,12 @@ import type { DbRow } from '@/lib/neon';
 import {
   REQUIRED_PAYROLL_ACCOUNT_CODES,
   buildLabourLines,
+  closedPeriodBlocker,
   lastDayOfMonthIso,
   resolveAccounts,
   resolveAccountsById,
 } from './payrollJournalParts';
+import { splitRunTotals } from './payrollRunTotalsSplit';
 
 type Row = DbRow;
 
@@ -128,12 +130,10 @@ export async function buildPayrollJournalPlan(
   const eti = Number(hdr.total_eti) || 0;
   const net = Number(hdr.total_net) || 0;
 
-  const employeeUif = round2(uif / 2);
-  // The two halves sum to uif exactly, so an odd cent cannot unbalance the journal.
-  const employerUif = round2(uif - employeeUif);
+  // The two UIF halves sum to uif exactly, so an odd cent cannot unbalance the journal.
+  const { employerUif, otherDeductions } = splitRunTotals({ gross, paye, uif, net });
   const etiUsed = round2(Math.max(0, Math.min(eti, paye)));
   const labourDebit = round2(gross + employerUif + sdl - etiUsed);
-  const otherDeductions = round2(gross - paye - employeeUif - net);
 
   const accounts = await resolveAccounts(companyId);
   const blockers: PayrollJournalNote[] = [];
@@ -251,18 +251,8 @@ export async function buildPayrollJournalPlan(
     });
   }
   const entryDate = lastDayOfMonthIso(periodYear, periodMonth);
-  const periodRows = (await sql`
-    SELECT status FROM fiscal_periods
-    WHERE company_id = ${companyId}::uuid
-      AND start_date <= ${entryDate}::date AND end_date >= ${entryDate}::date
-  `) as Row[];
-  const closed = periodRows.find((p) => String(p.status) !== 'open');
-  if (closed) {
-    blockers.push({
-      code: 'closed_period',
-      detail: `The fiscal period covering ${entryDate} is '${String(closed.status)}', so the payroll journal cannot post into it.`,
-    });
-  }
+  const closed = await closedPeriodBlocker(companyId, entryDate);
+  if (closed) blockers.push(closed);
 
   const totalDebit = round2(lines.reduce((s, l) => s + l.debit, 0));
   const totalCredit = round2(lines.reduce((s, l) => s + l.credit, 0));
