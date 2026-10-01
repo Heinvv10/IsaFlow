@@ -83,6 +83,31 @@ describe('create charges the link amount, capped at the balance', () => {
   });
 });
 
+describe('the payer is read inside the invoice\'s own company', () => {
+  // client_id has no FK, so a bad import can leave an invoice naming another company's customer.
+  // This path runs with RLS bypassed: only the join's company_id predicate keeps that tenant's
+  // name and email out of the checkout.
+  it('an invoice naming another company\'s customer is paid as "Customer", not under that customer\'s name or email', async () => {
+    const otherCo = randomUUID();
+    const foreign = randomUUID();
+    await pool.query('INSERT INTO companies (id, name, is_active) VALUES ($1, $2, true)', [otherCo, 'R167 other tenant']);
+    await pool.query("INSERT INTO customers (id, company_id, name, email) VALUES ($1, $2, 'Foreign Payer', 'payer@other-tenant.test')",
+      [foreign, otherCo]);
+    const { invoiceId, token } = await invoiceWithLink(0, 40.5);
+    try {
+      await pool.query('UPDATE customer_invoices SET client_id = $2 WHERE id = $1', [invoiceId, foreign]);
+      expect((await create(token)).statusCode).toBe(200);
+      expect(h.charged).toEqual([4050]);
+      expect((await pool.query('SELECT payer_name, payer_email FROM paystack_payment_requests WHERE customer_invoice_id = $1', [invoiceId])).rows)
+        .toEqual([{ payer_name: 'Customer', payer_email: `portal+${token}@noreply.isaflow.co.za` }]);
+    } finally {
+      await pool.query('UPDATE customer_invoices SET client_id = NULL WHERE id = $1', [invoiceId]);
+      await pool.query('DELETE FROM customers WHERE id = $1', [foreign]);
+      await pool.query('DELETE FROM companies WHERE id = $1', [otherCo]);
+    }
+  });
+});
+
 describe('the link itself must be payable', () => {
   it('an unknown token is 404', async () => {
     const r = await create(randomBytes(32).toString('hex')); // fresh per run: the per-link limit counts every run
