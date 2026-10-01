@@ -6,6 +6,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { lockSystemRoleWrites } from './systemRoleWriteLock';
 import type { GLAccountType } from '../../types/gl.types';
 
 export type CoaTemplate = 'isaflow_standard' | 'xero_compatible' | 'sage_compatible' | 'blank';
@@ -158,6 +159,8 @@ export async function seedChartOfAccountsFromTemplate(
 ): Promise<void> {
   const lines = getTemplateLines(template);
   if (lines.length === 0) return; // 'blank' — no seeding
+  // The template flags system accounts: serialise with every writer of role flags.
+  await lockSystemRoleWrites(companyId);
 
   // Pass 1: insert all accounts (no parent yet)
   for (const acc of lines) {

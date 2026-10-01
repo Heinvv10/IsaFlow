@@ -19,11 +19,11 @@ vi.mock('@/modules/accounting/services/gl/vatLockLineClassification', () => ({
   assertAccountChangesKeepVatLocks: vi.fn(async () => undefined),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
-vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ clearSystemAccountCache: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ clearSystemAccountCacheAfterCommit: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/migrationService', () => ({ updateSession: vi.fn() }));
 
 import { sql } from '@/lib/neon';
-import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
 import {
   importChartOfAccounts, validateSystemAccountMap,
   type AccountImportRow, type SystemAccountMap,
@@ -83,7 +83,7 @@ describe('importChartOfAccounts', () => {
     expect(codes).not.toContain('1500');
     expect(codes).not.toContain('1600');
     expect(inserts.find((c) => c[2] === '1700')).toContain('fixed_asset');
-    expect(clearSystemAccountCache).toHaveBeenCalledWith(CO);
+    expect(clearSystemAccountCacheAfterCommit).toHaveBeenCalledWith(CO);
   });
 
   it('the map is exclusive: every other system row for the role is demoted BEFORE the mapped one is flagged', async () => {

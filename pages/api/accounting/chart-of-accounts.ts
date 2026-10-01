@@ -6,6 +6,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -120,6 +121,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } catch (err) {
       log.error('Failed to update account', { error: err }, 'accounting-api');
       if (reclassified) throw err;
+      if (respondIfLockTimeout(res, err)) return;
       return apiResponse.badRequest(
         res, err instanceof Error ? err.message : 'Failed to update account',
       );

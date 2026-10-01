@@ -10,6 +10,7 @@ import type { GLAccount, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { isBankSubtype } from './accountSubtypes';
 import { assertParentUsable } from './accountParentRules';
+import { lockSystemRoleWrites } from './systemRoleWriteLock';
 
 export interface CreateAccountInput {
   accountCode: string;
@@ -341,6 +342,10 @@ export async function renameAccountCode(
 
 export async function updateAccount(companyId: string, id: string, input: UpdateAccountInput): Promise<GLAccount> {
   try {
+    // Deactivating could empty a system role: serialise with every writer of
+    // role flags (a Default Accounts save choosing this account) BEFORE the
+    // read below, so the system-account check judges the settled row.
+    if (input.isActive === false) await lockSystemRoleWrites(companyId);
     const account = await sql`SELECT * FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}` as {
       is_system_account: boolean;
       account_name: string;
@@ -391,6 +396,9 @@ export async function updateAccount(companyId: string, id: string, input: Update
 
 export async function deleteAccount(companyId: string, id: string): Promise<void> {
   try {
+    // Deleting could empty a system role: serialise with every writer of role
+    // flags first, so the system-account check below judges the settled row.
+    await lockSystemRoleWrites(companyId);
     // 1. Child accounts always block deletion, regardless of type.
     // company_id scope: without it this count is a cross-tenant existence
     // oracle AND runs before the ownership check below (audit W6).
@@ -405,14 +413,18 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
     // 2. Load the account so we can report a friendly name and decide
     //    whether the bank-specific checks apply.
     const accountRows = await sql`
-      SELECT account_subtype, account_name
+      SELECT account_subtype, account_name, is_system_account
       FROM gl_accounts
       WHERE id = ${id} AND company_id = ${companyId}
       LIMIT 1
-    ` as { account_subtype: string | null; account_name: string }[];
+    ` as { account_subtype: string | null; account_name: string; is_system_account: boolean }[];
 
     if (accountRows.length === 0) {
       throw new Error('Account not found');
+    }
+    // A role holder: posting resolves the role to it, so it cannot go.
+    if (accountRows[0]!.is_system_account) {
+      throw new Error(`Cannot delete "${accountRows[0]!.account_name}" — it is a system account`);
     }
 
     const accountName = accountRows[0]!.account_name;

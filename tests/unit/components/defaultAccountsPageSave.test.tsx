@@ -60,3 +60,17 @@ it('on 409 reloads the mappings and shows the server\'s message', async () => {
   expect(await screen.findByText(/changed since you loaded this page/)).toBeTruthy();
   expect(mappingLoads()).toBe(2);
 });
+
+it('when the reload after a save fails, says so instead of leaving "saved" over rows it could not refresh', async () => {
+  answer();
+  render(<DefaultAccountsPage />);
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Accounts Receivable' }), { target: { value: 'ar-2' } });
+  const answered = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (init?.method !== 'POST' && mappingLoads() > 1) throw new Error('network'); // the reload, not the first load
+    return answered(url, init);
+  });
+  fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+  expect(await screen.findByText('Failed to load configuration')).toBeTruthy();
+  expect(screen.queryByText('Default accounts saved')).toBeNull();
+});

@@ -102,6 +102,15 @@ describeIfDb('W2-28 — Default Accounts save contract', () => {
     expect(await holder('receivable')).toEqual([AR]);
   });
 
+  it('a `loaded` that is not an object is the caller\'s fault (400), and moves nothing', async () => {
+    for (const loaded of ['not-json', [BANK]]) {
+      const res = await call('POST', { mappings: { primary_bank: BANK2 }, loaded });
+      expect(res.statusCode, JSON.stringify(loaded)).toBe(400);
+      expect(res.body.error?.message).toMatch(/`loaded` must be an object/);
+    }
+    expect(await holder('bank')).toEqual([BANK]);
+  });
+
   it('unmanaged rows saved one at a time are merged into app_settings, not replaced', async () => {
     expect((await call('POST', { mappings: { petty_cash: AR2 } })).statusCode).toBe(200);
     expect((await call('POST', { mappings: { rounding: OTHER } })).statusCode).toBe(200);

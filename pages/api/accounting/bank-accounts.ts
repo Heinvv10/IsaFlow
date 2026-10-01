@@ -6,6 +6,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -14,6 +15,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { BANK_SUBTYPES, isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
+import { lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 
 // Fields are nullable as well as optional. The UI clears a field by sending
 // `null` (e.g. `description: editForm.description.trim() || null`), and the
@@ -96,6 +98,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         v !== undefined && v !== null && v !== '' ? Number(v) : null;
       const bool = (v: boolean | null | undefined) => (typeof v === 'boolean' ? v : null);
 
+      // Deactivating the primary bank would empty the bank role (posting then
+      // fails). Checked before ANY write: a 4xx commits what came before it.
+      // Under the role-write lock, so a Default Accounts save choosing this
+      // account has either committed (refused here) or waits for this request.
+      if (b.isActive === false) {
+        await lockSystemRoleWrites(companyId);
+        const [acct] = await sql`SELECT is_system_account FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}`;
+        if (acct?.is_system_account) {
+          return apiResponse.badRequest(res, 'Cannot deactivate the primary bank account — choose another primary bank in Default Accounts first');
+        }
+      }
+
       if (Object.prototype.hasOwnProperty.call(req.body, 'parentAccountId')) {
         const parentError = await assignParent(companyId, id, b.parentAccountId ?? null);
         if (parentError) return apiResponse.badRequest(res, parentError);
@@ -120,6 +134,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `;
       return apiResponse.success(res, { updated: true });
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Failed to update bank account', { error: err }, 'accounting-api');
       return apiResponse.badRequest(res, 'Failed to update bank account');
     }

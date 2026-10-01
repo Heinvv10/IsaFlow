@@ -23,6 +23,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
+import { lockSystemRoleWrites, SystemRoleLockTimeoutError } from './systemRoleWriteLock';
 
 /** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
 const LOCK_NOT_AVAILABLE = '55P03';
@@ -122,6 +123,16 @@ export async function lockGlAccountsForUpdate(
   await client.query("SET LOCAL lock_timeout = '5s'");
 
   const ordered = [...new Set(accountIds)].sort();
+  // The role-write lock comes before ANY row lock, as in every writer of
+  // system-role flags: a merge moves children and deactivates its source, and
+  // taking rows first inverted a Default Accounts save's order (40P01). It has
+  // its own 5s bound and restores the 5s set above for the row locks below.
+  try {
+    await lockSystemRoleWrites(companyId);
+  } catch (err) {
+    if (err instanceof SystemRoleLockTimeoutError) throw new GlAccountLockTimeoutError(ordered[0] ?? '');
+    throw err;
+  }
   const rows: DbRow[] = [];
   for (const id of ordered) {
     try {
