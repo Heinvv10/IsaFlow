@@ -19,6 +19,7 @@ import type { DbRow } from '@/lib/neon';
 import { getMappingLookup } from './costCentreGlMappingService';
 import {
   buildLabourDebitLines,
+  labourRoundingSlackCents,
   placeLabourRounding,
   type RunLabourLine,
   type AllocationShare,
@@ -33,6 +34,14 @@ export interface ResolvedAccount {
   id: string;
   name: string;
   isActive: boolean;
+}
+
+type LabourLine = { glAccountId: string; debit: number; description: string };
+
+/** See labourRoundingSlack. */
+export interface LabourRoundingSlack {
+  accountIds: string[];
+  cents: number;
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -123,12 +132,44 @@ export async function buildLabourLines(
   totalGross: number,
   defaultAccountId: string,
   etiUsed: number,
-): Promise<Array<{ glAccountId: string; debit: number; description: string }>> {
-  const fallback = [{
-    glAccountId: defaultAccountId,
-    debit: labourDebit,
-    description: 'Labour costs — gross pay + statutory employer contributions − ETI',
-  }];
+): Promise<LabourLine[]> {
+  return (await splitLabour(companyId, runId, labourDebit, totalGross, defaultAccountId, etiUsed)).lines;
+}
+
+/**
+ * The cents of this run's labour split whose account depended on read order
+ * before the reads were ordered, and the accounts the split can route to — what
+ * the approval gate may overlook between a journal posted then and the plan
+ * now (payrollApprovalGate). Nothing when the company has no 5200.
+ */
+export async function labourRoundingSlack(
+  companyId: string,
+  runId: string,
+  labourDebit: number,
+  totalGross: number,
+  etiUsed: number,
+): Promise<LabourRoundingSlack> {
+  const defaultAccountId = (await resolveAccounts(companyId)).get('5200')?.id;
+  if (!defaultAccountId) return { accountIds: [], cents: 0 };
+  return (await splitLabour(companyId, runId, labourDebit, totalGross, defaultAccountId, etiUsed)).slack;
+}
+
+async function splitLabour(
+  companyId: string,
+  runId: string,
+  labourDebit: number,
+  totalGross: number,
+  defaultAccountId: string,
+  etiUsed: number,
+): Promise<{ lines: LabourLine[]; slack: LabourRoundingSlack }> {
+  const fallback = {
+    lines: [{
+      glAccountId: defaultAccountId,
+      debit: labourDebit,
+      description: 'Labour costs — gross pay + statutory employer contributions − ETI',
+    }],
+    slack: { accountIds: [defaultAccountId], cents: 0 },
+  };
   if (labourDebit === 0 || totalGross === 0) return fallback;
 
   const lineRows = (await sql`
@@ -165,6 +206,13 @@ export async function buildLabourLines(
   // Both reads are ORDER BY'd (the allocation split puts its own residual on
   // the LAST share), and the rounding tie is broken by employee — so the split,
   // the posted journal and the plan hash never depend on heap order (R2-5).
+  //
+  // Neither read had an ORDER BY before that, and the tie went to the first
+  // largest line read, so a journal posted earlier put those cents wherever
+  // the heap's order did — an order that was never fixed and cannot be
+  // reproduced now. Such a journal can therefore differ from this plan by the
+  // rounding cents, between labour accounts only. `slack` measures them, and
+  // the approval gate does not call that difference a recalculation.
   const tied = placeLabourRounding(runLines, labourDebit);
 
   const employeeAllocations: Record<string, AllocationShare[]> = {};
@@ -177,12 +225,18 @@ export async function buildLabourLines(
     });
   }
 
-  return buildLabourDebitLines({
+  const lines = buildLabourDebitLines({
     runLines: tied, employeeCostCentre, employeeAllocations, mappings, defaultAccountId,
   }).map((l) => ({
     glAccountId: l.glAccountId,
     debit: l.debit,
     description: l.description ?? 'Labour costs',
   }));
+  const centres = [...Object.values(employeeCostCentre), ...allocRows.map((r) => String(r.cost_centre_id))];
+  const accountIds = new Set([defaultAccountId, ...centres.map((c) => (c == null ? undefined : mappings[c]) ?? defaultAccountId)]);
+  return {
+    lines,
+    slack: { accountIds: [...accountIds], cents: labourRoundingSlackCents(runLines, tied, employeeAllocations) },
+  };
 }
 

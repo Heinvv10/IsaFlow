@@ -7,7 +7,7 @@ import { calculatePayrollLine } from './payrollCalculator';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear } from './taxTables';
-import { isPayrollRunLocked, PayrollRunLockedError } from './payrollRunLock';
+import { isPayrollRunLocked, lockPayrollRunHeader, PayrollRunLockedError } from './payrollRunLock';
 import type { EmployeeComponent, PayrollComponent, PayrollPeriod, ValidationResult } from './payrollTypes';
 import {
   buildTerminationComponents,
@@ -118,14 +118,11 @@ export async function calculatePayrollRun(
   // first makes this read 'approved' and refuse. Unlocked, an approve that
   // committed between this status check and the header UPDATE below was
   // silently undone — back to 'calculated', new totals, old journal.
-  const runRows = (await sql`
-    SELECT * FROM payroll_run_headers
-    WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
-    FOR UPDATE
-  `) as Row[];
-  if (runRows.length === 0 || !runRows[0]) throw new Error('Payroll run not found');
+  // The wait is bounded (5s → PayrollLoanLockTimeoutError, raised before
+  // anything is written); see lockPayrollRunHeader.
+  const run = await lockPayrollRunHeader(runId, companyId);
+  if (!run) throw new Error('Payroll run not found');
 
-  const run = runRows[0];
   if (isPayrollRunLocked(String(run.status))) {
     throw new PayrollRunLockedError(String(run.status));
   }
@@ -296,10 +293,15 @@ export async function calculatePayrollRun(
     RETURNING *
   `) as Row[];
 
-  // Belt and braces behind the lock above. A plain Error, not a refusal: the
-  // lines were already rewritten in this transaction, so it must be a 500 and
-  // roll back (withAuth COMMITs a 4xx).
-  if (!updated[0]) throw new Error('Payroll run was locked while it was being calculated — nothing was saved');
+  // Under a request transaction (withAuth, the MCP registry) the header lock
+  // above is held to the end of it, so no peer can have changed the status
+  // and this never fires. A caller with NO transaction open (the seed and
+  // simulation scripts) keeps that lock only for its own statement: there the
+  // status predicate is what stops an approve committed meanwhile from being
+  // reverted, and the lines rewritten above are ALREADY committed — the
+  // message cannot promise otherwise. A plain Error, not a refusal, so that
+  // under a request it is a 500 and rolls back (withAuth COMMITs a 4xx).
+  if (!updated[0]) throw new Error('Payroll run was locked while it was being calculated — its totals were not saved');
 
   log.info(
     'Payroll run calculated',
