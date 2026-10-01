@@ -65,9 +65,9 @@
     break-inside: avoid;
   }
 
-  /* Pack pagination. The cover and the contents each own a page. */
-  html.print-mode [data-pack-cover],
-  html.print-mode [data-pack-toc] {
+  /* Pack pagination. The cover owns a page. The contents is seven short lines,
+     so it flows with the first section instead of standing alone on a sheet. */
+  html.print-mode [data-pack-cover] {
     break-after: page;
   }
 

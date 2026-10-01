@@ -109,6 +109,31 @@ describe('the legacy print view flows', () => {
   });
 });
 
+describe('spacing and the contents page', () => {
+  it('sets a section that follows another well apart from it, and the contents does not stand alone', async () => {
+    const file = path.join(dir, 'spacing.pdf');
+    writeFileSync(file, await printLegacyPack(browser, bundle, DEMO));
+    const { stdout } = await run('pdftotext', ['-bbox', '-f', '2', '-l', '4', file, '-']);
+    const pages = stdout.split('<page ').slice(1).map((chunk) =>
+      [...chunk.matchAll(/yMin="([\d.]+)" xMax="[\d.]+" yMax="([\d.]+)">([^<]*)<\/word>/g)].map((m) => ({ y0: +m[1]!, y1: +m[2]!, t: m[3]! })));
+    const text = (p: number) => pages[p]!.map((w) => w.t).join(' ');
+    // The contents and the first section share page 2.
+    expect(text(0)).toContain('Contents');
+    expect(text(0)).toContain('Statement of Comprehensive Income');
+    // On that page, the second heading ("Statement of Financial Position") starts at
+    // least 7mm (20pt) below the last line of the block above it.
+    const words = pages[0]!;
+    // The LAST match: the contents list names it too, further up the same page.
+    const headingIdx = words.map((w, i) => (w.t === 'Statement' && words[i + 2]?.t === 'Financial' ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
+    expect(headingIdx, 'the second section did not start on the same sheet').toBeGreaterThanOrEqual(0);
+    {
+      const top = words[headingIdx]!.y0;
+      const above = Math.max(...words.filter((w) => w.y1 <= top).map((w) => w.y1));
+      expect(words[headingIdx]!.y0 - above, 'the heading sits right under the block above').toBeGreaterThan(20);
+    }
+  }, 60_000);
+});
+
 describe('the DRAFT mark', () => {
   it('is on every sheet of a draft pack, and on none of a final one', async () => {
     const draft = await print('draft', { draft: true });
