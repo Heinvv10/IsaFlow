@@ -7,7 +7,7 @@
  * loading state. Nothing else in the pipeline compares the two lists, so
  * this does.
  */
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, cleanup, waitFor } from '@testing-library/react';
 import type { ReportPack } from '@/modules/accounting/services/reports/reportPackService';
 
@@ -37,6 +37,10 @@ const PACK: ReportPack = {
     },
   ],
 };
+
+// The page raises an uncaught error when it can never print (`markPrintError`);
+// `reportError` is real under happy-dom and fails the run, so it is stubbed.
+beforeEach(() => { vi.stubGlobal('reportError', vi.fn()); });
 
 afterEach(() => {
   cleanup();

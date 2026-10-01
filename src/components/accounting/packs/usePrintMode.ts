@@ -214,11 +214,16 @@ export type PrintErrorProducer = 'fonts' | 'pages';
  *  present, rather than waiting out its timeout. */
 export function markPrintError(producer: PrintErrorProducer, reason: string): void {
   document.documentElement.setAttribute(`${PRINT_ERROR_ATTRIBUTE_PREFIX}-${producer}`, `${producer}: ${reason}`);
-  // AND AN UNCAUGHT EXCEPTION, for the transport that cannot read the DOM:
-  // Gotenberg runs the page itself and fails the request on a console
+  // AND AN UNCAUGHT EXCEPTION, ALWAYS, for the transport that cannot read the
+  // DOM: Gotenberg runs the page itself and fails the request on a console
   // exception (`failOnConsoleExceptions`). `reportError` raises one without
-  // throwing through React.
-  if (typeof reportError === 'function') reportError(new Error(`print page cannot render — ${producer}: ${reason}`));
+  // throwing through React; where a browser lacks it the same error is thrown
+  // from a macrotask, which is uncaught by construction. Never neither: the
+  // wait expression resolves on the attribute, so a page that set it and
+  // raised nothing would be printed unready with a 200.
+  const error = new Error(`print page cannot render — ${producer}: ${reason}`);
+  if (typeof reportError === 'function') reportError(error);
+  else window.setTimeout(() => { throw error; }, 0);
 }
 
 /** Withdraw this producer's error — a retried fetch, a font that arrived. */

@@ -5,7 +5,7 @@
  * a render slot for the whole print-ready timeout. The status goes in the
  * attribute; the response body does not.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, cleanup, waitFor } from '@testing-library/react';
 
 vi.mock('@/components/charts/EChartClient', () => ({ EChartClient: () => <div /> }));
@@ -20,6 +20,10 @@ import { PackPagesPrintPage } from '@/components/accounting/packs/PackPagesPrint
 
 const attr = () => document.documentElement.getAttribute('data-print-error-pages');
 const fontsAttr = () => document.documentElement.getAttribute('data-print-error-fonts');
+
+// `reportError` is real under happy-dom and vitest fails the run on every
+// error it reports; the page raises one by design, so it is stubbed here.
+beforeEach(() => { vi.stubGlobal('reportError', vi.fn()); });
 
 afterEach(() => {
   cleanup();

@@ -5,7 +5,7 @@
  * `fonts.load` reject by design. The gate hung on an unhandled rejection with
  * no log, and the failure surfaced only as the renderer's 30 s timeout.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, cleanup, waitFor } from '@testing-library/react';
 
 const { logError } = vi.hoisted(() => ({ logError: vi.fn() }));
@@ -19,6 +19,10 @@ function Probe() {
   const ready = usePrintReady(true, 0);
   return <div data-print-ready={ready ? 'true' : 'false'} />;
 }
+
+// `reportError` is real under happy-dom and vitest fails the run on every
+// error it reports; the page raises one by design, so it is stubbed here.
+beforeEach(() => { vi.stubGlobal('reportError', vi.fn()); });
 
 afterEach(() => {
   cleanup();
@@ -109,5 +113,17 @@ describe('usePrintReady when a font load rejects', () => {
     const err = reported.mock.calls[0]![0] as Error;
     expect(err).toBeInstanceOf(Error);
     expect(err.message).toBe('print page cannot render — pages: HTTP 422');
+  });
+
+  it('where reportError does not exist, throws the same error from a macrotask instead — never neither', async () => {
+    const { markPrintError } = await import('@/components/accounting/packs/usePrintMode');
+    vi.stubGlobal('reportError', undefined);
+    vi.useFakeTimers();
+    try {
+      markPrintError('fonts', 'footer face unreachable');
+      expect(() => vi.runAllTimers()).toThrow('print page cannot render — fonts: footer face unreachable');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
