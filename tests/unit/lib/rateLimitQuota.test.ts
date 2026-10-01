@@ -105,18 +105,35 @@ describe('usage-quota: charged minus used comes back (R-175)', () => {
     expect(refunds()).toEqual([[SEND_DAY, 4]]);
   });
 
-  it('never gives back more than was charged, however much use is recorded', async () => {
+  it('use cannot be taken back: a negative count is ignored', async () => {
     await asRequest(async () => {
       await checkSendRateLimit(req, CO, 'bulk', { count: 2, refundUnused: true });
-      for (let i = 0; i < 9; i++) markQuotaUsed('send');
-      // Use cannot be taken back: these three are ignored.
+      markQuotaUsed('send', 2);
       markQuotaUsed('send', -50);
+    });
+
+    expect(refunds()).toEqual([]);
+  });
+
+  it('a zero or NaN count records no use, and does not poison the record', async () => {
+    await asRequest(async () => {
+      await checkSendRateLimit(req, CO, 'bulk', { count: 2, refundUnused: true });
       markQuotaUsed('send', 0);
       markQuotaUsed('send', Number.NaN);
     });
+
+    // Nothing was used, so both units come back. A NaN that reached the record
+    // would make `charged - used` NaN and silently keep them.
+    expect(refunds()).toEqual([[SEND_DAY, 2]]);
+  });
+
+  it('never gives back more than was charged, whatever the record holds', async () => {
+    await asRequest(async () => {
+      await checkSendRateLimit(req, CO, 'bulk', { count: 2, refundUnused: true });
+      for (let i = 0; i < 9; i++) markQuotaUsed('send');
+    });
     expect(refunds()).toEqual([]);
 
-    // And if a record ever did hold negative use, the refund stops at the charge.
     const ctx = request();
     ctx.quotaCharges!.push({ kind: 'send', key: SEND_DAY, charged: 2, used: -41 });
     await settleQuotaCharges(ctx);
