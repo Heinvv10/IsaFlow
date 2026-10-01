@@ -317,3 +317,9 @@ AssertionError: expected [ [] ] to deeply equal [ [ true ] ]
 AssertionError: expected [ [] ] to deeply equal [ [ false ] ]
  Test Files  1 failed (1)
       Tests  5 failed | 13 passed (18)
+
+# Round 9 (/review addendum: Client-owned scripts). RED on f646cc1f6 + tests/unit/lib/rollbackCensus.test.ts; source unchanged (2026-10-01T20:14:16Z). The release census never saw these two scripts: they own a dedicated pg.Client and end it, so they have no .release( call.
+     × every bare ROLLBACK is a pinned one 157ms
+AssertionError: roll back with rollbackFailed(client, source), or pin the file in PINNED with the reason: expected { …(5) } to deeply equal { Object (src/lib/rollbackFailed.ts, scripts/apply-migrations.ts, ...) }
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 passed (13)
