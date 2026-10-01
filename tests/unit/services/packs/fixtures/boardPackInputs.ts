@@ -702,7 +702,7 @@ export const brightsphereReceivablesGapInput: BoardPackInput = {
       // `MattersTable` carried until it collected reasons like every other
       // table in the pack.
       kind: 'finding',
-      issue: 'Annual Financial Statements for FY2026: 10 days overdue (due 28 August 2026)',
+      issue: 'Annual Financial Statements for FY2026: 7 days overdue (due 31 August 2026)',
       quantum: null,
       owner: 'Company secretary',
       movement: 'Not tracked — no prior board pack is stored to compare against.',
