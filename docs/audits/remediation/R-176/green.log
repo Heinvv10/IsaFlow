@@ -1,14 +1,15 @@
-# GREEN on 0c739e509 (2026-10-01T10:38:23Z); fixture isaflow-fixture-r175.
-# unit: files 65 passed (65); tests 496 passed (496) | int: files 5 passed (5); tests 88 passed | 2 skipped (90)
-# r176 suite alone: 29 passed | 1 skipped (30). The skip is the wrapper-only 500-answer case under withPublicRouteTransaction.
-# unit set: tests/unit/lib/auth, tests/unit/auth, afterCommit, afterCommitCensus, afterCommitTxOwners, withExtensionTokenFinalize, withTransactionRequestTx, bankFeedExtensionIngestRoute.
-# int set: r176, r159 (both), public-route-tx, r157-payment-link-throw-responds.
-# tsc --noEmit -p .: clean. eslint on the three changed src files: clean (tests/** is outside the eslint project).
-# NOT in the set: tests/integration/withAuth.test.ts fails 2 of 2 (401) on unchanged source too in this fixture environment.
-# NOT run: bun run ci, the production build, the full unit and integration suites.
+# GREEN on 0f989e7a2 (2026-10-01T10:57:47Z); fixture isaflow-fixture-r175.
+# unit: files 128 passed (128); tests 1097 passed | 3 skipped (1100) | int: files 11 passed (11); tests 130 passed | 2 skipped (132) | int (invite, GoTrue origin): files 4 passed (4); tests 24 passed (24)
+# r176 suites: 29 passed | 1 skipped (30); 29 passed (29); 5 passed (5).
+# unit set: tests/unit/lib, tests/unit/auth, tests/unit/api/bankFeedExtensionIngestRoute.test.ts.
+# int set: the three r176 suites, r159 (both), public-route-tx, r157-payment-link-throw-responds, k097, r-032 (both), k106.
+# int (invite) set, run with GOTRUE_URL=http://127.0.0.1:1: k-041 (three), k-042.
+# Whole unit suite (env -u DATABASE_URL vitest run tests/unit): Test Files  1116 passed (1116); Tests  14877 passed | 6 skipped (14883).
+# tsc --noEmit -p .: clean. eslint on the nine changed src/pages files: clean (tests/** is outside the eslint project).
+# Fail on unchanged source too, outside the set: tests/integration/withAuth.test.ts (2), admin-forbidden (1), admin-rls-bypass (1), k104-k105 (1).
+# NOT run: bun run ci, the production build, the whole integration suite.
 ## integration
- Test Files  5 passed (5)
-      Tests  88 passed | 2 skipped (90)
-## unit
- Test Files  65 passed (65)
-      Tests  496 passed (496)
+ Test Files  4 passed (4)
+      Tests  24 passed (24)
+ Test Files  11 passed (11)
+      Tests  130 passed | 2 skipped (132)
