@@ -279,7 +279,7 @@ function createSql(client?: pg.PoolClient): SqlFunction {
     } catch (err) {
       unusable = await rollbackFailed(txClient, 'sql.transaction');
       log.error(
-        'sql.transaction rolled back',
+        unusable ? 'sql.transaction failed; its ROLLBACK failed too, connection destroyed' : 'sql.transaction rolled back',
         err instanceof Error ? { message: err.message } : { error: err },
         'DB'
       );
@@ -387,7 +387,7 @@ export async function withTransaction<T>(
   } catch (err) {
     unusable = await rollbackFailed(client, 'withTransaction');
     log.error(
-      'withTransaction rolled back',
+      unusable ? 'withTransaction failed; its ROLLBACK failed too, connection destroyed' : 'withTransaction rolled back',
       err instanceof Error ? { message: err.message } : { error: err },
       'DB'
     );

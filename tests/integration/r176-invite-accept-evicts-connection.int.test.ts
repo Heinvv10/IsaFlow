@@ -14,7 +14,7 @@ import {
   acceptRequest, extraAccounts, getAccept, inviter, newInviteeCompany, pool, setupInviteFixture, stored,
   teardownInviteFixture,
 } from './k-041-invite-accept.helpers';
-import { backendState, seen, type Seen, type Statement } from './r176-evict.helpers';
+import { arm, backendState, seen, type ArmOptions, type Seen, type Statement } from './r176-evict.helpers';
 
 /** What each invitee types; generated per run, so no credential is written down here. */
 const typed = `r176-${crypto.randomUUID()}`;
@@ -53,39 +53,35 @@ async function invite(clash = false) {
  * Arms the accept route's admin client for one request. Every pool checkout is watched; the
  * admin client is the one that runs the route's `users` lookup, and only it is refused.
  */
-function armAcceptClient(fail: Statement[], s: Seen): void {
+function armAcceptClient(fail: Statement[], s: Seen, opts: ArmOptions = {}): void {
   const proto = pg.Pool.prototype as unknown as { connect: (...a: unknown[]) => unknown };
   const before = proto.connect;
-  const undo: Array<() => void> = [];
+  s.disarm = () => { proto.connect = before; };
   proto.connect = function watched(this: unknown, ...a: unknown[]) {
     const out = before.apply(this, a);
     if (a.length > 0) return out;
     return (out as Promise<PoolClient>).then((client) => {
       const real = client.query as (...q: unknown[]) => unknown;
-      let isAdmin = false;
-      const patched = (...q: unknown[]) => {
-        const text = q[0];
-        if (typeof text === 'string' && text.includes('SELECT id FROM users WHERE id = $1')) {
-          isAdmin = true;
-          s.pid = (client as unknown as { processID: number }).processID;
-        }
-        if (isAdmin && (text === 'ROLLBACK' || text === 'COMMIT') && fail.includes(text)) {
-          s.refused[text] += 1;
-          return Promise.reject(new Error(`R-176 forced: ${text} never reached the server`));
-        }
-        return real.apply(client, q);
-      };
-      Object.assign(client, { query: patched });
-      undo.push(() => { Object.assign(client, { query: real }); });
+      const restore = s.disarm;
+      s.disarm = () => { Object.assign(client, { query: real }); restore(); };
+      Object.assign(client, {
+        query: (...q: unknown[]) => {
+          if (typeof q[0] === 'string' && q[0].includes('SELECT id FROM users WHERE id = $1')) {
+            Object.assign(client, { query: real });
+            s.pid = (client as unknown as { processID: number }).processID;
+            arm(client, fail, s, opts); // from here on this client's ROLLBACK / COMMIT / BEGIN fail
+          }
+          return real.apply(client, q);
+        },
+      });
       return client;
     });
   };
-  s.disarm = () => { proto.connect = before; for (const f of undo) f(); };
 }
 
-async function accept(token: string, fail: Statement[], s: Seen): Promise<number> {
+async function accept(token: string, fail: Statement[], s: Seen, opts: ArmOptions = {}): Promise<number> {
   const result = response();
-  armAcceptClient(fail, s);
+  armAcceptClient(fail, s, opts);
   try {
     await getAccept()(acceptRequest(token, typed, '127.0.0.176'), result.res);
   } finally {
@@ -159,4 +155,16 @@ it('an accepted invitation: committed, and the connection is reused', async () =
   expect(r.member).toBe(1);
   expect(r.state).toBe('idle');
   expect(r.samePid).toBe(true);
+});
+
+it('a BEGIN that fails after it reached the server: rolled back, not pooled inside the open transaction', async () => {
+  const first = await invite();
+  const s = seen();
+  const status = await accept(first.token, [], s, { beginFailsAfterSend: true });
+  const state = await backendState(pool, s.pid, 'idle');
+  if (state !== 'idle') await pool.query('SELECT pg_terminate_backend($1)', [s.pid]); // hygiene for a failing run
+  expect(s.beginFailed).toBe(1);
+  expect(status).toBe(500);
+  expect(state).toBe('idle'); // not 'idle in transaction'
+  expect(await member(first.userId)).toBe(0);
 });

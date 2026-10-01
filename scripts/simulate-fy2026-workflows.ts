@@ -23,6 +23,7 @@ import pg from 'pg';
 import { closeSql } from './_pg';
 import { randomUUID } from 'crypto';
 import { als } from '../src/lib/als';
+import { rollbackFailed } from '../src/lib/rollbackFailed';
 
 // Real services — via relative paths. tsx resolves the @/ aliases
 // inside these files via the root tsconfig paths.
@@ -58,16 +59,17 @@ async function inRequestTx<T>(fn: () => Promise<T>): Promise<T> {
     ssl: DATABASE_URL!.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
   });
   const client = await requestPool.connect();
+  let unusable = false;
   try {
     await client.query('BEGIN');
     const result = await als.run({ client, userId: ADMIN_ID, claims: {} }, fn);
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => undefined);
+    unusable = await rollbackFailed(client, 'simulate-fy2026-workflows');
     throw err;
   } finally {
-    client.release();
+    client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
   }
 }
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];

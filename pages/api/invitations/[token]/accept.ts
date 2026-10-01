@@ -207,8 +207,8 @@ const handler: NextApiHandler = async (req, res) => {
     }
 
     // 4. Attach the membership + profile row.
+    opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed here is rolled back too
     await client.query('BEGIN');
-    opened = true;
     await client.query(
       // DO UPDATE, not DO NOTHING: POST /api/invitations rewrites `role` on the
       // invitation row when the same address is re-invited, so an existing
