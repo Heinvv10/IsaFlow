@@ -5,11 +5,8 @@
  * the geometry, figure and scale notes at the head of that file govern this
  * one.
  */
-import type {
-  CustomSeriesRenderItem,
-  CustomSeriesRenderItemAPI,
-  CustomSeriesRenderItemParams,
-} from 'echarts';
+import type { CustomSeriesRenderItem, CustomSeriesRenderItemAPI, CustomSeriesRenderItemParams } from 'echarts';
+import { format } from 'echarts/core';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { PACK_FONT_STACK } from '@/lib/charts/packFont';
 import { textWidthEms, WIDTH_SAFETY } from './pages/packTextMetrics';
@@ -149,8 +146,10 @@ export function makeWaterfallRenderItem(
     const plotTop = rect?.y ?? domainTop;
     const above = y - LABEL_GAP_PX;
     const noRoomAbove = above - LABEL_LINE_PX < plotTop;
-    // Inside the bar only if the bar is tall enough to hold a line of type.
-    const fitsInside = height >= LABEL_INSIDE_PX;
+    // Inside the bar only if the bar holds a line of type, height AND width.
+    const text = formatMoney(step.labelValue ?? step.value, { scale });
+    const labelW = labelWidthPx(text, LABEL_LINE_PX);
+    const fitsInside = height >= LABEL_INSIDE_PX && labelW <= width;
     // A LABEL SET IN THE BAR'S OWN INK NEVER SITS ABOVE IT.
     //
     // A subtotal is filled with `palette.ink` and its label above it was set
@@ -195,11 +194,10 @@ export function makeWaterfallRenderItem(
     // caller gave no box — the figure is never moved to the other side and
     // never clipped out: inside a bar that holds a line of type, in
     // contrasting ink, or else on its own side held to the plot's edge.
-    const tight = !fitsInside && noRoomOnItsSide && (rises || falls) && height >= LABEL_LINE_PX;
+    const tight = !fitsInside && noRoomOnItsSide && (rises || falls) && height >= LABEL_LINE_PX && labelW <= width;
     const below = !inside && !tight && (falls || (!rises && noRoomAbove));
     const aboveInOwnInk = !inside && !tight && !below && sameInkAsFill;
 
-    const text = formatMoney(step.labelValue ?? step.value, { scale });
     // `drawnHeight`, not `height`: a floored bar is drawn a rule's width
     // taller than its figure, and the gap is kept from what is drawn.
     const textY = inside ? y + LABEL_GAP_PX
@@ -211,11 +209,13 @@ export function makeWaterfallRenderItem(
     // ink that reads on the fill. Otherwise it keeps its ink, and its paper
     // ground is painted OVER the bar, knocking the bar out behind the type.
     const textTop = below ? textY : textY - LABEL_LINE_PX;
-    const labelW = labelWidthPx(text, LABEL_LINE_PX);
     const vOn = Math.max(0, Math.min(textTop + LABEL_LINE_PX, y + drawnHeight) - Math.max(textTop, y));
-    const hOn = Math.max(0, Math.min(x + width / 2 + labelW / 2, x + width) - Math.max(x + width / 2 - labelW / 2, x));
+    // The share is of the GLYPHS as drawn, not of the generous `labelW` the
+    // ground is cut to: at a near-half overlap the two rulers disagree.
+    const glyphW = format.getTextRect(text, `${LABEL_LINE_PX}px ${PACK_FONT_STACK}`).width;
+    const hOn = Math.max(0, Math.min(x + width / 2 + glyphW / 2, x + width) - Math.max(x + width / 2 - glyphW / 2, x));
     const clamped = !inside && !tight;
-    const onOwnBar = clamped && vOn * hOn >= 0.5 * labelW * LABEL_LINE_PX;
+    const onOwnBar = clamped && vOn * hOn >= 0.5 * glyphW * LABEL_LINE_PX;
     const groundOverBar = clamped && !onOwnBar && vOn > 0.5 && hOn > 0.5;
     const onBar = inside || tight || onOwnBar;
     // THE GROUND UNDER A LABEL THAT IS NOT ON ITS BAR — see

@@ -51,7 +51,7 @@ import {
 } from './packChartAxes';
 import { CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
 import { makeWaterfallRenderItem } from './packWaterfallBars';
-import { WATERFALL_CHROME, waterfallLayout } from './packWaterfallDomain';
+import { packTextMeasure, WATERFALL_CHROME, waterfallLayout, type TextMeasure } from './packWaterfallDomain';
 
 export { labelInkOn, stepPaint } from './packWaterfallPaint';
 export { AXIS_END_LABEL_RESERVE_PX, CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
@@ -97,11 +97,13 @@ export function waterfallOption(
   /** The SVG box's height in pixels. Given, the plot rectangle is exact and
    *  the axis is chosen to give every figure room — see `waterfallLayout`. */
   boxPx?: number,
+  /** The face the chart's text is drawn in — see `TextMeasure`. */
+  measure: TextMeasure = packTextMeasure,
 ): EChartsCoreOption {
   const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
   const layout = boxPx === undefined
     ? { top: chrome.top, bottom: chrome.bottom, domain: axisDomain(steps.flatMap((s) => [s.start, s.end]), intervals) }
-    : waterfallLayout(steps, boxPx, compact, intervals);
+    : waterfallLayout(steps, boxPx, compact, intervals, measure);
   const domain = layout.domain;
   return {
     animation: false,
@@ -110,7 +112,14 @@ export function waterfallOption(
     // rectangle the domain was chosen for is the one drawn.
     grid: {
       left: CHART_GUTTER_PX, right: CHART_GUTTER_RIGHT_PX, top: layout.top, bottom: layout.bottom,
-      ...(boxPx === undefined ? {} : { outerBoundsMode: 'none' as const }),
+      // In the print face nothing may move the plot. In another face (the
+      // management pack's screen, in Plex Mono) ECharts still keeps wide
+      // ticks and a long first name inside the chart by narrowing the plot
+      // from the left; its HEIGHT — the one the axis was chosen for, the
+      // bottom margin measured in that face — is held.
+      ...(boxPx === undefined ? {} : measure === packTextMeasure
+        ? { outerBoundsMode: 'none' as const }
+        : { outerBoundsClampHeight: '100%' }),
     },
     tooltip: {
       // Same figure the bar prints — see `WaterfallStep.labelValue`.

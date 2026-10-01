@@ -51,15 +51,27 @@ const AXIS_LABEL_MARGIN_PX = 8;
  *  little wider than zrender's own table does on the server. */
 const MEASURE_SLACK_PX = 2;
 
+/** The box a line of text takes, in the face the chart draws it in. */
+export type TextMeasure = (text: string, fontPx: number) => { width: number; height: number };
+
+/** The pack's print face, measured by zrender — the measurer ECharts lays
+ *  the print charts out with. */
+export const packTextMeasure: TextMeasure = (text, fontPx) => format.getTextRect(text, `${fontPx}px ${PACK_FONT_STACK}`);
+
+/** A monospaced face: every glyph the same advance. The management pack's
+ *  screen theme sets chart text in IBM Plex Mono (`lib/charts/theme.ts`),
+ *  whose advance is 0.6em. */
+export function monospaceMeasure(em = 0.6): TextMeasure {
+  return (text, fontPx) => ({ width: text.length * em * fontPx, height: fontPx });
+}
+
 /**
- * How far below the plot the rotated category names reach — measured with
- * zrender's own text measurer, the one ECharts lays the names out with, so
- * the margin and the drawing agree.
+ * How far below the plot the rotated category names reach, measured in the
+ * face the chart draws them in, so the margin and the drawing agree.
  */
-export function categoryDepthPx(names: readonly string[], fontPx: number): number {
+export function categoryDepthPx(names: readonly string[], fontPx: number, measure: TextMeasure = packTextMeasure): number {
   const rad = (CATEGORY_ROTATE_DEG * Math.PI) / 180;
-  const font = `${fontPx}px ${PACK_FONT_STACK}`;
-  const boxes = names.map((name) => format.getTextRect(name, font));
+  const boxes = names.map((name) => measure(name, fontPx));
   const depth = Math.max(0, ...boxes.map((b) => b.width * Math.sin(rad) + b.height * Math.cos(rad)));
   return Math.ceil(AXIS_LABEL_MARGIN_PX + depth + MEASURE_SLACK_PX);
 }
@@ -105,9 +117,10 @@ export function waterfallLayout(
   boxPx: number,
   compact: boolean,
   askHint?: number,
+  measure: TextMeasure = packTextMeasure,
 ): WaterfallLayout {
   const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
-  const bottom = Math.max(chrome.bottom, categoryDepthPx(steps.map((s) => s.label), chrome.labelPx));
+  const bottom = Math.max(chrome.bottom, categoryDepthPx(steps.map((s) => s.label), chrome.labelPx, measure));
   const plotPx = boxPx - chrome.top - bottom;
   // THE ASK IS THE CALLER'S, AND THE BUDGET IS LEGIBILITY. Rounding the step
   // and widening for headroom can each draw more steps than were asked for —

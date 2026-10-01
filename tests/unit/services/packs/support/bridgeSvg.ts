@@ -13,6 +13,7 @@ export interface Bar { centre: number; top: number; bottom: number; fill: string
 export interface Figure { x: number; y: number; text: string; fill: string }
 
 export const FIGURE_PX = 12;
+const SHARE_ROUNDING = 0.01;
 
 export function clipRect(svg: string): ClipRect {
   const m = /<clipPath[^>]*>\s*<path d="M[-\d.]+ ([-\d.]+)l[-\d.]+ 0l0 ([-\d.]+)/.exec(svg);
@@ -93,6 +94,11 @@ export function shareOnBar(figure: Figure, bar: Bar & { left?: number; right?: n
  * the ordinary ink (on its paper ground) where it is not.
  */
 export function legibleOnBar(figure: Figure, bar: Bar & { left?: number; right?: number }): boolean {
-  if (shareOnBar(figure, bar) >= 0.5) return figure.fill === labelInkOn(bar.fill, DEFAULT_CHART_PALETTE).toLowerCase();
-  return figure.fill === DEFAULT_CHART_PALETTE.ink.toLowerCase() || figure.fill === DEFAULT_CHART_PALETTE.axis.toLowerCase();
+  const share = shareOnBar(figure, bar);
+  const onFill = figure.fill === labelInkOn(bar.fill, DEFAULT_CHART_PALETTE).toLowerCase();
+  const onPaper = figure.fill === DEFAULT_CHART_PALETTE.ink.toLowerCase() || figure.fill === DEFAULT_CHART_PALETTE.axis.toLowerCase();
+  // The SVG prints a bar's edges to a tenth of a pixel, so within a
+  // hundredth of the half either reading is the rule's.
+  if (Math.abs(share - 0.5) < SHARE_ROUNDING) return onFill || onPaper;
+  return share >= 0.5 ? onFill : onPaper;
 }

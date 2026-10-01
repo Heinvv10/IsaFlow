@@ -17,10 +17,18 @@ const LEGACY_PACK_SCALE: MoneyScale = 'R';
 import type { PackBlock, PackDocumentSection } from '@/modules/accounting/services/packs/packDocument';
 import { formatPackKv, scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 import { PackChart } from './PackChart';
+import { monospaceMeasure } from '@/modules/accounting/services/packs/packWaterfallDomain';
 
-/** The bridge option this view draws — exported so a test renders exactly it. */
-export function legacyWaterfallOption(steps: Parameters<typeof waterfallOption>[0]) {
-  return waterfallOption(steps, LEGACY_PACK_SCALE);
+/** The height `PackChart` draws this view's bridge at. */
+const LEGACY_WATERFALL_PX = 320;
+
+/**
+ * The bridge option this view draws — exported so a test renders exactly it.
+ * The same exact-plot layout as the board pack, measured in the face this
+ * view's theme draws chart text in: IBM Plex Mono (`lib/charts/theme.ts`).
+ */
+export function legacyWaterfallOption(steps: Parameters<typeof waterfallOption>[0], boxPx = LEGACY_WATERFALL_PX) {
+  return waterfallOption(steps, LEGACY_PACK_SCALE, undefined, undefined, false, undefined, boxPx, monospaceMeasure());
 }
 
 const NO_COMPARATORS = { prior: false, budget: false, variance: false, trend: false } as const;
@@ -72,13 +80,7 @@ function Block({ block }: { block: PackBlock }) {
       );
 
     case 'waterfall':
-      // NO BOX, deliberately. The exact-plot layout measures names in the
-      // pack's print face; this view's theme sets chart text in IBM Plex Mono,
-      // so a margin measured for Plex Sans clipped ticks like "(4 000 000)"
-      // at the left edge. ECharts' own containment sizes the grid here, and
-      // the bar renderer reads the rectangle it drew (`coordSys`), which is
-      // what keeps every figure on the plot.
-      return <PackChart option={legacyWaterfallOption(block.steps)} />;
+      return <PackChart height={LEGACY_WATERFALL_PX} option={legacyWaterfallOption(block.steps)} />;
 
     case 'trend':
       // Revenue is the series a reader quotes off a twelve-month page; the
