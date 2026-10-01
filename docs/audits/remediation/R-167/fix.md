@@ -274,8 +274,11 @@ APPROVED with six LOWs. Posted to the PR; all are fixed:
   completed payment stops any new checkout, but one already opened stays payable, and any excess
   is banked unapplied (see Not changed). `.claude.md` and the migration comment now say so.
 - **The payer lookup had no company predicate:** it joined the `clients` view, which has no
-  `company_id`. It now joins `customers` with `c.company_id = ci.company_id`. It is not
-  mutation-tested: customer ids are primary keys, so another company's row cannot share one.
+  `company_id`. It now joins `customers` with `c.company_id = ci.company_id`. The case it guards
+  is an invoice whose `client_id` names another company's customer. `client_id` has no foreign
+  key, so a bad import can leave one. A test now covers it: such an invoice is paid as
+  "Customer" with the synthetic payer email, and Q54 (predicate removed) is RED. The earlier
+  claim here that it could not be tested was wrong; the general reviewer corrected it.
 - **Stale test count:** the suite count was 14; it is 16, with both round-3 cases listed.
 - **"Before any DB work" was wrong:** the limiter writes its own counter. Reworded.
 - **The green log** now re-runs every regression suite on the final code.
