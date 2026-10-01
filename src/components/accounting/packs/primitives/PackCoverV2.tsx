@@ -10,7 +10,7 @@
  */
 import type { ReactNode } from 'react';
 import { PACK_LABELS } from '@/modules/accounting/services/packs/packSections';
-import { formatPackDate } from '@/modules/accounting/services/packs/pages/packPeriodLabel';
+import { formatPackDate, packDateOf } from '@/modules/accounting/services/packs/pages/packPeriodLabel';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 
 export interface PackCoverV2Props {
@@ -31,7 +31,10 @@ export function PackCoverV2({ document, children }: PackCoverV2Props) {
   // "Prepared by IsaFlow on 8 September 2026" and against page 12's
   // "Extracted at 8 September 2026". One fact, three renderings, two formats.
   // `formatPackDate` is the one the other two already go through.
-  const generated = formatPackDate(document.generatedAt.slice(0, 10));
+  //
+  // THE DAY IS THE SAST DAY (`packDateOf`), not the UTC slice: between 22:00
+  // and 24:00 UTC the slice named the day before the one page 12 prints.
+  const generated = formatPackDate(packDateOf(document.generatedAt));
 
   return (
     // `data-brand-name` is what the brand band prints. The band is a

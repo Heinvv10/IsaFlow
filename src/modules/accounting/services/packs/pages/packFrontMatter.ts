@@ -8,7 +8,7 @@
  * prepared, and reads no figure set at all. `boardPackPages.ts` keeps the
  * pages that report the period.
  */
-import { formatPackDate } from './packPeriodLabel';
+import { formatPackDate, packDateOf } from './packPeriodLabel';
 import { ROUNDING_NOTE } from './packBasis';
 import { draftStatusSentence, type PackDraftReason } from './packDraftStatus';
 import { disclose, mustDisclose, note } from './packPageBlocks';
@@ -119,7 +119,7 @@ export function buildFrontPages(f: PackFrontMatter): UnnumberedPage[] {
         // AND IT SAYS WHICH. "DRAFT" alone tells a director to distrust the
         // pack without saying what to wait for; a period that closes next
         // week and a commentary nobody has written are different waits.
-        note('Preparation', `Prepared by ${f.preparedBy} on ${formatPackDate(f.generatedAt.slice(0, 10))}. ${draftStatusSentence(f.draftReasons)}`),
+        note('Preparation', `Prepared by ${f.preparedBy} on ${formatPackDate(packDateOf(f.generatedAt))}. ${draftStatusSentence(f.draftReasons)}`),
         // THE SAME FACT ON BOTH COVERS, FROM THE SAME RULE — see
         // `PackFrontMatter.partialMonth`. Its own note rather than appended
         // to the preparation sentence: the cover is the lowest-density sheet
