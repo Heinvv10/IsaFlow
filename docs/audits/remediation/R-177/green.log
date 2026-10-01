@@ -1,4 +1,4 @@
-# GREEN on ac7c70262, fixture clone at 718 (2026-10-01T10:52:38Z). 64-hex tokens redacted.
+# GREEN on 8f90c22f0, fixture clone at 718 (2026-10-01T11:17:47Z). 64-hex tokens redacted.
 ## k-036-paystack-invoice-payment-not-in-gl.int.test.ts
  Test Files  1 passed (1)
       Tests  21 passed (21)
@@ -91,7 +91,7 @@
       Tests  9 passed (9)
 ## r178-r180-portal-link-rules.int.test.ts
  Test Files  1 passed (1)
-      Tests  11 passed (11)
-## unit: payNowCheckout, paystackClient, hooks
- Test Files  2 passed (2)
-      Tests  22 passed (22)
+      Tests  14 passed (14)
+## unit: payNowCheckout, useCustomerInvoiceActionsPayNow, paystackClient
+ Test Files  13 passed (13)
+      Tests  162 passed (162)
