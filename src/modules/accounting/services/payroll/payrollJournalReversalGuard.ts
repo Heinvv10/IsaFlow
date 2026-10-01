@@ -26,7 +26,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
-import { findChainRoot, lockJournalChain, readJournalChain } from './payrollJournalChain';
+import { MAX_CHAIN_JOURNALS, findChainRoot, lockJournalChain, readJournalChain } from './payrollJournalChain';
 import { lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
 
 /** Raised before the reversal writes anything; its message is for the caller. */
@@ -64,6 +64,7 @@ async function judge(companyId: string, rootId: string, db: TxSql): Promise<stri
   const run = await payRunOf(companyId, rootId, root.description, db);
   if (!run) return null; // 'auto_payroll', but not a pay run's journal
   const numbers = chain.journals.map((j) => j.entryNumber).join(', ');
+  if (chain.broken) return brokenChain(numbers);
 
   if (chain.state === 'out') {
     return `Journal ${root.entryNumber} is a pay run's journal that has been reversed (${numbers} net to zero). `
@@ -79,6 +80,10 @@ async function judge(companyId: string, rootId: string, db: TxSql): Promise<stri
   return null;
 }
 
+const brokenChain = (numbers: string): string =>
+  `This payroll journal's reversal links do not form a chain that ends (${numbers}): they loop, or run past ${MAX_CHAIN_JOURNALS} journals. `
+  + 'It cannot be reversed here — the links need correcting first.';
+
 /**
  * The refusal for reversing `entry`, or null. Read-only (no locks) — for a dry
  * run. The live path is refuseReversalAgainstPayRun, which asks the same
@@ -86,7 +91,8 @@ async function judge(companyId: string, rootId: string, db: TxSql): Promise<stri
  */
 export async function payrollReversalRefusal(companyId: string, entry: { id: string; source?: string }): Promise<string | null> {
   if (entry.source !== 'auto_payroll') return null;
-  return judge(companyId, await findChainRoot(companyId, entry.id), sql);
+  const rootId = await findChainRoot(companyId, entry.id);
+  return rootId ? judge(companyId, rootId, sql) : brokenChain(entry.id);
 }
 
 /**
@@ -97,6 +103,7 @@ export async function payrollReversalRefusal(companyId: string, entry: { id: str
 export async function refuseReversalAgainstPayRun(companyId: string, entry: { id: string; source?: string }): Promise<void> {
   if (entry.source !== 'auto_payroll') return;
   const rootId = await findChainRoot(companyId, entry.id);
+  if (!rootId) throw new PayrollJournalReversalRefusedError(brokenChain(entry.id));
   const chain = await readJournalChain(companyId, rootId);
   const root = chain?.journals[0];
   if (!root) return;
