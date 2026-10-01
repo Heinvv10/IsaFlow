@@ -38,8 +38,11 @@ export interface ExecutiveSummaryInput {
 export interface ExecutiveKPIs {
   revenue: number;
   netProfit: number;
-  grossProfitMargin: number;
-  netProfitMargin: number;
+  /** The engine's: null on non-positive revenue, with its reason in
+   *  `notMeaningful` — never 0 and never a sign-flipped margin. */
+  grossProfitMargin: number | null;
+  netProfitMargin: number | null;
+  notMeaningful: Partial<Record<'grossProfitMargin' | 'netProfitMargin', string>>;
   revenueGrowth: number;
   profitGrowth: number;
   currentRatio: number;
@@ -77,10 +80,6 @@ export interface ExecutiveSummary {
 
 function safeDiv(n: number, d: number): number {
   return d === 0 ? 0 : n / d;
-}
-
-function pct(n: number, d: number): number {
-  return Math.round(safeDiv(n, d) * 10000) / 100;
 }
 
 function growthRate(current: number, prior: number): number {
@@ -202,15 +201,21 @@ export function buildExecutiveSummary(
   _from: string,
   _to: string,
 ): ExecutiveSummary {
-  const grossProfit = input.revenue - input.costOfSales;
+  const ratios = engineRatios(input);
+  const notMeaningful: ExecutiveKPIs['notMeaningful'] = {};
+  for (const key of ['grossProfitMargin', 'netProfitMargin'] as const) {
+    const reason = ratios.notMeaningful[key];
+    if (reason !== undefined) notMeaningful[key] = reason;
+  }
   const revenueGrowth = input.priorRevenue ? growthRate(input.revenue, input.priorRevenue) : 0;
   const profitGrowth = input.priorNetProfit ? growthRate(input.netProfit, input.priorNetProfit) : 0;
 
   const kpis: ExecutiveKPIs = {
     revenue: input.revenue,
     netProfit: input.netProfit,
-    grossProfitMargin: pct(grossProfit, input.revenue),
-    netProfitMargin: pct(input.netProfit, input.revenue),
+    grossProfitMargin: ratios.grossProfitMargin,
+    netProfitMargin: ratios.netProfitMargin,
+    notMeaningful,
     revenueGrowth,
     profitGrowth,
     currentRatio: Math.round(safeDiv(input.currentAssets, input.currentLiabilities) * 100) / 100,
