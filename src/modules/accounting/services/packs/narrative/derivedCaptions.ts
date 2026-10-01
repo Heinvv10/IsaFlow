@@ -20,6 +20,7 @@
 
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { rankedBy, superlativeClause } from './statedRelation';
+import { MONEY_TOLERANCE } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { formatMoney, formatRatio, inProse, pctWithWord, type MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
@@ -321,7 +322,7 @@ export function cashCaption(set: PackFigureSet, residual: number | null, scale: 
   const lead = ocf === undefined
     ? 'No operating cash flow figure was captured for this period.'
     : `Operating activities ${ocf >= 0 ? 'generated' : 'consumed'} ${inProse(formatMoney(Math.abs(ocf), { scale }))}.`;
-  if (residual === null || residual === 0) return lead;
+  if (residual === null || Math.abs(residual) <= MONEY_TOLERANCE) return lead;
   return `${lead} ${inProse(formatMoney(Math.abs(residual), { scale }))} of the movement in cash is NOT explained by the operating, investing and financing figures the pack captures; the bridge shows it as an unexplained movement rather than closing the gap silently.`;
 }
 

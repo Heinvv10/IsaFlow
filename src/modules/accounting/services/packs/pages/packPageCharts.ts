@@ -43,6 +43,7 @@ import {
   type CompositionSeries,
 } from '@/modules/accounting/services/packs/packChartOptions';
 import {
+  MONEY_TOLERANCE,
   UNCAPTURED_SHARE_LIMIT,
   uncapturedShare,
 } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
@@ -264,7 +265,10 @@ function withUncapturedStep(steps: WaterfallStep[], netProfit: number): Waterfal
   if (closing === undefined || lastMovement === undefined) return steps;
 
   const gap = netProfit - lastMovement.end;
-  if (gap === 0) return steps;
+  // A CENT, NOT ZERO. This is a difference of floats: a bridge that foots
+  // exactly in decimal leaves a few hundred-billionths here, and `=== 0` drew
+  // that as a zero-height bar labelled as income the pack did not capture.
+  if (Math.abs(gap) <= MONEY_TOLERANCE) return steps;
 
   const step: WaterfallStep = {
     label: PROFIT_UNCAPTURED_LABEL,
@@ -489,7 +493,11 @@ export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): 
   }
 
   const explained = movements.reduce((sum, m) => sum + m.value, 0);
-  const residual = current.cash - opening - explained;
+  // Under a cent is float residue, not a movement — see `withUncapturedStep`.
+  // Zeroed here rather than only skipped, because the page's caption and its
+  // disclosure both read `residual` and neither should explain a rounding.
+  const difference = current.cash - opening - explained;
+  const residual = Math.abs(difference) <= MONEY_TOLERANCE ? 0 : difference;
   if (residual !== 0) movements.push({ label: CASH_UNCAPTURED_LABEL, value: residual });
 
   const steps: WaterfallStep[] = [
