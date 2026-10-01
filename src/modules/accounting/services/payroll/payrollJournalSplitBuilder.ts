@@ -97,3 +97,26 @@ export function buildLabourDebitLines(input: BuildLabourDebitInput): JournalLine
     description: 'Labour costs — gross pay + statutory employer contributions − ETI',
   }));
 }
+
+/**
+ * Tie the run lines' labour to the labour debit by moving only ROUNDING — at
+ * most half a cent per line — onto the largest line. A bigger gap means the
+ * run lines disagree with the header; absorbing it would move real cost onto
+ * one cost centre silently, so it is left for the plan's exact balance check
+ * to refuse as 'unbalanced'.
+ *
+ * A tie between largest lines goes to the lowest employeeId, so the cent — and
+ * with it the posted split and the plan hash — never depends on the order the
+ * lines were read in (W3-01, BRK-596 R2-5). Returns new line objects.
+ */
+export function placeLabourRounding(runLines: RunLabourLine[], labourDebit: number): RunLabourLine[] {
+  const out = runLines.map((l) => ({ ...l }));
+  if (out.length === 0) return out;
+  const residual = r2(labourDebit - out.reduce((s, l) => s + l.labourAmount, 0));
+  const roundingCents = Math.ceil(out.length / 2);
+  if (residual === 0 || Math.abs(Math.round(residual * 100)) > roundingCents) return out;
+  const largest = out.reduce((a, b) => (
+    b.labourAmount > a.labourAmount || (b.labourAmount === a.labourAmount && b.employeeId < a.employeeId) ? b : a));
+  largest.labourAmount = r2(largest.labourAmount + residual);
+  return out;
+}

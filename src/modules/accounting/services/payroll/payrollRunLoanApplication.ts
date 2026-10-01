@@ -58,7 +58,7 @@ export class PayrollLoanLockTimeoutError extends Error {
   }
 }
 
-function isLockTimeout(err: unknown): boolean {
+export function isLockTimeout(err: unknown): boolean {
   return typeof err === 'object' && err !== null
     && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE;
 }
@@ -68,7 +68,7 @@ function isLockTimeout(err: unknown): boolean {
  * `SET` takes no bind parameters, and set_config with is_local = true has the
  * same scope. Returns the value that was in force before the change.
  */
-async function setLocalLockTimeout(tx: TxSql, value: string): Promise<string> {
+export async function setLocalLockTimeout(tx: TxSql, value: string): Promise<string> {
   const rows = (await tx`
     SELECT current_setting('lock_timeout', true) AS previous,
            set_config('lock_timeout', ${value}, true) AS applied

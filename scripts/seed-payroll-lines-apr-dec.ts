@@ -18,6 +18,7 @@
  */
 
 import { createSql, closeSql } from './_pg';
+import { withAlsTransaction } from '../src/lib/alsTransaction';
 import { calculatePayrollRun } from '../src/modules/accounting/services/payroll/payrollRunService';
 import { approvePayrollRun }   from '../src/modules/accounting/services/payroll/payrollApprovalService';
 
@@ -149,10 +150,14 @@ async function main(): Promise<void> {
     await resetHeader(header.id, header.journal_entry_id ?? null);
 
     // calculatePayrollRun: reads employees, computes lines, sets status='calculated'
-    const calculated = await calculatePayrollRun(header.id, COMPANY_ID);
+    // Each in ONE transaction every nested statement joins (W3-01 round 5):
+    // without it the run's header lock lasts a single statement, and an
+    // approval landing mid-calculation left header, lines and journal disagreeing.
+    const actor = { companyId: COMPANY_ID, userId: ADMIN_ID };
+    const calculated = await withAlsTransaction(actor, () => calculatePayrollRun(header.id, COMPANY_ID));
 
     // approvePayrollRun: status must be in ['draft','calculated','processed']
-    const approved = await approvePayrollRun(COMPANY_ID, header.id, ADMIN_ID);
+    const approved = await withAlsTransaction(actor, () => approvePayrollRun(COMPANY_ID, header.id, ADMIN_ID));
 
     console.log(
       `month=${month}: lines=${calculated.employeeCount} ` +

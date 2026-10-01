@@ -15,6 +15,10 @@
  * reports while the contra stayed, driving the account to the NEGATIVE of the
  * original rather than to zero.
  */
+import {
+  PayrollJournalReversalRefusedError,
+  payrollReversalRefusal,
+} from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import type { McpTool } from '../types';
 import { MUTATION_ARG_SCHEMA, type DryRunResult } from '@/lib/mcp/contracts';
 import {
@@ -148,6 +152,11 @@ export const reverseJournalEntryTool: McpTool = {
       );
     }
 
+    // A pay run's journal: the guard reverseJournalEntry applies under its
+    // locks, asked here read-only so the dry run refuses what the write refuses.
+    const payrollRefusal = await payrollReversalRefusal(ctx.companyId, entry);
+    if (payrollRefusal) return toolError(payrollRefusal);
+
     if (args.dry_run === true) {
       // The same resolution the write does, so the preview cannot promise a
       // tag the post would drop. The live path below reads the count off the
@@ -188,11 +197,21 @@ export const reverseJournalEntryTool: McpTool = {
       };
     }
 
-    // Nothing below is caught.
-    const reversal = await reverseJournalEntry(ctx.companyId, id, ctx.userId, {
-      postingAgent: mcpPostingAgent(TOOL),
-      ...(reversalDate ? { reversalDate } : {}),
-    });
+    // Only the payroll guard's refusal is caught: it is raised before the
+    // reversal writes anything, so returning it releases a savepoint with
+    // nothing in it. Everything else reaches the registry's savepoint — the
+    // guard's PayrollRunBusyError included: its code is on REFUSAL_CODES, so
+    // the registry answers it with its own message (W3-01 round 7).
+    let reversal;
+    try {
+      reversal = await reverseJournalEntry(ctx.companyId, id, ctx.userId, {
+        postingAgent: mcpPostingAgent(TOOL),
+        ...(reversalDate ? { reversalDate } : {}),
+      });
+    } catch (err) {
+      if (err instanceof PayrollJournalReversalRefusedError) return toolError(err.message);
+      throw err;
+    }
 
     return ok({
       reversed_entry_id: id,
