@@ -4,8 +4,8 @@
  * The wording lives in ./skippedIntegrationSuites.ts.
  *
  * The URL comes from CI_DATABASE_URL, which run-ci.sh sets to the DATABASE_URL
- * its own shell has: bun loads .env.local into process.env.CI_DATABASE_URL, and
- * that is not the variable run-ci.sh decided on.
+ * its own shell has: bun loads .env.local into process.env.DATABASE_URL, so
+ * that variable is not the one run-ci.sh decided on.
  *
  * Run: CI_DATABASE_URL="${DATABASE_URL:-}" bun scripts/ci/report-skipped-integration.ts
  */
