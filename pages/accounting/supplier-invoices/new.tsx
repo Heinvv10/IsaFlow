@@ -9,7 +9,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Info } from 'lucide-react';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
-import { fuzzyMatchSupplier } from '@/modules/accounting/utils/fuzzyMatch';
+import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
+import { useVendorSupplierMatch } from '@/components/accounting/supplier-invoices/matchVendorSupplier';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { apiFetch } from '@/lib/apiFetch';
 import { PoGrnSelector } from '@/components/accounting/suppliers/PoGrnSelector';
@@ -20,15 +21,12 @@ import { InvoiceNumberField } from '@/components/accounting/suppliers/InvoiceNum
 import { SupplierInvoiceSummaryCard } from '@/components/accounting/suppliers/SupplierInvoiceSummaryCard';
 import { localISODate } from '@/lib/dateUtils';
 
-interface Supplier { id: number; name: string }
-
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 export default function NewSupplierInvoicePage() {
   const router = useRouter();
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [glAccounts, setGLAccounts] = useState<GLAccount[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -56,12 +54,9 @@ export default function NewSupplierInvoicePage() {
 
   useEffect(() => {
     void Promise.all([
-      apiFetch('/api/accounting/suppliers-list').then(r => r.json()),
       apiFetch('/api/accounting/chart-of-accounts').then(r => r.json()),
       apiFetch('/api/accounting/company-settings?type=document-numbers').then(r => r.json()),
-    ]).then(([suppRes, accRes, settingsRes]) => {
-      const suppData = suppRes.data ?? suppRes;
-      setSuppliers(Array.isArray(suppData) ? suppData : (suppData.suppliers ?? []));
+    ]).then(([accRes, settingsRes]) => {
       const accData = accRes.data ?? accRes;
       setGLAccounts(Array.isArray(accData) ? accData.filter((a: GLAccount) => a.accountCode >= '5000') : []);
       type DocNum = { documentType: string; prefix: string; nextNumber: number; padding: number };
@@ -110,6 +105,10 @@ export default function NewSupplierInvoicePage() {
   const totalTax = lines.reduce((sum, l) => sum + (l.quantity * l.unitPrice * l.taxRate / 100), 0);
   const total = subtotal + totalTax;
 
+  // A scan may fill an empty supplier or replace an earlier scan's; never the user's pick.
+  // A new supplier drops the previous one's PO/GRN, exactly as a manual pick does.
+  const { scan: matchVendor, notePick } = useVendorSupplierMatch(form.supplierId, id => setForm(f => ({ ...f, supplierId: id, purchaseOrderId: '', grnId: '', copyLinesFromPo: false })));
+
   function handleExtracted(data: ExtractedDocument) {
     const updates: Partial<typeof form> = {};
     if (data.referenceNumber) updates.invoiceNumber = data.referenceNumber;
@@ -125,9 +124,8 @@ export default function NewSupplierInvoicePage() {
       else if (pt.includes('90')) updates.paymentTerms = 'net90';
     }
     setForm(f => ({ ...f, ...updates }));
-    if (data.vendorName && suppliers.length > 0) {
-      const match = fuzzyMatchSupplier(data.vendorName, suppliers.map(s => ({ id: String(s.id), name: s.name })));
-      if (match) setForm(f => ({ ...f, supplierId: String(match.id) }));
+    if (data.vendorName) {
+      matchVendor(data.vendorName);
     }
     if (data.lineItems.length > 0) {
       setLines(data.lineItems.map(li => ({
@@ -141,6 +139,7 @@ export default function NewSupplierInvoicePage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!form.supplierId) { setError('Please select a supplier'); return; }
     setIsSubmitting(true);
     setError('');
     try {
@@ -215,15 +214,11 @@ export default function NewSupplierInvoicePage() {
                   />
                   <div>
                     <label className={lbl}>Supplier *</label>
-                    <select required value={form.supplierId}
-                      onChange={e => setForm(f => ({
-                        ...f, supplierId: e.target.value,
+                    <SupplierSelect required value={form.supplierId} inputClassName={inp}
+                      onChange={id => { notePick(); setForm(f => ({
+                        ...f, supplierId: id,
                         purchaseOrderId: '', grnId: '', copyLinesFromPo: false,
-                      }))}
-                      className={inp}>
-                      <option value="">Select supplier…</option>
-                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                      })); }} />
                   </div>
                   <div><label className={lbl}>Invoice Date *</label><input type="date" required value={form.invoiceDate} onChange={e => setForm(f => ({ ...f, invoiceDate: e.target.value }))} className={inp} /></div>
                   <div><label className={lbl}>Due Date</label><input type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} className={inp} /></div>

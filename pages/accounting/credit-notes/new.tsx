@@ -8,10 +8,10 @@ import Link from 'next/link';
 import { ArrowLeft, FileText, Loader2, Receipt } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
 
 interface Client { id: string; company_name: string }
-interface Supplier { id: number; name: string }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
@@ -20,7 +20,6 @@ const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dar
 export default function NewCreditNotePage() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -44,16 +43,11 @@ export default function NewCreditNotePage() {
     }).catch(() => {
       setError('Failed to load clients');
     });
-    apiFetch('/api/accounting/suppliers-list').then(r => r.json()).then(res => {
-      const data = res.data || res;
-      setSuppliers(Array.isArray(data) ? data : data.suppliers || []);
-    }).catch(() => {
-      setError('Failed to load suppliers');
-    });
   }, []);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (form.type === 'supplier' && !form.supplierId) { setError('Please select a supplier'); return; }
     setError(''); setIsSubmitting(true);
     try {
       const res = await apiFetch('/api/accounting/credit-notes', {
@@ -125,10 +119,7 @@ export default function NewCreditNotePage() {
                   ) : (
                     <div>
                       <label className={lbl}>Supplier *</label>
-                      <select name="supplierId" value={form.supplierId} onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))} className={inp} required>
-                        <option value="">Select supplier…</option>
-                        {suppliers.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
-                      </select>
+                      <SupplierSelect required value={form.supplierId} inputClassName={inp} onChange={id => setForm(f => ({ ...f, supplierId: id }))} />
                     </div>
                   )}
 

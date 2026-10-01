@@ -16,10 +16,8 @@ test('supplier payment created through the /new form allocates to the invoice', 
 }) => {
   const api = await Api.login(baseURL!);
   try {
-    // Fixture supplier (find-or-create '0GP-Golden-Supplier'): the name's
-    // '0' prefix keeps it on the dropdown's FIRST page (the form loads
-    // suppliers-list default limit 25 — later-sorting names silently fall
-    // off, found live 2026-07-05), and reuse bounds master-data growth.
+    // Fixture supplier (find-or-create '0GP-Golden-Supplier'); reuse bounds
+    // master-data growth. The form searches by name, so sort order is irrelevant.
     const supplierId = await api.fixtureSupplier();
     expect(supplierId).toBeTruthy();
 
@@ -38,7 +36,12 @@ test('supplier payment created through the /new form allocates to the invoice', 
 
     // ── UI path (page fixture carries the shared golden session) ─────────
     await page.goto('/accounting/supplier-payments/new');
-    await page.selectOption('select[name="supplierId"]', supplierId);
+    // The supplier picker is a server-searched combobox (SupplierSelect): type
+    // the name, click the hit, and confirm the form holds the fixture's id.
+    const picker = page.getByTestId('supplier-select-input');
+    await picker.fill('0GP-Golden-Supplier');
+    await page.getByRole('button', { name: '0GP-Golden-Supplier', exact: true }).click();
+    await expect(page.locator('input[name="supplierId"]')).toHaveValue(supplierId);
 
     // Each allocation row = invoice <select name="invoiceId"> + amount input
     // (CSS-grid divs, no <table>). Pick our approved invoice — selectOption
