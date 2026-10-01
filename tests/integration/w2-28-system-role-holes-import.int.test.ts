@@ -49,17 +49,78 @@ describeIfDb('W2-28 the COA import role map, and after-commit cache clears', () 
       .toEqual({ imported: 0, error: expect.stringContaining('One account cannot hold two roles'), names: [] });
   });
 
-  it('still moves a role onto an unclassified account, one classified other, the type default, or the holder itself', async () => {
+  it('still moves a role onto an unclassified account, one classified other, or the holder itself', async () => {
     await ins(randomUUID(), '1110', 'asset', 'bank', true);
     await ins(randomUUID(), '1111', 'asset', null, false);
     await ins(randomUUID(), '1120', 'asset', 'other', false);
-    await ins(randomUUID(), '4100', 'revenue', 'revenue', false);
     await ins(randomUUID(), '2110', 'liability', 'payable', true);
-    const out = await importing([row('1111'), row('1120'), row('4100', 'revenue'), row('2110', 'liability')],
-      { bank: '1111', receivable: '1120', default_revenue: '4100', payable: '2110' });
-    expect({ errors: out.errors, bank: await holders('bank'), ar: await holders('receivable'),
-      revenue: await holders('default_revenue'), payable: await holders('payable') })
-      .toEqual({ errors: [], bank: ['1111'], ar: ['1120'], revenue: ['4100'], payable: ['2110'] });
+    const out = await importing([row('1111'), row('1120'), row('2110', 'liability')],
+      { bank: '1111', receivable: '1120', payable: '2110' });
+    expect({ errors: out.errors, bank: await holders('bank'), ar: await holders('receivable'), payable: await holders('payable') })
+      .toEqual({ errors: [], bank: ['1111'], ar: ['1120'], payable: ['2110'] });
+  });
+
+  it.each([
+    ['an inactive account', async () => {
+      await ins(randomUUID(), '2999', 'liability', null, false);
+      await fx.query("UPDATE gl_accounts SET is_active = false WHERE company_id = $1 AND account_code = '2999'", [CO]);
+      return { rows: [row('2999', 'liability')], message: '2999 for \'payable\' is inactive' };
+    }],
+    ['a header with sub-accounts', async () => {
+      const header = randomUUID();
+      await ins(header, '2999', 'liability', null, false);
+      await ins(randomUUID(), '2998', 'liability', null, false, { parent: header });
+      return { rows: [row('2999', 'liability')], message: '2999 is a header with sub-accounts' };
+    }],
+    ['an account classified as something else', async () => {
+      await ins(randomUUID(), '2999', 'liability', 'other_current_liability', false);
+      return { rows: [row('2999', 'liability')], message: "2999 is classified 'other_current_liability'" };
+    }],
+    ['a row the same import makes a header', async () => (
+      { rows: [row('2999', 'liability'), { ...row('2998', 'liability'), parentCode: '2999' }], message: '2999 is a header with sub-accounts' })],
+  ])('refuses a role map that puts a role on %s: the live holder keeps it and nothing is written', async (_what, arrange) => {
+    await ins(randomUUID(), '2100', 'liability', 'payable', true);
+    const { rows, message } = await arrange();
+    const before = await names();
+    const out = await importing(rows, { payable: '2999' });
+    expect({ imported: out.imported, error: out.errors[0]?.message, payable: await holders('payable'), names: await names() })
+      .toEqual({ imported: 0, error: expect.stringContaining(message), payable: ['2100'], names: before });
+  });
+
+  it('a mapped row that the import skips takes no role: the existing holder is not demoted for it', async () => {
+    await ins(randomUUID(), '1110', 'asset', 'bank', true);
+    const out = await importing([{ ...row('1500'), parentCode: '9999' }], { bank: '1500' });   // parent 9999 does not exist
+    expect({ imported: out.imported, skipped: out.skipped, error: out.errors[0]?.message, bank: await holders('bank') })
+      .toEqual({ imported: 0, skipped: 1, error: 'Parent code 9999 not found', bank: ['1110'] });
+  });
+
+  it('an import row over an existing system account keeps its type, classification, flag and active state, and says so', async () => {
+    await ins(randomUUID(), '1110', 'asset', 'bank', true);
+    await ins(randomUUID(), '1120', 'asset', 'receivable', true);
+    await ins(randomUUID(), '1105', 'asset', 'bank', true);
+    await fx.query("UPDATE gl_accounts SET is_active = false WHERE company_id = $1 AND account_code = '1105'", [CO]);
+    await ins(randomUUID(), '1130', 'asset', 'other', false);
+    const out = await importing([
+      { ...row('1110'), accountSubtype: 'other_current_asset' },      // would empty the bank role
+      row('1120', 'expense'),                                          // would re-type the receivable holder
+      row('1105'),                                                     // a deactivated former holder
+      { ...row('1130'), accountSubtype: 'other_current_asset' },       // not a system account: re-classified as before
+    ], {});
+    const state = (await fx.query(
+      `SELECT account_code AS code, account_type AS type, account_subtype AS subtype, is_system_account AS system, is_active AS active
+       FROM gl_accounts WHERE company_id = $1 ORDER BY 1`, [CO])).rows;
+    const notes = out.errors.map((e) => e.message).filter((m) => m.includes('is a system account'));
+    expect({ imported: out.imported, notes, state }).toEqual({
+      imported: 4,
+      notes: [expect.stringContaining('1110 is a system account'), expect.stringContaining('(asset / receivable) were kept')],
+      state: [
+        { code: '1105', type: 'asset', subtype: 'bank', system: true, active: false },
+        { code: '1110', type: 'asset', subtype: 'bank', system: true, active: true },
+        { code: '1120', type: 'asset', subtype: 'receivable', system: true, active: true },
+        { code: '1130', type: 'asset', subtype: 'other_current_asset', system: false, active: true },
+      ],
+    });
+    expect({ bank: await holders('bank'), ar: await holders('receivable') }).toEqual({ bank: ['1110'], ar: ['1120'] });
   });
 
   /**
