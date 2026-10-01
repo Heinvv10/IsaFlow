@@ -18,7 +18,7 @@ export const AUTO = 'src/lib/auth/autoRateLimit.ts';
 const isWrapperDayPair = (a: string, b: string) => /^(ai|send):[^:*]+:co:\*$/.test(a) && b === `${a}:day`;
 
 export interface Site { where: string; pattern: string; options: string }
-export interface Census { charges: Site[]; refunds: Site[]; unreadable: string[]; aliased: string[] }
+export interface Census { charges: Site[]; refunds: Site[]; unreadable: string[]; aliased: string[]; refundsWithoutWindow: string[] }
 
 const stripComments = (raw: string) => raw.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, '')).replace(/(^|[ \t])\/\/.*$/gm, '');
 
@@ -113,7 +113,7 @@ function resolve(fn: string, args: string[], source: string): Array<[string, str
 }
 
 export function census(files: Record<string, string>): Census {
-  const out: Census = { charges: [], refunds: [], unreadable: [], aliased: [] };
+  const out: Census = { charges: [], refunds: [], unreadable: [], aliased: [], refundsWithoutWindow: [] };
   for (const [file, raw] of Object.entries(files)) {
     // Drop comments (they carry commas, slashes and names) but keep every newline.
     const source = stripComments(raw);
@@ -138,6 +138,8 @@ export function census(files: Record<string, string>): Census {
     }
     for (const match of source.matchAll(CALL)) {
       const args = splitArgs(source.slice(match.index! + match[0].length));
+      // A refund that names no window can land in the window after the one it was charged in.
+      if (match[1] === 'refundRateLimit' && (args?.length ?? 0) < 3) out.refundsWithoutWindow.push(`${file} | ${args?.[0] ?? '?'}`);
       const keys = args && resolve(match[1]!, args, source);
       const keyArg = args?.[match[1] === 'withRateLimit' ? 2 : match[1]!.endsWith('ReportRateLimit') ? 1 : /Ai|Send/.test(match[1]!) ? 2 : 0];
       if (!keys) { out.unreadable.push(`${file} | ${keyArg ?? '?'}`); continue; }

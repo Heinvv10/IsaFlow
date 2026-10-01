@@ -63,7 +63,7 @@ describe('rate-limit key census (R-175)', () => {
     expect(found.charges.length).toBeGreaterThan(100);
     expect(found.charges.map((s) => s.pattern)).toEqual(expect.arrayContaining([
       'portal-auth:*', 'afs-portal-magic-link:*', 'login:ip:*', 'login:email:*', 'invite-accept:*',
-      'ai:nl-query:co:*:day', 'send:invoice-email:ip:*', 'report:reports-pdf:co:*', 'statement-bulk-email:attempts:*',
+      'ai:nl-query:co:*:day', 'send:invoice-email:ip:*', 'report:reports-pdf:co:*', 'statement-bulk-email:attempts:*:*',
     ]));
   });
 
@@ -85,6 +85,10 @@ describe('rate-limit key census (R-175)', () => {
     const charged = new Set(found.charges.map((s) => s.pattern));
     expect(found.refunds.map((s) => s.pattern)).toEqual(['invite-accept:*']);
     expect(found.refunds.filter((s) => !charged.has(s.pattern))).toEqual([]);
+  });
+
+  it('every refund names the window it was charged in', () => {
+    expect(found.refundsWithoutWindow).toEqual([]);
   });
 
   it('every call it cannot read is pinned, and every pin still matches a call', () => {
@@ -109,7 +113,7 @@ describe('rate-limit key census (R-175)', () => {
       // Passed as a value, in an object, bound: none of these is a direct call.
       'i.ts': "import { checkRateLimit, withRateLimit } from '@/lib/rateLimit';\nconst deps = { check: checkRateLimit };\nrun(checkRateLimit);\nconst b = checkRateLimit.bind(null);\n// checkRateLimit in a comment is fine\nawait checkRateLimit(`ok:${id}`, { max: 1, windowSecs: 1 });",
       'j.ts': "await checkRateLimit(`foo:${ip}`, { max: 5, windowSecs: 60 });\nawait checkRateLimit(`foo:bar:${id}`, { max: 9, windowSecs: 60 });\nawait checkRateLimit(`baz:${id}`, { max: 9, windowSecs: 60 });\nawait checkRateLimit(`baz:qux:${id}`, { max: 9, windowSecs: 60 });",
-      'h.ts': 'await refundRateLimit(`never-charged:${id}`, 1);',
+      'h.ts': 'await refundRateLimit(`never-charged:${id}`, 1);\nawait refundRateLimit(`never-charged:${id}`, 1, charge.windowStart);',
     });
 
     expect(collisions(synthetic.charges)).toEqual([
@@ -130,6 +134,7 @@ describe('rate-limit key census (R-175)', () => {
     ]);
     // `foo:*` can produce `foo:bar:...` at another limit; the baz pair share a limit.
     expect(overlaps(synthetic.charges)).toEqual(['foo:* <> foo:bar:*']);
-    expect(synthetic.refunds.map((s) => s.pattern)).toEqual(['never-charged:*']);
+    expect(synthetic.refunds.map((s) => s.pattern)).toEqual(['never-charged:*', 'never-charged:*']);
+    expect(synthetic.refundsWithoutWindow).toEqual(['h.ts | `never-charged:${id}`']);
   });
 });

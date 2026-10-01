@@ -91,20 +91,52 @@ describe('checkRateLimit — only the database admits (R-175)', () => {
     expect(sqlMock).toHaveBeenCalledTimes(3);
   });
 
-  it('a remembered refusal turns away only a call that still would not fit', async () => {
-    // 15 used; a 10-unit call was refused.
+  it('remembers only a key that is full: a refused large call does not turn a small one away', async () => {
+    // 15 used of 20; a 10-unit call was refused. Five units are left.
     sqlMock.mockResolvedValueOnce(refusedAt(15));
     expect(await checkRateLimit('k', { ...limit, cost: 10 })).toBe(false);
-    sqlMock.mockResolvedValue(admitted(20));
+    sqlMock.mockResolvedValue(admitted(16));
 
-    // 15 + 6 does not fit: refused from memory. 15 + 5 fits: the database is asked.
-    expect(await checkRateLimit('k', { ...limit, cost: 6 })).toBe(false);
-    expect(sqlMock).toHaveBeenCalledTimes(1);
-    expect(await checkRateLimit('k', { ...limit, cost: 5 })).toBe(true);
-    expect(sqlMock).toHaveBeenCalledTimes(2);
-    // And a caller with a higher max on the same key is asked too.
-    expect(await checkRateLimit('k', { max: 100, windowSecs: 60, cost: 10 })).toBe(true);
+    // Nothing was remembered: even another call that would not fit is asked of the database.
+    expect(await checkRateLimit('k', limit)).toBe(true);
+    expect(await checkRateLimit('k', { ...limit, cost: 6 })).toBe(true);
     expect(sqlMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('a full key is refused from memory for a caller with that max, and asked for a caller with a higher one', async () => {
+    sqlMock.mockResolvedValueOnce(refusedAt(20));
+    expect(await checkRateLimit('k', limit)).toBe(false);
+    sqlMock.mockResolvedValue(admitted(21));
+
+    expect(await checkRateLimit('k', { ...limit, cost: 5 })).toBe(false);
+    expect(await checkRateLimit('k', { max: 19, windowSecs: 60 })).toBe(false);
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+    expect(await checkRateLimit('k', { max: 100, windowSecs: 60, cost: 10 })).toBe(true);
+    expect(sqlMock).toHaveBeenCalledTimes(2);
+  });
+
+  // Review round 4: `max` is a SQL integer parameter.
+  it('floors a fractional max: 2.5 admits what 2 admits', async () => {
+    countingDb();
+    const fractional = { max: 2.5, windowSecs: 60 };
+    expect([await checkRateLimit('k', fractional), await checkRateLimit('k', fractional), await checkRateLimit('k', fractional)])
+      .toEqual([true, true, false]);
+    expect(sqlMock.mock.calls.every((call) => call[1][3] === 2)).toBe(true);
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1, 2_147_483_648, 1_000_000_001])(
+    'refuses a max of %s as a programming error, before any statement', async (max) => {
+      await expect(checkRateLimit('k', { max, windowSecs: 60 })).rejects.toThrow(RangeError);
+      await expect(chargeRateLimit('k', { max, windowSecs: 60, cost: 5 })).rejects.toThrow(/rate limit max must be a number from 0 to 1000000000/);
+      expect(sqlMock).not.toHaveBeenCalled();
+    });
+
+  it('accepts the edges: a max of 0 admits nothing, the largest max is passed through', async () => {
+    countingDb();
+    expect(await checkRateLimit('zero', { max: 0, windowSecs: 60 })).toBe(false);
+    expect(sqlMock).not.toHaveBeenCalled();
+    expect(await checkRateLimit('big', { max: 1_000_000_000, windowSecs: 60 })).toBe(true);
+    expect(sqlMock.mock.calls[0]![1][3]).toBe(1_000_000_000);
   });
 
   it('does not remember a refusal whose window has already ended', async () => {

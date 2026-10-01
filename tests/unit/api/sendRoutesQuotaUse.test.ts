@@ -59,18 +59,40 @@ const ROUTES = [
     name: 'dunning', handler: dunningSend as unknown as H, mails: 1,
     ok: { method: 'POST', body: { invoiceId: ID(1), templateId: ID(2) } },
     malformed: { method: 'POST', body: { invoiceId: 'nope' } },
+    notOwned: ['FROM customer_invoices ci', 'dunning_templates'],
   },
   {
     name: 'company-invitations', handler: companyInvitations as unknown as H, mails: 1,
     ok: { method: 'POST', body: { email: 'new@co.test', role: 'viewer' }, companyRole: 'owner' },
     malformed: { method: 'POST', body: { role: 'viewer' }, companyRole: 'owner' },
+    notOwned: [],
   },
   {
     name: 'afs-signing', handler: sendForSigningRoute as unknown as H, mails: 1,
     ok: { method: 'POST', query: { documentId: ID(3) }, body: { signerContactIds: [ID(4)] } },
     malformed: { method: 'POST', query: { documentId: ID(3) }, body: { signerContactIds: [] } },
+    notOwned: ['FROM afs_documents', 'FROM portal_contacts'],
   },
 ] as const;
+
+/** The stubbed database. A query whose text contains `missing` finds nothing, as for a record of another company. */
+function database(missing?: string) {
+  return async (strings: TemplateStringsArray) => {
+    const text = strings.join(' ');
+    if (missing && text.includes(missing)) return [];
+    if (text.includes('INSERT INTO dunning_sends')) return [{ id: ID(9), message_token: 'tok' }];
+    if (text.includes('FROM customer_invoices ci')) {
+      return [{ invoice_id: ID(1), invoice_number: 'INV-1', invoice_date: '2026-08-01', due_date: '2026-08-31', total_amount: 100, amount_paid: 0, status: 'sent', customer_name: 'Debtor', customer_email: 'debtor@co.test', company_name: 'Co' }];
+    }
+    if (text.includes('FROM customer_invoices')) return [{ ok: 1 }];
+    if (text.includes('dunning_templates')) return [{ id: ID(2), subject_template: 'Overdue {{invoice_number}}', body_template: 'Pay at {{portal_link}}' }];
+    if (text.includes('INSERT INTO captured_documents')) return [{ id: ID(8) }];
+    if (text.includes('FROM afs_documents')) return [{ id: ID(3), status: 'partner_review', signing_requested_at: null }];
+    if (text.includes('FROM portal_contacts')) return [{ id: ID(4), name: 'Dee', email: 'director@co.test', role: 'director' }];
+    if (text.includes('FROM companies')) return [{ name: 'Co' }];
+    return [];
+  };
+}
 
 function res(): NextApiResponse {
   const r = { statusCode: 200, status(c: number) { r.statusCode = c; return r; }, json() { return r; }, setHeader() { return r; }, end() { return r; } };
@@ -99,19 +121,7 @@ describe.each(ROUTES)('$name — daily send unit and abuse limit (R-175)', (rout
     checkSend.mockResolvedValue(true);
     checkAttempts.mockResolvedValue(true);
     sendMail.mockResolvedValue({ messageId: 'mid' });
-    sqlMock.mockImplementation(async (strings: TemplateStringsArray) => {
-      const text = strings.join(' ');
-      if (text.includes('INSERT INTO dunning_sends')) return [{ id: ID(9), message_token: 'tok' }];
-      if (text.includes('FROM customer_invoices ci')) {
-        return [{ invoice_id: ID(1), invoice_number: 'INV-1', invoice_date: '2026-08-01', due_date: '2026-08-31', total_amount: 100, amount_paid: 0, status: 'sent', customer_name: 'Debtor', customer_email: 'debtor@co.test', company_name: 'Co' }];
-      }
-      if (text.includes('dunning_templates')) return [{ id: ID(2), subject_template: 'Overdue {{invoice_number}}', body_template: 'Pay at {{portal_link}}' }];
-      if (text.includes('INSERT INTO captured_documents')) return [{ id: ID(8) }];
-      if (text.includes('FROM afs_documents')) return [{ id: ID(3), status: 'partner_review', signing_requested_at: null }];
-      if (text.includes('FROM portal_contacts')) return [{ id: ID(4), name: 'Dee', email: 'director@co.test', role: 'director' }];
-      if (text.includes('FROM companies')) return [{ name: 'Co' }];
-      return [];
-    });
+    sqlMock.mockImplementation(database());
   });
   afterEach(() => vi.unstubAllEnvs());
 
@@ -146,6 +156,7 @@ const LIMITED = [
     name: 'invoice-email', handler: invoiceEmail as unknown as H, mails: 0,
     ok: { method: 'POST', body: { invoiceId: ID(1), recipientEmail: 'a@b.co' } },
     malformed: { method: 'POST', body: { invoiceId: ID(1), recipientEmail: 'not-an-email' } },
+    notOwned: ['FROM customer_invoices'],
   },
 ] as unknown as typeof ROUTES;
 
@@ -154,12 +165,34 @@ describe.each(LIMITED)('$name — abuse limit before the shared bucket (R-175)',
     vi.clearAllMocks();
     checkSend.mockResolvedValue(true);
     checkAttempts.mockResolvedValue(true);
+    sqlMock.mockImplementation(database());
+  });
+
+  // Review round 4: naming a record the company does not own sends nothing,
+  // so it must not spend the allowance every colleague shares.
+  it.each(route.notOwned)('a request refused because nothing matches "%s" leaves the company bucket untouched', async (missing) => {
+    sqlMock.mockImplementation(database(missing));
+    await unitsUsed(route, 'ok');
+
+    expect(sqlMock).toHaveBeenCalled();
+    expect(checkAttempts).toHaveBeenCalledTimes(1);
+    expect(checkSend).not.toHaveBeenCalled();
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it('charges the company bucket once every check has passed', async () => {
+    checkSend.mockResolvedValue(false);
+    await unitsUsed(route, 'ok');
+
+    expect(checkSend).toHaveBeenCalledTimes(1);
+    expect(sendMail).not.toHaveBeenCalled();
   });
 
   it('counts the attempt against the user, and a malformed request never reaches the company bucket', async () => {
     await unitsUsed(route, 'malformed');
 
-    expect(checkAttempts.mock.calls).toEqual([[`${route.name}:attempts:u1`, { max: 30, windowSecs: 900 }]]);
+    // Keyed by company and user: a bureau user has one allowance per client.
+    expect(checkAttempts.mock.calls).toEqual([[`${route.name}:attempts:${COMPANY}:u1`, { max: 30, windowSecs: 900 }]]);
     expect(checkSend).not.toHaveBeenCalled();
     expect(sendMail).not.toHaveBeenCalled();
   });
@@ -173,4 +206,20 @@ describe.each(LIMITED)('$name — abuse limit before the shared bucket (R-175)',
     expect(checkSend).not.toHaveBeenCalled();
     expect(sendMail).not.toHaveBeenCalled();
   });
+});
+
+it('invoice-email answers 400, before any query or charge, for an invoice id that is not a UUID (R-175)', async () => {
+  vi.clearAllMocks();
+  checkAttempts.mockResolvedValue(true);
+  checkSend.mockResolvedValue(true);
+  const badRequest = vi.spyOn(apiResponse, 'badRequest');
+
+  await (invoiceEmail as unknown as H)(
+    { method: 'POST', query: {}, body: { invoiceId: "x'::text", recipientEmail: 'a@b.co' }, companyId: COMPANY, user } as unknown as NextApiRequest,
+    res(),
+  );
+
+  expect(badRequest).toHaveBeenCalledWith(expect.anything(), 'invoiceId must be a UUID');
+  expect(sqlMock).not.toHaveBeenCalled();
+  expect(checkSend).not.toHaveBeenCalled();
 });

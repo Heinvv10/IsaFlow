@@ -9,7 +9,9 @@
 import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
 import { log } from '@/lib/logger';
 import { noteQuotaCharge } from '@/lib/quotaUse';
-import { chargeRateLimit, checkRateLimit, clampCost, type RateLimitOptions } from '@/lib/rateLimitCore';
+import {
+  chargeRateLimit, checkRateLimit, clampCost, refundRateLimit, type RateLimitCharge, type RateLimitOptions,
+} from '@/lib/rateLimitCore';
 
 export {
   chargeRateLimit, checkRateLimit, clampCost, clearRateLimitCache, refundRateLimit, REFUSAL_TTL_MS,
@@ -41,6 +43,21 @@ export function getClientIp(req: NextApiRequest): string {
 }
 
 /**
+ * The two per-company usage buckets of the AI and send limiters: 15 minutes
+ * (`<key>`) and a day (`<key>:day`). Both or neither: if the day refuses, what
+ * this call took from the 15-minute bucket goes back, into the window it was
+ * taken from, so a refused call consumes nothing. The per-IP bucket charged
+ * before this is an abuse limit and is never given back.
+ */
+async function chargeUsageBuckets(key: string, cost: number, companyMax: number, dailyMax: number): Promise<RateLimitCharge> {
+  const short = await chargeRateLimit(key, { max: companyMax, windowSecs: 900, cost });
+  if (!short.admitted) return short;
+  const day = await chargeRateLimit(`${key}:day`, { max: dailyMax, windowSecs: 86_400, cost });
+  if (!day.admitted) await refundRateLimit(key, cost, short.windowStart);
+  return day;
+}
+
+/**
  * Per-IP + per-company + daily-quota limiting for expensive AI/LLM endpoints
  * (pentest H3: an authenticated tenant could otherwise burn the inference budget
  * with unbounded calls). Returns true when ALLOWED, false when it should be 429'd.
@@ -56,8 +73,7 @@ export async function checkAiRateLimit(
   const companyMax = opts.companyMax ?? 40;
   const dailyMax = opts.dailyMax ?? 300;
   if (!(await checkRateLimit(`ai:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900 }))) return false;
-  if (!(await checkRateLimit(`ai:${name}:co:${companyId}`, { max: companyMax, windowSecs: 900 }))) return false;
-  const day = await chargeRateLimit(`ai:${name}:co:${companyId}:day`, { max: dailyMax, windowSecs: 86_400 });
+  const day = await chargeUsageBuckets(`ai:${name}:co:${companyId}`, 1, companyMax, dailyMax);
   // The daily bucket is a budget for AI calls a provider answered, not an abuse
   // limit. `refundUnused` is for routes whose provider call goes through a
   // client that calls markQuotaUsed('ai'); the unit comes back when the request
@@ -87,8 +103,7 @@ export async function checkSendRateLimit(
   // bucket per-recipient would wrongly block a single legitimate large batch.
   const volumeCost = opts.count ?? 1;
   if (!(await checkRateLimit(`send:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900, cost: 1 }))) return false;
-  if (!(await checkRateLimit(`send:${name}:co:${companyId}`, { max: companyMax, windowSecs: 900, cost: volumeCost }))) return false;
-  const day = await chargeRateLimit(`send:${name}:co:${companyId}:day`, { max: dailyMax, windowSecs: 86_400, cost: volumeCost });
+  const day = await chargeUsageBuckets(`send:${name}:co:${companyId}`, volumeCost, companyMax, dailyMax);
   // As for AI: with `refundUnused` the daily bucket ends up holding the emails
   // a mail server accepted (markQuotaUsed('send') in emailService.sendEmail).
   if (day.admitted && opts.refundUnused) noteQuotaCharge('send', `send:${name}:co:${companyId}:day`, clampCost(volumeCost), day.windowStart);

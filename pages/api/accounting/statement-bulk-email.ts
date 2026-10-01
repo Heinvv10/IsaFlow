@@ -61,7 +61,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // Abuse limit: every attempt counts, whatever comes of it, and it is never
   // given back. It sits ahead of the ownership query below, which the volume
   // charge no longer does (R-175).
-  if (!(await checkRateLimit(`statement-bulk-email:attempts:${user.id}`, { max: 30, windowSecs: 900 }))) {
+  if (!(await checkRateLimit(`statement-bulk-email:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))) {
     return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
 

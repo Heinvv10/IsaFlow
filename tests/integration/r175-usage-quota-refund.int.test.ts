@@ -155,4 +155,58 @@ describe('R-175 — charged minus used comes back, on every exit', () => {
     await refundRateLimit(key, 2);
     expect((await pool.query('SELECT count FROM rate_limit_counters WHERE key = $1', [key])).rows[0].count).toBe(5);
   });
+
+  // Review round 4.
+  it('invite-accept shape: a charge in the last second of its hour, refunded after the rollover, takes nothing off the new hour', async () => {
+    const key = `invite-accept:${RUN}`;
+    const attempt = { max: 20, windowSecs: 3600, cost: 2 };
+    const first = await chargeRateLimit(key, attempt);
+    await pool.query(`UPDATE rate_limit_counters SET window_start = window_start - INTERVAL '3601 seconds' WHERE key = $1`, [key]);
+    // The hour rolls: the next attempt opens a new window.
+    const second = await chargeRateLimit(key, attempt);
+    expect(second.windowStart).not.toBe(first.windowStart);
+
+    await refundRateLimit(key, 2, first.windowStart);
+
+    const count = async () => (await pool.query('SELECT count FROM rate_limit_counters WHERE key = $1', [key])).rows[0].count;
+    expect(await count()).toBe(2);
+    // The second attempt's own refund still lands.
+    await refundRateLimit(key, 2, second.windowStart);
+    expect(await count()).toBe(0);
+    await pool.query('DELETE FROM rate_limit_counters WHERE key = $1', [key]);
+  });
+
+  it('send: a batch the daily bucket refuses takes nothing from the 15-minute company bucket; the per-IP attempt stays', async () => {
+    const name = `${RUN}-daily-full`;
+    const bulk = { companyMax: 2000, dailyMax: 150 };
+    expect(await asRequest(async () => { await checkSendRateLimit(req, CO, name, { count: 100, ...bulk }); })).toBeTruthy();
+    expect(await counts('send', name)).toEqual({ ip: 1, company: 100, day: 100 });
+
+    let verdict: boolean | undefined;
+    await asRequest(async () => { verdict = await checkSendRateLimit(req, CO, name, { count: 100, ...bulk, ...refundable }); });
+
+    expect(verdict).toBe(false);
+    // 100 + 100 does not fit under 150 a day. The 15-minute bucket is back at 100.
+    expect(await counts('send', name)).toEqual({ ip: 2, company: 100, day: 100 });
+    // And a smaller batch that does fit is still admitted.
+    expect(await checkSendRateLimit(req, CO, name, { count: 50, ...bulk })).toBe(true);
+    expect(await counts('send', name)).toEqual({ ip: 3, company: 150, day: 150 });
+  });
+
+  it('AI: a call the daily bucket refuses takes nothing from the 15-minute company bucket', async () => {
+    const name = `${RUN}-ai-daily-full`;
+    expect(await checkAiRateLimit(req, CO, name, { dailyMax: 1 })).toBe(true);
+    expect(await checkAiRateLimit(req, CO, name, { dailyMax: 1 })).toBe(false);
+    expect(await checkAiRateLimit(req, CO, name, { dailyMax: 1 })).toBe(false);
+
+    expect(await counts('ai', name)).toEqual({ ip: 3, company: 1, day: 1 });
+  });
+
+  it('a call the 15-minute company bucket refuses never reaches the daily bucket', async () => {
+    const name = `${RUN}-short-full`;
+    expect(await checkAiRateLimit(req, CO, name, { companyMax: 1 })).toBe(true);
+    expect(await checkAiRateLimit(req, CO, name, { companyMax: 1 })).toBe(false);
+
+    expect(await counts('ai', name)).toEqual({ ip: 2, company: 1, day: 1 });
+  });
 });
