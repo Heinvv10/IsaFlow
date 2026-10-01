@@ -108,6 +108,8 @@ interface Props {
   transactions: BankTx[];
   glAccounts: SelectOption[];
   suppliers: SelectOption[];
+  /** The supplier list is still paging in: an empty supplier dropdown is not "no results" yet. */
+  suppliersLoading?: boolean;
   customers: SelectOption[];
   /** Other bank GL accounts available as transfer targets (source bank already excluded). */
   transferTargets: SelectOption[];
@@ -201,7 +203,7 @@ function NotesCell({
 
 export function BankTxTable(props: Props) {
   const {
-    transactions, glAccounts, suppliers, customers, transferTargets,
+    transactions, glAccounts, suppliers, suppliersLoading, customers, transferTargets,
     cc1Options, cc2Options, buOptions, showCC, showBU,
     selectedIds, rowSelections, allSelected, tab,
     onToggleSelect, onSelectAll, onRowTypeChange, onRowEntityChange, onRowVatChange,
@@ -516,7 +518,7 @@ export function BankTxTable(props: Props) {
                                 </button>
                               ))}
                               {options.length === 0 && !getSuggestedOption(tx, rowType) && (
-                                <div className="px-3 py-2 text-xs text-[var(--ff-text-tertiary)]">No results found</div>
+                                <div className="px-3 py-2 text-xs text-[var(--ff-text-tertiary)]">{rowType === 'supplier' && suppliersLoading ? 'Loading suppliers…' : 'No results found'}</div>
                               )}
                             </div>
                             {onCreateEntity && rowType !== 'transfer' && (
