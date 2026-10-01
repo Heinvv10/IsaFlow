@@ -1046,3 +1046,230 @@ int: Tests  75 passed (75)
 unit: Tests  338 passed (338)
 
 DONE Y6 Y7 Y8 Y9 V1 V2 N1 N2 R1 R2 F1 F2 A1 A2 SG1 SG2 SG3 BASELINE
+
+==================================================================
+### Anthropic 529 as no work (commit 6aaacf7ec)
+Whole unit suite:
+ Test Files  1136 passed (1136)
+      Tests  15177 passed | 6 skipped (15183)
+Red on 8912699be's sources: red.529.unit.log. Mutants AN1-AN6 (new) and ST1-ST8, Y6-Y9, N2, A1-A2, SG1-SG3 (re-run; ST6-ST8, N2 and Y6 redefined for the Anthropic helpers). Baseline green before and after; 24 of 24 RED:
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  344 passed (344)
+
+AN1 | src/lib/quotaUse.ts | a 529 counts as use for Anthropic (status form)
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 529, and uses 0 unit 3ms
+unit: × answers 200 with its fallback after a provider 529, and uses 0 unit 1ms
+unit: × after an Anthropic 529 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 3ms
+unit: × the Anthropic rule differs from the general one only at 529 4ms
+unit: Tests  4 failed | 340 passed (344)
+
+AN2 | src/lib/quotaUse.ts | a 529 counts as use for Anthropic (thrown form)
+int: Tests  75 passed (75)
+unit: × records nothing on an Anthropic 529 (overloaded): the request was turned away 4ms
+unit: × the Anthropic rule differs from the general one only at 529 1ms
+unit: Tests  2 failed | 342 passed (344)
+
+AN3 | src/lib/quotaUse.ts | every Anthropic 5xx is no work
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 503, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 503, and uses 1 unit 0ms
+unit: × after an Anthropic 500 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 3ms
+unit: × after an Anthropic 503 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 1ms
+unit: × the Anthropic rule differs from the general one only at 529 4ms
+unit: Tests  9 failed | 335 passed (344)
+
+AN4 | src/lib/quotaUse.ts | 529 is no work for every provider
+int: Tests  75 passed (75)
+unit: × counts as use after a provider 529 answer (SDK): a 5xx may come after the work: the provider may have done the work 4ms
+unit: × after a provider 529 answer, records 1 AI use 4ms
+unit: Tests  2 failed | 342 passed (344)
+
+AN5 | src/modules/accounting/services/afs/noteAiService.ts | noteAiService uses the general rule (529 is use)
+int: Tests  75 passed (75)
+unit: × records nothing on an Anthropic 529 (overloaded): the request was turned away 4ms
+unit: Tests  1 failed | 343 passed (344)
+
+AN6 | pages/api/accounting/nl-query.ts | nl-query uses the general rule (529 is use)
+int: Tests  75 passed (75)
+unit: × after an Anthropic 529 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 3ms
+unit: Tests  1 failed | 343 passed (344)
+
+ST1 | src/lib/quotaUse.ts | a 5xx is not use
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 500: the document may exist, the unit is spent 4ms
+unit: × Signum or a proxy answered 502: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 503: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 504: the document may exist, the unit is spent 1ms
+unit: × counts as use after a provider 529 answer (SDK): a 5xx may come after the work: the provider may have done the work 5ms
+unit: × counts as use after a 502 from a proxy in front of the provider: the provider may have done the work 1ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 503, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 503, and uses 1 unit 0ms
+unit: × after an Anthropic 500 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 3ms
+unit: × after an Anthropic 503 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 1ms
+unit: × after a provider 503 answer, records 1 AI use 4ms
+unit: × after a provider 529 answer, records 1 AI use 1ms
+unit: × records one AI use on any other 5xx: it may come after the work 1ms
+unit: Tests  17 failed | 327 passed (344)
+
+ST2 | src/lib/quotaUse.ts | a 408 is not use
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 408: the document may exist, the unit is spent 4ms
+unit: × counts as use after a 408 request timeout: the provider may have done the work 4ms
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 0ms
+unit: × after an Anthropic 408 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 4ms
+unit: × after a provider 408 answer, records 1 AI use 4ms
+unit: Tests  6 failed | 338 passed (344)
+
+ST3 | src/lib/quotaUse.ts | a 4xx refusal is use
+int: Tests  75 passed (75)
+unit: × Signum refused the request (400): nothing was done, the unit comes back 4ms
+unit: × Signum refused the request (401): nothing was done, the unit comes back 1ms
+unit: × Signum refused the request (422): nothing was done, the unit comes back 1ms
+unit: × Signum refused the request (429): nothing was done, the unit comes back 1ms
+unit: × answers 200 with its fallback after a provider 400, and uses 0 unit 4ms
+unit: × answers 200 with its fallback after a provider 401, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 429, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 400, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 401, and uses 0 unit 0ms
+unit: × answers 200 with its fallback after a provider 429, and uses 0 unit 0ms
+unit: × is not use after a provider 400 answer (SDK): no work was done 4ms
+unit: × is not use after a provider 401 answer (SDK): no work was done 1ms
+unit: × is not use after a provider 429 rate-limit answer (SDK): no work was done 1ms
+unit: × after an Anthropic 400 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 3ms
+unit: × after an Anthropic 429 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 1ms
+unit: × after a provider 400 answer, records 0 AI use 4ms
+unit: × after a provider 429 answer, records 0 AI use 1ms
+unit: × records nothing when the provider refuses the request (4xx) 1ms
+unit: Tests  18 failed | 326 passed (344)
+
+ST4 | src/lib/quotaUse.ts | any status on a thrown error is no work (the old rule)
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 500: the document may exist, the unit is spent 4ms
+unit: × Signum or a proxy answered 502: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 503: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 504: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 408: the document may exist, the unit is spent 1ms
+unit: × counts as use after a provider 529 answer (SDK): a 5xx may come after the work: the provider may have done the work 5ms
+unit: × counts as use after a 502 from a proxy in front of the provider: the provider may have done the work 1ms
+unit: × counts as use after a 408 request timeout: the provider may have done the work 0ms
+unit: × records one AI use on any other 5xx: it may come after the work 4ms
+unit: × the Anthropic rule differs from the general one only at 529 1ms
+unit: Tests  10 failed | 334 passed (344)
+
+ST5 | src/modules/accounting/services/bank/vlmCore.ts | vlmCore: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × after a provider 408 answer, records 1 AI use 5ms
+unit: × after a provider 503 answer, records 1 AI use 1ms
+unit: × after a provider 529 answer, records 1 AI use 1ms
+unit: Tests  3 failed | 341 passed (344)
+
+ST6 | pages/api/accounting/nl-query.ts | nl-query: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × after an Anthropic 408 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 4ms
+unit: × after an Anthropic 500 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 1ms
+unit: × after an Anthropic 503 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 1ms
+unit: Tests  3 failed | 341 passed (344)
+
+DONE BASELINE AN1 AN2 AN3 AN4 AN5 AN6 ST1 ST2 ST3 ST4 ST5 ST6
+ST7 | pages/api/accounting/ai-narrative.ts | ai-narrative: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 503, and uses 1 unit 1ms
+unit: Tests  4 failed | 340 passed (344)
+
+ST8 | pages/api/accounting/ai-forecast.ts | ai-forecast: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 503, and uses 1 unit 0ms
+unit: Tests  4 failed | 340 passed (344)
+
+Y6 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × records one AI use on any other 5xx: it may come after the work 4ms
+unit: × records one AI use when the call times out 1ms
+unit: Tests  2 failed | 342 passed (344)
+
+Y7 | pages/api/accounting/nl-query.ts | nl-query: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × uses the unit when the provider call times out or is aborted: the work may have been done 4ms
+unit: Tests  1 failed | 343 passed (344)
+
+Y8 | pages/api/accounting/ai-narrative.ts | ai-narrative: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback but uses the unit when the provider call times out 3ms
+unit: Tests  1 failed | 343 passed (344)
+
+Y9 | pages/api/accounting/ai-forecast.ts | ai-forecast: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback but uses the unit when the provider call times out 3ms
+unit: Tests  1 failed | 343 passed (344)
+
+N2 | pages/api/accounting/nl-query.ts | nl-query records use before checking the provider status
+int: Tests  75 passed (75)
+unit: × after an Anthropic 400 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 4ms
+unit: × after an Anthropic 429 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 1ms
+unit: × after an Anthropic 529 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 1ms
+unit: Tests  3 failed | 341 passed (344)
+
+A1 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative records no use on an answer
+int: Tests  75 passed (75)
+unit: × accounting/afs/[documentId]/sections/[sectionId]/ai-narrative.ts asks for refundUnused and can reach where its use is recorded 4ms
+unit: × use is recorded only in the places listed above 59ms
+unit: × records one AI use when the provider answers 4ms
+unit: Tests  3 failed | 341 passed (344)
+
+A2 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative records use before the provider call
+int: Tests  75 passed (75)
+unit: × records nothing when the provider refuses the request (4xx) 4ms
+unit: × records nothing on an Anthropic 529 (overloaded): the request was turned away 1ms
+unit: × records one AI use on any other 5xx: it may come after the work 1ms
+unit: × records nothing when the provider could not be reached 1ms
+unit: × records one AI use when the call times out 1ms
+unit: Tests  5 failed | 339 passed (344)
+
+SG1 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | signing: no use marked after Signum created the document
+int: Tests  75 passed (75)
+unit: × Signum created the document and every email failed: the unit stays spent 6ms
+unit: × accounting/afs/[documentId]/send-for-signing.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 57ms
+unit: × keeps its unit after the mail server accepted the email 4ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × leaves its unit unused when SMTP is not configured 1ms
+unit: Tests  6 failed | 338 passed (344)
+
+SG2 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | signing: a failed Signum call is never classified (a timeout uses nothing)
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 500: the document may exist, the unit is spent 4ms
+unit: × Signum or a proxy answered 502: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 503: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 504: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 408: the document may exist, the unit is spent 1ms
+unit: × the Signum call timed out: it may have created the document, so the unit is spent 1ms
+unit: Tests  6 failed | 338 passed (344)
+
+SG3 | src/modules/accounting/services/afs/signumIntegrationService.ts | Signum refusal without its status (looks like a timeout)
+int: Tests  75 passed (75)
+unit: × a non-2xx carries its status, so the caller knows Signum did no work (R-175) 4ms
+unit: Tests  1 failed | 343 passed (344)
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  344 passed (344)
+
+DONE ST7 ST8 Y6 Y7 Y8 Y9 N2 A1 A2 SG1 SG2 SG3 BASELINE
