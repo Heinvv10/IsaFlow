@@ -1,5 +1,6 @@
-# GREEN on f13aeedef; fixture isaflow-fixture-r175.
-# unit: files 132 passed (132); tests 1211 passed | 3 skipped (1214) | int: files 14 passed (14); tests 158 passed | 2 skipped (160) | int (invite, GoTrue origin): files 4 passed (4); tests 24 passed (24)
+# GREEN on the merge head a3e9e99c8 (origin/master merged into the branch); fixture isaflow-fixture-r175.
+# unit: files 132 passed (132); tests 1212 passed | 3 skipped (1215) | int: files 14 passed (14); tests 158 passed | 2 skipped (160) | int (invite, GoTrue origin): files 4 passed (4); tests 24 passed (24)
+# Master's W2-28 transaction-refusal suites (tests/integration/w2-28-brk593*.int.test.ts, 11 files) on the merge head: Test Files  12 passed (12); Tests  59 passed (59). tsc --noEmit and eslint src/lib/neon.ts: clean.
 # r176 integration suites: 29 passed | 1 skipped (30); other owners 35; invite accept 6; wrapper edges 16; platform-admin edges 4; cancel backend 1.
 # unit set: tests/unit/lib (incl. rollbackFailed, cancelBackend, releaseCensus, poolErrorListenerCensus), tests/unit/auth, tests/unit/api/bankFeedExtensionIngestRoute.test.ts.
 # int set: the five r176 suites, r159 (both), public-route-tx, r157-payment-link-throw-responds, k097, r-032 (both), k106.
