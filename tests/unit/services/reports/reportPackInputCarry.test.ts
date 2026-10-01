@@ -18,8 +18,15 @@ vi.mock('@/modules/accounting/services/gl/financialFiguresService', async (orig)
   const actual = await orig<typeof import('@/modules/accounting/services/gl/financialFiguresService')>();
   return { ...actual, getFinancialFigures: (...a: unknown[]) => figuresMock(...a) };
 });
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
-vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
+const cashFlowMock = vi.fn();
+vi.mock('@/modules/accounting/services/afs/cashFlowDirectService', () => ({
+  getCashFlowDirect: (...a: unknown[]) => cashFlowMock(...a),
+}));
+// `withSavepoint` is the real one: outside a request transaction it runs the
+// read as it stands.
+vi.mock('@/lib/neon', async (orig) => ({ ...(await orig<Record<string, unknown>>()), sql: vi.fn() }));
+const warnMock = vi.fn();
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: (...a: unknown[]) => warnMock(...a) } }));
 
 import { getReportPackInput } from '@/modules/accounting/services/reports/reportPackDataService';
 
@@ -42,7 +49,19 @@ const PERIOD = {
 beforeEach(() => {
   figuresMock.mockReset();
   figuresMock.mockResolvedValue({ period: PERIOD, cumulative: PERIOD });
+  cashFlowMock.mockReset();
+  cashFlowMock.mockResolvedValue(cashFlow(0, 0, 0));
 });
+
+/** A direct-method report as `getCashFlowDirect` returns it. */
+function cashFlow(operatingTotal: number, investingTotal: number, financingTotal: number) {
+  const netChange = operatingTotal + investingTotal + financingTotal;
+  return {
+    periodStart: '2026-03-01', periodEnd: '2026-08-31', openingCash: 1_000,
+    operatingItems: [], operatingTotal, investingItems: [], investingTotal,
+    financingItems: [], financingTotal, netChange, closingCash: 1_000 + netChange,
+  };
+}
 
 describe('getReportPackInput', () => {
   it('carries otherIncome, otherExpenses and operatingProfit', async () => {
@@ -134,5 +153,75 @@ describe('getReportPackInput carries the caveats in the board wording', () => {
     const input = await getReportPackInput('c-1', 'Demo', '2026-03-01', '2026-08-31');
     expect(input.inventoryCaveat).toBeNull();
     expect(input.classificationCaveat).toBeNull();
+  });
+});
+
+/**
+ * PAGE 8 PRINTED THREE "n/m" ROWS ON EVERY TENANT, because nothing populated
+ * the pack's cash-flow figures. They come from `getCashFlowDirect`, the
+ * direct-method statement: every posted cash leg in the window, distributed
+ * once across the accounts on the other side of its entry.
+ */
+describe('getReportPackInput carries the cash flows of the window it was asked for', () => {
+  it('asks the direct-method service about this company and this window', async () => {
+    await getReportPackInput('c-1', 'Demo', '2026-03-01', '2026-08-31');
+    expect(cashFlowMock).toHaveBeenCalledTimes(1);
+    expect(cashFlowMock).toHaveBeenCalledWith('c-1', '2026-03-01', '2026-08-31');
+  });
+
+  it('carries operating, investing and financing, each under its own name', async () => {
+    cashFlowMock.mockResolvedValue(cashFlow(345_678.12, -98_765.43, 12_345.67));
+    const input = await getReportPackInput('c-1', 'Demo', '2026-03-01', '2026-08-31');
+    expect(input.operatingCashFlow).toBe(345_678.12);
+    expect(input.investingCashFlow).toBe(-98_765.43);
+    expect(input.financingCashFlow).toBe(12_345.67);
+  });
+
+  it('does not call net investing "capital expenditure"', async () => {
+    // The service nets acquisitions against disposals in one figure. Carried
+    // as capex it would change every Free Cash Flow that reads the field.
+    cashFlowMock.mockResolvedValue(cashFlow(500, -98_765.43, 0));
+    const input = await getReportPackInput('c-1', 'Demo', '2026-03-01', '2026-08-31');
+    expect(input.capitalExpenditure).toBeUndefined();
+  });
+
+  it('states each figure to the cent, and the three still foot to the movement in cash', async () => {
+    // The service apportions cash legs by division, so its totals carry
+    // float dust and three figures rounded apart can miss their own sum by a
+    // cent. Page 8 bridges opening cash to closing cash through them.
+    const noisy = cashFlow(100_000.004, -39_999.996, 5_000.004);
+    cashFlowMock.mockResolvedValue(noisy);
+    const input = await getReportPackInput('c-1', 'Demo', '2026-03-01', '2026-08-31');
+    const cents = (n: number) => Math.round(n * 100);
+    for (const figure of [input.operatingCashFlow!, input.investingCashFlow!, input.financingCashFlow!]) {
+      expect(Math.abs(figure * 100 - cents(figure))).toBeLessThan(1e-6);
+    }
+    expect(cents(input.operatingCashFlow!) + cents(input.investingCashFlow!) + cents(input.financingCashFlow!))
+      .toBe(cents(noisy.netChange));
+    // Rounded apart they come to 65 000.00 against a movement of 65 000.01.
+    expect(cents(noisy.netChange)).toBe(6_500_001);
+  });
+
+  it('carries none of the three when the database refuses the read, as an absent comparative is carried', async () => {
+    // Page 8 prints "n/m" with its reason for an absent figure. A statement
+    // that could not be read is absent, not nil — and it is not a reason to
+    // lose the eleven sheets that do not depend on it.
+    warnMock.mockClear();
+    cashFlowMock.mockRejectedValue(
+      Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' }),
+    );
+    const input = await getReportPackInput('c-1', 'Demo', '2026-03-01', '2026-08-31');
+    expect(input.operatingCashFlow).toBeUndefined();
+    expect(input.investingCashFlow).toBeUndefined();
+    expect(input.financingCashFlow).toBeUndefined();
+    // The figures that were read are still there.
+    expect(input.revenue).toBeCloseTo(13485163.41, 2);
+    expect(warnMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call a code bug in the statement "no cash flow figures"', async () => {
+    cashFlowMock.mockRejectedValue(new TypeError('legs.values is not a function'));
+    await expect(getReportPackInput('c-1', 'Demo', '2026-03-01', '2026-08-31'))
+      .rejects.toBeInstanceOf(TypeError);
   });
 });

@@ -17,15 +17,23 @@ import type { PeriodFigures } from '@/modules/accounting/services/gl/financialFi
 import type { BudgetVarianceResult } from '@/modules/accounting/services/reports/budgetVarianceService';
 
 // Hoisted: `vi.mock` factories run before module-level consts are initialised.
-const { getFinancialFigures, getBudgetVariance, warn } = vi.hoisted(() => ({
+const { getFinancialFigures, getBudgetVariance, getCashFlowDirect, warn } = vi.hoisted(() => ({
   getFinancialFigures: vi.fn(),
   getBudgetVariance: vi.fn(),
+  getCashFlowDirect: vi.fn(),
   warn: vi.fn(),
 }));
+const NO_CASH_FLOWS = { operatingTotal: 0, investingTotal: 0, financingTotal: 0, netChange: 0 };
 
 vi.mock('@/modules/accounting/services/gl/financialFiguresService', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   getFinancialFigures,
+}));
+// The cash flows `getReportPackInput` carries are pinned in
+// `reportPackInputCarry.test.ts`; here the read is stood in for so these
+// tests stay about the figure SET.
+vi.mock('@/modules/accounting/services/afs/cashFlowDirectService', () => ({
+  getCashFlowDirect,
 }));
 vi.mock('@/modules/accounting/services/reports/budgetVarianceService', () => ({
   getBudgetVariance,
@@ -95,6 +103,7 @@ const row = (): BudgetVarianceResult['rows'][number] => ({
 describe('buildPackFigureSet', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getCashFlowDirect.mockResolvedValue(NO_CASH_FLOWS);
     getBudgetVariance.mockResolvedValue(variance([]));
   });
 
@@ -217,6 +226,7 @@ describe('buildPackFigureSet', () => {
 describe('a degrading read inside the request transaction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getCashFlowDirect.mockResolvedValue(NO_CASH_FLOWS);
   });
 
   /** The two `getFinancialFigures` calls, told apart by the window asked for. */
@@ -264,6 +274,28 @@ describe('a degrading read inside the request transaction', () => {
       // The trend, the matters and every read after this in the document.
       await expect(touchLedger('trend')).resolves.toBeUndefined();
     });
+  });
+
+  it('rolls a failed cash flow read back, and the figures, comparative and budget still arrive', async () => {
+    figuresTouchTheLedger();
+    budgetTouchesTheLedger();
+    // Fails on the CURRENT window only: the read sits after the current
+    // figures and before the comparative.
+    getCashFlowDirect.mockImplementation(async (_c: string, from: string) => {
+      await touchLedger(from === '2026-03-01' ? 'cashflow' : 'priorcashflow');
+      return { operatingTotal: 70, investingTotal: -20, financingTotal: 5, netChange: 55 };
+    });
+    const tx = fakeRequestTx(failing('cashflow'));
+
+    const set = await tx.run(() => buildPackFigureSet('c1', 'Demo', '2026-03-01', '2026-03-31'));
+
+    expect(set.current.revenue).toBe(100);
+    expect(set.current.operatingCashFlow).toBeUndefined();
+    // Read after the failure, on the same transaction.
+    expect(set.prior?.operatingCashFlow).toBe(70);
+    expect(set.prior?.investingCashFlow).toBe(-20);
+    expect(set.budget?.totals.budget).toBe(120);
+    expect(tx.isAborted()).toBe(false);
   });
 
   it('does not let a failed CURRENT read degrade to anything — there is no pack without it', async () => {
