@@ -34,6 +34,7 @@ import {
   denseInput,
   noRatioPanelsInput,
   ratioInputsUnreadInput,
+  withRatioInputs,
 } from '../services/packs/fixtures/boardPackInputs';
 import {
   liveDemoBridgeInput,
@@ -99,6 +100,10 @@ const FIXTURES = {
   // Page 9's longest note: the interest, tax and employee figures could not
   // be read, said under the scorecard for both columns.
   'the demo company with its ratio inputs unread': ratioInputsUnreadInput,
+  // The same longest note on the two tightest page 9s: the dense pack, and
+  // Brightsphere's long window with a reason in both columns already.
+  'the dense pack with its ratio inputs unread': withRatioInputs(denseInput, 'unread'),
+  'Brightsphere, live, with its ratio inputs unread': withRatioInputs(brightsphereLiveInput, 'unread'),
 } as const;
 
 let browser: Browser;

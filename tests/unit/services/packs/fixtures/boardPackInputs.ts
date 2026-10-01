@@ -255,21 +255,26 @@ export const demoInput: BoardPackInput = {
 export const noRatioPanelsInput: BoardPackInput = { ...demoInput, trend: zeroRevenueTrend };
 
 /**
- * The demo company on a day its interest, tax and employee figures COULD NOT
- * BE READ: `readReportPackInput` sets none of the six and says so. A third
- * state beside "stated" and "the ledger holds none", with the longest reason
- * of the three under page 9's scorecard — in both columns.
+ * Any fixture in another state of its ledger ratio inputs, both periods:
+ * `'none'` — read, and the ledger records none of the six; `'unread'` — the
+ * read FAILED, so `readReportPackInput` set none and said so. Three states
+ * with three different sentences under page 9's scorecard, and the unread
+ * one is the longest.
  */
-const unread = (f: ReportPackFigures): ReportPackFigures => ({
-  ...f,
-  interestExpense: undefined, interestIncome: undefined, taxExpense: undefined,
-  employeeCosts: undefined, employeeCount: undefined, directMaterialCosts: undefined,
-  ratioInputsUnavailable: RATIO_INPUTS_NOT_READ,
-});
-export const ratioInputsUnreadInput: BoardPackInput = {
-  ...demoInput,
-  set: { ...demoSet, current: unread(demoSet.current), prior: demoSet.prior === null ? null : unread(demoSet.prior) },
-};
+export function withRatioInputs(input: BoardPackInput, state: 'none' | 'unread'): BoardPackInput {
+  const to = (f: ReportPackFigures): ReportPackFigures => (state === 'none'
+    ? { ...f, ...NO_LEDGER_RATIO_INPUTS, ratioInputsUnavailable: undefined }
+    : {
+        ...f,
+        interestExpense: undefined, interestIncome: undefined, taxExpense: undefined,
+        employeeCosts: undefined, employeeCount: undefined, directMaterialCosts: undefined,
+        ratioInputsUnavailable: RATIO_INPUTS_NOT_READ,
+      });
+  return { ...input, set: { ...input.set, current: to(input.set.current), prior: input.set.prior === null ? null : to(input.set.prior) } };
+}
+
+/** The demo company on a day those figures could not be read. */
+export const ratioInputsUnreadInput: BoardPackInput = withRatioInputs(demoInput, 'unread');
 
 /**
  * THE PACK THE GATE MUST REFUSE — and the reason it is a fixture rather than

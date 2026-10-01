@@ -21,7 +21,7 @@ import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/s
 import { buildScorecardGroups, packFiguresToFinancialData } from '@/modules/accounting/services/packs/pages/packScorecard';
 import { TERMS as GLOSSARY_TERMS } from '@/modules/accounting/services/packs/pages/packGlossaryTerms';
 import {
-  brightsphereLiveInput, demoInput, demoSet, denseInput, figures, NO_LEDGER_RATIO_INPUTS, ratioInputsUnreadInput,
+  brightsphereLiveInput, demoInput, demoSet, denseInput, figures, NO_LEDGER_RATIO_INPUTS, ratioInputsUnreadInput, withRatioInputs,
 } from './fixtures/boardPackInputs';
 import { liveDemoInput } from './fixtures/liveDemoBoardPack';
 
@@ -95,6 +95,13 @@ describe('page 9, composed', () => {
     ['none recorded — Brightsphere as the live route composed it', brightsphereLiveInput, NONE_RECORDED],
     ['none recorded — the live demo company, on negative equity', liveDemoInput, NONE_RECORDED],
     ['the read failed', ratioInputsUnreadInput, RATIO_INPUTS_NOT_READ],
+    // The dense pack — the rejected pack's own figures, the most crowded
+    // sheets in the suite — and the two long-window live companies, in the
+    // states their fixtures do not already carry.
+    ['none recorded — the dense pack', withRatioInputs(denseInput, 'none'), NONE_RECORDED],
+    ['the read failed — the dense pack', withRatioInputs(denseInput, 'unread'), RATIO_INPUTS_NOT_READ],
+    ['the read failed — Brightsphere, long window', withRatioInputs(brightsphereLiveInput, 'unread'), RATIO_INPUTS_NOT_READ],
+    ['the read failed — the live demo company, long window', withRatioInputs(liveDemoInput, 'unread'), RATIO_INPUTS_NOT_READ],
   ])('prints the engine\'s reason and still fits its sheet: %s', (_name, input, reason) => {
     // `buildBoardPackPages` refuses a pack whose page does not fit its box or
     // fails an integrity gate, so composing at all is the fit and the gates.

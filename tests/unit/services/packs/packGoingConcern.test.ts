@@ -67,6 +67,21 @@ const FIXTURES: Record<string, BoardPackInput> = {
   'cash in the millions': millionsCashInput,
 };
 
+/**
+ * Each fixture composed ONCE. Three tests read every fixture's document, one
+ * of them three times over: forty-odd compositions of a twelve-page pack with
+ * its charts, five seconds alone and past the ten-second default on a busy
+ * box. A composed document is read here and never changed, so one is enough.
+ */
+const documents = new Map<BoardPackInput, PackPagesDocument>();
+function composed(input: BoardPackInput): PackPagesDocument {
+  const known = documents.get(input);
+  if (known !== undefined) return known;
+  const document = buildBoardPackPages(input);
+  documents.set(input, document);
+  return document;
+}
+
 /** Every note the document prints, as `page → heading → body`. */
 function notes(doc: PackPagesDocument): Array<{ page: number; heading: string; body: string }> {
   return doc.pages.flatMap((page: PackPage) => page.blocks.flatMap((b) => (b.kind === 'disclosure'
@@ -77,7 +92,7 @@ function notes(doc: PackPagesDocument): Array<{ page: number; heading: string; b
 describe('the pack states the basis it was prepared on, or says it states none', () => {
   for (const [name, input] of Object.entries(FIXTURES)) {
     it(`states a going-concern position on ${name}`, () => {
-      const found = notes(buildBoardPackPages(input))
+      const found = notes(composed(input))
         .filter((n) => n.body === GOING_CONCERN_NOTE);
       expect(found.length, `${name} states no going-concern position anywhere`).toBe(1);
       // ONE PLACE, THE SAME PLACE. Page 2 is titled "The basis, in short" —
@@ -97,7 +112,7 @@ describe('the pack states the basis it was prepared on, or says it states none',
       'This pack states no going-concern basis; the assessment is a matter for the board.',
     );
     for (const [name, input] of Object.entries(FIXTURES)) {
-      const said = notes(buildBoardPackPages(input))
+      const said = notes(composed(input))
         .map((n) => n.body.toLowerCase())
         .filter((b) => b.includes('going-concern') || b.includes('going concern'));
       for (const sentence of said) {
@@ -114,7 +129,7 @@ describe('the pack states the basis it was prepared on, or says it states none',
     // would have no way to tell a pack that states no basis from one that
     // does. `demoInput` and `denseInput` are the shapes that carry it without
     // the page 7 sentence behind it.
-    const raises = (input: BoardPackInput): boolean => notes(buildBoardPackPages(input))
+    const raises = (input: BoardPackInput): boolean => notes(composed(input))
       .some((n) => /going.concern assessment/i.test(n.body));
     const withWarning = Object.entries(FIXTURES).filter(([, i]) => raises(i));
     const without = Object.entries(FIXTURES).filter(([, i]) => !raises(i));
@@ -123,7 +138,7 @@ describe('the pack states the basis it was prepared on, or says it states none',
       .toBeGreaterThan(0);
     for (const [name, input] of [...withWarning, ...without]) {
       expect(
-        notes(buildBoardPackPages(input)).filter((n) => n.body === GOING_CONCERN_NOTE).length,
+        notes(composed(input)).filter((n) => n.body === GOING_CONCERN_NOTE).length,
         `${name} does not state a going-concern position`,
       ).toBe(1);
     }
@@ -151,7 +166,7 @@ describe('the pack states the basis it was prepared on, or says it states none',
    */
   it('names where the rest of the basis is, in the block that carries it', () => {
     for (const [name, input] of Object.entries(FIXTURES)) {
-      const doc = buildBoardPackPages(input);
+      const doc = composed(input);
       const block = doc.pages[1]!.blocks.find((b) => b.kind === 'disclosure'
         && b.disclosure.notes.some((n) => n.body === GOING_CONCERN_NOTE));
       expect(block, `${name}: page 2 carries no block with the going-concern note in it`)
@@ -172,7 +187,7 @@ describe('the pack states the basis it was prepared on, or says it states none',
     // disclosure bought by dropping a disclosure is a swap, not a gain, so
     // the sheet it landed on must give up nothing either.
     for (const [name, input] of Object.entries(FIXTURES)) {
-      const doc = buildBoardPackPages(input);
+      const doc = composed(input);
       expect(doc.pages, `${name} is not twelve sheets`).toHaveLength(12);
       const dropped = doc.pages
         .filter((p) => p.footnotes.some((f) => f.text.startsWith('Not printed on this page')))
