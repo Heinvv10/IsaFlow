@@ -14,12 +14,17 @@
  * bar is painted over the gridline. The same picture is saved by paint order
  * on one company and struck on the other, off a difference of a few pixels of
  * bar height. So the assertion below is not "Brightsphere's (411) is clear";
- * it is that no label anywhere in either pack is crossed by a rule it does
- * not have something opaque under: a bar or a paper ground across the whole
- * figure, or the paper HALO a figure outside its bar carries on its own
- * glyphs — the text's stroke in the paper colour, painted under its fill.
- * (A paper rectangle did this once; as wide as a long figure, it painted out
- * the neighbouring bars. The halo follows the glyphs.)
+ * it is that no label anywhere in either pack is crossed by a rule — a
+ * gridline or the axis line — it does not have something opaque under, across
+ * the whole figure: its bar, or a paper ground.
+ *
+ * A HALO IS NOT THAT. For two rounds a figure outside its bar carried only a
+ * paper stroke on its glyphs, and this test took the stroke's presence as
+ * cover. It reaches two pixels from each glyph; the gap at a thousands
+ * separator is nearer five. The management pack printed the (1 500 000)
+ * gridline through "1 430 581" and "(1 329 181)" between every group of
+ * digits. So cover is geometry again — a rectangle across the figure — and
+ * the management pack's own bridge, in its theme, is held to it too.
  *
  * MEASURED OFF THE COMPOSED SVG, which is the only place this exists: the
  * option is right, the figures are right, and what was wrong is what the
@@ -29,8 +34,10 @@ import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
 import { FIGURE_HALO_PX } from '@/modules/accounting/services/packs/packWaterfallPlace';
-import { textWidthEms } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { LEGACY_WATERFALL_BOX } from '@/components/accounting/packs/PackSectionView';
 import { brightsphereLiveInput } from './fixtures/boardPackInputs';
+import { DEMO_MANAGEMENT_BRIDGE, renderLegacyBridge } from './support/legacyBridge';
+import { glyphCells } from './support/bridgeSvg';
 import { liveDemoShortPanelsInput } from './fixtures/liveDemoBoardPack';
 
 const COMPANIES: Record<string, BoardPackInput> = {
@@ -49,18 +56,16 @@ interface Rect { x: number; y: number; w: number; h: number; fill: string }
 
 interface Label { text: string; cx: number; cy: number; ground: Rect[]; halo: { colour: string; width: number } | null }
 
-const GRID = new RegExp(
-  `<path d="M([-\\d.]+) ([-\\d.]+)L([-\\d.]+) \\2"[^>]*stroke="${DEFAULT_CHART_PALETTE.prior}"`,
-  'gi',
-);
+/** Any horizontal rule: a gridline, or the axis line at zero. */
+const GRID = /<path d="M([-\d.]+) ([-\d.]+)L([-\d.]+) \2"[^>]*stroke="#[0-9a-f]{6}"/gi;
 const RECT = /<path d="M([-\d.]+) ([-\d.]+)l([-\d.]+) 0l0 ([-\d.]+)l[-\d.]+ 0Z"[^>]*fill="(#[0-9a-f]{6})"/gi;
 const TEXT = /<text\b[^>]*\bx="([-\d.]+)"\s+y="([-\d.]+)"([^>]*)>([^<]*)<\/text>/gi;
 
 
-/** The line box a 12px label occupies — the size `renderItem` sets its ground
- *  from, and the same em table the page composer measures prose with. */
+/** The line box a 12px label occupies, by the face's own advances — not a
+ *  ruler production sizes the ground with. */
 const LABEL_PX = 12;
-const labelWidth = (text: string): number => textWidthEms(text) * LABEL_PX;
+const labelWidth = (text: string): number => { const cells = glyphCells(text, 0); return cells[cells.length - 1]!.right - cells[0]!.left; };
 
 function gridlines(svg: string): Gridline[] {
   return [...svg.matchAll(GRID)].map((m) => ({
@@ -107,44 +112,36 @@ function bridges(input: BoardPackInput): Array<{ page: string; title: string; sv
   return out;
 }
 
+/** Every crossing of a figure by a rule, and the ones with nothing behind them. */
+function strikes(svg: string): { crossed: string[]; bare: string[] } {
+  const rules = gridlines(svg);
+  expect(rules.length, 'no rules parsed, so nothing is being checked').toBeGreaterThan(0);
+  const crossed: string[] = [];
+  const bare: string[] = [];
+  for (const label of labels(svg)) {
+    const half = labelWidth(label.text) / 2;
+    const box = { left: label.cx - half, right: label.cx + half, top: label.cy - LABEL_PX / 2, bottom: label.cy + LABEL_PX / 2 };
+    for (const rule of rules) {
+      if (!(rule.y > box.top && rule.y < box.bottom && rule.x1 < box.right && rule.x2 > box.left)) continue;
+      crossed.push(label.text);
+      // SOMETHING OPAQUE, ACROSS THE WHOLE FIGURE. A ground that covers part
+      // of the label leaves the rule running out of one side of it, which
+      // is the same strike in a smaller place.
+      const covered = label.ground.some((r) => r.y <= rule.y && r.y + r.h >= rule.y && r.x <= box.left && r.x + r.w >= box.right);
+      if (!covered) bare.push(`the rule at y=${rule.y} runs through "${label.text}" (${box.left.toFixed(1)} to ${box.right.toFixed(1)}) with nothing behind it`);
+    }
+  }
+  return { crossed, bare };
+}
+
 describe('no gridline is drawn through a figure', () => {
   for (const [company, input] of Object.entries(COMPANIES)) {
     it(`leaves every bridge label on ${company} an unbroken ground`, () => {
-      let checked = 0;
-      for (const bridge of bridges(input)) {
-        const rules = gridlines(bridge.svg);
-        expect(rules.length, `${bridge.page}: no gridlines parsed, so nothing is being checked`)
-          .toBeGreaterThan(0);
-        for (const label of labels(bridge.svg)) {
-          const half = labelWidth(label.text) / 2;
-          const box = {
-            left: label.cx - half, right: label.cx + half,
-            top: label.cy - LABEL_PX / 2, bottom: label.cy + LABEL_PX / 2,
-          };
-          for (const rule of rules) {
-            const crosses = rule.y > box.top && rule.y < box.bottom
-              && rule.x1 < box.right && rule.x2 > box.left;
-            if (!crosses) continue;
-            checked += 1;
-            // SOMETHING OPAQUE, ACROSS THE WHOLE FIGURE. A ground that covers
-            // part of the label leaves the rule running out of one side of
-            // it, which is the same strike in a smaller place.
-            const covered = label.ground.some((r) => r.y <= rule.y && r.y + r.h >= rule.y
-              && r.x <= box.left && r.x + r.w >= box.right)
-              || (label.halo !== null && label.halo.colour === PAPER && label.halo.width === FIGURE_HALO_PX);
-            expect(
-              covered,
-              `${company} ${bridge.page}: the gridline at y=${rule.y} runs through "${label.text}" `
-                + `(${box.left.toFixed(1)}, ${box.top.toFixed(1)} to ${box.right.toFixed(1)}, `
-                + `${box.bottom.toFixed(1)}) with nothing behind it`,
-            ).toBe(true);
-          }
-        }
-      }
+      const all = bridges(input).map((bridge) => ({ page: bridge.page, ...strikes(bridge.svg) }));
+      expect(all.flatMap((b) => b.bare.map((s) => `${b.page}: ${s}`))).toEqual([]);
       // NOT VACUOUS. A parser that finds no crossing passes this file
       // silently, and every regex here is reading a renderer's output.
-      expect(checked, `${company}: no label is crossed by a rule at all — the check found nothing`)
-        .toBeGreaterThan(0);
+      expect(all.flatMap((b) => b.crossed).length, `${company}: no label is crossed by a rule at all`).toBeGreaterThan(0);
     });
   }
 
@@ -152,14 +149,21 @@ describe('no gridline is drawn through a figure', () => {
     const sheet = bridges(brightsphereLiveInput).find((b) => b.page === 'Income statement')!;
     const label = labels(sheet.svg).find((l) => l.text === '(411)');
     expect(label, 'sheet 6 no longer prints the label this test was written for').toBeDefined();
+    expect(strikes(sheet.svg).crossed, 'no rule crosses (411) any more, so the fix is not being tested here').toContain('(411)');
+    // And it is a PAPER ground rather than the bar: this label sits clear of
+    // its own bar, which is the half of the defect paint order does not save.
     const half = labelWidth(label!.text) / 2;
-    const struck = gridlines(sheet.svg).filter((r) => r.y > label!.cy - LABEL_PX / 2
-      && r.y < label!.cy + LABEL_PX / 2
-      && r.x1 < label!.cx + half && r.x2 > label!.cx - half);
-    expect(struck.length, 'no rule crosses (411) any more, so the fix is not being tested here')
-      .toBeGreaterThan(0);
-    // And it is its own PAPER halo rather than the bar: this label sits clear
-    // of its own bar, which is the half of the defect paint order does not save.
+    expect(label!.ground.some((r) => r.fill === PAPER && r.x <= label!.cx - half && r.x + r.w >= label!.cx + half)).toBe(true);
+    // The halo is still there, at the width the collision rule assumes.
     expect(label!.halo).toEqual({ colour: PAPER, width: FIGURE_HALO_PX });
+  });
+
+  it('the management pack\'s Demo bridge, in its own theme: the rule under "1 430 581" and "(1 329 181)" is covered', () => {
+    const svg = renderLegacyBridge(DEMO_MANAGEMENT_BRIDGE, LEGACY_WATERFALL_BOX.widthPx, LEGACY_WATERFALL_BOX.heightPx);
+    const { crossed, bare } = strikes(svg);
+    const plain = crossed.map((t) => t.replace(/\s/g, ' '));
+    expect(plain).toContain('1 430 581');
+    expect(plain).toContain('(1 329 181)');
+    expect(bare).toEqual([]);
   });
 });

@@ -66,19 +66,25 @@ export const NIL_STEP_RULE_PX = 1;
  * Brightsphere's sheet 6 drew the `(1 000)` gridline straight through the
  * `(411)` figure sitting outside its bar — at 500dpi the rule cuts the bottom
  * of both parentheses. A figure inside its bar has the bar behind it; one
- * outside has only the plot, so its glyphs carry a paper HALO: the text's own
- * stroke in the paper colour, painted under its fill (`paint-order: stroke`).
+ * outside has only the plot, so it gets a paper GROUND: a rectangle cut to
+ * the figure's own box, painted over the bars and under every figure.
  *
- * A halo and not a paper rectangle, because a rectangle as wide as a long
- * figure reached over the neighbouring bars and their figures and painted
- * them out. The halo follows the glyphs and covers nothing else.
+ * CUT TO THE FIGURE, which is what makes a rectangle safe. The first one was
+ * as wide as a generous prose ruler made it and reached over the neighbours'
+ * bars and digits. This one is the glyphs' real width and two pixels; no two
+ * figures stand that close (`placeFigures`), and it lies under all of them,
+ * so the only thing it can cover is a bar the figure is already standing on
+ * — where the figure needs it.
  *
- * AND EVERY HALO IS PAINTED UNDER EVERY FIGURE. The halo is a pass of its
- * own — the same text, stroked in paper with no fill — below all the fills
- * (`z2`), so no figure's halo can erase another figure's digits whatever the
- * layout did.
+ * AND A HALO IS NOT ENOUGH ON ITS OWN. For two rounds the ground was dropped
+ * for a paper stroke on the glyphs. It reaches two pixels from each glyph and
+ * the gap at a thousands separator is nearer five: the management pack
+ * printed the (1 500 000) gridline through "1 430 581" and "(1 329 181)"
+ * between every group of digits. The halo stays — a pass of its own, under
+ * every figure's fill (`z2`), softening the ground's edge where a bar passes
+ * behind — but the ground is what covers the rule.
  */
-/** The paper kept round a figure that has to sit on a bar. */
+/** The paper kept round a figure outside its bar. */
 const GROUND_PAD_PX = 2;
 /** Fills over halos over grounds over bars, whichever bar they belong to. */
 const GROUND_Z2 = 1;
@@ -148,13 +154,9 @@ export function makeWaterfallRenderItem(
     // wherever it fits, and where it does not the figure above is set in the
     // axis ink.
     const ink = spot.inside ? labelInkOn(fill, palette) : !spot.below && fill === palette.ink ? palette.axis : palette.ink;
-    // AND WHERE IT STILL LANDS ON A BAR — a neighbour's, under a figure wider
-    // than its own band, or its own where the hold fired — it keeps its
-    // ordinary ink on a paper ground cut to the figure. Never the bar's
-    // contrasting ink with part of the figure off the bar.
-    const onABar = !spot.inside && bars.some((other) => other.width !== undefined
-      && other.centre - other.width / 2 < spot.centre + spot.halfWidth && other.centre + other.width / 2 > spot.centre - spot.halfWidth
-      && other.top < spot.top + fontPx && other.top + other.drawnHeight > spot.top);
+    // The ground: the figure's box and its padding, kept on the plot.
+    const groundLeft = Math.max(spot.centre - spot.halfWidth - GROUND_PAD_PX, plot.left);
+    const groundRight = Math.min(spot.centre + spot.halfWidth + GROUND_PAD_PX, plot.right);
     const type = {
       text: bar.text,
       x: spot.centre,
@@ -180,17 +182,13 @@ export function makeWaterfallRenderItem(
           shape: { x, y: bar.top, width, height: bar.drawnHeight },
           style: { fill },
         },
-        ...(onABar ? [{
+        ...(spot.inside ? [] : [{
           type: 'rect' as const,
           name: 'labelGround',
           z2: GROUND_Z2,
-          shape: {
-            x: spot.centre - spot.halfWidth - GROUND_PAD_PX, y: spot.top - GROUND_PAD_PX,
-            width: (spot.halfWidth + GROUND_PAD_PX) * 2, height: fontPx + GROUND_PAD_PX * 2,
-          },
+          shape: { x: groundLeft, y: spot.top - GROUND_PAD_PX, width: groundRight - groundLeft, height: fontPx + GROUND_PAD_PX * 2 },
           style: { fill: palette.paper },
-        }] : []),
-        ...(spot.inside ? [] : [{
+        }, {
           type: 'text' as const,
           name: 'labelHalo',
           z2: HALO_Z2,

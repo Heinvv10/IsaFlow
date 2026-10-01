@@ -25,6 +25,7 @@ import { describe, expect, it } from 'vitest';
 import { buildProfitWaterfallChart } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
+import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { brightsphereLiveInput, brightsphereLiveSet, demoSet } from './fixtures/boardPackInputs';
 import { liveDemoShortPanelsInput } from './fixtures/liveDemoBoardPack';
@@ -32,10 +33,14 @@ import { liveDemoShortPanelsInput } from './fixtures/liveDemoBoardPack';
 const DECLARATION = 'too small to draw at this scale';
 
 /** Every bar's DRAWN height by category index, straight off the path the
- *  renderer wrote — the same reading `packNilStepIsDrawn` takes. */
+ *  renderer wrote — the same reading `packNilStepIsDrawn` takes. Not the
+ *  paper ground under a figure, which carries its bar's index and is painted
+ *  after the bars. */
 function barHeights(svg: string): Map<number, number> {
-  const pattern = /<path\b[^>]*d="M[-\d.]+ [-\d.]+l[-\d.]+ 0l0 ([-\d.]+)l[^"]*"[^>]*ecmeta_data_index="(\d+)"[^>]*><\/path>/gi;
-  return new Map([...svg.matchAll(pattern)].map((m) => [Number(m[2]), Math.abs(Number(m[1]))]));
+  const pattern = /<path\b[^>]*d="M[-\d.]+ [-\d.]+l[-\d.]+ 0l0 ([-\d.]+)l[^"]*"[^>]*fill="(#[0-9a-f]{6})"[^>]*ecmeta_data_index="(\d+)"[^>]*><\/path>/gi;
+  return new Map([...svg.matchAll(pattern)]
+    .filter((m) => m[2]!.toLowerCase() !== DEFAULT_CHART_PALETTE.paper.toLowerCase())
+    .map((m) => [Number(m[3]), Math.abs(Number(m[1]))]));
 }
 
 /** The bridge's own chart and the prose on the sheet that carries it. */

@@ -31,18 +31,9 @@ import { bars, clipRect, figures, haloOrder, illegible, outsideClip, straddlesOw
 import { outsideSvg } from './support/svgBounds';
 import { yAxisTicks } from './support/svgTicks';
 import { bridgeFuzz } from './support/bridgeFuzz';
-import { renderLegacyBridge } from './support/legacyBridge';
+import { DEMO_MANAGEMENT_BRIDGE, renderLegacyBridge } from './support/legacyBridge';
 
-/** The Demo company's management-pack bridge, as v67 rendered it. */
-const DEMO: WaterfallStep[] = [
-  { label: 'Revenue', start: 0, end: 101_400, value: 101_400, isSubtotal: false, color: 'green' },
-  { label: 'Cost of Sales', start: 101_400, end: -1_329_181, value: -1_430_581, labelValue: 1_430_581, isSubtotal: false, color: 'red' },
-  { label: 'Gross Profit', start: 0, end: -1_329_181, value: -1_329_181, isSubtotal: true, color: 'teal' },
-  { label: 'Operating Expenses', start: -1_329_181, end: -1_556_052, value: -226_871, labelValue: 226_871, isSubtotal: false, color: 'red' },
-  { label: 'Other Income', start: -1_556_052, end: -1_544_240, value: 11_812, isSubtotal: false, color: 'green' },
-  { label: 'Operating Profit', start: 0, end: -1_544_240, value: -1_544_240, isSubtotal: true, color: 'teal' },
-  { label: 'Net Profit', start: 0, end: -1_544_240, value: -1_544_240, isSubtotal: true, color: 'red' },
-];
+const DEMO = DEMO_MANAGEMENT_BRIDGE;
 
 /** What is wrong with a drawn bridge, as sentences. */
 function faults(svg: string, steps: WaterfallStep[]): string[] {
