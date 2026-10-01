@@ -86,6 +86,8 @@ export interface GeneralLedgerPage {
   /** True when the unfiltered period's debits equal its credits. Null when filtered. */
   balanced: boolean | null;
   runningBalanceSuppressed: boolean;
+  /** First fiscal-year start inside the range; income-statement lines from it have a null runningBalance. Null when none. */
+  incomeStatementBalanceNullFrom: string | null;
   /** Opening balance per account code, for every account in the filtered set. */
   openingBalances: Record<string, number>;
   /** MAX(created_at) of the lines consumed, ISO-8601. Null when none. Never now(). */

@@ -7,9 +7,10 @@ import type { McpTool } from '../types';
 import { fmtDate } from '@/lib/fmtDate';
 import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
+import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { getChartOfAccounts } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { GL_ACCOUNT_TYPES } from '@/modules/accounting/types/gl.types';
-import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { clampLimit, guardCastableArgs, nulArgError, ok, strArg, toolError } from './toolHelpers';
 import {
   compareGlAccountKeys,
   decodeGlAccountCursor,
@@ -55,7 +56,9 @@ import {
 export const searchGlTool: McpTool = {
   name: 'search_gl',
   description:
-    'General-ledger lines for one account over a date range, with running balance. Provide account_id or account_code plus from_date/to_date. Max 200 rows. Balances are exact to the cent.',
+    'General-ledger lines for one account over a date range, with running balance. Provide account_id or account_code plus from_date/to_date. Max 200 rows. Balances are exact to the cent. ' +
+    'A revenue or expense account opens at the start of the fiscal year containing from_date, and when the range crosses a later fiscal-year start the rows include a derived year-end close row at each boundary where the balance is not zero: source "year_end_close", derived true, empty journalEntryId, description "Closed to retained earnings — FY ending <date> (derived — not posted)". It zeroes the running balance, so the closing balance equals the trial balance as at to_date. Close rows count toward total and the row limit. ' +
+    'closedToRetainedEarnings is the normal-side total of those close rows, negated (0 when none, and always 0 for a balance-sheet account); periodClosingBalance = openingBalance + periodNet + closedToRetainedEarnings.',
   scope: 'read:reports',
   write: false,
   inputSchema: {
@@ -71,6 +74,8 @@ export const searchGlTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    const nul = nulArgError(args);
+    if (nul) return nul;
     const accountId = strArg(args, 'account_id');
     const accountCode = strArg(args, 'account_code');
     const fromDate = strArg(args, 'from_date');
@@ -83,6 +88,10 @@ export const searchGlTool: McpTool = {
       date: ['from_date', 'to_date'],
     });
     if (bad) return bad;
+    // isRealCalendarDate allows years 1-9999; the ledger's FY floor does not survive year 0.
+    if (!isLedgerDate(fromDate)) return toolError(`from_date ${LEDGER_DATE_MESSAGE}`);
+    if (!isLedgerDate(toDate)) return toolError(`to_date ${LEDGER_DATE_MESSAGE}`);
+    if (fromDate > toDate) return toolError('from_date must not be after to_date');
     const result = await getAccountLedger({
       companyId: ctx.companyId, // from ctx ONLY
       accountId,

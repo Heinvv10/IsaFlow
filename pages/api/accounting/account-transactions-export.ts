@@ -13,19 +13,29 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import { getAccountTransactions } from '@/modules/accounting/services/reports/transactionReportingService';
+import { hasNul, NUL_MESSAGE } from '@/lib/validation';
+import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
+import { LedgerAccountNotFoundError } from '@/modules/accounting/services/gl/ledgerErrors';
 import { csvCell } from '@/lib/csv';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
+  if (hasNul(req.query)) return apiResponse.badRequest(res, NUL_MESSAGE);
 
   const { companyId } = req as CompanyAuthedRequest;
   const accountCode = req.query.account_code as string;
   const periodStart = req.query.period_start as string;
   const periodEnd = req.query.period_end as string;
 
-  if (!accountCode) return apiResponse.badRequest(res, 'account_code is required');
+  if (typeof accountCode !== 'string' || !accountCode) return apiResponse.badRequest(res, 'account_code is required (one non-empty value)');
   if (!periodStart) return apiResponse.badRequest(res, 'period_start is required');
   if (!periodEnd) return apiResponse.badRequest(res, 'period_end is required');
+
+  if (!isLedgerDate(periodStart) || !isLedgerDate(periodEnd)) {
+    return apiResponse.badRequest(res, `period_start and period_end ${LEDGER_DATE_MESSAGE}`);
+  }
+
+  if (periodStart > periodEnd) return apiResponse.badRequest(res, 'period_start must not be after period_end');
 
   if (!(await checkReportRateLimit(companyId, 'account-transactions-export'))) {
     log.warn('Account transactions export rate limit exceeded', { companyId }, 'rateLimit');
@@ -36,7 +46,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const report = await getAccountTransactions(companyId, accountCode, periodStart, periodEnd);
 
     const csvLines = [
-      `Date,Entry Number,Description,Debit,Credit,Balance,Source`,
+      `Date,Entry Number,Description,Debit,Credit,Balance,Source,Derived`,
       // Opening balance sentinel row
       [
         csvCell(periodStart),
@@ -46,6 +56,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         '',
         report.openingBalance.toFixed(2),
         csvCell(''),
+        '',
       ].join(','),
       // Transaction rows
       ...report.transactions.map(r =>
@@ -57,6 +68,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           r.credit > 0 ? r.credit.toFixed(2) : '',
           r.balance.toFixed(2),
           csvCell(r.source),
+          r.derived ? 'derived' : '',
         ].join(',')
       ),
       // Closing balance sentinel row
@@ -68,6 +80,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         '',
         report.closingBalance.toFixed(2),
         csvCell(''),
+        '',
       ].join(','),
     ];
 
@@ -78,6 +91,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     return res.status(200).send(csv);
   } catch (err) {
+    if (err instanceof LedgerAccountNotFoundError) return apiResponse.notFound(res, 'Account');
     log.error('Failed to export account transactions', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, 'Failed to export account transactions');
   }

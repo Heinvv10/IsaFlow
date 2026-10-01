@@ -8,6 +8,8 @@ export interface AccountLedgerRow {
   debit: number;
   credit: number;
   runningBalance: number;
+  /** A year-end close row (gl/fiscalYearCloseRows): derived, not posted — no journal behind it. */
+  derived?: boolean;
 }
 
 export interface AccountLedgerMeta {
@@ -20,11 +22,22 @@ export interface AccountLedgerMeta {
 
 export interface AccountLedgerResult {
   rows: AccountLedgerRow[];
+  /** Rows across all pages: journal lines plus any derived year-end close rows. */
   total: number;
+  /** How many of `total` are derived year-end close rows (the rest are posted journal lines). */
+  derivedRows: number;
   openingBalance: number;
-  /** Sum of (debits − credits) over the FULL date range — server-computed, not a client-side slice reduce. */
+  /**
+   * Movement for the period: posted lines only, over the FULL date range — server-computed,
+   * not a client-side slice reduce. Equals the income statement's line for the same range.
+   */
   periodNet: number;
-  /** Opening balance + periodNet — the true period closing balance regardless of pagination. */
+  /**
+   * Normal-side total of the derived year-end close rows (0 when the range crosses no
+   * fiscal-year start, and always 0 for balance-sheet accounts).
+   */
+  closedToRetainedEarnings: number;
+  /** Opening + periodNet + closedToRetainedEarnings — the balance as at toDate, i.e. the TB's. */
   periodClosingBalance: number;
   meta: AccountLedgerMeta;
 }
