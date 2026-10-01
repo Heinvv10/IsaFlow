@@ -213,7 +213,6 @@ export function renderChartSvg(
     });
     const svg = stableIds(chart.renderToSVGString());
     assertNoExternalReferences(svg);
-    assertStyleBlockIsOurs(svg);
     assertNoDefaultFontFamily(svg);
     return svg as TrustedChartSvg;
   } finally {

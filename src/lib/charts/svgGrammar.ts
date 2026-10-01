@@ -18,7 +18,7 @@
  *
  * NAME and ANAME are exact, lowercase-where-zrender-is, and drawn from the
  * lists below — which are what zrender really emits for every chart this repo
- * draws (`svgGrammar.test.ts` enumerates the real output against them). There
+ * draws (`ssrSvgElementAllowlist.test.ts` enumerates the real output against them). There
  * are no comments, processing instructions, doctypes, control characters or
  * CDATA sections outside `<style>`, and no second root.
  *
@@ -44,6 +44,13 @@ export const ATTRIBUTES: ReadonlySet<string> = new Set([
   'clip-path', 'pointer-events', 'style', 'dominant-baseline', 'text-anchor', 'xml:space',
   'font-family', 'font-size', 'font-weight', 'font-style', 'paint-order',
   'ecmeta_data_index', 'ecmeta_series_index', 'ecmeta_silent', 'ecmeta_ssr_type',
+]);
+
+/** What zrender writes on the ROOT `<svg>` and nothing else: no `style`, no
+ *  `class`, so a chart cannot position itself over the page or borrow the
+ *  app's utility classes. */
+export const ROOT_ATTRIBUTES: ReadonlySet<string> = new Set([
+  'width', 'height', 'xmlns', 'xmlns:xlink', 'version', 'baseProfile', 'viewBox',
 ]);
 
 const XMLNS: Readonly<Record<string, string>> = {
@@ -88,6 +95,19 @@ function checkCharacters(s: string, at: number, what: string, allowGt: boolean):
   }
 }
 
+/**
+ * EVERY `url(` MUST BE EXACTLY `url(#id)`, WITH ITS PAREN. CSS closes an
+ * unterminated `url(` at the end of the value, so checking only closed ones
+ * let `url('/<TAB>/evil.example/b.png'` through. Count the openers loosely
+ * (any case, whitespace before the paren) and the strict matches exactly; a
+ * surplus is a reference the strict form does not account for.
+ */
+export function urlReferenceProblem(value: string): string | null {
+  const openers = value.match(/url\s*\(/gi)?.length ?? 0;
+  const strict = value.match(/url\(#[A-Za-z0-9_-]+\)/gi)?.length ?? 0;
+  return openers === strict ? null : 'a url( that is not exactly url(#id)';
+}
+
 /** A value may not carry a reference of any kind. */
 function checkValue(name: string, value: string, at: number): void {
   if (name in XMLNS) {
@@ -95,18 +115,18 @@ function checkValue(name: string, value: string, at: number): void {
     return;
   }
   checkCharacters(value, at, `the value of "${name}"`, true);
+  // The URL parser strips tab, CR and LF from anywhere in a URL, so `/<TAB>/`
+  // is `//`. No whitespace control has any business in a chart value.
+  if (/[\t\r\n]/.test(value)) fail(`EXTERNAL: a tab, CR or LF in the value of "${name}"`, at);
   if (/\\|\/\*|image-set\s*\(|\b(?:https?|data|javascript|file|ftp|vbscript):|\/\//i.test(value)) {
     fail(`EXTERNAL: ${JSON.stringify(value.slice(0, 60))} — a reference, CSS escape or CSS comment in "${name}"`, at);
   }
-  for (const [, target] of value.matchAll(/url\(([^)]*)\)/gi)) {
-    if (!/^#[A-Za-z0-9_-]+$/.test(target!.trim())) {
-      fail(`EXTERNAL: url(${JSON.stringify(target!.slice(0, 60))}) is not a same-document #id`, at);
-    }
-  }
+  const urlProblem = urlReferenceProblem(value);
+  if (urlProblem) fail(`EXTERNAL: ${urlProblem} in "${name}"`, at);
 }
 
 export interface SvgGrammarResult {
-  /** Every `<style>` body, for the CSS shape check. */
+  /** Every `<style>` body, for `checkStyleBodies` — the one place CSS is read. */
   styleBodies: string[];
 }
 
@@ -196,6 +216,7 @@ export function parseSvgGrammar(svg: string): SvgGrammarResult {
     if (/^(?:script|foreignobject|image)$/i.test(name)) fail(`EXTERNAL: a ${name} element`, tagStart);
     if (!ELEMENTS.has(name)) fail(`an element outside the allow-list (<${name}>)`, tagStart);
     for (const [attr, value, at] of attrs) {
+      if (name === 'svg' && !ROOT_ATTRIBUTES.has(attr)) fail(`an attribute "${attr}" on the root <svg>`, at);
       if (!ATTRIBUTES.has(attr)) fail(`an attribute "${attr}" outside the allow-list`, at);
       checkValue(attr, value, at);
     }

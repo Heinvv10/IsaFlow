@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { assertNoExternalReferences } from '@/lib/charts/trustedChartSvg';
-import { ATTRIBUTES } from '@/lib/charts/svgGrammar';
+import { ATTRIBUTES, ROOT_ATTRIBUTES } from '@/lib/charts/svgGrammar';
 import { adoptTrustedChartSvg } from '@/lib/charts/ssrSvg';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { brightsphereInput, demoInput } from '../services/packs/fixtures/boardPackInputs';
@@ -117,6 +117,24 @@ describe('every chart the board pack produces passes', () => {
     }
     expect(charts, 'no chart was produced, so nothing was tested').toBeGreaterThan(20);
     expect([...seen].sort()).toEqual(['clipPath', 'defs', 'g', 'path', 'rect', 'style', 'svg', 'text']);
+  });
+
+  it('puts only the listed attributes on the root <svg>, none of them style or class', () => {
+    const rootAttrs = new Set<string>();
+    for (const input of [demoInput, brightsphereInput, liveDemoRenderedInput]) {
+      const svgs: string[] = [];
+      walk(buildBoardPackPages(input).pages, svgs);
+      for (const chart of svgs) {
+        const root = /^<svg\b([^>]*)>/.exec(chart)![1]!;
+        for (const m of root.matchAll(/\s([A-Za-z_:][\w:.-]*)="/g)) rootAttrs.add(m[1]!);
+      }
+    }
+    expect([...rootAttrs].sort()).toEqual(
+      ['baseProfile', 'height', 'version', 'viewBox', 'width', 'xmlns', 'xmlns:xlink'],
+    );
+    for (const name of rootAttrs) expect(ROOT_ATTRIBUTES.has(name), name).toBe(true);
+    expect(ROOT_ATTRIBUTES.has('style')).toBe(false);
+    expect(ROOT_ATTRIBUTES.has('class')).toBe(false);
   });
 
   it('uses only attribute names the grammar lists, and lists none that carry a reference', () => {

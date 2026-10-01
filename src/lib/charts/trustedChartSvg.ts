@@ -17,7 +17,7 @@
  * functions defined below — not two copies that could drift, which is the
  * whole point of the split being a move rather than a re-implementation.
  */
-import { parseSvgGrammar, SvgGrammarError } from './svgGrammar';
+import { parseSvgGrammar, SvgGrammarError, urlReferenceProblem } from './svgGrammar';
 
 /**
  * A string that has passed `assertNoExternalReferences` and
@@ -82,8 +82,9 @@ export type TrustedChartSvg = string & { readonly __trustedChartSvg: unique symb
  * would silently cover the guard's cheapest half.
  */
 export function assertNoExternalReferences(svg: string): void {
+  let styleBodies: string[];
   try {
-    parseSvgGrammar(svg);
+    styleBodies = parseSvgGrammar(svg).styleBodies;
   } catch (err) {
     if (!(err instanceof SvgGrammarError)) throw err;
     if (err.reason.startsWith('EXTERNAL: ')) {
@@ -91,8 +92,8 @@ export function assertNoExternalReferences(svg: string): void {
     }
     throw new Error(`renderChartSvg: refusing a chart whose markup is outside the grammar (${err.message})`);
   }
-  // The `<style>` bodies the grammar admitted are checked for CSS shape below.
-  assertStyleBlockIsOurs(svg);
+  // The bodies the grammar already extracted — one parser, one pass.
+  checkStyleBodies(styleBodies);
 }
 
 /**
@@ -132,7 +133,7 @@ const DECLARATION = /^[a-z-]+:[A-Za-z0-9#.,%()\s-]+$/;
  *  nothing. */
 const GRADIENT_LITERAL = /^[a-z-]+:\[object Object\]$/;
 
-export function assertStyleBlockIsOurs(svg: string): void {
+export function checkStyleBodies(bodies: readonly string[]): void {
   // The message names what it saw. This guard can fire on legitimate data —
   // it already did, on a gradient — and "unexpected declaration" alone sends
   // whoever hits it looking in the wrong place.
@@ -143,8 +144,8 @@ export function assertStyleBlockIsOurs(svg: string): void {
     );
   };
 
-  for (const block of svg.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)) {
-    const css = (block[1] ?? '').replace(/<!\[CDATA\[/, '').replace(/\]\]>/, '');
+  for (const body of bodies) {
+    const css = body.replace(/\]\]>$/, '');
     let cursor = 0;
     for (const rule of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
       // Anything BETWEEN two rules is not a rule at all — a bare declaration,
@@ -159,11 +160,21 @@ export function assertStyleBlockIsOurs(svg: string): void {
         const text = declaration.trim();
         if (text === '') continue;
         if (!DECLARATION.test(text) && !GRADIENT_LITERAL.test(text)) refuse('unexpected declaration', text);
+        // `(` and `)` are in the declaration charset for `rgb()`; a `url(`
+        // there is a fetch unless it is exactly `url(#id)`.
+        if (urlReferenceProblem(text) !== null) refuse('a url( that is not exactly url(#id)', text);
       }
     }
     const tail = css.slice(cursor).trim();
     if (tail !== '') refuse('trailing content after the last rule', tail);
   }
+}
+
+/** Parse and check the style bodies of one SVG. Kept for callers that hold
+ *  only the string; `assertNoExternalReferences` does this itself in the same
+ *  pass, so the guard pair never parses twice. */
+export function assertStyleBlockIsOurs(svg: string): void {
+  checkStyleBodies(parseSvgGrammar(svg).styleBodies);
 }
 
 /**
@@ -194,6 +205,5 @@ export function adoptTrustedChartSvg(value: unknown): TrustedChartSvg {
     );
   }
   assertNoExternalReferences(value);
-  assertStyleBlockIsOurs(value);
   return value as TrustedChartSvg;
 }

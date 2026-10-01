@@ -97,6 +97,36 @@ const BREAKERS: Array<[string, string]> = [
   ['a leading BOM', `﻿${svg('')}`],
 ];
 
+const ROUND3: Array<[string, string]> = [
+  ['an unterminated url( with a tab-split //', svg("<rect style=\"background-image:url('/\t/evil.example/b.png'\"/>")],
+  ['an unterminated url( with a newline-split //', svg("<rect style=\"mask-image:url('/\n/evil.example/b.png'\"/>")],
+  ['a tab inside any value', svg('<rect fill="#0\t00"/>')],
+  ['a CR inside any value', svg('<rect fill="#0\r00"/>')],
+  ['an unterminated url(', svg('<rect fill="url(#a"/>')],
+  ['an unterminated relative url(', svg('<rect style="background:url(/x.png"/>')],
+  ['an uppercase URL(', svg('<rect style="background:URL(x.png)"/>')],
+  ['a CSS-escaped u\\72l(', svg('<rect style="background:u\\72l(x.png)"/>')],
+  ['a url followed by a space before the paren', svg('<rect style="background:url (x.png)"/>')],
+  ['a second, non-id url( beside a valid one', svg('<rect style="fill:url(#a);background:url(x.png)"/>')],
+  ['url( in a style body declaration', svg('<style><![CDATA[.zr1-0:hover{background:url(x)}]]></style>')],
+  ['an unterminated url( in a style body', svg('<style><![CDATA[.zr1-0:hover{background:url(#a}]]></style>')],
+  ['a style attribute on the root', `<svg ${NS} style="position:fixed;inset:0"></svg>`],
+  ['a class attribute on the root', `<svg ${NS} class="fixed inset-0"></svg>`],
+];
+
+describe('round 3 breakers', () => {
+  for (const [what, markup] of ROUND3) {
+    it(`refuses ${what}`, () => {
+      expect(() => assertNoExternalReferences(markup)).toThrow();
+      expect(() => adoptTrustedChartSvg(markup)).toThrow();
+    });
+  }
+  it('still admits url(#id) with its paren, in a value and in a style body', () => {
+    expect(() => assertNoExternalReferences(svg('<g clip-path="url(#zr1-0)"><path d="M0 0"/></g>'))).not.toThrow();
+    expect(() => assertNoExternalReferences(svg('<style><![CDATA[.zr1-0:hover{fill:url(#zr1-g0)}]]></style>'))).not.toThrow();
+  });
+});
+
 describe('every parser-differential breaker is refused', () => {
   for (const [what, markup] of BREAKERS) {
     it(`refuses ${what}`, () => {
