@@ -26,6 +26,8 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunService', () => ({
   calculatePayrollRun: vi.fn(),
   getPayrollRun: vi.fn(),
 }));
+// Round 5: "journal in force" is read from the ledger; here it simply says yes unless a test says otherwise.
+vi.mock('@/modules/accounting/services/payroll/payrollJournalChain', () => ({ payrollJournalInForce: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/payroll/payrollApprovalService', () => ({
   approvePayrollRun: vi.fn(),
   previewPayrollApproval: vi.fn(),

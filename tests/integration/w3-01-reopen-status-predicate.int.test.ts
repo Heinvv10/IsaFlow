@@ -57,10 +57,10 @@ describe('reopen — the status write is predicated (W3-01 breaker LOW)', () => 
       for (let i = 0; i < 500 && !waiting; i += 1) {
         waiting = ((await pool.query(
           `SELECT 1 FROM pg_stat_activity
-            WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%UPDATE payroll_run_headers%'`)).rowCount ?? 0) > 0;
+            WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%payroll_run_headers%'`)).rowCount ?? 0) > 0;
         if (!waiting) await new Promise((r) => setTimeout(r, 20));
       }
-      expect(waiting).toBe(true); // it read 'approved' and is now blocked on its write
+      expect(waiting).toBe(true); // blocked behind the peer (round 5: on the header lock, before it reads the status)
       await peer.query('COMMIT');
       res = await reopenP;
     } finally {

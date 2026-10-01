@@ -175,15 +175,10 @@ describe('BRK-596', () => {
     expect(p.body.data!.posted).toBeNull();
     expect(p.body.data!.replaces).toMatchObject({ journalEntryId: je });
 
-    // Reversing the reversal re-books the amounts under a NEW journal; the one
-    // the run carries is still marked reversed. Neither re-locking onto it nor
-    // posting a fresh journal beside the re-booked amounts is right.
-    await reverseJournalEntry(companyA, contra.id, admin);
-    const q = await preview(id);
-    const a = await doApprove(id);
-    expect(q.body.data!.blocker!.code).toBe('posted_journal_not_live');
-    expect(a.statusCode).toBe(400);
-    expect(a.body.error!.message).toBe(q.body.data!.blocker!.detail);
+    // Round 5: reversing the reversal would re-book the old amounts beside the
+    // replacement approval posts, so the reversal itself refuses it.
+    await expect(reverseJournalEntry(companyA, contra.id, admin)).rejects.toThrow(/approve the pay run/);
+    expect((await preview(id)).body.data!.replaces).toMatchObject({ journalEntryId: je });
     expect(await header(id)).toMatchObject({ status: 'calculated', journal_entry_id: je });
     expect(await payrollJournals(companyA, 'Payroll run 2026-11')).toBe(1);
   });

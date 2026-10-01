@@ -18,6 +18,7 @@ import {
   isLockTimeout,
   setLocalLockTimeout,
 } from './payrollRunLoanApplication';
+import { lockJournalChain } from './payrollJournalChain';
 
 export type PayrollRunStatus = 'draft' | 'calculated' | 'approved' | 'paid' | 'cancelled';
 
@@ -56,7 +57,7 @@ export class PayrollRunLockedError extends Error {
  * SET LOCAL — so the previous timeout is restored by hand, or the 5s would
  * bound every later statement of the request.
  */
-async function withBoundedLockWait<T>(runId: string, take: (tx: TxSql) => Promise<T>): Promise<T> {
+export async function withBoundedLockWait<T>(runId: string, take: (tx: TxSql) => Promise<T>): Promise<T> {
   return withTransaction(async (tx) => {
     const previousLockTimeout = await setLocalLockTimeout(tx, '5s');
     let taken: T;
@@ -92,35 +93,12 @@ export async function lockPayrollRunHeader(runId: string, companyId: string): Pr
 }
 
 /**
- * Lock the journal a run links, then that journal's reversal(s), so approval
- * judges "live" / "reversed, reversal stands" on rows no one can change under
- * it. Call under the header lock and BEFORE the gate reads them.
- *
- * LOCK ORDER: run header → linked journal → its reversal. reverseJournalEntry
- * locks exactly one journal row — the entry it reverses (claimJournalReversal's
- * UPDATE) — and never the run header, and it holds no second journal's row
- * lock while waiting for that one. So a reversal of the linked journal, or of
- * its reversal, can only wait behind these locks or be waited for; it can
- * never hold one while wanting one this function already holds.
- *
- * A reversal that got there first has committed before this returns, and the
- * gate then reads the result. One that arrives later waits for approval to
- * commit — it is then an act on an approved run, as it would be at any time.
+ * Lock the journal a run links and its whole reversal chain, so approval
+ * judges it on rows no one can change under it. Call under the header lock and
+ * BEFORE the gate reads the chain. Order and reasoning: payrollJournalChain.
  */
 export async function lockRunJournalForApproval(runId: string, companyId: string, journalId: string): Promise<void> {
-  await withBoundedLockWait(runId, async (tx) => {
-    await tx`
-      SELECT id FROM gl_journal_entries
-      WHERE id = ${journalId}::uuid AND company_id = ${companyId}::uuid
-      FOR UPDATE
-    `;
-    await tx`
-      SELECT id FROM gl_journal_entries
-      WHERE reversal_of_id = ${journalId}::uuid AND company_id = ${companyId}::uuid
-      ORDER BY id
-      FOR UPDATE
-    `;
-  });
+  await withBoundedLockWait(runId, (tx) => lockJournalChain(tx, companyId, journalId));
 }
 
 /** The header figures calculatePayrollRun saves. */
@@ -185,14 +163,12 @@ export async function reopenPayrollRun(opts: {
     throw new PayrollRunReopenRefusedError('Reopen reason is required (≥ 5 characters)');
   }
 
-  const rows = (await sql`
-    SELECT id, status FROM payroll_run_headers
-     WHERE id = ${opts.runId}::uuid AND company_id = ${opts.companyId}::uuid
-     LIMIT 1
-  `) as DbRow[];
-  if (rows.length === 0 || !rows[0]) throw new PayrollRunReopenRefusedError('Payroll run not found');
+  // Locked with the 5s wait approve and calculate use (round 5): the bare read
+  // and UPDATE here waited on a peer's hold of the row for as long as it lasted.
+  const run = await lockPayrollRunHeader(opts.runId, opts.companyId);
+  if (!run) throw new PayrollRunReopenRefusedError('Payroll run not found');
 
-  const previousStatus = String(rows[0].status);
+  const previousStatus = String(run.status);
   if (!REOPENABLE_STATUSES.has(previousStatus)) {
     if (previousStatus === 'paid') {
       throw new PayrollRunReopenRefusedError('Paid runs cannot be reopened — payments have been issued. Reverse via a new run.');

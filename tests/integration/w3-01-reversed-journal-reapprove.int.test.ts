@@ -122,23 +122,91 @@ describe('a reopened run whose journal was reversed (W3-01 breaker A)', () => {
     await setSalary(20000);
   });
 
-  it('a reversal that was itself reversed has re-booked the amounts: no second journal', async () => {
+  it('the reversal of the run\'s journal cannot itself be reversed: the old amounts never come back beside a new journal', async () => {
     const id = await calculatedRun(call, 2);
     const j1 = String((await doApprove(id)).body.data!.journalEntryId);
     expect((await doReopen(id)).statusCode).toBe(200);
-    const contra = await reverse(j1);
-    expect(contra.statusCode).toBe(200);
+    expect((await reverse(j1)).statusCode).toBe(200);
     const contraId = String((await pool.query('SELECT id FROM gl_journal_entries WHERE reversal_of_id = $1', [j1])).rows[0]!.id);
-    expect((await reverse(contraId)).statusCode).toBe(200);
+
+    // Before the replacement is posted, and after: refused both times, nothing written.
+    const before = await reverse(contraId);
+    expect(before.statusCode).toBe(400);
+    expect(before.body.error?.message).toMatch(/approve the pay run/);
+    const again = await doApprove(id);
+    expect(again.statusCode).toBe(200);
+    const j2 = String(again.body.data!.journalEntryId);
+    expect((await reverse(contraId)).statusCode).toBe(400);
+
+    expect(await liveJournals('Payroll run 2026-02')).toEqual([j2]);
+    expect(await labourInLedger([j1, j2])).toBe(again.body.data!.totalGross + 177.12);
+    expect((await pool.query('SELECT reversed_at FROM gl_journal_entries WHERE id = $1', [contraId])).rows[0]!.reversed_at).toBeNull();
+  });
+
+  it('an approved run\'s journal cannot be reversed until the run is reopened', async () => {
+    const id = await calculatedRun(call, 3);
+    const j1 = String((await doApprove(id)).body.data!.journalEntryId);
+    const refused = await reverse(j1);
+    expect(refused.statusCode).toBe(400);
+    expect(refused.body.error?.message).toMatch(/Reopen the pay run first/);
+    expect(await header(id)).toMatchObject({ status: 'approved', journal_entry_id: j1 });
+    expect(await liveJournals('Payroll run 2026-03')).toEqual([j1]);
+
+    expect((await doReopen(id)).statusCode).toBe(200);
+    expect((await reverse(j1)).statusCode).toBe(200);
+    expect(await liveJournals('Payroll run 2026-03')).toEqual([]);
+  });
+
+  // Rule D (ACCOUNTING RULING NEEDED — see payrollApprovalGate#datedForReplacement).
+  it('a replacement is dated on the reversal\'s date when the reversal fell outside the run\'s month', async () => {
+    const id = await calculatedRun(call, 4);
+    const j1 = String((await doApprove(id)).body.data!.journalEntryId);
+    // Month-end close of April, then the pay turns out wrong.
+    const closed = await pool.query(
+      "UPDATE fiscal_periods SET status = 'closed' WHERE company_id = $1 AND start_date <= '2026-04-30' AND end_date >= '2026-04-30'", [company]);
+    expect(closed.rowCount).toBe(1);
+    expect((await doReopen(id)).statusCode).toBe(200);
+    expect((await reverse(j1)).statusCode).toBe(200); // April is closed: the reversal is dated today
+    const reversal = (await pool.query(
+      'SELECT entry_number, entry_date::text AS d FROM gl_journal_entries WHERE reversal_of_id = $1', [j1])).rows[0]!;
+    expect(String(reversal.d).slice(0, 7)).not.toBe('2026-04');
+    await setSalary(30000);
+    expect((await doCalculate(id)).statusCode).toBe(200);
 
     const p = await preview(id);
-    expect(p.body.data!.blocker).toMatchObject({ code: 'posted_journal_not_live' });
-    expect(p.body.data!.replaces).toBeNull();
-    expect((await approveWith(id, p.body.data!.planHash)).statusCode).toBe(400);
-    expect(await header(id)).toMatchObject({ status: 'calculated', journal_entry_id: j1 });
-    // The amounts are in the ledger exactly once (j1 − contra + its reversal), and no payroll journal was added.
-    const n = (await pool.query(
-      "SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id = $1 AND source = 'auto_payroll' AND description = 'Payroll run 2026-02'", [company])).rows[0]!.n;
-    expect(n).toBe(1);
+    expect(p.body.data!.blocker).toBeNull(); // not `closed_period`: nothing posts into April
+    expect(p.body.data!.plan.entryDate).toBe(reversal.d);
+    expect(p.body.data!.plan.advisories).toEqual([expect.objectContaining({
+      code: 'replacement_dated_on_reversal', detail: expect.stringContaining(`reversed by ${reversal.entry_number} on ${reversal.d}`),
+    })]);
+    const again = await approveWith(id, p.body.data!.planHash);
+    expect(again.statusCode).toBe(200);
+    const j2 = String(again.body.data!.journalEntryId);
+    expect((await pool.query('SELECT entry_date::text AS d, description FROM gl_journal_entries WHERE id = $1', [j2])).rows[0])
+      .toEqual({ d: reversal.d, description: 'Payroll run 2026-04' });
+
+    // April keeps what it reported; the reversal's month carries only the correction.
+    const byMonth = Object.fromEntries((await pool.query(
+      `SELECT to_char(e.entry_date, 'YYYY-MM') AS month, sum(l.debit - l.credit)::float8 AS labour
+         FROM gl_journal_lines l JOIN gl_journal_entries e ON e.id = l.journal_entry_id JOIN gl_accounts a ON a.id = l.gl_account_id
+        WHERE e.company_id = $1 AND e.status = 'posted' AND a.account_code = '5200'
+          AND (e.id = ANY($2::uuid[]) OR e.reversal_of_id = ANY($2::uuid[]))
+        GROUP BY 1`, [company, [j1, j2]])).rows.map((r) => [r.month, r.labour]));
+    expect(byMonth).toEqual({ '2026-04': 20177.12, [String(reversal.d).slice(0, 7)]: 10000 });
+    await pool.query("UPDATE fiscal_periods SET status = 'open' WHERE company_id = $1", [company]);
+    await setSalary(20000);
+  });
+
+  it('two months with the same figures do not share a hash, and one month\'s hash does not approve the other', async () => {
+    const may = await calculatedRun(call, 5);
+    const june = await calculatedRun(call, 6);
+    const pm = (await preview(may)).body.data!;
+    const pj = (await preview(june)).body.data!;
+    expect(pm.plan.totals).toEqual(pj.plan.totals);
+    expect(pm.planHash).not.toBe(pj.planHash);
+    const stale = await approveWith(june, pm.planHash);
+    expect(stale.statusCode).toBe(409);
+    expect(await header(june)).toMatchObject({ status: 'calculated', journal_entry_id: null });
+    expect((await approveWith(june, pj.planHash)).statusCode).toBe(200);
   });
 });

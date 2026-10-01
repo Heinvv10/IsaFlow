@@ -36,6 +36,7 @@ import type { DbRow } from '@/lib/neon';
 import {
   REQUIRED_PAYROLL_ACCOUNT_CODES,
   buildLabourLines,
+  closedPeriodBlocker,
   lastDayOfMonthIso,
   resolveAccounts,
   resolveAccountsById,
@@ -250,19 +251,8 @@ export async function buildPayrollJournalPlan(
     });
   }
   const entryDate = lastDayOfMonthIso(periodYear, periodMonth);
-  const periodRows = (await sql`
-    SELECT status FROM fiscal_periods
-    WHERE company_id = ${companyId}::uuid
-      AND start_date <= ${entryDate}::date AND end_date >= ${entryDate}::date
-    ORDER BY start_date, id
-  `) as Row[];
-  const closed = periodRows.find((p) => String(p.status) !== 'open');
-  if (closed) {
-    blockers.push({
-      code: 'closed_period',
-      detail: `The fiscal period covering ${entryDate} is '${String(closed.status)}', so the payroll journal cannot post into it.`,
-    });
-  }
+  const closed = await closedPeriodBlocker(companyId, entryDate);
+  if (closed) blockers.push(closed);
 
   const totalDebit = round2(lines.reduce((s, l) => s + l.debit, 0));
   const totalCredit = round2(lines.reduce((s, l) => s + l.credit, 0));

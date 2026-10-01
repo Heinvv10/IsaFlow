@@ -15,6 +15,7 @@
  * reports while the contra stayed, driving the account to the NEGATIVE of the
  * original rather than to zero.
  */
+import { payrollReversalRefusal } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import type { McpTool } from '../types';
 import { MUTATION_ARG_SCHEMA, type DryRunResult } from '@/lib/mcp/contracts';
 import {
@@ -147,6 +148,11 @@ export const reverseJournalEntryTool: McpTool = {
         + 'on or after the entry date.',
       );
     }
+
+    // A pay run's journal: the guard reverseJournalEntry applies under its
+    // locks, asked here read-only so the dry run refuses what the write refuses.
+    const payrollRefusal = await payrollReversalRefusal(ctx.companyId, entry);
+    if (payrollRefusal) return toolError(payrollRefusal);
 
     if (args.dry_run === true) {
       // The same resolution the write does, so the preview cannot promise a

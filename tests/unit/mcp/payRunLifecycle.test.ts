@@ -22,6 +22,8 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunService', () => ({
   calculatePayrollRun: vi.fn(),
   getPayrollRun: vi.fn(),
 }));
+// Round 5: "journal in force" is read from the ledger; here it simply says yes unless a test says otherwise.
+vi.mock('@/modules/accounting/services/payroll/payrollJournalChain', () => ({ payrollJournalInForce: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/payroll/payrollApprovalService', () => ({
   approvePayrollRun: vi.fn(),
   previewPayrollApproval: vi.fn(),
@@ -53,6 +55,7 @@ import {
   PayrollRunJournalPostedError,
   runHasLoanWork,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
+import { payrollJournalInForce } from '@/modules/accounting/services/payroll/payrollJournalChain';
 import { approvePayRunTool, calculatePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
@@ -186,6 +189,16 @@ describe('calculate_pay_run', () => {
     expect(out.effects).toEqual([]);
     expect(JSON.stringify(out.skipped)).toContain('Reverse the payroll journal first');
     expect(calculatePayrollRun).not.toHaveBeenCalled();
+  });
+
+  it('dry run promises the recost when the linked journal is no longer in the ledger', async () => {
+    // Round 5 (C3-B): the guard is "journal in force", not "journal linked".
+    vi.mocked(getPayrollRun).mockResolvedValue(run({ journalEntryId: JE }) as never);
+    vi.mocked(payrollJournalInForce).mockResolvedValueOnce(false);
+    vi.mocked(runHasLoanWork).mockResolvedValue(true);
+    const out = parseOk(await calculatePayRunTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx()));
+    expect(JSON.stringify(out.effects)).toContain('Recost run');
+    expect(out.skipped).toEqual([]);
   });
 
   it('dry run still promises the recost when the journal carries no loan work', async () => {

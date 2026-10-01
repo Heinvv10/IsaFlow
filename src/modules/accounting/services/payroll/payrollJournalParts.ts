@@ -52,6 +52,24 @@ export function lastDayOfMonthIso(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+/**
+ * The `closed_period` blocker for a journal dated `entryDate`, or null. One
+ * copy: the plan builder asks it for the run's month, and the approval gate
+ * asks it again when a replacement journal is dated elsewhere.
+ */
+export async function closedPeriodBlocker(companyId: string, entryDate: string): Promise<{ code: string; detail: string } | null> {
+  const periodRows = (await sql`
+    SELECT status FROM fiscal_periods
+    WHERE company_id = ${companyId}::uuid
+      AND start_date <= ${entryDate}::date AND end_date >= ${entryDate}::date
+    ORDER BY start_date, id
+  `) as Row[];
+  const closed = periodRows.find((p) => String(p.status) !== 'open');
+  return closed
+    ? { code: 'closed_period', detail: `The fiscal period covering ${entryDate} is '${String(closed.status)}', so the payroll journal cannot post into it.` }
+    : null;
+}
+
 export async function resolveAccounts(companyId: string): Promise<Map<string, ResolvedAccount>> {
   const codes = [
     ...REQUIRED_PAYROLL_ACCOUNT_CODES,

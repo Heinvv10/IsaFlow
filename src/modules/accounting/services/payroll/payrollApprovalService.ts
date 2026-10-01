@@ -48,9 +48,9 @@ export async function previewPayrollApproval(companyId: string, runId: string): 
  * as-is and must roll the request back. An 'approved' run with no journal
  * (stranded before this fix) is re-approvable and posts; a reopened run that
  * still carries its journal is re-approved onto that journal, but only while
- * its figures still match it (payrollApprovalGate). One whose journal was
- * reversed (and the reversal stands) is unlinked from it and posts a FRESH
- * journal, here, under the header lock.
+ * its figures still match it (payrollApprovalGate). One whose journal has
+ * nothing left in the ledger (its reversal chain nets to zero) is unlinked
+ * from it and posts a FRESH journal, here, under the locks.
  *
  * `expectedPlanHash` is the hash the caller previewed (mandatory on the HTTP
  * route and in the MCP tool's handler; optional here only for scripts). When given and
@@ -76,9 +76,10 @@ export async function approvePayrollRun(
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   log.info('Approving payroll run', { companyId, runId }, 'payrollApproval');
 
-  // Header first, then the journal it links and that journal's reversal — in
-  // that order, each with a 5s wait (payrollRunLock). The gate below reads
-  // them inside these locks, so what it judges cannot change before the writes.
+  // Header first, then the journal it links and that journal's whole reversal
+  // chain — in that order, each with a 5s wait (payrollJournalChain). The gate
+  // below reads them inside these locks, so what it judges cannot change
+  // before the writes, and the generic reversal takes the same locks.
   const locked = await lockPayrollRunHeader(runId, companyId);
   if (!locked) throw new PayrollApprovalRefusedError('Payroll run not found');
   if (locked.journal_entry_id != null) {
@@ -92,23 +93,17 @@ export async function approvePayrollRun(
     throw new PayrollApprovalConflictError('Payroll run changed while you were reviewing it');
   }
 
-  // A reversed journal is unlinked so a fresh one can post (breaker A). The
-  // predicate repeats the gate's judgement in the write itself: the link goes
-  // only while that journal is reversed and its reversal stands, so a run can
-  // never be given a second journal beside a live one. Zero rows writes
-  // nothing, so it is still a refusal.
+  // A journal with nothing left in the ledger is unlinked so a fresh one can
+  // post. The header and the whole chain are locked and the gate judged the
+  // chain inside those locks, so this cannot have changed; the predicate only
+  // refuses to drop a link other than the one judged.
   if (gate.replaces) {
     const unlinked = (await sql`
-      UPDATE payroll_run_headers h
+      UPDATE payroll_run_headers
       SET journal_entry_id = NULL
-      WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
-        AND h.journal_entry_id = ${gate.replaces.journalEntryId}::uuid
-        AND EXISTS (SELECT 1 FROM gl_journal_entries e
-                     WHERE e.id = h.journal_entry_id AND e.company_id = h.company_id AND e.reversed_at IS NOT NULL)
-        AND EXISTS (SELECT 1 FROM gl_journal_entries c
-                     WHERE c.reversal_of_id = h.journal_entry_id AND c.company_id = h.company_id
-                       AND c.status = 'posted' AND c.reversed_at IS NULL)
-      RETURNING h.id
+      WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+        AND journal_entry_id = ${gate.replaces.journalEntryId}::uuid
+      RETURNING id
     `) as Row[];
     if (!unlinked[0]) throw new PayrollApprovalConflictError('Payroll run changed while you were reviewing it');
   }

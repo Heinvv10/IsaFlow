@@ -26,6 +26,7 @@ import {
   type CompanyAuthedRequest,
 } from '@/lib/auth';
 import { PayrollRunReopenRefusedError, reopenPayrollRun } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { PayrollLoanLockTimeoutError } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { log } from '@/lib/logger';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -66,6 +67,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   } catch (err) {
     // Only the service's own refusals, raised before its one write, are a 400.
     // withAuth COMMITs a 4xx, so anything else is rethrown: a 500 rolls back.
+    if (err instanceof PayrollLoanLockTimeoutError) return apiResponse.badRequest(res, err.message, { code: err.code });
     if (err instanceof PayrollRunReopenRefusedError) return apiResponse.badRequestFromError(res, err, 'Reopen failed');
     throw err;
   }

@@ -17,6 +17,7 @@ import { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError }
 import { VatPeriodLockedError } from './journalVatLockGuard';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { refuseReversingSettlementJournal } from '../ap/provisionalSettlementGuards';
+import { refuseReversalAgainstPayRun } from '../payroll/payrollJournalReversalGuard';
 import { postJournalEntry } from './journalEntryPostService';
 import {
   LateClaimCompanionReversalError, copyLateClaimBaseToReversal, planLateClaimCompanionReversal,
@@ -96,6 +97,7 @@ async function reverseJournalEntryInner(
       throw new LateClaimCompanionReversalError(entry.entryNumber);
     }
     await refuseReversingSettlementJournal(companyId, entry); // R-127: either half of a bank-first settlement
+    await refuseReversalAgainstPayRun(companyId, entry); // W3-01: a pay run's journal, judged by the ledger, under its locks
 
     // Debits and credits swap; every dimension and the VAT classification come
     // across unchanged EXCEPT a legacy tag naming another company's project,
