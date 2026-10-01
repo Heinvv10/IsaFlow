@@ -12,9 +12,9 @@
  */
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { checkRateLimit, refundRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, clearRateLimitCache, refundRateLimit } from '@/lib/rateLimit';
 
 assertDisposable();
 
@@ -37,13 +37,15 @@ async function admittedSequentially(key: string, calls: number, check = checkRat
   return admitted;
 }
 
+beforeEach(() => clearRateLimitCache());
+
 afterAll(async () => {
   await pool.query('DELETE FROM rate_limit_counters WHERE key LIKE $1', [`${PREFIX}%`]);
   await pool.end();
 });
 
 describe('R-175 — checkRateLimit never admits more than max per window', () => {
-  it('admits exactly max of 100 sequential calls, in order, and counts every call', async () => {
+  it('admits exactly max of 100 sequential calls, in order', async () => {
     const key = newKey();
     const verdicts: boolean[] = [];
     for (let i = 0; i < 100; i++) verdicts.push(await checkRateLimit(key, opts));
@@ -52,7 +54,9 @@ describe('R-175 — checkRateLimit never admits more than max per window', () =>
     // The first max calls are the admitted ones; nothing is admitted after a refusal.
     expect(verdicts.slice(0, MAX).every(Boolean)).toBe(true);
     expect(verdicts.slice(MAX).some(Boolean)).toBe(false);
-    expect(await storedCount(key)).toBe(100);
+    // Every admitted call is stored, and the first refusal. The rest of the
+    // refusals are answered from memory (r175-refusal-cache.int.test.ts).
+    expect(await storedCount(key)).toBe(MAX + 1);
   });
 
   it('admits exactly max of 100 concurrent calls', async () => {
@@ -86,7 +90,7 @@ describe('R-175 — checkRateLimit never admits more than max per window', () =>
 
     // 6 x 3 = 18 admitted; the 7th would make 21.
     expect(verdicts).toEqual([true, true, true, true, true, true, false, false]);
-    expect(await storedCount(key)).toBe(24);
+    expect(await storedCount(key)).toBe(21);
   });
 
   it('starts a fresh allowance of exactly max when the window rolls over', async () => {
@@ -95,9 +99,12 @@ describe('R-175 — checkRateLimit never admits more than max per window', () =>
 
     await pool.query(
       `UPDATE rate_limit_counters SET window_start = NOW() - INTERVAL '901 seconds' WHERE key = $1`, [key]);
+    // The window was moved behind this process's back; a real rollover expires
+    // the remembered refusal by itself (r175-refusal-cache.int.test.ts).
+    clearRateLimitCache();
 
     expect(await admittedSequentially(key, 30)).toBe(MAX);
-    expect(await storedCount(key)).toBe(30);
+    expect(await storedCount(key)).toBe(MAX + 1);
   });
 
   it('keeps counting inside a window that has not ended', async () => {
@@ -152,7 +159,8 @@ describe('R-175 — checkRateLimit never admits more than max per window', () =>
     }
 
     expect(admitted).toBe(MAX);
-    expect(await storedCount(key)).toBe(100);
+    // 20 admitted, then one stored refusal per instance; each remembers its own.
+    expect(await storedCount(key)).toBe(MAX + 2);
   });
 
   it('two module instances called concurrently together admit exactly max', async () => {

@@ -25,9 +25,14 @@ vi.mock('@/lib/api-error-handler', () => ({
   withErrorHandler: (h: (req: NextApiRequest, res: NextApiResponse) => unknown) => h,
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+// The handler's first query is the ownership guard, its second the company
+// name. `owned` is what the guard finds; null means "every id named".
+const { sqlMock, checkSendRateLimitMock, refundSendMock } = vi.hoisted(() => ({
+  sqlMock: vi.fn(), checkSendRateLimitMock: vi.fn(), refundSendMock: vi.fn(),
+}));
+vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+vi.mock('@/lib/rateLimitQuota', () => ({ refundSendDailyQuota: refundSendMock }));
 
-const { checkSendRateLimitMock } = vi.hoisted(() => ({ checkSendRateLimitMock: vi.fn() }));
 vi.mock('@/lib/rateLimit', () => ({
   checkSendRateLimit: checkSendRateLimitMock,
   checkRateLimit: vi.fn().mockResolvedValue(true),
@@ -61,7 +66,16 @@ function makeRes(): NextApiResponse {
 }
 
 describe('statement-bulk-email — checkSendRateLimit gate', () => {
-  beforeEach(() => vi.clearAllMocks());
+  let owned: string[] | null = null;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    owned = null;
+    sqlMock.mockImplementation(async (strings: TemplateStringsArray, ids: string[]) =>
+      (strings.join('').includes('FROM customers') ? (owned ?? ids).map((id) => ({ id })) : [{ name: 'Co' }]));
+  });
+  const request = (customerIds: string[]) => ({
+    method: 'POST', query: {}, body: { customerIds, asAtDate: '2026-08-14' }, companyId: COMPANY, user: { id: 'u1' },
+  }) as unknown as NextApiRequest;
 
   it('returns 429 and does not send when over the limit', async () => {
     checkSendRateLimitMock.mockResolvedValue(false);
@@ -109,5 +123,41 @@ describe('statement-bulk-email — checkSendRateLimit gate', () => {
       dailyMax: 10_000,
       count: 47,
     });
+  });
+
+  // ── R-175: the quota bounds emails sent ─────────────────────────────────────
+  it('charges nothing when the ownership guard refuses the request', async () => {
+    owned = ['c1'];
+    checkSendRateLimitMock.mockResolvedValue(true);
+
+    await (statementBulkEmail as Handler)(request(['c1', 'not-ours']), makeRes());
+
+    expect(apiResponse.forbidden).toHaveBeenCalledTimes(1);
+    expect(checkSendRateLimitMock).not.toHaveBeenCalled();
+    expect(sendStatementEmail).not.toHaveBeenCalled();
+    expect(refundSendMock).not.toHaveBeenCalled();
+  });
+
+  it('gives back the daily units of the emails that failed, and only those', async () => {
+    checkSendRateLimitMock.mockResolvedValue(true);
+    vi.mocked(sendStatementEmail)
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: false, error: 'SMTP down' })
+      .mockResolvedValueOnce({ success: false, error: 'SMTP down' });
+
+    await (statementBulkEmail as Handler)(request(['c1', 'c2', 'c3']), makeRes());
+
+    expect(refundSendMock.mock.calls).toEqual([[COMPANY, 'statement-bulk-email', 2]]);
+    expect(apiResponse.success).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ sent: 1, failed: 2 }));
+  });
+
+  it('gives nothing back when every email was sent', async () => {
+    checkSendRateLimitMock.mockResolvedValue(true);
+    vi.mocked(sendStatementEmail).mockResolvedValue({ success: true });
+
+    await (statementBulkEmail as Handler)(request(['c1', 'c2']), makeRes());
+
+    expect(sendStatementEmail).toHaveBeenCalledTimes(2);
+    expect(refundSendMock).not.toHaveBeenCalled();
   });
 });

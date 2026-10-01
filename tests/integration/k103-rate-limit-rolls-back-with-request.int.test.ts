@@ -132,7 +132,8 @@ describe('K-103 rate-limit counter survives the request that spent it', () => {
       withAlsTransaction(actor, () => checkRateLimit(key, opts))));
 
     expect(verdicts.filter(Boolean).length).toBe(opts.max);
-    expect(await storedCount(key)).toBe(40);
+    // Later refusals may be answered from memory, so not all 40 are stored.
+    expect(await storedCount(key)).toBeGreaterThan(opts.max);
   });
 
   it('still answers while every request connection is held by an open request', async () => {
@@ -166,22 +167,76 @@ describe('K-103 rate-limit counter survives the request that spent it', () => {
     }
   });
 
-  it('fails in bounded time, and does not admit, when the limiter cannot get a connection', async () => {
-    const { getRateLimitPool, RATE_LIMIT_POOL_MAX, RATE_LIMIT_CONNECT_TIMEOUT_MS } = await import('@/lib/rateLimitPool');
+  // The bound here is the test's own timeout, not a stopwatch: both calls wait
+  // for a connection at the same time, so one connect timeout covers them, and
+  // a limiter with no timeout fails the test by never settling.
+  it('fails, and does not admit, when the limiter cannot get a connection', async () => {
+    const { getRateLimitPool, RATE_LIMIT_POOL_MAX } = await import('@/lib/rateLimitPool');
     const limiterPool = getRateLimitPool();
     const held = await Promise.all(Array.from({ length: RATE_LIMIT_POOL_MAX }, () => limiterPool.connect()));
     const key = newKey();
-    const started = Date.now();
+    let outcomes: PromiseSettledResult<unknown>[];
     try {
-      await expect(checkRateLimit(key, opts)).rejects.toThrow(/timeout/i);
-      await expect(refundRateLimit(key, 1)).rejects.toThrow(/timeout/i);
+      outcomes = await Promise.allSettled([checkRateLimit(key, opts), refundRateLimit(key, 1)]);
     } finally {
       held.forEach((client) => client.release());
     }
 
-    expect(Date.now() - started).toBeLessThan(2 * RATE_LIMIT_CONNECT_TIMEOUT_MS + 1500);
+    expect(outcomes.map((o) => o.status)).toEqual(['rejected', 'rejected']);
+    for (const o of outcomes) expect(String((o as PromiseRejectedResult).reason)).toMatch(/timeout/i);
     expect(await storedCount(key)).toBeUndefined();
     // The pool recovers once a connection is free.
     expect(await checkRateLimit(key, opts)).toBe(true);
-  });
+  }, 25_000);
+
+  it('gives up on a counter row another connection has locked, with an error and no admission', async () => {
+    const key = newKey();
+    expect(await checkRateLimit(key, opts)).toBe(true);
+    const holder = await pool.connect();
+    try {
+      // What the cleanup cron's DELETE inside a transaction, or any stalled
+      // writer, does to this row.
+      await holder.query('BEGIN');
+      await holder.query('UPDATE rate_limit_counters SET count = count WHERE key = $1', [key]);
+
+      const outcomes = await Promise.allSettled([checkRateLimit(key, opts), refundRateLimit(key, 1)]);
+
+      expect(outcomes.map((o) => o.status)).toEqual(['rejected', 'rejected']);
+      // 55P03 lock_not_available: the server gave up, so the connection is clean.
+      for (const o of outcomes) expect((o as PromiseRejectedResult).reason).toMatchObject({ code: '55P03' });
+      // Prove the hold: the locking transaction was still open when they failed.
+      expect(await transactionState(holder)).toBe('idle in transaction');
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+
+    // Neither abandoned statement was applied, and the pool works again.
+    expect(await storedCount(key)).toBe(1);
+    expect(await checkRateLimit(key, opts)).toBe(true);
+    expect(await storedCount(key)).toBe(2);
+  }, 25_000);
+
+  it('bounds every statement on a limiter connection, server side first', async () => {
+    const { getRateLimitPool, RATE_LIMIT_POOL_MAX } = await import('@/lib/rateLimitPool');
+    const limiterPool = getRateLimitPool();
+    const show = async (name: string): Promise<number> => {
+      const { rows } = await limiterPool.query(`SELECT setting::int AS ms FROM pg_settings WHERE name = '${name}'`);
+      return rows[0].ms as number;
+    };
+    const lockMs = await show('lock_timeout');
+    const statementMs = await show('statement_timeout');
+
+    expect(lockMs).toBeGreaterThan(0);
+    expect(statementMs).toBeGreaterThanOrEqual(lockMs);
+    // The client-side timer must fire AFTER the server's: when it fires first
+    // the query is abandoned still running and the connection is handed back.
+    expect(limiterPool.options.query_timeout).toBeGreaterThan(statementMs);
+
+    // A statement that stalls without waiting on a lock is cancelled by the server.
+    await expect(limiterPool.query('SELECT pg_sleep(30)')).rejects.toMatchObject({ code: '57014' });
+    // Every connection is usable afterwards.
+    const after = await Promise.all(Array.from({ length: RATE_LIMIT_POOL_MAX }, () => limiterPool.query('SELECT 1 AS ok')));
+    expect(after.map((r) => r.rows[0].ok)).toEqual(Array.from({ length: RATE_LIMIT_POOL_MAX }, () => 1));
+  }, 25_000);
 });

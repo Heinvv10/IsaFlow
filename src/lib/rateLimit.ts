@@ -7,7 +7,9 @@
  * R-175: every call does that UPSERT. There is no in-process copy of a counter.
  * The old LRU short-circuit admitted calls it never wrote to the table, so a
  * limit of 20 admitted about 65 calls per window on one process. Do not add a
- * cache that can ADMIT a call; the only safe cache is one that refuses early.
+ * cache that can ADMIT a call. The one cache here only REFUSES: a key the
+ * database has just reported over its limit is refused from memory for a few
+ * seconds, so a flood on that key costs no database writes.
  *
  * K-103: the counter is written on the limiter's own pool (`@/lib/rateLimitPool`),
  * never on the request's transaction. The charge commits at once, survives a
@@ -15,7 +17,9 @@
  * route these statements through `sql`: inside a request it joins the request.
  */
 
+import { LRUCache } from 'lru-cache';
 import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
+import { als } from '@/lib/als';
 import { getRateLimitPool } from '@/lib/rateLimitPool';
 import { log } from '@/lib/logger';
 
@@ -36,15 +40,24 @@ export interface RateLimitOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Former LRU short-circuit cache (removed in R-175)
+// Refuse-only cache
 // ---------------------------------------------------------------------------
 
 /**
- * No-op. The limiter holds no in-process state since R-175, so there is nothing
- * to clear. Kept because tests written against the old LRU still call it.
+ * How long a refusal is remembered, at most. It is also never remembered past
+ * the end of the key's window. Short on purpose: a refund made by another
+ * process, the nightly cleanup, or an operator deleting a counter row is not
+ * seen by this process, and must take effect within seconds, not at the end of
+ * a window that can be a day long.
  */
+export const REFUSAL_TTL_MS = 5_000;
+
+/** key -> the count the database reported when it refused the key. */
+const refused = new LRUCache<string, number>({ max: 10_000 });
+
+/** Forgets every remembered refusal. For tests, and safe anywhere: it can only cause a database call. */
 export function clearRateLimitCache(): void {
-  // Nothing to clear.
+  refused.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +87,13 @@ export async function checkRateLimit(key: string, opts: RateLimitOptions): Promi
   const { max, windowSecs } = opts;
   const cost = clampCost(opts.cost);
 
-  const { rows } = await getRateLimitPool().query<{ count: number }>(
+  // Refuse-only: the remembered count can turn a call away, never let one in.
+  // A caller with a higher `max` on the same key is not bound by it.
+  const refusedAt = refused.get(key);
+  if (refusedAt !== undefined && refusedAt > max) return false;
+
+  const asked = Date.now();
+  const { rows } = await getRateLimitPool().query<{ count: number; remaining_ms: number }>(
     `INSERT INTO rate_limit_counters (key, count, window_start)
     VALUES ($1, $2, NOW())
     ON CONFLICT (key) DO UPDATE
@@ -88,11 +107,17 @@ export async function checkRateLimit(key: string, opts: RateLimitOptions): Promi
           THEN NOW()
         ELSE rate_limit_counters.window_start
       END
-    RETURNING count`,
+    RETURNING count,
+      (EXTRACT(EPOCH FROM (window_start + make_interval(secs => $3) - NOW())) * 1000)::int AS remaining_ms`,
     [key, cost, windowSecs],
   );
 
-  return rows[0]!.count <= max;
+  const { count, remaining_ms } = rows[0]!;
+  if (count <= max) return true;
+  // Measured from before the round-trip, so the refusal never outlives the window.
+  const ttl = Math.min(REFUSAL_TTL_MS, remaining_ms - (Date.now() - asked));
+  if (ttl >= 1) refused.set(key, count, { ttl });
+  return false;
 }
 
 /**
@@ -116,6 +141,25 @@ export async function refundRateLimit(key: string, units: number): Promise<void>
     WHERE key = $1`,
     [key, cost],
   );
+  // The remembered refusal is now stale in the strict direction; drop it so the
+  // next call asks the database.
+  refused.delete(key);
+}
+
+// ---------------------------------------------------------------------------
+// Usage quotas (see `@/lib/rateLimitQuota`)
+// ---------------------------------------------------------------------------
+
+export const aiDailyKey = (name: string, companyId: string): string => `ai:${name}:co:${companyId}:day`;
+export const sendDailyKey = (name: string, companyId: string): string => `send:${name}:co:${companyId}:day`;
+
+/**
+ * Records that this request spent `units` of a usage quota, so the request's
+ * owner can give them back if the request fails. Only `withAuth` keeps the
+ * list; anywhere else this does nothing and the charge simply stands.
+ */
+function noteQuotaCharge(key: string, units: number): void {
+  als.getStore()?.quotaCharges?.push({ key, units });
 }
 
 // ---------------------------------------------------------------------------
@@ -157,11 +201,15 @@ export async function checkAiRateLimit(
   const ipMax = opts.ipMax ?? 20;
   const companyMax = opts.companyMax ?? 40;
   const dailyMax = opts.dailyMax ?? 300;
-  return (
+  const allowed =
     (await checkRateLimit(`ai:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900 })) &&
     (await checkRateLimit(`ai:${name}:co:${companyId}`, { max: companyMax, windowSecs: 900 })) &&
-    (await checkRateLimit(`ai:${name}:co:${companyId}:day`, { max: dailyMax, windowSecs: 86_400 }))
-  );
+    (await checkRateLimit(aiDailyKey(name, companyId), { max: dailyMax, windowSecs: 86_400 }));
+  // The daily bucket is a budget for AI calls actually made, not an abuse
+  // limit: a request that fails gives its unit back. The 15-minute buckets
+  // stay charged, and they are what bounds a loop of failing requests.
+  if (allowed) noteQuotaCharge(aiDailyKey(name, companyId), 1);
+  return allowed;
 }
 
 /**
@@ -184,11 +232,13 @@ export async function checkSendRateLimit(
   // regardless of recipient count, so it is always charged 1. Charging the IP
   // bucket per-recipient would wrongly block a single legitimate large batch.
   const volumeCost = opts.count ?? 1;
-  return (
+  const allowed =
     (await checkRateLimit(`send:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900, cost: 1 })) &&
     (await checkRateLimit(`send:${name}:co:${companyId}`, { max: companyMax, windowSecs: 900, cost: volumeCost })) &&
-    (await checkRateLimit(`send:${name}:co:${companyId}:day`, { max: dailyMax, windowSecs: 86_400, cost: volumeCost }))
-  );
+    (await checkRateLimit(sendDailyKey(name, companyId), { max: dailyMax, windowSecs: 86_400, cost: volumeCost }));
+  // As for AI: the daily bucket bounds emails actually sent.
+  if (allowed) noteQuotaCharge(sendDailyKey(name, companyId), clampCost(volumeCost));
+  return allowed;
 }
 
 /**

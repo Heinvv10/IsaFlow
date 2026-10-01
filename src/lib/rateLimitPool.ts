@@ -16,7 +16,11 @@
 import pg from 'pg';
 import { log } from '@/lib/logger';
 
-/** Connections per process. One statement of about a millisecond each, so a few go a long way. */
+/**
+ * Connections per process. Each statement takes about a millisecond, and a key
+ * that is over its limit is answered from memory (see `checkRateLimit`), so the
+ * pool only carries calls that may be admitted. A few go a long way.
+ */
 export const RATE_LIMIT_POOL_MAX = 3;
 
 /**
@@ -25,6 +29,21 @@ export const RATE_LIMIT_POOL_MAX = 3;
  * never admitted unchecked.
  */
 export const RATE_LIMIT_CONNECT_TIMEOUT_MS = 5000;
+
+/**
+ * Every wait on a limiter connection is bounded, and the server gives up first.
+ * The counter rows can be locked by someone else (the nightly cleanup deletes
+ * them through `sql`, possibly inside a transaction; DDL or VACUUM FULL holds
+ * the table), and a stalled statement would otherwise pin one of only
+ * RATE_LIMIT_POOL_MAX connections for as long as the lock lasts.
+ *
+ * Order matters: lock < statement < query. `query_timeout` is a client-side
+ * timer that abandons the query without cancelling it, so if it fired first the
+ * connection would go back to the pool with the statement still running.
+ */
+const LOCK_TIMEOUT_MS = 2000;
+const STATEMENT_TIMEOUT_MS = 3000;
+const QUERY_TIMEOUT_MS = 4000;
 
 let _pool: pg.Pool | null = null;
 
@@ -38,6 +57,9 @@ export function getRateLimitPool(): pg.Pool {
       connectionString,
       max: RATE_LIMIT_POOL_MAX,
       connectionTimeoutMillis: RATE_LIMIT_CONNECT_TIMEOUT_MS,
+      lock_timeout: LOCK_TIMEOUT_MS,
+      statement_timeout: STATEMENT_TIMEOUT_MS,
+      query_timeout: QUERY_TIMEOUT_MS,
       idleTimeoutMillis: 30000,
       // Same rule as the main pool in `@/lib/neon` — keep the two in step.
       ssl:

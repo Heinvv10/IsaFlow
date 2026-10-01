@@ -41,6 +41,13 @@ export interface RequestContext {
    * registration rather than dropping the work.
    */
   afterCommit?: Array<{ label: string; fn: () => Promise<unknown> }>;
+  /**
+   * Usage-quota units this request has spent (the daily AI and email-send
+   * buckets in `@/lib/rateLimit`). The owner gives them back when the request
+   * fails (see `@/lib/rateLimitQuota`). Present only when the owner does that;
+   * without it a charge simply stands.
+   */
+  quotaCharges?: Array<{ key: string; units: number }>;
 }
 
 export const als = new AsyncLocalStorage<RequestContext>();
