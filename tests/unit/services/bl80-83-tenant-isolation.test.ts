@@ -217,6 +217,21 @@ describe('BL-82: startReconciliation — bank_transactions UPDATE must include c
 
 describe('BL-83: completeReconciliation — bank_transactions UPDATE must include company_id', () => {
   beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.mocked(sql).mockImplementation(sqlFragment as never));
+
+  /**
+   * Answer by TEXT, not call position: completion first recomputes the live GL
+   * balance (an UPDATE), and the session counts are spliced fragments — how many
+   * sql() calls that takes is not what this tenant-scoping test is about.
+   */
+  function answerReconRead(row: Record<string, unknown>): void {
+    vi.mocked(sql).mockImplementation(((strings: TemplateStringsArray) => {
+      const text = strings.join('');
+      if (text.includes('SELECT br.*')) return Promise.resolve([row]);
+      if (text.includes('UPDATE bank_reconciliations')) return Promise.resolve([]);
+      return sqlFragment();
+    }) as never);
+  }
 
   it('passes companyId into the SET status=reconciled UPDATE', async () => {
     const completedRow = {
@@ -240,13 +255,13 @@ describe('BL-83: completeReconciliation — bank_transactions UPDATE must includ
     };
 
     // getReconciliationById (called internally) — returns an open recon with difference=0
-    vi.mocked(sql).mockResolvedValueOnce([{
+    answerReconRead({
       ...completedRow,
       status: 'open',
       difference: 0,
       matched_count: '2',
       unmatched_count: '0',
-    }] as never);
+    });
 
     vi.mocked(withTransaction).mockImplementationOnce(async (cb: (tx: typeof sql) => Promise<unknown>) => {
       const txMock = Object.assign(
@@ -302,7 +317,7 @@ describe('BL-83: completeReconciliation — bank_transactions UPDATE must includ
       unmatched_count: '0',
     };
 
-    vi.mocked(sql).mockResolvedValueOnce([reconRow] as never);
+    answerReconRead(reconRow);
 
     let capturedFirstUpdateValues: unknown[] = [];
 
