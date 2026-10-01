@@ -16,13 +16,16 @@
 import type { EChartsCoreOption } from 'echarts/core';
 import { endLabelGutterPx, gutterEndLabel } from './pages/packEndLabelGutter';
 import { packFigureWidthPx } from '@/lib/charts/packFigureWidth';
-import { pitchedAxisDomain } from './packChartAxes';
+import { pitchedAxisDomain, type AxisDomain } from './packChartAxes';
 import { CHART_GUTTER_PX, DEFAULT_CHART_PALETTE, type ChartPalette, type TrendPoint } from './packChartOptions';
 
 export { sparklineOption } from './packSparklineOption';
 
 /** ECharts' gap between a value axis and its tick labels. */
 const TICK_MARGIN_PX = 8;
+
+/** The values a stated domain puts its ticks at. */
+const ticksOf = (d: AxisDomain): number[] => Array.from({ length: d.splitNumber + 1 }, (_, i) => d.min + i * (d.interval ?? 0));
 
 /** The one ECharts label-callback field these formatters read. */
 interface LabelParam {
@@ -89,9 +92,13 @@ export function smallMultipleOption(
   // A series nil throughout has no span to step: it prints its zero alone.
   const allNil = domain.max === domain.min;
   const ticked = unit === null || boxPx === undefined ? null
-    : allNil ? { min: 0, max: 1, splitNumber: 1, interval: 1 } : pitchedAxisDomain([domain.min, domain.max], boxPx - FULL_GRID.top - FULL_GRID.bottom);
-  const tickPx = ticked === null ? 0 : Math.max(...Array.from({ length: ticked.splitNumber + 1 },
-    (_, i) => packFigureWidthPx(formatValue(ticked.min + i * (ticked.interval ?? 0)), 12)));
+    : allNil ? { min: 0, max: 1, splitNumber: 1, interval: 1 }
+      // AND NO TWO TICKS PRINT THE SAME FIGURE. A series under a thousand a
+      // month, stated in thousands, read "1 | 1 | – | (1) | (1)": a step of
+      // 500 prints as the thousand either side of it. A coarser axis is
+      // taken until every tick is a figure of its own.
+      : pitchedAxisDomain([domain.min, domain.max], boxPx - FULL_GRID.top - FULL_GRID.bottom, (d) => new Set(ticksOf(d).map(formatValue)).size === d.splitNumber + 1);
+  const tickPx = ticked === null ? 0 : Math.max(...ticksOf(ticked).map((v) => packFigureWidthPx(formatValue(v), 12)));
   const left = Math.max(CHART_GUTTER_PX, Math.ceil(tickPx + TICK_MARGIN_PX + 2));
   const endpoints = axis !== undefined && 'endpoints' in axis;
   return {

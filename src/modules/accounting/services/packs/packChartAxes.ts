@@ -208,19 +208,28 @@ export const TICK_PITCH_PX = 26;
 export const MIN_TICK_PITCH_PX = 18;
 
 /**
- * `axisDomain` for a plot of known height, with an explicit `interval`: as
- * many steps as the plot holds at `TICK_PITCH_PX`, and never so many that two
- * ticks stand closer than `MIN_TICK_PITCH_PX` — rounding the bounds out can
- * draw more steps than were asked for, so the ask is lowered until it does
- * not. A plot too short for two legible steps draws one, its two ends.
+ * `axisDomain` for a plot of known height, with an explicit `interval`.
+ *
+ * It AIMS for a step every `TICK_PITCH_PX` and never goes under
+ * `MIN_TICK_PITCH_PX`. Rounding the bounds out can draw more steps than were
+ * asked for, so the ask is lowered until the drawn count is the comfortable
+ * one; only where no ask gives that is a closer pitch taken, down to the
+ * legible floor. A plot too short for two legible steps draws one, its ends.
+ *
+ * @param accept A further test the caller puts to each candidate — the cash
+ *   line refuses an axis that prints the same figure on two ticks. Coarser
+ *   candidates are tried until one passes.
  */
-export function pitchedAxisDomain(values: number[], plotPx: number): AxisDomain {
+export function pitchedAxisDomain(values: number[], plotPx: number, accept: (domain: AxisDomain) => boolean = () => true): AxisDomain {
   const budget = Math.max(1, Math.floor(plotPx / MIN_TICK_PITCH_PX));
-  let ask = Math.min(Math.max(2, Math.floor(plotPx / TICK_PITCH_PX)), budget);
-  let domain = axisDomain(values, ask);
-  while (domain.splitNumber > budget && ask > 1) domain = axisDomain(values, ask -= 1);
-  const steps = Math.min(domain.splitNumber, budget);
-  return { ...domain, splitNumber: steps, interval: (domain.max - domain.min) / steps };
+  const target = Math.max(1, Math.floor(plotPx / TICK_PITCH_PX));
+  const stated = (domain: AxisDomain): AxisDomain => ({ ...domain, interval: (domain.max - domain.min) / domain.splitNumber });
+  const candidates: AxisDomain[] = [];
+  for (let ask = Math.min(Math.max(2, target), budget); ask >= 1; ask -= 1) candidates.push(stated(axisDomain(values, ask)));
+  const whole = candidates[candidates.length - 1]!;
+  return candidates.find((d) => d.splitNumber <= target && accept(d))
+    ?? candidates.find((d) => d.splitNumber <= budget && accept(d))
+    ?? stated({ ...whole, splitNumber: 1 });
 }
 
 /**

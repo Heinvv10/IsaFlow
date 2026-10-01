@@ -103,6 +103,8 @@ function* series(seedValue: number, n: number): Generator<number[]> {
 
 const RUNGS_MM = [110, 72, 48, 36];
 const NAMED: Array<[string, number[]]> = [
+  ['under a thousand a month', [0.9, -0.4, 1.2, -0.9, 0.3]],
+  ['a few thousand, unevenly', [2.4, -1.1, 0.2, 3.6]],
   ['cash past a hundred billion', [-120_000_000_000, -180_000_000_000, -90_000_000_000, -250_000_000_000].map((v) => v / 1000)],
   ['falling into the last month', [-108, -115, -118, -560, -800, -1000, -1200, -1400, -1600, -300, -548]],
   ['climbing into the last month', [-108, -115, -118, -560, -800, -1000, -1200, -1400, -1600, -900, -300]],
@@ -132,6 +134,10 @@ function check(closing: number[], heightMm: number, tag: string, failures: strin
   if (ys.length < 2 && new Set(closing).size > 1 && plot.bottom - plot.top >= MIN_TICK_PITCH_PX) failures.push(`${tag}: ${ys.length} value ticks`);
   for (let i = 1; i < ys.length; i += 1) if (ys[i]! - ys[i - 1]! < MIN_TICK_PITCH_PX - 0.01) { failures.push(`${tag}: ticks ${(ys[i]! - ys[i - 1]!).toFixed(1)}px apart`); break; }
   if (ticks.some((t) => t.left < -0.5)) failures.push(`${tag}: a tick runs off the left edge`);
+  // And no two ticks print the same figure: under a thousand a month the
+  // axis read "1 | 1 | – | (1) | (1)" at R'000.
+  const printed = ticks.map((t) => t.text);
+  if (new Set(printed).size !== printed.length) failures.push(`${tag}: ticks repeat — ${printed.join(' | ')}`);
   const spare = W - ground.right;
   // (A single point is drawn mid-plot, not at its right edge.)
   if (closing.length > 1 && spare > 4) failures.push(`${tag}: ${spare.toFixed(1)}px of gutter beyond "${ground.text}"`);
