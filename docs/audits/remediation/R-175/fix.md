@@ -780,6 +780,9 @@ before the company charge, and reads it after. A document with no rendered HTML 
 after the charge and the unit was not given back. Tested: a missing file leaves the bucket
 untouched. Mutant HT1 red.
 
+The comment in `pages/api/mcp/index.ts` said `checkRateLimit` counts every call; since review
+round 3 a refused call is not counted. Corrected.
+
 ## Rollback
 
 Revert the branch's commits. No migration, no data change, no configuration. Counters written
