@@ -36,6 +36,9 @@ interface PrRow {
   company_name: string | null;
 }
 
+/** Bound on the gateway call: a public route must not wait on a slow gateway without limit. */
+const GATEWAY_TIMEOUT_MS = 10_000;
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
@@ -67,7 +70,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   let status = pr.status;
   if (pr.purpose === 'customer_invoice' && (status === 'pending' || status === 'failed')) {
     try {
-      const live = await verifyTransaction(pr.paystack_reference);
+      const live = await verifyTransaction(pr.paystack_reference, { timeoutMs: GATEWAY_TIMEOUT_MS });
       let mapped: 'completed' | 'failed' | 'cancelled' | 'pending' = 'pending';
       if (live.status === 'success') mapped = 'completed';
       else if (live.status === 'failed') mapped = 'failed';
