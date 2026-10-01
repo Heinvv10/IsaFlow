@@ -172,6 +172,22 @@ describe('AP migration wizard page', () => {
     const { container } = render(<ApInvoicesPage />);
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File(['x'], 'ap.csv', { type: 'text/csv' })] } });
-    expect(await screen.findByText(/Couldn't load suppliers/, undefined, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByText(/Couldn't load suppliers.*Upload the file again/, undefined, { timeout: 5000 })).toBeTruthy();
+  }, 20000);
+
+  it('the next file upload retries the supplier load after a failure', async () => {
+    let fail = true;
+    const impl = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url: string | URL | Request, init?: RequestInit) =>
+      String(url).startsWith('/api/accounting/suppliers-list') && fail ? new Response('{}', { status: 500 }) : impl(url as string, init));
+    const { container } = render(<ApInvoicesPage />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const upload = () => fireEvent.change(input, { target: { files: [new File(['x'], 'ap.csv', { type: 'text/csv' })] } });
+    upload();
+    await screen.findByText(/Couldn't load suppliers/, undefined, { timeout: 5000 });
+    fail = false;
+    upload();
+    expect(await screen.findByText('HIGH', undefined, { timeout: 5000 })).toBeTruthy();
+    expect(screen.queryByText(/Couldn't load suppliers/)).toBeNull();
   }, 20000);
 });

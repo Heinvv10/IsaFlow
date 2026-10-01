@@ -59,4 +59,30 @@ describe('supplier statements page supplier pickers', () => {
     await waitFor(() => expect(posted).not.toBeNull());
     expect(posted!.get('supplierId')).toBe(SUP);
   });
+
+  async function openModalAndPick(container: HTMLElement) {
+    fireEvent.click(screen.getByRole('button', { name: /Upload statement/ }));
+    const inputs = screen.getAllByRole('textbox', { name: 'Supplier' });
+    await pick(inputs[inputs.length - 1]!);
+    return container;
+  }
+
+  it('reopening the modal after an upload does not carry the previous supplier', async () => {
+    const { container } = render(<SupplierStatementsIndexPage />);
+    await openModalAndPick(container);
+    fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [new File(['%PDF'], 's.pdf', { type: 'application/pdf' })] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }));
+    await waitFor(() => expect(posted).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText('Upload Supplier Statement')).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: /Upload statement/ }));
+    expect((container.querySelector('input[name="modalSupplier"]') as HTMLInputElement).value).toBe('');
+  });
+
+  it('cancelling the modal does not carry the supplier to the next open', async () => {
+    const { container } = render(<SupplierStatementsIndexPage />);
+    await openModalAndPick(container);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: /Upload statement/ }));
+    expect((container.querySelector('input[name="modalSupplier"]') as HTMLInputElement).value).toBe('');
+  });
 });
