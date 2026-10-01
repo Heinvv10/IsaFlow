@@ -1,7 +1,7 @@
 /**
  * Document Capture API
  * POST /api/accounting/document-capture  — Upload PDF or image, extract data, save
- * GET  /api/accounting/document-capture  — List captured documents
+ * GET  /api/accounting/document-capture  — List captured documents (`?id=<uuid>` returns one, company-scoped)
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -21,6 +21,8 @@ import type { CapturedDocument } from '@/modules/accounting/types/documentCaptur
 export const config = {
   api: { bodyParser: false },
 };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -100,6 +102,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const status = req.query.status as string | undefined;
+  const id = req.query.id;
+
+  if (id !== undefined) {
+    if (typeof id !== 'string' || !UUID_RE.test(id)) return apiResponse.badRequest(res, 'id must be a UUID');
+    const [row] = await sql`
+      SELECT * FROM captured_documents WHERE id = ${id}::UUID AND company_id = ${companyId}
+    ` as Record<string, unknown>[];
+    if (!row) return apiResponse.notFound(res, 'Document', id);
+    return apiResponse.success(res, mapRow(row));
+  }
+
   const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
   const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || '25'), 10)));
   const offset = (page - 1) * pageSize;
