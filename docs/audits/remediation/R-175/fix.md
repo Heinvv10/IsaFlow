@@ -719,6 +719,44 @@ Not verified in this round:
   reproduced.
 - Load, and the statement under concurrency from separate processes.
 
+## Review round 5
+
+Both blind reviewers said SHIP on 85b2cd6fd with no HIGH or MEDIUM. Every LOW is fixed.
+
+1. **Stale snapshot in the refusal cache.** The comment said the refused row could only be stale
+   low. That was wrong: a refund that commits while the upsert waits for the row lock is not in
+   the statement's snapshot, so the row read "full" when it was not, and a fitting cost-1 call
+   was refused from memory. Reproduced deterministically against PostgreSQL (a held refund, a
+   cost-5 charge waiting on it, commit; then a cost-1 call). Now, when the snapshot says full,
+   the latest committed count is re-read in its own statement and only that is remembered. Cost:
+   one extra read per refusal that would be cached.
+2. **A company known to be full costs no writes.** The AI and send wrappers consult the daily
+   key's refusal cache first, before even the per-IP bucket. Tested by counting statements on
+   the limiter pool: 25 requests on a full company, zero statements.
+3. **Cross-company bucket.** Next to `<route>:attempts:<company>:<user>` (30 per 15 minutes),
+   each send route also charges `<route>:user-attempts:<user>` (90 per 15 minutes, 3x). The
+   per-company key stops a bureau user starving one client; the other bounds the total. Both
+   are abuse limits, never given back. A distinct prefix, so the key census does not see
+   overlapping patterns.
+4. **`invoice-email` excludes deleted invoices** in its ownership guard. `sendInvoiceEmail`
+   itself does not: it reads the invoice without a `deleted_at` filter and would email a
+   deleted one. So this is a behaviour change: a deleted invoice can no longer be emailed
+   through this route (404). `sendInvoiceEmail` was not changed.
+5. **`send-for-signing` charges early.** Right after the document read and its two status
+   checks, before the contact queries, the company query and the file read. A foreign document
+   still leaves the bucket untouched. A request refused at the contact check now spends one
+   unit; that is the trade asked for.
+
+Tests and mutants: integration 6 files, 59 pass (red 3 of 23 on 85b2cd6fd, `red.r5.int.log`,
+including the race); round-5 unit files red 17 of 70 (`red.r5.unit.log`); whole unit suite 1125
+files, 15038 pass; mutants 141, 140 red at first, the survivor (`isKnownFull` ignoring `max`)
+killed by a new test (`mutations.log`, round 7).
+
+Process note: during this round a mutation dry run (`git checkout -- src pages` after each
+mutant) was started before the round's changes were committed and reverted them. They were
+restored from a copy taken minutes earlier, the full suites were re-run green, and only then
+committed and mutated.
+
 ## Rollback
 
 Revert the branch's commits. No migration, no data change, no configuration. Counters written
