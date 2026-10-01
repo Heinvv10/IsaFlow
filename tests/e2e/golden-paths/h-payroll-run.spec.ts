@@ -45,7 +45,15 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
     const calculated = await api.post<any>(`/api/payroll/runs/${runId}/calculate`);
     expect(Number(calculated.employeeCount ?? calculated.totalGross ?? 1)).toBeGreaterThan(0);
 
-    const approved = await api.post<any>(`/api/payroll/runs/${runId}/approve`);
+    // Approve as the run page does: preview the journal, then send the hash of
+    // what was previewed — the route refuses an approval without it (BRK-596).
+    const preview = await api.get<any>(`/api/payroll/runs/${runId}/journal-plan`);
+    expect(preview.blocker, 'the costed run must be approvable').toBeNull();
+    expect(preview.planHash).toBeTruthy();
+
+    const approved = await api.post<any>(`/api/payroll/runs/${runId}/approve`, {
+      expectedPlanHash: preview.planHash,
+    });
     approvedRunId = runId;
     expect(approved.status).toBe('approved');
     expect(approved.journalEntryId, 'approve must post a GL journal').toBeTruthy();

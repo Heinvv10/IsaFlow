@@ -27,6 +27,7 @@ import { als } from '../src/lib/als';
 // Real services — via relative paths. tsx resolves the @/ aliases
 // inside these files via the root tsconfig paths.
 import { generateWipInvoice } from '../src/modules/accounting/services/practice/practiceWipService';
+import { withAlsTransaction } from '../src/lib/alsTransaction';
 import { approvePayrollRun } from '../src/modules/accounting/services/payroll/payrollApprovalService';
 import {
   createPayrollRun,
@@ -71,6 +72,7 @@ async function inRequestTx<T>(fn: () => Promise<T>): Promise<T> {
 }
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const VAT_MONTHS  = new Set([2, 4, 6, 8, 10, 12]);
+const PAYROLL_ACTOR = { companyId: COMPANY_ID, userId: ADMIN_ID };
 
 // ── PREREQ: link each practice_client to a customer ─────────────────────────
 
@@ -154,9 +156,11 @@ async function runPayrollApprove(month: number, year: number, errors: Err[]): Pr
       // Create + calculate new run for this period
       const run = await createPayrollRun(COMPANY_ID, { year, month }, ADMIN_ID);
       runId = run.id;
-      await calculatePayrollRun(runId, COMPANY_ID);
+      // In one transaction, so the run's header lock holds for the calculation (W3-01 round 5).
+      await withAlsTransaction(PAYROLL_ACTOR, () => calculatePayrollRun(run.id, COMPANY_ID));
     }
-    const approved = await approvePayrollRun(COMPANY_ID, runId, ADMIN_ID);
+    const approvedRunId = runId;
+    const approved = await withAlsTransaction(PAYROLL_ACTOR, () => approvePayrollRun(COMPANY_ID, approvedRunId, ADMIN_ID));
     console.log(`  [payroll] run ${runId.slice(0,8)} approved — JE ${approved.journalEntryId?.slice(0,8) ?? '?'} gross R${approved.totalGross?.toFixed(2) ?? '?'} PAYE R${approved.totalPaye?.toFixed(2) ?? '?'} net R${approved.totalNet?.toFixed(2) ?? '?'}`);
     return runId;
   } catch (err) {
