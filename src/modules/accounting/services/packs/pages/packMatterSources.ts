@@ -9,7 +9,7 @@
 import { getAgingReport } from '@/modules/accounting/services/reports/agingReportService';
 import { formatMoney, inScale } from '@/lib/format/money';
 import { PACK_SCALE } from './packBasis';
-import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
+import { getBankAccountsStatus, type BankAccountStatusRow } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getUnusualJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
 import { getOverdueStatutoryFilings } from '@/modules/accounting/services/reports/statutoryFilingsService';
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
@@ -171,8 +171,7 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
   // `unreconciledCount` is a different population (status imported or
   // allocated); `suggestedCount` and `unallocatedCount` split the amount's
   // own population in two, so their sum is the count that belongs beside it.
-  const itemsOn = (r: Record<string, unknown>): number =>
-    Number(r.suggestedCount ?? 0) + Number(r.unallocatedCount ?? 0);
+  const itemsOn = (r: BankAccountStatusRow): number => r.suggestedCount + r.unallocatedCount;
   const items = rows.reduce((s, r) => s + itemsOn(r), 0);
   // THE COUNT RAISES THE MATTER, NOT THE AMOUNT. `unreconciledBalance` is each
   // account's NET unmatched amount, and it was also the gate: an unmatched
@@ -182,7 +181,7 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
   // What the service can give: the net per account. Added WITHOUT sign across
   // accounts, so an inflow on one cannot cancel an outflow on another — and
   // said to be that, because it is not the gross value of the items.
-  const total = round2(rows.reduce((s, r) => s + Math.abs(Number(r.unreconciledBalance ?? 0)), 0));
+  const total = round2(rows.reduce((s, r) => s + Math.abs(r.unreconciledBalance), 0));
   const amountClause = total === 0
     ? '; receipts and payments among them net to nil on each account, so no amount is stated'
     : '; the amount is the net unmatched amount on each account, added without regard to sign';
