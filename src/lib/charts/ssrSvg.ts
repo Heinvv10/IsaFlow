@@ -164,7 +164,10 @@ function assertNoDefaultFontFamily(svg: string): void {
     ...[...style.matchAll(/font-family\s*:\s*([^;]*)/g)].map((m) => m[1]!.trim()),
     // zrender's own spelling for a raw text element is the `font` SHORTHAND —
     // `font: 12px sans-serif` — which no `font-family` scan would ever see.
-    ...[...style.matchAll(/(?:^|;)\s*font\s*:\s*[\d.]+px\s+([^;]*)/g)].map((m) => m[1]!.trim()),
+    // Style/weight words may PRECEDE the size (`bold 12px …`, `italic bold
+    // 12px …`, `600 12px …`) and a line height may follow it (`12px/1.4 …`).
+    ...[...style.matchAll(/(?:^|;)\s*font\s*:\s*(?:[a-z0-9-]+\s+)*?[\d.]+px(?:\/[\d.]+(?:px)?)?\s+([^;]*)/g)]
+      .map((m) => m[1]!.trim()),
   ]);
   const bare = [...new Set(families.filter((family) => RENDERER_DEFAULT_FACES.has(family)))];
   if (bare.length > 0) {
@@ -184,11 +187,6 @@ export function renderChartSvg(
   const height = Math.round(opts.heightMm * PX_PER_MM);
   const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, width, height });
   try {
-    // `animation: false` is defensive, not load-bearing. Under `ssr: true`
-    // zrender draws a complete frame regardless — measured: bar heights are
-    // identical with the flag true, false, or absent. It is kept because the
-    // option is handed to a headless renderer that must never be asked for a
-    // partial frame, but do not believe it is what makes the chart appear.
     // THE FAMILY, ON EVERY CHART, FROM ONE PLACE.
     //
     // ECharts writes `font-family` as an ATTRIBUTE on every `<text>` it
@@ -206,6 +204,11 @@ export function renderChartSvg(
     chart.setOption({
       textStyle: { fontFamily: PACK_FONT_STACK },
       ...(option as Record<string, unknown>),
+      // `animation: false` is defensive, not load-bearing. Under `ssr: true`
+      // zrender draws a complete frame regardless — measured: bar heights are
+      // identical with the flag true, false, or absent. It is kept because the
+      // option is handed to a headless renderer that must never be asked for a
+      // partial frame, but do not believe it is what makes the chart appear.
       animation: false,
     });
     const svg = stableIds(chart.renderToSVGString());
