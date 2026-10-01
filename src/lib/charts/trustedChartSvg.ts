@@ -74,7 +74,8 @@ export type TrustedChartSvg = string & { readonly __trustedChartSvg: unique symb
  *     else — `<use>`, `<animate>`, `<set>`, `<a>`, `<animateTransform>` — is
  *     refused. If a future chart legitimately emits another element this
  *     throws and names it; the fix is to admit that exact element here.
- *  3. EVERY `url(…)` MUST BE A SAME-DOCUMENT REFERENCE, `url(#id)`. zrender
+ *  3. NO SCHEME, `//` OR `image-set(` IN ANY ATTRIBUTE VALUE, and EVERY
+ *     `url(…)` MUST BE A SAME-DOCUMENT REFERENCE, `url(#id)`. zrender
  *     writes `clip-path="url(#zr…-0)"` on its clip groups and nothing else; a
  *     `url(https://…)` in a `style` or presentation attribute is a fetch.
  *
@@ -116,7 +117,9 @@ export function assertNoExternalReferences(svg: string): void {
     [/<script\b/i, 'a script element'],
     [/<foreignObject\b/i, 'a foreignObject'],
     [/<image\b/i, 'an image element'],
-    [/\son[a-z]+\s*=/i, 'an event-handler attribute'],
+    // At ANY attribute boundary, not only after whitespace: `<svg/onload=…>`
+    // and `x="1"onload=…` are parsed as attributes by a browser.
+    [/[\s"'/]on[a-z]+\s*=/i, 'an event-handler attribute'],
     [/\b(?:xlink:)?href\s*=/i, 'an href'],
   ];
   for (const [pattern, what] of checks) {
@@ -137,6 +140,19 @@ export function assertNoExternalReferences(svg: string): void {
     if (!ALLOWED_ELEMENTS.has(name!)) {
       throw new Error(
         `renderChartSvg: refusing a chart containing an element outside the allow-list (<${name}>)`,
+      );
+    }
+  }
+  // No reference of any kind inside an attribute value: `image-set(`, a scheme
+  // (`http:`, `https:`, `data:`, `javascript:`) or a protocol-relative `//`.
+  // zrender's attribute values are numbers, colours, path data, a font stack
+  // and `url(#id)`; none contains a colon-scheme or a double slash. (`xmlns`
+  // declarations were removed above.)
+  for (const [, dq, sq] of structure.matchAll(/\s[\w:-]+\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+    const value = dq ?? sq ?? '';
+    if (/image-set\s*\(|\b(?:https?|data|javascript|file|ftp):|\/\//i.test(value)) {
+      throw new Error(
+        `renderChartSvg: refusing a chart containing an external reference (${JSON.stringify(value.slice(0, 60))} in an attribute)`,
       );
     }
   }

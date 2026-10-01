@@ -58,6 +58,42 @@ describe('url() must be a same-document reference', () => {
   });
 });
 
+describe('handlers at any attribute boundary', () => {
+  it.each([
+    ['after a slash', '<svg/onload="alert(1)"></svg>'],
+    ['straight after a closing quote', '<rect x="1"onload="alert(1)"/>'],
+    ['after a single quote', "<rect x='1'onclick='alert(1)'/>"],
+  ])('refuses a handler %s', (_what, markup) => {
+    expect(() => assertNoExternalReferences(markup.startsWith('<svg') ? markup : svg(markup)))
+      .toThrow(/event-handler attribute/);
+  });
+  it('does not read an attribute that merely begins with "on" inside a value', () => {
+    expect(() => assertNoExternalReferences(svg('<g data-label="one two"><path d="M0 0"/></g>'))).not.toThrow();
+  });
+});
+
+describe('no reference of any kind inside an attribute value', () => {
+  it.each([
+    ['image-set() in a style', '<rect style="fill:image-set(\'https://x\' 1x)"/>'],
+    ['image-set() with no scheme', '<rect style="background:image-set(a 1x)"/>'],
+    ['an https scheme in a presentation attribute', '<rect fill="https://evil.example/a.svg#f"/>'],
+    ['a data: scheme', '<rect style="mask:data:image/svg+xml;base64,AAAA"/>'],
+    ['a javascript: scheme', '<rect fill="javascript:alert(1)"/>'],
+    ['a protocol-relative reference', '<rect style="cursor://evil.example/c"/>'],
+  ])('refuses %s', (_what, body) => {
+    expect(() => assertNoExternalReferences(svg(body))).toThrow(/external reference/i);
+  });
+});
+
+describe('the gradient elements the allowlist admits', () => {
+  it('passes a linear and a radial gradient referenced by url(#id)', () => {
+    const body = '<defs><linearGradient id="zr1-0"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient>'
+      + '<radialGradient id="zr1-1"><stop offset="0" stop-color="#fff"/></radialGradient></defs>'
+      + '<path d="M0 0L1 1" fill="url(#zr1-0)"/><rect fill="url(#zr1-1)"/>';
+    expect(() => assertNoExternalReferences(svg(body))).not.toThrow();
+  });
+});
+
 describe('every chart the board pack produces passes', () => {
   function walk(v: unknown, out: string[]): void {
     if (typeof v === 'string') { if (v.startsWith('<svg')) out.push(v); }
