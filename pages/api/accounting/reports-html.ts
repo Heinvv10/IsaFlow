@@ -13,11 +13,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
-import {
-  getFinancialFigures,
-  totalEquity,
-  unclassifiedWarning,
-} from '@/modules/accounting/services/gl/financialFiguresService';
+import { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
+import { readReportPackInput } from '@/modules/accounting/services/reports/reportPackDataService';
 import { cashFlowPackRows, ratioPackRows } from '@/modules/accounting/services/reports/packUnstatedRows';
 import { buildDataQualityNotices } from '@/modules/accounting/services/reports/dataQualityNotices';
 import { log } from '@/lib/logger';
@@ -26,7 +23,6 @@ import {
   buildReportPack,
   type PackType,
   type PackSection,
-  type ReportPackInput,
 } from '@/modules/accounting/services/reports/reportPackService';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 
@@ -61,37 +57,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'from and to must be ISO dates (YYYY-MM-DD)');
   }
 
-  const [figures, companyRow] = await Promise.all([
-    getFinancialFigures(companyId, from, to),
-    getCompanyName(companyId),
-  ]);
-
-  const { period, cumulative } = figures;
-  const netProfit = period.netProfit;
-
-  const data: ReportPackInput = {
-    companyName: companyRow?.name || 'Company',
-    period: `${from} to ${to}`,
-    revenue: period.revenue,
-    costOfSales: period.costOfSales,
-    operatingExpenses: period.operatingExpenses,
-    netProfit,
-    totalAssets: cumulative.totalAssets,
-    totalLiabilities: cumulative.totalLiabilities,
-    totalEquity: totalEquity(figures),
-    currentAssets: cumulative.currentAssets,
-    currentLiabilities: cumulative.currentLiabilities,
-    cash: cumulative.cash,
-    accountsReceivable: cumulative.accountsReceivable,
-    accountsPayable: cumulative.accountsPayable,
-    inventory: cumulative.inventory,
-  };
+  // THE SAME INPUT THE PDF, THE DECK, THE SCREEN AND A SHARED LINK ARE BUILT
+  // FROM. It was assembled here by hand without other income, other expenses
+  // or the cash flows, so this document's income statement did not foot to
+  // net profit and printed a different operating profit from the PDF of the
+  // same period. One read after the other: both run on the request's one
+  // connection, and the producer takes a savepoint around its cash-flow read.
+  const companyRow = await getCompanyName(companyId);
+  const { input: data, figures } = await readReportPackInput(
+    companyId, companyRow?.name || 'Company', from, to,
+  );
 
   const pack = buildReportPack(type as PackType, data, from, to);
   // This endpoint returns a document, not JSON — the caveat has to be IN the
   // document or nobody sees it.
   const notices = buildDataQualityNotices({
-    unclassifiedAccounts: unclassifiedWarning(cumulative),
+    unclassifiedAccounts: unclassifiedWarning(figures.cumulative),
   });
   const html = buildReportHtml(pack, type as PackType, from, to, notices);
 
