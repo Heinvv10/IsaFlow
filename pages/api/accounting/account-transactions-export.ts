@@ -27,7 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const periodStart = req.query.period_start as string;
   const periodEnd = req.query.period_end as string;
 
-  if (!accountCode) return apiResponse.badRequest(res, 'account_code is required');
+  if (typeof accountCode !== 'string' || !accountCode) return apiResponse.badRequest(res, 'account_code is required (one non-empty value)');
   if (!periodStart) return apiResponse.badRequest(res, 'period_start is required');
   if (!periodEnd) return apiResponse.badRequest(res, 'period_end is required');
 

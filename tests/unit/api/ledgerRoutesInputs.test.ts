@@ -92,6 +92,19 @@ describe('an account that is not this company\'s is a 404 (identical for missing
   }, 5000);
 });
 
+describe('account_code must be a non-empty string (a repeated parameter is an array)', () => {
+  it.each([
+    ['reports-account-transactions', accountTransactions, (v: unknown) => ({ account_code: v, period_start: '2026-01-01', period_end: '2026-09-30' })],
+    ['account-transactions-export', transactionsExport, (v: unknown) => ({ account_code: v, period_start: '2026-01-01', period_end: '2026-09-30' })],
+    ['reports-account-ledger', accountLedger, (v: unknown) => led({ account_code: v })],
+  ])('%s', async (_n, handler, q) => {
+    for (const bad of [['5000', '4000'], '', undefined, ['']]) {
+      expect(await call(handler, q(bad)), JSON.stringify(bad)).toBe(400);
+    }
+    expect(none()).toBe(true);
+  }, 5000);
+});
+
 describe('a NUL byte in any string query parameter is a 400 before any service runs', () => {
   const NUL = '50\u000000';
   it.each([

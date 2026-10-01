@@ -71,7 +71,7 @@ export async function getBankTransactions(
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND ga.account_code = ${bankCode}
-      ORDER BY je.entry_date, je.created_at
+      ORDER BY je.entry_date, COALESCE(je.created_at, 'epoch'::timestamptz), jl.id
     `) as Row[];
 
     const acctRows = (await sql`
