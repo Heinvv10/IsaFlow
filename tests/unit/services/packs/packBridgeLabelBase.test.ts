@@ -146,8 +146,8 @@ describe('a short bar at the edge of the domain, under a long category name', ()
     expectOnItsSide(render(falling, false), falling[1]!, '(10)');
   });
 
-  it('keeps both figures on the plot the way the on-screen pack draws them', () => {
-    // `PackSectionView` hands the option the 320px box `PackChart` draws.
+  it('keeps both figures on the plot in a 320px box', () => {
+    // The on-screen view draws without a box — `packLegacyBridgeContainment`.
     for (const [steps, text] of [[RISING, '170'], [FALLING, '(170)']] as const) {
       const svg = String(renderChartSvg(
         waterfallOption(steps, PACK_SCALE, undefined, undefined, false, undefined, 320),
