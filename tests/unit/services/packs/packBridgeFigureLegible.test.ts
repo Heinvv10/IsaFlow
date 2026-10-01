@@ -28,6 +28,7 @@ import { MIN_TICK_PITCH_PX } from '@/modules/accounting/services/packs/packChart
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { bars, clipRect, figures, haloOrder, illegible, outsideClip, straddlesOwnBar, textOnText, wrongSide } from './support/bridgeSvg';
+import { outsideSvg } from './support/svgBounds';
 import { yAxisTicks } from './support/svgTicks';
 import { bridgeFuzz } from './support/bridgeFuzz';
 import { renderLegacyBridge } from './support/legacyBridge';
@@ -59,6 +60,7 @@ function faults(svg: string, steps: WaterfallStep[]): string[] {
     ...drawn.filter((f, k) => straddlesOwnBar(f, own[k]!)).map((f) => `"${f.text}" is part on its bar and part off`),
     ...drawn.filter((f, k) => steps[k]!.end !== steps[k]!.start && wrongSide(f, own[k]!, steps[k]!.end > steps[k]!.start)).map((f) => `"${f.text}" is on the wrong side of its bar`),
     ...textOnText(svg),
+    ...outsideSvg(svg),
     ...illegible(svg),
     ...(pitch < MIN_TICK_PITCH_PX - 0.01 ? [`value ticks ${pitch.toFixed(1)}px apart`] : []),
   ];

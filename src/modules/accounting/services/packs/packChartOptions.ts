@@ -70,8 +70,10 @@ export interface TrendPoint {
   value: number;
 }
 
-/** The size a value axis sets its ticks at. */
+/** The size a value axis sets its ticks and its name at. */
 const TICK_PX = 12;
+/** ECharts' own gap between a value axis's end and its name. */
+const AXIS_NAME_GAP_PX = 15;
 
 /** The rungs' chrome lives with the layout that sizes the plot from it —
  *  see `packWaterfallDomain.ts`. */
@@ -145,7 +147,10 @@ export function waterfallOption(
       axisLabel: { color: palette.axis, interval: 0, rotate: 30, fontSize: chrome.labelPx },
       axisLine: { lineStyle: { color: palette.axis } },
     },
-    yAxis: moneyValueAxis(palette, scale, domain),
+    // THE AXIS NAME STAYS ON THE CHART. ECharts sets it 15px clear of the
+    // axis, which on the compact rung's 20px of head centred `R'000` a pixel
+    // above the SVG — the unit the chart is stated in, cut in half.
+    yAxis: { ...moneyValueAxis(palette, scale, domain), nameGap: Math.min(AXIS_NAME_GAP_PX, frame.top - TICK_PX - 1) },
     series: [
       {
         name: 'waterfall',
