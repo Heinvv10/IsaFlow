@@ -41,6 +41,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, type Browser } from 'playwright';
 import { textWidthEms, WIDTH_SAFETY } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { buildDefinitions } from '@/modules/accounting/services/packs/pages/packDefinitions';
+import { NO_INVENTORY_CLASSIFIED } from '@/modules/accounting/services/packs/pages/packScorecard';
+import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import {
   brightsphereInput,
@@ -80,12 +83,20 @@ const ROOT = path.resolve(__dirname, '../../..');
 const HOST = 'http://ruler.calibration.local/';
 const PT = 9.5;
 
+function debtorDaysDefinition(): string {
+  const term = buildDefinitions(demoInput.set, new PackFigureProvenance()).find((d) => d.term === 'Debtor days');
+  if (term === undefined) throw new Error('the glossary has no Debtor days entry to calibrate against');
+  return term.definition;
+}
+
 /** Sentences this pack prints, taken from the services that build them. */
 const SENTENCES: Array<[string, string]> = [
   ['cash, why no bridge is drawn', 'Cash moved (267) to (3 453) over the period, a movement of (3 186). No bridge is drawn because there is nothing to bridge THROUGH: this pack’s figure set carries the period’s cash totals and none of the operating, investing or financing figures a cash flow statement is made of, so every step between the two balances would be one unmeasured step the width of the whole movement. Ask for the cash flow statement for the split.'],
   ['the rounding note', 'Figures are rounded to the nearest R’000, so components may not add exactly to the totals shown.'],
-  ['the inventory caveat', 'No account in the chart of accounts is classified as inventory, so inventory could not be identified and the quick ratio does not exclude it: on these figures the quick ratio and the current ratio are the same number.'],
-  ['the debtor-days definition', 'Trade receivables over revenue, times 365 — an annualised figure on the scorecard and highlights, whatever the length of the reporting period.'],
+  // Imported from the modules that print them, so the calibration measures the
+  // real text and cannot drift from it as a hand-copied string did.
+  ['the inventory caveat', NO_INVENTORY_CLASSIFIED],
+  ['the debtor-days definition', debtorDaysDefinition()],
   ['the scoring-basis pointer', 'Each metric is scored against the platform’s default target. The basis page defines the terms and every formula used here.'],
   ['the trends scale note', 'Revenue, Operating expenses, Net profit and Cash share one y-scale, so none of them can look like it moved more than it did.'],
   // THE WORST OF THE 344 STRINGS THE TEN FIXTURES PRINT, and the one the

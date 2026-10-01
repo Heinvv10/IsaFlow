@@ -63,6 +63,11 @@ run_step "oauth-trust-flags"      bun scripts/ci/check-oauth-trust-flags.ts
 run_step "workflow-runs-ci"       bun scripts/ci/check-workflow-runs-ci.ts
 run_step "unit-tests"        bun run test:unit
 run_step "component-tests"   bun run test:components
+# The tests that launch real Chromium (tests/unit/print/). Excluded from
+# unit-tests above, where they timed out beside ~800 parallel files, and
+# run here one file at a time. REQUIRED, like every other step: a failure or a
+# timeout fails the gate.
+run_step "browser-tests"     bun run test:print
 run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 
 if [ -n "${DATABASE_URL:-}" ]; then
