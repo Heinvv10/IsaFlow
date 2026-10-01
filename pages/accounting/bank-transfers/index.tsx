@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 interface BankAccount {
   id: string;
@@ -21,7 +22,7 @@ export default function BankTransfersPage() {
   const [toAccount, setToAccount] = useState('');
   const [amount, setAmount] = useState('');
   const [reference, setReference] = useState('');
-  const [transferDate, setTransferDate] = useState(new Date().toISOString().split('T')[0]);
+  const [transferDate, setTransferDate] = useState(localISODate());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState({ type: '', text: '' });

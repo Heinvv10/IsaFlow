@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 interface Row { date: string; type: string; reference: string; itemCode: string; itemName: string; qtyIn: number; qtyOut: number; balance: number; }
 
@@ -15,8 +16,8 @@ export default function ItemMovementReport() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const today = new Date();
-  const [from, setFrom] = useState(new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0]);
-  const [to, setTo] = useState(today.toISOString().split('T')[0]);
+  const [from, setFrom] = useState(localISODate(new Date(today.getFullYear(), today.getMonth(), 1)));
+  const [to, setTo] = useState(localISODate(today));
 
   const load = useCallback(async () => {
     setLoading(true);

@@ -7,6 +7,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle } from 'lucide-react';
+import { localISODate } from '@/lib/dateUtils';
 
 interface Cell { race: string; gender: string; count: number }
 interface Level {
@@ -29,7 +30,7 @@ const RACES = ['african', 'coloured', 'indian', 'white', 'foreign'] as const;
 const GENDERS = ['male', 'female'] as const;
 
 export default function EEA2Page() {
-  const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
+  const [asOf, setAsOf] = useState(localISODate());
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');

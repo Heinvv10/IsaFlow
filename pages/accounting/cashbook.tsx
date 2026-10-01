@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { BookOpen, Loader2, AlertCircle, Filter } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -33,8 +34,8 @@ function getDefaultDates() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
   return {
-    from: start.toISOString().split('T')[0],
-    to: now.toISOString().split('T')[0],
+    from: localISODate(start),
+    to: localISODate(now),
   };
 }
 

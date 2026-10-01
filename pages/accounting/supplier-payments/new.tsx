@@ -11,6 +11,7 @@ import { fuzzyMatchSupplier } from '@/modules/accounting/utils/fuzzyMatch';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 interface Supplier { id: string; name: string }
 interface OutstandingInvoice { id: string; invoiceNumber: string; totalAmount: number; balance: number }
@@ -30,7 +31,7 @@ export default function NewSupplierPaymentPage() {
 
   const [form, setForm] = useState({
     supplierId: '',
-    paymentDate: new Date().toISOString().split('T')[0],
+    paymentDate: localISODate(),
     paymentMethod: 'eft',
     reference: '',
     description: '',

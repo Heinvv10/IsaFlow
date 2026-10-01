@@ -17,6 +17,7 @@ import { ArchiveStorageStats } from '@/components/accounting/ArchiveStorageStats
 import { ArchiveWizardSection } from '@/components/accounting/ArchiveWizardSection';
 import { ArchiveHistoryTable } from '@/components/accounting/ArchiveHistoryTable';
 import { ArchivedDataViewer } from '@/components/accounting/ArchivedDataViewer';
+import { localISODate } from '@/lib/dateUtils';
 
 const COMPONENT = 'data-archiving-page';
 const ARCHIVE_LIMIT = 50;
@@ -62,7 +63,7 @@ export default function DataArchivingPage() {
 
   const maxCutoff = (() => {
     const d = new Date(); d.setFullYear(d.getFullYear() - 5);
-    return d.toISOString().split('T')[0] ?? '';
+    return localISODate(d);
   })();
 
   const loadStats = useCallback(async () => {
