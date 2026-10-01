@@ -90,15 +90,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  // Charged once the document and every signer are known to be the company's,
-  // before the company query and the file read.
+  // 3. The rendered AFS HTML (stored by render service) must exist. Checked
+  // before the charge, read after it: a document with nothing to send must not
+  // spend the company's shared bucket.
+  const htmlPath = afsHtmlPath(companyId, documentId);
+  try {
+    await fs.access(htmlPath);
+  } catch {
+    return apiResponse.badRequest(res, 'Rendered HTML not yet generated for this document');
+  }
+
+  // Charged once the document, every signer and the rendered HTML are known to
+  // be there, before the company query and the file read.
   const sendAllowed = await checkSendRateLimit(req, companyId, 'afs-signing', { refundUnused: true });
   if (!sendAllowed) {
     return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
 
-  // 3. Load rendered AFS HTML (stored by render service)
-  const htmlPath = afsHtmlPath(companyId, documentId);
   let html: string;
   try {
     html = await fs.readFile(htmlPath, 'utf-8');
