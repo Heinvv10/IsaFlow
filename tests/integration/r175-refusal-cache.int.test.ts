@@ -16,7 +16,7 @@ import { Pool } from 'pg';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { checkRateLimit, clearRateLimitCache, refundRateLimit } from '@/lib/rateLimit';
-import { getRateLimitPool, RATE_LIMIT_POOL_MAX } from '@/lib/rateLimitPool';
+import { getRateLimitPool } from '@/lib/rateLimitPool';
 
 assertDisposable();
 
@@ -55,7 +55,7 @@ describe('R-175 — an over-limit key is refused from memory', () => {
     // With every limiter connection held, a call that needed the database would
     // wait for one and time out. The flood is answered anyway.
     const limiterPool = getRateLimitPool();
-    const held = await Promise.all(Array.from({ length: RATE_LIMIT_POOL_MAX }, () => limiterPool.connect()));
+    const held = await Promise.all(Array.from({ length: limiterPool.options.max! }, () => limiterPool.connect()));
     let verdicts: boolean[];
     try {
       verdicts = await Promise.all(Array.from({ length: 200 }, () => checkRateLimit(key, opts)));

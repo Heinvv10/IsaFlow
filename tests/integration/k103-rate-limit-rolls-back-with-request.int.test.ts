@@ -170,9 +170,9 @@ describe('K-103 rate-limit counter survives the request that spent it', () => {
   // for a connection at the same time, so one connect timeout covers them, and
   // a limiter with no timeout fails the test by never settling.
   it('fails, and does not admit, when the limiter cannot get a connection', async () => {
-    const { getRateLimitPool, RATE_LIMIT_POOL_MAX } = await import('@/lib/rateLimitPool');
+    const { getRateLimitPool } = await import('@/lib/rateLimitPool');
     const limiterPool = getRateLimitPool();
-    const held = await Promise.all(Array.from({ length: RATE_LIMIT_POOL_MAX }, () => limiterPool.connect()));
+    const held = await Promise.all(Array.from({ length: limiterPool.options.max! }, () => limiterPool.connect()));
     const key = newKey();
     let outcomes: PromiseSettledResult<unknown>[];
     try {
@@ -217,7 +217,7 @@ describe('K-103 rate-limit counter survives the request that spent it', () => {
   }, 25_000);
 
   it('bounds every statement on a limiter connection, server side first', async () => {
-    const { getRateLimitPool, RATE_LIMIT_POOL_MAX } = await import('@/lib/rateLimitPool');
+    const { getRateLimitPool } = await import('@/lib/rateLimitPool');
     const limiterPool = getRateLimitPool();
     const show = async (name: string): Promise<number> => {
       const { rows } = await limiterPool.query(`SELECT setting::int AS ms FROM pg_settings WHERE name = '${name}'`);
@@ -235,7 +235,7 @@ describe('K-103 rate-limit counter survives the request that spent it', () => {
     // A statement that stalls without waiting on a lock is cancelled by the server.
     await expect(limiterPool.query('SELECT pg_sleep(30)')).rejects.toMatchObject({ code: '57014' });
     // Every connection is usable afterwards.
-    const after = await Promise.all(Array.from({ length: RATE_LIMIT_POOL_MAX }, () => limiterPool.query('SELECT 1 AS ok')));
-    expect(after.map((r) => r.rows[0].ok)).toEqual(Array.from({ length: RATE_LIMIT_POOL_MAX }, () => 1));
+    const after = await Promise.all(Array.from({ length: limiterPool.options.max! }, () => limiterPool.query('SELECT 1 AS ok')));
+    expect(after.map((r) => r.rows[0].ok)).toEqual(Array.from({ length: limiterPool.options.max! }, () => 1));
   }, 25_000);
 });
