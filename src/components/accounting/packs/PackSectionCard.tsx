@@ -15,7 +15,8 @@ import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/m
 import { formatPackKv } from '@/components/accounting/packs/PackSectionView';
 import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 import { log } from '@/lib/logger';
-import { MissingPackFieldError, packToCashFlowUnavailable, packToRatioReasons } from '@/modules/accounting/services/packs/packSectionData';
+import { ProfitWaterfall } from '@/components/accounting/charts/ProfitWaterfall';
+import { MissingPackFieldError, packToCashFlowUnavailable, packToRatioReasons, packToWaterfallSteps } from '@/modules/accounting/services/packs/packSectionData';
 import { marginKvItem } from '@/modules/accounting/services/packs/packDocument';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 
@@ -68,9 +69,10 @@ export function SectionCard({ section, defaultOpen }: { section: PackSection; de
           {section.type === 'commentary' && (
             <div className="col-span-full text-sm text-[var(--ff-text-secondary)]">{String(d.summary ?? '')}</div>
           )}
-          {(section.type === 'waterfall' || section.type === 'trends') && (
+          {section.type === 'waterfall' && <div className="col-span-full min-w-0"><BridgeChart d={d} /></div>}
+          {section.type === 'trends' && (
             <div className="col-span-full text-sm text-[var(--ff-text-tertiary)] italic">
-              {section.type === 'waterfall' ? 'Waterfall chart data available — render with WaterfallChart component' : 'Trend data requires multi-period historical context'}
+              Trend data requires multi-period historical context
             </div>
           )}
         </div>
@@ -104,6 +106,19 @@ function reasonsOrNone(
       log.warn('SectionCard: payload predates the unavailable-reasons field; showing figures as stored', { section, field: err.field }, 'packs');
     }
     return {};
+  }
+}
+
+/** The profit bridge, drawn by the component every other screen draws it with
+ *  (`ProfitWaterfall`, which follows the theme). It used to print the sentence
+ *  "Waterfall chart data available — render with WaterfallChart component". A
+ *  saved payload with no `steps` shows a notice rather than throwing. */
+function BridgeChart({ d }: { d: Record<string, unknown> }) {
+  try {
+    return <ProfitWaterfall steps={packToWaterfallSteps(d)} title="Profit bridge" />;
+  } catch (err) {
+    if (!(err instanceof MissingPackFieldError) || d.steps !== undefined) throw err;
+    return <p className="text-sm text-[var(--ff-text-tertiary)] italic">This saved pack carries no profit bridge.</p>;
   }
 }
 
