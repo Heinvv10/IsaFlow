@@ -29,8 +29,14 @@ export function isCompact(box: { heightMm: number }): boolean {
   return box.heightMm <= CHART_HEIGHT_MM.inline;
 }
 
-export function intervalsFor(box: { heightMm: number }): number {
-  const plot = box.heightMm * PX_PER_MM - waterfallChromePx(isCompact(box));
+/**
+ * @param plotMm The height the SVG is actually rendered at — the box less its
+ *   title (`svgBoxFor`). Defaults to the box, which over-counts by the
+ *   title's height: page 8's bridge was asked for four steps in a plot with
+ *   room for three.
+ */
+export function intervalsFor(box: { heightMm: number }, plotMm = box.heightMm): number {
+  const plot = plotMm * PX_PER_MM - waterfallChromePx(isCompact(box));
   return Math.max(2, Math.floor(plot / TICK_PITCH_PX));
 }
 

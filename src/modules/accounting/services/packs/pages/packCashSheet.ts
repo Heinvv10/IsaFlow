@@ -9,7 +9,8 @@
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { cashTitle } from '@/modules/accounting/services/packs/narrative/derivedSentences';
-import { shorterCashTrendChart } from './packPageCharts';
+import { buildCashWaterfallChart, shorterCashTrendChart } from './packPageCharts';
+import { CHART_MEASURE_MM, MID } from './packChartRungs';
 import { anchorRow } from './packStatementTables';
 import { buildCashBlocks } from './packPageBlocks';
 import type { PackCashBridge } from './packPageCharts';
@@ -32,7 +33,7 @@ export function buildCashSheet(
 // page 6 uses for its bridge, and for the same reason: the height of the
 // one chart the spec lets us choose is decided by measuring the composed
 // sheet, not by a constant chosen against one company's data.
-const cashSheet = (line: PackChartSpec | null): UnnumberedPage =>
+const cashSheet = (line: PackChartSpec | null, bridge: PackCashBridge = cashBridge): UnnumberedPage =>
   // The cash page is the one sheet carrying BOTH windows — the table's
   // period opening balance and the twelve-month line beneath it — and it
   // was the one page with no note saying so. See `cashWindowFootnotes`.
@@ -46,7 +47,7 @@ const cashSheet = (line: PackChartSpec | null): UnnumberedPage =>
       cash, (row) => row.label.toLowerCase() === 'opening cash', statementNotes.length + 1,
     );
     return page(cashTitle(set, scale), 'Cash', 'Financials', 'high',
-      buildCashBlocks(table, cashBridge, line, set, scale), 'portrait', [
+      buildCashBlocks(table, bridge, line, set, scale), 'portrait', [
         ...statementNotes,
         ...windowNotes,
       ]);
@@ -59,6 +60,22 @@ while (cashLine !== null && pageMm(cashPage) > pageBoxMm(cashPage)) {
   if (shorter === null) break;
   cashLine = shorter;
   cashPage = cashSheet(cashLine);
+}
+
+// AND THE BRIDGE TAKES WHAT THE SHEET HAS LEFT, MEASURED. It is drawn at the
+// bottom rung, where the plot under its title is about eighty pixels — room
+// for three gridline steps — while the demo sheet ended with some thirty
+// millimetres of white. The grown sheet is re-measured and kept only if it
+// still fits, so nothing else on the page pays for it; capped at the middle
+// rung, the tallest a bridge sharing its page with a second chart is given.
+const spare = pageBoxMm(cashPage) - pageMm(cashPage);
+if (cashBridge.drawn && spare > 1) {
+  const heightMm = Math.floor(Math.min(MID.heightMm, cashBridge.chart.heightMm + spare - 0.5));
+  if (heightMm > cashBridge.chart.heightMm) {
+    const grown = buildCashWaterfallChart(set, scale, { widthMm: CHART_MEASURE_MM, heightMm });
+    const grownPage = cashSheet(cashLine, grown);
+    if (pageMm(grownPage) <= pageBoxMm(grownPage)) cashPage = grownPage;
+  }
 }
 
   return cashPage;

@@ -167,7 +167,13 @@ export function makeWaterfallRenderItem(
     // short to hold a line of type keeps the old fallbacks.
     const sameInkAsFill = stepColour(step, palette) === palette.ink;
     const inside = fitsInside && (noRoomAbove || sameInkAsFill);
-    const below = noRoomAbove && !inside;
+    // AND A SAME-INK BAR TOO SHORT TO HOLD ITS LABEL TAKES IT BELOW, where
+    // the plot has room for it. Brightsphere's opening cash of (267) is such
+    // a bar once page 8's axis draws only the steps its plot has room for: it
+    // printed its dark label four pixels above its own dark fill.
+    const [, plotBottom = Infinity] = api.coord([params.dataIndex, domain.min]);
+    const roomBelow = y + drawnHeight + LABEL_GAP_PX + LABEL_LINE_PX <= plotBottom;
+    const below = !inside && (noRoomAbove || (sameInkAsFill && roomBelow));
 
     const text = formatMoney(step.labelValue ?? step.value, { scale });
     const textY = inside ? y + LABEL_GAP_PX : below ? y + height + LABEL_GAP_PX : above;

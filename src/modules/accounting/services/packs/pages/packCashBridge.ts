@@ -8,6 +8,7 @@ import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
 import { waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
+import { axisDomain } from '@/modules/accounting/services/packs/packChartAxes';
 import { MONEY_TOLERANCE } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { investingCashFlowOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
@@ -66,7 +67,31 @@ export type PackCashBridge =
     }
   | { drawn: false; why: string };
 
-export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): PackCashBridge {
+/**
+ * HOW MANY GRIDLINE STEPS TO ASK FOR, so the axis draws no more than the plot
+ * has room for.
+ *
+ * `axisDomain` takes the round step NEAREST the rough one, so it can round
+ * down, and rounding the bounds out then adds a step at either end: asked for
+ * four, the demo's bridge drew six — (100) to (600), 13px apart. The ask is
+ * lowered until the drawn count fits. Here rather than in `axisDomain`, whose
+ * other callers' gridlines the sheets' strike and label tests are built on.
+ */
+function cashBridgeIntervals(steps: WaterfallStep[], box: { heightMm: number }, plotMm: number): number {
+  const room = intervalsFor(box, plotMm);
+  const values = steps.flatMap((step) => [step.start, step.end]);
+  let asked = room;
+  while (asked > 1 && axisDomain(values, asked).splitNumber > room) asked -= 1;
+  return asked;
+}
+
+export function buildCashWaterfallChart(
+  set: PackFigureSet,
+  scale: MoneyScale,
+  /** HALF unless page 8 measured itself with room to spare — see
+   *  `buildCashSheet`. */
+  box: { widthMm: number; heightMm: number } = HALF,
+): PackCashBridge {
   const { current, prior } = set;
   if (prior === null) {
     return {
@@ -139,7 +164,7 @@ export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): 
 
   const cashBridgeTitle = `Cash moved from ${inProse(formatMoney(opening, { scale }))} to `
     + `${inProse(formatMoney(current.cash, { scale }))} over the period.`;
-  const cashBridgePlot = svgBoxFor(HALF, cashBridgeTitle);
+  const cashBridgePlot = svgBoxFor(box, cashBridgeTitle);
   return {
     drawn: true,
     residual,
@@ -147,8 +172,8 @@ export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): 
       id: 'cash-bridge',
       title: cashBridgeTitle,
       kind: 'waterfall',
-      svg: renderChartSvg(waterfallOption(steps, scale, undefined, intervalsFor(HALF), isCompact(HALF)), cashBridgePlot),
-      heightMm: HALF.heightMm,
+      svg: renderChartSvg(waterfallOption(steps, scale, undefined, cashBridgeIntervals(steps, box, cashBridgePlot.heightMm), isCompact(box)), cashBridgePlot),
+      heightMm: box.heightMm,
       plotMm: cashBridgePlot.heightMm,
       waterfallBars: toBars(steps, CASH_UNCAPTURED_LABEL, 'cashFlowSplits'),
     },
