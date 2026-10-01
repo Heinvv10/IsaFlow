@@ -43,6 +43,11 @@ import { labelInkOn, stepColour } from './packWaterfallPaint';
 const LABEL_GAP_PX = 4;
 const LABEL_LINE_PX = 12;
 
+/** What a label set outside its bar needs from the plot: its line and its gap. */
+export const LABEL_CLEARANCE_PX = LABEL_GAP_PX + LABEL_LINE_PX;
+/** The shortest bar that holds its own label inside — see `fitsInside`. */
+export const LABEL_INSIDE_PX = LABEL_LINE_PX + LABEL_GAP_PX * 2;
+
 /**
  * A NIL STEP IS STILL A STEP, AND IT HAS TO BE DRAWN WHERE IT HAPPENS.
  *
@@ -139,10 +144,7 @@ export function makeWaterfallRenderItem(
     const above = y - LABEL_GAP_PX;
     const noRoomAbove = above - LABEL_LINE_PX < plotTop;
     // Inside the bar only if the bar is tall enough to hold a line of type.
-    // A short bar with no room above it — a near-nil step drawn at the top of
-    // the plot — would get paper-on-paper, so its label goes BELOW instead,
-    // where a bar drawn from the axis always has the whole plot.
-    const fitsInside = height >= LABEL_LINE_PX + LABEL_GAP_PX * 2;
+    const fitsInside = height >= LABEL_INSIDE_PX;
     // A LABEL SET IN THE BAR'S OWN INK NEVER SITS ABOVE IT.
     //
     // A subtotal is filled with `palette.ink` and its label above it was set
@@ -166,18 +168,23 @@ export function makeWaterfallRenderItem(
     // contrast — and the two companies draw the same picture. A total too
     // short to hold a line of type keeps the old fallbacks.
     const sameInkAsFill = stepColour(step, palette) === palette.ink;
-    const inside = fitsInside && (noRoomAbove || sameInkAsFill);
-    // AND A SAME-INK BAR TOO SHORT TO HOLD ITS LABEL: below a FALLING bar,
-    // where the plot has room — Brightsphere's opening cash of (267) runs down
-    // from zero, and its figure under the bar's end is where a reader looks.
-    // NOT below a rising one: page 6's thin gross profit over a loss-making
-    // year hung its figure under the zero line, where a positive reads as a
-    // negative. A rising bar keeps its label above, set in the axis ink so
-    // the type and the fill do not merge into one mark.
+    // AND A SAME-INK BAR TOO SHORT TO HOLD ITS LABEL keeps it on its own
+    // side like any other bar, set in the axis ink where that side is above
+    // it, so the type and the fill do not merge into one mark.
     const [, plotBottom = Infinity] = api.coord([params.dataIndex, domain.min]);
     const roomBelow = y + drawnHeight + LABEL_GAP_PX + LABEL_LINE_PX <= plotBottom;
+    // AND NEVER ON THE WRONG SIDE OF ITS BASE. A rising bar's figure is set
+    // above it and a falling bar's below it: the side reads as the sign. The
+    // demo's Revenue of 101, a short bar with the domain ending a few pixels
+    // over it, hung its figure under the zero line. Where the correct side has
+    // no room the plot is given room (`labelledDomain`) and the label keeps its
+    // side; a bar tall enough takes it inside instead. A NIL step has no side
+    // and takes whichever has room.
     const falls = step.end < step.start;
-    const below = !inside && (noRoomAbove || (sameInkAsFill && falls && roomBelow));
+    const rises = step.end > step.start;
+    const noRoomOnItsSide = falls ? !roomBelow : noRoomAbove;
+    const inside = fitsInside && (noRoomOnItsSide || sameInkAsFill);
+    const below = !inside && (falls || (!rises && noRoomAbove));
     const aboveInOwnInk = !inside && !below && sameInkAsFill;
 
     const text = formatMoney(step.labelValue ?? step.value, { scale });

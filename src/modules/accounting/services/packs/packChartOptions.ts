@@ -51,6 +51,7 @@ import {
 } from './packChartAxes';
 import { CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
 import { makeWaterfallRenderItem } from './packWaterfallBars';
+import { labelledDomain } from './packWaterfallDomain';
 
 export { labelInkOn, stepPaint } from './packWaterfallPaint';
 export { AXIS_END_LABEL_RESERVE_PX, CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
@@ -115,9 +116,14 @@ export function waterfallOption(
    *  the sheet can declare the rule; a bar may be reported more than once,
    *  because ECharts may call `renderItem` more than once per datum. */
   onFloored?: (label: string) => void,
+  /** The SVG box's height in pixels. Given, the axis is extended so a short
+   *  bar's figure has room on its own side — see `labelledDomain`. */
+  boxPx?: number,
 ): EChartsCoreOption {
-  const domain = axisDomain(steps.flatMap((s) => [s.start, s.end]), intervals);
   const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
+  const domain = boxPx === undefined
+    ? axisDomain(steps.flatMap((s) => [s.start, s.end]), intervals)
+    : labelledDomain(steps, intervals, boxPx - chrome.top - chrome.bottom);
   return {
     animation: false,
     grid: { left: CHART_GUTTER_PX, right: CHART_GUTTER_RIGHT_PX, top: chrome.top, bottom: chrome.bottom },

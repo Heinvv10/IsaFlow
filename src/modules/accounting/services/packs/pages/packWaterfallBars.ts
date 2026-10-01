@@ -20,7 +20,7 @@ import type { PackWaterfallBar, PlugReason } from './packPageModel';
  * comfortable for a 12px label — the same measure `packChartAxisLegibility`
  * asserts against on the printed SVG.
  */
-const PX_PER_MM = 96 / 25.4;
+export const PX_PER_MM = 96 / 25.4;
 const TICK_PITCH_PX = 26;
 
 /** The bottom rung, where the bridge draws its axis chrome tighter and its

@@ -13,7 +13,7 @@ import { MONEY_TOLERANCE } from '@/modules/accounting/services/packs/figures/pac
 import { investingCashFlowOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { HALF } from './packChartRungs';
-import { intervalsFor, isCompact, toBars } from './packWaterfallBars';
+import { intervalsFor, isCompact, PX_PER_MM, toBars } from './packWaterfallBars';
 import type { PackChartSpec } from './packPageModel';
 
 /**
@@ -172,7 +172,10 @@ export function buildCashWaterfallChart(
       id: 'cash-bridge',
       title: cashBridgeTitle,
       kind: 'waterfall',
-      svg: renderChartSvg(waterfallOption(steps, scale, undefined, cashBridgeIntervals(steps, box, cashBridgePlot.heightMm), isCompact(box)), cashBridgePlot),
+      svg: renderChartSvg(waterfallOption(
+        steps, scale, undefined, cashBridgeIntervals(steps, box, cashBridgePlot.heightMm), isCompact(box),
+        undefined, cashBridgePlot.heightMm * PX_PER_MM,
+      ), cashBridgePlot),
       heightMm: box.heightMm,
       plotMm: cashBridgePlot.heightMm,
       waterfallBars: toBars(steps, CASH_UNCAPTURED_LABEL, 'cashFlowSplits'),
