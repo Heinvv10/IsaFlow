@@ -9,6 +9,7 @@ import { log } from '@/lib/logger';
 import { boundedRowWait, lockSystemRoleWrites } from './systemRoleWriteLock';
 import { isSystemAccountKey, SYSTEM_ACCOUNT_KEYS } from './systemAccountKeys';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
+import { HOLDER_NO_CHILDREN_TYPES } from './roleTargetRules';
 import type { GLAccountType } from '../../types/gl.types';
 
 export type CoaTemplate = 'isaflow_standard' | 'xero_compatible' | 'sage_compatible' | 'blank';
@@ -201,8 +202,9 @@ async function seedUnderLock(companyId: string, template: CoaTemplate): Promise<
   `;
 
   // Pass 2: wire up parent_account_id (NULL when the parent's code is absent —
-  // or is held by an account with a system role: the company's own bank on the
-  // template's "Current Assets" code must not become a header with sub-accounts).
+  // or is held by a balance-sheet account with a system role: the company's own
+  // bank on the template's "Current Assets" code must not become a header with
+  // sub-accounts. An income-statement holder may: `roleBarringChildren`).
   await sql`
     UPDATE gl_accounts c
     SET parent_account_id = (
@@ -210,7 +212,8 @@ async function seedUnderLock(companyId: string, template: CoaTemplate): Promise<
       WHERE p.company_id = ${companyId}::UUID AND p.account_code = t.parent_code
         -- COALESCE: with a NULL subtype the AND is NULL, NOT NULL is NULL, and
         -- every sub-account of an unclassified system header lost its parent.
-        AND NOT COALESCE(p.is_system_account AND p.account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[]), false)
+        AND NOT COALESCE(p.is_system_account AND p.account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[])
+                         AND p.account_type = ANY(${[...HOLDER_NO_CHILDREN_TYPES]}::TEXT[]), false)
     )
     FROM jsonb_to_recordset(${rows}::jsonb) AS t(code TEXT, parent_code TEXT)
     WHERE c.company_id = ${companyId}::UUID AND c.account_code = t.code AND t.parent_code IS NOT NULL

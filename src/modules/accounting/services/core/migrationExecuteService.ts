@@ -11,6 +11,7 @@ import type { DbRow } from '@/types/db';
 import { defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { boundedRowWait, isRetryableLockError, lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
+import { clearSystemAccountCacheAfterCommit } from '../gl/systemAccountResolver';
 import { assertAccountChangesKeepVatLocks, type AccountAttributeChange } from '../gl/vatLockLineClassification';
 
 // Rollback lives in its own file for the 300-line cap; re-exported so the API
@@ -214,6 +215,7 @@ async function executeUnderLock(
     companyId, source, accountsImported, customersImported, suppliersImported,
   }, 'migration');
 
+  clearSystemAccountCacheAfterCommit(companyId);   // a re-import renames its own accounts, a role holder among them
   return { accountsImported, customersImported, suppliersImported, openingBalancesSet, errors };
 }
 

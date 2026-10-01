@@ -49,4 +49,16 @@ describe('rolesNotKept', () => {
     expect(rolesNotKept(snap(bank({ header: true })), snap(bank({ header: true })))).toEqual([]);
     expect(rolesNotKept(snap(bank()), snap(bank({ id: 'X', header: true })), moved('X'))).toEqual(['bank']);
   });
+
+  it('judges a role that had NO holder before the write as placed by it: the new holder must be clean', () => {
+    // A reactivation into an empty role (blind review of 38978241e): the checks used to run only over
+    // the roles held BEFORE, so a role going empty -> held was never looked at.
+    expect(rolesNotKept(snap({}), snap(bank()))).toEqual([]);
+    expect(rolesNotKept(snap({}), snap(bank({ type: 'liability' })))).toEqual(['bank']);
+    expect(rolesNotKept(snap({}), snap(bank({ header: true })))).toEqual(['bank']);
+    expect(rolesNotKept(snap({}), snap(bank({ contested: true })))).toEqual(['bank']);
+    // Another role's pre-existing fault is still not this write's doing.
+    const other = { receivable: { id: 'R', type: 'expense', header: true } };
+    expect(rolesNotKept(snap(other), snap({ ...other, ...bank() }))).toEqual([]);
+  });
 });

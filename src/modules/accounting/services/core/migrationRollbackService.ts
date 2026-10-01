@@ -69,7 +69,7 @@ async function rollbackUnderLock(
     // the loop is paid for only when it is actually needed.
     const bulk = candidates.length === 0 ? [] : await withSavepoint('mig_rb_bulk', async () => (await sql`
       DELETE FROM gl_accounts
-      WHERE company_id = ${companyId}::UUID AND imported_from = ${source} AND NOT is_system_account
+      WHERE company_id = ${companyId}::UUID AND imported_from = ${source} AND is_system_account IS NOT TRUE
       RETURNING id
     `) as DbRow[]).catch((err: unknown) => {
       if (!isFkViolation(err)) throw err;

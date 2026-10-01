@@ -21,18 +21,20 @@ const issued: string[] = [];
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
+let failWith: { code: string } | null = null;
 vi.mock('@/lib/neon', () => ({
   // The helper binds exactly one parameter per statement before the company id;
   // record the account id each SELECT was issued for, in order.
   sql: (_strings: TemplateStringsArray, ...values: unknown[]) => {
     issued.push(String(values[0]));
-    return Promise.resolve([]);
+    return failWith ? Promise.reject(Object.assign(new Error('driver'), failWith)) : Promise.resolve([]);
   },
 }));
 // The role-write lock precedes the row locks and issues its own statements; it
 // is proven against Postgres in w2-28-system-role-writers.int.test.ts.
-vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', () => ({
+vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', async (orig) => ({
   lockSystemRoleWrites: vi.fn(), SystemRoleLockTimeoutError: class extends Error {},
+  isRetryableLockError: (await orig<typeof import('@/modules/accounting/services/gl/systemRoleWriteLock')>()).isRetryableLockError,
 }));
 vi.mock('@/lib/als', () => ({
   als: { getStore: () => ({ client: { query: vi.fn(async () => undefined) } }) },
@@ -46,7 +48,7 @@ const A = '22222222-2222-4222-8222-222222222222';
 const B = '33333333-3333-4333-8333-333333333333';
 const C = '44444444-4444-4444-8444-444444444444';
 
-beforeEach(() => { issued.length = 0; });
+beforeEach(() => { issued.length = 0; failWith = null; });
 
 describe('lockGlAccountsForUpdate ordering', () => {
   it('locks A before B when asked for [B, A]', async () => {
@@ -68,5 +70,19 @@ describe('lockGlAccountsForUpdate ordering', () => {
     // row lock twice for no reason, and the count would mislead a reader.
     await lockGlAccountsForUpdate(COMPANY, [B, A, B]);
     expect(issued).toEqual([A, B]);
+  });
+});
+
+describe('lockGlAccountsForUpdate row-lock failures', () => {
+  // A merge that loses a deadlock (40P01) is in the same position as one whose wait timed out
+  // (55P03): its transaction is aborted and a retry succeeds. It used to surface as a raw 40P01.
+  it.each(['55P03', '40P01'])('maps %s to the typed, retryable GL_ACCOUNT_LOCK_TIMEOUT', async (code) => {
+    failWith = { code };
+    await expect(lockGlAccountsForUpdate(COMPANY, [A])).rejects.toMatchObject({ code: 'GL_ACCOUNT_LOCK_TIMEOUT' });
+  });
+
+  it('lets any other database error through unchanged', async () => {
+    failWith = { code: '23505' };
+    await expect(lockGlAccountsForUpdate(COMPANY, [A])).rejects.toMatchObject({ code: '23505' });
   });
 });

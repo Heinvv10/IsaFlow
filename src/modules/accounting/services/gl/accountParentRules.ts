@@ -20,7 +20,7 @@ import { sql } from '@/lib/neon';
 import { isSubjectToLeafRule } from './isReportVisibleLeaf';
 import { lockGlAccountsForUpdate } from './glAccountLock';
 import { lockSystemRoleWrites } from './systemRoleWriteLock';
-import { holderAsParentRefusal, roleHeldBy } from './roleTargetRules';
+import { holderAsParentRefusal, roleBarringChildren } from './roleTargetRules';
 
 /**
  * Mirrors `MAX_TREE_DEPTH` in accountReclassifyService, which caps the two
@@ -67,7 +67,7 @@ export async function assertParentUsable(
   // would be a cross-tenant existence oracle.
   if (!parent) throw new ParentAccountError(`Parent account ${parentId} not found`);
 
-  const heldRole = roleHeldBy(parent);
+  const heldRole = roleBarringChildren(parent);
   if (heldRole) throw new ParentAccountError(holderAsParentRefusal(parent.account_code, heldRole));
 
   if (parent.account_type !== childType) {

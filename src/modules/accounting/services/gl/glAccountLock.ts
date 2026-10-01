@@ -23,10 +23,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
-import { lockSystemRoleWrites, SystemRoleLockTimeoutError } from './systemRoleWriteLock';
-
-/** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
-const LOCK_NOT_AVAILABLE = '55P03';
+import { isRetryableLockError, lockSystemRoleWrites, SystemRoleLockTimeoutError } from './systemRoleWriteLock';
 
 /**
  * Raised when another request holds one of the accounts longer than the 5s
@@ -54,11 +51,6 @@ export class GlAccountLockTimeoutError extends Error {
     super(`GL account ${accountId} is being changed by another request — retry in a moment.`);
     this.name = 'GlAccountLockTimeoutError';
   }
-}
-
-function isLockTimeout(err: unknown): boolean {
-  return typeof err === 'object' && err !== null
-    && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE;
 }
 
 /**
@@ -143,7 +135,8 @@ export async function lockGlAccountsForUpdate(
          FOR UPDATE`) as DbRow[];
       if (found[0]) rows.push(found[0]);
     } catch (err) {
-      if (isLockTimeout(err)) throw new GlAccountLockTimeoutError(id);
+      // 55P03 (the wait timed out) or 40P01 (this request is the deadlock victim): both are a retry.
+      if (isRetryableLockError(err)) throw new GlAccountLockTimeoutError(id);
       throw err;
     }
   }

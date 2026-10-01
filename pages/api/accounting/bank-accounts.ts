@@ -17,7 +17,7 @@ import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAc
 import { boundedRowWait, lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import { reactivationRefusal } from '@/modules/accounting/services/gl/systemRoleReactivation';
 import { assertRolesKept, snapshotRoles } from '@/modules/accounting/services/gl/systemRoleInvariant';
-import { holderAsParentRefusal, roleHeldBy } from '@/modules/accounting/services/gl/roleTargetRules';
+import { holderAsParentRefusal, roleBarringChildren } from '@/modules/accounting/services/gl/roleTargetRules';
 import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 // Fields are nullable as well as optional. The UI clears a field by sending
@@ -53,7 +53,7 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
   if (parentId === id) return 'An account cannot be its own group';
   if (parentId) {
     const [parent] = await sql`
-      SELECT id, parent_account_id, account_subtype, account_code, is_system_account,
+      SELECT id, parent_account_id, account_type, account_subtype, account_code, is_system_account,
         (SELECT p.account_subtype FROM gl_accounts p
           WHERE p.id = gl_accounts.parent_account_id AND p.company_id = ${companyId}) AS parent_subtype
       FROM gl_accounts
@@ -61,7 +61,7 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
     `;
     if (!parent || !isBankSubtype(parent.account_subtype as string | null)) return 'Group must be a bank account in this company';
     // The primary bank cannot become a group: its own postings would sit behind a header.
-    const heldRole = roleHeldBy(parent);
+    const heldRole = roleBarringChildren(parent);
     if (heldRole) return holderAsParentRefusal(String(parent.account_code), heldRole);
     if (isBankSubtype(parent.parent_subtype as string | null)) return 'Group account is already a sub-account of another group';
     const [self] = await sql`

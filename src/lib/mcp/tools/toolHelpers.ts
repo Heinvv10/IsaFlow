@@ -4,6 +4,7 @@
  */
 import type { McpToolResult } from '../types';
 import { UUID_RE, hasNul, isRealCalendarDate, NUL_MESSAGE } from '@/lib/validation';
+import { SYSTEM_ROLE_REFUSAL_CODES } from './systemRoleRefusalCodes';
 
 export function ok(data: unknown): McpToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -243,12 +244,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SUPPLIER_PAYMENT_NOT_FOUND',
   'SUPPLIER_PAYMENT_NOT_PROCESSABLE',
   'SUPPLIER_PAYMENT_REFUSED',
-  // Another request is changing the chart's role holders: one fixed "retry"
-  // sentence naming nothing, raised before any write.
-  // A write that would leave a role without exactly one usable holder: names
-  // only role keys, and is thrown so the registry's savepoint undoes the write.
-  'SYSTEM_ROLE_INVARIANT',
-  'SYSTEM_ROLE_LOCK_TIMEOUT',
+  ...SYSTEM_ROLE_REFUSAL_CODES,
   'TAX_DIRECTIVE_ALREADY_APPLIED',
   'TIME_ENTRIES_NOT_CLAIMED',
   'TIME_ENTRY_LOCK_TIMEOUT',
