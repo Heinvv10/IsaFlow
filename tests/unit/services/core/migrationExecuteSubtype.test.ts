@@ -51,9 +51,9 @@ describe('executeMigration — income-statement rows without a subtype', () => {
     expect(byCode('5900')).toContain('operating_expense');
     expect(byCode('5910')).toContain('cost_of_sales');
     expect(byCode('1500')).toContain(null);
-    // A re-run fills a NULL subtype on an existing row but never overwrites one that is set.
-    const text = (byCode('5900')[0] as TemplateStringsArray).join('?');
-    expect(text).toContain('ELSE COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype) END');
+    // What a RE-RUN does to an existing row (fills a NULL subtype, never overwrites one) is a property
+    // of the ON CONFLICT clause and is proven against Postgres, not by its text:
+    // tests/integration/w2-28-system-role-holes.int.test.ts, "a migration re-import never fills…".
   });
 
   it('counts only the rows the upsert actually wrote and names the ones it refused', async () => {

@@ -145,8 +145,9 @@ export const createGlAccountTool: McpTool = {
       return ok(account);
     } catch (err) {
       // Every refusal createAccount raises (duplicate code, invalid subtype,
-      // missing parent) happens BEFORE its INSERT, so flattening them into a
-      // tool error keeps nothing written. A pg error still generic-ifies.
+      // missing parent) happens BEFORE its INSERT, so a tool error keeps nothing
+      // written. A lock timeout aborted the registry's savepoint: it is thrown.
+      if (isLockTimeoutError(err)) throw err;
       return toolError(safeErrorText(err, 'Failed to create account.'));
     }
   },
@@ -225,7 +226,6 @@ export const updateGlAccountTool: McpTool = {
     // Before any write: reactivating a former role holder beside the current one is refused.
     const reactivation = isActive === true ? await reactivationRefusal(ctx.companyId, accountId) : null;
     if (reactivation) return toolError(reactivation);
-
     try {
       // Reclassification carries the structural guards (cycles, the leaf rule,
       // orphaned bank transactions) and refuses BEFORE writing, so it runs

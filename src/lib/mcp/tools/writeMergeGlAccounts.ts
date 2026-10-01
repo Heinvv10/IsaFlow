@@ -167,20 +167,13 @@ export const mergeGlAccountsTool: McpTool = {
     //
     // `mergeAccounts` locks again for its own non-MCP callers; re-locking rows
     // this transaction already holds is free.
-    if (args.dry_run !== true) {
-      try {
-        await lockGlAccountsForUpdate(ctx.companyId, [sourceId, targetId]);
-      } catch (err) {
-        // By code, not instanceof: the code is the stable half of that contract
-        // (`bulkAllocationPost` reads BANK_TX_LOCK_TIMEOUT the same way).
-        // Write-free by construction — this is the first statement of the write
-        // path, so there is nothing to unwind.
-        if ((err as { code?: unknown }).code === 'GL_ACCOUNT_LOCK_TIMEOUT') {
-          return toolError((err as Error).message);
-        }
-        throw err;
-      }
-    }
+    //
+    // No catch: a lock timeout is 55P03 and has ABORTED the registry's
+    // savepoint. Returned as a tool error, its RELEASE failed (25P02) and the
+    // agent got the generic failure instead of "retry". Thrown, the registry
+    // rolls the savepoint back and keeps the wording of this allow-listed code
+    // (GL_ACCOUNT_LOCK_TIMEOUT — the role lock's timeout is mapped to it too).
+    if (args.dry_run !== true) await lockGlAccountsForUpdate(ctx.companyId, [sourceId, targetId]);
 
     // Writes nothing, and re-runs every request-level guard, so a refusal here
     // is answered with nothing to unwind.

@@ -5,7 +5,6 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
-import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
 import { roleTargetRefusal } from '../gl/roleTargetRules';
 import { isSystemAccountKey, type SystemAccountKey } from '../gl/systemAccountKeys';
 import type { MigrationError } from './migrationService';
@@ -55,17 +54,11 @@ export function validateSystemAccountMap(
       continue;
     }
     // The same rule the save applies; here for what the import itself would create.
-    const unfit = roleTargetRefusal(key, key, { code, isActive: true, hasChildren: parentCodes.has(code), subtype: null });
+    const unfit = roleTargetRefusal(key, key,
+      { code, type: acct.accountType, isActive: true, hasChildren: parentCodes.has(code), subtype: null });
     if (unfit) {
       errors.push({ step: 'coa', row: -1, field: `systemAccountMap.${key}`, message: unfit });
       continue;
-    }
-    const allowed = GL_ACCOUNT_SUBTYPES_BY_TYPE[acct.accountType] as readonly string[] | undefined;
-    if (!allowed?.includes(key)) {
-      errors.push({
-        step: 'coa', row: -1, field: `systemAccountMap.${key}`,
-        message: `Account ${code} is ${acct.accountType}; the ${key} role needs one of: ${Object.entries(GL_ACCOUNT_SUBTYPES_BY_TYPE).filter(([, v]) => (v as readonly string[]).includes(key)).map(([t]) => t).join(', ')}`,
-      });
     }
   }
   return errors;
@@ -101,7 +94,7 @@ export async function roleMapConflicts(
   if (orphans.length > 0) return orphans;
 
   const rows = (await sql`
-    SELECT a.account_code, a.account_subtype, a.is_active,
+    SELECT a.account_code, a.account_type, a.account_subtype, a.is_active, a.is_system_account,
            EXISTS (SELECT 1 FROM gl_accounts c
                    WHERE c.parent_account_id = a.id AND c.company_id = a.company_id) AS has_children
     FROM gl_accounts a
@@ -110,8 +103,10 @@ export async function roleMapConflicts(
   const existing = new Map(rows.map((r) => [String(r.account_code), r]));
   return entries.flatMap(([role, code]) => {
     const r = existing.get(code);
+    // The type the row will HAVE: the upsert keeps a system account's own type and re-types any other.
+    const type = r && r.is_system_account === true ? String(r.account_type) : String(byCode.get(code)?.accountType ?? r?.account_type);
     const message = r && roleTargetRefusal(role, role, {
-      code, isActive: r.is_active === true, hasChildren: r.has_children === true,
+      code, type, isActive: r.is_active === true, hasChildren: r.has_children === true,
       subtype: r.account_subtype == null ? null : String(r.account_subtype),
     });
     return message ? [{ step: 'coa' as const, row: -1, field: `systemAccountMap.${role}`, message }] : [];
