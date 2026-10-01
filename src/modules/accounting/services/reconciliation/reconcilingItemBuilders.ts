@@ -63,8 +63,23 @@ const UNPOSTED_TEXT: Record<UnpostedDocument['reason'], string> = {
     'open document(s) have a linked journal whose effect on the control accounts as at the reporting date differs from the document balance. A journal dated AFTER the reporting date lands here, which is what it is: the document is in the subledger and its posting is not yet in the ledger balance.',
 };
 
+/**
+ * A document dated AFTER the reporting date is not in the subledger at that
+ * date, so any control-account effect it carries as at the date comes from
+ * legs posted on or before it — in practice a payment or credit applied in
+ * advance (a prepayment applied FIFO to a later bill). That is cash timing,
+ * not a cut-off error: on Velocity Fibre all 700 such items across 32
+ * month-ends were this and none was a missing posting. Named apart so the
+ * close gate can tolerate it while still failing a document dated IN the
+ * period whose journal is late or missing.
+ */
+const SETTLEMENT_BEFORE_DOCUMENT_TEXT =
+  'document(s) dated AFTER the reporting date carry settlement (a payment, credit note or write-off) posted on or before it. The documents are not yet in the subledger; the cash applied to them in advance is on the control account. Timing, not a cut-off error.';
+
 export interface ItemInputs {
   snapshot: SubledgerSnapshot & { disputes?: ReadonlyMap<string, number> };
+  /** 'YYYY-MM-DD' — splits documents dated after it into settlement_before_document. */
+  asAtDate: string;
   cash: UnappliedCash;
   unposted: readonly UnpostedDocument[];
   /** Approved credit the subledger does not already carry. */
@@ -175,7 +190,7 @@ export function buildAgedBridgeItems({
  * proper: unapplied cash, postings no document claims, documents whose value
  * never reached a control account.
  */
-export function buildControlBridgeItems({ cash, unposted, creditNotes }: ItemInputs): ReconcilingItem[] {
+export function buildControlBridgeItems({ cash, unposted, creditNotes, asAtDate }: ItemInputs): ReconcilingItem[] {
   const items: ReconcilingItem[] = [];
 
   if (cash.withPaymentRecord.length > 0) {
@@ -219,19 +234,26 @@ export function buildControlBridgeItems({ cash, unposted, creditNotes }: ItemInp
   }
 
   // Grouped by reason, because "never posted" and "posted to the wrong account"
-  // need different remedies and a single lump tells a reader neither.
-  const byReason = new Map<UnpostedDocument['reason'], UnpostedDocument[]>();
+  // need different remedies and a single lump tells a reader neither. A
+  // document dated after the reporting date is its own group whatever its
+  // link state — see SETTLEMENT_BEFORE_DOCUMENT_TEXT. 'YYYY-MM-DD' strings
+  // compare lexically; an empty date never sorts after, so it stays a finding.
+  type Group = UnpostedDocument['reason'] | 'settlement_before_document';
+  const byReason = new Map<Group, UnpostedDocument[]>();
   for (const doc of unposted) {
-    const list = byReason.get(doc.reason);
+    const key: Group = doc.documentDate > asAtDate ? 'settlement_before_document' : doc.reason;
+    const list = byReason.get(key);
     if (list) list.push(doc);
-    else byReason.set(doc.reason, [doc]);
+    else byReason.set(key, [doc]);
   }
   for (const [reason, docs] of byReason) {
+    const text =
+      reason === 'settlement_before_document' ? SETTLEMENT_BEFORE_DOCUMENT_TEXT : UNPOSTED_TEXT[reason];
     items.push(
       item(
         'subledger_to_control',
         reason,
-        `${docs.length} ${UNPOSTED_TEXT[reason]}`,
+        `${docs.length} ${text}`,
         docs.reduce((s, d) => s + d.amount, 0),
         docs,
         docs.reduce((s, d) => s + Math.abs(d.gross), 0),
