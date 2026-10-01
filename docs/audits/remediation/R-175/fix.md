@@ -31,12 +31,14 @@ Output: `red.int.log` (7 failed, 4 passed) and `red.unit.log` (4 failed, 2 passe
 
 ## Fix
 
-The short-circuit is removed. There is no in-process state left in the limiter.
+The short-circuit is removed. Nothing in the process can admit a call. (Review round 1 added a
+cache that only refuses; see below.)
 
 - Every `checkRateLimit` call does the atomic upsert. The verdict is `count <= max` on the row
   the database returns. The SQL logic is unchanged, except it no longer returns `window_start`.
 - `refundRateLimit` no longer has an LRU entry to drop. Its SQL logic is unchanged.
-- `clearRateLimitCache` is kept as an exported no-op. Three test files still call it.
+- `clearRateLimitCache` was a no-op after this step. Since review round 1 it clears the
+  refuse-only cache.
 - `lru-cache` is no longer imported here. Other modules still use the package.
 - No exported signature changed. No caller's code changed.
 
@@ -45,10 +47,8 @@ Comments that described the old behaviour were corrected in
 `src/lib/rateLimit.claude.md`. Invite-accept keeps `ATTEMPT_COST = 2`; it is still ten attempts
 an hour, and changing it would change what the live counters mean.
 
-A cache that only refuses early was considered and not built. It would save the upsert for a key
-that is already over its limit. But over-limit calls already reached the database before this
-change, so it buys nothing new, and it would need a rule for refunds made by another process and
-for clock difference between the app and the database.
+A cache that only refuses early was first left out. Review round 1 showed why it is needed, and
+it is now built. See "Review round 1".
 
 ## K-103 — fixed in the same branch
 
@@ -83,11 +83,14 @@ pool; that was not used for this reason.
 - 3 connections per process, fixed. Each statement takes about a millisecond.
 - Cost: up to 3 more PostgreSQL connections per app process. They close after 30 seconds idle.
   The number of production processes and the server's connection limit were not checked.
-- A call waits at most 5 seconds for a connection, then throws. No caller catches a limiter
-  error, so the request fails with a 500. That is what a database error has always done here.
-  Nothing is admitted unchecked.
-- No statement timeout was added. A limiter statement can now only wait behind another limiter
-  statement, which is over in milliseconds.
+- A call waits at most 5 seconds for a connection, then throws. One caller catches a limiter
+  error: `shareResolver.ts:94`, which logs it and refuses the share link. Every other caller lets
+  it through, so the request fails with a 500. That is what a database error has always done
+  here. Nothing is admitted unchecked.
+- Statement, lock and query timeouts were added in review round 1. An earlier version of this
+  document said a limiter statement could only wait behind another limiter statement. That was
+  wrong: `rateLimitCleanupService.ts:27` deletes the same rows through `sql`, possibly inside a
+  request transaction, and DDL or VACUUM FULL can hold the table.
 
 ### Row security and role
 
@@ -109,7 +112,8 @@ A flood of limited requests now queues on 3 connections instead of spreading ove
 pool. If the queue is longer than 5 seconds the requests fail with 500. This was not load-tested.
 
 A request that fails is now charged. That is K-103's intent, but it is a change: a route that
-returns 500 repeatedly will use up its caller's allowance.
+returns 500 repeatedly will use up its caller's allowance. Review round 1 gives the daily AI and
+send units back in that case; the short buckets stay charged.
 
 ## Behaviour that changes for callers
 
@@ -119,8 +123,8 @@ returns 500 repeatedly will use up its caller's allowance.
 - A charge is kept when the request rolls back. `withAuth` and the bearer pipeline ROLLBACK
   after a 429; that used to undo the refused call's own increment and now does not.
 - Same-key requests no longer wait for each other.
-- `pages/api/invitations/[token]/accept.ts` wraps its charge and refund in `als.exit`. That is
-  no longer needed and was left in place. Only its comment changed.
+- `pages/api/invitations/[token]/accept.ts` wrapped its charge and refund in `als.exit`. That is
+  no longer needed. Review round 1 removed the wrappers.
 
 ## Tests
 
@@ -161,6 +165,201 @@ Not verified:
 
 Stale LRU comments in `tests/unit/lib/rateLimit.test.ts` and `rateLimitSend.test.ts` were
 corrected. Comments only; one test title still mentions the LRU.
+
+## Review round 1
+
+Both blind reviewers said SHIP on c5b0ba6d0, with findings. All are handled below.
+
+### 1. Flood on an over-limit key: the refuse-only cache
+
+Every call was a committed write on 3 connections, refused calls included. A flood from one
+over-limit address could keep the pool busy and make every limited route answer 500.
+
+Now, when the database reports a key over its limit, the process remembers the count it saw. A
+later call on that key with the same or a lower `max` is answered `false` from memory, with no
+database call.
+
+- Memory never admits. The only path that returns `true` is the database's answer.
+- A refusal is remembered for at most 5 seconds (`REFUSAL_TTL_MS`), and never past the end of the
+  key's window. The window end comes from the database clock, measured from before the
+  round-trip.
+- `refundRateLimit` drops the entry. `clearRateLimitCache` clears all entries.
+- The cache is an LRU of 10 000 keys.
+
+The 5-second cap is a deliberate change from "until the window ends". This process is not told
+when another process refunds, when the nightly cleanup deletes rows, or when an operator deletes
+a counter to unlock someone. With no cap that stays invisible for up to a day. With the cap, a
+flood on one key costs one write per process every 5 seconds.
+
+What it does not cover: a flood that uses a new key each time (many addresses). Each new key is
+still one write.
+
+Pool size stays at 3. The pool now carries only calls that may be admitted, about a millisecond
+each. A larger pool would only matter for the many-keys flood, and there it would take more of
+the server's connections, which were not counted.
+
+### 2. Every wait on the limiter pool is bounded
+
+`lock_timeout` 2 s, `statement_timeout` 3 s, `query_timeout` 4 s, connect timeout 5 s. The server
+gives up first. `query_timeout` is a client-side timer that abandons a query without cancelling
+it, so it must be the longest of the three or the connection goes back to the pool still busy.
+
+They are sent as connection start-up parameters. This works against PostgreSQL directly (the
+fixture, and `isaflow_dev` on port 7772). A PgBouncer-style pooler can reject start-up parameters
+it does not know. If production's `DATABASE_URL` points at a pooler, check this before deploy:
+a rejected connection would make every limited route fail.
+
+A statement stalled on a locked row now fails with `55P03` after 2 seconds. The caller gets an
+error, never an admission, and the pool is usable afterwards.
+
+### 3. Failed requests burned usage quota
+
+The limiter charges on its own connection, so a failed request keeps its charge. That is right
+for an abuse limit. It is wrong for a usage quota, which bounds work actually done.
+
+The mechanism, in `src/lib/rateLimitQuota.ts`:
+
+- `checkAiRateLimit` and `checkSendRateLimit` note what they charged the **daily** bucket on the
+  request context.
+- `withAuth` gives those units back when the request ends in a 5xx or a throw. Before K-103 the
+  whole charge was rolled back in that case, so this restores the old outcome for the daily
+  bucket only.
+- A handler can give its own units back where it answers below 500 but did no work. A request
+  can give back only what it charged, once.
+- The 15-minute per-IP and per-company buckets are never given back. They bound a loop of
+  failing requests. Only `withAuth` keeps the list, so every caller is authenticated.
+- A refund that fails is logged and the units stay spent. It never changes the response.
+
+Callers changed:
+
+- All 12 `checkAiRateLimit` callers and all 6 `checkSendRateLimit` callers, through `withAuth`:
+  a 5xx or a throw gives the daily units back. No edit in those files.
+- `nl-query`: gives the unit back on every exit where the provider gave no answer (bad question,
+  no key, provider error status, provider call threw). It keeps it once the provider answered.
+  This route answers 200 on provider failure, so the 5xx rule alone did not cover it.
+- `statement-bulk-email`: charges after the ownership guard, and gives back the emails that
+  failed to send.
+
+Not changed, for a decision:
+
+- The other 10 AI routes and 5 send routes also have exits that answer below 500 without doing
+  the work (a 400 after the charge, or a 200 with a fallback when the provider fails). Those
+  still spend the daily unit, as they did before this branch. Each needs the `nl-query`
+  treatment, one route at a time: roughly 110 exits in 15 files, and `ai-invoice-pipeline.ts` is at
+  299 lines.
+- Hourly per-company quotas that call `checkRateLimit` directly. A 5xx there now keeps its
+  charge; before K-103 it was rolled back. Listed in the table as "left".
+- `portal-chat` daily (500 per company). The caller is a portal customer, not a `withAuth` user.
+
+Every caller, at 7b6ca9353. "Failed request" means one that passed the limiter and then failed.
+
+Abuse limits. An attempt counts even when it fails. Not changed.
+
+| Key | Max / window | Where charged | A failed request has used |
+|---|---|---|---|
+| `<scope>:ip:` via `withRateLimit`: login 20/900, 2fa-challenge 20/900, register 5/3600, forgot-password 10/900, do-reset-password 10/900, change-password 10/900, change-email 5/900, verify-email 20/3600, auth-refresh 30/60, oauth-token 60/60, contact 5/900 | as listed | before the handler | 1 |
+| `login:email:` | 10 / 900 | before the password check | 1 |
+| `register:email:` | 5 / 3600 | before GoTrue | 1 |
+| `forgot:email:` | 3 / 900 | before the mail | 1 |
+| `contact:email:` | 3 / 900 | after validation | 1 |
+| `2fa:factor:`, `2fa:disable:`, `2fa:confirm:` | 5 / 900 each | before the code check | 1 |
+| `invite-accept:` | 20 / 3600, cost 2 | after the token lookup, before GoTrue | 2; the route refunds two non-guess verdicts itself |
+| `oauth-register:` (IP), `oauth-register-global` | 10 / 3600, 100 / 3600 | before registration | 1 each |
+| `portal-auth:` (AR portal password) | 5 / 900 | before the password check | 1 |
+| `afs-portal-magic-link:` (new key, item 4) | 5 / 60 | before the lookup | 1 |
+| `paystack-verify:`, `paystack-create:`, `paystack-create-link:` | 30 / 900, 60 / 900, 20 / 900 | before any payment table | 1 each |
+| `portal-dispute:`, `portal-chat:` (IP), `waitlist:`, `track:` | 10 / 60, 20 / 900, 10 / 600, 120 / 60 | first thing | 1 |
+| `share:ip:`, `share:token:` | 60 / 300, 120 / 3600 | before the link lookup | 1 each; a limiter error refuses |
+| `admin:` (IP), `impersonate:` | 120 / 60, 5 / 60 | first thing | 1 |
+| `mcp-ip:`, `mcp:` (company) | 300 / 60, 120 / 60 | before the tool runs | 1 |
+| `reports:` (`withAuth` and bearer, `/api/accounting/reports-*`) | 60 / 60 | in the wrapper | 1 |
+| `report:<name>:co:` via `checkReportRateLimit`, 16 call sites | 25 / 900 | first thing | 1 |
+| `ai-categorize:ip:` / `:company:`, `ai-commentary:ip:` / `:company:` | 30 / 900, 60 / 900 | first thing | 1 each |
+| `ai:<name>:ip:`, `ai:<name>:co:` (the 15-minute AI buckets) | per caller, default 20 and 40 / 900 | first thing | 1 each, kept |
+| `send:<name>:ip:`, `send:<name>:co:` (the 15-minute send buckets) | per caller, default 30 and 60 / 900 | first thing | 1, and the recipient count, kept |
+
+Usage quotas with a window of an hour or more.
+
+| Key | Max / window | Where charged | A failed request has used | Outcome |
+|---|---|---|---|---|
+| `ai:<name>:co:<id>:day`, 12 routes: nl-query, ai-forecast, ai-narrative, afs-ai-narrative (100), smart-categorize (200), vlm-extract, verify-payslip, document-validation, multi-doc-match, ai-invoice-pipeline, onboarding-extract, onboarding-extract-id | 300 / day unless noted | first thing, before validation | 5xx or throw: 0. Below 500 without work: 1 | changed (5xx rule) |
+| the same, `nl-query` | 300 / day | first thing | no provider answer: 0 | changed (explicit) |
+| `send:<name>:co:<id>:day`, 6 routes: invoice-email, customer-statements, dunning, afs-signing (500 each), company-invitations (100), statement-bulk-email (10 000) | as listed, cost = recipients | first thing | 5xx or throw: 0. Below 500 without a send: the recipient count | changed (5xx rule) |
+| the same, `statement-bulk-email` | 10 000 / day | after the ownership guard | refused by the guard: 0. Sends that failed: 0 | changed (explicit) |
+| `portal-chat:co:<id>:day` | 500 / day | after the IP bucket | 1 | left: not a `withAuth` caller |
+| `onboarding-docs:` | 15 / 3600 | first thing | 1 | left |
+| `invitations:company:` | 20 / 3600 | before the invite | 1 | left |
+| `company-docs:` | 30 / 3600 | on upload | 1 | left |
+| `company-directors:` | 20 / 3600 | on write | 1 | left |
+| `bank-bulk-preview:`, `bank-bulk-commit:` | 60 / 3600 each | after validation | 1 | left |
+| `extension-ingest:` | 60 / 3600 | after the token check | 1 | left: not a `withAuth` caller |
+| `mcp-bank-import:`, `mcp-bank-undo:` | 60 / 3600 each | in the tool | 1 | left: bearer, not `withAuth` |
+
+### 4. Two routes shared `portal-auth:`
+
+`pages/api/portal/auth.ts` is the AR portal's password login (5 per 15 minutes).
+`pages/api/accounting/portal/auth.ts` sends the AFS portal's magic link (5 per 60 seconds). Both
+used `portal-auth:${ip}`. One key is one row with one window, so the 60-second caller kept
+resetting the row and the password login allowed about 60 guesses per 15 minutes.
+
+They guard different secrets, so they get different keys. The magic-link route now uses
+`afs-portal-magic-link:`. The password login keeps `portal-auth:` and its live counters.
+
+`tests/unit/security/rateLimitKeyCensus.test.ts` reads every tracked file under `pages` and
+`src`, finds every limiter call, and fails when two call sites use the same static key prefix
+with different options. A call it cannot read must be pinned by line with a reason; 7 are. It
+found no other collision. It compares exact prefixes only: it would not see two different
+prefixes that can produce the same key.
+
+### 5 to 8
+
+- `invite-accept`: the `als.exit` wrappers are removed.
+- `tests/unit/lib/rateLimit.test.ts`: the boundary test now asserts calls 1 to 5 admitted and
+  call 6 refused. The stale test title is corrected.
+- The pool-exhaustion test no longer has a stopwatch bound. Both calls wait at the same time and
+  the test's own timeout is the bound.
+- Docs: `shareResolver.ts:94` catches a limiter error and refuses. The `withRateLimit` signature
+  in `rateLimit.claude.md` now shows `scope`.
+
+### Do unit tests reach the limiter pool?
+
+Measured, by tracing every pool creation across the whole unit suite: two files create it,
+`tests/unit/lib/rateLimit.test.ts` and `rateLimitSend.test.ts`. Both are meant to be
+database-backed and skip when no database is reachable. `twoFactorLogoutCsrf.test.ts` does not
+reach it. No test that mocks `@/lib/neon` opens a limiter connection.
+
+One thing to know: `vitest.config.ts` reads `DATABASE_URL` from `.env.local` through `loadEnv`.
+`env -u DATABASE_URL` does not hide it. In a worktree that has `.env.local`, those two files run
+against `isaflow_dev` and write and delete their own test keys there. That was already so before
+this branch, through `sql`. Nothing was changed.
+
+The limiter pool is not ended by tests. No run hung, and 2 seconds after an integration run the
+fixture showed no connection left from it.
+
+### Tests and mutants in this round
+
+- Integration, real PostgreSQL: `r175-refusal-cache` (7), `r175-usage-quota-refund` (3), the
+  K-103 file (now 9) and the R-175 file (11). Red on c5b0ba6d0: 10 of 27 (`red.r1.int.log`; the
+  quota file was written later and is not in that log). Green: 30 of 30.
+- Unit: `rateLimitQuota` (10), `nlQueryQuotaRefund` (10), `rateLimitKeyCensus` (4), and new cases
+  in `rateLimitEveryCallCounted`, `withAuth-commit-order` and `statementBulkEmailRateLimit`. Red
+  on c5b0ba6d0's sources: 24 of 53 (`red.r1.unit.log`). Green: 53 of 53.
+- Whole unit suite: 1120 files, 14915 pass, 6 skipped.
+- The 23 other integration files that mention the limiter: the same 15 tests fail as with
+  `origin/master`'s limiter (no GoTrue on the harness, a database-name guard, a function owner).
+- Mutants on the final code: 55, all red, baseline green before and after (`mutations.log`,
+  round 3). Three quota mutants at first survived the new quota integration file; it was
+  strengthened and they are red there too.
+
+Not verified in this round:
+
+- The k-041 and k-042 invite suites. They were re-run as asked and fail on this harness before
+  and after, for want of GoTrue. So the removal of the `als.exit` wrappers is covered by reading
+  the code and by the K-103 tests, not by a route test.
+- `withAuth` giving units back, end to end against PostgreSQL through a real HTTP request. The
+  wiring is unit-tested with a mocked client; the refund itself is tested against PostgreSQL.
+- Start-up-parameter timeouts behind a pooler.
+- Load. Nothing here was load-tested.
 
 ## Rollback
 

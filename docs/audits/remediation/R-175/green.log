@@ -1,30 +1,20 @@
-### R-175 + K-103 integration (real Postgres fixture), code = working tree after both fixes
-
- RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r175-rate-limiter
-
-
- Test Files  2 passed (2)
-      Tests  18 passed (18)
-   Start at  12:44:46
-   Duration  10.96s (transform 87ms, setup 0ms, import 173ms, tests 14.23s, environment 0ms)
-
-exit=0
-
-### Whole unit suite (env -u DATABASE_URL ./node_modules/.bin/vitest run), summary lines
- Test Files  1117 passed (1117)
-      Tests  14881 passed | 6 skipped (14887)
-   Duration  32.98s (transform 130.96s, setup 0ms, import 324.77s, tests 132.86s, environment 75ms)
-exit=0
-Before the K-103 change, same command on 527dda3f4:
- Test Files  1117 passed (1117)
-      Tests  14881 passed | 6 skipped (14887)
-
-### DB-backed limiter unit tests run against the disposable fixture (they skip without a database)
+### R-175 + K-103 integration (real Postgres fixture), final code of review round 1
  RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r175-rate-limiter
  Test Files  4 passed (4)
-      Tests  34 passed (34)
-   Start at  12:45:30
-   Duration  631ms (transform 176ms, setup 0ms, import 303ms, tests 803ms, environment 0ms)
+      Tests  30 passed (30)
+   Start at  16:49:25
+   Duration  11.32s (transform 561ms, setup 0ms, import 1.09s, tests 21.27s, environment 0ms)
+exit=0
+
+### Whole unit suite (./node_modules/.bin/vitest run). Note: vitest.config.ts reads DATABASE_URL from .env.local, so the two DB-backed limiter files ran against isaflow_dev.
+ Test Files  1120 passed (1120)
+      Tests  14915 passed | 6 skipped (14921)
+   Duration  118.54s (transform 840.99s, setup 0ms, import 1598.66s, tests 283.41s, environment 163ms)
+exit=0
+
+### The limiter unit files against the disposable fixture
+ Test Files  5 passed (5)
+      Tests  47 passed (47)
 exit=0
 
 ### Integration: every other tests/integration file that mentions the limiter or its table (23 files)
@@ -48,19 +38,19 @@ exit=0
  FAIL  tests/integration/mfa-impersonation-postgres.int.test.ts [ tests/integration/mfa-impersonation-postgres.int.test.ts ]
  Test Files  7 failed | 16 passed (23)
       Tests  15 failed | 167 passed | 33 skipped (215)
- ❯ tests/integration/2fa-login-gate.int.test.ts (2 tests | 2 skipped) 4ms
+ ❯ tests/integration/2fa-login-gate.int.test.ts (2 tests | 2 skipped) 13ms
  ❯ tests/integration/2fa-login-gate.int.test.ts:58:24
- ❯ tests/integration/api/zod-validation.test.ts (29 tests | 29 skipped) 4ms
+ ❯ tests/integration/api/zod-validation.test.ts (29 tests | 29 skipped) 34ms
  ❯ tests/integration/api/zod-validation.test.ts:75:3
  ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:105:35
  ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:128:35
  ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:152:35
  ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:184:35
  ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:45:35
- ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts (6 tests | 6 failed) 882ms
+ ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts (6 tests | 6 failed) 1358ms
  ❯ tests/integration/k-041-invite-accept-adjacent.int.test.ts:85:35
  ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:109:35
- ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts (10 tests | 6 failed) 1003ms
+ ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts (10 tests | 6 failed) 1513ms
  ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:135:27
  ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:148:35
  ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:60:35
@@ -68,24 +58,21 @@ exit=0
  ❯ tests/integration/k-041-invite-accept-overwrites-existing-password.int.test.ts:87:35
  ❯ tests/integration/k-042-reinvite-unique-violation.int.test.ts:110:35
  ❯ tests/integration/k-042-reinvite-unique-violation.int.test.ts:137:35
- ❯ tests/integration/k-042-reinvite-unique-violation.int.test.ts (5 tests | 2 failed) 470ms
+ ❯ tests/integration/k-042-reinvite-unique-violation.int.test.ts (5 tests | 2 failed) 439ms
  ❯ tests/integration/k104-k105-invitation-token-encoding.int.test.ts:231:21
- ❯ tests/integration/k104-k105-invitation-token-encoding.int.test.ts (7 tests | 1 failed) 748ms
- ❯ tests/integration/mfa-impersonation-postgres.int.test.ts (1 test | 1 skipped) 24ms
+ ❯ tests/integration/k104-k105-invitation-token-encoding.int.test.ts (7 tests | 1 failed) 1577ms
+ ❯ tests/integration/mfa-impersonation-postgres.int.test.ts (1 test | 1 skipped) 61ms
  ❯ tests/integration/mfa-impersonation-postgres.int.test.ts:30:14
  ❯ tests/integration/mfa-impersonation-postgres.int.test.ts:30:20
 exit=1
 
 ### Attribution of the 7 failing integration files above (15 tests)
-The same 7 files fail with the same 15 FAIL lines when origin/master's
-src/lib/rateLimit.ts is swapped in (run before the K-103 change; the set of
-FAIL lines was compared again after it and is identical). Causes, none in the
-limiter: the harness points GOTRUE_URL at a closed port ("fetch failed" in
+The set of FAIL lines is identical to the run with origin/master's src/lib/rateLimit.ts swapped in.
+Causes, none in the limiter: the harness points GOTRUE_URL at a closed port ("fetch failed" in
 gotrueFetch: 2fa-login-gate, mfa-impersonation-postgres, k-041 x2, k-042);
-tests/integration/api/zod-validation.test.ts refuses any database but
-isaflow_dev / isaflow_test; k104-k105 expects a function owned by
-migration_admin and the fixture has it owned by postgres.
-Not verified here because of that: k-041 "L4: the accept endpoint caps password
-attempts per invitation token" and "L7 ... is refunded too", the two existing
-tests that drive checkRateLimit / refundRateLimit through a route.
+tests/integration/api/zod-validation.test.ts refuses any database but isaflow_dev / isaflow_test;
+k104-k105 expects a function owned by migration_admin and the fixture has it owned by postgres.
+Not verified here because of that: the k-041 and k-042 invite suites, including k-041 "L4" and "L7",
+the two tests that drive checkRateLimit / refundRateLimit through the invite-accept route whose
+als.exit wrappers were removed in review round 1.
 Not run: the rest of tests/integration (files that do not mention the limiter).

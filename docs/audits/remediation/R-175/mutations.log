@@ -212,3 +212,516 @@ unit(mocked): Tests  11 passed (11)
 BASELINE after the last mutant (git status: '')
 int: Tests  18 passed (18)
 unit(mocked): Tests  11 passed (11)
+
+==================================================================
+Round 3 (review round 1). Base commit 7b6ca9353. 55 mutants, every earlier one repeated on the final code plus the new guards:
+M = counter SQL and verdict, K = K-103 pool/transaction, C = refuse-only cache, T = pool timeouts, Q = usage-quota refunds, P = portal key.
+Each is run against three integration files (27 tests) and seven unit files (53 tests); restored with git checkout after each.
+The batch opens and closes with a BASELINE run. Failing test names are listed under each mutant.
+
+BASELINE (git status of sources: '')
+int: Tests  27 passed (27)
+unit: Tests  53 passed (53)
+
+M2 | src/lib/rateLimit.ts | verdict count <= max => count < max
+int: × answers a flood on an over-limit key without writing to the database 115ms
+int: × never admits from memory: a deleted row is not noticed until the cache is cleared 92ms
+int: × a refund in this process drops the remembered refusal 102ms
+int: × re-admits when the window rolls over, without the cache being cleared 10ms
+int: × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 148ms
+int: × a remembered refusal for one limit does not refuse a caller with a higher limit 96ms
+int: × does not remember an admission: a key at its limit is still checked 96ms
+int: × admits exactly max of 100 sequential calls, in order 123ms
+int: × admits exactly max of 100 concurrent calls 519ms
+int: × counts cost-1 calls against a later weighted call 33ms
+int: × starts a fresh allowance of exactly max when the window rolls over 62ms
+int: × keeps counting inside a window that has not ended 66ms
+int: × a refund gives back exactly the refunded units 77ms
+int: × two module instances sharing the database together admit exactly max 86ms
+int: × two module instances called concurrently together admit exactly max 263ms
+int: × admits exactly max when 40 concurrent requests charge one key 162ms
+int: Tests  16 failed | 11 passed (27)
+unit: × admits exactly max of 70 calls on one process, and asks the database for every admission 28ms
+unit: × admits at max and refuses at max + 1 1ms
+unit: Tests  2 failed | 51 passed (53)
+
+M3 | src/lib/rateLimit.ts | verdict count <= max => count <= max + 1
+int: × answers a flood on an over-limit key without writing to the database 173ms
+int: × never admits from memory: a deleted row is not noticed until the cache is cleared 140ms
+int: × a refund in this process drops the remembered refusal 110ms
+int: × re-admits when the window rolls over, without the cache being cleared 14ms
+int: × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 150ms
+int: × a remembered refusal for one limit does not refuse a caller with a higher limit 132ms
+int: × admits exactly max of 100 sequential calls, in order 181ms
+int: × admits exactly max of 100 concurrent calls 511ms
+int: × counts cost-1 calls against a later weighted call 70ms
+int: × admits weighted calls only while their running total stays within max 36ms
+int: × starts a fresh allowance of exactly max when the window rolls over 83ms
+int: × keeps counting inside a window that has not ended 100ms
+int: × a refund gives back exactly the refunded units 100ms
+int: × two module instances sharing the database together admit exactly max 113ms
+int: × two module instances called concurrently together admit exactly max 303ms
+int: × admits exactly max when 40 concurrent requests charge one key 197ms
+int: Tests  16 failed | 11 passed (27)
+unit: × denies once the default max (25) is exceeded 4ms
+unit: × forwards explicit max/windowSecs overrides to the underlying limiter 1ms
+unit: × admits exactly max of 70 calls on one process, and asks the database for every admission 5ms
+unit: × admits at max and refuses at max + 1 2ms
+unit: × remembers a refusal, and only a refusal: memory never admits 1ms
+unit: × does not remember a refusal whose window has already ended 1ms
+unit: × remembers a refusal no longer than the window has left 1ms
+unit: × clearRateLimitCache and refundRateLimit each forget a remembered refusal 1ms
+unit: Tests  8 failed | 45 passed (53)
+
+M4 | src/lib/rateLimit.ts | first call of a window charges 1, not cost
+int: × admits weighted calls only while their running total stays within max 39ms
+int: × a refund made by a request that rolls back still lands 14ms
+int: Tests  2 failed | 25 passed (27)
+unit: Tests  53 passed (53)
+
+M5 | src/lib/rateLimit.ts | later calls charge 1, not cost
+int: × counts cost-1 calls against a later weighted call 34ms
+int: × admits weighted calls only while their running total stays within max 25ms
+int: Tests  2 failed | 25 passed (27)
+unit: Tests  53 passed (53)
+
+M6 | src/lib/rateLimit.ts | rollover does not reset the count
+int: × starts a fresh allowance of exactly max when the window rolls over 75ms
+int: × re-admits when the window rolls over, without the cache being cleared 2330ms
+int: Tests  2 failed | 25 passed (27)
+unit: Tests  53 passed (53)
+
+M7 | src/lib/rateLimit.ts | rollover does not reset window_start
+int: × starts a fresh allowance of exactly max when the window rolls over 372ms
+int: Tests  1 failed | 26 passed (27)
+unit: Tests  53 passed (53)
+
+M8 | src/lib/rateLimit.ts | window comparison flipped on the count
+int: × answers a flood on an over-limit key without writing to the database 132ms
+int: × never admits from memory: a deleted row is not noticed until the cache is cleared 115ms
+int: × a refund in this process drops the remembered refusal 117ms
+int: × re-admits when the window rolls over, without the cache being cleared 15ms
+int: × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 104ms
+int: × a remembered refusal for one limit does not refuse a caller with a higher limit 93ms
+int: × does not remember an admission: a key at its limit is still checked 113ms
+int: × admits exactly max of 100 sequential calls, in order 540ms
+int: × admits exactly max of 100 concurrent calls 332ms
+int: × writes a call far below the limit to the shared counter 17ms
+int: × counts cost-1 calls against a later weighted call 32ms
+int: × admits weighted calls only while their running total stays within max 28ms
+int: × starts a fresh allowance of exactly max when the window rolls over 94ms
+int: × keeps counting inside a window that has not ended 68ms
+int: × a refund gives back exactly the refunded units 64ms
+int: × two module instances sharing the database together admit exactly max 329ms
+int: × two module instances called concurrently together admit exactly max 272ms
+int: × does not hold the counter row lock for the rest of the request 35ms
+int: × admits exactly max when 40 concurrent requests charge one key 221ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 2017ms
+int: Tests  20 failed | 7 passed (27)
+unit: Tests  53 passed (53)
+
+M9 | src/lib/rateLimit.ts | window length ignores windowSecs (880s) on the count
+int: × keeps counting inside a window that has not ended 85ms
+int: × re-admits when the window rolls over, without the cache being cleared 2331ms
+int: Tests  2 failed | 25 passed (27)
+unit: Tests  53 passed (53)
+
+M10 | src/lib/rateLimit.ts | clampCost bypassed on the charge
+int: Tests  27 passed (27)
+unit: × charges the clamped cost 5ms
+unit: Tests  1 failed | 52 passed (53)
+
+M11 | src/lib/rateLimit.ts | refund without the zero floor
+int: × a refund floors at zero, leaves the window alone and ignores an absent key 19ms
+int: Tests  1 failed | 26 passed (27)
+unit: Tests  53 passed (53)
+
+M12 | src/lib/rateLimit.ts | refund moves window_start
+int: × a refund floors at zero, leaves the window alone and ignores an absent key 21ms
+int: Tests  1 failed | 26 passed (27)
+unit: Tests  53 passed (53)
+
+M13 | src/lib/rateLimit.ts | refund always gives back 1
+int: × a refund gives back exactly the refunded units 63ms
+int: × a refund floors at zero, leaves the window alone and ignores an absent key 14ms
+int: × a refund in this process drops the remembered refusal 119ms
+int: × a refund made by a request that rolls back still lands 13ms
+int: Tests  4 failed | 23 passed (27)
+unit: × refundQuotaCharges gives back each noted charge once 12ms
+unit: × a refund that fails is logged, does not throw, and does not stop the next one 2ms
+unit: × refundAiDailyQuota gives the unit back once, and then the failed-request refund has nothing left 1ms
+unit: × refundSendDailyQuota gives back at most what the request charged 1ms
+unit: × refundRateLimit sends the clamped units 5ms
+unit: Tests  5 failed | 48 passed (53)
+
+M14 | src/lib/rateLimit.ts | refund hits the wrong key
+int: × admits exactly max of 100 sequential calls, in order 180ms
+int: × admits exactly max of 100 concurrent calls 506ms
+int: × a refund gives back exactly the refunded units 1001ms
+int: × a refund floors at zero, leaves the window alone and ignores an absent key 79ms
+int: × answers a flood on an over-limit key without writing to the database 143ms
+int: × a refund in this process drops the remembered refusal 153ms
+int: × a refund made by a request that rolls back still lands 33ms
+int: × does not hold the counter row lock for the rest of the request 54ms
+int: × still answers while every request connection is held by an open request 4011ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 2013ms
+int: Tests  10 failed | 17 passed (27)
+unit: Tests  53 passed (53)
+
+K1 | src/lib/rateLimit.ts | charge runs on the request transaction when one is open
+int: × charges the counter even when the request transaction rolls back 26ms
+int: × charges a request whose handler throws inside withAlsTransaction 8ms
+int: × does not hold the counter row lock for the rest of the request 2005ms
+int: Tests  3 failed | 24 passed (27)
+unit: × checkAiRateLimit notes one unit of the daily bucket, and only that bucket 12ms
+unit: × checkSendRateLimit notes the recipient count on the daily bucket 1ms
+unit: × notes nothing when the call is refused 1ms
+unit: × does nothing outside a request that keeps the list 3ms
+unit: × refundQuotaCharges gives back each noted charge once 1ms
+unit: × refundAiDailyQuota gives the unit back once, and then the failed-request refund has nothing left 1ms
+unit: × a request cannot give back a bucket it did not charge 1ms
+unit: × refundSendDailyQuota gives back at most what the request charged 1ms
+unit: Tests  8 failed | 45 passed (53)
+
+K2 | src/lib/rateLimit.ts | refund runs on the request transaction when one is open
+int: × a refund made by a request that rolls back still lands 12ms
+int: × does not hold the counter row lock for the rest of the request 2011ms
+int: Tests  2 failed | 25 passed (27)
+unit: × refundAiDailyQuota gives the unit back once, and then the failed-request refund has nothing left 5ms
+unit: × refundSendDailyQuota gives back at most what the request charged 1ms
+unit: Tests  2 failed | 51 passed (53)
+
+K3 | src/lib/rateLimit.ts | charge takes its connection from the main request pool
+int: × admits exactly max when 40 concurrent requests charge one key 15004ms
+int: × still answers while every request connection is held by an open request 15010ms
+int: × fails, and does not admit, when the limiter cannot get a connection 5013ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 25001ms
+int: Tests  4 failed | 23 passed (27)
+unit: × namespaces the key as report:<name>:co:<companyId> 34ms
+unit: × denies once the default max (25) is exceeded 10ms
+unit: × forwards explicit max/windowSecs overrides to the underlying limiter 21ms
+unit: × scopes independent companies to independent keys 7ms
+unit: × notes nothing when the call is refused 40ms
+unit: × sends one upsert per call, even far below the limit 122ms
+unit: × admits exactly max of 70 calls on one process, and asks the database for every admission 60ms
+unit: × admits at max and refuses at max + 1 13ms
+unit: × charges the clamped cost 10ms
+unit: × remembers a refusal, and only a refusal: memory never admits 6ms
+unit: × does not remember a refusal whose window has already ended 4ms
+unit: × remembers a refusal no longer than the window has left 1214ms
+unit: × clearRateLimitCache and refundRateLimit each forget a remembered refusal 10ms
+unit: Tests  13 failed | 40 passed (53)
+
+K4 | src/lib/rateLimit.ts | refund takes its connection from the main request pool
+int: × still answers while every request connection is held by an open request 15028ms
+int: × fails, and does not admit, when the limiter cannot get a connection 5007ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 25001ms
+int: Tests  3 failed | 24 passed (27)
+unit: × refundQuotaCharges gives back each noted charge once 23ms
+unit: × a refund that fails is logged, does not throw, and does not stop the next one 4ms
+unit: × refundAiDailyQuota gives the unit back once, and then the failed-request refund has nothing left 3ms
+unit: × refundSendDailyQuota gives back at most what the request charged 8ms
+unit: × clearRateLimitCache and refundRateLimit each forget a remembered refusal 13ms
+unit: × refundRateLimit sends the clamped units 3ms
+unit: Tests  6 failed | 47 passed (53)
+
+K5 | src/lib/rateLimitPool.ts | connect timeout 5000 => 60000
+int: × fails, and does not admit, when the limiter cannot get a connection 25013ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 25020ms
+int: Tests  2 failed | 25 passed (27)
+unit: Tests  53 passed (53)
+
+K6 | src/lib/rateLimitPool.ts | pool built without the connect timeout
+int: × fails, and does not admit, when the limiter cannot get a connection 25013ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 25021ms
+int: × bounds every statement on a limiter connection, server side first 25013ms
+int: Tests  3 failed | 24 passed (27)
+unit: Tests  53 passed (53)
+
+K7 | src/lib/rateLimit.ts | charge fails open: a database error admits
+int: × fails, and does not admit, when the limiter cannot get a connection 5008ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 2008ms
+int: Tests  2 failed | 25 passed (27)
+unit: Tests  53 passed (53)
+
+C1 | src/lib/rateLimit.ts | memory admits: a remembered key returns true
+int: × answers a flood on an over-limit key without writing to the database 100ms
+int: × never admits from memory: a deleted row is not noticed until the cache is cleared 106ms
+int: × re-admits when the window rolls over, without the cache being cleared 11ms
+int: × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 85ms
+int: × admits exactly max of 100 sequential calls, in order 95ms
+int: × admits weighted calls only while their running total stays within max 24ms
+int: × starts a fresh allowance of exactly max when the window rolls over 54ms
+int: × a refund gives back exactly the refunded units 86ms
+int: × two module instances sharing the database together admit exactly max 89ms
+int: × admits exactly max when 40 concurrent requests charge one key 145ms
+int: Tests  10 failed | 17 passed (27)
+unit: × admits exactly max of 70 calls on one process, and asks the database for every admission 4ms
+unit: × remembers a refusal, and only a refusal: memory never admits 1ms
+unit: × remembers a refusal no longer than the window has left 0ms
+unit: Tests  3 failed | 50 passed (53)
+
+C2 | src/lib/rateLimit.ts | remembered refusal applies to any max
+int: × a remembered refusal for one limit does not refuse a caller with a higher limit 62ms
+int: Tests  1 failed | 26 passed (27)
+unit: Tests  53 passed (53)
+
+C3 | src/lib/rateLimit.ts | refusals are never remembered
+int: × answers a flood on an over-limit key without writing to the database 1106ms
+int: × never admits from memory: a deleted row is not noticed until the cache is cleared 118ms
+int: × re-admits when the window rolls over, without the cache being cleared 21ms
+int: × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 108ms
+int: × admits exactly max of 100 sequential calls, in order 475ms
+int: × admits weighted calls only while their running total stays within max 47ms
+int: × starts a fresh allowance of exactly max when the window rolls over 341ms
+int: × two module instances sharing the database together admit exactly max 419ms
+int: Tests  8 failed | 19 passed (27)
+unit: × admits exactly max of 70 calls on one process, and asks the database for every admission 3ms
+unit: × remembers a refusal, and only a refusal: memory never admits 2ms
+unit: × remembers a refusal no longer than the window has left 0ms
+unit: Tests  3 failed | 50 passed (53)
+
+C4 | src/lib/rateLimit.ts | refusal outlives the window (TTL ignores the time left)
+int: × re-admits when the window rolls over, without the cache being cleared 2342ms
+int: Tests  1 failed | 26 passed (27)
+unit: × does not remember a refusal whose window has already ended 3ms
+unit: × remembers a refusal no longer than the window has left 1203ms
+unit: Tests  2 failed | 51 passed (53)
+
+C5 | src/lib/rateLimit.ts | refusal remembered to the end of the window (no 5s cap)
+int: × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 5638ms
+int: Tests  1 failed | 26 passed (27)
+unit: Tests  53 passed (53)
+
+C6 | src/lib/rateLimit.ts | refund keeps the remembered refusal
+int: × a refund in this process drops the remembered refusal 197ms
+int: Tests  1 failed | 26 passed (27)
+unit: Tests  53 passed (53)
+
+C7 | src/lib/rateLimit.ts | clearRateLimitCache is a no-op
+int: × starts a fresh allowance of exactly max when the window rolls over 352ms
+int: × never admits from memory: a deleted row is not noticed until the cache is cleared 733ms
+int: Tests  2 failed | 25 passed (27)
+unit: × does nothing outside a request that keeps the list 6ms
+unit: × refundQuotaCharges gives back each noted charge once 3ms
+unit: × refundAiDailyQuota gives the unit back once, and then the failed-request refund has nothing left 1ms
+unit: × admits at max and refuses at max + 1 5ms
+unit: × remembers a refusal, and only a refusal: memory never admits 1ms
+unit: × does not remember a refusal whose window has already ended 1ms
+unit: × remembers a refusal no longer than the window has left 1202ms
+unit: × clearRateLimitCache and refundRateLimit each forget a remembered refusal 1ms
+unit: Tests  8 failed | 45 passed (53)
+
+C8 | src/lib/rateLimit.ts | an admission is remembered as a refusal
+int: × answers a flood on an over-limit key without writing to the database 38ms
+int: × never admits from memory: a deleted row is not noticed until the cache is cleared 37ms
+int: × a refund in this process drops the remembered refusal 29ms
+int: × re-admits when the window rolls over, without the cache being cleared 31ms
+int: × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 47ms
+int: × a remembered refusal for one limit does not refuse a caller with a higher limit 25ms
+int: × does not remember an admission: a key at its limit is still checked 15ms
+int: × admits exactly max of 100 sequential calls, in order 34ms
+int: × writes a call far below the limit to the shared counter 28ms
+int: × counts cost-1 calls against a later weighted call 21ms
+int: × admits weighted calls only while their running total stays within max 31ms
+int: × starts a fresh allowance of exactly max when the window rolls over 25ms
+int: × keeps counting inside a window that has not ended 16ms
+int: × a refund gives back exactly the refunded units 20ms
+int: × a refund floors at zero, leaves the window alone and ignores an absent key 21ms
+int: × two module instances sharing the database together admit exactly max 46ms
+int: × does not hold the counter row lock for the rest of the request 28ms
+int: × admits exactly max when 40 concurrent requests charge one key 256ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 2105ms
+int: Tests  19 failed | 8 passed (27)
+unit: × does nothing outside a request that keeps the list 5ms
+unit: × sends one upsert per call, even far below the limit 7ms
+unit: × admits exactly max of 70 calls on one process, and asks the database for every admission 1ms
+unit: × charges the clamped cost 1ms
+unit: × remembers a refusal, and only a refusal: memory never admits 1ms
+unit: Tests  5 failed | 48 passed (53)
+
+T1 | src/lib/rateLimitPool.ts | no lock_timeout on limiter connections
+int: × gives up on a counter row another connection has locked, with an error and no admission 3029ms
+int: × bounds every statement on a limiter connection, server side first 3ms
+int: Tests  2 failed | 25 passed (27)
+unit: Tests  53 passed (53)
+
+T2 | src/lib/rateLimitPool.ts | no statement_timeout on limiter connections
+int: × bounds every statement on a limiter connection, server side first 4ms
+int: × two module instances called concurrently together admit exactly max 5005ms
+int: Tests  2 failed | 25 passed (27)
+unit: Tests  53 passed (53)
+
+T3 | src/lib/rateLimitPool.ts | query_timeout shorter than statement_timeout
+int: × bounds every statement on a limiter connection, server side first 4ms
+int: Tests  1 failed | 26 passed (27)
+unit: Tests  53 passed (53)
+
+T4 | src/lib/rateLimitPool.ts | no query_timeout
+int: × bounds every statement on a limiter connection, server side first 8ms
+int: Tests  1 failed | 26 passed (27)
+unit: Tests  53 passed (53)
+
+Q1 | src/lib/rateLimit.ts | checkAiRateLimit notes nothing
+int: Tests  27 passed (27)
+unit: × checkAiRateLimit notes one unit of the daily bucket, and only that bucket 10ms
+unit: × refundQuotaCharges gives back each noted charge once 2ms
+unit: × refundAiDailyQuota gives the unit back once, and then the failed-request refund has nothing left 1ms
+unit: Tests  3 failed | 50 passed (53)
+
+Q2 | src/lib/rateLimit.ts | checkAiRateLimit notes a refused call
+int: Tests  27 passed (27)
+unit: × notes nothing when the call is refused 5ms
+unit: Tests  1 failed | 52 passed (53)
+
+Q3 | src/lib/rateLimit.ts | checkSendRateLimit notes 1, not the recipient count
+int: Tests  27 passed (27)
+unit: × checkSendRateLimit notes the recipient count on the daily bucket 4ms
+unit: × refundQuotaCharges gives back each noted charge once 2ms
+unit: × refundSendDailyQuota gives back at most what the request charged 1ms
+unit: Tests  3 failed | 50 passed (53)
+
+Q4 | src/lib/auth/withAuth.ts | withAuth refunds only above 500
+int: Tests  27 passed (27)
+unit: × gives the usage-quota charge back when the handler responds 5xx 8ms
+unit: × gives the usage-quota charge back when the handler throws 9ms
+unit: × gives the usage-quota charge back when the COMMIT fails after a 2xx 4ms
+unit: Tests  3 failed | 50 passed (53)
+
+Q5 | src/lib/auth/withAuth.ts | withAuth refunds on 4xx as well
+int: Tests  27 passed (27)
+unit: × keeps the usage-quota charge of a request that succeeds or is refused with a 4xx 23ms
+unit: Tests  1 failed | 52 passed (53)
+
+Q6 | src/lib/auth/withAuth.ts | withAuth never hands its context to the refund
+int: Tests  27 passed (27)
+unit: × gives the usage-quota charge back when the handler responds 5xx 8ms
+unit: × gives the usage-quota charge back when the handler throws 5ms
+unit: × gives the usage-quota charge back when the COMMIT fails after a 2xx 3ms
+unit: Tests  3 failed | 50 passed (53)
+
+Q7 | src/lib/auth/withAuth.ts | withAuth context keeps no quota list
+int: Tests  27 passed (27)
+unit: × keeps the usage-quota charge of a request that succeeds or is refused with a 4xx 7ms
+unit: × gives the usage-quota charge back when the handler responds 5xx 7ms
+unit: × gives the usage-quota charge back when the handler throws 9ms
+unit: × gives the usage-quota charge back when the COMMIT fails after a 2xx 4ms
+unit: Tests  4 failed | 49 passed (53)
+
+Q8 | src/lib/rateLimitQuota.ts | refundQuotaCharges leaves the list in place (refunds twice)
+int: Tests  27 passed (27)
+unit: × refundQuotaCharges gives back each noted charge once 4ms
+unit: Tests  1 failed | 52 passed (53)
+
+Q9 | src/lib/rateLimitQuota.ts | a failed refund throws
+int: Tests  27 passed (27)
+unit: × a refund that fails is logged, does not throw, and does not stop the next one 6ms
+unit: Tests  1 failed | 52 passed (53)
+
+Q10 | src/lib/rateLimitQuota.ts | explicit refund without an own charge
+int: Tests  27 passed (27)
+unit: × does nothing outside a request that keeps the list 4ms
+unit: × refundAiDailyQuota gives the unit back once, and then the failed-request refund has nothing left 1ms
+unit: × a request cannot give back a bucket it did not charge 1ms
+unit: × refundSendDailyQuota gives back at most what the request charged 1ms
+unit: Tests  4 failed | 49 passed (53)
+
+Q11 | src/lib/rateLimitQuota.ts | explicit refund not capped at what was charged
+int: Tests  27 passed (27)
+unit: × refundSendDailyQuota gives back at most what the request charged 4ms
+unit: Tests  1 failed | 52 passed (53)
+
+Q12 | src/lib/rateLimitQuota.ts | explicit refund leaves the noted charge untouched
+int: Tests  27 passed (27)
+unit: × refundAiDailyQuota gives the unit back once, and then the failed-request refund has nothing left 4ms
+unit: × refundSendDailyQuota gives back at most what the request charged 2ms
+unit: Tests  2 failed | 51 passed (53)
+
+Q13 | pages/api/accounting/nl-query.ts | nl-query: provider answer never recorded
+int: Tests  27 passed (27)
+unit: × keeps the unit when the provider answered and the generated query then fails 12ms
+unit: Tests  1 failed | 52 passed (53)
+
+Q14 | pages/api/accounting/nl-query.ts | nl-query: no refund on a provider error status
+int: Tests  27 passed (27)
+unit: × gives the unit back when the provider answers with an error status 3ms
+unit: Tests  1 failed | 52 passed (53)
+
+Q15 | pages/api/accounting/nl-query.ts | nl-query: no refund when the provider call throws
+int: Tests  27 passed (27)
+unit: × gives the unit back when the provider call throws 4ms
+unit: Tests  1 failed | 52 passed (53)
+
+Q16 | pages/api/accounting/nl-query.ts | nl-query: refund in the catch even after an answer
+int: Tests  27 passed (27)
+unit: × keeps the unit when the provider answered and the generated query then fails 12ms
+unit: Tests  1 failed | 52 passed (53)
+
+Q17 | pages/api/accounting/nl-query.ts | nl-query: no refund when no key is configured
+int: Tests  27 passed (27)
+unit: × gives the unit back when no provider key is configured 4ms
+unit: Tests  1 failed | 52 passed (53)
+
+Q18 | pages/api/accounting/nl-query.ts | nl-query: no refund for a too-short question
+int: Tests  27 passed (27)
+unit: × gives the unit back for a question that is too short 16ms
+unit: × gives the unit back for a question that is not a string 1ms
+unit: Tests  2 failed | 51 passed (53)
+
+Q19 | pages/api/accounting/nl-query.ts | nl-query: no refund for a too-long question
+int: Tests  27 passed (27)
+unit: × gives the unit back for a question that is too long 4ms
+unit: Tests  1 failed | 52 passed (53)
+
+Q20 | pages/api/accounting/statement-bulk-email.ts | bulk email: failed sends are not given back
+int: Tests  27 passed (27)
+unit: × gives back the daily units of the emails that failed, and only those 4ms
+unit: Tests  1 failed | 52 passed (53)
+
+Q21 | pages/api/accounting/statement-bulk-email.ts | bulk email: gives back the sent count instead of the failed count
+int: Tests  27 passed (27)
+unit: × gives back the daily units of the emails that failed, and only those 4ms
+unit: Tests  1 failed | 52 passed (53)
+
+Q22 | pages/api/accounting/statement-bulk-email.ts | bulk email: charged before the ownership guard
+int: Tests  27 passed (27)
+unit: × charges nothing when the ownership guard refuses the request 3ms
+unit: Tests  1 failed | 52 passed (53)
+
+P1 | pages/api/accounting/portal/auth.ts | AFS magic-link route shares portal-auth: again
+int: Tests  27 passed (27)
+unit: × finds the call sites 6ms
+unit: × no two call sites share a key prefix with different options 1ms
+unit: Tests  2 failed | 51 passed (53)
+
+BASELINE (git status of sources: '')
+int: Tests  27 passed (27)
+unit: Tests  53 passed (53)
+
+DONE BASELINE M2 M3 M4 M5 M6 M7 M8 M9 M10 M11 M12 M13 M14 K1 K2 K3 K4 K5 K6 K7 C1 C2 C3 C4 C5 C6 C7 C8 T1 T2 T3 T4 Q1 Q2 Q3 Q4 Q5 Q6 Q7 Q8 Q9 Q10 Q11 Q12 Q13 Q14 Q15 Q16 Q17 Q18 Q19 Q20 Q21 Q22 P1 BASELINE
+
+------------------------------------------------------------------
+The quota mutants again, against tests/integration/r175-usage-quota-refund.int.test.ts (real Postgres; written after the batch).
+First attempt: Q8, Q10 and Q11 survived this file (they were red only in the unit files), because the zero floor and a single
+request hid them. The file was strengthened (a second, untouched request on the same key; a repeated refund) and re-run:
+
+Q1 | src/lib/rateLimit.ts | checkAiRateLimit notes nothing
+int(usage-quota file): Tests  1 failed | 2 passed (3)
+
+Q3 | src/lib/rateLimit.ts | checkSendRateLimit notes 1, not the recipient count
+int(usage-quota file): Tests  1 failed | 2 passed (3)
+
+Q8 | src/lib/rateLimitQuota.ts | refundQuotaCharges leaves the list in place (refunds twice)
+int(usage-quota file): Tests  1 failed | 2 passed (3)
+
+Q10 | src/lib/rateLimitQuota.ts | explicit refund without an own charge
+int(usage-quota file): Tests  2 failed | 1 passed (3)
+
+Q11 | src/lib/rateLimitQuota.ts | explicit refund not capped at what was charged
+int(usage-quota file): Tests  1 failed | 2 passed (3)
+
+Q12 | src/lib/rateLimitQuota.ts | explicit refund leaves the noted charge untouched
+int(usage-quota file): Tests  2 failed | 1 passed (3)
+
+BASELINE (git status of sources: '')
+int(usage-quota file): Tests  3 passed (3)
