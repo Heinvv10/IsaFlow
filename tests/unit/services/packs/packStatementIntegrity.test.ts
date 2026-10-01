@@ -135,6 +135,73 @@ describe('assertPackIntegrity — statements', () => {
     expect(() => assertPackIntegrity(docOf(p))).toThrow(/EBITDA/);
   });
 
+  /**
+   * THE THREE DERIVED LINES. Each is computed in `packStatementTables` from
+   * two classifier figures, so each has an identity holding it to them — and
+   * none of the three had a rejecting test: delete the identity, or flip a
+   * `sign` in it, and every test in this file stayed green.
+   *
+   * Each case states the derived line WRONG by a figure that the flipped
+   * sign would make right, and each has an acceptance twin, so a sign flip
+   * fails one of the pair and a deleted identity fails the other.
+   */
+  const DERIVED: Array<{
+    name: string;
+    target: string;
+    plus: [string, number];
+    minus: [string, number];
+    refusal: RegExp;
+  }> = [
+    {
+      name: 'non-current assets',
+      target: 'packStatementTables.nonCurrentAssets',
+      plus: ['packFigureSet.current.totalAssets', 3_900_000],
+      minus: ['packFigureSet.current.currentAssets', 1_850_000],
+      refusal: /Non-current assets do not equal total assets less current assets/,
+    },
+    {
+      name: 'non-current liabilities',
+      target: 'packStatementTables.nonCurrentLiabilities',
+      plus: ['packFigureSet.current.totalLiabilities', 1_640_000],
+      minus: ['packFigureSet.current.currentLiabilities', 940_000],
+      refusal: /Non-current liabilities do not equal total liabilities less current liabilities/,
+    },
+    {
+      name: 'gross profit',
+      target: 'packStatementTables.grossProfit',
+      plus: ['packFigureSet.current.revenue', 4_200_000],
+      minus: ['packFigureSet.current.costOfSales', 2_310_000],
+      refusal: /Gross profit does not equal revenue less cost of sales/,
+    },
+  ];
+
+  /** `balanced` has already issued the three totals; issue anything else. */
+  function issue(p: PackFigureProvenance, source: string, value: number): void {
+    if (!p.all().has(source)) p.figure(source, value, 'money');
+  }
+
+  for (const identity of DERIVED) {
+    const derive = (value: number): PackFigureProvenance => {
+      const p = new PackFigureProvenance();
+      balanced(p);
+      issue(p, identity.plus[0], identity.plus[1]);
+      issue(p, identity.minus[0], identity.minus[1]);
+      p.figure(identity.target, value, 'money');
+      return p;
+    };
+
+    it(`fails when ${identity.name} is the SUM of its two figures, not the difference`, () => {
+      // What a flipped `sign` would compute — so the flip makes this pass.
+      expect(() => assertPackIntegrity(docOf(derive(identity.plus[1] + identity.minus[1]))))
+        .toThrow(identity.refusal);
+    });
+
+    it(`accepts ${identity.name} as the difference of its two figures`, () => {
+      expect(() => assertPackIntegrity(docOf(derive(identity.plus[1] - identity.minus[1]))))
+        .not.toThrow();
+    });
+  }
+
   it('fails a comparative column filled from a current-period reading', () => {
     const p = new PackFigureProvenance();
     balanced(p);
