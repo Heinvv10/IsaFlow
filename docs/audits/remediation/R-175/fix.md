@@ -883,6 +883,22 @@ the general rule. The other Anthropic callers in the code (`ai-categorize`, port
 summaries, the categorisation pass, the cash-flow forecast) do not refund and are unaffected.
 Mutants AN1 to AN6 red.
 
+### SDK retries in the note writer (final LOW)
+
+The Anthropic SDK (0.92.0) retries twice by default, on 408, 409, 429, 5xx and 529
+(`shouldRetry` in its `client.js`). An attempt that did the work followed by a final 529 was
+judged by the 529 alone and the unit given back. The SDK's errors carry the status but not
+whether a retry happened, so "use whenever a retry happened" cannot be built on them. The
+smaller correct change is `maxRetries: 0` on the note writer's client. Nothing else uses that
+client: its one caller is the AFS section ai-narrative route, which reports the failure, and the
+user can try again. Other Anthropic clients in the code (pack summaries) are not refundable and
+keep their retries. Tested with the real SDK against a stubbed fetch: one request on a 529, a
+500 and a success. Mutants RT1 and RT2 red.
+
+`src/lib/rateLimit.claude.md` now states the status rule as coded, with
+`markQuotaUsedForStatus`, `markAnthropicUsedForStatus`, the 529 wording from Anthropic's page
+and the no-proxy reason, and the SMTP rule.
+
 ## Rollback
 
 Revert the branch's commits. No migration, no data change, no configuration. Counters written
