@@ -207,7 +207,8 @@ export const updateGlAccountTool: McpTool = {
     const rawSubtype = optionalNullable(args, 'account_subtype');
     if (rawSubtype === BAD_TYPE) return toolError('invalid account_subtype');
     const subtype = rawSubtype as GLAccountSubtype | null | undefined;
-    const isActive = typeof args.is_active === 'boolean' ? args.is_active : undefined;
+    if (args.is_active !== undefined && typeof args.is_active !== 'boolean') return toolError('invalid is_active');
+    const isActive = args.is_active as boolean | undefined;
     const accountName = strArg(args, 'account_name');
     const description = strArg(args, 'description');
 

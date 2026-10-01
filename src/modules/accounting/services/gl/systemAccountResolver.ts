@@ -69,16 +69,28 @@ const CACHE_TTL_MS = 60_000; // 1 minute
  * chart as it was then; storing it after the clear would hand the old holder
  * out for the whole TTL (a resolver read in flight across a Default Accounts
  * save's COMMIT did exactly that). Such a fill still answers its own caller
- * but is not cached.
+ * but is not cached. Counted PER COMPANY (plus one count for a clear-all): one
+ * tenant's clears must not stop every other tenant's fills from being cached.
  */
-let cacheGen = 0;
+const companyGen = new Map<string, number>();
+let allGen = 0;
+const genOf = (companyId: string) => `${allGen}:${companyGen.get(companyId) ?? 0}`;
+
+/**
+ * Companies whose roles a request has written and not yet committed, per
+ * request context. Inside that request a resolve reads its own uncommitted
+ * state, which must neither come from nor go into the shared cache: if the
+ * request then rolls back, nothing would ever clear it.
+ */
+const pendingClear = new WeakMap<object, Set<string>>();
 
 /** Clear the cache for a specific company (call after chart of accounts changes) */
 export function clearSystemAccountCache(companyId?: string): void {
-  cacheGen++;
   if (companyId) {
+    companyGen.set(companyId, (companyGen.get(companyId) ?? 0) + 1);
     companyCache.delete(companyId);
   } else {
+    allGen++;
     companyCache.clear();
   }
 }
@@ -96,18 +108,22 @@ export function clearSystemAccountCacheAfterCommit(companyId: string): void {
   const store = als.getStore();
   if (store?.afterCommit && !store.finished) {
     runAfterCommit('system account cache clear', async () => clearSystemAccountCache(companyId));
+    const pending = pendingClear.get(store) ?? new Set<string>();
+    pendingClear.set(store, pending.add(companyId));
     return;
   }
   clearSystemAccountCache(companyId);
 }
 
 async function ensureCache(companyId: string): Promise<CompanyCache> {
+  const store = als.getStore();
+  const readThrough = store !== undefined && pendingClear.get(store)?.has(companyId) === true;
   const existing = companyCache.get(companyId);
-  if (existing && Date.now() - existing.loadedAt < CACHE_TTL_MS) {
+  if (!readThrough && existing && Date.now() - existing.loadedAt < CACHE_TTL_MS) {
     return existing;
   }
 
-  const gen = cacheGen;
+  const gen = genOf(companyId);
   const rows = (await sql`
     SELECT id, account_code, account_name, account_type, account_subtype, created_at
     FROM gl_accounts
@@ -158,7 +174,7 @@ async function ensureCache(companyId: string): Promise<CompanyCache> {
   }
 
   const entry: CompanyCache = { map, contested, loadedAt: Date.now() };
-  if (gen === cacheGen) companyCache.set(companyId, entry);
+  if (!readThrough && gen === genOf(companyId)) companyCache.set(companyId, entry);
   return entry;
 }
 

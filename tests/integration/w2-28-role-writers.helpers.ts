@@ -19,8 +19,8 @@ export function makeGate(): { gate: Gate; reached: Promise<void>; release: () =>
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function roleWriterFixture(tag: string) {
-  const CO = randomUUID(); const USER = randomUUID();
-  let pool: Pool; let token = '';
+  const CO = randomUUID(); const USER = randomUUID(); const VIEWER = randomUUID();
+  let pool: Pool; let token = ''; let viewerToken = '';
 
   const ins = (id: string, code: string, type: string, sub: string | null, sys: boolean,
     opts: { level?: number; parent?: string | null; createdAt?: string; importedFrom?: string } = {}) => pool.query(
@@ -30,9 +30,9 @@ export function roleWriterFixture(tag: string) {
     [id, CO, code, `${tag} ${code}`, type, sub, ['asset', 'expense'].includes(type) ? 'debit' : 'credit', sys,
       opts.level ?? 3, opts.parent ?? null, opts.createdAt ?? null, opts.importedFrom ?? null]);
 
-  /** Call a route as the fixture's admin, through withAuth (its own transaction). */
-  async function call(handler: unknown, method: string, url: string, body: Record<string, unknown>): Promise<State> {
-    const req = request({ 'sb-access-token': token, active_company_id: CO }, method) as never as { body: unknown; url: string };
+  /** Call a route as the fixture's admin (or its viewer), through withAuth (its own transaction). */
+  async function call(handler: unknown, method: string, url: string, body: Record<string, unknown>, as: 'admin' | 'viewer' = 'admin'): Promise<State> {
+    const req = request({ 'sb-access-token': as === 'viewer' ? viewerToken : token, active_company_id: CO }, method) as never as { body: unknown; url: string };
     req.body = body; req.url = url;
     const out = response();
     await (handler as Handler)(req as never, out.res as never);
@@ -77,8 +77,11 @@ export function roleWriterFixture(tag: string) {
     await pool.query('INSERT INTO companies (id, name, is_active) VALUES ($1, $2, true)', [CO, tag]);
     await pool.query("INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)", [USER, `${tag}-${USER}@isaflow.test`]);
     await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'admin')", [CO, USER]);
-    token = await new SignJWT({ sub: USER, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+    await pool.query("INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'viewer', true)", [VIEWER, `${tag}-v-${VIEWER}@isaflow.test`]);
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')", [CO, VIEWER]);
+    const sign = (sub: string) => new SignJWT({ sub, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
       .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+    token = await sign(USER); viewerToken = await sign(VIEWER);
   }
 
   async function teardown() {
@@ -87,7 +90,7 @@ export function roleWriterFixture(tag: string) {
       await wipe();
       await pool.query('DELETE FROM company_users WHERE company_id = $1', [CO]);
       await pool.query('DELETE FROM companies WHERE id = $1', [CO]);
-      await pool.query('DELETE FROM users WHERE id = $1', [USER]);
+      await pool.query('DELETE FROM users WHERE id::TEXT = ANY($1::TEXT[])', [[USER, VIEWER]]);
     } finally { await pool.end(); }
   }
 

@@ -43,6 +43,11 @@ const KEY_TO_SYSTEM_SUBTYPE: Record<string, SystemAccountKey> = {
   opening_balance_equity: 'opening_balance_equity',
 };
 
+/** The page's rows that manage no role: stored in app_settings only. */
+const UNMANAGED_KEYS: readonly string[] = ['sales_discount', 'petty_cash', 'rounding'];
+/** Longer than any account id; a value is an id, '' or null — never free text. */
+const MAX_ID_LENGTH = 64;
+
 /** The account_type each role requires. */
 const SUBTYPE_EXPECTED_TYPE: Record<string, string> = {
   default_revenue: 'revenue', vat_output: 'liability', receivable: 'asset', default_expense: 'expense',
@@ -114,6 +119,17 @@ export async function readDefaultAccountMappings(companyId: string): Promise<Rec
 export async function saveDefaultAccountMappings(
   tx: TxSql, companyId: string, mappings: Record<string, unknown>, loaded: Record<string, unknown>,
 ): Promise<void> {
+  // Before the lock and any write: only the page's own keys, each an account
+  // id or nothing. Anything else used to be merged into app_settings as sent,
+  // so the stored row grew with every save.
+  for (const [uiKey, value] of Object.entries(mappings)) {
+    if (!managedSubtype(uiKey) && !UNMANAGED_KEYS.includes(uiKey)) {
+      throw new DefaultAccountsRefusal(`'${uiKey.slice(0, MAX_ID_LENGTH)}' is not a default account setting`);
+    }
+    if (value !== null && (typeof value !== 'string' || value.length > MAX_ID_LENGTH)) {
+      throw new DefaultAccountsRefusal(`'${uiKey}' must be an account id or empty`);
+    }
+  }
   // Serialises this save against every other writer of this company's role
   // holders (systemRoleWriteLock lists them).
   await lockSystemRoleWrites(companyId, tx);

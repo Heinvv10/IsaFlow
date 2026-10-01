@@ -141,7 +141,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;
       log.error('Failed to update bank account', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, 'Failed to update bank account');
+      // Every refusal above is RETURNED; whatever is thrown here is unexpected.
+      // A 400 would COMMIT, so it goes to withErrorHandler (500, rolled back).
+      throw err;
     }
   }
 
