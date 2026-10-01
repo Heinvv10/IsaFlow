@@ -63,6 +63,20 @@ export interface ReportPackFigures extends ReportPackInput {
    * none, and page 12's reconciliation prints the add-back either way.
    */
   depreciation: number;
+  /**
+   * Net cash from investing activities over the window, signed as cash moved:
+   * an outflow is negative. From `getCashFlowDirect`, with the operating and
+   * financing figures beside it. Optional like those two: a figure set built
+   * without a cash flow statement carries none.
+   *
+   * ITS OWN FIELD, NOT `capitalExpenditure` NEGATED. The direct-method
+   * statement has one investing group — acquisitions net of disposals, and
+   * investments with them — and does not itemise purchases of assets apart.
+   * Carried as capex it would restate every Free Cash Flow that reads that
+   * field as "operating less net investing". `capitalExpenditure` therefore
+   * stays unpopulated, as it was.
+   */
+  investingCashFlow?: number;
 }
 
 export async function getReportPackInput(
