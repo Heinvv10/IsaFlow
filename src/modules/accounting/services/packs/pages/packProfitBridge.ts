@@ -17,7 +17,7 @@ import {
 } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
-import { BRIDGE_RUNGS, CHART_MEASURE_MM, FULL, isBiggerPicture, MID, rungAbove, type ChartBox } from './packChartRungs';
+import { BRIDGE_RUNGS, CHART_MEASURE_MM, FULL, grownHeightMm, MID, type ChartBox } from './packChartRungs';
 import { intervalsFor, isCompact, toBars } from './packWaterfallBars';
 import type { PackChartSpec } from './packPageModel';
 
@@ -74,12 +74,11 @@ export function shorterProfitBridge(
  * page actually has room for, capped at the tallest rung, so the ladder
  * decides the rung and the paper decides the last few millimetres.
  *
- * AND IT IS TAKEN ONLY IF IT IS A BIGGER PICTURE. A taller box is not one by
- * itself: the chart's margins depend on the box too, and a grown bridge was
- * once accepted with half the plot of the rung it grew from and every bar
- * drawn as a one-pixel rule. So where the caller passes the chart it has,
- * the grown one is returned only if it is a bigger picture than that chart
- * and no bigger than the rung above it — see `isBiggerPicture`.
+ * AND IT IS THE BIGGEST PICTURE THE ROOM HOLDS, not the tallest box: where
+ * the caller passes the chart it has, every height from that one to the room
+ * is laid out and the one with the tallest bar is drawn — see
+ * `grownHeightMm`. A taller box once redrew the axis coarser and shrank the
+ * tallest bar from 141.5px to 108.5px with a millimetre more room.
  *
  * Null when there is nothing worth growing into — the caller keeps the chart
  * it has rather than re-rendering an SVG for half a millimetre.
@@ -96,18 +95,11 @@ export function profitBridgeAtHeight(
   // 103.38166666666666mm makes every diff of this pack look like a change.
   const target = Math.floor(Math.min(CHART_HEIGHT_MM.full, heightMm));
   if (target <= 0) return null;
-  const at = (heightMm: number): ChartBox => ({ widthMm: CHART_MEASURE_MM, heightMm });
+  const at = (mm: number): ChartBox => ({ widthMm: CHART_MEASURE_MM, heightMm: mm });
   if (current === undefined) return buildProfitWaterfallChart(set, scale, carriesWindowNote, at(target));
-  // THE TALLEST HEIGHT THAT IS A BIGGER PICTURE, not the target or nothing:
-  // a page with room for 67mm whose bridge may only grow to 64 gets 64.
-  const was = drawnSizeAt(set, scale, at(current.heightMm));
-  for (let heightMm = target; heightMm > current.heightMm; heightMm -= 1) {
-    const above = rungAbove(heightMm);
-    if (isBiggerPicture(drawnSizeAt(set, scale, at(heightMm)), was, above === null ? null : drawnSizeAt(set, scale, above))) {
-      return buildProfitWaterfallChart(set, scale, carriesWindowNote, at(heightMm));
-    }
-  }
-  return null;
+  if (target <= current.heightMm) return null;
+  const best = grownHeightMm(current.heightMm, target, (mm) => drawnSizeAt(set, scale, at(mm)));
+  return best === current.heightMm ? null : buildProfitWaterfallChart(set, scale, carriesWindowNote, at(best));
 }
 
 /**

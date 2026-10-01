@@ -63,28 +63,37 @@ export const BRIDGE_RUNGS: ChartBox[] = [FULL, MID, HALF];
 /** How large a bridge is drawn in a box — see `waterfallDrawnSize`. */
 export interface DrawnSize { plotPx: number; tallestBarPx: number }
 
-/** The rung a box between rungs grows TOWARD: the lowest one above it. Null
- *  for a box that is itself a rung, or above the top one. */
-export function rungAbove(heightMm: number): ChartBox | null {
-  if (BRIDGE_RUNGS.some((rung) => rung.heightMm === heightMm)) return null;
-  return BRIDGE_RUNGS.filter((rung) => rung.heightMm > heightMm).sort((a, b) => a.heightMm - b.heightMm)[0] ?? null;
-}
-
 /**
- * WHETHER A BRIDGE GROWN INTO SPARE PAPER IS TAKEN. A chart that gets taller
- * must never get a smaller picture, and a taller BOX is not a bigger one by
- * itself:
+ * THE HEIGHT A BRIDGE GROWN INTO SPARE PAPER IS DRAWN AT: of every whole
+ * millimetre from the one it has to the room the page has, the one whose
+ * TALLEST BAR is drawn tallest — then the larger plot, then the smaller box.
  *
- *  - against the chart the page has: its plot must be taller and its tallest
- *    bar drawn no shorter — a taller box can redraw the axis coarser;
- *  - against the rung above: it must not be drawn larger than that rung is.
- *    The rungs at 72 and 110mm take the full chrome and 12px names; a box
- *    between rungs below the half rung takes the compact one, whose margins
- *    are 28-44px less. Grown far enough, a compact bridge would out-draw the
- *    rung above it, and a page with a millimetre MORE room would get the
- *    smaller picture. So it grows only while it is still the smaller one.
+ * A taller box is not a bigger picture by itself: it can redraw the axis
+ * coarser, and every bar is then smaller in more paper. Taking the best of
+ * every height up to the room, rather than judging the tallest one, makes it
+ * monotonic by construction — a millimetre more room only adds a candidate,
+ * so the picture can never get smaller.
+ *
+ * AND A COMPACT BOX NEVER OUT-DRAWS THE HALF RUNG. Below 72mm a bridge takes
+ * the compact chrome; the 72mm rung takes the full one with 12px names, 28-44px
+ * more margin. A compact candidate is therefore taken only while its plot is
+ * still smaller than the rung's, and its tallest bar no taller.
+ *
+ * `sizeAt` is a layout, not a render — the caller renders once, at the
+ * height returned.
  */
-export function isBiggerPicture(grown: DrawnSize, was: DrawnSize, above: DrawnSize | null): boolean {
-  if (grown.plotPx <= was.plotPx || grown.tallestBarPx < was.tallestBarPx) return false;
-  return above === null || (grown.plotPx < above.plotPx && grown.tallestBarPx <= above.tallestBarPx);
+export function grownHeightMm(fromMm: number, roomMm: number, sizeAt: (heightMm: number) => DrawnSize): number {
+  const top = Math.floor(Math.min(CHART_HEIGHT_MM.full, roomMm));
+  let rung: DrawnSize | undefined;
+  const rungSize = () => (rung ??= sizeAt(CHART_HEIGHT_MM.half));
+  let best = fromMm;
+  let bestSize = sizeAt(fromMm);
+  for (let heightMm = fromMm + 1; heightMm <= top; heightMm += 1) {
+    const size = sizeAt(heightMm);
+    if (heightMm < CHART_HEIGHT_MM.half && (size.plotPx >= rungSize().plotPx || size.tallestBarPx > rungSize().tallestBarPx)) continue;
+    const better = size.tallestBarPx > bestSize.tallestBarPx
+      || (size.tallestBarPx === bestSize.tallestBarPx && size.plotPx > bestSize.plotPx);
+    if (better) { best = heightMm; bestSize = size; }
+  }
+  return best;
 }

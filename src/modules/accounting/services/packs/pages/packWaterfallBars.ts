@@ -36,7 +36,7 @@ export const PX_PER_MM = 96 / 25.4;
  *
  * The compact chrome leaves the taller plot in the same box, so a bridge
  * grown on it toward 72 would in the end out-draw the 72mm rung. It is not
- * allowed to: see `isBiggerPicture`.
+ * allowed to: see `grownHeightMm`.
  */
 export function isCompact(box: { heightMm: number }): boolean {
   return box.heightMm < CHART_HEIGHT_MM.half;

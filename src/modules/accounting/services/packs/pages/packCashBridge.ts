@@ -13,7 +13,7 @@ import { axisDomain } from '@/modules/accounting/services/packs/packChartAxes';
 import { MONEY_TOLERANCE } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { investingCashFlowOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
-import { CHART_MEASURE_MM, HALF, isBiggerPicture, rungAbove, type DrawnSize } from './packChartRungs';
+import { CHART_MEASURE_MM, grownHeightMm, HALF, type ChartBox, type DrawnSize } from './packChartRungs';
 import { intervalsFor, isCompact, toBars } from './packWaterfallBars';
 import type { PackChartSpec } from './packPageModel';
 
@@ -86,13 +86,10 @@ function cashBridgeIntervals(steps: WaterfallStep[], box: { heightMm: number }, 
   return asked;
 }
 
-export function buildCashWaterfallChart(
-  set: PackFigureSet,
-  scale: MoneyScale,
-  /** HALF unless page 8 measured itself with room to spare — see
-   *  `buildCashSheet`. */
-  box: { widthMm: number; heightMm: number } = HALF,
-): PackCashBridge {
+/** The bridge's steps and its residual, or why there is no bridge. */
+function cashBridgeSteps(
+  set: PackFigureSet, scale: MoneyScale,
+): { drawn: false; why: string } | { drawn: true; steps: WaterfallStep[]; residual: number; opening: number } {
   const { current, prior } = set;
   if (prior === null) {
     return {
@@ -163,10 +160,21 @@ export function buildCashWaterfallChart(
   }
   steps.push({ label: 'Closing cash', start: 0, end: current.cash, value: current.cash, isSubtotal: true, color: 'teal' });
 
-  const cashBridgeTitle = `Cash moved from ${inProse(formatMoney(opening, { scale }))} to `
-    + `${inProse(formatMoney(current.cash, { scale }))} over the period.`;
-  const cashBridgePlot = svgBoxFor(box, cashBridgeTitle);
-  const intervals = cashBridgeIntervals(steps, box, cashBridgePlot.heightMm);
+  return { drawn: true, steps, residual, opening };
+}
+
+export function buildCashWaterfallChart(
+  set: PackFigureSet,
+  scale: MoneyScale,
+  /** HALF unless page 8 measured itself with room to spare — see
+   *  `buildCashSheet`. */
+  box: { widthMm: number; heightMm: number } = HALF,
+): PackCashBridge {
+  const walk = cashBridgeSteps(set, scale);
+  if (!walk.drawn) return walk;
+  const { steps, residual, opening } = walk;
+  const { current } = set;
+  const { title: cashBridgeTitle, plot: cashBridgePlot, intervals } = cashFrame(steps, opening, current.cash, scale, box);
   const chart: PackChartSpec = {
     id: 'cash-bridge',
     title: cashBridgeTitle,
@@ -178,36 +186,38 @@ export function buildCashWaterfallChart(
     plotMm: cashBridgePlot.heightMm,
     waterfallBars: toBars(steps, CASH_UNCAPTURED_LABEL, 'cashFlowSplits'),
   };
-  DRAWN.set(chart, waterfallDrawnSize(steps, scale, intervals, isCompact(box), svgBoxPx(cashBridgePlot)));
   return { drawn: true, residual, chart };
 }
 
-/** How large each bridge built here was drawn — for `cashBridgeAtHeight`,
- *  and never part of the chart the pack carries. */
-const DRAWN = new WeakMap<PackChartSpec, DrawnSize>();
+/** The title, the box it leaves the chart and the axis's ask, for `box`. */
+function cashFrame(steps: WaterfallStep[], opening: number, closing: number, scale: MoneyScale, box: ChartBox) {
+  const title = `Cash moved from ${inProse(formatMoney(opening, { scale }))} to `
+    + `${inProse(formatMoney(closing, { scale }))} over the period.`;
+  const plot = svgBoxFor(box, title);
+  return { title, plot, intervals: cashBridgeIntervals(steps, box, plot.heightMm) };
+}
 
 /**
- * THE CASH BRIDGE AT ANOTHER HEIGHT, IF THAT IS A BIGGER PICTURE. Page 8
- * grows its bridge into whatever the sheet has left; a taller box is taken
- * only if it is a bigger picture than the chart the page has and no bigger
- * than the rung above it — see `isBiggerPicture`. Null where it is not, and
- * the caller keeps the chart it has.
+ * THE CASH BRIDGE AT THE BIGGEST PICTURE THE ROOM HOLDS. Page 8 grows its
+ * bridge into whatever the sheet has left: every height from the one it has
+ * to the room is laid out and the one with the tallest bar is drawn — see
+ * `grownHeightMm`. A taller box once redrew the axis coarser and the tallest
+ * bar went from 99.1px to 70.7px with a millimetre more room. Null where the
+ * chart the page has is already the best, and the caller keeps it.
  */
 export function cashBridgeAtHeight(
   set: PackFigureSet, scale: MoneyScale, heightMm: number, current: PackCashBridge,
 ): (PackCashBridge & { drawn: true }) | null {
-  if (!current.drawn) return null;
-  const was = DRAWN.get(current.chart);
-  if (was === undefined) return null;
-  const sizeOf = (bridge: PackCashBridge): DrawnSize | null => (bridge.drawn ? DRAWN.get(bridge.chart) ?? null : null);
-  // The tallest height that is a bigger picture, not the target or nothing.
-  const rungs = new Map<number, DrawnSize | null>();
-  for (let mm = heightMm; mm > current.chart.heightMm; mm -= 1) {
-    const grown = buildCashWaterfallChart(set, scale, { widthMm: CHART_MEASURE_MM, heightMm: mm });
-    const now = sizeOf(grown);
-    const rung = rungAbove(mm);
-    if (rung !== null && !rungs.has(rung.heightMm)) rungs.set(rung.heightMm, sizeOf(buildCashWaterfallChart(set, scale, rung)));
-    if (grown.drawn && now !== null && isBiggerPicture(now, was, rung === null ? null : rungs.get(rung.heightMm) ?? null)) return grown;
-  }
-  return null;
+  const walk = cashBridgeSteps(set, scale);
+  if (!current.drawn || !walk.drawn) return null;
+  const { steps, opening } = walk;
+  const sizeAt = (mm: number): DrawnSize => {
+    const box = { widthMm: CHART_MEASURE_MM, heightMm: mm };
+    const { plot, intervals } = cashFrame(steps, opening, set.current.cash, scale, box);
+    return waterfallDrawnSize(steps, scale, intervals, isCompact(box), svgBoxPx(plot));
+  };
+  const best = grownHeightMm(current.chart.heightMm, heightMm, sizeAt);
+  if (best === current.chart.heightMm) return null;
+  const grown = buildCashWaterfallChart(set, scale, { widthMm: CHART_MEASURE_MM, heightMm: best });
+  return grown.drawn ? grown : null;
 }

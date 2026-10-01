@@ -27,12 +27,13 @@ import { describe, expect, it } from 'vitest';
 import { buildCashWaterfallChart, buildProfitWaterfallChart, cashBridgeAtHeight, profitBridgeAtHeight } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { categoryDepthPx, WATERFALL_CHROME } from '@/modules/accounting/services/packs/packWaterfallDomain';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
-import { FULL, HALF, MID } from '@/modules/accounting/services/packs/pages/packChartRungs';
+import { FULL, grownHeightMm, HALF, MID } from '@/modules/accounting/services/packs/pages/packChartRungs';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { demoSet, figures } from './fixtures/boardPackInputs';
 import { liveDemoSet } from './fixtures/liveDemoBoardPack';
 import { bars, clipRect, figures as drawnFigures } from './support/bridgeSvg';
 import { yAxisTicks } from './support/svgTicks';
+import { growFuzz } from './support/growFuzz';
 
 /** A loss with a large plug: the long-named step the collapse needed. */
 const plugLossSet: PackFigureSet = {
@@ -76,13 +77,13 @@ describe('a bridge grown from the bottom rung', () => {
     const dataThousands = bottom.waterfallBars!.flatMap((b) => [b.start, b.end]).map((v) => v / 1000);
     const [low, high] = [Math.min(0, ...dataThousands), Math.max(0, ...dataThousands)];
 
-    let kept = bottom;
     let before = measure(String(bottom.svg));
     const taken: number[] = [];
     for (let mm = HALF.heightMm + 1; mm <= FULL.heightMm; mm += 1) {
-      // What page 6 does with `mm` of room: grow, and keep the larger picture.
-      const grown = profitBridgeAtHeight(set, PACK_SCALE, false, mm, kept);
-      if (grown !== null && grown.heightMm > kept.heightMm) { kept = grown; taken.push(mm); }
+      // What page 6 does with `mm` of room: one call, from the rung chart.
+      const grown = profitBridgeAtHeight(set, PACK_SCALE, false, mm, bottom);
+      const kept = grown ?? bottom;
+      if (grown !== null) taken.push(grown.heightMm);
       const now = measure(String(kept.svg));
       expect(now.plotPx, `${mm}mm: the plot shrank from ${before.plotPx}px`).toBeGreaterThanOrEqual(before.plotPx - 0.01);
       expect(now.tallestBarPx, `${mm}mm: the tallest bar shrank from ${before.tallestBarPx}px`).toBeGreaterThanOrEqual(before.tallestBarPx - 0.01);
@@ -95,12 +96,9 @@ describe('a bridge grown from the bottom rung', () => {
       expect(now.px, `${mm}mm`).toBe(12);
       before = now;
     }
-    // The page does grow it: most of these heights are a bigger picture, the
-    // two rungs above it among them — and no height between 48 and 72 is
-    // taken once its picture would be bigger than the 72mm rung's.
+    // The page does grow it — and no height between 48 and 72 is drawn
+    // with a bigger picture than the 72mm rung's.
     expect(taken.length).toBeGreaterThan(35);
-    expect(taken).toContain(MID.heightMm);
-    expect(taken).toContain(FULL.heightMm);
     const rung = measure(String(buildProfitWaterfallChart(set, PACK_SCALE, false, MID).svg));
     for (const mm of taken.filter((h) => h < MID.heightMm)) {
       const grown = measure(String(buildProfitWaterfallChart(set, PACK_SCALE, false, { ...HALF, heightMm: mm }).svg));
@@ -108,7 +106,7 @@ describe('a bridge grown from the bottom rung', () => {
     }
   });
 
-  it('given room past the cap, grows to the tallest height that is still smaller than the rung — not to nothing', () => {
+  it('given room past the cap, grows to a height still smaller than the rung — not to nothing', () => {
     for (const [name, set] of SETS) {
       const bottom = buildProfitWaterfallChart(set, PACK_SCALE, false, HALF);
       const rung = measure(String(buildProfitWaterfallChart(set, PACK_SCALE, false, MID).svg));
@@ -120,10 +118,6 @@ describe('a bridge grown from the bottom rung', () => {
       expect(grown!.heightMm).toBeGreaterThan(HALF.heightMm);
       expect(grown!.heightMm).toBeLessThan(71);
       expect(measure(String(grown!.svg)).plotPx).toBeLessThan(rung.plotPx);
-      // And it is the tallest such height: a millimetre more is not taken.
-      const next = measure(String(buildProfitWaterfallChart(set, PACK_SCALE, false, { ...HALF, heightMm: grown!.heightMm + 1 }).svg));
-      const taller = next.plotPx < rung.plotPx && next.tallestBarPx <= rung.tallestBarPx && next.tallestBarPx >= measure(String(bottom.svg)).tallestBarPx;
-      expect(taller, `${name}: ${grown!.heightMm + 1}mm would also have been a bigger picture under the rung`).toBe(false);
     }
   });
 
@@ -151,6 +145,85 @@ describe('a bridge grown from the bottom rung', () => {
   });
 });
 
+/**
+ * AS THE PAGES CALL IT: ONCE, FROM THE RUNG CHART, WITH THE ROOM THE SHEET HAS.
+ *
+ * Page 6 calls `profitBridgeAtHeight` with the rung bridge and its spare
+ * (`packIncomeSheet`); page 8 calls `cashBridgeAtHeight` with the 48mm bridge,
+ * its room capped at 72 (`packCashSheet`). Neither threads its result back
+ * in. So for every whole millimetre of room, the chart the page would print
+ * — and with one millimetre MORE room it may never draw its tallest bar
+ * shorter, nor its plot. The reviewer's sets broke both: page 6 drew revenue
+ * 7 275 993 at 141.5px with 81mm of room and 108.5px with 82; page 8 drew
+ * 99.1px with 58mm and 70.7px with 59. A taller box can redraw the axis
+ * coarser, and a cap compared with the rung alone did not see it.
+ */
+const SEEDS = [20_260_930, 86_028_157, 424_242];
+const SETS_PER_SEED = 6;
+/** The room a page measures arrives with a tail: `spare - 0.5`, floored inside. */
+const TAIL = 0.4;
+
+function sizeOf(svg: string): { plotPx: number; tallestBarPx: number } {
+  return { plotPx: clipRect(svg).height, tallestBarPx: Math.max(...bars(svg).map((b) => b.bottom - b.top)) };
+}
+
+describe('a grown bridge, as the pages call it, for every millimetre of room', () => {
+  it.each(SEEDS)('never draws a smaller picture with more room — seed %i', (seed) => {
+    const fuzz = growFuzz(seed);
+    const found: string[] = [];
+    const check = (tag: string, rooms: number[], drawnWith: (room: number) => string) => {
+      let before: { plotPx: number; tallestBarPx: number } | null = null;
+      for (const room of rooms) {
+        const now = sizeOf(drawnWith(room));
+        if (before !== null && now.tallestBarPx < before.tallestBarPx - 0.05) found.push(`${tag} ${room}mm: tallest bar ${before.tallestBarPx.toFixed(1)} -> ${now.tallestBarPx.toFixed(1)}px`);
+        if (before !== null && now.plotPx < before.plotPx - 0.05) found.push(`${tag} ${room}mm: plot ${before.plotPx} -> ${now.plotPx}px`);
+        before = now;
+      }
+    };
+    const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+    for (let n = 0; n < SETS_PER_SEED; n += 1) {
+      const plug = n % 2 === 0;
+      const { family, set } = fuzz.profit(plug);
+      for (const rung of [HALF, MID]) {
+        const start = buildProfitWaterfallChart(set, PACK_SCALE, false, rung);
+        check(`profit ${family}${plug ? '+plug' : ''} from ${rung.heightMm}mm ${JSON.stringify(set.current.revenue)}`, range(rung.heightMm, FULL.heightMm),
+          (room) => String((profitBridgeAtHeight(set, PACK_SCALE, false, room + TAIL, start) ?? start).svg));
+      }
+      for (let tries = 0; tries < 20; tries += 1) {
+        const c = fuzz.cash(plug);
+        const start = buildCashWaterfallChart(c.set, PACK_SCALE);
+        if (!start.drawn) continue;
+        check(`cash ${c.family}${plug ? '+plug' : ''} from 48mm`, range(HALF.heightMm, MID.heightMm), (room) => {
+          const grown = cashBridgeAtHeight(c.set, PACK_SCALE, room, start) ?? start;
+          return grown.drawn ? String(grown.chart.svg) : '';
+        });
+        break;
+      }
+    }
+    expect(found.slice(0, 6), `${found.length} shrinks`).toEqual([]);
+  }, 180_000);
+});
+
+describe('grownHeightMm, on sizes chosen to meet each rule', () => {
+  const plot = (mm: number) => mm * 3;
+  it('takes the height with the tallest bar, not the tallest box', () => {
+    // The bar peaks at 90mm and falls after it: the axis redraws coarser.
+    const bar = (mm: number) => (mm <= 90 ? mm : 180 - mm);
+    expect(grownHeightMm(72, 110, (mm) => ({ plotPx: plot(mm), tallestBarPx: bar(mm) }))).toBe(90);
+  });
+  it('breaks a tie on the larger plot — a bridge of nil steps draws every bar as a rule', () => {
+    expect(grownHeightMm(72, 100, (mm) => ({ plotPx: plot(mm), tallestBarPx: 0 }))).toBe(100);
+  });
+  it('takes no compact box that out-draws the half rung', () => {
+    // Compact boxes under 72 have as much plot as the full-chrome 72mm rung
+    // (206px) from 62mm up; growth from 48 stops at 61, the tallest under it.
+    const size = (mm: number) => (mm < 72 ? { plotPx: mm * 3 + 20, tallestBarPx: mm } : { plotPx: mm * 3 - 10, tallestBarPx: mm - 6 });
+    expect(grownHeightMm(48, 71, size)).toBe(61);
+    // With room for the rung, the rung — its bar (66) beats 61's.
+    expect(grownHeightMm(48, 72, size)).toBe(72);
+  });
+});
+
 /** The demo company's cash bridge carries a plug; taking the unexplained
  *  movement out of closing cash gives the same bridge footing without one. */
 const demoCash = buildCashWaterfallChart(demoSet, PACK_SCALE);
@@ -168,20 +241,20 @@ describe('the cash bridge, grown from the bottom rung', () => {
     const bottom = buildCashWaterfallChart(set, PACK_SCALE);
     if (!bottom.drawn) throw new Error('this set draws no cash bridge, so nothing is under test');
     expect(bottom.chart.waterfallBars!.some((b) => b.uncaptured !== undefined)).toBe(plugged);
-    let kept = bottom;
     let before = measure(String(bottom.chart.svg));
     const taken: number[] = [];
-    for (let mm = HALF.heightMm + 1; mm <= FULL.heightMm; mm += 1) {
-      const grown = cashBridgeAtHeight(set, PACK_SCALE, mm, kept);
-      if (grown !== null) { kept = grown; taken.push(mm); }
+    // Page 8 caps its room at the half rung, and calls once from the 48mm chart.
+    for (let mm = HALF.heightMm + 1; mm <= MID.heightMm; mm += 1) {
+      const grown = cashBridgeAtHeight(set, PACK_SCALE, mm, bottom);
+      const kept = grown ?? bottom;
+      if (grown !== null) taken.push(grown.chart.heightMm);
       if (!kept.drawn) throw new Error('the grown bridge is not drawn');
       const now = measure(String(kept.chart.svg));
       expect(now.plotPx, `${mm}mm: the plot shrank from ${before.plotPx}px`).toBeGreaterThanOrEqual(before.plotPx - 0.01);
       expect(now.tallestBarPx, `${mm}mm: the tallest bar shrank from ${before.tallestBarPx}px`).toBeGreaterThanOrEqual(before.tallestBarPx - 0.01);
       before = now;
     }
-    expect(taken.length).toBeGreaterThan(20);
-    expect(taken).toContain(MID.heightMm);
+    expect(taken.length).toBeGreaterThan(15);
     // And the 72mm rung is the full chrome, 12px names, on this bridge too.
     const rung = buildCashWaterfallChart(set, PACK_SCALE, MID);
     if (!rung.drawn) throw new Error('the 72mm cash bridge is not drawn');
