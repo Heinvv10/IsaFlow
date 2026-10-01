@@ -8,7 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { markQuotaUsed } from '@/lib/quotaUse';
+import { markQuotaUsed, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
 import { checkAiRateLimit } from '@/lib/rateLimit';
 import {
   buildForecastScenario, calculateWeeklyForecast,
@@ -63,7 +63,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         const data = await response.json() as { content?: { text?: string }[] };
         narrative = parseForecastNarrative(data.content?.[0]?.text || '');
       }
-    } catch (err) { log.error('Forecast narrative failed', { error: err }, 'ai'); }
+    } catch (err) { markQuotaUsedUnlessNoWork('ai', err); log.error('Forecast narrative failed', { error: err }, 'ai'); }
   }
 
   const allAlerts = [...scenarios.optimistic.alerts, ...scenarios.base.alerts, ...scenarios.pessimistic.alerts];

@@ -24,15 +24,15 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = path.resolve(__dirname, '../../..');
-const NAMES = 'checkRateLimit|checkAiRateLimit|checkSendRateLimit|checkReportRateLimit|withRateLimit|refundRateLimit';
+const NAMES = 'checkRateLimit|chargeRateLimit|checkAiRateLimit|checkSendRateLimit|checkReportRateLimit|withRateLimit|refundRateLimit';
 const CALL = new RegExp(`\\b(${NAMES})\\(`, 'g');
 /** The limiter's own files: they define these functions and build the wrapper keys. */
 const OWN = ['src/lib/rateLimit.ts', 'src/lib/rateLimitCore.ts', 'src/lib/rateLimitQuota.ts'];
+/** The one table of wrapper-applied buckets; its call is resolved from the table itself. */
+const AUTO = 'src/lib/auth/autoRateLimit.ts';
 
 /** Calls whose key or options are not literals at the call site: `file | key text` -> why it is safe. */
 const PINNED: Record<string, string> = {
-  'src/lib/auth/withAuth.ts | `${bucket.key}:${activeCompanyId}`': 'key and options both come from one AUTO_RATE_LIMIT entry',
-  'src/lib/auth/bearerPipeline.ts | `${bucket.key}:${ctx.companyId}`': 'the same AUTO_RATE_LIMIT entry as withAuth, deliberately one bucket',
   'src/modules/accounting/services/share/shareResolver.ts | ipKey': 'share:ip: key built just above; options are file constants used nowhere else',
   'src/modules/accounting/services/share/shareResolver.ts | tokenKey': 'share:token: key built just above; options are file constants used nowhere else',
   "pages/api/accounting/annotations/index.ts | annotationRateLimitKey('list', user.id)": 'per-action, per-user name; default options',
@@ -42,8 +42,25 @@ const PINNED: Record<string, string> = {
   'scripts/generate-closeout-report.mjs | ?': 'prose in a description string, not a call',
 };
 
+/**
+ * Pairs of patterns where one, read as a glob, could produce the other's keys,
+ * and why it cannot in fact. `A <> B` -> reason. Filled in below.
+ */
+const SAFE_OVERLAPS: Record<string, string> = {
+  'portal-chat:* <> portal-chat:co:*:day': 'the first is keyed by an IP address, which is never `co:<uuid>:day`',
+};
+
+/**
+ * checkAiRateLimit / checkSendRateLimit build `<kind>:<name>:co:<company>` (15 minutes) and the same
+ * with `:day` (24 hours). The company id is a UUID from the session and holds no colon, so the
+ * shorter key can never be the longer one.
+ */
+const isWrapperDayPair = (a: string, b: string) => /^(ai|send):[^:*]+:co:\*$/.test(a) && b === `${a}:day`;
+
 interface Site { where: string; pattern: string; options: string }
 interface Census { charges: Site[]; refunds: Site[]; unreadable: string[]; aliased: string[] }
+
+const stripComments = (raw: string) => raw.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, '')).replace(/(^|[ \t])\/\/.*$/gm, '');
 
 /** Splits the text after a call's `(` into its top-level arguments. */
 function splitArgs(text: string): string[] | null {
@@ -104,7 +121,7 @@ const limit = (max: number, windowSecs: number) => `max=${max};windowSecs=${wind
 
 /** The keys a call produces, with the limit each is held to. Null when the call cannot be read. */
 function resolve(fn: string, args: string[], source: string): Array<[string, string]> | null {
-  if (fn === 'checkRateLimit') {
+  if (fn === 'checkRateLimit' || fn === 'chargeRateLimit') {
     const pattern = keyPattern(args[0]);
     const o = readOptions(args[1], source, ['cost']);
     return pattern && o && o.max !== undefined && o.windowSecs !== undefined ? [[pattern, limit(o.max, o.windowSecs)]] : null;
@@ -138,12 +155,26 @@ function resolve(fn: string, args: string[], source: string): Array<[string, str
 function census(files: Record<string, string>): Census {
   const out: Census = { charges: [], refunds: [], unreadable: [], aliased: [] };
   for (const [file, raw] of Object.entries(files)) {
-    // Drop line comments (they carry commas and slashes) but keep every newline.
-    const source = raw.replace(/(^|[ \t])\/\/.*$/gm, '');
-    // A limiter function under another name, or the whole module as a namespace,
-    // would be invisible to the scan below. Refuse it rather than follow it.
-    for (const m of source.matchAll(new RegExp(`\\b(?:${NAMES})\\s+as\\s+\\w+|import\\s*\\*\\s*as\\s+\\w+\\s+from\\s+['"]@/lib/rateLimit(?:Core)?['"]|(?:require|import)\\(\\s*['"]@/lib/rateLimit(?:Core)?['"]\\s*\\)|=\\s*(?:${NAMES})\\s*[;,\\n]`, 'g'))) {
+    // Drop comments (they carry commas, slashes and names) but keep every newline.
+    const source = stripComments(raw);
+    // The whole module as a namespace, or loaded at run time, hides every call.
+    for (const m of source.matchAll(/import\s*\*\s*as\s+\w+\s+from\s+['"]@\/lib\/rateLimit(?:Core)?['"]|(?:require|import)\(\s*['"]@\/lib\/rateLimit(?:Core)?['"]\s*\)/g)) {
       out.aliased.push(`${file} | ${m[0].trim()}`);
+    }
+    // Outside its import, a limiter function may appear only as a direct call.
+    // Renamed, assigned, passed as a value or bound, it would be invisible to
+    // the scan below, so refuse it rather than try to follow it.
+    const body = source.replace(/import\s[^;]*?from\s+['"][^'"]+['"];?/g, (imp) =>
+      (new RegExp(`\\b(?:${NAMES})\\s+as\\s`).test(imp) ? imp : imp.replace(/[^\n]/g, '')));
+    for (const m of body.matchAll(new RegExp(`(?<![\\w.'"\`])(${NAMES})\\b(?!\\s*\\()[^\\n]{0,24}`, 'g'))) {
+      out.aliased.push(`${file} | ${m[0].trim()}`);
+    }
+    if (file === AUTO) {
+      // One table for withAuth and the bearer pipeline: each entry is a key `<key>:<company>`.
+      for (const m of source.matchAll(/\{\s*prefix:\s*'[^']+',\s*key:\s*'([^']+)',\s*max:\s*(\d+),\s*windowSecs:\s*(\d+)\s*\}/g)) {
+        out.charges.push({ where: `${file} (table)`, pattern: `${m[1]}:*`, options: limit(Number(m[2]), Number(m[3])) });
+      }
+      continue;
     }
     for (const match of source.matchAll(CALL)) {
       const args = splitArgs(source.slice(match.index! + match[0].length));
@@ -166,6 +197,33 @@ function collisions(sites: Site[]): string[] {
   return [...byPattern.entries()]
     .filter(([, group]) => new Set(group.map((s) => s.options)).size > 1)
     .map(([pattern, group]) => `${pattern} -> ${group.map((s) => `${s.where} {${s.options}}`).join(' vs ')}`);
+}
+
+/** True when `a`, read as a glob, matches some key that `b` produces. */
+function covers(a: string, b: string): boolean {
+  const glob = new RegExp(`^${a.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+  return glob.test(b.replace(/\*/g, 'x'));
+}
+
+/**
+ * Pairs of DIFFERENT patterns at different limits where one could produce the
+ * other's keys: `foo:*` and `foo:bar:*` are one row whenever the first one's
+ * variable part is `bar:...`.
+ */
+function overlaps(sites: Site[]): string[] {
+  const limits = new Map<string, Set<string>>();
+  for (const s of sites) limits.set(s.pattern, (limits.get(s.pattern) ?? new Set()).add(s.options));
+  const patterns = [...limits.keys()].sort();
+  const out: string[] = [];
+  for (let i = 0; i < patterns.length; i++) {
+    for (let j = i + 1; j < patterns.length; j++) {
+      const [a, b] = [patterns[i]!, patterns[j]!];
+      const sameLimits = [...limits.get(a)!].join() === [...limits.get(b)!].join();
+      if (sameLimits || isWrapperDayPair(a, b) || isWrapperDayPair(b, a)) continue;
+      if (covers(a, b) || covers(b, a)) out.push(`${a} <> ${b}`);
+    }
+  }
+  return out;
 }
 
 function trackedSources(): Record<string, string> {
@@ -194,6 +252,16 @@ describe('rate-limit key census (R-175)', () => {
     expect(collisions(found.charges)).toEqual([]);
   });
 
+  it('no pattern can produce another pattern\'s keys at a different limit, except the reasoned pairs', () => {
+    expect(overlaps(found.charges)).toEqual(Object.keys(SAFE_OVERLAPS).sort());
+  });
+
+  it('the wrapper-applied buckets are read from their one table', () => {
+    expect(found.charges.filter((s) => s.where === `${AUTO} (table)`)).toEqual([
+      { where: `${AUTO} (table)`, pattern: 'reports:*', options: limit(60, 60) },
+    ]);
+  });
+
   it('every refund is on a key that some call site charges', () => {
     const charged = new Set(found.charges.map((s) => s.pattern));
     expect(found.refunds.map((s) => s.pattern)).toEqual(['invite-accept:*']);
@@ -219,6 +287,9 @@ describe('rate-limit key census (R-175)', () => {
       // A hand-written key that lands on a wrapper's key, at another limit.
       'f.ts': "await checkReportRateLimit(companyId, 'reports-pdf');\nawait checkRateLimit(`report:reports-pdf:co:${companyId}`, { max: 500, windowSecs: 900 });",
       'g.ts': "import { checkRateLimit as rl } from '@/lib/rateLimit';\nimport * as limiter from '@/lib/rateLimit';\nconst check = checkRateLimit;\nconst m = await import('@/lib/rateLimit');",
+      // Passed as a value, in an object, bound: none of these is a direct call.
+      'i.ts': "import { checkRateLimit, withRateLimit } from '@/lib/rateLimit';\nconst deps = { check: checkRateLimit };\nrun(checkRateLimit);\nconst b = checkRateLimit.bind(null);\n// checkRateLimit in a comment is fine\nawait checkRateLimit(`ok:${id}`, { max: 1, windowSecs: 1 });",
+      'j.ts': "await checkRateLimit(`foo:${ip}`, { max: 5, windowSecs: 60 });\nawait checkRateLimit(`foo:bar:${id}`, { max: 9, windowSecs: 60 });\nawait checkRateLimit(`baz:${id}`, { max: 9, windowSecs: 60 });\nawait checkRateLimit(`baz:qux:${id}`, { max: 9, windowSecs: 60 });",
       'h.ts': 'await refundRateLimit(`never-charged:${id}`, 1);',
     });
 
@@ -230,11 +301,16 @@ describe('rate-limit key census (R-175)', () => {
     expect(synthetic.charges.filter((s) => s.pattern === 'x:ip:*').map((s) => s.options)).toEqual([limit(10, 900), limit(10, 900)]);
     expect(synthetic.unreadable).toEqual(['e.ts | key', 'e.ts | `k:${a}`', 'e.ts | `${a}:${b}`']);
     expect(synthetic.aliased).toEqual([
-      'g.ts | checkRateLimit as rl',
       "g.ts | import * as limiter from '@/lib/rateLimit'",
-      'g.ts | = checkRateLimit;',
       "g.ts | import('@/lib/rateLimit')",
+      "g.ts | checkRateLimit as rl } from '@/lib/rat",
+      'g.ts | checkRateLimit;',
+      'i.ts | checkRateLimit };',
+      'i.ts | checkRateLimit);',
+      'i.ts | checkRateLimit.bind(null);',
     ]);
+    // `foo:*` can produce `foo:bar:...` at another limit; the baz pair share a limit.
+    expect(overlaps(synthetic.charges)).toEqual(['foo:* <> foo:bar:*']);
     expect(synthetic.refunds.map((s) => s.pattern)).toEqual(['never-charged:*']);
   });
 });

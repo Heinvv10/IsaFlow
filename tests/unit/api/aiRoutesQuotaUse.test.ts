@@ -71,11 +71,18 @@ describe.each(ROUTES)('$name — the daily AI unit is used only when the provide
     expect(apiResponse.success).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ aiGenerated: false }));
   });
 
-  it('answers 200 with its fallback and uses nothing when the provider call throws', async () => {
-    fetchMock.mockRejectedValue(new Error('network down'));
+  it('answers 200 with its fallback and uses nothing when the provider cannot be reached', async () => {
+    fetchMock.mockRejectedValue(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } }));
 
     expect(await unitsUsed(route)).toBe(0);
     expect(apiResponse.success).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers 200 with its fallback but uses the unit when the provider call times out', async () => {
+    fetchMock.mockRejectedValue(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }));
+
+    expect(await unitsUsed(route)).toBe(1);
+    expect(apiResponse.success).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ aiGenerated: false }));
   });
 
   it('uses nothing when no provider key is configured', async () => {

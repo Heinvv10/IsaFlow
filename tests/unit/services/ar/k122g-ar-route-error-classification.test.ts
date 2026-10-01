@@ -28,7 +28,10 @@ vi.mock('@/lib/auth', () => ({
 }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
-vi.mock('@/lib/rateLimit', () => ({ checkSendRateLimit: vi.fn().mockResolvedValue(true) }));
+vi.mock('@/lib/rateLimit', () => ({
+  checkSendRateLimit: vi.fn().mockResolvedValue(true),
+  checkRateLimit: vi.fn().mockResolvedValue(true),
+}));
 vi.mock('@/lib/apiResponse', () => ({
   apiResponse: {
     success: vi.fn(),

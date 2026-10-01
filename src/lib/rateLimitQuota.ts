@@ -37,12 +37,13 @@ import { refundRateLimit } from '@/lib/rateLimit';
  * is logged and the units stay spent.
  */
 export async function settleQuotaCharges(ctx: Pick<RequestContext, 'quotaCharges'> | null | undefined): Promise<void> {
-  for (const { key, charged, used } of ctx?.quotaCharges?.splice(0) ?? []) {
+  for (const { key, charged, used, windowStart } of ctx?.quotaCharges?.splice(0) ?? []) {
     // Capped at the charge: whatever `used` holds, never more than was taken.
     const unused = Math.min(Math.trunc(charged), Math.trunc(charged - used));
     if (!(unused >= 1)) continue;
     try {
-      await refundRateLimit(key, unused);
+      // Only into the window that was charged: after a rollover it is a no-op.
+      await refundRateLimit(key, unused, windowStart);
     } catch (err) {
       log.error('Usage-quota refund failed', { key, units: unused, error: err instanceof Error ? err.message : String(err) }, 'rateLimit');
     }

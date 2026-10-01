@@ -9,19 +9,20 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { checkSendRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, checkSendRateLimit } from '@/lib/rateLimit';
 import { sendInvoiceEmail } from '@/modules/accounting/services/core/emailService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
 
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
-  // Each call sends a real SMTP email to an arbitrary address — bound it per IP/company/day
-  // so a logged-in user can't loop it into a spam cannon (pentest H9).
-  if (!(await checkSendRateLimit(req, companyId, 'invoice-email', { refundUnused: true }))) {
+  // Abuse limit: every attempt counts, per user, and is never given back. The
+  // company's send bucket below is shared by every colleague, so it is charged
+  // only once the request is known to be well formed (R-175).
+  if (!(await checkRateLimit(`invoice-email:attempts:${user.id}`, { max: 30, windowSecs: 900 }))) {
     return apiResponse.tooManyRequests(res, 'Email send limit reached. Please try again later.');
   }
 
@@ -39,6 +40,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(recipientEmail)) {
     return apiResponse.badRequest(res, 'Invalid email address');
+  }
+
+  // Each call sends a real SMTP email to an arbitrary address — bound it per IP/company/day
+  // so a logged-in user can't loop it into a spam cannon (pentest H9).
+  if (!(await checkSendRateLimit(req, companyId, 'invoice-email', { refundUnused: true }))) {
+    return apiResponse.tooManyRequests(res, 'Email send limit reached. Please try again later.');
   }
 
   try {

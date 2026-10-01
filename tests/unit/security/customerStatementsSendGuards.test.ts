@@ -12,9 +12,9 @@ vi.mock('@/lib/auth', () => ({ withAuth: (h: H) => h, withWriteAccess: (h: H) =>
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: H) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: H) => h }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-const { sqlMock, checkSend } = vi.hoisted(() => ({ sqlMock: vi.fn(), checkSend: vi.fn() }));
+const { sqlMock, checkSend, checkAttempts } = vi.hoisted(() => ({ sqlMock: vi.fn(), checkSend: vi.fn(), checkAttempts: vi.fn() }));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
-vi.mock('@/lib/rateLimit', () => ({ checkSendRateLimit: checkSend }));
+vi.mock('@/lib/rateLimit', () => ({ checkSendRateLimit: checkSend, checkRateLimit: checkAttempts }));
 vi.mock('@/modules/accounting/services/ar/statementEmailService', () => ({
   sendStatementEmail: vi.fn().mockResolvedValue({ success: true }),
 }));
@@ -32,7 +32,7 @@ import handler from '../../../pages/api/accounting/customer-statements-send';
 const COMPANY = '11111111-1111-4111-9111-111111111111';
 const id = (n: number) => `22222222-2222-4222-9222-${String(n).padStart(12, '0')}`;
 const call = (customer_ids: unknown[]) => (handler as unknown as H)(
-  { method: 'POST', body: { customer_ids, as_at_date: '2026-08-14' }, companyId: COMPANY } as unknown as NextApiRequest,
+  { method: 'POST', body: { customer_ids, as_at_date: '2026-08-14' }, companyId: COMPANY, user: { id: 'u1' } } as unknown as NextApiRequest,
   {} as NextApiResponse,
 );
 
@@ -42,6 +42,7 @@ describe('customer-statements-send — id and logging guards (R-175)', () => {
     vi.clearAllMocks();
     owned = null;
     checkSend.mockResolvedValue(true);
+    checkAttempts.mockResolvedValue(true);
     sqlMock.mockImplementation(async (strings: TemplateStringsArray, ids: string[]) =>
       (strings.join('').includes('FROM customers') ? (owned ?? ids).map((x) => ({ id: x })) : [{ name: 'Co' }]));
   });
@@ -56,6 +57,27 @@ describe('customer-statements-send — id and logging guards (R-175)', () => {
     expect(apiResponse.badRequest).toHaveBeenCalledWith(expect.anything(), 'all customer_ids must be UUIDs');
     expect(sqlMock).not.toHaveBeenCalled();
     expect(sendStatementEmail).not.toHaveBeenCalled();
+    // Review round 3: a malformed request counts against its user, never
+    // against the company bucket every colleague shares.
+    expect(checkAttempts.mock.calls).toEqual([['customer-statements:attempts:u1', { max: 30, windowSecs: 900 }]]);
+    expect(checkSend).not.toHaveBeenCalled();
+  });
+
+  it('an empty body costs the company bucket nothing', async () => {
+    await call([]);
+
+    expect(apiResponse.badRequest).toHaveBeenCalledTimes(1);
+    expect(checkAttempts).toHaveBeenCalledTimes(1);
+    expect(checkSend).not.toHaveBeenCalled();
+  });
+
+  it('refuses a user over the abuse limit before anything else', async () => {
+    checkAttempts.mockResolvedValue(false);
+    await call([id(1)]);
+
+    expect(apiResponse.tooManyRequests).toHaveBeenCalledTimes(1);
+    expect(checkSend).not.toHaveBeenCalled();
+    expect(sqlMock).not.toHaveBeenCalled();
   });
 
   it('logs a count and a sample of the ids it refuses, not every id', async () => {

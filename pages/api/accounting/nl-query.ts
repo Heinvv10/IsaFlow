@@ -10,7 +10,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkAiRateLimit } from '@/lib/rateLimit';
-import { markQuotaUsed } from '@/lib/quotaUse';
+import { markQuotaUsed, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import {
   buildTextToSQLPrompt, parseSQLResponse, validateGeneratedSQL,
@@ -164,6 +164,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.error('NL query failed', { error: errMsg, question }, 'ai');
+    // A provider call that timed out or was aborted may still have been done.
+    markQuotaUsedUnlessNoWork('ai', err);
     return apiResponse.success(res, { intent, message: `Query execution failed: ${errMsg}`, rows: [], columns: [], summary: 'Error' });
   }
 }

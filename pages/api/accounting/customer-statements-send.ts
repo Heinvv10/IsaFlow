@@ -15,7 +15,7 @@ import { withAuth, withWriteAccess, type CompanyAuthedRequest, type Authenticate
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { checkSendRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, checkSendRateLimit } from '@/lib/rateLimit';
 import { isValidUUID } from '@/lib/validation';
 import { sendStatementEmail } from '@/modules/accounting/services/ar/statementEmailService';
 
@@ -54,10 +54,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
 
-  const sendAllowed = await checkSendRateLimit(req, companyId, 'customer-statements', { refundUnused: true });
-  if (!sendAllowed) {
+  // Abuse limit: every attempt counts, per user, and is never given back. The
+  // company's send bucket below is shared by every colleague, so it is charged
+  // only once the request is known to be well formed (R-175).
+  if (!(await checkRateLimit(`customer-statements:attempts:${user.id}`, { max: 30, windowSecs: 900 }))) {
     return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
 
@@ -93,6 +95,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const asAtDate = body.as_at_date;
   const message = typeof body.message === 'string' ? body.message : undefined;
+
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'customer-statements', { refundUnused: true });
+  if (!sendAllowed) {
+    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
+  }
 
   // Verify all requested customer IDs belong to this company (IDOR guard)
   const owned = await sql`

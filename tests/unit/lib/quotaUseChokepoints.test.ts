@@ -99,8 +99,15 @@ describe('where usage-quota use is recorded (R-175)', () => {
       })).toEqual({ ai: 0, send: 0 });
     });
 
-    it('records nothing when the provider call throws or times out', async () => {
-      fetchMock.mockRejectedValue(new Error('This operation was aborted'));
+    it('records one AI use when the call times out or is aborted: the provider may have done the work', async () => {
+      fetchMock.mockRejectedValue(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }));
+      expect(await used(async () => {
+        expect(await callVlmChat(VLM, 'sys', [])).toBeNull();
+      })).toEqual({ ai: 1, send: 0 });
+    });
+
+    it('records nothing when the provider could not be reached at all', async () => {
+      fetchMock.mockRejectedValue(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } }));
       expect(await used(async () => {
         expect(await callVlmChat(VLM, 'sys', [])).toBeNull();
       })).toEqual({ ai: 0, send: 0 });
@@ -115,9 +122,19 @@ describe('where usage-quota use is recorded (R-175)', () => {
       })).toEqual({ ai: 1, send: 0 });
     });
 
-    it('records nothing when the provider call fails', async () => {
-      createMessage.mockRejectedValue(new Error('529 overloaded'));
+    it('records nothing when the provider answers with an error status', async () => {
+      createMessage.mockRejectedValue(Object.assign(new Error('529 overloaded'), { status: 529 }));
       expect(await used(() => generateNoteNarrative(...NOTE))).toEqual({ ai: 0, send: 0 });
+    });
+
+    it('records nothing when the provider could not be reached', async () => {
+      createMessage.mockRejectedValue(Object.assign(new Error('Connection error.'), { cause: { code: 'ENOTFOUND' } }));
+      expect(await used(() => generateNoteNarrative(...NOTE))).toEqual({ ai: 0, send: 0 });
+    });
+
+    it('records one AI use when the call times out', async () => {
+      createMessage.mockRejectedValue(Object.assign(new Error('Request timed out.'), { name: 'APIConnectionTimeoutError' }));
+      expect(await used(() => generateNoteNarrative(...NOTE))).toEqual({ ai: 1, send: 0 });
     });
   });
 

@@ -14,10 +14,20 @@
  *    calls markQuotaUsed for its kind;
  *  - a caller that keeps its charge must not pass `refundUnused`.
  *
+ *  - a refundable caller must not reach code that leaves the request context
+ *    (`als.exit`): use recorded there is invisible to the settle, so the route
+ *    would be refunded for work it did. `runAfterCommit` is allowed, because
+ *    it forfeits the refund at run time (`forfeitQuotaRefund`).
+ *
  * This is reachability, read from source: it proves a path exists, not that
  * every success path takes it. The behaviour is tested where the use is
  * recorded (quotaUseChokepoints, aiRoutesQuotaUse, nlQueryQuotaRefund).
  * It reads `git ls-files`, so a new route counts once it is tracked.
+ *
+ * What it cannot see: a promise that is started and not awaited (it keeps the
+ * request context but may record its use after the settle), work scheduled
+ * with a bare timer, and an import it cannot resolve (a computed path, or a
+ * package outside this repository).
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -84,6 +94,11 @@ function reachable(start: string): Set<string> {
 
 /** Source with comments removed: a comment that mentions markQuotaUsed records nothing. */
 const code = (file: string) => read(file).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[ \t])\/\/.*$/gm, '');
+/** Leaving the request context by hand. `runAfterCommit` is not here: it forfeits the refund itself. */
+const leavesContext = (source: string) => /\bals\s*\.\s*exit\s*\(|\.exit\s*\(\s*(?:async\s*)?\(\)\s*=>|setImmediate\s*\(|process\.nextTick\s*\(/.test(source);
+/** The one place that may: it is how runAfterCommit detaches work, after forfeiting the refund. */
+const MAY_LEAVE_CONTEXT = ['src/lib/afterCommit.ts'];
+
 const marks = (file: string, kind: string) => new RegExp(`markQuotaUsed\\('${kind}'`).test(code(file));
 
 describe('usage-quota caller census (R-175)', () => {
@@ -103,7 +118,10 @@ describe('usage-quota caller census (R-175)', () => {
 
     expect(call.test(read(file))).toBe(true);
     expect(marks(marksIn, kind)).toBe(true);
-    expect(reachable(file).has(marksIn)).toBe(true);
+    const reached = reachable(file);
+    expect(reached.has(marksIn)).toBe(true);
+    // Fail closed: nothing it can reach may run its work outside the request.
+    expect([...reached].filter((f) => !MAY_LEAVE_CONTEXT.includes(f) && leavesContext(code(f)))).toEqual([]);
   });
 
   it.each(Object.entries(KEEPS_CHARGE))('%s keeps its charge: it does not ask for refundUnused', (route) => {
@@ -123,5 +141,17 @@ describe('usage-quota caller census (R-175)', () => {
     expect(reached.size).toBeGreaterThan(5);
     expect([...reached].some((f) => marks(f, 'ai') || marks(f, 'send'))).toBe(false);
     expect(reachable(`${API}accounting/invoice-email.ts`).has('src/modules/accounting/services/core/emailService.ts')).toBe(true);
+  });
+
+  it('the context check goes red on exited-context code and stays green without it', () => {
+    expect(leavesContext("await als.exit(() => sendEmail(mail));")).toBe(true);
+    expect(leavesContext("const outside = als .exit (async () => { await callVlmChat(c, p, u); });")).toBe(true);
+    expect(leavesContext("store.exit(() => sendEmail(mail));")).toBe(true);
+    expect(leavesContext("setImmediate(() => { void sendEmail(mail); });")).toBe(true);
+    expect(leavesContext("const result = await sendEmail(mail);\nrunAfterCommit('webhook', () => fire());")).toBe(false);
+    expect(leavesContext("process.exit(1);")).toBe(false);
+    // The real tree: afterCommit.ts leaves the context, and is the only allowed file that does.
+    expect(leavesContext(code('src/lib/afterCommit.ts'))).toBe(true);
+    expect(code('src/lib/afterCommit.ts')).toContain('forfeitQuotaRefund()');
   });
 });

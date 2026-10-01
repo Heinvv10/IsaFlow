@@ -13,7 +13,7 @@ vi.mock('@/lib/rateLimitPool', () => ({ getRateLimitPool: () => ({ query: queryM
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: logError } }));
 
 import { als, type RequestContext } from '@/lib/als';
-import { markQuotaUsed } from '@/lib/quotaUse';
+import { markQuotaUsed, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
 import { checkAiRateLimit, checkSendRateLimit, clearRateLimitCache } from '@/lib/rateLimit';
 import { settleQuotaCharges } from '@/lib/rateLimitQuota';
 
@@ -26,10 +26,13 @@ function request(): RequestContext {
   return { client: {} as RequestContext['client'], userId: 'u', claims: {}, quotaCharges: [] };
 }
 
-/** Every charge is admitted with count 1; refunds resolve. */
+const WINDOW = '2026-10-01 00:00:00.654321+00';
+const isCharge = (text: string) => text.startsWith('WITH charged');
+
+/** Every charge is admitted, in WINDOW; refunds resolve. */
 function admitAll(): void {
   queryMock.mockImplementation(async (text: string) =>
-    (text.startsWith('INSERT') ? { rows: [{ count: 1, remaining_ms: 60_000 }] } : { rows: [] }));
+    (isCharge(text) ? { rows: [{ admitted: true, count: 1, window_start: WINDOW, remaining_ms: 60_000 }] } : { rows: [] }));
 }
 
 const refunds = () => queryMock.mock.calls.filter((c) => String(c[0]).startsWith('UPDATE')).map((c) => c[1]);
@@ -59,15 +62,15 @@ describe('usage-quota: charged minus used comes back (R-175)', () => {
     });
 
     expect(ctx.quotaCharges).toEqual([
-      { kind: 'ai', key: AI_DAY, charged: 1, used: 0 },
-      { kind: 'send', key: SEND_DAY, charged: 7, used: 0 },
+      { kind: 'ai', key: AI_DAY, charged: 1, used: 0, windowStart: WINDOW },
+      { kind: 'send', key: SEND_DAY, charged: 7, used: 0, windowStart: WINDOW },
     ]);
   });
 
   it('AI: no provider answer, then a 200 with a fallback, gives the unit back', async () => {
     await asRequest(async () => { await checkAiRateLimit(req, CO, 'nl-query', { refundUnused: true }); });
 
-    expect(refunds()).toEqual([[AI_DAY, 1]]);
+    expect(refunds()).toEqual([[AI_DAY, 1, WINDOW]]);
   });
 
   it('AI: the provider answered, then the request threw, keeps the unit', async () => {
@@ -91,18 +94,18 @@ describe('usage-quota: charged minus used comes back (R-175)', () => {
 
   it('send: 59 of 100 accepted, then a throw, gives back 41', async () => {
     await asRequest(async () => {
-      await checkSendRateLimit(req, CO, 'bulk', { count: 100, refundUnused: true });
+      await checkSendRateLimit(req, CO, 'bulk', { count: 100, companyMax: 2_000, dailyMax: 10_000, refundUnused: true });
       for (let i = 0; i < 59; i++) markQuotaUsed('send');
       throw new Error('recipient 60 blew up');
     });
 
-    expect(refunds()).toEqual([[SEND_DAY, 41]]);
+    expect(refunds()).toEqual([[SEND_DAY, 41, WINDOW]]);
   });
 
   it('send: nothing accepted (SMTP down), answered 200, gives every unit back', async () => {
     await asRequest(async () => { await checkSendRateLimit(req, CO, 'bulk', { count: 4, refundUnused: true }); });
 
-    expect(refunds()).toEqual([[SEND_DAY, 4]]);
+    expect(refunds()).toEqual([[SEND_DAY, 4, WINDOW]]);
   });
 
   it('use cannot be taken back: a negative count is ignored', async () => {
@@ -124,7 +127,7 @@ describe('usage-quota: charged minus used comes back (R-175)', () => {
 
     // Nothing was used, so both units come back. A NaN that reached the record
     // would make `charged - used` NaN and silently keep them.
-    expect(refunds()).toEqual([[SEND_DAY, 2]]);
+    expect(refunds()).toEqual([[SEND_DAY, 2, WINDOW]]);
   });
 
   it('never gives back more than was charged, whatever the record holds', async () => {
@@ -135,9 +138,9 @@ describe('usage-quota: charged minus used comes back (R-175)', () => {
     expect(refunds()).toEqual([]);
 
     const ctx = request();
-    ctx.quotaCharges!.push({ kind: 'send', key: SEND_DAY, charged: 2, used: -41 });
+    ctx.quotaCharges!.push({ kind: 'send', key: SEND_DAY, charged: 2, used: -41, windowStart: WINDOW });
     await settleQuotaCharges(ctx);
-    expect(refunds()).toEqual([[SEND_DAY, 2]]);
+    expect(refunds()).toEqual([[SEND_DAY, 2, WINDOW]]);
   });
 
   it('use of one kind does not spend the other kind', async () => {
@@ -148,7 +151,7 @@ describe('usage-quota: charged minus used comes back (R-175)', () => {
       markQuotaUsed('send');
     });
 
-    expect(refunds()).toEqual([[AI_DAY, 1]]);
+    expect(refunds()).toEqual([[AI_DAY, 1, WINDOW]]);
   });
 
   it('a caller that did not ask for refundUnused keeps its charge whatever happens', async () => {
@@ -163,7 +166,7 @@ describe('usage-quota: charged minus used comes back (R-175)', () => {
 
   it('a refused call notes nothing and gets nothing back', async () => {
     queryMock.mockImplementation(async (text: string) =>
-      (text.startsWith('INSERT') ? { rows: [{ count: 999, remaining_ms: 60_000 }] } : { rows: [] }));
+      (isCharge(text) ? { rows: [{ admitted: false, count: 300, window_start: WINDOW, remaining_ms: 60_000 }] } : { rows: [] }));
     const ctx = await asRequest(async () => {
       expect(await checkAiRateLimit(req, CO, 'nl-query', { refundUnused: true })).toBe(false);
     });
@@ -176,7 +179,7 @@ describe('usage-quota: charged minus used comes back (R-175)', () => {
     const ctx = await asRequest(async () => { await checkAiRateLimit(req, CO, 'nl-query', { refundUnused: true }); });
     await settleQuotaCharges(ctx);
 
-    expect(refunds()).toEqual([[AI_DAY, 1]]);
+    expect(refunds()).toEqual([[AI_DAY, 1, WINDOW]]);
     expect(ctx.quotaCharges).toEqual([]);
   });
 
@@ -198,13 +201,70 @@ describe('usage-quota: charged minus used comes back (R-175)', () => {
 
   it('a refund that fails is logged, does not throw, and does not stop the next one', async () => {
     const ctx = request();
-    ctx.quotaCharges!.push({ kind: 'ai', key: 'a', charged: 1, used: 0 }, { kind: 'send', key: 'b', charged: 5, used: 3 });
+    ctx.quotaCharges!.push({ kind: 'ai', key: 'a', charged: 1, used: 0, windowStart: WINDOW }, { kind: 'send', key: 'b', charged: 5, used: 3, windowStart: null });
     queryMock.mockRejectedValueOnce(new Error('pool timeout')).mockResolvedValue({ rows: [] });
 
     await expect(settleQuotaCharges(ctx)).resolves.toBeUndefined();
 
-    expect(refunds()).toEqual([['a', 1], ['b', 2]]);
+    expect(refunds()).toEqual([['a', 1, WINDOW], ['b', 2, null]]);
     expect(logError).toHaveBeenCalledTimes(1);
     expect(logError.mock.calls[0]![1]).toMatchObject({ key: 'a', units: 1, error: 'pool timeout' });
+  });
+
+  // Review round 3.
+  it('work handed to runAfterCommit forfeits the refund: use recorded there would never be seen', async () => {
+    const { runAfterCommit } = await import('@/lib/afterCommit');
+    const ctx = request();
+    ctx.afterCommit = [];
+    await asRequest(async () => {
+      await checkSendRateLimit(req, CO, 'bulk', { count: 5, refundUnused: true });
+      runAfterCommit('send later', async () => { markQuotaUsed('send'); });
+    }, ctx);
+
+    expect(ctx.afterCommit).toHaveLength(1);
+    expect(refunds()).toEqual([]);
+  });
+
+  it('the same request without deferred work gets its units back', async () => {
+    const ctx = request();
+    ctx.afterCommit = [];
+    await asRequest(async () => { await checkSendRateLimit(req, CO, 'bulk', { count: 5, refundUnused: true }); }, ctx);
+
+    expect(refunds()).toEqual([[SEND_DAY, 5, WINDOW]]);
+  });
+
+  describe('a provider call that threw', () => {
+    const afterThrow = async (err: unknown) => {
+      await asRequest(async () => {
+        await checkAiRateLimit(req, CO, 'nl-query', { refundUnused: true });
+        markQuotaUsedUnlessNoWork('ai', err);
+      });
+      return refunds();
+    };
+    const fetchFailed = (code: string) => Object.assign(new TypeError('fetch failed'), { cause: { code } });
+
+    it.each([
+      ['a timeout', Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })],
+      ['an abort', Object.assign(new Error('This operation was aborted'), { name: 'AbortError' })],
+      ['a reset after the request was sent', fetchFailed('ECONNRESET')],
+      ['a socket closed mid-response', fetchFailed('UND_ERR_SOCKET')],
+      ['an SDK timeout (no status)', Object.assign(new Error('Request timed out.'), { name: 'APIConnectionTimeoutError' })],
+      ['an unknown error', new Error('something else')],
+      ['a non-error value', 'boom'],
+    ])('counts as use after %s: the provider may have done the work', async (_label, err) => {
+      expect(await afterThrow(err)).toEqual([]);
+    });
+
+    it.each([
+      ['a refused connection', fetchFailed('ECONNREFUSED')],
+      ['a name that does not resolve', fetchFailed('ENOTFOUND')],
+      ['a DNS failure', fetchFailed('EAI_AGAIN')],
+      ['a connect timeout', fetchFailed('UND_ERR_CONNECT_TIMEOUT')],
+      ['a code on the error itself', Object.assign(new Error('connect'), { code: 'ECONNREFUSED' })],
+      ['a provider 529 answer (SDK)', Object.assign(new Error('overloaded'), { status: 529 })],
+      ['a provider 400 answer (SDK)', Object.assign(new Error('bad request'), { status: 400 })],
+    ])('is not use after %s: no work was done', async (_label, err) => {
+      expect(await afterThrow(err)).toEqual([[AI_DAY, 1, WINDOW]]);
+    });
   });
 });

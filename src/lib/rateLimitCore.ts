@@ -6,7 +6,8 @@
  *
  * R-175: nothing in memory may ADMIT a call. The old LRU short-circuit admitted
  * calls it never wrote to the table, so a limit of 20 admitted about 65 calls
- * per window on one process. Every call that can be admitted does the UPSERT.
+ * per window on one process. Every call that can be admitted does the UPSERT,
+ * and the UPSERT charges only when the call fits.
  * The one cache here only REFUSES: a key the database has just reported over
  * its limit is refused from memory for a few seconds, so a flood on that key
  * costs no database writes.
@@ -51,7 +52,7 @@ export interface RateLimitOptions {
  */
 export const REFUSAL_TTL_MS = 5_000;
 
-/** key -> the count the database reported when it refused the key. */
+/** key -> the count the database held when it last refused a call on the key. */
 const refused = new LRUCache<string, number>({ max: 10_000 });
 
 /** Forgets every remembered refusal. For tests, and safe anywhere: it can only cause a database call. */
@@ -60,18 +61,9 @@ export function clearRateLimitCache(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Core function
+// Core functions
 // ---------------------------------------------------------------------------
 
-/**
- * Returns true if the request is allowed, false if it is rate-limited.
- *
- * The counter is persisted in `rate_limit_counters` (migration 331) so it is
- * shared across all pods. A call that reaches the database charges it, admitted
- * or not, and the charge is committed before this returns, whatever the
- * caller's transaction later does. A key that was refused in the last few
- * seconds is refused again from memory, without a charge.
- */
 /**
  * Clamp a rate-limit `cost` to a positive integer. A shared primitive must never
  * let a caller pass a negative / zero / NaN / Infinity / fractional cost that
@@ -83,46 +75,84 @@ export function clampCost(cost: number | undefined): number {
   return Number.isFinite(t) && t > 0 ? t : 1;
 }
 
-export async function checkRateLimit(key: string, opts: RateLimitOptions): Promise<boolean> {
+/** `windowStart` names the window that was charged; a refund quotes it (see refundRateLimit). */
+export interface RateLimitCharge { admitted: boolean; windowStart: string | null }
+
+const REFUSED: RateLimitCharge = { admitted: false, windowStart: null };
+
+// The time left is float8, not int: a 30-day window is 2.6e9 ms and overflows
+// int4. window_start travels as text: a JS Date drops the microseconds a
+// refund has to match.
+const left = (col: string) => `(EXTRACT(EPOCH FROM (${col} + make_interval(secs => $3) - NOW())) * 1000)::float8`;
+const expired = 'rate_limit_counters.window_start < NOW() - make_interval(secs => $3)';
+
+/**
+ * Charges `cost` units to `key` if, and only if, they fit under `max`.
+ *
+ * The counter is persisted in `rate_limit_counters` (migration 331) so it is
+ * shared across all pods. One atomic statement decides and charges: a call
+ * that fits is added and admitted; a call that does not fit changes nothing
+ * and is refused. So the count never passes `max`, and a refused 100-unit call
+ * does not use up room a 1-unit call could still have. An admitted charge is
+ * committed before this returns, whatever the caller's transaction later does.
+ * A key refused in the last few seconds is refused again from memory, while
+ * the call still would not fit.
+ */
+export async function chargeRateLimit(key: string, opts: RateLimitOptions): Promise<RateLimitCharge> {
   const { max, windowSecs } = opts;
   const cost = clampCost(opts.cost);
+  // More than the whole allowance can never fit, in any window.
+  if (cost > max) return REFUSED;
 
   // Refuse-only: the remembered count can turn a call away, never let one in.
-  // A caller with a higher `max` on the same key is not bound by it.
   const refusedAt = refused.get(key);
-  if (refusedAt !== undefined && refusedAt > max) return false;
+  if (refusedAt !== undefined && refusedAt + cost > max) return REFUSED;
 
   const asked = Date.now();
-  const { rows } = await getRateLimitPool().query<{ count: number; remaining_ms: number }>(
-    `INSERT INTO rate_limit_counters (key, count, window_start)
-    VALUES ($1, $2, NOW())
-    ON CONFLICT (key) DO UPDATE
-      SET count = CASE
-        WHEN rate_limit_counters.window_start < NOW() - make_interval(secs => $3)
-          THEN $2
-        ELSE rate_limit_counters.count + $2
-      END,
-      window_start = CASE
-        WHEN rate_limit_counters.window_start < NOW() - make_interval(secs => $3)
-          THEN NOW()
-        ELSE rate_limit_counters.window_start
-      END
-    RETURNING count,
-      -- float8, not int: a 30-day window is 2.6e9 ms and overflows int4.
-      (EXTRACT(EPOCH FROM (window_start + make_interval(secs => $3) - NOW())) * 1000)::float8 AS remaining_ms`,
-    [key, cost, windowSecs],
+  const { rows } = await getRateLimitPool().query<{ admitted: boolean; count: number; window_start: string; remaining_ms: number }>(
+    `WITH charged AS (
+      INSERT INTO rate_limit_counters (key, count, window_start)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (key) DO UPDATE
+        SET count = CASE
+          WHEN ${expired}
+            THEN $2
+          ELSE rate_limit_counters.count + $2
+        END,
+        window_start = CASE
+          WHEN ${expired}
+            THEN NOW()
+          ELSE rate_limit_counters.window_start
+        END
+        WHERE ${expired}
+           OR rate_limit_counters.count + $2 <= $4
+      RETURNING count, window_start
+    )
+    SELECT true AS admitted, count, window_start::text, ${left('window_start')} AS remaining_ms FROM charged
+    UNION ALL
+    SELECT false, c.count, c.window_start::text, ${left('c.window_start')} FROM rate_limit_counters c
+    WHERE c.key = $1 AND NOT EXISTS (SELECT 1 FROM charged)`,
+    [key, cost, windowSecs, max],
   );
 
-  const { count, remaining_ms } = rows[0]!;
-  if (count <= max) return true;
+  // No row at all: the key was created by someone else after this statement's
+  // snapshot and the charge did not fit. Refused, with nothing to remember.
+  const row = rows[0];
+  if (!row) return REFUSED;
+  if (row.admitted) return { admitted: true, windowStart: row.window_start };
   // Measured from before the round-trip, so the refusal never outlives the window.
-  const ttl = Math.min(REFUSAL_TTL_MS, remaining_ms - (Date.now() - asked));
-  if (ttl >= 1) refused.set(key, count, { ttl });
-  return false;
+  const ttl = Math.min(REFUSAL_TTL_MS, row.remaining_ms - (Date.now() - asked));
+  if (ttl >= 1) refused.set(key, row.count, { ttl });
+  return REFUSED;
+}
+
+/** Returns true if the request is allowed, false if it is rate-limited. See chargeRateLimit. */
+export async function checkRateLimit(key: string, opts: RateLimitOptions): Promise<boolean> {
+  return (await chargeRateLimit(key, opts)).admitted;
 }
 
 /**
- * Give `units` back to `key`'s current window.
+ * Give `units` back to `key`.
  *
  * Only for a caller that has charged up front and then reached an outcome the
  * cap was never meant to bound — e.g. the invite-accept endpoint charges before
@@ -133,14 +163,20 @@ export async function checkRateLimit(key: string, opts: RateLimitOptions): Promi
  *
  * Floors at zero and leaves `window_start` alone, so a refund can never extend
  * a window or drive the shared counter negative. Absent keys are a no-op.
+ *
+ * Pass the `windowStart` the charge returned and the refund lands only in that
+ * window: if the window has rolled over since, the units belong to a count that
+ * no longer exists, and taking them off the new window would hand out room
+ * nobody paid for.
  */
-export async function refundRateLimit(key: string, units: number): Promise<void> {
+export async function refundRateLimit(key: string, units: number, windowStart: string | null = null): Promise<void> {
   const cost = clampCost(units);
   await getRateLimitPool().query(
     `UPDATE rate_limit_counters
     SET count = GREATEST(count - $2, 0)
-    WHERE key = $1`,
-    [key, cost],
+    WHERE key = $1
+      AND ($3::timestamptz IS NULL OR window_start = $3::timestamptz)`,
+    [key, cost, windowStart],
   );
   // The remembered refusal is now stale in the strict direction; drop it so the
   // next call asks the database.

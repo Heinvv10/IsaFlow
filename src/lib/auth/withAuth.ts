@@ -11,7 +11,7 @@ import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { checkAutoRateLimit } from './autoRateLimit';
 import { settleQuotaCharges } from '@/lib/rateLimitQuota';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
 import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } from './deferredEnd';
@@ -19,16 +19,6 @@ import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } fro
 // Re-exported so every existing `import { withRole } from '@/lib/auth/withAuth'`
 // keeps working; the implementation moved to withRole.ts (300-line ceiling).
 export { withRole } from './withRole';
-
-/**
- * Route categories that get per-company rate limiting applied inside withAuth
- * without each handler having to opt in. Pentest M23.
- * The table is intentionally small — add a pattern here, not a one-off in
- * each handler.
- */
-const AUTO_RATE_LIMIT: Array<{ prefix: string; key: string; max: number; windowSecs: number }> = [
-  { prefix: '/api/accounting/reports-', key: 'reports', max: 60, windowSecs: 60 },
-];
 
 export interface CompanyAuthedRequest extends NextApiRequest {
   user: { id: string; email?: string; claims: Record<string, unknown> };
@@ -171,20 +161,12 @@ export function withAuth(handler: Handler): NextApiHandler {
       // Pentest M23: per-company rate limit for well-known heavy route
       // categories. Keeps a single tenant from saturating the pool with
       // full-GL aggregations.
-      const path = req.url?.split('?')[0] ?? '';
-      const bucket = AUTO_RATE_LIMIT.find((b) => path.startsWith(b.prefix));
-      if (bucket) {
-        const allowed = await checkRateLimit(
-          `${bucket.key}:${activeCompanyId}`,
-          { max: bucket.max, windowSecs: bucket.windowSecs },
-        );
-        if (!allowed) {
-          await client.query('ROLLBACK');
-          return res.status(429).json({
-            success: false,
-            error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again shortly.' },
-          });
-        }
+      if (!(await checkAutoRateLimit(req.url, activeCompanyId))) {
+        await client.query('ROLLBACK');
+        return res.status(429).json({
+          success: false,
+          error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again shortly.' },
+        });
       }
 
       // ── Defer the response flush until AFTER the transaction is finalised ──
