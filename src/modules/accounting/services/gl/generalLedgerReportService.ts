@@ -18,7 +18,7 @@ import { log } from '@/lib/logger';
 import { DEFAULT_FY_START_MONTH, fiscalYearStart, resolveFiscalYearStartMonth } from './fiscalYearBasis';
 import { broughtForwardLine, getRetainedEarningsBroughtForward, INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
 import { withYearEndCloses } from './generalLedgerReportYearEnd';
-import { assertLedgerDates } from './ledgerDateRange';
+import { assertLedgerRange } from './ledgerDateRange';
 
 type Row = Record<string, unknown>;
 
@@ -71,7 +71,7 @@ export async function getGeneralLedgerReport(
   periodStart: string,
   periodEnd: string
 ): Promise<GeneralLedgerAccountReport[]> {
-  assertLedgerDates(periodStart, periodEnd);
+  assertLedgerRange(periodStart, periodEnd);
   try {
     const acctRows = (await sql`
       SELECT ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
@@ -144,7 +144,7 @@ export async function getGeneralLedgerReport(
         AND ga.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
-      ORDER BY ga.account_code, je.entry_date, je.created_at
+      ORDER BY ga.account_code, je.entry_date, je.created_at, jl.id
     `) as Row[];
 
     const byAccount = new Map<string, GeneralLedgerAccountReport>();

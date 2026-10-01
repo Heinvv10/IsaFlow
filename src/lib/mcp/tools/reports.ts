@@ -89,6 +89,7 @@ export const searchGlTool: McpTool = {
     // isRealCalendarDate allows years 1-9999; the ledger's FY floor does not survive year 0.
     if (!isLedgerDate(fromDate)) return toolError('invalid from_date');
     if (!isLedgerDate(toDate)) return toolError('invalid to_date');
+    if (fromDate > toDate) return toolError('from_date must not be after to_date');
     const result = await getAccountLedger({
       companyId: ctx.companyId, // from ctx ONLY
       accountId,

@@ -11,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
+import { LedgerAccountNotFoundError } from '@/modules/accounting/services/gl/ledgerErrors';
 import { getAccountTransactions } from '@/modules/accounting/services/reports/transactionReportingService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -33,11 +34,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!isLedgerDate(period_start) || !isLedgerDate(period_end)) {
       return apiResponse.badRequest(res, `period_start and period_end ${LEDGER_DATE_MESSAGE}`);
     }
+    if (period_start > period_end) return apiResponse.badRequest(res, 'period_start must not be after period_end');
     const report = await getAccountTransactions(companyId,
       String(account_code), String(period_start), String(period_end), costCentreId, businessUnitId
     );
     return apiResponse.success(res, report);
   } catch (err) {
+    if (err instanceof LedgerAccountNotFoundError) return apiResponse.notFound(res, 'Account');
     log.error('Account transactions report failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, 'Failed to generate account transactions report');
   }

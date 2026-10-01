@@ -134,7 +134,7 @@ export async function netOfFirstLines(scope: LedgerScope, n: number): Promise<nu
         AND (${postedOnly}::boolean = false OR je.status = 'posted')
         AND je.entry_date >= ${fromDate}
         AND je.entry_date <= ${toDate}
-      ORDER BY je.entry_date ASC, je.id ASC
+      ORDER BY je.entry_date ASC, je.created_at ASC, jl.id ASC
       LIMIT ${n}
     ) t
   `) as DbRow[];

@@ -8,13 +8,13 @@
  *   [x] Period-totals aggregate: jl + je scoped
  */
 
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { toMoney } from '@/lib/money/decimalSum';
 import { DEFAULT_FY_START_MONTH, resolveFiscalYearStartMonth } from '../gl/fiscalYearBasis';
 import { fiscalYearStartsWithin, incomeStatementOpeningFloor } from '../gl/fiscalYearCloseRows';
-import { assertLedgerDates } from '../gl/ledgerDateRange';
+import { assertLedgerRange } from '../gl/ledgerDateRange';
+import { LedgerAccountNotFoundError } from '../gl/ledgerErrors';
 import { buildPageRows, loadYearEndCloses, netOfFirstLines, planPage, type LedgerScope } from './accountLedgerYearEnd';
 
 type Row = DbRow;
@@ -42,7 +42,7 @@ export async function getAccountLedger(
   const cc = costCentreId ?? null;
   const bu = businessUnitId ?? null;
 
-  assertLedgerDates(fromDate, toDate);
+  assertLedgerRange(fromDate, toDate);
   if (!accountId && !accountCode) {
     throw new Error('Either accountId or accountCode is required');
   }
@@ -73,7 +73,7 @@ export async function getAccountLedger(
 
     if (!acctRows[0]) {
       const identifier = accountId ?? accountCode;
-      throw new Error(`Account ${identifier} not found for this company`);
+      throw new LedgerAccountNotFoundError(String(identifier));
     }
 
     const acct = acctRows[0] as Row;
@@ -204,7 +204,7 @@ export async function getAccountLedger(
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
             AND je.status        = 'posted'
-          ORDER BY je.entry_date ASC, je.id ASC
+          ORDER BY je.entry_date ASC, je.created_at ASC, jl.id ASC
           LIMIT  ${plan.lineLimit}
           OFFSET ${plan.lineOffset}
         `) as Row[]
@@ -228,7 +228,7 @@ export async function getAccountLedger(
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
-          ORDER BY je.entry_date ASC, je.id ASC
+          ORDER BY je.entry_date ASC, je.created_at ASC, jl.id ASC
           LIMIT  ${plan.lineLimit}
           OFFSET ${plan.lineOffset}
         `) as Row[];
