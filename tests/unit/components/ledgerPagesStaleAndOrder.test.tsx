@@ -176,3 +176,75 @@ describe('Account Detail page', () => {
     expect(screen.queryByText('row-LATEST')).toBeNull();
   }, 15000);
 });
+
+// ── loading flag, cleared inputs, empty state ───────────────────────────────
+const dateInputs = (c: HTMLElement) => c.querySelectorAll('input[type=date]');
+const spinner = (c: HTMLElement) => c.querySelector('.animate-spin');
+
+describe('loading flag belongs to the newest request', () => {
+  it.each([
+    ['General Ledger', () => <GeneralLedgerPage />, glData('Acc-X')],
+    ['Account Transactions', () => <AccountTransactionsPage />, txReport('Name-X')],
+  ])('%s: an older request finishing late leaves loading on until the newest finishes', async (_n, Page, data) => {
+    const pending = stubFetch();
+    const view = render(Page());
+    await calls(pending, 1);
+    fireEvent.change(dateInputs(view.container)[1]!, { target: { value: '2026-05-01' } }); await calls(pending, 2);
+    await settle(pending[0]!, ok(data));
+    expect(spinner(view.container)).not.toBeNull();
+    await settle(pending[1]!, ok(data));
+    await waitFor(() => expect(spinner(view.container)).toBeNull());
+  }, 15000);
+
+  it('Account Detail: same', async () => {
+    const pending = stubFetch();
+    router.query = { accountId: '5000', from: '2026-01-01', to: '2026-03-31' };
+    const view = render(<AccountDetailPage />); await calls(pending, 1);
+    router.query = { accountId: '5000', from: '2026-01-01', to: '2026-04-30' };
+    view.rerender(<AccountDetailPage />); await calls(pending, 2);
+    await settle(pending[0]!, ok(detail('row-OLD')));
+    expect(spinner(view.container)).not.toBeNull();
+    await settle(pending[1]!, ok(detail('row-NEW')));
+    await screen.findByText('row-NEW');
+  }, 15000);
+});
+
+describe('clearing an input invalidates in-flight requests and clears data and loading', () => {
+  it.each([
+    ['General Ledger', () => <GeneralLedgerPage />, glData('Acc-X'), 'Acc-X'],
+    ['Account Transactions', () => <AccountTransactionsPage />, txReport('Name-X'), 'Name-X'],
+  ])('%s', async (_n, Page, data, text) => {
+    const pending = stubFetch();
+    const view = render(Page());
+    await calls(pending, 1);
+    fireEvent.change(dateInputs(view.container)[1]!, { target: { value: '' } });
+    await waitFor(() => expect(spinner(view.container)).toBeNull());
+    await settle(pending[0]!, ok(data));
+    expect(screen.queryByText(new RegExp(text))).toBeNull();
+  }, 15000);
+
+  it('Account Detail: no stuck spinner, late response ignored', async () => {
+    const pending = stubFetch();
+    router.query = { accountId: '5000', from: '2026-01-01', to: '2026-03-31' };
+    const view = render(<AccountDetailPage />); await calls(pending, 1);
+    router.query = { accountId: '5000', from: '', to: '2026-03-31' };
+    view.rerender(<AccountDetailPage />);
+    await waitFor(() => expect(spinner(view.container)).toBeNull());
+    await settle(pending[0]!, ok(detail('row-LATE')));
+    expect(screen.queryByText('row-LATE')).toBeNull();
+  }, 15000);
+});
+
+describe('General Ledger empty state', () => {
+  it('is shown only when the load succeeded with no rows, never beside an error', async () => {
+    const pending = stubFetch();
+    const view = render(<GeneralLedgerPage />);
+    await calls(pending, 1);
+    await settle(pending[0]!, ok({ accounts: [] }));
+    await screen.findByText('No account activity for the selected period');
+    fireEvent.change(dateInputs(view.container)[1]!, { target: { value: '2026-05-01' } }); await calls(pending, 2);
+    await settle(pending[1]!, bad('period_start must not be after period_end'));
+    await screen.findByText(/period_start must not be after period_end/);
+    expect(screen.queryByText('No account activity for the selected period')).toBeNull();
+  }, 15000);
+});
