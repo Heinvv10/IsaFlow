@@ -162,7 +162,7 @@ export function checkStatements(doc: PackPagesDocument): string[] {
 
     const expected = terms.reduce((sum, term) => sum + term.sign * (term.value as number), 0);
     if (Math.abs(target - expected) > MONEY_TOLERANCE) {
-      const money = (n: number) => formatMoney(n, { cents: true, symbol: true });
+      const money = (n: number) => formatMoney(n, { cents: true, symbol: true, pack: true });
       const detail = terms
         .map((term, index) => {
           const word = index === 0 ? '' : term.sign === 1 ? 'plus ' : 'less ';

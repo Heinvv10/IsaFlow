@@ -101,7 +101,7 @@ function atPackScale(rands: number): number {
  */
 export function bridgeRoundingNote(operating: number, addBack: number, ebitda: number): string | undefined {
   if (atPackScale(operating) + atPackScale(addBack) === atPackScale(ebitda)) return undefined;
-  const exact = (n: number) => formatMoney(n, { cents: true });
+  const exact = (n: number) => formatMoney(n, { cents: true, pack: true });
   // IN RANDS, AND IT SAYS SO. Every other figure on this page is in R'000,
   // and three unrounded amounts printed beside them with no unit named is a
   // fourth way of reading the same column.

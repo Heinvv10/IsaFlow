@@ -38,7 +38,7 @@ describe('highlightsTitle', () => {
   it('does not claim a percentage change from a non-positive base', () => {
     // Brightsphere: negative revenue. A percentage against a negative base is
     // arithmetically meaningless and reads as a triumph or a catastrophe at random.
-    const title = highlightsTitle(set(-50_000, -100_000, -20_000));
+    const title = highlightsTitle(set(-50_000, -100_000, -20_000), 'R');
     expect(title).not.toMatch(/%/);
     // The headline states the LEVEL — the finding — rather than the reason a
     // ratio could not be formed. The ninth visual gate rejected the pack for
