@@ -76,3 +76,139 @@ BASELINE after the last mutant (git status: ' M docs/audits/remediation/R-175/gr
 int: Tests  11 passed (11)
 unit(mocked): Tests  6 passed (6)
 unit(db, pre-existing): Tests  23 passed (23)
+
+==================================================================
+Round 2 (K-103). Base commit 82cbc5396. The R-175 mutants above were run on d039dfd89,
+when the SQL went through the sql template. They are repeated here on the pool-based SQL (M2-M14; M1 and M8 not repeated),
+followed by the K-103 mutants (K1-K7). Run against both integration files (18 tests) and the two mocked unit files (11 tests).
+Restored with git checkout after each mutant.
+
+K1 | src/lib/rateLimit.ts | charge runs on the request transaction when one is open
+int: × charges the counter even when the request transaction rolls back 36ms
+int: × charges a request whose handler throws inside withAlsTransaction 16ms
+int: × does not hold the counter row lock for the rest of the request 2008ms
+int: Tests  3 failed | 15 passed (18)
+unit(mocked): Tests  11 passed (11)
+
+K2 | src/lib/rateLimit.ts | refund runs on the request transaction when one is open
+int: × a refund made by a request that rolls back still lands 210ms
+int: × does not hold the counter row lock for the rest of the request 2023ms
+int: Tests  2 failed | 16 passed (18)
+unit(mocked): Tests  11 passed (11)
+
+K3 | src/lib/rateLimit.ts | charge takes its connection from the main request pool
+int: × admits exactly max when 40 concurrent requests charge one key 15003ms
+int: × still answers while every request connection is held by an open request 15007ms
+int: × fails in bounded time, and does not admit, when the limiter cannot get a connection 177ms
+int: Tests  3 failed | 15 passed (18)
+unit(mocked): Tests  8 failed | 3 passed (11)
+
+K4 | src/lib/rateLimit.ts | refund takes its connection from the main request pool
+int: × still answers while every request connection is held by an open request 15012ms
+int: × fails in bounded time, and does not admit, when the limiter cannot get a connection 5008ms
+int: Tests  2 failed | 16 passed (18)
+unit(mocked): Tests  1 failed | 10 passed (11)
+
+K5 | src/lib/rateLimitPool.ts | connect timeout 5000 => 60000 (no bounded wait)
+int: × fails in bounded time, and does not admit, when the limiter cannot get a connection 30003ms
+int: Tests  1 failed | 17 passed (18)
+unit(mocked): Tests  11 passed (11)
+
+K6 | src/lib/rateLimitPool.ts | pool built without the connect timeout
+int: × fails in bounded time, and does not admit, when the limiter cannot get a connection 30006ms
+int: Tests  1 failed | 17 passed (18)
+unit(mocked): Tests  11 passed (11)
+
+K7 | src/lib/rateLimit.ts | charge fails open: a database error admits
+int: × fails in bounded time, and does not admit, when the limiter cannot get a connection 5006ms
+int: Tests  1 failed | 17 passed (18)
+unit(mocked): Tests  11 passed (11)
+
+M2 | src/lib/rateLimit.ts | verdict count <= max => count < max
+int: × admits exactly max of 100 sequential calls, in order, and counts every call 1649ms
+int: × admits exactly max of 100 concurrent calls 1424ms
+int: × counts cost-1 calls against a later weighted call 131ms
+int: × starts a fresh allowance of exactly max when the window rolls over 584ms
+int: × keeps counting inside a window that has not ended 184ms
+int: × a refund gives back exactly the refunded units 188ms
+int: × two module instances sharing the database together admit exactly max 686ms
+int: × two module instances called concurrently together admit exactly max 340ms
+int: × admits exactly max when 40 concurrent requests charge one key 704ms
+int: Tests  9 failed | 9 passed (18)
+unit(mocked): Tests  2 failed | 9 passed (11)
+
+M3 | src/lib/rateLimit.ts | verdict count <= max => count <= max + 1
+int: × admits exactly max of 100 sequential calls, in order, and counts every call 1037ms
+int: × admits exactly max of 100 concurrent calls 1011ms
+int: × counts cost-1 calls against a later weighted call 109ms
+int: × admits weighted calls only while their running total stays within max 71ms
+int: × starts a fresh allowance of exactly max when the window rolls over 228ms
+int: × keeps counting inside a window that has not ended 266ms
+int: × a refund gives back exactly the refunded units 360ms
+int: × two module instances sharing the database together admit exactly max 905ms
+int: × two module instances called concurrently together admit exactly max 625ms
+int: × admits exactly max when 40 concurrent requests charge one key 423ms
+int: Tests  10 failed | 8 passed (18)
+unit(mocked): Tests  5 failed | 6 passed (11)
+
+M4 | src/lib/rateLimit.ts | first call of a window charges 1, not cost
+int: × admits weighted calls only while their running total stays within max 70ms
+int: × a refund made by a request that rolls back still lands 25ms
+int: Tests  2 failed | 16 passed (18)
+unit(mocked): Tests  11 passed (11)
+
+M5 | src/lib/rateLimit.ts | later calls charge 1, not cost
+int: × counts cost-1 calls against a later weighted call 104ms
+int: × admits weighted calls only while their running total stays within max 98ms
+int: Tests  2 failed | 16 passed (18)
+unit(mocked): Tests  11 passed (11)
+
+M6 | src/lib/rateLimit.ts | rollover does not reset the count
+int: × starts a fresh allowance of exactly max when the window rolls over 611ms
+int: Tests  1 failed | 17 passed (18)
+unit(mocked): Tests  11 passed (11)
+
+M7 | src/lib/rateLimit.ts | rollover does not reset window_start
+int: × starts a fresh allowance of exactly max when the window rolls over 189ms
+int: Tests  1 failed | 17 passed (18)
+unit(mocked): Tests  11 passed (11)
+
+M9 | src/lib/rateLimit.ts | window length ignores windowSecs (880s)
+int: × keeps counting inside a window that has not ended 62ms
+int: Tests  1 failed | 17 passed (18)
+unit(mocked): Tests  11 passed (11)
+
+M10 | src/lib/rateLimit.ts | clampCost bypassed on the charge
+int: Tests  18 passed (18)
+unit(mocked): Tests  1 failed | 10 passed (11)
+
+M11 | src/lib/rateLimit.ts | refund without the zero floor
+int: × a refund floors at zero, leaves the window alone and ignores an absent key 30ms
+int: Tests  1 failed | 17 passed (18)
+unit(mocked): Tests  11 passed (11)
+
+M12 | src/lib/rateLimit.ts | refund moves window_start
+int: × a refund floors at zero, leaves the window alone and ignores an absent key 50ms
+int: Tests  1 failed | 17 passed (18)
+unit(mocked): Tests  11 passed (11)
+
+M13 | src/lib/rateLimit.ts | refund always gives back 1
+int: × a refund gives back exactly the refunded units 200ms
+int: × a refund floors at zero, leaves the window alone and ignores an absent key 29ms
+int: × a refund made by a request that rolls back still lands 33ms
+int: Tests  3 failed | 15 passed (18)
+unit(mocked): Tests  1 failed | 10 passed (11)
+
+M14 | src/lib/rateLimit.ts | refund hits the wrong key
+int: × admits exactly max of 100 sequential calls, in order, and counts every call 3203ms
+int: × a refund gives back exactly the refunded units 310ms
+int: × a refund floors at zero, leaves the window alone and ignores an absent key 64ms
+int: × a refund made by a request that rolls back still lands 34ms
+int: × does not hold the counter row lock for the rest of the request 53ms
+int: × still answers while every request connection is held by an open request 4023ms
+int: Tests  6 failed | 12 passed (18)
+unit(mocked): Tests  11 passed (11)
+
+BASELINE after the last mutant (git status: '')
+int: Tests  18 passed (18)
+unit(mocked): Tests  11 passed (11)
