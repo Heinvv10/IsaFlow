@@ -231,6 +231,14 @@ function locateProse(doc: PackPagesDocument): Located[] {
             for (const step of entry.reconciliation ?? []) push(at(`definition '${entry.term}'`), step.label);
           }
           break;
+        default: {
+          const unknownKind: never = block;
+          throw new Error(
+            'locateProse: a block kind was added without deciding which of its strings are '
+              + `scanned — ${JSON.stringify((unknownKind as { kind?: unknown }).kind)}. `
+              + 'A kind this list forgets is where the next leak prints.',
+          );
+        }
       }
     }
   }

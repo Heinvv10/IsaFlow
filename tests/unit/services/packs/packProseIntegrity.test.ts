@@ -166,3 +166,23 @@ describe('checkProse — what it deliberately does not read', () => {
     expect(checkProse({ ...clean, pages })).toEqual([]);
   });
 });
+
+/**
+ * THE SCAN IS EXHAUSTIVE OVER THE BLOCK UNION, AND SAYS SO AT RUNTIME TOO.
+ *
+ * `locateProse`'s own comment claimed it; the switch had no default, so a
+ * block kind it did not list was simply not scanned and the pack passed with
+ * whatever that block printed. Across the JSON boundary the type cannot stop
+ * it, so the fall-through refuses.
+ */
+describe('a block kind the prose scan does not know', () => {
+  it('is refused rather than left unscanned', () => {
+    const doc = {
+      ...clean,
+      pages: clean.pages.map((page, index) => (index === 3
+        ? { ...page, blocks: [...page.blocks, { kind: 'callout', text: 'TODO: write this' }] }
+        : page)),
+    } as unknown as PackPagesDocument;
+    expect(() => checkProse(doc)).toThrow(/locateProse: a block kind was added.*"callout"/);
+  });
+});
