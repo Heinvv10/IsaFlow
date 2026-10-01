@@ -41,6 +41,16 @@ vi.mock('@/lib/apiResponse', () => ({
 
 const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+// The role lock, post-condition and cache clear issue their own statements; they
+// are proven against Postgres in tests/integration/w2-28-*.int.test.ts.
+vi.mock('@/modules/accounting/services/gl/systemRoleInvariant', () => ({
+  snapshotRoles: vi.fn(async () => ({})), assertRolesKept: vi.fn(async () => undefined),
+  rolesNotKept: vi.fn(() => []), SystemRoleInvariantError: class extends Error {},
+}));
+vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', () => ({
+  lockSystemRoleWrites: vi.fn(async () => undefined), boundedRowWait: <T>(take: () => PromiseLike<T>) => take(),
+}));
+vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ clearSystemAccountCacheAfterCommit: vi.fn() }));
 
 import { apiResponse } from '@/lib/apiResponse';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment

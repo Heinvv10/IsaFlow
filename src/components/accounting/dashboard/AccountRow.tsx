@@ -3,6 +3,7 @@
  */
 
 import { useState } from 'react';
+import { mayBeParent, systemAccountNote } from './systemAccountNote';
 import { Loader2, Pencil, Trash2, Save, X, Lock } from 'lucide-react';
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
 import { apiFetch } from '@/lib/apiFetch';
@@ -132,8 +133,9 @@ export function AccountRow({
   // The server refuses a cross-type parent, the account itself, and anything
   // below it in the tree. It cannot know about descendants from this list
   // alone, so this filter is a convenience, not the guard — the API refusal is.
+  // A balance-sheet role holder is not offered — except to the account already under it (legacy data), so the form shows the truth.
   const eligibleParents = parentOptions.filter(
-    a => a.id !== account.id && a.accountType === account.accountType,
+    a => a.id !== account.id && a.accountType === account.accountType && (mayBeParent(a) || a.id === account.parentAccountId),
   );
 
   return (
@@ -216,7 +218,7 @@ export function AccountRow({
               >
                 <option value="">No parent (top level)</option>
                 {eligibleParents.map(a => (
-                  <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>
+                  <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}{mayBeParent(a) ? '' : ' (system account — cannot be chosen for other accounts)'}</option>
                 ))}
               </select>
               {/* Separate from the default above on purpose: an account can
@@ -263,7 +265,9 @@ export function AccountRow({
             : <span className="text-[var(--ff-text-tertiary)] text-xs">—</span>}
         </td>
         <td className="px-6 py-3 text-center">
-          {account.isSystemAccount && <Lock className="h-4 w-4 text-[var(--ff-text-tertiary)] mx-auto" />}
+          {account.isSystemAccount && (
+            <span title={systemAccountNote(account.accountSubtype)} className="inline-flex"><Lock className="h-4 w-4 text-[var(--ff-text-tertiary)] mx-auto" role="img" aria-label={systemAccountNote(account.accountSubtype)} /></span>
+          )}
         </td>
         <td className="px-6 py-3 text-right">
           {account.isSystemAccount ? null : isEditing ? (

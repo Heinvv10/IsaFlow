@@ -34,6 +34,7 @@ vi.mock('@/modules/accounting/services/gl/accountReclassifyService', async () =>
   return { ReclassifyError: actual.ReclassifyError, reclassifyAccount: vi.fn() };
 });
 
+import { ChartRefusal } from '@/modules/accounting/services/gl/chartRefusal';
 import {
   createAccount,
   getAccountById,
@@ -142,8 +143,8 @@ describe('create_gl_account', () => {
     expect(getAccountById).not.toHaveBeenCalled();
   });
 
-  it('surfaces a service validation message but generic-ifies a pg error', async () => {
-    vi.mocked(createAccount).mockRejectedValueOnce(new Error('Account code 5900 already exists'));
+  it('surfaces a service refusal as a tool error, and THROWS anything else so the registry rolls back', async () => {
+    vi.mocked(createAccount).mockRejectedValueOnce(new ChartRefusal('Account code 5900 already exists'));
     const dup = await createGlAccountTool.handler(
       { account_code: '5900', account_name: 'X', account_type: 'expense', ...KEY },
       ctx(),
@@ -152,12 +153,13 @@ describe('create_gl_account', () => {
 
     const pgErr = Object.assign(new Error('duplicate key value violates unique constraint "gl_accounts_pkey"'), { code: '23505' });
     vi.mocked(createAccount).mockRejectedValueOnce(pgErr);
-    const generic = await createGlAccountTool.handler(
-      { account_code: '5900', account_name: 'X', account_type: 'expense', ...KEY },
-      ctx(),
-    );
-    expect(errText(generic)).toBe('Failed to create account.');
-    expect(errText(generic)).not.toContain('gl_accounts_pkey');
+    const args = { account_code: '5900', account_name: 'X', account_type: 'expense', ...KEY };
+    await expect(createGlAccountTool.handler(args, ctx())).rejects.toBe(pgErr);
+    // A driver error carries no code (a dropped connection AFTER the INSERT ran): returned as a tool
+    // error it was committed, and its text shown to the agent (breaker pass 4).
+    const dropped = new Error('Connection terminated unexpectedly');
+    vi.mocked(createAccount).mockRejectedValueOnce(dropped);
+    await expect(createGlAccountTool.handler(args, ctx())).rejects.toBe(dropped);
   });
 });
 
@@ -268,9 +270,16 @@ describe('deactivate_gl_account', () => {
   it('surfaces the service reason so the agent knows what to fix', async () => {
     vi.mocked(getAccountById).mockResolvedValue({ id: ACCOUNT, isActive: true } as never);
     vi.mocked(deleteAccount).mockRejectedValueOnce(
-      new Error('Cannot delete "Paycard 12" — GL balance is R 1200.00.'),
+      new ChartRefusal('Cannot delete "Paycard 12" — GL balance is R 1200.00.'),
     );
     const r = await deactivateGlAccountTool.handler({ account_id: ACCOUNT, ...KEY }, ctx());
     expect(errText(r)).toContain('GL balance is R 1200.00');
+  });
+
+  it('throws an error that is not a service refusal, so the registry rolls the deactivation back', async () => {
+    vi.mocked(getAccountById).mockResolvedValue({ id: ACCOUNT, isActive: true } as never);
+    const dropped = new Error('Connection terminated unexpectedly');
+    vi.mocked(deleteAccount).mockRejectedValueOnce(dropped);
+    await expect(deactivateGlAccountTool.handler({ account_id: ACCOUNT, ...KEY }, ctx())).rejects.toBe(dropped);
   });
 });

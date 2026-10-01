@@ -15,7 +15,7 @@ import {
 } from '@/components/accounting/bank/BankAccountModals';
 import { BankAccountCard, type BankAccountCardData } from '@/components/accounting/bank/BankAccountCard';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 type BankAccount = BankAccountCardData;
 
@@ -92,14 +92,19 @@ export default function BankAccountsPage() {
       // If bank account number provided, save it separately
       if (form.bankAccountNumber.trim()) {
         const created = json.data || json;
-        await apiFetch('/api/accounting/bank-accounts', {
+        const numberRes = await apiFetch('/api/accounting/bank-accounts', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ id: created.id, bankAccountNumber: form.bankAccountNumber.trim() }),
         });
+        // apiFetch resolves on a 4xx: unchecked, a refused number read as "Bank account created".
+        const numberError = await assertOk(numberRes, 'try again from Edit').then(() => '', (e: unknown) => apiErrorMessage(e, 'try again from Edit'));
+        if (numberError) notify.error(`The account was created, but its bank account number was not saved: ${numberError}`);
+        else notify.success('Bank account created');
+      } else {
+        notify.success('Bank account created');
       }
-      notify.success('Bank account created');
       setShowAddModal(false);
       setForm(EMPTY_ADD);
       void loadAccounts();

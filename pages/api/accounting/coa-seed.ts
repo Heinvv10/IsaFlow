@@ -5,7 +5,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -29,4 +29,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { seeded: true, template });
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+// Seeding writes the chart and its role holders: owners and admins only, the
+// same gate as the chart-of-accounts write routes.
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));
