@@ -122,4 +122,39 @@ describe('ledger paging and ordering (Postgres)', async () => {
       expect(seq(stream.lines.map(r => ({ d: r.debit, b: r.runningBalance as number })))).toEqual(a);
     });
   }, 60000);
+
+  // Round 5: every money figure leaves each listing rounded to cents (same toMoney as the siblings),
+  // so one figure serialises identically across routes and tools.
+  it.skipIf(!reachable)('money fields are 2-decimal and equal across listings (float-drift amounts)', async () => {
+    const drift: J[] = [];
+    for (let i = 0; i < 10; i += 1) drift.push(j(`2025-0${(i % 9) + 1}-10`, [[EXP, 0.1, 0], [BANK, 0, 0.1]]));   // prior FY: opening + RE-BF
+    for (let i = 0; i < 10; i += 1) drift.push(j(`2026-0${(i % 6) + 4}-10`, [[EXP, 0.1, 0], [BANK, 0, 0.1]]));   // in range
+    drift.push(j('2026-05-20', [[EXP, 0.2, 0], [BANK, 0, 0.2]]));
+    await withData(drift, async () => {
+      const ok = (n: number | null | undefined, what: string) => {
+        expect(typeof n, what).toBe('number');
+        expect(n, what).toBe(Math.round((n as number) * 100) / 100);
+      };
+      const ledger = await getAccountLedger({ ...q, limit: 500 });
+      const inline = await getAccountTransactions(A, '5000', q.fromDate, q.toDate);
+      const report = await getGeneralLedgerReport(A, q.fromDate, q.toDate);
+      const rep = report.find(x => x.accountCode === '5000')!;
+      const re = report.find(x => x.accountCode === 'RE-BF');
+      expect(re, 'fixture must produce RE-BF').toBeDefined();
+      for (const [what, n] of [
+        ['ledger opening', ledger.openingBalance], ['ledger periodNet', ledger.periodNet], ['ledger closing', ledger.periodClosingBalance],
+        ['inline opening', inline.openingBalance], ['inline periodNet', inline.periodNet], ['inline closing', inline.closingBalance],
+        ['report opening', rep.openingBalance], ['report closing', rep.closingBalance],
+        ['RE-BF opening', re!.openingBalance], ['RE-BF closing', re!.closingBalance],
+        ...ledger.rows.map((r, i) => [`ledger row ${i}`, r.runningBalance] as [string, number]),
+        ...inline.transactions.map((r, i) => [`inline row ${i}`, r.balance] as [string, number]),
+        ...rep.transactions.map((r, i) => [`report row ${i}`, r.balance] as [string, number]),
+        ...re!.transactions.map((r, i) => [`RE-BF row ${i}`, r.balance] as [string, number]),
+      ] as Array<[string, number]>) ok(n, what);
+      expect(inline.closingBalance).toBe(ledger.periodClosingBalance);
+      expect(rep.closingBalance).toBe(ledger.periodClosingBalance);
+      expect(inline.periodNet).toBe(ledger.periodNet);
+      expect(inline.openingBalance).toBe(ledger.openingBalance);
+    });
+  }, 60000);
 });

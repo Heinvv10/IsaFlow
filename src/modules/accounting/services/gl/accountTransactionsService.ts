@@ -14,6 +14,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { toMoney } from '@/lib/money/decimalSum';
 import { DEFAULT_FY_START_MONTH, resolveFiscalYearStartMonth } from './fiscalYearBasis';
 import { assertLedgerRange } from './ledgerDateRange';
 import { LedgerAccountNotFoundError } from './ledgerErrors';
@@ -147,10 +148,10 @@ export async function getAccountTransactions(
       accountType,
       periodStart,
       periodEnd,
-      openingBalance,
-      periodNet,
-      closingBalance: closing,
-      transactions,
+      openingBalance: toMoney(openingBalance),
+      periodNet: toMoney(periodNet),
+      closingBalance: toMoney(closing),
+      transactions: transactions.map(t => ({ ...t, balance: toMoney(t.balance) })),
     };
   } catch (err) {
     log.error('Failed to generate account transactions', { error: err }, 'accounting');
