@@ -156,6 +156,7 @@ export default function AccountDetailPage() {
                     data.rows,
                     data.openingBalance,
                     data.periodClosingBalance,
+                    { page, totalPages },
                   )
                 }
                 className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium"

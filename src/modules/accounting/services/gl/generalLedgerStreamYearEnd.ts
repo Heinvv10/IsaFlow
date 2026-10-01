@@ -3,9 +3,13 @@
  *
  * Income-statement accounts restart at the fiscal-year start (trialBalanceBasis),
  * so the stream floors their opening balance at the start of the fiscal year
- * containing periodStart. The profit earned before that date leaves those
- * openings and re-enters, on an UNFILTERED read, as the TB's derived
- * Retained Earnings b/f key (`RE-BF`), so the opening set still nets to zero.
+ * containing periodStart. The profit earned before that date drops out of those
+ * openings. On an UNFILTERED read it is returned as the trial balance's derived
+ * Retained Earnings b/f key (`RE-BF`, credit positive), omitted when under 1 cent.
+ * Each value in the set is signed to its own account's normal side, so the set
+ * does not sum to zero; what holds is that the debit-normal openings equal the
+ * credit-normal openings plus `RE-BF`, i.e. the opening trial balance foots.
+ * A filtered read gets no `RE-BF` (the retained earnings of a subset is meaningless).
  *
  * NOT done here: a range that crosses a fiscal-year start does not reset an
  * income-statement account's running balance at the boundary. The stream is an

@@ -15,7 +15,7 @@
  *   offset       — integer >= 0  (default: 0)
  *   cost_centre_id / business_unit_id — optional cumulative dimension filters
  *
- * Response: { success: true, data: { rows, total, openingBalance, periodNet, periodClosingBalance, meta } }
+ * Response: { success: true, data: { rows, total, openingBalance, periodNet, closedToRetainedEarnings, periodClosingBalance, meta } }
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';

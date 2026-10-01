@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { countPostedAccounts } from '@/components/reports/generalLedgerRows';
 
 interface AccountReport {
   accountCode: string;
@@ -17,6 +18,8 @@ interface AccountReport {
   closingBalance: number;
   totalDebit: number;
   totalCredit: number;
+  /** The derived Retained Earnings b/f account: computed, not posted. */
+  derived?: boolean;
   transactions: {
     date: string;
     entryNumber: string;
@@ -25,6 +28,8 @@ interface AccountReport {
     credit: number;
     balance: number;
     source: string;
+    /** A year-end close row: derived, not posted. */
+    derived?: boolean;
   }[];
 }
 
@@ -98,6 +103,8 @@ export default function GeneralLedgerPage() {
         r.accountCode.toLowerCase().includes(needle) || r.accountName.toLowerCase().includes(needle))
     : reports;
 
+  const postedTotal = countPostedAccounts(reports);
+  const postedVisible = countPostedAccounts(visible);
   const grandTotalDebit = visible.reduce((s, r) => s + r.totalDebit, 0);
   const grandTotalCredit = visible.reduce((s, r) => s + r.totalCredit, 0);
 
@@ -120,7 +127,7 @@ export default function GeneralLedgerPage() {
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">General Ledger</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">
                   {reports.length > 0
-                    ? `${visible.length === reports.length ? reports.length : `${visible.length} of ${reports.length}`} account${reports.length === 1 ? '' : 's'} with activity in this period`
+                    ? `${postedVisible === postedTotal ? postedTotal : `${postedVisible} of ${postedTotal}`} account${postedTotal === 1 ? '' : 's'} with activity in this period`
                     : 'Account transactions for the selected period'}
                 </p>
               </div>
@@ -190,6 +197,11 @@ export default function GeneralLedgerPage() {
                         <span className="text-xs px-2 py-0.5 rounded bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]">
                           {r.accountType}
                         </span>
+                        {r.derived && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-amber-500/10 text-amber-500">
+                            derived — not posted
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-6 text-sm font-mono">
                         <span className="text-[var(--ff-text-secondary)]">
@@ -222,7 +234,7 @@ export default function GeneralLedgerPage() {
                             <td className="px-4 py-2 text-right font-mono">{fmt(r.openingBalance)}</td>
                           </tr>
                           {r.transactions.map((t, i) => (
-                            <tr key={i} className="hover:bg-[var(--ff-bg-tertiary)]">
+                            <tr key={i} className={`hover:bg-[var(--ff-bg-tertiary)]${t.derived ? ' italic' : ''}`}>
                               <td className="px-4 py-2 text-[var(--ff-text-primary)]">{t.date?.split('T')[0]}</td>
                               <td className="px-4 py-2 font-mono text-[var(--ff-text-secondary)]">{t.entryNumber}</td>
                               <td className="px-4 py-2 text-[var(--ff-text-primary)]">{t.description}</td>
@@ -239,7 +251,7 @@ export default function GeneralLedgerPage() {
               })}
 
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border-2 border-[var(--ff-border-medium)] px-4 py-3 flex items-center justify-between font-bold text-sm">
-                <span className="text-[var(--ff-text-primary)]">GRAND TOTALS ({reports.length} accounts)</span>
+                <span className="text-[var(--ff-text-primary)]">GRAND TOTALS ({postedTotal} accounts)</span>
                 <div className="flex items-center gap-6 font-mono">
                   <span>Dr {fmt(grandTotalDebit)}</span>
                   <span>Cr {fmt(grandTotalCredit)}</span>

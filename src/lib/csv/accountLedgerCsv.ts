@@ -6,6 +6,7 @@
  *   - newlines within a field are preserved inside the quotes
  */
 
+import { toMoney } from '@/lib/money/decimalSum';
 import type {
   AccountLedgerMeta,
   AccountLedgerRow,
@@ -21,19 +22,37 @@ export function csvField(value: string): string {
   return `"${escaped}"`;
 }
 
+export interface LedgerCsvPage {
+  page: number;
+  totalPages: number;
+}
+
 /**
- * Build a CSV string for the account ledger and trigger a browser download.
+ * The CSV text for one page of the account ledger. Page 1 opens at the ledger's
+ * opening balance; a later page opens at the balance its first row started from
+ * (derived year-end close rows included), so each page's opening is the previous
+ * page's closing. Only the last page closes at the period closing balance.
  */
-export function downloadAccountLedgerCsv(
+export function buildAccountLedgerCsv(
   meta: AccountLedgerMeta,
   rows: AccountLedgerRow[],
   openingBalance: number,
   periodClosingBalance: number,
-): void {
+  { page, totalPages }: LedgerCsvPage = { page: 1, totalPages: 1 },
+): string {
   const headers = [
     'Date', 'Entry #', 'Description', 'Reference', 'Source',
     'Debit', 'Credit', 'Balance',
   ];
+
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  const fromPrevious = page > 1 && first !== undefined;
+  const pageOpening = fromPrevious
+    ? toMoney(first.runningBalance - (meta.normalBalance === 'debit' ? first.debit - first.credit : first.credit - first.debit))
+    : openingBalance;
+  const carriesForward = page < totalPages && last !== undefined;
+  const pageClosing = carriesForward ? last.runningBalance : periodClosingBalance;
 
   const lines: string[] = [headers.join(',')];
 
@@ -41,12 +60,12 @@ export function downloadAccountLedgerCsv(
     [
       '', // Date
       '', // Entry #
-      csvField('Opening Balance'),
+      csvField(fromPrevious ? 'Balance Brought Forward' : 'Opening Balance'),
       '', // Reference
       '', // Source
       '', // Debit
       '', // Credit
-      openingBalance.toFixed(2),
+      pageOpening.toFixed(2),
     ].join(','),
   );
 
@@ -69,16 +88,30 @@ export function downloadAccountLedgerCsv(
     [
       '', // Date
       '', // Entry #
-      csvField('Closing Balance'),
+      csvField(carriesForward ? 'Balance Carried Forward' : 'Closing Balance'),
       '', // Reference
       '', // Source
       '', // Debit
       '', // Credit
-      periodClosingBalance.toFixed(2),
+      pageClosing.toFixed(2),
     ].join(','),
   );
 
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  return lines.join('\n');
+}
+
+/**
+ * Build a CSV string for the account ledger page and trigger a browser download.
+ */
+export function downloadAccountLedgerCsv(
+  meta: AccountLedgerMeta,
+  rows: AccountLedgerRow[],
+  openingBalance: number,
+  periodClosingBalance: number,
+  pageInfo?: LedgerCsvPage,
+): void {
+  const csv = buildAccountLedgerCsv(meta, rows, openingBalance, periodClosingBalance, pageInfo);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

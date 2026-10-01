@@ -48,6 +48,12 @@ function signed(scope: LedgerScope, debit: number, credit: number): number {
  * One close per boundary with a non-zero balance. The balance before boundary k is the movement in
  * [boundary k-1, boundary k), with boundary 0 = the opening floor — so the
  * first close includes the pre-fromDate year-to-date carried in the opening.
+ *
+ * COST: one aggregate query per fiscal-year boundary inside the range, run
+ * sequentially on every page request (not cached across pages). Each aggregates
+ * the account's lines from the previous boundary (or the opening floor). Left as is: a range
+ * rarely spans more than a few boundaries, and folding them into one grouped
+ * query would change how positions and the pre-fromDate carry are derived.
  */
 export async function loadYearEndCloses(
   scope: LedgerScope,
@@ -99,7 +105,15 @@ export function planPage(closes: readonly YearEndClose[], offset: number, limit:
   return { lineOffset: offset - closesBefore.length, lineLimit: limit - inWindow, closesBefore };
 }
 
-/** Normal-side net of the first `n` in-range lines, in page order. */
+/**
+ * Normal-side net of the first `n` in-range lines, in page order.
+ *
+ * COST: O(n) — it re-sorts and sums every in-range line before the page, so the
+ * last page of a long range costs about as much as the whole range. Same order as
+ * the page query's LIMIT/OFFSET, which already scans `offset` rows to skip them.
+ * Left as is: a running total per page would need a window-function rewrite of
+ * the page query, and this runs once per request, only past page 1.
+ */
 export async function netOfFirstLines(scope: LedgerScope, n: number): Promise<number> {
   if (n <= 0) return 0;
   const { companyId, accountId, cc, bu, postedOnly, fromDate, toDate } = scope;
