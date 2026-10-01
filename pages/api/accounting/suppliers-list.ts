@@ -31,7 +31,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { id: singleId, q, limit: limitParam = '25', page: pageParam = '1' } = req.query;
 
       // Single-supplier lookup: ?id=<uuid>
-      if (typeof singleId === 'string') {
+      if (singleId !== undefined) {
+        // It reaches a ::UUID cast below: anything else is a 400 here, not a 22P02 500.
+        if (typeof singleId !== 'string' || !UUID_RE.test(singleId)) return apiResponse.badRequest(res, 'id must be a supplier id');
         const rows = (await sql`
           SELECT id, name, company_name, email, phone,
                  contact_person, is_active, vat_number, payment_terms, subject_to_drc_vat, created_at

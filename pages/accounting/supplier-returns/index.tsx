@@ -43,7 +43,6 @@ export default function SupplierReturnsPage() {
 
   useEffect(() => { void loadReturns(); }, [loadReturns]);
 
-
   function setField(field: keyof Form, value: string) { setForm(f => ({ ...f, [field]: value })); }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {

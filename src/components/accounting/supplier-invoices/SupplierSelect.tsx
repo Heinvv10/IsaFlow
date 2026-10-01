@@ -96,6 +96,7 @@ export function SupplierSelect({
         required={required}
         companyFirst={companyFirst}
         invalidMessage={unknown ? UNKNOWN : undefined}
+        loading={!!value && !label && !unknown && !loadFailed}
         testId="supplier-select-input"
         ariaLabel="Supplier"
       />

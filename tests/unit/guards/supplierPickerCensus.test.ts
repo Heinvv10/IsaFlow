@@ -14,7 +14,7 @@
  * caller cannot pass falsely.
  */
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
 const ROOT = resolve(__dirname, '../../..');
@@ -60,5 +60,31 @@ describe('suppliers-list callers are not capped at the 25-row default', () => {
     for (const rel of Object.keys(ALLOWED)) {
       expect(routeCalls(readFileSync(join(ROOT, rel), 'utf8')).length, rel).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * `/api/accounting/suppliers` (no `-list`) is not a route: two pickers loaded
+ * their supplier list from it with `?limit=500` and got a 404, so they were
+ * always empty. Only suppliers-list serves suppliers. If someone adds the route,
+ * this fails so its cap and callers get the same census as suppliers-list.
+ */
+describe('nothing reads a /api/accounting/suppliers route that does not exist', () => {
+  it('no client call targets it', () => {
+    const offenders: string[] = [];
+    for (const abs of [...walk(join(ROOT, 'src')), ...walk(join(ROOT, 'pages'))]) {
+      const rel = relative(ROOT, abs);
+      if (rel.startsWith('pages/api/')) continue;
+      const hits = readFileSync(abs, 'utf8').split('\n')
+        .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l))
+        .flatMap((l) => l.match(/['"`]\/api\/accounting\/suppliers(?:[?/][^'"`]*)?['"`]/g) ?? []);
+      for (const h of hits) offenders.push(`${rel}: ${h}`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('the route is still absent (if it appears, extend this census to it)', () => {
+    expect(existsSync(join(ROOT, 'pages/api/accounting/suppliers.ts'))).toBe(false);
+    expect(existsSync(join(ROOT, 'pages/api/accounting/suppliers/index.ts'))).toBe(false);
   });
 });
