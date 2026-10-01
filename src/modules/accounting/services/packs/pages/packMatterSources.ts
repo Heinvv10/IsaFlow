@@ -203,7 +203,11 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
     issue: `${plural(items, 'unreconciled bank item')} across ${plural(accountCount, 'bank account')}`
       + ', as at the time this pack was extracted rather than at the period end'
       + amountClause,
-    quantum: total,
+    // NOT STATED WHERE THE ITEMS NET TO NIL, rather than 0: the sentence says
+    // no amount is stated, a 0 prints the measured-nil dash beside it, and a
+    // 0 ranks the matter last among the quantified — the first row page 11
+    // drops when it runs short. Null ranks it with the unquantified matters.
+    quantum: total === 0 ? null : total,
     owner: 'Bookkeeping',
     movement: NO_PRIOR_MEETING_RECORD,
     decisionRequired: BOARD_DECISIONS.unreconciledBank,

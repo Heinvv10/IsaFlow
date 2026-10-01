@@ -35,6 +35,9 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { buildMatters } from '@/modules/accounting/services/packs/pages/packMatters';
+import { mattersTableMm, selectPrintedMatters } from '@/modules/accounting/services/packs/pages/packMattersPrinted';
+import { BOARD_DECISIONS } from '@/modules/accounting/services/packs/pages/packMatterDecisions';
+import { NO_PRIOR_MEETING_RECORD, type PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 
 const window: PeriodWindow = { start: '2026-01-01', end: '2026-08-31' };
 
@@ -125,7 +128,28 @@ describe('the unreconciled bank matter', () => {
       + 'rather than at the period end; receipts and payments among them net to nil on each '
       + 'account, so no amount is stated',
     );
-    expect(matter!.quantum).toBe(0);
+    // NOT STATED, NOT NIL. A quantum of 0 printed the measured-nil dash under
+    // a sentence saying no amount is stated, and ranked the matter last among
+    // the quantified ones — the first row page 11 drops when it runs short.
+    expect(matter!.quantum).toBeNull();
+  });
+
+  it('survives a page 11 that has room for only one row, where it nets to nil', async () => {
+    const backlog = (await bankMatter([
+      bankRow({ unreconciled_balance: 0, suggested_count: 2, unallocated_count: 9 }),
+    ]))!;
+    const journal = (n: number): PackMatter => ({
+      kind: 'finding', issue: `Journal JE-${n} (large round-number amount): accrual`, quantum: 50_000 * n,
+      owner: 'Finance', movement: NO_PRIOR_MEETING_RECORD, decisionRequired: BOARD_DECISIONS.unusualJournal,
+    });
+    const all = [journal(3), journal(2), journal(1), backlog];
+    // Room for exactly one row of the table.
+    const budget = mattersTableMm([backlog]);
+    expect(mattersTableMm([journal(3), backlog])).toBeGreaterThan(budget);
+
+    const { printed, omitted } = selectPrintedMatters(all, budget);
+    expect(printed).toEqual([backlog]);
+    expect(omitted).toHaveLength(3);
   });
 
   it('adds a net inflow on one account to a net outflow on another without letting them cancel', async () => {
