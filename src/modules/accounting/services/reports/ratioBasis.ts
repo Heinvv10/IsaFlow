@@ -80,6 +80,14 @@ export const NET_INTEREST_IS_INCOME =
 export const INTEREST_IS_NET_CREDIT =
   'Interest expense is a net credit in the period, so cover on it is not meaningful.';
 
+/**
+ * Inventory turnover where no stock is held: cost of sales over nil has no
+ * value, while inventory days on the same figures is exactly nil. Said so the
+ * two rows read as one statement rather than as a contradiction.
+ */
+export const NO_STOCK_HELD =
+  'No inventory is held, so there is no stock to turn over; inventory days are nil.';
+
 export function dependsOnUnstated(parts: string): string {
   return `Not stated: it depends on ${parts}, and one of them could not be stated.`;
 }

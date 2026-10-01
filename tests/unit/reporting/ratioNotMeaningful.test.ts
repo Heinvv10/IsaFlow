@@ -94,7 +94,7 @@ describe('on non-positive revenue', () => {
 describe('on any other base that is not positive', () => {
   it.each([
     ['creditorDays', { costOfSales: 0 }, /Cost of sales/],
-    ['inventoryTurnover', { inventory: 0 }, /Inventory/],
+    ['inventoryTurnover', { inventory: -1 }, /Inventory/],
     ['inventoryDays', { inventory: -1 }, /Inventory/],
     ['inventoryDays', { costOfSales: 0 }, /Cost of sales/],
     ['payablesTurnover', { accountsPayable: 0 }, /Accounts payable/],

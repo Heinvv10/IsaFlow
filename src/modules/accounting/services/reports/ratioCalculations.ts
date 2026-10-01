@@ -10,7 +10,7 @@
  */
 import type { ExtendedRatioResult, FinancialData, RatioResult } from './ratioTypes';
 import {
-  dependsOnUnstated, equityBasisFailure, equityNotMeaningful, NET_INTEREST_IS_INCOME, INTEREST_IS_NET_CREDIT, NO_FREE_CASH_FLOW,
+  dependsOnUnstated, equityBasisFailure, equityNotMeaningful, NET_INTEREST_IS_INCOME, INTEREST_IS_NET_CREDIT, NO_FREE_CASH_FLOW, NO_STOCK_HELD,
   NO_OPERATING_CASH_FLOW_RATIO, noneRecorded, notCaptured, notPositive,
 } from './ratioBasis';
 
@@ -62,7 +62,12 @@ export function calculateFinancialRatios(data: FinancialData): RatioResult {
   const grossProfit = data.revenue - data.costOfSales;
   const equityFailure = equityBasisFailure(data.totalEquity);
   const operatingProfit = operatingProfitOf(data);
-  const { why, on } = ledger(equityNotMeaningful(data.totalEquity));
+  const { why, on, given } = ledger(equityNotMeaningful(data.totalEquity));
+  // Cost of sales is the numerator, so a non-positive one is no turnover —
+  // the same rule as creditor and inventory days. Where none is held the
+  // turnover has no value and inventory days are nil; see NO_STOCK_HELD.
+  const noInventoryTurnover = data.costOfSales <= 0 ? notPositive('Cost of sales')
+    : data.inventory > 0 ? null : data.inventory < 0 ? notPositive('Inventory') : NO_STOCK_HELD;
 
   return {
     grossProfitMargin: on('grossProfitMargin', data.revenue, 'Revenue', () => pct(grossProfit, data.revenue)),
@@ -79,7 +84,7 @@ export function calculateFinancialRatios(data: FinancialData): RatioResult {
       () => r2(safeDiv(data.accountsReceivable, data.revenue) * 365)),
     creditorDays: on('creditorDays', data.costOfSales, 'Cost of sales',
       () => r2(safeDiv(data.accountsPayable, data.costOfSales) * 365)),
-    inventoryTurnover: on('inventoryTurnover', data.inventory, 'Inventory',
+    inventoryTurnover: given('inventoryTurnover', noInventoryTurnover,
       () => r2(safeDiv(data.costOfSales, data.inventory))),
     notMeaningful: why,
   };
@@ -149,8 +154,17 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   // Cover on NET interest: no base where nothing was paid, and none either
   // where more was earned than paid — which is not "no interest recorded".
   const noNetInterest = noInterest ?? (netInterest > 0 ? null : NET_INTEREST_IS_INCOME);
+  // REVENUE ON TOP IS STILL A REVENUE BASE. A turnover or a per-head figure
+  // with non-positive revenue in its numerator printed "Asset Turnover
+  // (1.73)×". Revenue is checked first, as for the margins. PBIT and EBITDA
+  // per employee follow the margins too: on non-positive revenue that profit
+  // is the reversal of sales, not the output of the staff.
+  const revenueFirst = (problem: string | null): string | null =>
+    (data.revenue > 0 ? problem : notPositive('Revenue'));
+  const salesOver = (key: string, base: number, baseName: string): number | null =>
+    given(key, revenueFirst(base > 0 ? null : notPositive(baseName)), () => r2(safeDiv(data.revenue, base)));
   const perEmployee = (key: string, numerator: number): number | null =>
-    given(key, noHeadCount, () => r2(safeDiv(numerator, employees)));
+    given(key, revenueFirst(noHeadCount), () => r2(safeDiv(numerator, employees)));
   const onNetInterest = (key: string, numerator: number): number | null =>
     given(key, noNetInterest, () => r2(safeDiv(numerator, netInterest)));
   const onRevenue = (problem: string | null): string | null =>
@@ -179,17 +193,16 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
         : data.currentLiabilities > 0 ? null : notPositive('Current liabilities'),
       () => r2(safeDiv(opCF ?? 0, data.currentLiabilities))),
     // Efficiency
-    assetTurnover: on('assetTurnover', data.totalAssets, 'Total assets', () => r2(safeDiv(data.revenue, data.totalAssets))),
-    receivablesTurnover: on('receivablesTurnover', data.accountsReceivable, 'Accounts receivable',
-      () => r2(safeDiv(data.revenue, data.accountsReceivable))),
-    payablesTurnover: on('payablesTurnover', data.accountsPayable, 'Accounts payable',
-      () => r2(safeDiv(data.costOfSales, data.accountsPayable))),
+    assetTurnover: salesOver('assetTurnover', data.totalAssets, 'Total assets'),
+    receivablesTurnover: salesOver('receivablesTurnover', data.accountsReceivable, 'Accounts receivable'),
+    payablesTurnover: given('payablesTurnover', data.costOfSales > 0
+      ? (data.accountsPayable > 0 ? null : notPositive('Accounts payable')) : notPositive('Cost of sales'),
+    () => r2(safeDiv(data.costOfSales, data.accountsPayable))),
     inventoryDays,
     cashConversionCycle: given('cashConversionCycle',
       cycleParts ? dependsOnUnstated('debtor days, inventory days or creditor days') : null,
       () => r2((debtorDays ?? 0) + (inventoryDays ?? 0) - (creditorDays ?? 0))),
-    netOperatingAssetTurnover: on('netOperatingAssetTurnover', netOperatingAssets, 'Net operating assets',
-      () => r2(safeDiv(data.revenue, netOperatingAssets))),
+    netOperatingAssetTurnover: salesOver('netOperatingAssetTurnover', netOperatingAssets, 'Net operating assets'),
     // Cash Flow
     freeCashFlow: given('freeCashFlow',
       capex === undefined ? NO_FREE_CASH_FLOW : opCF === undefined ? NO_OPERATING_CASH_FLOW_RATIO : null,
@@ -219,7 +232,7 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
       () => pct(data.taxExpense ?? 0, pbt)),
     // DuPont Decomposition
     dupontMargin: on('dupontMargin', data.revenue, 'Revenue', () => pct(data.netProfit, data.revenue)),
-    dupontTurnover: on('dupontTurnover', data.totalAssets, 'Total assets', () => r2(safeDiv(data.revenue, data.totalAssets))),
+    dupontTurnover: salesOver('dupontTurnover', data.totalAssets, 'Total assets'),
     dupontLeverage: equityFailure ? null : r2(safeDiv(data.totalAssets, data.totalEquity)),
     notMeaningful: why,
   };
