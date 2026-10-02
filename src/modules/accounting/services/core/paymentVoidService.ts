@@ -61,6 +61,7 @@ import { reverseReconciledTransaction } from '../bank/bankAllocationService';
 import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
 import { findBankTransactions, peekPaymentJournal } from './paymentVoidReads';
 import { voidSettlementDocument } from '../ap/provisionalSettlementVoid';
+import { lockStandingChainHead } from '../shared/journalChainHead';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 
@@ -240,10 +241,14 @@ export async function voidPaymentDocument(
 
     if (payment.journalEntryId) {
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
+      // The chain HEAD while the journal's chain stands (D8): after O <- R <- R2
+      // the GL carries the payment again through R2 and O is stamped reversed.
+      // Out of the ledger, O itself — which refuses "already reversed", as before.
+      const head = await lockStandingChainHead(companyId, payment.journalEntryId);
       // No catch: a closed period or an already-reversed entry must reach the
       // savepoint above — and through it the caller's. Flattening it into a
       // returned error would RELEASE both and commit the unwind.
-      vatLockRoll = (await reverseJournalEntry(companyId, payment.journalEntryId, userId, opts)).vatLockRoll ?? null;
+      vatLockRoll = (await reverseJournalEntry(companyId, head ?? payment.journalEntryId, userId, opts)).vatLockRoll ?? null;
     }
     return result;
   });

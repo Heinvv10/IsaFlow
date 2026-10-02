@@ -3,7 +3,9 @@
  * every refusal of that decision — all taken BEFORE the approval's first write,
  * so a refusal answered 4xx (which withAuth COMMITs) leaves nothing behind.
  *
- * A provisional qualifies when it is posted, unreversed, evidenced
+ * A provisional qualifies when it is posted, standing by its reversal chain
+ * (D8: one reversed and re-reversed books its slip again through the second
+ * contra, so it settles like any other), evidenced
  * (`needs_evidence = false`) by the invoice's own source document, in the same
  * company, and linked from `bank_transactions.provisional_je_id`. It is LOCKED
  * here (bounded) and only then read for a live payment already holding it
@@ -30,6 +32,7 @@ import { getJournalEntryById } from '../gl/journalEntryService';
 import { findActiveVatLock, journalMovesVatFigure } from '../gl/journalVatLockGuard';
 import type { JournalLine } from '../../types/gl.types';
 import { round2 } from './supplierAllocationLines';
+import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 
 const CENT = 0.005;
@@ -63,7 +66,7 @@ async function lockCandidates(companyId: string, documentId: string): Promise<Db
       WHERE je.company_id = ${companyId}::UUID
         AND je.source_document_id = ${documentId}::UUID
         AND je.status = 'posted'
-        AND je.reversed_at IS NULL
+        AND ${journalStandsFragment('je.id', companyId)}
         AND je.needs_evidence = false
       ORDER BY je.id
       FOR UPDATE OF je

@@ -119,7 +119,7 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
   }
   // (3) The journal last: locked, re-checked for a bank line matched meanwhile, unmatched.
   await lockJournalAndUnmatch(companyId, journalId, leg, `Batch ${number}`);
-  const reversal = await reverseJournalEntry(companyId, journalId, userId);
+  const reversal = await reverseJournalEntry(companyId, leg.reverseId, userId); // the chain head (D8)
   await sql`
     UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
     WHERE batch_id = ${batchId}::UUID AND company_id = ${companyId}::UUID AND status = 'processed'

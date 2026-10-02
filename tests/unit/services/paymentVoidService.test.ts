@@ -62,6 +62,8 @@ vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   reverseJournalEntry: vi.fn(),
 }));
+// D8: the chain head (real-ledger proof: d8-r2-chain-head-cancel-void) is the journal itself here.
+vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({ lockStandingChainHead: async (_c: string, id: string) => id }));
 
 import { sql } from '@/lib/neon';
 import {

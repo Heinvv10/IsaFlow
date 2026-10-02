@@ -18,7 +18,8 @@ import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { buildExpenseLines } from './supplierInvoiceExpenseLines';
 import { assertSupplierInvoiceLinesPostable } from './billLineAccountGuard';
-import { planSupplierInvoiceCancel } from './supplierInvoiceCancelPlan';
+import { planSupplierInvoiceCancel, SupplierInvoiceCancelRefusal } from './supplierInvoiceCancelPlan';
+import { lockStandingChainHead } from '../shared/journalChainHead';
 import { documentInPopulation } from '../shared/documentPopulation';
 import type { LateClaimInfo, PostJournalOpts } from '../gl/vatLateClaimPlan';
 import { claimEvidencedProvisional, settleClaimedProvisional } from './provisionalInvoiceSettlement';
@@ -322,25 +323,17 @@ async function cancelSupplierInvoiceInner(
     }
     // Every refusal the MCP tool's plan makes, on the row just locked, before
     // any write — the UI Cancel button and the bulk action reach only this.
-    await planSupplierInvoiceCancel(companyId, id);
+    const plan = await planSupplierInvoiceCancel(companyId, id);
 
     // P1.1 (audit C1, systemic): approve posts GL — cancel must reverse it.
     // Reverse BEFORE the flip so a blocked reversal (locked period) aborts
-    // the cancel. Post-#197 semantics: the original keeps status='posted';
-    // "already reversed" is signalled by reversed_at, so guard on that.
-    if (locked.gl_journal_entry_id) {
-      const jeRows = (await sql`
-        SELECT status, reversed_at FROM gl_journal_entries
-        WHERE id = ${String(locked.gl_journal_entry_id)}::UUID AND company_id = ${companyId}::UUID
-        FOR UPDATE
-      `) as Row[];
-      if (
-        jeRows.length > 0 &&
-        String(jeRows[0]!.status) === 'posted' &&
-        jeRows[0]!.reversed_at == null
-      ) {
-        await reverseJournalEntry(companyId, String(locked.gl_journal_entry_id), userId, opts);
-      }
+    // the cancel. The entry is the plan's: the approval journal's chain HEAD
+    // while the chain stands (D8) — not the journal itself, whose reversed_at
+    // stays set after O <- R <- R2 although the GL carries the bill again.
+    if (locked.gl_journal_entry_id && plan.journal) {
+      const head = await lockStandingChainHead(companyId, String(locked.gl_journal_entry_id),
+        (m) => new SupplierInvoiceCancelRefusal(m));
+      if (head) await reverseJournalEntry(companyId, head, userId, opts);
     }
 
     // Null the journal link (mirrors customerInvoiceCancelService): a future

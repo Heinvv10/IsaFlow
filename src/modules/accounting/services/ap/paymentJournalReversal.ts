@@ -31,10 +31,17 @@ import { ReversalBeforeOriginalError, resolveReversalDate } from '../gl/journalE
 import { loadJournalVatLines } from '../gl/journalVatLockGuard';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { brokenChainMessage, findJournalChainHead } from '../shared/journalChainHead';
 
 export interface BankLeg {
-  /** The journal already carries a reversal claim; the caller decides what that means. */
+  /** The journal's reversal chain is out of the ledger; the caller decides what that means. */
   alreadyReversed: boolean;
+  /**
+   * The entry the void reverses: the journal itself, or — once it was reversed
+   * and that reversal reversed (O <- R <- R2) — the chain HEAD that carries it
+   * back in the ledger (D8, shared/journalChainHead).
+   */
+  reverseId: string;
   /** Bank lines MATCHED to the journal, locked, to unmatch once the writes begin. */
   bankLineIds: string[];
   /** Every bank line seen on the journal, matched or allocated — the re-check's baseline. */
@@ -61,11 +68,12 @@ async function assertNotReconciled(companyId: string, row: DbRow, label: string)
   }
 }
 
-async function matchedBankLines(companyId: string, journalId: string): Promise<string[]> {
+/** Bank lines matched to any of `journalIds` — the journal and, for a re-reversed one, its head. */
+async function matchedBankLines(companyId: string, journalIds: string[]): Promise<string[]> {
   const rows = (await sql`
     SELECT bt.id FROM bank_transactions bt
     JOIN gl_journal_lines l ON l.id = bt.matched_journal_line_id
-    WHERE l.journal_entry_id = ${journalId}::UUID AND bt.company_id = ${companyId}::UUID
+    WHERE l.journal_entry_id = ANY(${journalIds}::UUID[]) AND bt.company_id = ${companyId}::UUID
     ORDER BY bt.id
   `) as DbRow[];
   return rows.map((r) => String(r.id));
@@ -81,7 +89,20 @@ export async function lockBankLegOf(companyId: string, journalId: string, label:
     WHERE id = ${journalId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!je[0]) throw new SupplierPaymentRefusal(`${label}'s journal was not found.`);
-  if (je[0].reversed_at) return { alreadyReversed: true, bankLineIds: [], seenLineIds: [], allocatedLineIds: [] };
+  // Stamped reversed: read the CHAIN, not the stamp. Out of the ledger, nothing
+  // to reverse; reversed and re-reversed, the head is what stands (D8).
+  let target = { id: journalId, entryDate: je[0].entry_date };
+  if (je[0].reversed_at) {
+    const chain = await findJournalChainHead(companyId, journalId);
+    if (chain?.kind === 'broken') throw new SupplierPaymentRefusal(brokenChainMessage(journalId, chain));
+    if (!chain || !chain.standing) {
+      return { alreadyReversed: true, reverseId: journalId, bankLineIds: [], seenLineIds: [], allocatedLineIds: [] };
+    }
+    const [head] = (await sql`
+      SELECT entry_date FROM gl_journal_entries WHERE id = ${chain.id}::UUID AND company_id = ${companyId}::UUID
+    `) as DbRow[];
+    target = { id: chain.id, entryDate: head!.entry_date };
+  }
   if (je[0].status !== 'posted') {
     throw new SupplierPaymentRefusal(`${label}'s journal is ${String(je[0].status)}, not posted — there is nothing to reverse.`);
   }
@@ -93,7 +114,7 @@ export async function lockBankLegOf(companyId: string, journalId: string, label:
   let reversalDate: string;
   try {
     reversalDate = await resolveReversalDate(
-      companyId, fmtDate(je[0].entry_date), undefined, await loadJournalVatLines(companyId, journalId));
+      companyId, fmtDate(target.entryDate as string | Date), undefined, await loadJournalVatLines(companyId, target.id));
   } catch (err) {
     // R-012: the route answers only typed refusals with a 4xx; this one is too.
     if (err instanceof ReversalBeforeOriginalError) throw new SupplierPaymentRefusal(err.message);
@@ -104,7 +125,7 @@ export async function lockBankLegOf(companyId: string, journalId: string, label:
       + 'fiscal period — re-open it or create the fiscal year first.');
   }
 
-  const ids = await matchedBankLines(companyId, journalId);
+  const ids = await matchedBankLines(companyId, [...new Set([journalId, target.id])]);
   const toUnmatch: string[] = [];
   const allocated: string[] = [];
   for (const id of ids) {
@@ -116,23 +137,26 @@ export async function lockBankLegOf(companyId: string, journalId: string, label:
     if (row.status === 'allocated') allocated.push(id);
     else toUnmatch.push(id);
   }
-  return { alreadyReversed: false, bankLineIds: toUnmatch, seenLineIds: ids, allocatedLineIds: allocated };
+  return { alreadyReversed: false, reverseId: target.id, bankLineIds: toUnmatch, seenLineIds: ids, allocatedLineIds: allocated };
 }
 
 /**
- * LAST, after the document and bills: lock the journal, confirm no bank line
+ * LAST, after the document and bills: lock the journal (and the head the void
+ * reverses, when that is not the journal itself), confirm no bank line
  * was matched to it since `lockBankLegOf` looked, and unmatch the locked ones.
  * A new match is contention — retryable, raised inside the caller's savepoint.
  */
 export async function lockJournalAndUnmatch(
   companyId: string, journalId: string, leg: BankLeg, label: string,
 ): Promise<void> {
+  const journals = [...new Set([journalId, leg.reverseId])];
   await sql`
     SELECT id FROM gl_journal_entries
-    WHERE id = ${journalId}::UUID AND company_id = ${companyId}::UUID
+    WHERE id = ANY(${journals}::UUID[]) AND company_id = ${companyId}::UUID
+    ORDER BY id
     FOR UPDATE
   `;
-  const now = await matchedBankLines(companyId, journalId);
+  const now = await matchedBankLines(companyId, journals);
   if (now.some((id) => !leg.seenLineIds.includes(id))) {
     throw new SupplierPaymentRefusal(
       `A bank line was matched to ${label}'s journal while it was being reversed — retry in a moment.`,
