@@ -30,16 +30,33 @@ export const AUTH_POOL_IDLE_TIMEOUT_MS = 30_000;
 export const DEFAULT_AUTH_POOL_MAX = 20;
 
 const LARGEST_POOL = 100;
+/** What pg-pool 3.13 made of an unusable `max` (`max = max || poolSize || 10`):
+ *  NaN and 0 became 10. An invalid value falls back to no more than this, so a
+ *  typo never makes a pool bigger than it was before this reader existed. */
+const INVALID_VALUE_CEILING = 10;
+const LOGGED_VALUE_LENGTH = 40;
+const warned = new Set<string>();
 
 /**
  * A pool's size from the environment (R-182): a whole number from 1 to 100
- * written as plain decimal digits, else `fallback` with one warning. Unset or
- * blank is `fallback`, silently. A plain `Number(...)` turned a typo into NaN,
- * and pg treats a NaN `max` as no limit, so the pool became unbounded on a
- * Postgres that is shared and capped at 100 connections. Digits only, so
- * `0x10` and `1e1` are refused rather than read as 16 and 10.
+ * written as plain decimal digits. Unset or blank is `fallback`, silently.
+ * Anything else is refused with ONE warning per (name, value) and gives
+ * `min(fallback, 10)`, which is what pg-pool already made of NaN and 0.
+ *
+ * Why not a plain `Number(...)`: pg-pool turns NaN and 0 into 10 on its own, so
+ * those were never unbounded. The dangers were a huge or Infinity value (a pool
+ * with no real limit) and a negative one (truthy, so the pool is always "full"
+ * and every acquire waits out its timeout). Digits only, so `0x10`, `1e1`,
+ * `10.0` and `+5` are refused rather than read as 16, 10, 10 and 5.
+ *
+ * The cap is PER VARIABLE, not per process. AUTH_POOL_MAX sizes four pools
+ * (authPool, withExtensionToken, bearerPipeline, the platform-admin app pool),
+ * so 100 would be 400 connections in one process, against a Postgres whose
+ * max_connections is 100 and is shared with dev, CI and Supabase. Set it to 10
+ * or less per pool unless the connection budget has been re-measured
+ * (docs/audits/remediation/R-182/fix.md).
  */
-export function poolSizeFromEnv(name: string, fallback: number): number {
+export function poolSizeFromEnv(name: string, fallback: number, category = 'pool'): number {
   const raw = process.env[name];
   if (raw === undefined || raw.trim() === '') return fallback;
   const text = raw.trim();
@@ -47,10 +64,16 @@ export function poolSizeFromEnv(name: string, fallback: number): number {
     const n = Number(text);
     if (n >= 1 && n <= LARGEST_POOL) return n;
   }
-  log.warn(`${name} is not a whole number from 1 to ${LARGEST_POOL}; using the default`, {
-    name, value: raw, default: fallback,
-  }, 'pool');
-  return fallback;
+  const used = Math.min(fallback, INVALID_VALUE_CEILING);
+  const value = raw.length > LOGGED_VALUE_LENGTH ? `${raw.slice(0, LOGGED_VALUE_LENGTH)}...` : raw;
+  const key = `${name}=${value}`;
+  if (!warned.has(key)) {
+    warned.add(key);
+    log.warn(`${name} is not a whole number from 1 to ${LARGEST_POOL}; using ${used}`, {
+      name, value, default: fallback, using: used,
+    }, category);
+  }
+  return used;
 }
 
 /** The pool's configured size. Read per call, the same way the pool itself

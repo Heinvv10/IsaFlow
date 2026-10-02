@@ -28,14 +28,15 @@ import { poolSizeFromEnv } from '@/lib/limits/poolLimits';
  * 250 ms and a thousand on one key hit the connect timeout; with 10, 97 ms and
  * none. Idle connections close after 30 s.
  *
- * A value that is not a whole number from 1 to 100 falls back to the default
- * with a warning (the shared reader, `poolSizeFromEnv`, which every pool uses):
- * a NaN `max` would leave a pg pool never full, that is unbounded.
+ * A value that is not a whole number from 1 to 100 gives the default with a
+ * warning (the shared reader, `poolSizeFromEnv`, which every pool uses). Plain
+ * decimal digits only: `1e1`, `10.0` and `+5` are refused, as they are not
+ * what a person means by a pool size.
  */
 export const DEFAULT_RATE_LIMIT_POOL_MAX = 10;
 
 export function rateLimitPoolMax(): number {
-  return poolSizeFromEnv('RATE_LIMIT_POOL_MAX', DEFAULT_RATE_LIMIT_POOL_MAX);
+  return poolSizeFromEnv('RATE_LIMIT_POOL_MAX', DEFAULT_RATE_LIMIT_POOL_MAX, 'rateLimit');
 }
 
 /**

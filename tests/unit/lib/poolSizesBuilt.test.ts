@@ -1,7 +1,7 @@
 /**
  * R-182: each pool is built with the VALIDATED size. pg.Pool is mocked and the
  * options it was constructed with are read back. A bad value must give the
- * pool's default, never NaN (which pg treats as no limit).
+ * pool's default capped at 10 (what pg-pool made of NaN/0), never a bigger pool than before.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -97,8 +97,8 @@ describe.each(Object.entries(sites))('%s pool size (R-182)', (_name, site) => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it.each(BAD)('is bounded by the default for %j, never NaN', async (raw) => {
+  it.each(BAD)('is min(default, 10) for %j, never bigger than before', async (raw) => {
     vi.stubEnv(site.env, raw);
-    expect(await site.max()).toBe(site.fallback);
+    expect(await site.max()).toBe(Math.min(site.fallback, 10));
   });
 });

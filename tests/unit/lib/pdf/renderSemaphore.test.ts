@@ -179,6 +179,13 @@ describe('bounds derived from the auth pool', () => {
     expect(renderSlotCeilings().maxConcurrent).toBe(2);
   });
 
+  it('an invalid AUTH_POOL_MAX gives a pool of 10, so the ceiling is a quarter of that', () => {
+    for (const bad of ['abc', '0', '-3']) {
+      process.env.AUTH_POOL_MAX = bad;
+      expect(renderSlotCeilings().maxConcurrent).toBe(2);
+    }
+  });
+
   it('clamps an over-large PDF_MAX_CONCURRENT_RENDERS and says so', async () => {
     process.env.AUTH_POOL_MAX = '20';       // ceiling 5
     process.env.PDF_MAX_CONCURRENT_RENDERS = '50';

@@ -1,7 +1,7 @@
 /**
  * R-175: the limiter pool's size comes from RATE_LIMIT_POOL_MAX (default 10),
  * like the other pools, so it can be lowered without a deploy. An invalid value
- * falls back to the default: a NaN `max` would leave a pg pool unbounded.
+ * falls back to the default (R-182: through the shared poolSizeFromEnv).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -36,6 +36,7 @@ describe('RATE_LIMIT_POOL_MAX (R-175)', () => {
     expect(rateLimitPoolMax()).toBe(10);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![1]).toMatchObject({ value: raw, default: 10 });
+    expect(warn.mock.calls[0]![2]).toBe('rateLimit');
   });
 
   it('the pool is built with the configured size', async () => {
