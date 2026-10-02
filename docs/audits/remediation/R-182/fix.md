@@ -16,7 +16,7 @@ decimal digits, whole number 1-100 is used as given. Unset or blank is the defau
 Anything else is refused with one warning per (name, value) and gives
 `min(default, 10, ceil(Number(text)))` when `Number(text)` is finite and above 0, else
 `min(default, 10)`. So `5.0`, `+5` and `0x5` give 5, `2.5` gives 3 (pg-pool opened ceil(max)),
-`1e1` gives 10; NaN and 0 give 10 as pg-pool did; negative and Infinity (broken before) give
+`1e1` gives 10 (so `50.0` gives 10 while `50` gives 50: only ever lower, and warned); NaN and 0 give 10 as pg-pool did; negative and Infinity (broken before) give
 `min(default, 10)`. No spelling the old `Number()` accepted gives more connections than
 pg-pool allowed for it. The warning logs the name, the value's length and a digits-only flag,
 never the text (a pool variable can hold a pasted DSN). The old rate-limit reader accepted
@@ -54,10 +54,10 @@ the environment. Defaults are unchanged for unset and valid values.
 | `pg.Client` impersonation write | 1 | per call |
 
 The cap of 100 is per variable, not per process: `AUTH_POOL_MAX` sizes four pools, so 100
-would be 400 connections in one process. With `max_connections` 100 shared with dev, CI and
-Supabase, AUTH_POOL_MAX advice: its default of 20 is 80 connections per process and 100 would be 400, so
-with max_connections 100 shared with dev, CI and Supabase, set it no higher than the default and
-lower it (10 gives 40) if connections run short.
+would be 400 connections in one process. AUTH_POOL_MAX advice: its default of 20 is 80
+connections per process and 100 would be 400, so with max_connections 100 shared with dev, CI
+and Supabase, set it no higher than the default and lower it (10 gives 40) if connections run
+short. Its minimum is 2 (see Review round 3).
 
 Sum of the per-process pools: **117**, plus 2 per in-flight verify-email request and 1 per
 impersonation write. That exceeds `max_connections` 100 on its own, before dev, CI and
@@ -109,3 +109,15 @@ app) alone are 80 (one variable).
    this file; `poolLimits.ts` header reflowed in round 1.
 Evidence: `green.round2.log` (exact commands; 149 passed in 5 files; wider suite 1859 passed,
 6 skipped) and 7 round-2 mutants in `mutations.log`, baseline 149 passed first, all red.
+
+## Review round 3
+1. Stale statements of the rule (`neon.claude.md`, `rateLimit.claude.md`, `rateLimitPool.ts`, the
+   `rateLimitPoolMax.test.ts` header) now state it once, the same way: `min(default, 10,
+   ceil(Number(text)))` when `Number(text)` is finite and above 0, else `min(default, 10)`.
+   (The lead's draft said "at least 1"; the code and tests use "above 0", so `0.5` gives 1.)
+   `50.0` gives 10 while `50` gives 50: only ever lower, and warned. Budget paragraph unspliced.
+2. `AUTH_POOL_MAX` has a minimum of 2 (`MIN_AUTH_POOL_MAX`): a PDF render holds one connection and
+   the browser re-enters the API for a second from the same pools, so a pool of 1 made every
+   export wait out the acquire timeout. `1`, `1.0`, `0.5` are raised to 2 with the warning.
+   The render ceiling is `max(1, floor(2/4))` = 1, so it stays at least 1 and correct.
+   Tested at the reader, `authPoolMax`, every AUTH_POOL_MAX pool site and the semaphore.

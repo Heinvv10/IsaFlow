@@ -1,7 +1,9 @@
 /**
  * R-175: the limiter pool's size comes from RATE_LIMIT_POOL_MAX (default 10),
  * like the other pools, so it can be lowered without a deploy. An invalid value
- * falls back to the default (R-182: through the shared poolSizeFromEnv).
+ * (R-182: through the shared poolSizeFromEnv) gives min(default, 10,
+ * ceil(Number(text))) when Number(text) is finite and above 0, else
+ * min(default, 10); the cases below with a value of 10 or more give the default.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 

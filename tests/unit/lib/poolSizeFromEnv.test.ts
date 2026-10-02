@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn, error: vi.fn() } }));
 
-import { poolSizeFromEnv, authPoolMax, DEFAULT_AUTH_POOL_MAX } from '@/lib/limits/poolLimits';
+import { poolSizeFromEnv, authPoolMax, DEFAULT_AUTH_POOL_MAX, MIN_AUTH_POOL_MAX } from '@/lib/limits/poolLimits';
 
 const NAME = 'R182_TEST_POOL_MAX';
 
@@ -107,5 +107,30 @@ describe('poolSizeFromEnv (R-182)', () => {
     expect(authPoolMax()).toBe(10);
     vi.stubEnv('AUTH_POOL_MAX', '6.0');
     expect(authPoolMax()).toBe(6);
+  });
+
+  it.each(['1', '1.0', '0.5', '+1'])('AUTH_POOL_MAX %j is raised to the minimum of 2, with a warning', (raw) => {
+    vi.stubEnv('AUTH_POOL_MAX', raw);
+    expect(authPoolMax()).toBe(MIN_AUTH_POOL_MAX);
+    expect(MIN_AUTH_POOL_MAX).toBe(2);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('AUTH_POOL_MAX 2 is taken as given, silently', () => {
+    vi.stubEnv('AUTH_POOL_MAX', '2');
+    expect(authPoolMax()).toBe(2);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('a minimum applies to the reader as well', () => {
+    vi.stubEnv(NAME, '3');
+    expect(poolSizeFromEnv(NAME, 20, 'pool', 5)).toBe(5);
+  });
+
+  it("'50.0' gives 10 while '50' gives 50", () => {
+    vi.stubEnv(NAME, '50');
+    expect(poolSizeFromEnv(NAME, 20)).toBe(50);
+    vi.stubEnv(NAME, '50.0');
+    expect(poolSizeFromEnv(NAME, 20)).toBe(10);
   });
 });
