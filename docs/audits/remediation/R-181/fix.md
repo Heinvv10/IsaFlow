@@ -210,3 +210,62 @@ change; three lines were added to it.
 Tests: six cases appended to `r181-review-round1.int.test.ts`; five red on 82fd809d0
 (`red.r4.int.log`), the sixth (second report below what was banked) added to kill mutant N5.
 Green 37/37 over both R-181 suites; mutants N1..N5 on the new guards all killed (`mutations.log`).
+
+## Review round 2 (adversarial reviewer: one MEDIUM, four LOWs)
+
+- **MEDIUM. `requested_amount` was trusted whenever it was not above `amount`.** Request R100,
+  `amount` R103, `requested_amount` R50, fees R3 banked R50 with no fee while Paystack settled
+  R100; `requested_amount` R100 with fees R2 banked R100 against a R101 settlement. It is now
+  trusted only when the excess is a fee the customer paid, `0 <= amount - requested_amount <= fees`
+  (`requestedAmountDistrust`). Otherwise `amount` is banked and the request flagged
+  (`requested_amount_exceeds_fee`, `amount_below_requested_amount`), and the clamped fee leg below
+  nets Bank to `amount - fees`.
+  **Verify without a fee figure.** Paystack's verify response has `fees` (OpenAPI
+  `VerifyResponse.fees`, nullable), and `verifyTransaction` now maps it to `feesCents`. When it is
+  null and `amount` exceeds `requested_amount`, the excess cannot be bounded. Chosen: bank `amount`
+  and flag `requested_amount_unverified`. Reason: that is the choice that keeps Bank equal to the
+  settlement in every case. When the webhook arrives, its fee leg is `fees - (amount - banked)` =
+  `fees`, so Bank nets to `amount - fees` whatever `requested_amount` said. Banking
+  `requested_amount` instead would be right for a genuine customer-paid fee, but leaves Bank short
+  by the excess the moment `requested_amount` is wrong (the MEDIUM's own case), and the clamp could
+  only flag that, not book it. The cost of the choice: on a pass-on account where the return page
+  beats the webhook AND the verify response carries no fee, the customer-paid fee sits as unapplied
+  credit and is also expensed. Both are flagged (`requested_amount_unverified`,
+  `amount_disagrees_with_first_report`, `overpaid_unapplied`) for a person to offset. When verify
+  does carry `fees` (the schema says it does), the excess is bounded and `requested_amount` is
+  banked as on the webhook. When `requested_amount` equals `amount` no fee figure is needed.
+- **LOW. The fee leg used the second report's `requested_amount` against the first report's
+  receipt.** Since round 2 (general) it is costed against what was banked. It is now
+  `fees - (amount - banked)` clamped to `[0, fees]`, and a clamp that bites is flagged
+  `fee_clamped`: Bank cannot reach the deposit with a fee in that range, so the gap is left for a
+  person rather than booked as a fee. Both orders pinned: verify R103 then the webhook
+  (`requested_amount` R100, fees R3) books the full R3 (Bank R100); verify R100 then the webhook
+  reporting R103 books no fee (Bank R100).
+- **LOW. A non-ZAR receipt was still allocated** to the ZAR invoice, so a USD figure could mark it
+  paid. It is still banked (Hein) but held unapplied like an invoice outside the ledger, and
+  flagged `unapplied_currency` (with `currency_mismatch`). `decideGatewayAllocation` takes the
+  caller's hold.
+- **LOW. A missing `amount` with `requested_amount` present** — the general reviewer's LOW-3,
+  already fixed in 45aeb23c5.
+- **LOW (pre-existing). The customer was read before the invoice lock.** A merge committed between
+  the read and the lock left the receipt on the merged-away customer. Chosen: re-read
+  `COALESCE(client_id, customer_id)` in the locked read and UPDATE the receipt's own payment row
+  when it differs, BEFORE the allocation and confirmation. Not chosen: moving the payment INSERT
+  after the lock, which would reverse the payment-then-invoice order round 1 established and argued
+  for. The row is our own, uncommitted, so the UPDATE contends with nobody. Test: the race-window
+  hook runs the merge's effect on the invoice (moved to the survivor, the source soft-deleted,
+  committed through a separate connection) just before the locked read; red on 45aeb23c5/48c783db3
+  (the payment stayed on the merged-away customer), green now. It simulates the merge's committed
+  writes rather than running `mergeCustomers`, which needs a request transaction of its own.
+
+Tests: `tests/integration/r181-review-round2.int.test.ts` (11 cases), the client unit test maps
+`fees`, and the non-ZAR expectations in the two earlier suites now require it unapplied. Red: 8 of
+46 on 48c783db3 (`red.r5.int.log`; the two fee-order cases were already green after round 2's
+LOW-2 and pin it). Green 47/47. Mutants P1..P11 on the new guards: all killed (P3 after one added
+case). Regression: 238 tests across k-036, k095*, k096, r166, r167*, r177, r178, k101, k061*,
+r181*: 238 of 239 pass. The one failure is a k061 contention case (`a bulk allocation
+interleaving ... with a merge`): it expects a 40P01 that does not occur. It fails whenever it runs
+alongside other files, including a run with no R-181 suite at all, and passes alone (3/3, and 36/36
+for the k061 files). It imports only the customer-merge routes, and nothing it reaches imports a
+file this branch changed, so it is attributed to its own sensitivity to parallel load. Not
+verified on a master checkout.

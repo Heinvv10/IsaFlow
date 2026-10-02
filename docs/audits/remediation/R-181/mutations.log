@@ -66,3 +66,25 @@ N3 second report drops its own reasons [src/modules/accounting/services/ar/gatew
 N4 empty prior reason kept as previously [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 36 passed (37) -> KILLED
 N5 customer-paid excess when amount is below the receipt [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 36 passed (37) -> KILLED
 AFTER: 37 passed (37)
+
+REVIEW ROUND 2 (adversarial) — new guards, code at 04200ed56
+BASELINE (integration): 46 passed (46)
+BASELINE (unit paystackClient): 17 passed (17)
+P1 excess above the fee trusted [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 2 failed | 44 passed (46) -> KILLED
+P2 no fee figure trusted [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 45 passed (46) -> KILLED
+P3 equal amounts need a fee figure [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 46 passed (46) -> SURVIVED
+P4 fee leg above the reported fee [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 45 passed (46) -> KILLED
+P5 clamp not flagged [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 45 passed (46) -> KILLED
+P6 non-ZAR allocated [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 3 failed | 43 passed (46) -> KILLED
+P7 receipt not moved to the locked customer [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 45 passed (46) -> KILLED
+P8 customer not read under the lock [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 1 failed | 45 passed (46) -> KILLED
+P9 webhook passes no fee figure [src/modules/billing/services/paystackEventHandlers.ts]: 7 failed | 39 passed (46) -> KILLED
+P10 verify passes no fee figure [pages/api/portal/payments/paystack/verify.ts]: 2 failed | 44 passed (46) -> KILLED
+P11 client drops fees [src/modules/billing/services/paystackClient.ts]: 1 failed | 16 passed (17) -> KILLED
+AFTER: 46 passed (46)
+P3 rerun after adding "verify with requested_amount equal to amount needs no fee figure" (round-2 suite only): 1 failed | 9 passed (10) -> KILLED
+NOTES (adversarial round 2)
+- P3 first SURVIVED: no test had requested_amount == amount with no fee figure. The case was added
+  and P3 re-run against it alone (source restored after; green 47/47 over all three R-181 suites).
+- Round 2 general mutants N1..N5 above were run on 45aeb23c5; N2 and N5 targeted the pre-clamp
+  merchantFee, which P4/P5 now cover in its clamped form.
