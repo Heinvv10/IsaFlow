@@ -87,8 +87,9 @@ export const listEmployeesTool: McpTool = {
     // A role that cannot write payroll gets who the employees are and nothing about them: no ID or
     // tax numbers (not even masked), no dates, no cost centre — the same line employees/index draws.
     const namesOnly = !canWrite(ctx.companyRole);
-    if (namesOnly && args.reveal_identity_numbers === true) {
-      return toolError('reveal_identity_numbers needs the owner, admin or manager role; this connection\'s role in the company does not allow it.');
+    if (namesOnly && (args.reveal_identity_numbers === true || strArg(args, 'status'))) {
+      // A status filter on a names-only list would still say which named people are terminated or suspended.
+      return toolError('reveal_identity_numbers and the status filter need the owner, admin or manager role; this connection\'s role in the company does not allow them.');
     }
 
     const rawCursor = strArg(args, 'cursor');

@@ -120,6 +120,14 @@ describe('list_employees — names only for a viewer', () => {
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toMatch(/owner, admin or manager/);
   });
+  it('viewer passing a status filter is refused: it would reveal which named people are terminated', async () => {
+    const r = await run('viewer', { status: 'terminated' });
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toMatch(/owner, admin or manager/);
+    expect(vi.mocked(listPayrollEmployeesPage)).not.toHaveBeenCalled();
+    const m = await run('manager', { status: 'terminated' });
+    expect(m.isError).toBeFalsy();
+  });
   it('manager: the row as before, masked number present', async () => {
     const text = (await run('manager')).content[0]!.text;
     expect(text).toContain('id_number_masked');
