@@ -12,9 +12,10 @@
  * on the completed request: the same marker `noteAuthorisationNotAttached`
  * leaves when a card was charged and nothing could be attached. The receipt is
  * found from it by `customer_payments.bank_reference = paystack_reference`.
+ * Hein approved this marker over a migration on 2026-10-02.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { documentInPopulation } from '../shared/documentPopulation';
 
@@ -56,21 +57,52 @@ export function invoiceReview(status: string | null, deletedAt: string | null): 
   return null;
 }
 
-/** Flag the completed request for review and say so at error level. Tenant-scoped. */
+/**
+ * Flag the completed request for review and say so at error level. Tenant-scoped.
+ *
+ * The note is bookkeeping about money already banked, so it must never cost the
+ * receipt: the write runs in its own savepoint and a failure is logged, not
+ * thrown. Outside a savepoint a failed UPDATE aborts the settlement transaction
+ * and the webhook's next statement rolls the whole receipt back.
+ *
+ * A reason the request already carries that is not a review note (a checkout
+ * swept as 'abandoned while starting' and paid later) is kept after the note
+ * and named in the log, never overwritten silently.
+ */
 export async function flagSettlementForReview(
   companyId: string,
   reference: string,
   reviews: string[],
   detail: Record<string, unknown>,
 ): Promise<void> {
-  await sql`
-    UPDATE paystack_payment_requests
-    SET failure_reason = ${`review:${reviews.join(',')}`}
-    WHERE company_id = ${companyId}::UUID AND paystack_reference = ${reference}
-  `;
+  const note = `review:${reviews.join(',')}`;
+  let previousFailureReason: string | null = null;
+  try {
+    previousFailureReason = await withSavepoint('gateway_review_note', async () => {
+      const rows = await sql<{ previous: string | null }>`
+        UPDATE paystack_payment_requests pr
+        SET failure_reason = ${note} || CASE
+              WHEN old.failure_reason IS NULL OR old.failure_reason LIKE 'review:%' THEN ''
+              ELSE ' | previously: ' || old.failure_reason END
+        FROM (
+          SELECT id, failure_reason FROM paystack_payment_requests
+          WHERE company_id = ${companyId}::UUID AND paystack_reference = ${reference}
+        ) old
+        WHERE pr.id = old.id AND pr.company_id = ${companyId}::UUID
+        RETURNING old.failure_reason AS previous
+      `;
+      return rows[0]?.previous ?? null;
+    });
+  } catch (err) {
+    log.error(
+      'Gateway settlement review note could not be written; the receipt stands',
+      { companyId, reference, reviews, error: err instanceof Error ? err.message : String(err) },
+      'accounting',
+    );
+  }
   log.error(
     'Gateway settlement needs review',
-    { companyId, reference, reviews, ...detail },
+    { companyId, reference, reviews, previousFailureReason, ...detail },
     'accounting',
   );
 }
