@@ -33,18 +33,18 @@ export interface BulkFromTemplateResult {
 let workflowSeq = 0;
 
 /**
- * What a failed bulk date says, or null when it is not a per-date failure at
- * all. A refusal (the job fence, PracticeEntryRefusal) keeps its own message;
- * a data error on that one row (SQLSTATE class 22 or 23) gets a fixed sentence,
- * never its text, which can name tables and constraints. Anything else — a
- * statement timeout, a deadlock, a missing column after a deploy, a lost
- * connection, an aborted transaction — is a server fault: the caller re-throws
- * it so the request 500s and rolls back, rather than answering a quiet 201.
+ * Whether a failed bulk date is that date's own failure: only a refusal (the
+ * job fence, PracticeEntryRefusal), reported with its message. Every database
+ * error is a fault — on valid input no data error is reachable on this INSERT
+ * (no unique index but the pkey, hours range-checked first, 851's 23503 already
+ * mapped to the fence refusal, a NUL refused by the route) — so a statement
+ * timeout, a deadlock, schema drift (42703, 23502) or a code bug (22P02) is
+ * re-thrown: the request 500s and rolls back rather than answering a quiet 201.
+ * Refusals are JS-level or come from savepointed statements, so the
+ * transaction is still usable for the next date without a per-date savepoint.
  */
-function bulkDateFailure(err: unknown): string | null {
-  if (isJobFenceRefusal(err) || err instanceof PracticeEntryRefusal) return err.message;
-  const code = (err as { code?: unknown } | null | undefined)?.code;
-  return typeof code === 'string' && /^2[23][0-9A-Z]{3}$/.test(code) ? 'Could not create this entry' : null;
+function isBulkDateRefusal(err: unknown): err is Error {
+  return isJobFenceRefusal(err) || err instanceof PracticeEntryRefusal;
 }
 
 export async function bulkCreateFromTemplate(
@@ -103,9 +103,7 @@ export async function bulkCreateFromTemplate(
 
   for (const entryDate of filteredDates) {
     try {
-      // One savepoint per date: a data error on one date (e.g. a 22xxx in one of create's unsavepointed reads)
-      // must not abort the dates after it with 25P02.
-      await withSavepoint(`bulk_date_${++workflowSeq}`, () => createPracticeEntry(companyId, userId, {
+      await createPracticeEntry(companyId, userId, {
         entryDate,
         hours,
         practiceClientId,
@@ -116,15 +114,14 @@ export async function bulkCreateFromTemplate(
         billable: template.billable,
         origin: 'recurring',
         jobId,
-      }));
+      });
       created++;
     } catch (err) {
-      const text = bulkDateFailure(err);
-      if (text === null) throw err;
+      if (!isBulkDateRefusal(err)) throw err;
       log.warn('Bulk time entry date not created', {
-        templateId: input.templateId, date: entryDate, code: (err as { code?: unknown } | null)?.code ?? null, error: text,
+        templateId: input.templateId, date: entryDate, error: err.message,
       }, 'practice');
-      failed.push({ date: entryDate, error: text });
+      failed.push({ date: entryDate, error: err.message });
     }
   }
 
