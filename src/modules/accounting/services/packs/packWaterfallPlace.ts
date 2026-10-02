@@ -25,8 +25,10 @@ import { figureFitsInside, figureWidthPx, LABEL_GAP_PX } from './packWaterfallFi
 /** The paper halo round a figure set outside its bar: the text's stroke
  *  width. Half of it reaches beyond the glyphs. */
 export const FIGURE_HALO_PX = 4;
-/** The closest two figures' boxes may stand: clear of each other's halo. */
-const MIN_APART_PX = FIGURE_HALO_PX / 2 + 1;
+/** The closest two figures' boxes may stand: four pixels, clear of each
+ *  other's halo and read as two figures — Brightsphere's Revenue and Gross
+ *  Profit "(5 535 000)" side by side looked like one run. */
+const MIN_APART_PX = 4;
 /** A bound on the stagger, not a design: the layout shrinks the type long
  *  before a figure is this many lines out. */
 const MAX_LEVEL = 8;

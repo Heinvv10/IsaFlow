@@ -35,7 +35,7 @@ import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/s
 import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
 import { LEGACY_WATERFALL_BOX } from '@/components/accounting/packs/PackSectionView';
 import { brightsphereLiveInput } from './fixtures/boardPackInputs';
-import { DEMO_MANAGEMENT_BRIDGE, renderLegacyBridge } from './support/legacyBridge';
+import { BRIGHTSPHERE_MANAGEMENT_BRIDGE, DEMO_MANAGEMENT_BRIDGE, renderLegacyBridge } from './support/legacyBridge';
 import { glyphCells } from './support/bridgeSvg';
 import { liveDemoShortPanelsInput } from './fixtures/liveDemoBoardPack';
 
@@ -168,6 +168,18 @@ describe('no gridline is drawn through a figure', () => {
     const plain = crossed.map((t) => t.replace(/\s/g, ' '));
     expect(plain).toContain('1 430 581');
     expect(plain).toContain('(1 329 181)');
+    expect(bare).toEqual([]);
+  });
+
+  // THE STUBS BETWEEN NEIGHBOURING FIGURES ARE THE RULE BETWEEN TWO GROUNDS,
+  // NOT A RULE THROUGH A FIGURE. v77's Brightsphere sheet 5 showed a short
+  // run of gridline between its two "(5 535 000)" figures: every rule that
+  // crosses a figure here has paper under the whole figure, so what shows
+  // between two grounds is gridline over empty plot.
+  it('the management pack\'s Brightsphere bridge: what shows between two figures is gridline, not a strike', () => {
+    const svg = renderLegacyBridge(BRIGHTSPHERE_MANAGEMENT_BRIDGE, LEGACY_WATERFALL_BOX.widthPx, LEGACY_WATERFALL_BOX.heightPx);
+    const { crossed, bare } = strikes(svg);
+    expect(crossed.length, 'no rule crosses a figure, so the grounds are not under test').toBeGreaterThan(0);
     expect(bare).toEqual([]);
   });
 });

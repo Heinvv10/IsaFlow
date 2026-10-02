@@ -36,6 +36,17 @@ import { DEMO_MANAGEMENT_BRIDGE, renderLegacyBridge } from './support/legacyBrid
 
 const DEMO = DEMO_MANAGEMENT_BRIDGE;
 
+/** NEIGHBOURS ON ONE LINE STAND FOUR PIXELS APART. Closer, Brightsphere's
+ *  Revenue and Gross Profit "(5 535 000)" read as one run of figures; the
+ *  halo rule alone let them stand two apart. */
+const MIN_NEIGHBOUR_GAP_PX = 4;
+function tooClose(drawn: ReturnType<typeof figures>): string[] {
+  const boxes = drawn.map((f) => ({ text: f.text, ...boxOf(f) }));
+  return boxes.flatMap((a, i) => boxes.slice(i + 1)
+    .filter((b) => a.top < b.bottom && b.top < a.bottom && Math.max(a.left - b.right, b.left - a.right) < MIN_NEIGHBOUR_GAP_PX)
+    .map((b) => `"${a.text}" and "${b.text}" stand ${Math.max(a.left - b.right, b.left - a.right).toFixed(1)}px apart on one line`));
+}
+
 /** What is wrong with a drawn bridge, as sentences. */
 function faults(svg: string, steps: WaterfallStep[]): string[] {
   const clip = clipRect(svg);
@@ -53,6 +64,7 @@ function faults(svg: string, steps: WaterfallStep[]): string[] {
     ...drawn.filter((f, k) => straddlesOwnBar(f, own[k]!)).map((f) => `"${f.text}" is part on its bar and part off`),
     ...drawn.filter((f, k) => steps[k]!.end !== steps[k]!.start && wrongSide(f, own[k]!, steps[k]!.end > steps[k]!.start)).map((f) => `"${f.text}" is on the wrong side of its bar`),
     ...textOnText(svg),
+    ...tooClose(drawn),
     ...onNeighbourBars(svg),
     ...outsideSvg(svg),
     ...illegible(svg),

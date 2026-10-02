@@ -44,3 +44,15 @@ export const DEMO_MANAGEMENT_BRIDGE: WaterfallStep[] = [
   { label: 'Operating Profit', start: 0, end: -1_544_240, value: -1_544_240, isSubtotal: true, color: 'teal' },
   { label: 'Net Profit', start: 0, end: -1_544_240, value: -1_544_240, isSubtotal: true, color: 'red' },
 ];
+
+/** Brightsphere's management-pack bridge, as v77 rendered it: revenue a net
+ *  debit, so Revenue and Gross Profit stand side by side at (5 535 000). */
+export const BRIGHTSPHERE_MANAGEMENT_BRIDGE: WaterfallStep[] = [
+  { label: 'Revenue', start: 0, end: -5_535_000, value: -5_535_000, isSubtotal: false, color: 'green' },
+  { label: 'Gross Profit', start: 0, end: -5_535_000, value: -5_535_000, isSubtotal: true, color: 'teal' },
+  { label: 'Operating Expenses', start: -5_535_000, end: -1_818_000, value: 3_717_000, labelValue: -3_717_000, isSubtotal: false, color: 'red' },
+  { label: 'Other Income', start: -1_818_000, end: -1_819_000, value: -1_000, isSubtotal: false, color: 'green' },
+  { label: 'Operating Profit', start: 0, end: -1_819_000, value: -1_819_000, isSubtotal: true, color: 'teal' },
+  { label: 'Other Expenses', start: -1_819_000, end: -1_407_763, value: 411_237, labelValue: -411_237, isSubtotal: false, color: 'red' },
+  { label: 'Net Profit', start: 0, end: -1_407_763, value: -1_407_763, isSubtotal: true, color: 'teal' },
+];
