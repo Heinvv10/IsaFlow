@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Clock, Loader2, AlertCircle, ChevronLeft, ChevronRight, Trash2, Send, CalendarRange } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { TimeEntryForm, type Client, type Category } from '@/components/practice/TimeEntryForm';
 import { fetchActiveClients, fetchJobCategories } from '@/components/practice/practiceApi';
@@ -101,10 +101,8 @@ export default function TimeEntryPage() {
 
   async function handleCreate(input: PracticeTimeEntryInput): Promise<void> {
     const res = await apiFetch('/api/accounting/practice/time-entries', { method: 'POST', body: JSON.stringify(input) });
-    if (!res.ok) {
-      const e = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(e.error ?? `HTTP ${res.status}`);
-    }
+    // The 400 body is { error: { code, message } }; assertOk reads the message.
+    await assertOk(res, 'Failed to save entry');
     await reloadEntries();
   }
 

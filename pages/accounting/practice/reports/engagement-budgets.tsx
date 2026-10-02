@@ -42,12 +42,15 @@ export default function EngagementBudgetsPage() {
   }, []);
 
   useEffect(() => {
+    // A slower earlier response must not overwrite the rows of the client chosen since.
+    let cancelled = false;
     setLoading(true);
     setError(null);
     fetchJobBudgets(clientId || undefined)
-      .then(setRows)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
-      .finally(() => setLoading(false));
+      .then((r) => { if (!cancelled) setRows(r); })
+      .catch((e: unknown) => { if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [clientId]);
 
   function handleDownload() {
