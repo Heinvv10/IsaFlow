@@ -38,7 +38,8 @@ export function useBalanceSheetFilters() {
         log.warn('Balance sheet: the open period did not load', { error: err }, 'balance-sheet');
         if (cancelled) return;
         setAsAtDate('');
-        setPeriodError(`${apiErrorMessage(err, 'Could not load the open period - try again')} Pick the date to report as at.`);
+        const why = apiErrorMessage(err, 'Could not load the open period - try again');
+        setPeriodError(`${why.replace(/[.!?\s]+$/, '')}. Pick the date to report as at.`);
       })
       .finally(() => { if (!cancelled) setResolvedKey(queryKey); });
     return () => { cancelled = true; };

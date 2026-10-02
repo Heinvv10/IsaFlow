@@ -132,6 +132,7 @@ describe('useBalanceSheetFilters (a failed period lookup says so and leaves the 
       const r = await wait(result);
       expect(r.asAtDate).toBe('');
       expect(r.periodError).toContain(text);
+      expect(r.periodError).toMatch(/[^.]\. Pick the date to report as at\.$/);   // a full stop between the reason and the instruction, never doubled
       act(() => r.setAsAtDate('2024-02-29'));
       expect(result.current.asAtDate).toBe('2024-02-29');
       expect(result.current.periodError).toBe('');

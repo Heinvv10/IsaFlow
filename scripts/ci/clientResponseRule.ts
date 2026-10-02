@@ -19,7 +19,8 @@
  *      converse: `finally { setBusy(false) }` after a navigation that is not awaited   (clientResponseLoads.ts)
  *   f  a failed load that shows an error but keeps the rows it failed to refresh       (clientResponseLoads.ts)
  *   g  `if (!res.ok) return;` / `|| !res.ok` / `status !== 200` / `return []`, or `if (res.ok) {...}` last: a failure
- *      dropped in silence; `if (!res.ok) notify.error('fixed sentence')` with no body read: the server's 4xx message dropped                                                           (clientResponseLoads.ts)
+ *      dropped in silence; `if (!res.ok) notify.error('fixed sentence')` with no body read: the server's 4xx
+ *      message is dropped                                                           (clientResponseLoads.ts)
  *
  * STATED LIMITS, one line per group (the fixture named is the example; every one is in
  * tests/unit/ci/clientResponseFixtures*.ts and asserted to still be missed, so a fix flips it on purpose):
