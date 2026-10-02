@@ -12,6 +12,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Eye, EyeOff, CheckCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 interface StrengthResult {
   score: number;
@@ -83,16 +84,11 @@ export default function ResetPasswordPage() {
         body: JSON.stringify({ recoveryToken: token, newPassword: password }),
       });
 
-      const data = await res.json() as { error?: { message?: string }; message?: string };
-
-      if (!res.ok) {
-        setError(data.error?.message || 'Failed to reset password. Please try again.');
-        return;
-      }
+      await assertOk(res, 'Could not reset your password - please try again');
 
       setDone(true);
-    } catch {
-      setError('Network error. Please try again.');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not reset your password - please try again'));
     } finally {
       setSubmitting(false);
     }

@@ -11,7 +11,8 @@ import { Truck, Loader2, ArrowLeft, Save } from 'lucide-react';
 import Link from 'next/link';
 import { notify } from '@/utils/toast';
 import { SupplierForm, type SupplierFormData, INITIAL_SUPPLIER_FORM } from '@/components/accounting/SupplierForm';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 export default function NewSupplierPage() {
   const router = useRouter();
@@ -39,6 +40,7 @@ export default function NewSupplierPage() {
     setSaveAndNew(andNew);
 
     setIsSubmitting(true);
+    // The push is awaited, so the button stays disabled while the detail page loads and is released if the navigation is cancelled.
     try {
       const res = await apiFetch('/api/accounting/suppliers-list', {
         method: 'POST',
@@ -57,19 +59,19 @@ export default function NewSupplierPage() {
         }),
       });
 
+      await assertOk(res, 'Could not create the supplier - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
 
       notify.success('Supplier created successfully');
       if (andNew) {
         setForm(INITIAL_SUPPLIER_FORM);
         setFieldErrors({});
-        await router.push('/accounting/suppliers/new');
+        try { await router.push('/accounting/suppliers/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'suppliers-new'); }
       } else {
-        await router.push(`/accounting/suppliers/${json.data?.id ?? ''}`);
+        try { await router.push(`/accounting/suppliers/${json.data?.id ?? ''}`); } catch (e) { log.warn('navigation failed', { error: e }, 'suppliers-new'); }
       }
     } catch (err: unknown) {
-      notify.error(err instanceof Error ? err.message : 'Failed to create supplier');
+      notify.error(apiErrorMessage(err, 'Could not create the supplier - try again'));
     } finally {
       setIsSubmitting(false);
     }

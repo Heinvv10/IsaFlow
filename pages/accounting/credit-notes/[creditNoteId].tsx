@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Loader2, AlertCircle, CheckCircle2, XCircle, Download, CreditCard, X } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -53,9 +53,9 @@ export default function CreditNoteDetailPage() {
     if (!creditNoteId) return;
     setLoading(true);
     apiFetch(`/api/accounting/credit-notes?id=${creditNoteId}`)
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the credit note - try again'); return r.json(); })
       .then(json => setNote(json.data || json))
-      .catch(() => setError('Failed to load'))
+      .catch(err => setError(apiErrorMessage(err, 'Could not load the credit note - try again')))
       .finally(() => setLoading(false));
   }, [creditNoteId]);
 
@@ -68,6 +68,7 @@ export default function CreditNoteDetailPage() {
       const res = await apiFetch(
         `/api/accounting/customer-invoices-list?client_id=${note.clientId}&status=approved&status=sent&status=partially_paid&status=overdue&limit=50`
       );
+      await assertOk(res, 'Could not load the outstanding invoices - try again');
       const json = await res.json();
       const rows = json.data || json.invoices || json || [];
       setInvoices(
@@ -80,8 +81,9 @@ export default function CreditNoteDetailPage() {
           outstanding: Number(r.total_amount ?? r.totalAmount ?? 0) - Number(r.amount_paid ?? r.amountPaid ?? 0),
         })).filter(i => i.outstanding > 0.01)
       );
-    } catch {
+    } catch (err) {
       setInvoices([]);
+      setError(apiErrorMessage(err, 'Could not load the outstanding invoices - try again'));
     } finally {
       setInvoicesLoading(false);
     }
@@ -95,11 +97,11 @@ export default function CreditNoteDetailPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, creditNoteId, ...extra }),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || 'Failed'); }
+      await assertOk(res, 'Could not complete that action - try again');
       const json = await res.json();
       setNote(json.data || json);
       if (action === 'apply') setShowApplyModal(false);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); }
+    } catch (e) { setError(apiErrorMessage(e, 'Could not complete that action - try again')); }
     finally { setActionLoading(''); }
   };
 

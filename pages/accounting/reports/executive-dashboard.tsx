@@ -10,7 +10,7 @@ import {
   ArrowLeft, LayoutDashboard, TrendingUp, TrendingDown, Minus,
   AlertTriangle, AlertCircle, CheckCircle, Loader2,
 } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   DataQualityNotice,
   type UnclassifiedWarning,
@@ -90,8 +90,8 @@ export default function ExecutiveDashboardPage() {
       // "No financial data available for the selected period", which claims
       // the ledger has nothing for the range instead of reporting the
       // failure that actually happened.
-      await assertOk(sumRawRes, 'Failed to load the executive summary');
-      await assertOk(scRawRes, 'Failed to load the KPI scorecard');
+      await assertOk(sumRawRes, 'Could not load the executive summary - try again');
+      await assertOk(scRawRes, 'Could not load the KPI scorecard - try again');
       const sumRes = await sumRawRes.json();
       const scRes = await scRawRes.json();
       if (sumRes.data?.summary) setSummary(sumRes.data.summary);
@@ -99,7 +99,8 @@ export default function ExecutiveDashboardPage() {
       if (scRes.data?.scorecard) setScorecard(scRes.data.scorecard);
       if (scRes.data) setInventory(scRes.data.inventory ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load the executive dashboard');
+      setSummary(null); setScorecard([]); setUnclassified(null); setInventory(null);
+      setError(apiErrorMessage(err, 'Could not load the executive dashboard - try again'));
       log.error('Failed to load executive summary', { error: err instanceof Error ? err.message : String(err) });
     } finally { setLoading(false); }
   }, [from, to]);

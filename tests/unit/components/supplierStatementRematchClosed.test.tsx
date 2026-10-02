@@ -21,7 +21,8 @@ vi.mock('next/router', () => ({
 
 let status = 'reconciled';
 const asked: { url: string; method: string }[] = [];
-vi.mock('@/lib/apiFetch', () => ({
+vi.mock('@/lib/apiFetch', async (orig) => ({
+  ...(await orig<typeof import('@/lib/apiFetch')>()),
   apiFetch: vi.fn(async (url: string, init?: { method?: string }) => {
     asked.push({ url: String(url), method: init?.method ?? 'GET' });
     const data = {

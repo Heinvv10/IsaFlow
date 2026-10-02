@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, CheckCircle2, Loader2, Save, Bell } from 'lucide-react';
 
 interface PlatformSettings {
@@ -114,16 +114,16 @@ export default function AdminSettings() {
         apiFetch('/api/admin/settings'),
         apiFetch('/api/admin/alert-settings'),
       ]);
+      await assertOk(settingsRes, 'Could not load the settings - try again');
+      await assertOk(alertRes, 'Could not load the alert settings - try again');
       const settingsJson = await settingsRes.json() as { data: PlatformSettings };
-      if (!settingsRes.ok) throw new Error('Failed to load settings');
       setSettings(settingsJson.data);
 
-      if (alertRes.ok) {
-        const alertJson = await alertRes.json() as { data: AlertSettings };
-        setAlertSettings(alertJson.data ?? { health_alert_email: '', health_alert_webhook_url: '' });
-      }
+      const alertJson = await alertRes.json() as { data: AlertSettings };
+      setAlertSettings(alertJson.data ?? { health_alert_email: '', health_alert_webhook_url: '' });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load settings');
+      setSettings(null); setAlertSettings({ health_alert_email: '', health_alert_webhook_url: '' });
+      setError(apiErrorMessage(err, 'Could not load the settings - try again'));
     } finally {
       setLoading(false);
     }
@@ -138,11 +138,10 @@ export default function AdminSettings() {
     setSuccess('');
     try {
       const res  = await apiFetch('/api/admin/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(settings) });
-      const json = await res.json() as { message?: string };
-      if (!res.ok) throw new Error(json.message || 'Failed to save settings');
+      await assertOk(res, 'Could not save settings - try again');
       setSuccess('Settings saved successfully.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save settings');
+      setError(apiErrorMessage(err, 'Could not save settings - try again'));
     } finally {
       setSaving(false);
     }
@@ -154,11 +153,10 @@ export default function AdminSettings() {
     setAlertSuccess('');
     try {
       const res = await apiFetch('/api/admin/alert-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(alertSettings) });
-      const json = await res.json() as { message?: string };
-      if (!res.ok) throw new Error(json.message || 'Failed to save alert settings');
+      await assertOk(res, 'Could not save alert settings - try again');
       setAlertSuccess('Alert settings saved.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save alert settings');
+      setError(apiErrorMessage(err, 'Could not save alert settings - try again'));
     } finally {
       setSavingAlerts(false);
     }

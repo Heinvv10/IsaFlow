@@ -49,12 +49,15 @@ export default function VerifyEmailPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token }),
         });
-        const json = (await res.json()) as {
-          success: boolean;
-          error?: { message?: string };
-        };
-        if (!res.ok || !json.success) {
-          setError(json.error?.message ?? 'We could not confirm your email.');
+        if (!res.ok) {
+          const j = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+          setError(res.status >= 500 ? 'We could not confirm your email right now. Please try again shortly.' : (j?.error?.message ?? 'We could not confirm your email.'));
+          setState('failed');
+          return;
+        }
+        const json = (await res.json()) as { success: boolean };
+        if (!json.success) {
+          setError('We could not confirm your email.');
           setState('failed');
           return;
         }

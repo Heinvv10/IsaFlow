@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, Loader2, AlertCircle, Plus, Search, CheckCircle, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { KpiStrip } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 interface Customer {
   id: string;
@@ -56,11 +56,12 @@ export default function CustomersPage() {
       const params = new URLSearchParams();
       if (debouncedSearch) params.set('q', debouncedSearch);
       const res = await apiFetch(`/api/accounting/customers?${params}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load customers - try again');
       const json = await res.json();
       setCustomers((json.data ?? json) as Customer[]);
-    } catch {
-      setError('Failed to load customers');
+    } catch (err) {
+      setCustomers([]);
+      setError(apiErrorMessage(err, 'Could not load customers - try again'));
     } finally {
       setIsLoading(false);
     }

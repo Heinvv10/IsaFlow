@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { GroupDashboardStats } from '@/modules/accounting/services/reports/consolidatedReportingService';
 import type { CompanyGroup as ServiceCompanyGroup } from '@/modules/accounting/services/reports/groupCrudService';
@@ -55,15 +55,16 @@ export default function GroupDashboardPage() {
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [dashData, setDashData] = useState<GroupDashboardData | null>(null);
   const [loadingGroups, setLoadingGroups] = useState(true);
+  const [groupsFailed, setGroupsFailed] = useState(false);
   const [loadingDash, setLoadingDash] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const loadGroups = useCallback(async () => {
-    setLoadingGroups(true); setError(null);
+    setLoadingGroups(true); setError(null); setGroupsFailed(false);
     try {
       const res = await apiFetch('/api/accounting/company-groups');
-      if (!res.ok) throw new Error('Failed to load company groups');
+      await assertOk(res, 'Could not load the company groups - try again');
       const json = await res.json();
       const list: CompanyGroup[] = json.data?.items ?? json.data ?? [];
       setGroups(list);
@@ -71,7 +72,9 @@ export default function GroupDashboardPage() {
       if (firstGroup) setSelectedGroupId(prev => prev ?? firstGroup.id);
     } catch (err) {
       log.error('Failed to load company groups', { error: err }, 'group-dashboard');
-      setError('Could not load company groups.');
+      setGroups([]);
+      setGroupsFailed(true);
+      setError(apiErrorMessage(err, 'Could not load the company groups - try again'));
     } finally { setLoadingGroups(false); }
   }, []);
 
@@ -81,12 +84,13 @@ export default function GroupDashboardPage() {
     setLoadingDash(true); setError(null);
     try {
       const res = await apiFetch(`/api/accounting/consolidated-reports?group_id=${encodeURIComponent(groupId)}&action=dashboard`);
-      if (!res.ok) throw new Error('Failed to load dashboard data');
+      await assertOk(res, 'Could not load the consolidated dashboard - try again');
       const json = await res.json();
       setDashData(json.data ?? json);
     } catch (err) {
       log.error('Failed to load group dashboard', { error: err }, 'group-dashboard');
-      setError('Could not load consolidated dashboard.');
+      setDashData(null);
+      setError(apiErrorMessage(err, 'Could not load the consolidated dashboard - try again'));
     } finally { setLoadingDash(false); }
   }, []);
 
@@ -115,7 +119,7 @@ export default function GroupDashboardPage() {
               <div className="flex items-center gap-2">
                 {loadingGroups ? (
                   <Loader2 className="h-5 w-5 animate-spin text-teal-500" />
-                ) : groups.length === 0 ? (
+                ) : groupsFailed ? null /* the error banner below carries Retry; "Create Group" would say there are none */ : groups.length === 0 ? (
                   <Link href="/accounting/group/setup" className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium">
                     <Plus className="h-4 w-4" /> Create Group
                   </Link>

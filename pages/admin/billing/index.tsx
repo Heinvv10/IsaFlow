@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, ArrowRight, CreditCard, List, FileText, Zap, Package } from 'lucide-react';
@@ -58,13 +58,13 @@ export default function BillingOverviewPage() {
         apiFetch('/api/admin/billing/overview'),
         apiFetch('/api/admin/billing/subscriptions?limit=10'),
       ]);
+      await assertOk(ovRes, 'Could not load billing data - try again');
+      await assertOk(subRes, 'Could not load billing data - try again');
       const [ovJson, subJson] = await Promise.all([ovRes.json(), subRes.json()]);
-      if (!ovRes.ok)  throw new Error(ovJson.message  || 'Failed to load billing overview');
-      if (!subRes.ok) throw new Error(subJson.message || 'Failed to load subscriptions');
       setOverview(ovJson.data as BillingOverview);
       setRecent((subJson.data?.items ?? subJson.data ?? []) as RecentSubscription[]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load billing data');
+      setError(apiErrorMessage(err, 'Could not load billing data - try again'));
     } finally {
       setLoading(false);
     }

@@ -6,7 +6,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, RefreshCw, Loader2, AlertCircle, Receipt } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { LineItemsSection, type LineItem } from '@/components/accounting/recurringInvoices/LineItemsSection';
 import { localISODate } from '@/lib/dateUtils';
@@ -51,13 +51,13 @@ export default function NewRecurringInvoicePage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/customers')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); })
       .then((json: { data?: unknown }) => {
         const d = json.data;
         const list = Array.isArray(d) ? d : (d as { clients?: Customer[] })?.clients ?? [];
         setCustomers(list as Customer[]);
       })
-      .catch(err => { log.error('Failed to load customers', { error: err }, 'recurring-new'); });
+      .catch(err => { log.error('Failed to load customers', { error: err }, 'recurring-new'); setError(apiErrorMessage(err, 'Could not load customers - try again')); });
   }, []);
 
   const updateLine = (key: string, field: keyof Omit<LineItem, 'key'>, value: string | number) => {
@@ -97,12 +97,11 @@ export default function NewRecurringInvoicePage() {
       const res = await apiFetch('/api/accounting/recurring-invoices', {
         method: 'POST', body: JSON.stringify(payload),
       });
-      const json = await res.json() as { error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Create failed');
-      await router.push('/accounting/recurring-invoices');
+      await assertOk(res, 'Could not create the recurring invoice - try again');
+      try { await router.push('/accounting/recurring-invoices'); } catch (e) { log.warn('navigation failed', { error: e }, 'recurring-invoices-new'); }
     } catch (err) {
       log.error('Failed to create recurring invoice', { error: err }, 'recurring-new');
-      setError(err instanceof Error ? err.message : 'Failed to create recurring invoice');
+      setError(apiErrorMessage(err, 'Could not create the recurring invoice - try again'));
     } finally { setSubmitting(false); }
   };
 

@@ -5,7 +5,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { AlertTriangle, Loader2, AlertCircle, UserCheck } from 'lucide-react';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
@@ -49,11 +49,13 @@ export default function DuplicatesPage() {
     try {
       const qs = includeTerminated ? '?includeTerminated=1' : '';
       const res = await apiFetch(`/api/payroll/duplicates${qs}`);
-      if (!res.ok) { setError(payrollLoadMessage(res.status, 'Failed to load duplicates')); return; }
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load the duplicates - try again'));
+      await assertOk(res, 'Could not load the duplicates - try again');
       const json = await res.json();
       setData((json.data ?? json) as DupResult);
-    } catch {
-      setError('Failed to load duplicates');
+    } catch (err) {
+      setData(null);
+      setError(apiErrorMessage(err, 'Could not load the duplicates - try again'));
     } finally {
       setLoading(false);
     }

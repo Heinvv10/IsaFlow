@@ -222,8 +222,8 @@ export function NoSubscription({ companyId }: { companyId: string }) {
     setCreateError('');
     try {
       window.location.href = `/admin/billing/subscriptions/new?companyId=${encodeURIComponent(companyId)}`;
-    } catch (err) {
-      setCreateError(err instanceof Error ? err.message : 'Navigation failed');
+    } catch {
+      setCreateError('Could not open the new subscription page - try again');
       setCreating(false);
     }
   }

@@ -14,7 +14,10 @@ const query: { ref?: string } = { ref: 'r181ref' };
 vi.mock('next/router', () => ({
   useRouter: () => ({ isReady: true, query, asPath: '/portal/payments/paystack/return?ref=r181ref', replace: vi.fn() }),
 }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/apiFetch')>()),
+  apiFetch: vi.fn(),
+}));
 
 import { apiFetch } from '@/lib/apiFetch';
 import PaystackReturnPage from '@/../pages/portal/payments/paystack/return';

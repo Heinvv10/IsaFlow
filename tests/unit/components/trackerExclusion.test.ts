@@ -29,6 +29,9 @@ describe('isTrackedPath', () => {
   });
 });
 
+// The first import of pages/_app is slow under a loaded machine; the 5 s default failed pre-push gates. Timing only.
+const LOAD_TIMEOUT = 60_000;
+
 describe('pages/_app.tsx — the gate, rendered', () => {
   it('mounts the tracker on an app page and omits it on the share page', async () => {
     // A render, not a grep over the source: a regex passes on a comment
@@ -56,5 +59,5 @@ describe('pages/_app.tsx — the gate, rendered', () => {
 
     pathname = '/share/[token]';
     expect(render()).not.toContain('data-testid="tracker"');
-  });
+  }, LOAD_TIMEOUT);
 });

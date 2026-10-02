@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, X, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiJson, apiErrorMessage } from '@/lib/apiFetch';
+import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import type { AllocType, SelectOption } from './BankTxTable';
 import { AccountForm } from './createEntity/AccountForm';
 import {
@@ -127,27 +127,27 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
             accountCode: acctCode.trim(), accountName: acctName.trim(),
             accountType: acctType, normalBalance: nb,
           }),
-        }, 'Failed to create account') as { id: string; accountCode: string; accountName: string };
+        }, 'Could not create the account - try again') as { id: string; accountCode: string; accountName: string };
         entity = { id: d.id, code: d.accountCode, name: d.accountName };
       } else if (type === 'supplier') {
         const d = await apiJson(SUPPLIER_CREATE_URL, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(supplierCreateBody({ name: supName, email: supEmail, phone: supPhone })),
-        }, 'Failed to create supplier');
+        }, 'Could not create the supplier - try again');
         const row = createdRow(d);
         entity = { id: row.id, code: row.code, name: supName.trim() };
       } else {
         const d = await apiJson(CUSTOMER_CREATE_URL, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(customerCreateBody({ name: custName, email: custEmail, phone: custPhone })),
-        }, 'Failed to create customer');
+        }, 'Could not create the customer - try again');
         entity = { id: createdRow(d).id, name: custName.trim() };
       }
 
       notify.success(`${title.replace('New ', '')} created`);
       onCreated(entity);
     } catch (e) {
-      notify.error(apiErrorMessage(e, 'Failed to create'));
+      notify.error(apiErrorMessage(e, `Could not create the ${title.replace('New ', '').toLowerCase()} - try again`));
     } finally {
       setSaving(false);
     }

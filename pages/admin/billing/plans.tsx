@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { AlertCircle, Loader2, Plus, Pencil, Archive, X, Check } from 'lucide-react';
 
@@ -56,11 +56,12 @@ export default function PlansPage() {
     setError('');
     try {
       const res  = await apiFetch('/api/admin/billing/plans?include_archived=true');
+      await assertOk(res, 'Could not load the plans - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load plans');
       setPlans((json.data ?? []) as Plan[]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load plans');
+      setPlans([]);
+      setError(apiErrorMessage(err, 'Could not load the plans - try again'));
     } finally {
       setLoading(false);
     }
@@ -122,12 +123,11 @@ export default function PlansPage() {
       const res  = editId
         ? await apiFetch(`/api/admin/billing/plans/${editId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body) })
         : await apiFetch('/api/admin/billing/plans',           { method: 'POST',  headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body) });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Save failed');
+      await assertOk(res, 'Could not save the plan - try again');
       setShowForm(false);
       void load();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Save failed');
+      setFormError(apiErrorMessage(err, 'Could not save the plan - try again'));
     } finally {
       setSaving(false);
     }
@@ -137,11 +137,10 @@ export default function PlansPage() {
     if (!confirm('Archive this plan? Existing subscriptions will not be affected.')) return;
     try {
       const res  = await apiFetch(`/api/admin/billing/plans/${id}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Archive failed');
+      await assertOk(res, 'Could not archive the plan - try again');
       void load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Archive failed');
+      setError(apiErrorMessage(err, 'Could not archive the plan - try again'));
     }
   }
 

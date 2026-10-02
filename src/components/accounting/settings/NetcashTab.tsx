@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { Eye, EyeOff, ExternalLink, Loader2, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { Company, Toggle, INPUT_CLS, LABEL_CLS, SECTION_CLS } from './settingsTypes';
 
 interface Props {
@@ -36,6 +36,7 @@ export function NetcashTab({ company, onChange }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ serviceKey: company.netcashServiceKey }),
       });
+      await assertOk(res, 'Could not test the connection - try again');
       const json = await res.json() as { data?: { valid: boolean; error?: string; mock?: boolean } };
       const data = json.data;
       if (data?.valid) {
@@ -47,9 +48,9 @@ export function NetcashTab({ company, onChange }: Props) {
         setTestMessage(data?.error ?? 'Connection failed');
         setTestMock(data?.mock ?? false);
       }
-    } catch {
+    } catch (err) {
       setTestState('error');
-      setTestMessage('Network error — check your internet connection');
+      setTestMessage(apiErrorMessage(err, 'Could not test the connection - try again'));
     }
   };
 

@@ -1,0 +1,86 @@
+[
+  {
+    "file": "pages/accounting/ar/dunning/runs.tsx",
+    "kind": "b",
+    "line": "<AlertCircle className=\"w-4 h-4\" /> Failed",
+    "reason": "A status badge, column header or heading label for a failed item or an error panel, not an error message produced from a failed request."
+  },
+  {
+    "file": "pages/accounting/journal-entries/[entryId].tsx",
+    "kind": "b",
+    "line": "<h3 className=\"text-sm font-medium text-red-400\">Error</h3>",
+    "reason": "A status badge, column header or heading label for a failed item or an error panel, not an error message produced from a failed request."
+  },
+  {
+    "file": "pages/accounting/recurring-transactions.tsx",
+    "kind": "b",
+    "line": "<span className=\"flex items-center gap-1 text-xs text-red-400\"><XCircle className=\"h-3.5 w-3.5\" /> Failed</span>",
+    "reason": "A status badge, column header or heading label for a failed item or an error panel, not an error message produced from a failed request."
+  },
+  {
+    "file": "src/components/ErrorBoundary.tsx",
+    "kind": "b",
+    "line": "<h1 className=\"text-xl font-semibold text-slate-900 dark:text-white mb-2\">Something went wrong</h1>",
+    "reason": "The heading of the render-crash panel only. The panel below it shows a fixed plain sentence and logs the raw error (never error.message), so nothing raw reaches the person."
+  },
+  {
+    "file": "src/components/accounting/capture/CaptureInboxPanel.tsx",
+    "kind": "b",
+    "line": "<p className=\"text-xs font-semibold text-red-500 uppercase tracking-wider mb-1\">Error</p>",
+    "reason": "A status badge, column header or heading label for a failed item or an error panel, not an error message produced from a failed request."
+  },
+  {
+    "file": "src/components/accounting/gl-import/GlImportWizardSteps.tsx",
+    "kind": "b",
+    "line": "? <span className=\"inline-flex items-center gap-1 text-red-400\"><XCircle className=\"h-3 w-3\" />Error</span>",
+    "reason": "A status badge, column header or heading label for a failed item or an error panel, not an error message produced from a failed request."
+  },
+  {
+    "file": "src/components/accounting/webhooks/WebhookCard.tsx",
+    "kind": "b",
+    "line": ": <span className=\"flex items-center gap-1 text-red-400 text-xs\"><XCircle className=\"h-3.5 w-3.5\" /> Failed</span>",
+    "reason": "A status badge, column header or heading label for a failed item or an error panel, not an error message produced from a failed request."
+  },
+  {
+    "file": "src/components/admin/webhooks/WebhookRow.tsx",
+    "kind": "b",
+    "line": "Failed",
+    "reason": "A status badge, column header or heading label for a failed item or an error panel, not an error message produced from a failed request."
+  },
+  {
+    "file": "src/components/ui/Input.tsx",
+    "kind": "b",
+    "line": "const resolvedVariant = error ? 'error' : inputVariant;",
+    "reason": "A style-variant name chosen for the field, never rendered as text."
+  },
+  {
+    "file": "public/isa-track.js",
+    "kind": "d",
+    "line": "navigator.sendBeacon(endpoint, new Blob([payload], { type: 'application/json' }));",
+    "reason": "Page-view telemetry: sendBeacon cannot return a response, and the fetch branch beside it also drops the result on purpose (the .then(res => res.ok) feeds nothing); a missed beat changes nothing the person sees."
+  },
+  {
+    "file": "src/hooks/useTrackPageVisit.ts",
+    "kind": "d",
+    "line": "apiFetch('/api/accounting/page-visits', {",
+    "reason": "Pure page-visit telemetry: a missed write changes nothing the user sees; the .catch logs at debug."
+  },
+  {
+    "file": "src/components/accounting/packs/usePrintMode.ts",
+    "kind": "b",
+    "line": "throw new Error(`packFontsLoaded: the footer face did not load (HTTP ${response.status})`);",
+    "reason": "Machine diagnostic: it only becomes the data-print-error-fonts attribute the PDF renderer reads (pinned as 'HTTP <n>' by the playwright/gotenberg transport tests); no person sees it."
+  },
+  {
+    "file": "pages/admin/email-log.tsx",
+    "kind": "b",
+    "line": "<AlertCircle className=\"w-3 h-3\" /> Failed",
+    "reason": "A status badge for a failed email in the log, not a message about a failed request; the badge is a label next to an icon."
+  },
+  {
+    "file": "pages/forgot-password.tsx",
+    "kind": "g",
+    "line": "if (!res.ok) {",
+    "reason": "Public unauthenticated reset form: every non-2xx (the route's 400 is just 'email required', the 5xx and proxy pages carry nothing a person can use) deliberately gets one fixed sentence, and the 2xx screen is identical whether or not the account exists."
+  }
+]

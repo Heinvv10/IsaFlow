@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, ShieldAlert } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 import VatNonSupplySection from './VatNonSupplySection';
 import VatInputSupportSections from './VatInputSupportSections';
@@ -35,13 +35,13 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
     setLoading(true); setError('');
     try {
       const res = await apiFetch(`/api/accounting/sars/vat-exceptions?from=${from}&to=${to}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load exceptions - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       if (!cancelledRef?.current) { setReport(json.data); onLoadedRef.current?.(json.data); }
     } catch (err) {
       if (!cancelledRef?.current) {
         setReport(null); onLoadedRef.current?.(null);
-        setError(err instanceof Error ? err.message : 'Failed to load exceptions');
+        setError(apiErrorMessage(err, 'Could not load exceptions - try again'));
       }
     } finally {
       if (!cancelledRef?.current) setLoading(false);

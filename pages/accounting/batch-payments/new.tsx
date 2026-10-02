@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Layers, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
 // supplier-invoices answers camelCase rows. Reading snake_case left the invoice
@@ -35,7 +36,7 @@ export default function NewBatchPaymentPage() {
   const [reservationsUnavailable, setReservationsUnavailable] = useState(false);
 
   useEffect(() => {
-    apiFetch('/api/accounting/supplier-invoices?status=approved&status=partially_paid', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/supplier-invoices?status=approved&status=partially_paid', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load supplier invoices - try again'); return r.json(); }).then(res => {
       const d = res.data || res;
       const list: Invoice[] = (Array.isArray(d) ? d : d.invoices || d.items || [])
         .filter((inv: Invoice) => Number(inv.totalAmount) - Number(inv.amountPaid) > 0.01);
@@ -43,7 +44,7 @@ export default function NewBatchPaymentPage() {
       // The same pending set batch creation subtracts (supplierBatchAllocationPlan).
       return apiFetch(`/api/accounting/batch-payments?reservedFor=${list.map((i) => i.id).join(',')}`, { credentials: 'include' })
         .then(async (r) => {
-          if (!r.ok) throw new Error(`reservations ${r.status}`);
+          await assertOk(r, 'Could not load the amounts already reserved - try again');
           const rr = (await r.json()) as { data?: Record<string, number> };
           const reserved = rr.data ?? {};
           setInvoices(list.map((i) => ({ ...i, reserved: Number(reserved[i.id] ?? 0) })).filter((i) => available(i) > 0));
@@ -51,7 +52,7 @@ export default function NewBatchPaymentPage() {
         // Reservations unavailable: still list the bills at their outstanding and
         // say so; the server refuses anything already promised, with its message.
         .catch(() => { setReservationsUnavailable(true); setInvoices(list); });
-    }).catch(() => {/* non-critical */});
+    }).catch(err => setError(apiErrorMessage(err, 'Could not load supplier invoices - try again')));
   }, []);
 
   const total = lines.reduce((s, l) => s + (l.amount || 0), 0);
@@ -77,10 +78,10 @@ export default function NewBatchPaymentPage() {
       });
       // The refusal's text is at `error.message`; `json.message` is absent on
       // a 4xx, so this used to show a bare "Failed".
-      await assertOk(res, 'Failed to create batch');
-      void router.push('/accounting/batch-payments');
+      await assertOk(res, 'Could not create the batch - try again');
+      try { await router.push('/accounting/batch-payments'); } catch (e) { log.warn('navigation failed', { error: e }, 'batch-payments-new'); }
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to create batch'));
+      setError(apiErrorMessage(err, 'Could not create the batch - try again'));
     } finally {
       setBusy(false);
     }

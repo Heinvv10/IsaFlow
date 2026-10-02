@@ -4,12 +4,14 @@
  * it would hold. A refused switch (disabling above one's rank is a 403) must
  * say why — apiFetch resolves on 4xx — and leave the switch as it was.
  */
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import ApprovalsPage from '@/../pages/accounting/approvals';
 import { apiFetch } from '@/lib/apiFetch';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });

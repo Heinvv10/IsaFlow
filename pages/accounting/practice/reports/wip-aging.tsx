@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, Clock, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import type { WipAgingRow } from '@/modules/accounting/services/practice/practiceReportsService';
@@ -48,11 +48,12 @@ export default function WipAgingPage() {
     setError(null);
     apiFetch(`/api/accounting/practice/reports/wip-aging?asOfDate=${asOfDate}`)
       .then(async (res) => {
+        await assertOk(res, 'Could not load the WIP aging report - try again');
         const json = (await res.json()) as { data?: WipAgingRow[] } | WipAgingRow[];
         const data = (json && typeof json === 'object' && 'data' in json ? (json as { data: WipAgingRow[] }).data : json) as WipAgingRow[];
         setRows(data ?? []);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
+      .catch((e: unknown) => { setRows([]); setError(apiErrorMessage(e, 'Could not load the WIP aging report - try again')); })
       .finally(() => setLoading(false));
   }, [asOfDate]);
 

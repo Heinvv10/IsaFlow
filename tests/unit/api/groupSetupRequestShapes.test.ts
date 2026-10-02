@@ -51,7 +51,17 @@ vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h 
 vi.mock('@/modules/accounting/services/core/companyAccessService', () => ({
   userBelongsToCompany: vi.fn(async () => true),
   userBelongsToGroup: vi.fn(async () => true),
+  userCanWriteGroup: vi.fn(async () => true),
+  userCanWriteCompany: vi.fn(async () => true),
   userCreatedGroup: vi.fn(async () => true),
+}));
+// Real id checks; the DB-backed guards are steered per test (their SQL has its own DB test).
+const guards = vi.hoisted(() => ({
+  creatorMayBootstrapGroup: vi.fn(), refuseGroupCompanyRead: vi.fn(), refuseGroupCompanyWrite: vi.fn(), mappingAccountsBelong: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/core/groupRouteGuards', async () => ({
+  ...(await vi.importActual<typeof import('@/modules/accounting/services/core/groupRouteGuards')>('@/modules/accounting/services/core/groupRouteGuards')),
+  ...guards,
 }));
 vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => ({
   getGroup: vi.fn(async () => ({ id: 'g1' })),
@@ -82,8 +92,13 @@ import {
   removeMemberQuery,
 } from '@/components/accounting/group/groupRequests';
 
-const GROUP = 'group-1';
-const COMPANY = 'company-1';
+// UUIDs: the route checks id shape (400) first (D4 round 10).
+const GROUP = '80000000-0000-4000-8000-000000000001';
+const COMPANY = '10000000-0000-4000-8000-0000000000a1';
+const M1 = '70000000-0000-4000-8000-0000000000e1';
+const A1 = '81000000-0000-4000-8000-0000000000a1';
+const CA1 = '82000000-0000-4000-8000-0000000000c1';
+const GA1 = '81000000-0000-4000-8000-0000000000b1';
 
 function call(method: string, body: Record<string, unknown> = {}, query: Record<string, string> = {}) {
   const req = { method, query, body, user: { id: 'user-1' } } as unknown as NextApiRequest;
@@ -101,7 +116,13 @@ function call(method: string, body: Record<string, unknown> = {}, query: Record<
   };
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  guards.creatorMayBootstrapGroup.mockResolvedValue(false);
+  guards.refuseGroupCompanyRead.mockResolvedValue(null);
+  guards.refuseGroupCompanyWrite.mockResolvedValue(null);
+  guards.mappingAccountsBelong.mockResolvedValue({ company: true, group: true });
+});
 
 describe('group setup: every UI request shape is accepted by the route', () => {
   it('create group — carries the holding company through instead of dropping it', async () => {
@@ -127,7 +148,7 @@ describe('group setup: every UI request shape is accepted by the route', () => {
   });
 
   it('update-member', async () => {
-    const c = call('PUT', updateMemberBody(GROUP, 'm1', { ownershipPct: 60, consolidationMethod: 'proportionate' }));
+    const c = call('PUT', updateMemberBody(GROUP, M1, { ownershipPct: 60, consolidationMethod: 'proportionate' }));
     await c.run();
     expect(c.res.statusCode).toBe(200);
     expect(svc.updateMember).toHaveBeenCalled();
@@ -135,11 +156,11 @@ describe('group setup: every UI request shape is accepted by the route', () => {
 
   it('remove-member — sends the group_id the route requires', async () => {
     // Built from the same helper the UI uses, then parsed back into query params.
-    const url = new URL(removeMemberQuery(GROUP, 'm1'), 'http://x');
+    const url = new URL(removeMemberQuery(GROUP, M1), 'http://x');
     const c = call('DELETE', {}, Object.fromEntries(url.searchParams));
     await c.run();
     expect(c.res.statusCode).toBe(200);
-    expect(svc.removeMember).toHaveBeenCalledWith('m1', GROUP);
+    expect(svc.removeMember).toHaveBeenCalledWith(M1, GROUP);
   });
 
   it('auto-generate-coa', async () => {
@@ -165,18 +186,18 @@ describe('group setup: every UI request shape is accepted by the route', () => {
 
   it('update-group-account — NOT "update-account"', async () => {
     // GroupCoaTab handleSaveAccountName
-    const c = call('PUT', updateGroupAccountBody(GROUP, 'a1', 'Renamed'));
+    const c = call('PUT', updateGroupAccountBody(GROUP, A1, 'Renamed'));
     await c.run();
     expect(c.res.statusCode).toBe(200);
-    expect(svc.updateGroupAccount).toHaveBeenCalledWith('a1', expect.objectContaining({ accountName: 'Renamed' }), GROUP);
+    expect(svc.updateGroupAccount).toHaveBeenCalledWith(A1, expect.objectContaining({ accountName: 'Renamed' }), GROUP);
   });
 
   it('set-mapping', async () => {
     // GroupMappingTab handleSetMapping
-    const c = call('POST', setMappingBody(GROUP, COMPANY, 'ca1', 'ga1'));
+    const c = call('POST', setMappingBody(GROUP, COMPANY, CA1, GA1));
     await c.run();
     expect(c.res.statusCode).toBe(200);
-    expect(svc.setCoaMapping).toHaveBeenCalledWith(GROUP, COMPANY, 'ca1', 'ga1');
+    expect(svc.setCoaMapping).toHaveBeenCalledWith(GROUP, COMPANY, CA1, GA1);
   });
 
   it('update-group (plain PUT, no action) — sends groupId, not the raw group object', async () => {
@@ -248,14 +269,15 @@ describe('the old snake_case bodies must NOT be silently accepted', () => {
     expect(put.res.statusCode).toBe(400);
   });
 
-  it('update-group rejects a holding company the caller does not belong to', async () => {
+  it('update-group rejects a holding company the caller holds no write role in', async () => {
     // This path was unreachable while the UI sent `id`, so fixing the casing
     // would otherwise have activated an ungated body-supplied companyId
     // (the same vector the create branch guards — pentest H1).
     const access = await import('@/modules/accounting/services/core/companyAccessService');
-    vi.mocked(access.userBelongsToCompany).mockResolvedValueOnce(false);
+    // D4 round 9: a write role in the holding company, not membership (a viewer would publish its ledger).
+    vi.mocked(access.userCanWriteCompany).mockResolvedValueOnce(false);
     const c = call('PUT', updateGroupBody(GROUP, {
-      name: 'x', holdingCompanyId: 'foreign-company', defaultCurrency: 'ZAR', financialYearStart: 3,
+      name: 'x', holdingCompanyId: '10000000-0000-4000-8000-0000000000ff', defaultCurrency: 'ZAR', financialYearStart: 3,
     }));
     await c.run();
     expect(c.res.statusCode).toBe(403);

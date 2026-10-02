@@ -5,7 +5,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { CalendarDays, Loader2, AlertCircle, Plus } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -53,11 +53,12 @@ export default function PayrollRunsListPage() {
     setError('');
     try {
       const res = await apiFetch('/api/payroll/runs');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load payroll runs - try again');
       const json = await res.json();
       setRuns((json.data ?? json) as RunRow[]);
-    } catch {
-      setError('Failed to load payroll runs');
+    } catch (err) {
+      setRuns([]);
+      setError(apiErrorMessage(err, 'Could not load payroll runs - try again'));
     } finally {
       setIsLoading(false);
     }

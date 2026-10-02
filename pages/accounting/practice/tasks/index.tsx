@@ -7,7 +7,8 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { CheckSquare, Loader2, AlertCircle, Plus } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { useAuth } from '@/contexts/AuthContext';
 import type { PracticeTask, PracticeTaskInput } from '@/modules/accounting/services/practice/practiceTaskService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
@@ -60,6 +61,8 @@ export default function PracticeTasksPage() {
   const [users,     setUsers]    = useState<CompanyUserSummary[]>([]);
   const [loading,   setLoading]  = useState(true);
   const [error,     setError]    = useState('');
+  // A failed write is not the load's to clear: loadTasks() resets `error`, only the next write resets this.
+  const [actionError, setActionError] = useState('');
   const [toast,     setToast]    = useState('');
   const [popover,   setPopover]  = useState<string | null>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -75,25 +78,25 @@ export default function PracticeTasksPage() {
     setLoading(true); setError('');
     try {
       const r = await apiFetch('/api/accounting/practice/tasks');
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await assertOk(r, 'Could not load the tasks - try again');
       const j = await r.json() as { data?: { tasks: PracticeTask[] }; tasks?: PracticeTask[] };
       setTasks(((j.data ?? j) as { tasks: PracticeTask[] }).tasks ?? []);
-    } catch { setError('Failed to load tasks'); }
+    } catch (e) { setTasks([]); setError(apiErrorMessage(e, 'Could not load the tasks - try again')); }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => { void loadTasks(); }, [loadTasks]);
   useEffect(() => {
     apiFetch('/api/accounting/practice/jobs').then(async r => {
-      if (!r.ok) return;
+      await assertOk(r, 'Could not load the jobs list - tasks cannot be linked to a job until it loads');
       const j = await r.json() as { data?: { jobs: JobOption[] }; jobs?: JobOption[] };
       setJobs(((j.data ?? j) as { jobs: JobOption[] }).jobs ?? []);
-    }).catch(() => { /* non-critical */ });
+    }).catch((e: unknown) => { setJobs([]); setError(apiErrorMessage(e, 'Could not load the jobs list - tasks cannot be linked to a job until it loads')); });
     apiFetch('/api/accounting/practice/users').then(async r => {
-      if (!r.ok) return;
+      await assertOk(r, 'Could not load the user names');
       const j = await r.json() as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
       setUsers(Array.isArray(j) ? j : ((j as { data?: CompanyUserSummary[] }).data ?? []));
-    }).catch(() => { /* non-critical */ });
+    }).catch((e: unknown) => { log.warn('tasks: user names not loaded, showing user ids', { err: e }); });
   }, []);
   useEffect(() => {
     if (!popover) return;
@@ -106,24 +109,26 @@ export default function PracticeTasksPage() {
 
   async function doTransition(id: string, ns: PracticeTask['status']) {
     setPopover(null);
+    setActionError('');
     try {
       const r = await apiFetch('/api/accounting/practice/tasks/transition', { method: 'POST', body: JSON.stringify({ id, newStatus: ns }) });
-      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; throw new Error(j.error ?? `HTTP ${r.status}`); }
+      await assertOk(r, 'Could not update the task status - try again');
       flash('Status updated'); await loadTasks();
-    } catch (e) { setError(e instanceof Error ? e.message : 'Transition failed'); }
+    } catch (e) { setActionError(apiErrorMessage(e, 'Could not update the task status - try again')); }
   }
 
   async function doAdd(e: React.FormEvent) {
     e.preventDefault();
     if (!qaTitle.trim()) return;
     setQaAdding(true);
+    setActionError('');
     try {
       const body: PracticeTaskInput = { title: qaTitle.trim(), assignedTo: qaAssigned.trim() || null, dueDate: qaDue || null, priority: qaPriority, jobId: qaJob || null };
       const r = await apiFetch('/api/accounting/practice/tasks', { method: 'POST', body: JSON.stringify(body) });
-      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; throw new Error(j.error ?? `HTTP ${r.status}`); }
+      await assertOk(r, 'Could not add the task - try again');
       setQaTitle(''); setQaAssigned(''); setQaDue(''); setQaPriority('normal'); setQaJob('');
       flash('Task added'); await loadTasks();
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to add task'); }
+    } catch (e) { setActionError(apiErrorMessage(e, 'Could not add the task - try again')); }
     finally { setQaAdding(false); }
   }
 
@@ -148,6 +153,7 @@ export default function PracticeTasksPage() {
 
         <div className="px-6 py-6">
           {error && <div className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm"><AlertCircle className="h-4 w-4 shrink-0" /><span>{error}</span></div>}
+          {actionError && <div className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm"><AlertCircle className="h-4 w-4 shrink-0" /><span>{actionError}</span></div>}
           {toast && <div className="p-3 mb-4 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-400 text-sm">{toast}</div>}
 
           <div className="flex items-center gap-2 mb-6 flex-wrap">

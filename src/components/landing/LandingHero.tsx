@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ArrowRight, PlayCircle } from 'lucide-react';
+import { assertOk } from '@/lib/apiFetch';
 import { APP_URL } from './landingData';
 interface LandingStats {
   transactionAmount: number;
@@ -41,7 +42,7 @@ export function LandingHero() {
 
   useEffect(() => {
     fetch('/api/landing-stats')
-      .then((r) => r.json())
+      .then(async (r) => { await assertOk(r, 'Could not load the landing stats'); return r.json(); })
       .then((data: LandingStats) => setStats(buildStats(data)))
       .catch(() => { /* keep fallback */ });
   }, []);

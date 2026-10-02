@@ -7,7 +7,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Plus, Trash2, Search, Scissors } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import type { BankTx, SelectOption, VatCode } from './BankTxTable';
 import { VAT_OPTIONS } from './BankTxTable';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
@@ -104,13 +104,14 @@ export function SplitTransactionModal({ transaction, glAccounts, onClose, onSpli
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      await assertOk(res, 'Could not split the transaction - try again');
       const json = await res.json();
-      if (!res.ok || json.success === false) throw new Error(json?.error?.message || 'Split failed');
+      if (json.success === false) throw new ApiEnvelopeError(json?.error?.message || 'Could not split the transaction - try again');
       notify.success(`Transaction split into ${lines.length} lines and allocated`);
       notifyLateClaims(json); // VAT claimed in a later period (s16(3))
       onSplit();
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Split allocation failed');
+      notify.error(apiErrorMessage(err, 'Could not split the transaction - try again'));
     } finally {
       setSubmitting(false);
     }

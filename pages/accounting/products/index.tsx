@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Box, Loader2, Plus, Search, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { log } from '@/lib/logger';
 
@@ -22,16 +22,19 @@ export default function ProductsListPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
+    setError('');
     try {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       if (typeFilter) params.set('type', typeFilter);
       const res = await apiFetch(`/api/accounting/products?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load products - try again');
       const json = await res.json();
       setProducts(json.data || []);
-    } catch { setProducts([]); }
+    } catch (err) { setProducts([]); setError(apiErrorMessage(err, 'Could not load products - try again')); }
     setLoading(false);
   }, [search, typeFilter]);
 
@@ -61,6 +64,7 @@ export default function ProductsListPage() {
           </div>
         </div>
         <div className="p-6 space-y-4">
+          {error && <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">{error}</div>}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
               <p className="text-xs text-[var(--ff-text-tertiary)]">Total Products</p>

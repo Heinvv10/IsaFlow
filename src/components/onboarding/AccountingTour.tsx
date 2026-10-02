@@ -6,7 +6,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { notify } from '@/utils/toast';
 import { log } from '@/lib/logger';
 import { TOUR_STEPS, getTooltipPosition, type TargetRect } from './tourConfig';
 
@@ -28,6 +29,7 @@ export function AccountingTour() {
     const check = async () => {
       try {
         const res = await apiFetch('/api/auth/preferences');
+        await assertOk(res, 'Could not load your tour preference');
         const json = await res.json() as { data?: Record<string, string> };
         if (!json.data?.[PREF_KEY]) setActive(true);
       } catch (err) {
@@ -66,11 +68,12 @@ export function AccountingTour() {
     setActive(false);
     localStorage.setItem(LS_KEY, 'true');
     try {
-      await apiFetch('/api/auth/preferences', {
+      const res = await apiFetch('/api/auth/preferences', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ preferences: { [PREF_KEY]: 'true' } }),
       });
+      await assertOk(res, 'Could not save your tour preference');
       log.info('Onboarding tour completed', {}, 'AccountingTour');
     } catch (err) {
       log.warn('Failed to save tour preference', { error: err }, 'AccountingTour');
@@ -171,14 +174,16 @@ export function AccountingTour() {
 export function useRestartTour() {
   return useCallback(async () => {
     try {
-      await apiFetch('/api/auth/preferences', {
+      const res = await apiFetch('/api/auth/preferences', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ preferences: { [PREF_KEY]: '' } }),
       });
+      await assertOk(res, 'Could not restart the tour - try again');
       window.location.reload();
     } catch (err) {
       log.warn('Failed to reset tour preference', { error: err }, 'AccountingTour');
+      notify.error(apiErrorMessage(err, 'Could not restart the tour - try again'));
     }
   }, []);
 }

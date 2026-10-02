@@ -8,18 +8,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tag, Plus, Trash2, Loader2, ToggleLeft, ToggleRight, Pencil } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 type CcType = 'cc1' | 'cc2';
 
 interface CostCentre {
   id: string; code: string; name: string;
   description?: string; department?: string; ccType: CcType; isActive: boolean;
-}
-
-/** apiResponse.error() nests the message under `error`; older routes send it flat. */
-function apiMessage(json: { error?: { message?: string }; message?: string }, fallback: string): string {
-  return json.error?.message || json.message || fallback;
 }
 
 const TAB_META: Record<CcType, { label: string; description: string }> = {
@@ -40,19 +35,18 @@ export default function CostCentresPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await apiFetch(`/api/accounting/cost-centres?cc_type=${activeTab}`, { credentials: 'include' });
-    const json = await res.json();
-    setLoading(false);
-    if (!res.ok) throw new Error(apiMessage(json, 'Failed to load cost centres'));
-    setItems(json.data?.items || []);
+    try {
+      const res = await apiFetch(`/api/accounting/cost-centres?cc_type=${activeTab}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load cost centres - try again');
+      const json = await res.json();
+      setItems(json.data?.items || []);
+    } catch (err) {
+      setItems([]);
+      setError(apiErrorMessage(err, 'Could not load cost centres - try again'));
+    } finally { setLoading(false); }
   }, [activeTab]);
 
-  useEffect(() => {
-    load().catch((err) => {
-      setLoading(false);
-      setError(err instanceof Error ? err.message : 'Failed to load cost centres');
-    });
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -64,21 +58,19 @@ export default function CostCentresPage() {
           credentials: 'include',
           body: JSON.stringify({ action: 'update', id: editId, ...form }),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(apiMessage(json, 'Failed'));
+        await assertOk(res, 'Could not save the cost centre - try again');
       } else {
         const res = await apiFetch('/api/accounting/cost-centres', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ ...form, ccType: activeTab }),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(apiMessage(json, 'Failed'));
+        await assertOk(res, 'Could not save the cost centre - try again');
       }
       setShowForm(false); setEditId(null);
       setForm({ code: '', name: '', description: '', department: '' });
       await load();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not save the cost centre - try again')); }
     finally { setBusy(''); }
   };
 
@@ -100,10 +92,9 @@ export default function CostCentresPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action, id, ...extra }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(apiMessage(json, 'Failed'));
+      await assertOk(res, 'Could not update the cost centre - try again');
       await load();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not update the cost centre - try again')); }
     finally { setBusy(''); }
   };
 

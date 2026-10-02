@@ -32,7 +32,7 @@ export function ToastDemo() {
         <Button
           variant="secondary"
           size="sm"
-          onClick={() => toast.error('Failed to sync with Sage — check your credentials.')}
+          onClick={() => toast.error('Could not sync with Sage - check your credentials.')}
         >
           Error
         </Button>
