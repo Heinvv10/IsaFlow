@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle } from 'lucide-react';
 
 interface Level { id: string; code: string; name: string; displayOrder: number }
@@ -19,14 +19,15 @@ export function OccupationalLevelCard({ employeeId, currentLevelId, onChange }: 
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const res = await apiFetch('/api/payroll/equity/occupational-levels');
-      if (res.ok) {
-        const json = await res.json();
-        setLevels(((json.data ?? json) as Level[]) ?? []);
-      }
+      await assertOk(res, 'Could not load occupational levels - try again');
+      const json = await res.json();
+      setLevels(((json.data ?? json) as Level[]) ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load occupational levels');
+      setLevels([]);
+      setError(apiErrorMessage(err, 'Could not load occupational levels - try again'));
     } finally {
       setLoading(false);
     }
@@ -44,12 +45,10 @@ export function OccupationalLevelCard({ employeeId, currentLevelId, onChange }: 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ occupationalLevelId }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? 'Save failed');
-        return;
-      }
+      await assertOk(res, 'Could not save the occupational level - try again');
       onChange(occupationalLevelId);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the occupational level - try again'));
     } finally {
       setSaving(false);
     }

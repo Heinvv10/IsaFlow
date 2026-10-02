@@ -3,10 +3,12 @@
  * late (s16(3)); the allocate action returns `lateClaim`, and the bank screen's
  * accept (single and batch) must say so.
  */
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/utils/toast', () => ({ notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 vi.mock('@/components/accounting/CreateRuleModal', () => ({ extractPattern: () => '' }));
 
 import { notify } from '@/utils/toast';

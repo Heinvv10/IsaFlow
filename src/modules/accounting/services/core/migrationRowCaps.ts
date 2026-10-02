@@ -31,10 +31,11 @@
  * ROUTE on a busy host before raising a cap, and write the result here.
  * NOT covered by a row cap: time that grows with the company rather than the
  * request (the VAT-lock check reads the posted lines of the accounts changed).
- * The supplier figures are NOT measured: executeMigration's supplier insert
- * names a column the table does not have and fails at once (pre-existing), so
- * the execute runs carry the cost of the customers only; suppliers are assumed
- * to cost what customers do.
+ * Suppliers measured 2026-10-02 (the supplier insert named a column the table
+ * lacks and failed at once until then), through the service on a superuser
+ * connection (no RLS), load average 33-35, three runs each: 1,000 suppliers
+ * alone 94 - 120 ms, 1,000 customers alone 89 - 243 ms, and the full execute
+ * cap 2,000 + 1,000 + 1,000 454 - 506 ms. They cost what customers do.
  * For scale: the largest chart on isaflow_dev has 152 accounts, 91 customers
  * and 59 suppliers.
  */

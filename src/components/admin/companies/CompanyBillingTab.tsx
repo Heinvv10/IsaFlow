@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { Loader2, AlertCircle } from 'lucide-react';
 import {
@@ -29,6 +29,7 @@ export function CompanyBillingTab({ companyId }: Props) {
   const [invoicesLoading, setInvoicesLoading]   = useState(false);
   const [error, setError]                       = useState('');
   const [actionError, setActionError]           = useState('');
+  const [invoicesError, setInvoicesError]         = useState('');
   const [cancelOpen, setCancelOpen]             = useState(false);
   const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState(true);
   const [cancelLoading, setCancelLoading]       = useState(false);
@@ -40,12 +41,12 @@ export function CompanyBillingTab({ companyId }: Props) {
       const res  = await apiFetch(
         `/api/admin/billing/subscriptions?company_id=${encodeURIComponent(companyId)}&limit=1`
       );
+      await assertOk(res, 'Could not load the subscription - try again');
       const json = await res.json() as { data: PaginatedSubscriptions };
-      if (!res.ok) throw new Error((json as unknown as { message: string }).message || 'Failed to load subscription');
       const items = json.data?.items ?? [];
       setSubscription(items.length > 0 ? (items[0] ?? null) : null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load subscription');
+      setError(apiErrorMessage(err, 'Could not load the subscription - try again'));
     } finally {
       setLoading(false);
     }
@@ -53,13 +54,18 @@ export function CompanyBillingTab({ companyId }: Props) {
 
   const loadInvoices = useCallback(async () => {
     setInvoicesLoading(true);
+    setInvoicesError('');
     try {
       const res  = await apiFetch(
         `/api/admin/billing/invoices?company_id=${encodeURIComponent(companyId)}&limit=10&sort_by=created_at&sort_dir=desc`
       );
+      await assertOk(res, 'Could not load invoices - try again');
       const json = await res.json() as { data: PaginatedInvoices };
-      if (res.ok) setInvoices(json.data?.items ?? []);
-    } catch { /* non-critical — show empty table */ }
+      setInvoices(json.data?.items ?? []);
+    } catch (err) {
+      setInvoices([]);
+      setInvoicesError(apiErrorMessage(err, 'Could not load invoices - try again'));
+    }
     finally { setInvoicesLoading(false); }
   }, [companyId]);
 
@@ -82,12 +88,11 @@ export function CompanyBillingTab({ companyId }: Props) {
             : { status: 'cancelled' }
         ),
       });
-      const json = await res.json() as { message?: string };
-      if (!res.ok) throw new Error(json.message || 'Cancel failed');
+      await assertOk(res, 'Could not cancel the subscription - try again');
       setCancelOpen(false);
       await loadSubscription();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Cancel failed');
+      setActionError(apiErrorMessage(err, 'Could not cancel the subscription - try again'));
     } finally {
       setCancelLoading(false);
     }
@@ -101,9 +106,22 @@ export function CompanyBillingTab({ companyId }: Props) {
     );
   }
 
+  if (error) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
+        </div>
+        <button onClick={() => void loadSubscription()} className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
-      {[error, actionError].filter(Boolean).map((msg, i) => (
+      {[actionError, invoicesError].filter(Boolean).map((msg, i) => (
         <div key={i} className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
           <AlertCircle className="w-4 h-4 flex-shrink-0" /> {msg}
         </div>

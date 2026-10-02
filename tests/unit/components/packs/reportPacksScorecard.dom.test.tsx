@@ -74,6 +74,8 @@ function packWith(scorecard: KPIScorecardItem[]) {
 
 function respondWith(scorecard: KPIScorecardItem[]) {
   apiFetchMock.mockResolvedValue({
+    ok: true,
+    status: 200,
     json: async () => ({ data: { pack: packWith(scorecard), unclassifiedAccounts: null } }),
   });
 }

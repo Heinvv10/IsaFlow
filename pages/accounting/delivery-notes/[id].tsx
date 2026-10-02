@@ -6,7 +6,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Truck, Loader2, ArrowLeft, Send, CheckCircle, XCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 interface DeliveryNoteLine {
   id: string;
@@ -64,14 +65,12 @@ export default function DeliveryNoteDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/delivery-notes?id=${id}`);
-      const json = (await res.json()) as { data?: DeliveryNote; error?: { message?: string } };
-      if (!res.ok) {
-        setError(json?.error?.message ?? 'Not found');
-        return;
-      }
+      await assertOk(res, 'Could not load the delivery note - try again');
+      const json = (await res.json()) as { data?: DeliveryNote };
       setNote(json.data ?? null);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load delivery note');
+      setNote(null);
+      setError(apiErrorMessage(err, 'Could not load the delivery note - try again'));
     } finally {
       setLoading(false);
     }
@@ -84,13 +83,17 @@ export default function DeliveryNoteDetailPage() {
   const handleStatusChange = async (status: string) => {
     if (!note) return;
     setPatching(true);
+    setError('');
     try {
-      await apiFetch('/api/accounting/delivery-notes', {
+      const res = await apiFetch('/api/accounting/delivery-notes', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: note.id, status }),
       });
+      await assertOk(res, 'Could not update the delivery note - try again');
       void load();
+    } catch (err: unknown) {
+      setError(apiErrorMessage(err, 'Could not update the delivery note - try again'));
     } finally {
       setPatching(false);
     }
@@ -99,13 +102,17 @@ export default function DeliveryNoteDetailPage() {
   const handleCancel = async () => {
     if (!note || !window.confirm('Cancel this delivery note?')) return;
     setPatching(true);
+    setError('');
     try {
-      await apiFetch('/api/accounting/delivery-notes', {
+      const res = await apiFetch('/api/accounting/delivery-notes', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: note.id }),
       });
-      await router.push('/accounting/delivery-notes');
+      await assertOk(res, 'Could not cancel the delivery note - try again');
+      try { await router.push('/accounting/delivery-notes'); } catch (e) { log.warn('navigation failed', { error: e }, 'delivery-notes-id'); }
+    } catch (err: unknown) {
+      setError(apiErrorMessage(err, 'Could not cancel the delivery note - try again'));
     } finally {
       setPatching(false);
     }

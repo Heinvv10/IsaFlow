@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { CreateTaxDirectiveModal } from '@/components/payroll/TaxDirectiveComponents';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
@@ -73,6 +73,7 @@ export default function TaxDirectivesPage() {
   const [directives, setDirectives] = useState<TaxDirective[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -92,12 +93,14 @@ export default function TaxDirectivesPage() {
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (debouncedSearch) params.set('search', debouncedSearch);
       const res = await apiFetch(`/api/accounting/tax-directives?${params}`);
-      if (!res.ok) { setError(payrollLoadMessage(res.status, 'Failed to load tax directives')); return; }
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load the tax directives - try again'));
+      await assertOk(res, 'Could not load the tax directives - try again');
       const json = await res.json();
       const payload = json.data ?? json;
       setDirectives(Array.isArray(payload) ? payload : []);
-    } catch {
-      setError('Failed to load tax directives');
+    } catch (err) {
+      setDirectives([]);
+      setError(apiErrorMessage(err, 'Could not load the tax directives - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -108,7 +111,7 @@ export default function TaxDirectivesPage() {
   }, [loadDirectives]);
 
   const handleStatusUpdate = async (id: string, status: DirectiveStatus) => {
-    setActionLoading(id);
+    setActionLoading(id); setActionError('');
     // Optimistic update
     setDirectives(prev =>
       prev.map(d => (d.id === id ? { ...d, status } : d)),
@@ -120,12 +123,11 @@ export default function TaxDirectivesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
-      if (!res.ok) {
-        // Revert optimistic update on failure
-        void loadDirectives();
-      }
-    } catch {
-      void loadDirectives();
+      await assertOk(res, 'Could not update the directive status - try again');
+    } catch (err) {
+      // Revert the optimistic update, then say why
+      await loadDirectives();
+      setActionError(apiErrorMessage(err, 'Could not update the directive status - try again'));
     } finally {
       setActionLoading(null);
     }
@@ -180,6 +182,7 @@ export default function TaxDirectivesPage() {
             )}
           </div>
 
+          {actionError && <p className="text-sm text-red-400 mb-3">{actionError}</p>}
           {/* States */}
           {isLoading ? (
             <div className="flex items-center justify-center py-16">

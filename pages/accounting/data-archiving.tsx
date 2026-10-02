@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Archive, Database, Clock, Eye } from 'lucide-react';
 import type {
@@ -36,8 +36,9 @@ function Section({ title, icon, children }: { title: string; icon: React.ReactNo
   );
 }
 
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await apiFetch(url, options);
+async function fetchJson<T>(url: string, fallback: string): Promise<T> {
+  const res = await apiFetch(url);
+  await assertOk(res, fallback);
   const json = await res.json() as { data: T };
   return json.data;
 }
@@ -60,6 +61,7 @@ export default function DataArchivingPage() {
   const [archiveDateFrom, setArchiveDateFrom] = useState('');
   const [archiveDateTo, setArchiveDateTo] = useState('');
   const [archivePage, setArchivePage] = useState(0);
+  const [error, setError] = useState('');
 
   const maxCutoff = (() => {
     const d = new Date(); d.setFullYear(d.getFullYear() - 5);
@@ -68,35 +70,35 @@ export default function DataArchivingPage() {
 
   const loadStats = useCallback(async () => {
     if (!activeCompany) return;
-    setStatsLoading(true);
+    setStatsLoading(true); setError('');
     try {
-      const data = await fetchJson<{ stats: StorageStats[] }>('/api/accounting/data-archiving');
+      const data = await fetchJson<{ stats: StorageStats[] }>('/api/accounting/data-archiving', 'Could not load storage stats - try again');
       setStats(data.stats);
-    } catch (err) { log.error('Failed to load storage stats', { error: err }, COMPONENT); }
+    } catch (err) { setStats([]); log.error('Failed to load storage stats', { error: err }, COMPONENT); setError(apiErrorMessage(err, 'Could not load storage stats - try again')); }
     finally { setStatsLoading(false); }
   }, [activeCompany]);
 
   const loadRuns = useCallback(async () => {
     if (!activeCompany) return;
-    setRunsLoading(true);
+    setRunsLoading(true); setError('');
     try {
-      const data = await fetchJson<{ runs: ArchiveRun[] }>('/api/accounting/archive-runs');
+      const data = await fetchJson<{ runs: ArchiveRun[] }>('/api/accounting/archive-runs', 'Could not load archive history - try again');
       setRuns(data.runs);
-    } catch (err) { log.error('Failed to load archive runs', { error: err }, COMPONENT); }
+    } catch (err) { setRuns([]); log.error('Failed to load archive runs', { error: err }, COMPONENT); setError(apiErrorMessage(err, 'Could not load archive history - try again')); }
     finally { setRunsLoading(false); }
   }, [activeCompany]);
 
   const loadArchivedData = useCallback(async () => {
     if (!activeCompany) return;
-    setArchivedLoading(true);
+    setArchivedLoading(true); setError('');
     try {
       const params = new URLSearchParams({ limit: String(ARCHIVE_LIMIT), offset: String(archivePage * ARCHIVE_LIMIT) });
       if (archiveDateFrom) params.set('date_from', archiveDateFrom);
       if (archiveDateTo) params.set('date_to', archiveDateTo);
-      const data = await fetchJson<{ items: ArchivedEntry[]; total: number }>(`/api/accounting/archived-data?${params.toString()}`);
+      const data = await fetchJson<{ items: ArchivedEntry[]; total: number }>(`/api/accounting/archived-data?${params.toString()}`, 'Could not load archived data - try again');
       setArchivedItems(data.items);
       setArchivedTotal(data.total);
-    } catch (err) { log.error('Failed to load archived data', { error: err }, COMPONENT); }
+    } catch (err) { setArchivedItems([]); setArchivedTotal(0); log.error('Failed to load archived data', { error: err }, COMPONENT); setError(apiErrorMessage(err, 'Could not load archived data - try again')); }
     finally { setArchivedLoading(false); }
   }, [activeCompany, archivePage, archiveDateFrom, archiveDateTo]);
 
@@ -105,21 +107,21 @@ export default function DataArchivingPage() {
 
   const handleValidate = async () => {
     if (!cutoffDate) return;
-    setValidating(true); setValidation(null); setPreview(null);
+    setValidating(true); setValidation(null); setPreview(null); setError('');
     try {
-      const data = await fetchJson<{ validation: ArchiveValidation }>(`/api/accounting/data-archiving?action=validate&cutoff=${cutoffDate}`);
+      const data = await fetchJson<{ validation: ArchiveValidation }>(`/api/accounting/data-archiving?action=validate&cutoff=${cutoffDate}`, 'Could not validate the cutoff date - try again');
       setValidation(data.validation);
-    } catch (err) { log.error('Validation request failed', { error: err }, COMPONENT); }
+    } catch (err) { log.error('Validation request failed', { error: err }, COMPONENT); setError(apiErrorMessage(err, 'Could not validate the cutoff date - try again')); }
     finally { setValidating(false); }
   };
 
   const handlePreview = async () => {
     if (!cutoffDate) return;
-    setPreviewing(true); setPreview(null);
+    setPreviewing(true); setPreview(null); setError('');
     try {
-      const data = await fetchJson<{ preview: ArchivePreview }>(`/api/accounting/data-archiving?action=preview&cutoff=${cutoffDate}`);
+      const data = await fetchJson<{ preview: ArchivePreview }>(`/api/accounting/data-archiving?action=preview&cutoff=${cutoffDate}`, 'Could not preview the archive - try again');
       setPreview(data.preview);
-    } catch (err) { log.error('Preview request failed', { error: err }, COMPONENT); }
+    } catch (err) { log.error('Preview request failed', { error: err }, COMPONENT); setError(apiErrorMessage(err, 'Could not preview the archive - try again')); }
     finally { setPreviewing(false); }
   };
 
@@ -153,6 +155,8 @@ export default function DataArchivingPage() {
             ))}
           </div>
         </div>
+
+        {error && <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">{error}</div>}
 
         {view === 'dashboard' && (
           <>

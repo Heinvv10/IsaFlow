@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tag, Loader2, AlertCircle, Plus, ChevronDown, ChevronRight } from 'lucide-react';
+import { apiErrorMessage } from '@/lib/apiFetch';
 import { WorkItemManager } from '@/components/practice/WorkItemManager';
 import {
   fetchJobCategories,
@@ -81,7 +82,7 @@ export default function JobCategoriesPage() {
     try {
       setCategories(await fetchJobCategories(true));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load job categories');
+      setError(apiErrorMessage(err, 'Could not load the job categories - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -101,7 +102,7 @@ export default function JobCategoriesPage() {
       setNewName('');
       await loadCategories();
     } catch (err) {
-      setAddError(err instanceof Error ? err.message : 'Failed to add category');
+      setAddError(apiErrorMessage(err, 'Could not add the category - try again'));
     } finally {
       setIsAdding(false);
     }

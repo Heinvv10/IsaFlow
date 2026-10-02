@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   Landmark, CalendarCheck, ChevronLeft, CheckCircle2, AlertCircle, Loader2, Lock,
 } from 'lucide-react';
@@ -56,20 +56,27 @@ export default function LoanPeriodClosePage() {
   const [postingAll, setPostingAll] = useState(false);
   const [flash, setFlash] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
+  const [loadErr, setLoadErr] = useState('');
+
   const load = useCallback(async () => {
     setLoading(true);
-    setFlash(null);
-    const res = await apiFetch(`/api/accounting/loans/period-close?month=${month}&year=${year}`);
-    const json = (await res.json()) as { data: PeriodCloseResponse };
-    setData(json.data ?? null);
-    setLoading(false);
+    setLoadErr('');
+    try {
+      const res = await apiFetch(`/api/accounting/loans/period-close?month=${month}&year=${year}`);
+      await assertOk(res, 'Could not load period data - try again');
+      const json = (await res.json()) as { data: PeriodCloseResponse };
+      setData(json.data ?? null);
+    } catch (err) {
+      setData(null);
+      setLoadErr(apiErrorMessage(err, 'Could not load period data - try again'));
+    } finally {
+      setLoading(false);
+    }
   }, [month, year]);
 
   useEffect(() => {
-    load().catch((err) => {
-      setLoading(false);
-      setFlash({ type: 'error', msg: err instanceof Error ? err.message : 'Failed to load period data' });
-    });
+    setFlash(null);
+    void load();
   }, [load]);
 
   async function postLoans(loanIds: string[]): Promise<PostResult> {
@@ -78,6 +85,7 @@ export default function LoanPeriodClosePage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ loanIds, month, year }),
     });
+    await assertOk(res, 'Could not post the journals - try again');
     const json = (await res.json()) as { data: PostResult };
     return json.data;
   }
@@ -87,11 +95,13 @@ export default function LoanPeriodClosePage() {
     try {
       const result = await postLoans([loanId]);
       if (result.errors.length > 0) {
-        setFlash({ type: 'error', msg: result.errors[0]?.error ?? 'Posting failed' });
+        setFlash({ type: 'error', msg: result.errors[0]?.error ?? 'Could not post the loan journal - try again' });
       } else {
         setFlash({ type: 'success', msg: 'Journal posted successfully' });
         await load();
       }
+    } catch (err) {
+      setFlash({ type: 'error', msg: apiErrorMessage(err, 'Could not post the journals - try again') });
     } finally {
       setPosting(prev => { const s = new Set(prev); s.delete(loanId); return s; });
     }
@@ -113,6 +123,8 @@ export default function LoanPeriodClosePage() {
         setFlash({ type: 'success', msg: `Posted journals for ${ok} loan(s)` });
       }
       await load();
+    } catch (err) {
+      setFlash({ type: 'error', msg: apiErrorMessage(err, 'Could not post the journals - try again') });
     } finally {
       setPostingAll(false);
     }
@@ -155,6 +167,12 @@ export default function LoanPeriodClosePage() {
         </div>
 
         <div className="p-6 space-y-4">
+          {loadErr && (
+            <div className="flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium border bg-red-500/10 border-red-500/30 text-red-400">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              {loadErr}
+            </div>
+          )}
           {flash && (
             <div className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium border ${
               flash.type === 'success'

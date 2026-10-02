@@ -13,7 +13,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const apiFetch = vi.fn();
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }));
+vi.mock('@/lib/apiFetch', async (orig) => ({ ...await orig<typeof import('@/lib/apiFetch')>(), apiFetch: (...args: unknown[]) => apiFetch(...args) }));
 vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
@@ -28,7 +28,7 @@ const listBody = {
 };
 
 function jsonResponse(ok: boolean, status: number, body: unknown) {
-  return { ok, status, json: async () => body };
+  return new Response(JSON.stringify(body), { status });
 }
 
 /** The real shape apiResponse.error() sends: the message is nested under `error`. */

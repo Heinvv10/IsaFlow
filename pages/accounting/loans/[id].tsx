@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Landmark, ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
 import { log } from '@/lib/logger';
 import { Loan, ScheduleRow, LoanEvent, RateCurve, RatePoint, PRODUCT_LABELS } from '@/components/loans/types';
@@ -44,52 +44,83 @@ export default function LoanDetailPage() {
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [loadingCurve, setLoadingCurve] = useState(false);
   const [error, setError] = useState('');
+  const [tabError, setTabError] = useState('');
 
   const loadLoan = useCallback(async () => {
     if (!id) return;
     setLoadingLoan(true);
     setError('');
-    const res = await apiFetch(`/api/accounting/loans/${id}`);
-    const json = await res.json();
-    if (!res.ok) { setError(json.message || 'Failed to load loan'); setLoadingLoan(false); return; }
-    setLoan(json.data);
-    setLoadingLoan(false);
+    try {
+      const res = await apiFetch(`/api/accounting/loans/${id}`);
+      await assertOk(res, 'Could not load the loan - try again');
+      const json = await res.json();
+      setLoan(json.data);
+    } catch (err) {
+      setLoan(null);
+      setError(apiErrorMessage(err, 'Could not load the loan - try again'));
+    } finally {
+      setLoadingLoan(false);
+    }
   }, [id]);
 
   const loadSchedule = useCallback(async () => {
     if (!id) return;
     setLoadingSchedule(true);
-    const res = await apiFetch(`/api/accounting/loans/${id}/schedule`);
-    const json = await res.json();
-    setScheduleRows(json.data?.rows ?? []);
-    setLoadingSchedule(false);
+    setTabError('');
+    try {
+      const res = await apiFetch(`/api/accounting/loans/${id}/schedule`);
+      await assertOk(res, 'Could not load the repayment schedule - try again');
+      const json = await res.json();
+      setScheduleRows(json.data?.rows ?? []);
+    } catch (err) {
+      setScheduleRows([]);
+      setTabError(apiErrorMessage(err, 'Could not load the repayment schedule - try again'));
+    } finally {
+      setLoadingSchedule(false);
+    }
   }, [id]);
 
   const loadEvents = useCallback(async () => {
     if (!id) return;
-    const res = await apiFetch(`/api/accounting/loans/${id}/events`);
-    const json = await res.json();
-    setEvents(json.data ?? []);
+    setTabError('');
+    try {
+      const res = await apiFetch(`/api/accounting/loans/${id}/events`);
+      await assertOk(res, 'Could not load the loan events - try again');
+      const json = await res.json();
+      setEvents(json.data ?? []);
+    } catch (err) {
+      setEvents([]);
+      setTabError(apiErrorMessage(err, 'Could not load the loan events - try again'));
+    }
   }, [id]);
 
   const loadCurve = useCallback(async (curveId: string) => {
     setLoadingCurve(true);
-    const [curveRes, pointsRes] = await Promise.all([
-      apiFetch(`/api/accounting/loan-rate-curves`),
-      apiFetch(`/api/accounting/loan-rate-curves/${curveId}/points`),
-    ]);
-    const [curvesJson, pointsJson] = await Promise.all([curveRes.json(), pointsRes.json()]);
-    const found = (curvesJson.data ?? []).find((c: RateCurve) => c.id === curveId) ?? null;
-    setCurve(found);
-    setCurvePoints(pointsJson.data ?? []);
-    setLoadingCurve(false);
+    setTabError('');
+    try {
+      const [curveRes, pointsRes] = await Promise.all([
+        apiFetch(`/api/accounting/loan-rate-curves`),
+        apiFetch(`/api/accounting/loan-rate-curves/${curveId}/points`),
+      ]);
+      await assertOk(curveRes, 'Could not load the rate curve - try again');
+      await assertOk(pointsRes, 'Could not load the rate curve - try again');
+      const [curvesJson, pointsJson] = await Promise.all([curveRes.json(), pointsRes.json()]);
+      const found = (curvesJson.data ?? []).find((c: RateCurve) => c.id === curveId) ?? null;
+      setCurve(found);
+      setCurvePoints(pointsJson.data ?? []);
+    } catch (err) {
+      setCurve(null); setCurvePoints([]);
+      setTabError(apiErrorMessage(err, 'Could not load the rate curve - try again'));
+    } finally {
+      setLoadingCurve(false);
+    }
   }, []);
 
 
   useEffect(() => {
     loadLoan().catch((err) => {
       setLoadingLoan(false);
-      setError(err instanceof Error ? err.message : 'Failed to load loan');
+      setError(apiErrorMessage(err, 'Could not load loan - try again'));
     });
   }, [loadLoan]);
 
@@ -113,7 +144,7 @@ export default function LoanDetailPage() {
           setLoadingCurve(false);
           log.error('Failed to load rate curve', { error: err }, 'loan-detail-page');
         });
-      } else { setCurve(null); setCurvePoints([]); }
+      } else { setCurve(null); setCurvePoints([]); setTabError(''); }
     }
   }, [tab, loan, scheduleRows.length, loadSchedule, loadEvents, loadCurve]);
 
@@ -192,6 +223,7 @@ export default function LoanDetailPage() {
         </div>
 
         <div className="p-6">
+          {tabError && (tab === 'schedule' || tab === 'events' || tab === 'curve') && <p className="mb-4 text-red-400">{tabError}</p>}
           {tab === 'overview' && (
             <LoanOverviewTab loan={loan} onRefresh={loadLoan} />
           )}

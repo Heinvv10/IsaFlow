@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   Plus, RefreshCw, AlertCircle, Loader2, Receipt, ArrowRight, Filter,
 } from 'lucide-react';
@@ -48,12 +48,10 @@ export default function ExpenseClaimsIndex() {
     try {
       const qs = filter ? `?status=${filter}` : '';
       const res = await apiFetch(`/api/accounting/expense-claims${qs}`);
-      const json = await res.json() as { data?: { claims?: ClaimRow[] }; error?: { message?: string } | string };
-      if (!res.ok) {
-        setError(typeof json.error === 'string' ? json.error : json.error?.message ?? 'Failed to load'); return;
-      }
+      await assertOk(res, 'Could not load expense claims - try again');
+      const json = await res.json() as { data?: { claims?: ClaimRow[] } };
       setClaims(json.data?.claims ?? []);
-    } catch { setError('Network error'); }
+    } catch (err) { setClaims([]); setError(apiErrorMessage(err, 'Could not load expense claims - try again')); }
     finally { setLoading(false); }
   }, [filter]);
 

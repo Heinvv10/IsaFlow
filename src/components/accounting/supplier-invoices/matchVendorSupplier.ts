@@ -5,7 +5,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { fuzzyMatchSupplier } from '@/modules/accounting/utils/fuzzyMatch';
 
@@ -27,7 +27,7 @@ export function vendorSearchTokens(vendorName: string): string[] {
 async function search(token: string): Promise<Hit[] | null> {
   try {
     const res = await apiFetch(`/api/accounting/suppliers-list?q=${encodeURIComponent(token)}&limit=200`);
-    if (!res.ok) return null;
+    await assertOk(res, 'Could not search the suppliers');
     const json = await res.json();
     return ((json.data ?? json) as { suppliers?: Hit[] }).suppliers ?? [];
   } catch (err) {

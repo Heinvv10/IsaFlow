@@ -11,7 +11,8 @@ import { ArrowLeft, BarChart3, Loader2, AlertCircle, Download, FileSpreadsheet }
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import { IncomeStatementSections } from '@/components/accounting/IncomeStatementSections';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
 import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
@@ -75,30 +76,29 @@ export default function IncomeStatementPage() {
 
     let cancelled = false;
     apiFetch('/api/accounting/fiscal-periods?open_period=true', { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the open period - try again'); return r.json(); })
       .then(json => {
         if (cancelled) return;
         if (!qStart && !qEnd) {
           const period = json.data as { startDate?: string; endDate?: string } | null;
-          if (period?.startDate) setPeriodStart(period.startDate);
-          if (period?.endDate) setPeriodEnd(clampToToday(period.endDate));
+          // Only a period that has begun (From <= To after capping to today); else keep the month-to-date default.
+          const end = period?.endDate ? clampToToday(period.endDate) : '';
+          if (period?.startDate && end >= period.startDate) { setPeriodStart(period.startDate); setPeriodEnd(end); }
         }
         setPeriodResolved(true);
       })
       .catch(() => {
         if (!cancelled) setPeriodResolved(true);
       });
-
     return () => { cancelled = true; };
   }, [router.isReady, qStart, qEnd]);
   const [report, setReport] = useState<IncomeStatementReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
-  const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
-  const [costCentreId, setCostCentreId] = useState('');
-  const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
-  const [businessUnitId, setBusinessUnitId] = useState(qBusinessUnit);
+  const [costCentres, setCostCentres] = useState<CostCentre[]>([]); const [costCentreId, setCostCentreId] = useState('');
+  const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]); const [businessUnitId, setBusinessUnitId] = useState(qBusinessUnit);
+  const [refError, setRefError] = useState<Record<string, string>>({});
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
   // The Prior-period checkbox IS the comparative fetch: one control, so the
   // column cannot be on with no comparative period behind it.
@@ -114,13 +114,13 @@ export default function IncomeStatementPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the cost centres - try again'); return r.json(); })
       .then(json => setCostCentres(json.data?.items || json.data || []))
-      .catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
+      .catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'income-statement'); setRefError(p => ({ ...p, cc: apiErrorMessage(err, 'Could not load the cost centres - try again') })); });
     apiFetch('/api/accounting/business-units?active=true', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed to load business units')))
+      .then(async r => { await assertOk(r, 'Could not load the business units - try again'); return r.json(); })
       .then(json => { const items = json.data?.items || json.data || []; setBusinessUnits(Array.isArray(items) ? items : []); })
-      .catch(() => { /* reference data load failure — selected BU remains visible as unavailable */ });
+      .catch(err => { setBusinessUnits([]); log.warn('Failed to load business units', { err }, 'income-statement'); setRefError(p => ({ ...p, bu: apiErrorMessage(err, 'Could not load the business units - try again') })); });
   }, []);
 
   function handleExport() {
@@ -163,12 +163,11 @@ export default function IncomeStatementPage() {
         params.set('compare_end', priorEnd.toISOString().split('T')[0] ?? '');
       }
       const res = await apiFetch(`/api/accounting/reports-income-statement?${params}`);
+      await assertOk(res, 'Could not load income statement - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load');
       if (requestId === reportRequestRef.current) setReport(json.data || json);
     } catch (err) {
-      if (requestId === reportRequestRef.current)
-        setError(err instanceof Error ? err.message : 'Failed to load income statement');
+      if (requestId === reportRequestRef.current) { setReport(null); setError(apiErrorMessage(err, 'Could not load income statement - try again')); }
     } finally {
       if (requestId === reportRequestRef.current) setIsLoading(false);
     }
@@ -248,6 +247,7 @@ export default function IncomeStatementPage() {
           <ComparatorNotices budgetState={budgetState} trendFailed={trendFailed}
             companyWideUnavailable={companyWideUnavailable} />
 
+          {Object.keys(refError).length > 0 && <p role="alert" className="text-xs text-amber-500">{Object.values(refError).join(' ')}</p>}
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}

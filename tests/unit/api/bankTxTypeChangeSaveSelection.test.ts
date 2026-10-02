@@ -15,7 +15,7 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/utils/toast', () => ({ notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn(async () => ({ ok: true })) }));
+vi.mock('@/lib/apiFetch', async () => ({ ...(await vi.importActual<typeof import('@/lib/apiFetch')>('@/lib/apiFetch')), apiFetch: vi.fn(async () => ({ ok: true })) }));
 vi.mock('@/components/accounting/CreateRuleModal', () => ({ extractPattern: () => '' }));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   assertCustomerInCompany: vi.fn(), assertSupplierInCompany: vi.fn(),

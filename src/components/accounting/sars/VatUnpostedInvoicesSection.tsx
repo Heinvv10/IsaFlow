@@ -10,7 +10,7 @@
  * is unsafe for an imported document. Never posts a journal.
  */
 import { useState, type ReactNode } from 'react';
-import { apiFetch, ApiRequestError, assertOk } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { log } from '@/lib/logger';
 import { InlineReasonForm } from '@/components/shared/InlineReasonForm';
@@ -80,7 +80,7 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
       onChanged?.();
     } catch (err) {
       log.warn('VatUnpostedInvoicesSection: mark failed', { error: err }, 'VatUnpostedInvoicesSection');
-      setError(err instanceof ApiRequestError ? err.message : 'Could not mark the selected document(s)');
+      setError(apiErrorMessage(err, 'Could not mark the selected document(s)'));
     } finally {
       setMarking(false);
     }

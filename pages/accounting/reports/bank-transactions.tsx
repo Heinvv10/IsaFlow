@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Landmark, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { groupBankAccountOptions } from '@/components/accounting/bank/groupBankOptions';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -49,7 +49,7 @@ export default function BankTransactionsPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/chart-of-accounts?subtype=bank')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load bank accounts - try again'); return r.json(); })
       .then(res => {
         const data = res.data || res;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,7 +72,7 @@ export default function BankTransactionsPage() {
       .catch((err) => {
         // Surface the load failure rather than swallowing it — the report can't
         // run without a bank account, so the user needs to know why it's idle.
-        setError(err instanceof Error ? err.message : 'Failed to load bank accounts');
+        setError(apiErrorMessage(err, 'Could not load bank accounts - try again'));
       });
   }, []);
 
@@ -85,10 +85,10 @@ export default function BankTransactionsPage() {
         period_start: periodStart, period_end: periodEnd, account_code: accountCode,
       });
       const res = await apiFetch(`/api/accounting/reports-bank-transactions?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the bank transactions report - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
       setReport(json.data || null);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setReport(null); setError(apiErrorMessage(err, 'Could not load the bank transactions report - try again')); }
     finally { setLoading(false); }
   }, [periodStart, periodEnd, accountCode]);
 

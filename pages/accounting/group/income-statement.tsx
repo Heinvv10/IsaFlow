@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { BarChart3, Loader2, AlertCircle, Download, Building2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 /* ------------------------------------------------------------------ */
@@ -76,7 +76,7 @@ export default function ConsolidatedIncomeStatementPage() {
   /* ---------- Load available groups ---------- */
   useEffect(() => {
     apiFetch('/api/accounting/company-groups')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the company groups - try again'); return r.json(); })
       .then(json => {
         const items: EntityGroup[] = json.data?.items || json.data?.groups || json.data || [];
         setGroups(items);
@@ -84,9 +84,7 @@ export default function ConsolidatedIncomeStatementPage() {
           setSelectedGroupId(items[0].id);
         }
       })
-      .catch(() => {
-        // Non-critical — group list load failure
-      });
+      .catch(err => setError(apiErrorMessage(err, 'Could not load the company groups - try again')));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -103,12 +101,12 @@ export default function ConsolidatedIncomeStatementPage() {
         period_end: periodEnd,
       });
       const res = await apiFetch(`/api/accounting/consolidated-reports?${params}`);
-      if (!res.ok) throw new Error('Failed to load consolidated income statement');
+      await assertOk(res, 'Could not load the consolidated income statement - try again');
       const json = await res.json();
       const payload: ConsolidatedISResponse = json.data || json;
       setData(payload);
-    } catch {
-      setError('Failed to load consolidated income statement');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the consolidated income statement - try again'));
       setData(null);
     } finally {
       setLoading(false);

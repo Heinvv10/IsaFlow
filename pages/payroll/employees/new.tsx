@@ -6,7 +6,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { UserPlus, Loader2, ArrowLeft } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -51,6 +52,7 @@ export default function NewEmployeePage() {
       return;
     }
     setSubmitting(true);
+    let target = '';
     try {
       const res = await apiFetch('/api/payroll/employees', {
         method: 'POST',
@@ -68,18 +70,19 @@ export default function NewEmployeePage() {
           medicalAidDependantsCount: Number(form.medicalAidDependantsCount) || 0,
         }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not create the employee - try again');
       const json = await res.json();
       const created = json.data ?? json;
-      void router.push(`/payroll/employees/${created.id}`);
+      target = `/payroll/employees/${created.id}`;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Create failed');
+      setError(apiErrorMessage(err, 'Could not create the employee - try again'));
     } finally {
-      setSubmitting(false);
+      if (!target) setSubmitting(false);
     }
+    if (!target) return;
+    // The employee exists; a failed navigation is not a failed save.
+    try { await router.push(target); } catch (e) { log.warn('navigation failed', { error: e }, 'NewEmployeePage'); }
+    setSubmitting(false);
   };
 
   const field = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500';

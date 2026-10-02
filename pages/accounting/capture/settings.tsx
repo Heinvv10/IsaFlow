@@ -6,7 +6,8 @@ import { WhatsAppVerificationSection } from '@/components/accounting/capture/Wha
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, apiJson, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
+import { apiFetch, apiJson, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import {
   Mail, Smartphone, Server,
   Copy, Check, RefreshCw, AlertCircle, Loader2, X, Zap,
@@ -50,11 +51,12 @@ export default function CaptureSettingsPage() {
 
   const loadAddress = useCallback(async () => {
     try {
-      const { inbox } = await apiJson('/api/accounting/capture/inbox-address');
+      const { inbox } = await apiJson('/api/accounting/capture/inbox-address', undefined, 'Could not load the inbox address - try again');
       setInboxAddr(inbox);
       setError('');
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to load inbox address'));
+      setInboxAddr(null);
+      setError(apiErrorMessage(err, 'Could not load the inbox address - try again'));
     } finally {
       setLoading(false);
     }
@@ -63,10 +65,13 @@ export default function CaptureSettingsPage() {
   const loadChaseSettings = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/chase-settings');
-      if (!res.ok) return;
+      await assertOk(res, 'Could not load the chase settings - try again');
       const json = await res.json() as { data?: ChaseSettings };
-      if (json.data) setChaseSettings(json.data);
-    } catch { /* non-fatal */ }
+      setChaseSettings(json.data ?? null);
+    } catch (err) {
+      setChaseSettings(null);
+      showToast(apiErrorMessage(err, 'Could not load the chase settings - try again'), false);
+    }
   }, []);
 
   useEffect(() => { void Promise.all([loadAddress(), loadChaseSettings()]); },
@@ -74,9 +79,14 @@ export default function CaptureSettingsPage() {
 
   async function handleCopy() {
     if (!inboxAddr?.address) return;
-    await navigator.clipboard.writeText(inboxAddr.address);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(inboxAddr.address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      log.warn('Copying the inbox address failed', { error: err }, 'capture-settings');
+      showToast('Could not copy the address - select it and copy it by hand', false);
+    }
   }
 
   async function handleRegenerate() {
@@ -84,11 +94,11 @@ export default function CaptureSettingsPage() {
     setRegenerating(true);
     setConfirmRegen(false);
     try {
-      const { inbox } = await apiJson('/api/accounting/capture/inbox-address', { method: 'POST', body: '{}' });
+      const { inbox } = await apiJson('/api/accounting/capture/inbox-address', { method: 'POST', body: '{}' }, 'Could not regenerate the inbox address - try again');
       setInboxAddr(inbox);
       showToast('Inbox address regenerated', true);
     } catch (err) {
-      showToast(apiErrorMessage(err, 'Regenerate failed'), false);
+      showToast(apiErrorMessage(err, 'Could not regenerate the inbox address - try again'), false);
     } finally {
       setRegenerating(false);
     }
@@ -102,12 +112,12 @@ export default function CaptureSettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       });
-      const json = await res.json() as { data?: ChaseSettings; error?: string };
-      if (!res.ok) { showToast(json.error ?? 'Failed to save settings', false); return; }
+      await assertOk(res, 'Could not save the chase settings - try again');
+      const json = await res.json() as { data?: ChaseSettings };
       if (json.data) setChaseSettings(json.data);
       showToast('Chase settings saved', true);
-    } catch {
-      showToast('Network error', false);
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not save the chase settings - try again'), false);
     } finally {
       setChaseSaving(false);
     }
@@ -174,7 +184,7 @@ export default function CaptureSettingsPage() {
                     </div>
                   </div>
                   <button type="button" role="switch" aria-checked={chaseSettings?.whatsappChaseEnabled ?? false}
-                    disabled={chaseSaving}
+                    disabled={chaseSaving || !chaseSettings}
                     onClick={() => chaseSettings && saveChase({ whatsappChaseEnabled: !chaseSettings.whatsappChaseEnabled })}
                     className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:opacity-50 ${chaseSettings?.whatsappChaseEnabled ? 'bg-green-600' : 'bg-slate-700'}`}>
                     <span className={`inline-block h-4 w-4 rounded-full bg-white shadow ring-0 transition-transform ${chaseSettings?.whatsappChaseEnabled ? 'translate-x-4' : 'translate-x-0'}`} />

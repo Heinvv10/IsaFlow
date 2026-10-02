@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AlertCircle, CheckCircle2, Loader2, ChevronRight } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface OverdueInvoice {
@@ -95,15 +95,18 @@ export function TodoWidget() {
     setError(null);
     try {
       const res = await apiFetch('/api/accounting/dashboard-todos');
+      await assertOk(res, 'Could not load the action items - try again');
       const json = await res.json();
       if (json.success) {
         setData(json.data);
       } else {
-        setError('Failed to load action items');
+        setData(null);
+        setError('Could not load the action items - try again');
         log.error('dashboard-todos returned error', { json }, 'accounting-ui');
       }
     } catch (err) {
-      setError('Failed to load action items');
+      setData(null);
+      setError(apiErrorMessage(err, 'Could not load the action items - try again'));
       log.error('Failed to fetch dashboard todos', { error: err }, 'accounting-ui');
     } finally {
       setLoading(false);

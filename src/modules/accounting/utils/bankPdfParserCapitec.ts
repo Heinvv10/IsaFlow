@@ -200,9 +200,10 @@ export function parseCapitecStatement(text: string): BankCsvParseResult {
         balance,
       });
     } catch (err) {
+      log.warn('Capitec PDF: a transaction line could not be read', { row: i + 1, error: err }, 'accounting-pdf');
       result.errors.push({
         row: i + 1,
-        error: `Parse error: ${err instanceof Error ? err.message : String(err)}`,
+        error: 'Could not read this Capitec statement line - check it in the PDF and add it by hand if needed',
       });
     }
   }

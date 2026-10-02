@@ -13,13 +13,17 @@
  * authenticated companyId. Requiring child access to revoke would strand a link
  * created in error — or by someone since removed from the child — with no way
  * back short of raw SQL, leaving the GL exposed. Revocation must never be
- * harder than creation.
+ * harder than creation. The CHILD side may withdraw too (D4 round 10): with the
+ * child as the active company, DELETE ?parentCompanyId= removes the link that
+ * exposes it, so its own owners can end a grant someone else made.
+ *
+ * Every id is UUID-checked (typeof first) before any ::UUID cast (400).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, withWriteAccess, type CompanyAuthedRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
@@ -27,8 +31,9 @@ import {
   createCompanyRelationship,
   deleteCompanyRelationship,
 } from '@/modules/accounting/services/reports/consolidationService';
-import { userBelongsToCompany } from '@/modules/accounting/services/core/companyAccessService';
+import { userCanWriteCompany } from '@/modules/accounting/services/core/companyAccessService';
 import { sql } from '@/lib/neon';
+import { isUuidParam } from '@/lib/validation';
 import type { DbRow } from '@/lib/neon';
 
 type Row = DbRow;
@@ -56,6 +61,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!childCompanyId) {
       return apiResponse.badRequest(res, 'childCompanyId is required');
     }
+    if (!isUuidParam(childCompanyId)) return apiResponse.badRequest(res, 'childCompanyId must be a valid UUID');
 
     // Verify the child company exists
     const exists = (await sql`
@@ -70,9 +76,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // consolidation/intercompany-balances aggregate every child's GL, so
     // attaching a company the caller does not belong to reads that tenant's
     // whole ledger. 403 (not 404) — the company demonstrably exists.
-    if (!(await userBelongsToCompany(userId, childCompanyId))) {
+    // A write role in the child, not membership: attaching it publishes its ledger (D4 round 9).
+    if (!(await userCanWriteCompany(userId, childCompanyId))) {
       log.warn(
-        'Refused subsidiary link to a company the user does not belong to',
+        'Refused subsidiary link to a company the user holds no write role in',
         { companyId, childCompanyId, userId },
         'consolidation-api',
       );
@@ -96,24 +103,34 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'DELETE') {
-    const childCompanyId =
-      typeof req.query.childCompanyId === 'string'
-        ? req.query.childCompanyId
-        : (req.body as { childCompanyId?: string } | undefined)?.childCompanyId;
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+    const childCompanyId: unknown = req.query.childCompanyId ?? body.childCompanyId;
+    const parentCompanyId: unknown = req.query.parentCompanyId ?? body.parentCompanyId;
 
-    if (!childCompanyId) {
+    if (childCompanyId !== undefined && parentCompanyId !== undefined) {
+      return apiResponse.badRequest(res, 'Give childCompanyId (as the parent) or parentCompanyId (as the child), not both');
+    }
+    if (childCompanyId === undefined && parentCompanyId === undefined) {
       return apiResponse.badRequest(res, 'childCompanyId is required');
     }
+    const other = childCompanyId ?? parentCompanyId;
+    if (!isUuidParam(other)) {
+      return apiResponse.badRequest(res, `${childCompanyId !== undefined ? 'childCompanyId' : 'parentCompanyId'} must be a valid UUID`);
+    }
 
-    // companyId comes from withAuth, so passing it as the parent IS the
-    // authorisation check: the UPDATE matches nothing for any other parent.
-    const removed = await deleteCompanyRelationship(companyId, childCompanyId, userId);
+    // companyId comes from withAuth (and withWriteAccess holds a write role in it), so it IS the
+    // authorisation: as the parent it withdraws a subsidiary, as the child it withdraws itself.
+    // The UPDATE matches nothing for any other pair.
+    const asParent = childCompanyId !== undefined;
+    const removed = asParent
+      ? await deleteCompanyRelationship(companyId, other, userId)
+      : await deleteCompanyRelationship(other, companyId, userId);
 
     if (!removed) {
       return apiResponse.notFound(res, 'No active subsidiary relationship found');
     }
 
-    log.info('Subsidiary relationship withdrawn', { companyId, childCompanyId, userId }, 'consolidation-api');
+    log.info('Subsidiary relationship withdrawn', { companyId, other, asParent, userId }, 'consolidation-api');
     const items = await getGroupCompanies(companyId);
     return apiResponse.success(res, { items });
   }
@@ -121,4 +138,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'DELETE']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler as Parameters<typeof withAuth>[0])));
+// POST / DELETE change the ACTIVE company's subsidiaries (it is the parent), so its own role
+// decides: withWriteAccess refuses a viewer with 403. GET passes through.
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as Parameters<typeof withAuth>[0]))));

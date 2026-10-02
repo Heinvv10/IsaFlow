@@ -14,7 +14,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 
 const query: { ref?: string } = { ref: 'k095ref' };
 vi.mock('next/router', () => ({ useRouter: () => ({ isReady: true, query }) }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async (orig) => ({ ...await orig<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
 
 import { apiFetch } from '@/lib/apiFetch';
 import PaystackMandateReturn from '@/../pages/admin/billing/paystack/return';
@@ -22,11 +22,7 @@ import PaystackMandateReturn from '@/../pages/admin/billing/paystack/return';
 const mocked = apiFetch as unknown as ReturnType<typeof vi.fn>;
 
 function verifyAnswers(data: Record<string, unknown>) {
-  mocked.mockResolvedValueOnce({
-    ok: true,
-    status: 200,
-    json: async () => ({ data }),
-  });
+  mocked.mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data }), { status: 200 }));
 }
 
 describe('Paystack mandate return page', () => {

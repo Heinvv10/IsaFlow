@@ -7,7 +7,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { Landmark, ArrowLeft, Loader2 } from 'lucide-react';
 import { RateCurve } from '@/components/loans/types';
 
@@ -54,9 +55,9 @@ export default function NewLoanPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/loan-rate-curves')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the rate curves - try again'); return r.json(); })
       .then(j => setCurves(j.data ?? []))
-      .catch(() => setCurves([]));
+      .catch(err => { setCurves([]); setError(apiErrorMessage(err, 'Could not load the rate curves - try again')); });
   }, []);
 
   const set = <K extends keyof LoanForm>(k: K, v: LoanForm[K]) =>
@@ -99,11 +100,11 @@ export default function NewLoanPage() {
         method: 'POST',
         body: JSON.stringify(body),
       });
+      await assertOk(res, 'Could not create the loan - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to create loan');
-      await router.push(`/accounting/loans/${json.data.id}`);
+      try { await router.push(`/accounting/loans/${json.data.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'loans-new'); }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create loan');
+      setError(apiErrorMessage(err, 'Could not create loan - try again'));
     } finally {
       setBusy(false);
     }

@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { AlertCircle, Loader2, Plus } from 'lucide-react';
 
@@ -31,11 +31,12 @@ export default function FlowBundlesPage() {
     setError('');
     try {
       const res = await apiFetch('/api/admin/billing/flow-bundles');
+      await assertOk(res, 'Could not load bundles - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message ?? 'Failed to load bundles');
       setBundles(json.data.bundles as Bundle[]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load bundles');
+      setBundles([]);
+      setError(apiErrorMessage(err, 'Could not load bundles - try again'));
     } finally {
       setLoading(false);
     }
@@ -48,14 +49,15 @@ export default function FlowBundlesPage() {
       window.alert('Name, positive flows, and non-negative price are required');
       return;
     }
-    const res = await apiFetch('/api/admin/billing/flow-bundles', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
-      body: JSON.stringify(draft),
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      window.alert(json?.error?.message ?? 'Create failed');
+    try {
+      const res = await apiFetch('/api/admin/billing/flow-bundles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        body: JSON.stringify(draft),
+      });
+      await assertOk(res, 'Could not create the bundle - try again');
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Could not create the bundle - try again'));
       return;
     }
     setDraft(emptyDraft);
@@ -63,12 +65,18 @@ export default function FlowBundlesPage() {
   }
 
   async function toggleActive(bundle: Bundle) {
-    const res = await apiFetch(`/api/admin/billing/flow-bundles/${bundle.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
-      body: JSON.stringify({ isActive: !bundle.isActive }),
-    });
-    if (res.ok) await load();
+    try {
+      const res = await apiFetch(`/api/admin/billing/flow-bundles/${bundle.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        body: JSON.stringify({ isActive: !bundle.isActive }),
+      });
+      await assertOk(res, 'Could not update the bundle - try again');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not update the bundle - try again'));
+      return;
+    }
+    await load();
   }
 
   return (

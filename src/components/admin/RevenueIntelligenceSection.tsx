@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { RevenueIntelligence } from '@/modules/admin/types/admin.types';
 
@@ -67,11 +67,12 @@ export function RevenueIntelligenceSection() {
     setError('');
     try {
       const res  = await apiFetch('/api/admin/analytics/revenue');
+      await assertOk(res, 'Could not load the revenue data - try again');
       const json = await res.json() as { data: RevenueIntelligence };
-      if (!res.ok) throw new Error((json as unknown as { message?: string }).message ?? 'Failed to load revenue data');
       setData(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load revenue data');
+      setData(null);
+      setError(apiErrorMessage(err, 'Could not load the revenue data - try again'));
     } finally {
       setLoading(false);
     }

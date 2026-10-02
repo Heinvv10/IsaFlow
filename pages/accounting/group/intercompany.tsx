@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import {
   Building2, Loader2, AlertCircle, Check, Plus, Link2, X, Calendar, Filter,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   StatCard,
   fmt,
@@ -69,20 +69,20 @@ export default function IntercompanyReconciliationPage() {
   const companies = activeGroup?.companies || [];
 
   useEffect(() => {
-    (async () => {
+    void (async () => {
       setLoading(true);
-      const res = await apiFetch('/api/accounting/company-groups');
-      if (res.ok) {
+      try {
+        const res = await apiFetch('/api/accounting/company-groups');
+        await assertOk(res, 'Could not load company groups - try again');
         const json = await res.json();
         const list: CompanyGroup[] = json.data?.items ?? json.data ?? [];
         setGroups(list);
         if (list.length > 0 && !selectedGroupId && list[0]) setSelectedGroupId(list[0].id);
-      }
-      setLoading(false);
-    })().catch(() => {
-      setLoading(false);
-      setMsg({ type: 'error', text: 'Failed to load company groups' });
-    });
+      } catch (err) {
+        setGroups([]);
+        setMsg({ type: 'error', text: apiErrorMessage(err, 'Could not load company groups - try again') });
+      } finally { setLoading(false); }
+    })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadData = useCallback(async () => {
@@ -95,59 +95,55 @@ export default function IntercompanyReconciliationPage() {
       ...(periodEnd ? { period_end: periodEnd } : {}),
     });
     if (activeTab !== 'all') params.set('status', activeTab);
-
-    const [txRes, reconRes] = await Promise.all([
-      apiFetch(`/api/accounting/intercompany-transactions?${params}`),
-      apiFetch(
-        `/api/accounting/intercompany-transactions?group_id=${selectedGroupId}&action=reconciliation&period_start=${periodStart}&period_end=${periodEnd}`
-      ),
-    ]);
-    if (txRes.ok) {
-      const json = await txRes.json();
-      setTransactions(json.data?.items || json.data || []);
-    }
-    if (reconRes.ok) {
-      const json = await reconRes.json();
-      setStats(json.data || null);
-    }
-    setLoadingTx(false);
+    try {
+      const [txRes, reconRes] = await Promise.all([
+        apiFetch(`/api/accounting/intercompany-transactions?${params}`),
+        apiFetch(
+          `/api/accounting/intercompany-transactions?group_id=${selectedGroupId}&action=reconciliation&period_start=${periodStart}&period_end=${periodEnd}`
+        ),
+      ]);
+      await assertOk(txRes, 'Could not load intercompany data - try again');
+      await assertOk(reconRes, 'Could not load intercompany data - try again');
+      const [txJson, reconJson] = await Promise.all([txRes.json(), reconRes.json()]);
+      setTransactions(txJson.data?.items || txJson.data || []);
+      setStats(reconJson.data || null);
+    } catch (err) {
+      setTransactions([]); setStats(null);
+      setMsg({ type: 'error', text: apiErrorMessage(err, 'Could not load intercompany data - try again') });
+    } finally { setLoadingTx(false); }
   }, [selectedGroupId, periodStart, periodEnd, activeTab]);
 
   useEffect(() => {
-    loadData().catch(() => {
-      setLoadingTx(false);
-      setMsg({ type: 'error', text: 'Failed to load intercompany data' });
-    });
+    void loadData();
   }, [loadData]);
 
   const handleCreate = async () => {
     if (!form.sourceCompanyId || !form.targetCompanyId || !form.amount) return;
     setSaving(true);
-    const res = await apiFetch('/api/accounting/intercompany-transactions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        groupId: selectedGroupId,
-        sourceCompanyId: form.sourceCompanyId,
-        targetCompanyId: form.targetCompanyId,
-        transactionType: form.type,
-        amount: parseFloat(form.amount),
-        currency: form.currency,
-        transactionDate: form.date,
-        description: form.description,
-        sourceJournalEntryId: form.journalEntryId || undefined,
-      }),
-    });
-    if (res.ok) {
+    try {
+      const res = await apiFetch('/api/accounting/intercompany-transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          groupId: selectedGroupId,
+          sourceCompanyId: form.sourceCompanyId,
+          targetCompanyId: form.targetCompanyId,
+          transactionType: form.type,
+          amount: parseFloat(form.amount),
+          currency: form.currency,
+          transactionDate: form.date,
+          description: form.description,
+          sourceJournalEntryId: form.journalEntryId || undefined,
+        }),
+      });
+      await assertOk(res, 'Could not create the transaction - try again');
       setMsg({ type: 'success', text: 'Transaction recorded' });
       setShowCreate(false);
       setForm(BLANK_FORM);
       await loadData();
-    } else {
-      const err = await res.json().catch(() => null);
-      setMsg({ type: 'error', text: err?.message || 'Failed to create transaction' });
-    }
-    setSaving(false);
+    } catch (err) {
+      setMsg({ type: 'error', text: apiErrorMessage(err, 'Could not create the transaction - try again') });
+    } finally { setSaving(false); }
   };
 
   const toggleMatchSelect = (id: string) => {
@@ -161,20 +157,19 @@ export default function IntercompanyReconciliationPage() {
   const handleMatch = async () => {
     if (matchSelection.length !== 2) return;
     setSaving(true);
-    const res = await apiFetch('/api/accounting/intercompany-transactions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'match', sourceId: matchSelection[0], targetId: matchSelection[1] }),
-    });
-    if (res.ok) {
+    try {
+      const res = await apiFetch('/api/accounting/intercompany-transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'match', sourceId: matchSelection[0], targetId: matchSelection[1] }),
+      });
+      await assertOk(res, 'Could not match the transactions - try again');
       setMsg({ type: 'success', text: 'Transactions matched' });
       setMatchSelection([]);
       await loadData();
-    } else {
-      const err = await res.json().catch(() => null);
-      setMsg({ type: 'error', text: err?.message || 'Match failed' });
-    }
-    setSaving(false);
+    } catch (err) {
+      setMsg({ type: 'error', text: apiErrorMessage(err, 'Could not match the transactions - try again') });
+    } finally { setSaving(false); }
   };
 
   const filtered = activeTab === 'all' ? transactions : transactions.filter((t) => t.status === activeTab);

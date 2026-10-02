@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { CreditCard, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 
@@ -58,11 +58,12 @@ export function PaystackMandateCard() {
     setError('');
     try {
       const res = await apiFetch('/api/billing/paystack/mandate/status');
-      if (!res.ok) throw new Error(`Failed to load (${res.status})`);
+      await assertOk(res, 'Could not load the debit order status - try again');
       const json = (await res.json()) as { data: StatusResponse };
       setData(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load mandate');
+      setData(null);
+      setError(apiErrorMessage(err, 'Could not load the debit order status - try again'));
     } finally {
       setLoading(false);
     }
@@ -85,13 +86,12 @@ export function PaystackMandateCard() {
         method: 'POST',
         body: JSON.stringify({ maxAmountCents: Math.round(rands * 100) }),
       });
-      const json = (await res.json()) as { data?: { checkoutUrl: string }; error?: { message: string } };
-      if (!res.ok || !json.data?.checkoutUrl) {
-        throw new Error(json.error?.message ?? `Failed (${res.status})`);
-      }
+      await assertOk(res, 'Could not start the debit order authorisation - try again');
+      const json = (await res.json()) as { data?: { checkoutUrl: string } };
+      if (!json.data?.checkoutUrl) throw new ApiEnvelopeError('Could not start the debit order authorisation - try again');
       window.location.href = json.data.checkoutUrl;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Authorisation failed');
+      setError(apiErrorMessage(err, 'Could not start the debit order authorisation - try again'));
       setBusy(false);
     }
   }, []);
@@ -104,10 +104,10 @@ export function PaystackMandateCard() {
         method: 'POST',
         body: JSON.stringify({ reason: 'User revoked from admin UI' }),
       });
-      if (!res.ok) throw new Error(`Failed (${res.status})`);
+      await assertOk(res, 'Could not revoke the debit order - try again');
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Revoke failed');
+      setError(apiErrorMessage(err, 'Could not revoke the debit order - try again'));
     } finally {
       setBusy(false);
     }

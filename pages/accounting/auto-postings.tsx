@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { AlertCircle, FileSpreadsheet, Filter, Loader2, Shield } from 'lucide-react';
 
@@ -84,12 +84,12 @@ export default function AutoPostingsPage() {
       params.set('offset', String(page * PAGE_SIZE));
 
       const res = await apiFetch(`/api/accounting/journal-entries-audit?${params.toString()}`);
-      if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+      await assertOk(res, 'Could not load the audit trail - try again');
       const json = await res.json();
       setData(json.data ?? json);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to load audit trail';
-      setError(msg);
+      setData(null);
+      setError(apiErrorMessage(err, 'Could not load the audit trail - try again'));
       log.error('Failed to load auto-postings', { error: err }, 'accounting-ui');
     } finally {
       setLoading(false);

@@ -61,14 +61,15 @@ export function ClientRateOverrides({ clientId }: Props) {
         apiFetch(`${baseUrl}/rate-overrides`),
         apiFetch(`${baseUrl}/staff`),
       ]);
-      await assertOk(overridesRes, 'Failed to load rate overrides');
-      await assertOk(staffRes, 'Failed to load staff');
+      await assertOk(overridesRes, 'Could not load the rate overrides - try again');
+      await assertOk(staffRes, 'Could not load the staff list - try again');
       const overridesJson = await overridesRes.json() as { data?: RateOverride[] } | RateOverride[];
       setOverrides(('data' in overridesJson ? overridesJson.data : overridesJson) as RateOverride[] ?? []);
       const staffJson = await staffRes.json() as { data?: StaffMember[] } | StaffMember[];
       setStaff(('data' in staffJson ? staffJson.data : staffJson) as StaffMember[] ?? []);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to load rate overrides'));
+      setOverrides([]); setStaff([]);
+      setError(apiErrorMessage(err, 'Could not load the rate overrides - try again'));
     } finally {
       setLoading(false);
     }
@@ -95,15 +96,12 @@ export function ClientRateOverrides({ clientId }: Props) {
           notes: form.notes || null,
         }),
       });
-      if (!res.ok) {
-        const json = await res.json() as { error?: { message?: string }; message?: string };
-        throw new Error(json.error?.message ?? json.message ?? `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not save the rate - try again');
       setShowForm(false);
       setForm(EMPTY_FORM);
       await loadData();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to save');
+      setFormError(apiErrorMessage(err, 'Could not save the rate - try again'));
     } finally {
       setSaving(false);
     }
@@ -113,10 +111,10 @@ export function ClientRateOverrides({ clientId }: Props) {
     setDeletingId(id);
     try {
       const res = await apiFetch(`${baseUrl}/rate-overrides?overrideId=${id}`, { method: 'DELETE' });
-      await assertOk(res, 'Failed to delete override');
+      await assertOk(res, 'Could not delete the rate override - try again');
       await loadData();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to delete override'));
+      setError(apiErrorMessage(err, 'Could not delete the rate override - try again'));
     } finally {
       setDeletingId(null);
     }

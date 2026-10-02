@@ -8,12 +8,15 @@ function setStatus(msg, kind) {
   $status.className = kind || '';
 }
 
+// An error whose message is a plain sentence fit for the status line.
+class BgError extends Error {}
+const popupMessage = (err, fallback) => (err instanceof BgError ? err.message : fallback);
+
 function bg(type, extra) {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage({ source: 'isaflow-bank', type, ...(extra || {}) }, (resp) => {
-      const err = chrome.runtime.lastError;
-      if (err) return reject(new Error(err.message));
-      if (!resp || resp.ok === false) return reject(new Error(resp && resp.error ? resp.error : 'Unknown error'));
+      if (chrome.runtime.lastError) return reject(new BgError('The extension is not responding - reload it and try again'));
+      if (!resp || resp.ok === false) return reject(new BgError(resp && resp.error ? resp.error : 'The extension could not finish that - try again'));
       resolve(resp.value);
     });
   });
@@ -104,7 +107,7 @@ async function refresh() {
     }
     for (const c of list) $conn.appendChild(row(c));
   } catch (err) {
-    setStatus('Failed to load: ' + err.message, 'err');
+    setStatus(popupMessage(err, 'Could not load your bank connections - try again'), 'err');
   }
 }
 
@@ -135,7 +138,7 @@ $conn.addEventListener('click', async (ev) => {
       setStatus('Unpaired', 'ok');
     }
   } catch (err) {
-    setStatus(err.message, 'err');
+    setStatus(popupMessage(err, 'That did not work - try again'), 'err');
   } finally {
     btn.disabled = false;
     refresh();

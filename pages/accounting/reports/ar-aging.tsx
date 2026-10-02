@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Users, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatOverdueDaysCompact } from '@/lib/format/aging';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -87,12 +87,14 @@ export default function ARAgingPage() {
     try {
       const params = new URLSearchParams({ as_at_date: asAtDate });
       const res = await apiFetch(`/api/accounting/reports-ar-aging?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the AR aging report - try again');
       const json = await res.json() as { data?: ARAgingData; message?: string; meta?: { hasMore?: boolean } };
-      if (!res.ok) throw new Error(json.message ?? 'Failed to load AR aging');
       setData(json.data ?? null);
       setHasMore(Boolean((json as { meta?: { hasMore?: boolean } }).meta?.hasMore));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      setData(null);
+      setHasMore(false);
+      setError(apiErrorMessage(err, 'Could not load - try again'));
     } finally {
       setLoading(false);
     }

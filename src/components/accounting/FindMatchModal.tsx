@@ -8,7 +8,7 @@
 import { useState, useEffect } from 'react';
 import { X, Search, CheckCircle, FileText, ShoppingCart, BookOpen, Loader2, Users } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { MatchCandidate, CandidateType } from '@/modules/accounting/types/bank-match.types';
 
 interface Transaction {
@@ -64,16 +64,16 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
         const res = await apiFetch(
           `/api/accounting/bank-match-candidates?bankTransactionId=${encodeURIComponent(transaction.id)}`,
         );
-        const json = await res.json() as { success: boolean; data?: { candidates: MatchCandidate[] }; error?: { message: string } };
-        if (!res.ok || !json.success) {
-          throw new Error(json.error?.message ?? 'Failed to load candidates');
-        }
+        await assertOk(res, 'Could not load the match candidates - try again');
+        const json = await res.json() as { success: boolean; data?: { candidates: MatchCandidate[] } };
+        if (!json.success) throw new ApiEnvelopeError('Could not load the match candidates - try again');
         if (!cancelled) {
           setCandidates(json.data?.candidates ?? []);
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load candidates');
+          setCandidates([]);
+          setError(apiErrorMessage(err, 'Could not load the match candidates - try again'));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -108,15 +108,14 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
           candidateId: selected.id,
         }),
       });
-      const json = await res.json() as { success: boolean; error?: { message: string } };
-      if (!res.ok || !json.success) {
-        throw new Error(json.error?.message ?? 'Match failed');
-      }
+      await assertOk(res, 'Could not confirm the match - try again');
+      const json = await res.json() as { success: boolean };
+      if (!json.success) throw new ApiEnvelopeError('Could not confirm the match - try again');
       const matchedMeta = TYPE_META[selected.type];
       notify.success(`Matched to ${matchedMeta?.label ?? selected.type}: ${selected.label}`);
       onMatch(selected.type, selected.id);
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Match confirmation failed');
+      notify.error(apiErrorMessage(err, 'Could not confirm the match - try again'));
     } finally {
       setConfirming(false);
     }

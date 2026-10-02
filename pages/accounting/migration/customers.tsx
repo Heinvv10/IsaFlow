@@ -2,7 +2,8 @@ import { useState, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiErrorMessage, apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 const CUSTOMER_FIELDS = [
   'name', 'email', 'phone', 'vat_number', 'registration_number',
@@ -58,7 +59,10 @@ export default function CustomersImportPage() {
           ) as Partial<Record<CustomerField, string>>,
         })));
       },
-      error: err => setError(`CSV parse error: ${err.message}`),
+      error: err => {
+        log.warn('CSV parse error', { error: err }, 'migration');
+        setError('Could not read the CSV file - check it is a valid CSV and try again');
+      },
     });
   };
 
@@ -79,9 +83,9 @@ export default function CustomersImportPage() {
     try {
       // The envelope is { session: {...} | null } — reading `data.id` always
       // yielded undefined, so this flow always failed with "No active session."
-      const { session } = await apiJson('/api/accounting/migration/session');
+      const { session } = await apiJson('/api/accounting/migration/session', undefined, 'Could not load the migration session - try again');
       const sessionId = session?.id;
-      if (!sessionId) throw new Error('No active migration session');
+      if (!sessionId) throw new ApiEnvelopeError('No active migration session - start one before importing');
 
       const customers = rows.map(r => ({
         name: r.mapped.name ?? '',
@@ -101,26 +105,30 @@ export default function CustomersImportPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, customers, duplicateStrategy }),
       });
+      await assertOk(res, 'Could not import the customers - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Import failed');
       setImportResult(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import failed');
+      setError(apiErrorMessage(err, 'Could not import the customers - try again'));
     } finally {
       setIsImporting(false);
     }
   };
 
   const downloadTemplate = async () => {
-    const res = await apiFetch('/api/accounting/migration/templates?step=customers');
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'customers-template.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const res = await apiFetch('/api/accounting/migration/templates?step=customers');
+      await assertOk(res, 'Could not download the template - try again');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'customers-template.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not download the template - try again'));
+    }
   };
 
   return (
@@ -154,7 +162,7 @@ export default function CustomersImportPage() {
 
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">2. Upload Your CSV</h2>
-            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]).catch(err => setError(err instanceof Error ? err.message : 'Failed to parse CSV file')); }} />
+            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]).catch(() => setError('Could not read this CSV file - check it and try again')); }} />
             <button
               onClick={() => fileRef.current?.click()}
               className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-secondary)] hover:border-blue-500 hover:text-blue-500 text-sm transition-colors"

@@ -8,7 +8,8 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, User, MapPin, Users, Activity, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { formatCurrency } from '@/utils/formatters';
 import { DeliveryAddressesTab } from '@/components/accounting/customers/DeliveryAddressesTab';
 import { ContactsTab } from '@/components/accounting/customers/ContactsTab';
@@ -96,13 +97,13 @@ export default function CustomerDetailPage() {
     setActivityLoading(true);
     setActivityError('');
     try {
-      const res = await apiFetch(`/api/accounting/customers?id=${customerId as string}&include=activity`);
+      const res = await apiFetch(`/api/accounting/customers?id=${customerId as string}&include=activity`); await assertOk(res, 'Could not load activity - try again');
       const json = await res.json() as { data?: ActivityRow[] } | ActivityRow[];
       const data = (json as { data?: ActivityRow[] }).data ?? (json as ActivityRow[]);
       setActivity(Array.isArray(data) ? data : []);
       setActivityLoaded(true);
-    } catch {
-      setActivityError('Failed to load activity');
+    } catch (err) {
+      setActivityError(apiErrorMessage(err, 'Could not load activity - try again'));
     } finally {
       setActivityLoading(false);
     }
@@ -126,23 +127,20 @@ export default function CustomerDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ entityType: 'customer', entityId: customerId as string }),
       });
+      await assertOk(res, 'Could not delete the customer - try again');
       const json = await res.json() as { success?: boolean; error?: { message?: string } };
-      if (!res.ok || json.success === false) {
-        alert(json.error?.message ?? 'Failed to delete customer');
-        return;
-      }
-      void router.push('/accounting/customers');
-    } catch {
-      alert('Failed to delete customer');
-    } finally {
-      setDeleting(false);
-    }
+      if (json.success === false) { alert(json.error?.message ?? 'Could not delete the customer - try again'); return; }
+      try { await router.push('/accounting/customers'); } catch (e) { log.warn('navigation failed', { error: e }, 'customers-customerId'); }
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Could not delete the customer - try again'));
+    } finally { setDeleting(false); }
   };
 
   const loadCustomer = async () => {
     setLoading(true);
+    setError('');
     try {
-      const res = await apiFetch(`/api/accounting/customers?id=${customerId as string}`);
+      const res = await apiFetch(`/api/accounting/customers?id=${customerId as string}`); await assertOk(res, 'Could not load customer - try again');
       const json = await res.json() as { data?: Customer | Customer[] } | Customer | Customer[];
       const data = (json as { data?: Customer | Customer[] }).data ?? json;
       if (Array.isArray(data)) {
@@ -152,8 +150,9 @@ export default function CustomerDetailPage() {
       } else {
         setCustomer(data as Customer);
       }
-    } catch {
-      setError('Failed to load customer');
+    } catch (err) {
+      setCustomer(null);
+      setError(apiErrorMessage(err, 'Could not load customer - try again'));
     } finally {
       setLoading(false);
     }

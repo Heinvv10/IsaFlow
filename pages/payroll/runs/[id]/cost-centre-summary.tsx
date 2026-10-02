@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Building2, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
 
@@ -41,11 +41,12 @@ export default function CostCentreSummaryPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/runs/${id}/cost-centre-summary`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the cost centre summary - try again');
       const json = await res.json();
       setData((json.data ?? json) as Summary);
-    } catch {
-      setError('Failed to load cost centre summary');
+    } catch (err) {
+      setData(null);
+      setError(apiErrorMessage(err, 'Could not load the cost centre summary - try again'));
     } finally {
       setLoading(false);
     }
