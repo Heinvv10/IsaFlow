@@ -115,3 +115,18 @@ describe('page 5\'s headline, which ranks the months', () => {
   });
 });
 
+describe('page 5\'s caption, which names the biggest month', () => {
+  it('ranks whole months, and still totals the whole window', () => {
+    // A two-day stub that invoices on the 1st: 900 000 of revenue.
+    const input: BoardPackInput = {
+      ...demoInput,
+      trend: demoInput.trend.map((point, i, all) => (i === all.length - 1
+        ? { ...point, partial: true, daysCovered: 2, revenue: 900_000 }
+        : point)),
+    };
+    const caption = JSON.stringify(pageNamed(buildBoardPackPages(input), 'Monthly results').blocks);
+    expect(caption).not.toMatch(/\(part\) carried the most revenue/);
+    expect(caption).toMatch(/carried the most revenue of any whole month/);
+  });
+});
+

@@ -102,7 +102,13 @@ export function monthlyResultsCaption(trend: PackTrendPoint[], scale: MoneyScale
   }
 
   const total = trend.reduce((sum, point) => sum + point.revenue, 0);
-  const biggest = trend.reduce((a, b) => (b.revenue > a.revenue ? b : a));
+  // The total is the whole window's; the RANKING is over whole months, as the
+  // title's is — a two-day stub is not "the most revenue of any month". Said
+  // "whole" only where the stub out-earned them, which is the one case "any
+  // month" would be false: the word costs page 5 a note on the live packs.
+  const whole = wholeMonthsOf(trend);
+  const biggest = (whole.length > 0 ? whole : trend).reduce((a, b) => (b.revenue > a.revenue ? b : a));
+  const any = trend.some((p) => p.partial && p.revenue > biggest.revenue) ? 'any whole month' : 'any month';
   // THE SHARE IS TAKEN OFF THE PRINTED FIGURES, not the raw ones — page 10's
   // lesson (`atScale`): a percentage computed on rands beside two figures
   // printed in thousands is a check the reader cannot reproduce, on a page
@@ -116,7 +122,7 @@ export function monthlyResultsCaption(trend: PackTrendPoint[], scale: MoneyScale
       + largestContraryFigureSentence(trend, scale);
   }
   const share = (printed(biggest.revenue) / base) * 100;
-  return `${monthLabel(biggest)} carried the most revenue of any month, ${money(biggest.revenue)} `
+  return `${monthLabel(biggest)} carried the most revenue of ${any}, ${money(biggest.revenue)} `
     + `of the ${money(total)} earned over ${window} — ${share.toFixed(1)}% of it.`
     + largestContraryFigureSentence(trend, scale);
 }

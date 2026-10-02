@@ -38,8 +38,9 @@ export interface BulkLoadedJournals {
   days: number;
   firstRecorded: string;
   lastRecorded: string;
-  /** The earliest date any of them carries, `YYYY-MM-DD` — how far back into
-   *  periods already reported on the load reached. */
+  /** The earliest date any of them carries, `YYYY-MM-DD` — within the
+   *  window, since only the window's journals are read: how far back into the
+   *  reported period the load reached, not into periods before it. */
   oldestEntryDate: string;
 }
 

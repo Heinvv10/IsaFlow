@@ -39,7 +39,7 @@ describe('a pack whose ledger was loaded in bulk', () => {
     if (table === undefined || table.kind !== 'matters') throw new Error('page 11 has no table');
     const loads = table.matters.filter((m) => /recorded in bulk/.test(m.issue));
     expect(loads).toHaveLength(1);
-    expect(loads[0]!.issue).toMatch(/^19\u00a0581 journals dated as far back as 1 April 2025 were recorded in bulk on 12 days between 5 September 2026 and 18 September 2026/);
+    expect(loads[0]!.issue).toMatch(/^19\u00a0581 journals dated as far back as 1 January 2026 were recorded in bulk on 12 days between 5 September 2026 and 18 September 2026/);
     expect(loads[0]!.decisionRequired).toBe(BOARD_DECISIONS.bulkLoadedJournals);
   });
 

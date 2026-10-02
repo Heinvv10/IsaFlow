@@ -164,7 +164,7 @@ const ROUND_NUMBER_JOURNALS: Array<[string, string, number]> = [
  *  days on the 18 September production copy. The count is that page's, not a
  *  census of the ledger. */
 export const VELOCITY_RELOAD = {
-  journals: 19_581, days: 12, firstRecorded: '2026-09-05', lastRecorded: '2026-09-18', oldestEntryDate: '2025-04-01',
+  journals: 19_581, days: 12, firstRecorded: '2026-09-05', lastRecorded: '2026-09-18', oldestEntryDate: '2026-01-01',
 };
 
 export const velocityMatters: PackMatter[] = [
