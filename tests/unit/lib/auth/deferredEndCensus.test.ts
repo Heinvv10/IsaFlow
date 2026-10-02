@@ -36,7 +36,7 @@ const callsNamed = (name: string) => (n: ts.Node) =>
  * Anything that replaces a property named `end`, whatever the receiver is called:
  * `x.end =`, `(x as any).end =`, `x['end'] =`, `Object.defineProperty(x, 'end', …)`,
  * `Object.defineProperties(x, { end })`, `Object.assign(x, { end })` (plain, quoted or `['end']`
- * key) and `Reflect.set(x, 'end', …)`. A receiver-name filter would miss `apiRes.end =` or an
+ * key), `Reflect.set(x, 'end', …)` and `Reflect.defineProperty(x, 'end', …)` (R-176). A receiver-name filter would miss `apiRes.end =` or an
  * alias. This fails closed. A file that sets a non-response `end` (a date range, say) goes in
  * NOT_A_RESPONSE, with the reason.
  *
@@ -55,7 +55,8 @@ const hasEndProperty = (o: ts.Expression | undefined) => o !== undefined && ts.i
 const isEndLiteral = (a: ts.Expression | undefined) => a !== undefined && ts.isStringLiteralLike(a) && a.text === 'end';
 const assignsEnd = (n: ts.Node) => {
   if (ts.isCallExpression(n)) {
-    if (isCallOn(n, 'Object', 'defineProperty') || isCallOn(n, 'Reflect', 'set')) return isEndLiteral(n.arguments[1]);
+    if (isCallOn(n, 'Object', 'defineProperty') || isCallOn(n, 'Reflect', 'set')
+      || isCallOn(n, 'Reflect', 'defineProperty')) return isEndLiteral(n.arguments[1]);
     if (isCallOn(n, 'Object', 'defineProperties')) return hasEndProperty(n.arguments[1]);
     if (isCallOn(n, 'Object', 'assign')) return n.arguments.slice(1).some(hasEndProperty);
     return false;
@@ -79,12 +80,14 @@ describe('R-159: a deferred res.end is always answered on a throw', () => {
     'const target = res; target.end = f;', "Object.defineProperty(res, 'end', { value: f });",
     'Object.assign(res, { end: f });', "Object.assign(out, { 'end': f });", "Object.assign(res, { ['end']: f });",
     'Object.defineProperties(res, { end: { value: f } });', "Reflect.set(res, 'end', f);",
+    "Reflect.defineProperty(res, 'end', { value: f });",
   ])('the matcher flags %s', (snippet) => {
     expect(flags(snippet)).toBe(true);
   });
 
   it.each(['const end = 1;', 'res.end(body);', 'range.start = 1;', 'Object.assign(res, { status: 1 });',
-    "Reflect.set(res, 'status', 1);", "Foo.assign(res, { end: f });"])(
+    "Reflect.set(res, 'status', 1);", "Reflect.defineProperty(res, 'status', { value: 1 });",
+    "Foo.assign(res, { end: f });"])(
     'the matcher leaves %s alone', (snippet) => {
       expect(flags(snippet)).toBe(false);
     });

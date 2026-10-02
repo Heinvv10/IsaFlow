@@ -10,7 +10,8 @@ const h = vi.hoisted(() => ({ captureException: vi.fn() }));
 vi.mock('@sentry/nextjs', () => ({ captureException: h.captureException }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
-import { answerThrow, deferEnd } from '@/lib/auth/deferredEnd';
+import { answerThrow, deferEnd, reportFinalizeFailure } from '@/lib/auth/deferredEnd';
+import { log } from '@/lib/logger';
 import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
 
 function res() {
@@ -113,5 +114,52 @@ describe('answerThrow', () => {
     answerThrow(req, r as never, null, new Error('boom'), { source: 'withAuth' });
     expect(r.statusCode).toBe(500);
     expect(ends).toHaveLength(1);
+  });
+});
+
+describe('reportFinalizeFailure (R-176)', () => {
+  const ctx = { source: 'withAuth', companyId: 'co-1', userId: 'u-1', handlerFailed: true, connectionDestroyed: true };
+
+  it('logs the request under the message an alert watches, with the tenant and what failed', () => {
+    const { r } = res();
+    r.statusCode = 503;
+    vi.mocked(log.error).mockClear();
+    reportFinalizeFailure(req, r as never, new Error('ROLLBACK did not answer'), { ...ctx, extra: { connectionId: 'c-1' } });
+    expect(vi.mocked(log.error).mock.calls).toEqual([['withAuth: transaction finalize failed after handler responded', {
+      url: '/api/invitations/revoke/abc', status: 503, handlerFailed: true, connectionDestroyed: true,
+      companyId: 'co-1', userId: 'u-1', connectionId: 'c-1', message: 'ROLLBACK did not answer',
+    }, 'Auth']]);
+  });
+
+  it('never logs the query string: some routes carry a secret there', () => {
+    vi.mocked(log.error).mockClear();
+    const whatsapp = { url: '/api/accounting/capture/inbound/whatsapp?token=s3cr3t-inbound-key&x=1' } as never;
+    reportFinalizeFailure(whatsapp, res().r as never, new Error('COMMIT refused'), ctx);
+    expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain('s3cr3t');
+    expect(vi.mocked(log.error).mock.calls[0]![1]).toMatchObject({ url: '/api/accounting/capture/inbound/whatsapp' });
+  });
+
+  it('captures to Sentry with the tenant when Sentry is on, and not when it is off', () => {
+    const err = new Error('COMMIT refused');
+    reportFinalizeFailure(req, res().r as never, err, ctx);
+    expect(h.captureException).not.toHaveBeenCalled();
+    vi.stubEnv('SENTRY_ENABLED', 'true');
+    reportFinalizeFailure(req, res().r as never, err, ctx);
+    expect(h.captureException.mock.calls).toEqual([[err, {
+      tags: { company_id: 'co-1', route: '/api/invitations/revoke/abc' }, user: { id: 'u-1' },
+    }]]);
+  });
+
+  it('a Sentry capture that throws does not escape: the wrapper still has a response to send', () => {
+    vi.stubEnv('SENTRY_ENABLED', 'true');
+    h.captureException.mockImplementationOnce(() => { throw new Error('sentry down'); });
+    expect(() => reportFinalizeFailure(req, res().r as never, new Error('x'), ctx)).not.toThrow();
+  });
+
+  it('keeps the wrapper\'s own log component when it has one', () => {
+    vi.mocked(log.error).mockClear();
+    reportFinalizeFailure(req, res().r as never, 'not an Error', { ...ctx, component: 'extensionAuth' });
+    expect(vi.mocked(log.error).mock.calls[0]![2]).toBe('extensionAuth');
+    expect(vi.mocked(log.error).mock.calls[0]![1]).toMatchObject({ message: 'not an Error' });
   });
 });

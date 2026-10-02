@@ -26,6 +26,7 @@ import { provisionTenant } from '@/modules/onboarding/services/tenantProvisionin
 import { sql } from '@/lib/neon';
 import { withRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 
 /** Where new-tenant notifications land. Only fires for VERIFIED signups. */
 const NOTIFY_TO = 'ai@velocityfibre.co.za';
@@ -42,7 +43,7 @@ function escapeHtml(value: string): string {
 function adminPool(): pg.Pool {
   const url = process.env.MIGRATION_ADMIN_DATABASE_URL;
   if (!url) throw new Error('MIGRATION_ADMIN_DATABASE_URL required for verify-email');
-  return new pg.Pool({
+  const pool = new pg.Pool({
     connectionString: url,
     max: 2,
     ssl:
@@ -52,6 +53,10 @@ function adminPool(): pg.Pool {
           ? false
           : { rejectUnauthorized: false },
   });
+  // Built per request and ended by it, but inside the server process: an unlistened pool error
+  // there is an uncaught exception (R-176).
+  pool.on('error', (err) => log.warn('verify-email pool error', { message: err.message }, 'auth'));
+  return pool;
 }
 
 /**
@@ -112,6 +117,7 @@ const handler: NextApiHandler = async (req, res) => {
   let email = '';
   let companyName = '';
   let signupType = '';
+  let unusable = false;
 
   try {
     // Consumption and provisioning share ONE transaction. If provisioning
@@ -122,7 +128,7 @@ const handler: NextApiHandler = async (req, res) => {
     const consumed = await consumeEmailVerificationToken(client, token);
 
     if (!consumed) {
-      await client.query('ROLLBACK');
+      unusable = await rollbackFailed(client, 'verify-email');
       // Either a dead link, or a retry after the post-commit GoTrue call below
       // failed. Distinguish by whether the tenant actually exists.
       const recovered = await recoverAlreadyConsumed(token);
@@ -177,19 +183,15 @@ const handler: NextApiHandler = async (req, res) => {
     paygEligible = provisioned.paygEligible;
     await client.query('COMMIT');
   } catch (err) {
-    await client.query('ROLLBACK').catch((rollbackErr: unknown) =>
-      log.error(
-        'ROLLBACK failed after provisioning error',
-        { error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr) },
-        'auth',
-      ),
-    );
+    // Not again if the early ROLLBACK above already failed: that client is condemned, and a second
+    // ROLLBACK would only queue behind the stuck one and send its backend a second cancel.
+    if (!unusable) unusable = await rollbackFailed(client, 'verify-email');
     log.error('tenant provisioning failed after verification', {
       error: err instanceof Error ? err.message : String(err),
     }, 'auth');
     throw err;
   } finally {
-    client.release();
+    client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
     await admin.end();
   }
 

@@ -1,0 +1,18 @@
+# GREEN on 6c5cd2698 (/review round 2; on the merge with origin/master); fixture isaflow-fixture-r175.
+# unit: files 133 passed (133); tests 1251 passed | 3 skipped (1254) | int: files 14 passed (14); tests 158 passed | 2 skipped (160) | int (invite, GoTrue origin): files 4 passed (4); tests 24 passed (24)
+# Master's W2-28 transaction-refusal suites (tests/integration/w2-28-brk593*.int.test.ts, 11 files) on the merge head: Test Files  12 passed (12); Tests  59 passed (59). tsc --noEmit and eslint src/lib/neon.ts: clean.
+# r176 integration suites: 29 passed | 1 skipped (30); other owners 35; invite accept 6; wrapper edges 16; platform-admin edges 4; cancel backend 1.
+# unit set: tests/unit/lib (incl. rollbackFailed, cancelBackend, releaseCensus, poolErrorListenerCensus), tests/unit/auth, tests/unit/api/bankFeedExtensionIngestRoute.test.ts.
+# int set: the five r176 suites, r159 (both), public-route-tx, r157-payment-link-throw-responds, k097, r-032 (both), k106.
+# int (invite) set, run with GOTRUE_URL=http://127.0.0.1:1: k-041 (three), k-042.
+# Whole unit suite (env -u DATABASE_URL vitest run tests/unit): Test Files  1120 passed (1120); Tests  14974 passed | 6 skipped (14980).
+# tsc --noEmit -p .: clean. eslint on the fourteen changed src/pages files: clean. tests/** and scripts/** are outside both projects.
+# scripts/_pg.ts + helper imported and called under bun and tsx 4.23.15 with no database; simulate-fy2026-loans.ts bundles under bun; simulate-fy2026-workflows.ts does not resolve on unchanged code (markUifDeclarationPaid) and runs main on import.
+# Whole unit suite repeated 7 times under load average 24-33: 6 green; run 5 failed 2 tests, both 10 s timeouts in DB-backed unit tests this change does not touch: tests/unit/mcp/allocateByReferenceLedger.integration.test.ts ('resolves a statement reference stored in reference with bank_reference NULL') and tests/unit/services/bankAllocatedAccountColumnDb.test.ts ('names the account for a rule-allocated row and a directly-allocated row alike'). The unit subset repeated 25 times: all green. The earlier one-file, three-test failure in the subset did not recur and remains unidentified; baseline.sh now keeps the raw output of any failing baseline.
+# Fail on unchanged source too, outside the set: tests/integration/withAuth.test.ts (2), admin-forbidden (1), admin-rls-bypass (1), k104-k105 (1).
+# NOT run: bun run ci, the production build, the whole integration suite, the simulate scripts.
+## integration
+ Test Files  4 passed (4)
+      Tests  24 passed (24)
+ Test Files  13 passed (13)
+      Tests  157 passed | 2 skipped (159)
