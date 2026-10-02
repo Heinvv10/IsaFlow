@@ -13,6 +13,7 @@ import {
   ArrowLeft, Loader2, AlertCircle, GitCompare, AlertTriangle,
   TrendingUp, TrendingDown, UserPlus, UserMinus,
 } from 'lucide-react';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -134,7 +135,7 @@ export default function PayrollRunVariancePage() {
     try {
       const res = await apiFetch(`/api/payroll/runs/${runId}/variance`);
       const json = await res.json() as { data?: PayrollVariance; message?: string; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message || json.message || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error(payrollLoadMessage(res.status, json.error?.message || json.message || `HTTP ${res.status}`));
       setData(json.data ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');

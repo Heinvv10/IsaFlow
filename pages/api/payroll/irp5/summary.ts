@@ -22,6 +22,7 @@ import {
   type ValidationMessage,
   type ValidationSeverity,
 } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 type Row = DbRow;
 
@@ -204,4 +205,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, summary);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

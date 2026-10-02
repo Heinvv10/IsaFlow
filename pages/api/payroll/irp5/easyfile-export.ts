@@ -26,6 +26,7 @@ import {
   type EmployerInput,
   type EmployeeInput,
 } from '@/modules/accounting/services/payroll/easyFileExportService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 function firstTwoNames(fullFirst: string): string {
   return fullFirst.trim().split(/\s+/).slice(0, 2).join(' ');
@@ -220,4 +221,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
