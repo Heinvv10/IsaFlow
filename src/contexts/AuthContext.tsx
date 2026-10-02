@@ -4,11 +4,13 @@ import {
   useEffect,
   useState,
   useMemo,
+  useRef,
   ReactNode,
   useCallback,
 } from 'react';
 import type { AuthRole } from '@/lib/auth/types';
 import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
+import { isAuthUnavailableStatus, AUTH_RETRY_AFTER_SECS } from '@/lib/auth/authUpstream';
 import { log } from '@/lib/logger';
 
 /**
@@ -111,10 +113,16 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const retry = useRef<{ active: boolean; settled: boolean; timer?: ReturnType<typeof setTimeout> }>({ active: true, settled: false });
   /**
-   * Fetch current session from the API
+   * Fetch current session from the API. D9: a 5xx/429 or an unreachable server
+   * is an outage, not a sign-out — keep what is known (AdminLayout redirects on
+   * a null user). A first check stays pending and retries; once settled, the
+   * focus/interval re-checks are the retry, so an outage is not polled harder.
    */
-  const checkAuth = useCallback(async () => {
+  const checkAuth = useCallback(async function check(): Promise<void> {
+    clearTimeout(retry.current.timer);
+    let unavailable = false;
     try {
       const res = await fetch('/api/auth/me', { credentials: 'include' });
 
@@ -127,15 +135,17 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
         } else {
           setUser(null);
         }
+      } else if (isAuthUnavailableStatus(res.status)) {
+        unavailable = true;
       } else {
         setUser(null);
       }
     } catch (err) {
-      setUser(null);
+      unavailable = true;
       log.error('Failed to check auth session', { error: err }, 'auth-context');
-    } finally {
-      setLoading(false);
     }
+    if (!unavailable) { retry.current.settled = true; setLoading(false); }
+    else if (retry.current.active && !retry.current.settled) retry.current.timer = setTimeout(() => { void check(); }, AUTH_RETRY_AFTER_SECS * 1000);
   }, []);
 
   useEffect(() => {
@@ -143,6 +153,8 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
       setLoading(false);
       return;
     }
+    const pending = retry.current;
+    pending.active = true;
 
     void checkAuth();
 
@@ -156,6 +168,8 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
     return () => {
       window.removeEventListener('focus', onFocus);
       clearInterval(interval);
+      pending.active = false;
+      clearTimeout(pending.timer);
     };
   }, [checkAuth, skipFetch]);
 
