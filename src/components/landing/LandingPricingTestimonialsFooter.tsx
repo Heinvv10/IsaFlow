@@ -235,7 +235,7 @@ export function LandingFooter() {
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3">
             <img src="/logo.png" alt="ISAFlow" className="h-8 w-auto brightness-0 invert opacity-60" />
-            <span className="text-sm text-gray-500">© {new Date().getFullYear()} ISAFlow. All rights reserved.</span>
+            <span className="text-sm text-gray-500">© {new Date().getFullYear()} Brightsphere Technologies (Pty) Ltd, trading as IsaFlow. All rights reserved.</span>
           </div>
           <div className="flex gap-6 text-sm text-gray-500">
             <a href="/privacy" className="hover:text-white transition-colors">Privacy</a>
