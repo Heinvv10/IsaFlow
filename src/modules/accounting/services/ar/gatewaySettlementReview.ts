@@ -9,10 +9,10 @@
  * refused but flagged.
  *
  * The flag is `paystack_payment_requests.failure_reason = 'review:<reasons>'`
- * on the completed request: the same marker `noteAuthorisationNotAttached`
- * leaves when a card was charged and nothing could be attached. The receipt is
+ * on the completed request: the same column `noteAuthorisationNotAttached`
+ * writes when a card was charged and nothing could be attached. The receipt is
  * found from it by `customer_payments.bank_reference = paystack_reference`.
- * Hein approved this marker over a migration on 2026-10-02.
+ * Hein approved this column over a migration on 2026-10-02.
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
@@ -21,29 +21,70 @@ import { documentInPopulation } from '../shared/documentPopulation';
 
 /** The currency the books are kept in; Paystack reports ISO codes. */
 const BOOK_CURRENCY = 'ZAR';
+const PREVIOUSLY = ' | previously: ';
 
 /** What the gateway reported for the charge, unvalidated (a webhook body or a verify response). */
 export interface ReportedCharge {
   amountCents?: unknown;
   currency?: unknown;
+  /**
+   * Paystack's `requested_amount`: the charge before a fee the CUSTOMER paid. On an
+   * account that passes charges to the customer, `amount` = requested_amount + fee.
+   */
+  requestedAmountCents?: unknown;
 }
 
+const positiveCents = (v: unknown): number | null =>
+  (typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : null);
+
+export const isBookCurrency = (reported: ReportedCharge): boolean => reported.currency === BOOK_CURRENCY;
+
 /**
- * The cents to bank and the reasons it needs review. A missing or malformed
- * reported amount falls back to the request's (what Paystack was asked to
- * charge) and is flagged: refusing would make every webhook redelivery fail.
+ * The cents to bank and the reasons it needs review.
+ *
+ * `requested_amount` when Paystack reports one: the rest of `amount` is a fee the
+ * customer paid, which is the gateway's money, not customer credit. Otherwise
+ * `amount`. A missing or malformed amount falls back to the request (what Paystack
+ * was asked to charge) and is flagged: refusing would make every webhook
+ * redelivery fail. An `amount` below `requested_amount` makes the latter
+ * untrustworthy, so the amount is banked and both are flagged.
  */
 export function settledCharge(
   requestedCents: number,
   reported: ReportedCharge,
 ): { cents: number; reviews: string[] } {
   const reviews: string[] = [];
-  const amount = reported.amountCents;
-  const known = typeof amount === 'number' && Number.isSafeInteger(amount) && amount > 0;
-  if (!known) reviews.push('amount_not_reported');
-  else if (amount !== requestedCents) reviews.push('amount_mismatch');
-  if (reported.currency !== BOOK_CURRENCY) reviews.push('currency_mismatch');
-  return { cents: known ? amount : requestedCents, reviews };
+  const amount = positiveCents(reported.amountCents);
+  let requestedAmount = positiveCents(reported.requestedAmountCents);
+  if (requestedAmount !== null && amount !== null && amount < requestedAmount) requestedAmount = null;
+  const cents = requestedAmount ?? amount;
+  if (cents === null) reviews.push('amount_not_reported');
+  else if (cents !== requestedCents) reviews.push('amount_mismatch');
+  if (positiveCents(reported.requestedAmountCents) !== null && requestedAmount === null) {
+    reviews.push('amount_below_requested_amount');
+  }
+  if (!isBookCurrency(reported)) reviews.push('currency_mismatch');
+  return { cents: cents ?? requestedCents, reviews };
+}
+
+/**
+ * The part of the gateway's fee the MERCHANT bore, in rand: the fee less what the
+ * customer paid on top of `requested_amount`. The receipt is banked at
+ * requested_amount, so Bank nets to `amount - fees`, which is what Paystack
+ * settles. A non-ZAR fee is not posted as rand: it is flagged instead.
+ */
+export function merchantFee(
+  feeRand: number | null | undefined,
+  reported: ReportedCharge,
+): { feeRand: number | null; reviews: string[] } {
+  const fee = Number(feeRand ?? 0);
+  if (!Number.isFinite(fee) || fee <= 0) return { feeRand: null, reviews: [] };
+  if (!isBookCurrency(reported)) return { feeRand: null, reviews: ['fee_not_posted_currency'] };
+  const amount = positiveCents(reported.amountCents);
+  const requestedAmount = positiveCents(reported.requestedAmountCents);
+  const customerPaid = amount !== null && requestedAmount !== null && amount >= requestedAmount
+    ? (amount - requestedAmount) / 100 : 0;
+  return { feeRand: Math.max(0, Math.round((fee - customerPaid) * 100) / 100), reviews: [] };
 }
 
 /**
@@ -58,16 +99,27 @@ export function invoiceReview(status: string | null, deletedAt: string | null): 
 }
 
 /**
+ * The note to store: the new reasons merged into an earlier review note (a second
+ * report adds to the first, never erases it), and any other reason the request
+ * already carried kept after it.
+ */
+export function composeReviewNote(previous: string | null, reviews: string[]): string {
+  if (previous === null) return `review:${reviews.join(',')}`;
+  if (!previous.startsWith('review:')) return `review:${reviews.join(',')}${PREVIOUSLY}${previous}`;
+  const cut = previous.indexOf(PREVIOUSLY);
+  const head = cut < 0 ? previous : previous.slice(0, cut);
+  const tail = cut < 0 ? '' : previous.slice(cut);
+  const merged = [...new Set([...head.slice('review:'.length).split(',').filter(Boolean), ...reviews])];
+  return `review:${merged.join(',')}${tail}`;
+}
+
+/**
  * Flag the completed request for review and say so at error level. Tenant-scoped.
  *
  * The note is bookkeeping about money already banked, so it must never cost the
  * receipt: the write runs in its own savepoint and a failure is logged, not
  * thrown. Outside a savepoint a failed UPDATE aborts the settlement transaction
  * and the webhook's next statement rolls the whole receipt back.
- *
- * A reason the request already carries that is not a review note (a checkout
- * swept as 'abandoned while starting' and paid later) is kept after the note
- * and named in the log, never overwritten silently.
  */
 export async function flagSettlementForReview(
   companyId: string,
@@ -75,23 +127,21 @@ export async function flagSettlementForReview(
   reviews: string[],
   detail: Record<string, unknown>,
 ): Promise<void> {
-  const note = `review:${reviews.join(',')}`;
   let previousFailureReason: string | null = null;
   try {
     previousFailureReason = await withSavepoint('gateway_review_note', async () => {
-      const rows = await sql<{ previous: string | null }>`
-        UPDATE paystack_payment_requests pr
-        SET failure_reason = ${note} || CASE
-              WHEN old.failure_reason IS NULL OR old.failure_reason LIKE 'review:%' THEN ''
-              ELSE ' | previously: ' || old.failure_reason END
-        FROM (
-          SELECT id, failure_reason FROM paystack_payment_requests
-          WHERE company_id = ${companyId}::UUID AND paystack_reference = ${reference}
-        ) old
-        WHERE pr.id = old.id AND pr.company_id = ${companyId}::UUID
-        RETURNING old.failure_reason AS previous
+      const rows = await sql<{ failure_reason: string | null }>`
+        SELECT failure_reason FROM paystack_payment_requests
+        WHERE company_id = ${companyId}::UUID AND paystack_reference = ${reference}
+        FOR UPDATE
       `;
-      return rows[0]?.previous ?? null;
+      const previous = rows[0]?.failure_reason ?? null;
+      await sql`
+        UPDATE paystack_payment_requests
+        SET failure_reason = ${composeReviewNote(previous, reviews)}
+        WHERE company_id = ${companyId}::UUID AND paystack_reference = ${reference}
+      `;
+      return previous;
     });
   } catch (err) {
     log.error(
