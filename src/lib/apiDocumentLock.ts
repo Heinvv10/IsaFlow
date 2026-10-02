@@ -31,7 +31,15 @@ import { isLockTimeoutError } from '@/lib/lockTimeout';
  */
 export function respondIfLockTimeout(res: NextApiResponse, err: unknown): boolean {
   if (!isLockTimeoutError(err)) return false;
-  res.setHeader('Retry-After', '2');
-  apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE, err.message, { code: err.code });
+  respondRowHeld(res, err.message, err.code);
   return true;
+}
+
+/**
+ * The same 503 + Retry-After for a service that reports a held row as a RESULT rather than a throw (D8 round 18: the
+ * manual evidence attach's `contended`). A held row is a lock timeout, never a 409.
+ */
+export function respondRowHeld(res: NextApiResponse, message: string, code: string): void {
+  res.setHeader('Retry-After', '2');
+  apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE, message, { code });
 }

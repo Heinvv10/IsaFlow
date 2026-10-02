@@ -7,7 +7,8 @@
  * F2 Batch reversal: `lockBillCandidates` reset lock_timeout to DEFAULT inside the flow budget, so its posting waited
  *    unbounded and answered 200 once the holder let go.
  * F4 HTTP void / receipt cancel with the payment row or its bank line held: 409 with no Retry-After. A held row is a
- *    lock timeout. Round 17: bank reversal (`bank-transactions-action` reverse) too.
+ *    lock timeout. Round 17: bank reversal (`bank-transactions-action` reverse) too. Round 18: batch reversal with the
+ *    batch row or one of its bills held, and the manual evidence attach with its bank line or captured document held.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
@@ -22,10 +23,11 @@ import batchPaymentsAction from '../../pages/api/accounting/batch-payments-actio
 import bankTransactionsAction from '../../pages/api/accounting/bank-transactions-action';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import softDeleteRoute from '../../pages/api/accounting/soft-delete';
+import provisionalAttach from '../../pages/api/accounting/provisional/[jeId]/attach';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { request, response } from './mfa-impersonation-postgres.helpers';
 import { inTx, seedBankTx } from './helpers/l1FifoFixture';
-import { confirmedReceipt, postedBill, postedInvoice, processedPayment, setup, teardown, type Ctx } from './d8-r4-helpers';
+import { confirmedReceipt, postedBill, postedInvoice, processedPayment, provisional, setup, teardown, type Ctx } from './d8-r4-helpers';
 
 let c: Ctx;
 type Row = Record<string, unknown>;
@@ -33,9 +35,10 @@ type Handler = (req: never, res: never) => unknown;
 let token = '';
 const one = async (q: Promise<unknown>) => ((await q) as Row[])[0]!;
 
-async function call(route: Handler, method: string, body: Record<string, unknown>) {
+async function call(route: Handler, method: string, body: Record<string, unknown>, query: Record<string, string> = {}) {
   const req = request({ 'sb-access-token': token, active_company_id: c.fx.companyId }, method) as unknown as Row;
   req.body = body;
+  req.query = query;
   const out = response();
   const t0 = Date.now();
   await route(req as never, out.res as never);
@@ -67,7 +70,11 @@ async function lineOn(je: string, amount: number): Promise<string> {
             ${String(leg.id)}::UUID) RETURNING id`)).id);
 }
 
-interface Case { je: string; hold: () => Promise<() => Promise<void>>; run: () => ReturnType<typeof call> }
+interface Case {
+  je: string; hold: () => Promise<() => Promise<void>>; run: () => ReturnType<typeof call>;
+  /** What else must be unchanged, beyond the journal not being reversed. */
+  unchanged?: () => Promise<void>;
+}
 const supplierVoid = (pay: string) => () => call(supplierPaymentsAction as Handler, 'POST', { action: 'void', paymentId: pay });
 const receiptCancel = (rc: string) => () => call(customerPaymentsAction as Handler, 'POST', { action: 'cancel', paymentId: rc });
 
@@ -80,6 +87,34 @@ async function allocatedReceipt(): Promise<{ bt: string; rc: string; je: string 
   const rc = String((await one(sql`SELECT id FROM customer_payments WHERE gl_journal_entry_id = ${a.journalEntryId}::UUID`)).id);
   return { bt, rc, je: a.journalEntryId };
 }
+/** A processed one-bill batch: its id and its journal. */
+async function processedBatch(): Promise<{ id: string; je: string }> {
+  const bill = await postedBill(c);
+  const id = await inTx(c.fx, async () => {
+    const b = await createBatch(c.fx.companyId, { batchDate: '2026-05-20', bankAccountId: c.fx.bankAccountId,
+      payments: [{ supplierId: c.fx.supplierId, invoiceAllocations: [{ invoiceId: bill.id, amount: 300 }] }] }, c.fx.userId);
+    await approveBatch(c.fx.companyId, b.id, c.fx.userId);
+    await processBatch(c.fx.companyId, b.id, c.fx.userId);
+    return b.id;
+  });
+  return { id, je: String((await one(sql`SELECT gl_journal_entry_id AS j FROM supplier_payment_batches WHERE id = ${id}::UUID`)).j) };
+}
+const batchReverse = (id: string) => () => call(batchPaymentsAction as Handler, 'POST', { action: 'reverse', id });
+const batchStatus = async (id: string) => String((await one(sql`SELECT status FROM supplier_payment_batches WHERE id = ${id}::UUID`)).status);
+
+/** A bank-first provisional and a reviewed captured document of the same supplier and amount. */
+async function provisionalAndDoc(): Promise<{ je: string; bt: string; doc: string }> {
+  const pv = await provisional(c, 910 + (++c.seq));
+  const doc = await one(sql`INSERT INTO captured_documents (company_id, file_name, file_type, status, document_type)
+    VALUES (${c.fx.companyId}::UUID, ${`d8r18-${c.seq}.pdf`}, 'application/pdf', 'reviewed', 'supplier_invoice') RETURNING id`);
+  return { je: pv.je, bt: pv.bt, doc: String(doc.id) };
+}
+const attach = (je: string, doc: string) => () =>
+  call(provisionalAttach as Handler, 'POST', { capturedDocumentId: doc }, { jeId: je });
+const stillNeedsEvidence = (je: string) => async () => {
+  expect((await one(sql`SELECT needs_evidence FROM gl_journal_entries WHERE id = ${je}::UUID`)).needs_evidence).toBe(true);
+};
+
 const bankReverse = (bt: string) => () =>
   call(bankTransactionsAction as Handler, 'POST', { action: 'reverse', bankTransactionId: bt });
 
@@ -113,17 +148,30 @@ const cases: Record<string, () => Promise<Case>> = {
       run: () => call(softDeleteRoute as Handler, 'POST', { entityType: 'supplier_invoice', entityId: b.id }) };
   },
   'F2 batch reversal, the bank balance row': async () => {
-    const bill = await postedBill(c);
-    const id = await inTx(c.fx, async () => {
-      const b = await createBatch(c.fx.companyId, { batchDate: '2026-05-20', bankAccountId: c.fx.bankAccountId,
-        payments: [{ supplierId: c.fx.supplierId, invoiceAllocations: [{ invoiceId: bill.id, amount: 300 }] }] }, c.fx.userId);
-      await approveBatch(c.fx.companyId, b.id, c.fx.userId);
-      await processBatch(c.fx.companyId, b.id, c.fx.userId);
-      return b.id;
-    });
-    const je = String((await one(sql`SELECT gl_journal_entry_id AS j FROM supplier_payment_batches WHERE id = ${id}::UUID`)).j);
-    return { je, hold: () => balanceRow(c.fx.bankAccountId, je),
-      run: () => call(batchPaymentsAction as Handler, 'POST', { action: 'reverse', id }) };
+    const b = await processedBatch();
+    return { je: b.je, hold: () => balanceRow(c.fx.bankAccountId, b.je), run: batchReverse(b.id) };
+  },
+  'R18 batch reversal, the batch row': async () => {
+    const b = await processedBatch();
+    return { je: b.je, hold: () => holdFor('SELECT id FROM supplier_payment_batches WHERE id = $1 FOR UPDATE', [b.id]),
+      run: batchReverse(b.id), unchanged: async () => { expect(await batchStatus(b.id)).toBe('processed'); } };
+  },
+  'R18 batch reversal, a bill it paid': async () => {
+    const b = await processedBatch();
+    const bill = String((await one(sql`SELECT pa.invoice_id AS i FROM payment_allocations pa
+      JOIN supplier_payments sp ON sp.id = pa.payment_id WHERE sp.batch_id = ${b.id}::UUID`)).i);
+    return { je: b.je, hold: () => holdFor('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [bill]),
+      run: batchReverse(b.id), unchanged: async () => { expect(await batchStatus(b.id)).toBe('processed'); } };
+  },
+  'R18 manual evidence attach, the bank line': async () => {
+    const p = await provisionalAndDoc();
+    return { je: p.je, hold: () => holdFor('SELECT id FROM bank_transactions WHERE id = $1 FOR UPDATE', [p.bt]),
+      run: attach(p.je, p.doc), unchanged: stillNeedsEvidence(p.je) };
+  },
+  'R18 manual evidence attach, the captured document': async () => {
+    const p = await provisionalAndDoc();
+    return { je: p.je, hold: () => holdFor('SELECT id FROM captured_documents WHERE id = $1 FOR UPDATE', [p.doc]),
+      run: attach(p.je, p.doc), unchanged: stillNeedsEvidence(p.je) };
   },
   'F4 HTTP void, the payment row': async () => {
     const p = await processedPayment(c, (await postedBill(c)).id, 400);
@@ -184,6 +232,25 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D8 round 
       expect(out.ms).toBeLessThan(8000);
       expect(out.body).not.toMatch(/aborted/);
       expect(await reversed(s.je), 'nothing committed').toBe(false);
+      await s.unchanged?.();
     }, 40000);
   }
+
+  // The state conflicts keep their answers: a lock timeout is 503, a conflict about the document's state is not.
+  it('R18 batch reversal of a batch already reversed: still 409', async () => {
+    const b = await processedBatch();
+    expect((await batchReverse(b.id)()).status).toBe(200);
+    const again = await batchReverse(b.id)();
+    expect(again.status, JSON.stringify(again)).toBe(409);
+    expect(again.retryAfter).toBeNull();
+  }, 40000);
+
+  it('R18 manual attach to a provisional already evidenced: still a refusal (400), not a 503', async () => {
+    const p = await provisionalAndDoc();
+    expect((await attach(p.je, p.doc)()).status).toBe(200);
+    const other = await provisionalAndDoc();
+    const again = await attach(p.je, other.doc)();
+    expect(again.status, JSON.stringify(again)).toBe(400);
+    expect(again.body).toMatch(/already evidenced/);
+  }, 40000);
 });
