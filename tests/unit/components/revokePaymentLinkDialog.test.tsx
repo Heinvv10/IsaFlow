@@ -1,5 +1,5 @@
 // LINK-REVOKE: the dialog's call and its callbacks. onDone runs after every attempt (the page
-// reloads the invoice), then onError carries the server's message on a failure, then onClose.
+// reloads the invoice), then onError carries the server's message, or a plain fallback sentence, on a failure, then onClose.
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
