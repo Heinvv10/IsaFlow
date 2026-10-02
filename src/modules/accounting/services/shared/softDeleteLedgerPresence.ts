@@ -137,6 +137,16 @@ export function deletedDocumentChainLinkFragment(
    * `entry_date`): the VAT reconciliation's rate keeps a delete and its
    * reversal that fall in one month, where they net to nothing, and drops a
    * reversal that rolled into a later month.
+   *
+   * KNOWN LIMIT. It drops the LINK, never the document's own journal. So when
+   * the reversal is dated in an EARLIER month than its original — only a chain
+   * breaking "no reversal before its original": rows written before R-012, or
+   * a fiscal year outside the auto-create window — the original stays alone in
+   * its month and the rate there includes a deleted document (a R1000 / R75
+   * original beside a live 15% sale reads 11.25% and raises the rate issue).
+   * Left as is: well-formed chains cannot reach it, and dropping the original
+   * needs a per-line lookup on `gl_journal_entry_id`, which has no index.
+   * Pinned in k053-vat-recon-vs-filed-return ("KNOWN LIMIT").
    */
   only: 'any' | 'otherMonth' = 'any',
 ) {

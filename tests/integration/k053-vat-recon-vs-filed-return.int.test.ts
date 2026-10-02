@@ -164,4 +164,26 @@ describeIfDb('D7 VAT recon: each GL arm against its own source', () => {
     expect(recon.months.map((m) => [m.month, m.glRevenue, m.glOutputVat, m.effectiveVatRate]))
       .toEqual([['2026-07', 1000, 225, 22.5]]);
   }, 120000);
+
+  it('KNOWN LIMIT (rev-d7-176b78177): a reversal dated in an EARLIER month than its original leaves the original in the rate', async () => {
+    // Only a chain that breaks "no reversal before its original" has this
+    // shape: resolveReversalDate refuses it since R-012, so it takes a row
+    // written before that, or a fiscal year outside the auto-create window.
+    // Forged here by re-dating the delete's reversal. The link is dropped from
+    // June (another month from its original), and the original, alone in July
+    // beside a live 15% sale, rates July at 11.25% and raises the issue.
+    // PINNED, NOT ENDORSED: changing this is fine, but do it on purpose.
+    const co = await makeCompany('D7V8'); cos.push(co);
+    const mixed = await arInvoice(co, '-MIX', '2026-07-15', 1000, 75);
+    await arInvoice(co, '-LIVE', '2026-07-20', 1000, 150);
+    await inTx(co, () => softDelete(co.id, 'customer_invoice', mixed, co.user));
+    const moved = (await sql`UPDATE gl_journal_entries SET entry_date = '2026-06-10'::date
+      WHERE company_id = ${co.id}::UUID AND reversal_of_id = ${await journalOf(co, mixed)}::UUID RETURNING id`) as { id: string }[];
+    expect(moved).toHaveLength(1);
+
+    const recon = await getVatReconciliation(co.id, '2026-06-01', '2026-07-31');
+    expect(recon.months.map((m) => [m.month, m.glRevenue, m.glOutputVat, m.effectiveVatRate]))
+      .toEqual([['2026-06', 0, -75, 0], ['2026-07', 2000, 225, 11.25]]);
+    expect(recon.issues.filter((i) => /Effective VAT rate/.test(i.message)).map((i) => i.month)).toEqual(['2026-07']);
+  }, 120000);
 });
