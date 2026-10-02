@@ -95,6 +95,8 @@ const OUTAGES: Array<[string, (url: string, init?: RequestInit) => Promise<Respo
   ['GoTrue 503', async () => new Response('', { status: 503 })],
   ['a network error', async () => { throw new TypeError('fetch failed'); }],
   ['a timeout', hangingFetch()],
+  ['a 200 whose body is cut off mid-read', async () => new Response(
+    new ReadableStream({ start(c) { c.error(new TypeError('terminated')); } }), { status: 200 })],
 ];
 const WRONG_PASSWORD = async () => new Response('{"error":"invalid_grant"}', { status: 400 });
 
