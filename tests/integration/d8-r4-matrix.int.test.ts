@@ -128,30 +128,22 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 4: chain-length matrix (k =
       expect(newContras.length).toBe(k % 2 === 0 ? 1 : 0);
     });
 
-    it(`M-BANK k=${k}: bank reversal reverses a standing chain's head; an OUT chain is refused, nothing posted`, async () => {
+    it(`M-BANK k=${k}: bank reversal takes the allocation out exactly once and frees the line`, async () => {
       const tx = await seedBankTx(c.fx, { date: '2026-05-12', amount: -230, description: `D8R4 SHOP ${k}` });
       await inTx(c.fx, () => allocateTransaction(c.fx.companyId, tx, c.acct.expense!, c.fx.userId, undefined, 'account', undefined, undefined));
       const [m] = (await sql`
         SELECT l.journal_entry_id AS j FROM bank_transactions bt JOIN gl_journal_lines l ON l.id = bt.matched_journal_line_id
         WHERE bt.id = ${tx}::UUID`) as Row[];
-      const chain = await buildChain(c, String(m!.j), k);
       const t0 = await tb(c);
+      const chain = await buildChain(c, String(m!.j), k);
       const r = await settle(inTx(c.fx, () => reverseReconciledTransaction(c.fx.companyId, tx, c.fx.userId)));
-      const d = diff(t0, await tb(c));
       const newContras = await postedReversalsOf(c, chain[chain.length - 1]!);
       const [bt] = (await sql`SELECT status FROM bank_transactions WHERE id = ${tx}::UUID`) as Row[];
-      if (k % 2 === 0) {
-        expect(r.ok, JSON.stringify(r)).toBe(true);
-        expect(d).toMatchObject({ expense: -230, bank: 230 }); // no VAT code: one expense line
-        expect(bt!.status).toBe('imported');
-        expect(newContras.length).toBe(1);
-      } else {
-        // Deliberately unchanged (k021): an OUT chain reaches reverseJournalEntry on the journal and is refused.
-        expect(r.ok).toBe(false);
-        expect(d).toMatchObject({ expense: 0, bank: 0 });
-        expect(bt!.status).toBe('allocated');
-        expect(newContras.length).toBe(0);
-      }
+      // Round 4 (lead): an OUT chain frees the line and reverses nothing, like every other flow.
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(diff(t0, await tb(c))).toMatchObject({ expense: -230, bank: 230 }); // the allocation is out, once
+      expect(bt!.status).toBe('imported');
+      expect(newContras.length).toBe(k % 2 === 0 ? 1 : 0);
     });
 
     it(`M-OB k=${k}: opening-balance re-import twice leaves exactly one take-on`, async () => {

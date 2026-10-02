@@ -9,7 +9,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { resolveReversalDate } from '../gl/journalEntryService';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { loadJournalVatLines } from '../gl/journalVatLockGuard';
-import { findJournalChainHead } from '../shared/journalChainHead';
+import { findJournalChainHead, lockChainHead } from '../shared/journalChainHead';
 
 type Row = DbRow;
 
@@ -58,13 +58,19 @@ export async function assertReversalDatePostable(
 }
 
 /**
- * D8: the entry a reversal of `journalEntryId` must post against. Its reversal
- * chain's HEAD while that chain stands — after O <- R <- R2 the GL carries O
- * again through R2 while O is stamped reversed, and reversing O throws "already
- * reversed". Otherwise the journal itself, which reverseJournalEntry then judges
- * exactly as before (a chain already out, or broken, is still refused there).
+ * D8: the entry a reversal of `journalEntryId` must post against, or null for
+ * none. Its reversal chain's HEAD (locked) while that chain stands — after
+ * O <- R <- R2 the GL carries O again through R2 while O is stamped reversed,
+ * and reversing O throws "already reversed". NULL when the chain is already
+ * OUT (a real posted contra stands against it): the allocation is freed and
+ * nothing is reversed, as every other D8 flow does (round 4). A broken chain —
+ * stamped reversed with no posted contra, the shape k021 forges — returns the
+ * journal itself, and reverseJournalEntry refuses it inside the caller's
+ * savepoint exactly as before.
  */
-export async function reversalTargetOf(companyId: string, journalEntryId: string): Promise<string> {
+export async function reversalTargetOf(companyId: string, journalEntryId: string): Promise<string | null> {
   const chain = await findJournalChainHead(companyId, journalEntryId);
-  return chain?.kind === 'head' && chain.standing ? chain.id : journalEntryId;
+  if (chain?.kind !== 'head') return journalEntryId;
+  const head = await lockChainHead(companyId, journalEntryId);
+  return head?.standing ? head.id : null;
 }
