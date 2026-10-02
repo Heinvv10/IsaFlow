@@ -11,8 +11,9 @@ The shared Postgres (`max_connections` 100) serves prod, dev, CI and Supabase se
 `RATE_LIMIT_POOL_MAX` (R-175) already validated.
 
 ## Fix
-`poolSizeFromEnv(name, default, category = 'pool')` in `src/lib/limits/poolLimits.ts`: plain
-decimal digits, whole number 1-100 is used as given. Unset or blank is the default, silently.
+`poolSizeFromEnv(name, default, category = 'pool', minimum = 1)` in `src/lib/limits/poolLimits.ts`:
+plain decimal digits, a whole number from the floor to 100 is used as given (the floor is 2 for
+`PG_POOL_MAX` and `AUTH_POOL_MAX`, 1 for the others). Unset or blank is the default, silently.
 Anything else is refused with one warning per (name, value) and gives
 `min(default, 10, ceil(Number(text)))` when `Number(text)` is finite and above 0, else
 `min(default, 10)`. So `5.0`, `+5` and `0x5` give 5, `2.5` gives 3 (pg-pool opened ceil(max)),
@@ -70,10 +71,13 @@ app) alone are 80 (one variable).
 
 ## Tests
 - `tests/unit/lib/poolSizeFromEnv.test.ts`: unset, blank, valid, 0, negative, fractional, >100,
-  text, NaN/Infinity, hex/binary/octal/exponent, `10.0`, sign, non-ASCII digit; `min(default, 10)`;
-  one warning per (name, value); truncation; category; `authPoolMax`.
+  text, NaN/Infinity, hex/binary/octal/exponent, `10.0`, sign, non-ASCII digit; the
+  `min(default, 10, ceil(Number(text)))` rule; one warning per (name, value); a pasted URL never
+  reaches the log (name, length and digits-only flag only; there is no truncation); category;
+  the floor and its clamp; `authPoolMax`.
 - `tests/unit/lib/poolSizesBuilt.test.ts`: pg.Pool mocked; each of 7 sites is built with the
-  validated size (valid, unset, 7 bad spellings giving `min(default, 10)`).
+  validated size (valid, unset, 9 bad spellings under the `ceil(n)` rule, and 3 spellings below
+  the floor of 2 for the AUTH_POOL_MAX and PG_POOL_MAX sites).
 - `tests/unit/lib/pgPoolMaxPremise.test.ts`: the REAL pg-pool: NaN/0 give 10, negative never
   opens a connection, Infinity is kept.
 - `tests/unit/lib/rateLimitPoolMax.test.ts` (R-175, header reworded, `rateLimit` category asserted).
@@ -91,7 +95,8 @@ app) alone are 80 (one variable).
    was 10 via pg-pool). 2 matches the pool that actually exists; if 3 is wanted it needs a
    decision. A valid value is unchanged. The guard at `renderSemaphore.ts:93` is unreachable
    now (the reader returns 1-100 always) and was removed.
-3. One warning per (name, value); long values truncated.
+3. One warning per (name, value). (Truncation of the logged value was replaced in round 2 by
+   logging length and digits-only only.)
 4. Per-variable cap documented in the reader, the budget section and `rateLimit.claude.md`.
 5. Rate-limit warning keeps the `rateLimit` category; the newly refused spellings are noted above.
 6. Evidence reconciled as listed under Tests.
@@ -141,3 +146,13 @@ Evidence: `green.round2.log` (exact commands; 149 passed in 5 files; wider suite
    not a safe size (see the budget section).
 4. JSDoc wraps at `poolLimits.ts` reflowed.
 Evidence: `green.round4.log` (184 passed in 6 files), `mutations.log` round 4.
+
+## Review round 5 (blind review of PR #617)
+1. `poolSizeFromEnv.test.ts`: the repeated (name, value) pairs now use `_B` and `_C` names; the
+   header says so. The file was run with `--sequence.shuffle` under seeds 1, 7, 42, 1234 and 99999: 45 passed each time.
+2. This file brought to round-4 behaviour: signature with `minimum`, floor 2 for PG/AUTH,
+   truncation text removed, `poolSizesBuilt` description.
+3. AUTH_POOL_MAX facts (floor of 2, four-pool multiplier, advice) moved to `src/lib/auth/.claude.md`;
+   `rateLimit.claude.md` keeps only RATE_LIMIT_POOL_MAX's rule. Mirrors regenerated.
+4. `src/lib/neon.ts` is 475 lines (474 before this change), over the 300-line limit; the oversize
+   is older than R-182 and is registered as R-184 (checked free: no R-184 in backlog.json, git log or any branch; R-183 is taken on another branch) rather than fixed here.
