@@ -9,19 +9,24 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { checkSendRateLimit } from '@/lib/rateLimit';
+import { sql } from '@/lib/neon';
+import { checkRateLimit, checkSendRateLimit } from '@/lib/rateLimit';
+import { isValidUUID } from '@/lib/validation';
 import { sendInvoiceEmail } from '@/modules/accounting/services/core/emailService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
 
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
-  // Each call sends a real SMTP email to an arbitrary address — bound it per IP/company/day
-  // so a logged-in user can't loop it into a spam cannon (pentest H9).
-  if (!(await checkSendRateLimit(req, companyId, 'invoice-email'))) {
+  // Abuse limit: every attempt counts, per user and company (30), and per user
+  // across all their companies (90), and is never given back. The company's
+  // send bucket below is shared by every colleague, so it is charged only once
+  // the request is well formed and names records the company owns (R-175).
+  if (!(await checkRateLimit(`invoice-email:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))
+    || !(await checkRateLimit(`invoice-email:user-attempts:${user.id}`, { max: 90, windowSecs: 900 }))) {
     return apiResponse.tooManyRequests(res, 'Email send limit reached. Please try again later.');
   }
 
@@ -29,6 +34,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (!invoiceId || typeof invoiceId !== 'string') {
     return apiResponse.badRequest(res, 'invoiceId is required');
+  }
+  if (!isValidUUID(invoiceId)) {
+    return apiResponse.badRequest(res, 'invoiceId must be a UUID');
   }
 
   if (!recipientEmail || typeof recipientEmail !== 'string') {
@@ -39,6 +47,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(recipientEmail)) {
     return apiResponse.badRequest(res, 'Invalid email address');
+  }
+
+  // An invoice the company does not own, or has deleted, must not spend the
+  // company's shared allowance: answer before the charge. (sendInvoiceEmail
+  // itself does not exclude a deleted invoice; this guard now does.)
+  const owned = (await sql`
+    SELECT 1 FROM customer_invoices
+    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+      AND deleted_at IS NULL
+    LIMIT 1
+  `) as unknown[];
+  if (owned.length === 0) return apiResponse.notFound(res, 'Invoice', invoiceId);
+
+  // Each call sends a real SMTP email to an arbitrary address — bound it per IP/company/day
+  // so a logged-in user can't loop it into a spam cannon (pentest H9).
+  if (!(await checkSendRateLimit(req, companyId, 'invoice-email', { refundUnused: true }))) {
+    return apiResponse.tooManyRequests(res, 'Email send limit reached. Please try again later.');
   }
 
   try {

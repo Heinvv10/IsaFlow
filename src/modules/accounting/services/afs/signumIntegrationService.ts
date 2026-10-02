@@ -66,7 +66,8 @@ export async function sendForSigning(
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Signum create failed: ${res.status} ${text}`);
+    // `status` says Signum answered with a refusal, so it did no work (R-175).
+    throw Object.assign(new Error(`Signum create failed: ${res.status} ${text}`), { status: res.status });
   }
 
   const json = (await res.json()) as SignumApiResponse;

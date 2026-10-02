@@ -142,7 +142,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     // Sonnet-backed (pricier) — per-IP + per-company + per-company-daily budget cap (pentest H8).
-    if (!(await checkAiRateLimit(req, companyId, 'afs-ai-narrative', { ipMax: 30, companyMax: 20, dailyMax: 100 }))) {
+    if (!(await checkAiRateLimit(req, companyId, 'afs-ai-narrative', { ipMax: 30, companyMax: 20, dailyMax: 100, refundUnused: true }))) {
       return apiResponse.tooManyRequests(res, 'AI request limit reached. Please try again later.');
     }
     return handleGenerate(req, res, companyId, documentId, sectionId);

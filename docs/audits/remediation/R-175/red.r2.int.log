@@ -1,0 +1,30 @@
+### Round-2 integration tests (usage quota, 30-day window) run against a06b5cc8b's sources
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts (5 tests | 5 failed) 88ms
+     × AI: three requests, one used its unit, one fell back, one threw after the answer 29ms
+     × send: 59 of 100 accepted, then a throw, leaves 59 spent 13ms
+     × send: SMTP down, answered 200, leaves nothing spent; a second request on the key is untouched 11ms
+     × a caller that did not ask for refundUnused keeps its charge, even when it fails 11ms
+     × a request refused by the daily bucket gets nothing back 11ms
+ ❯ tests/integration/r175-refusal-cache.int.test.ts (8 tests | 1 failed) 8035ms
+     × a 30-day window does not overflow: it admits, refuses and remembers like any other 4ms
+error: integer out of range
+ ❯ node_modules/pg-pool/index.js:45:11
+ ❯ checkRateLimit src/lib/rateLimit.ts:96:20
+ ❯ tests/integration/r175-refusal-cache.int.test.ts:141:12
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/integration/r175-usage-quota-refund.int.test.ts:34:9
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts:52:5
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/integration/r175-usage-quota-refund.int.test.ts:34:9
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts:67:5
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/integration/r175-usage-quota-refund.int.test.ts:34:9
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts:78:5
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/integration/r175-usage-quota-refund.int.test.ts:34:9
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts:92:5
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/integration/r175-usage-quota-refund.int.test.ts:34:9
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts:102:5
+ Test Files  2 failed (2)
+      Tests  6 failed | 7 passed (13)

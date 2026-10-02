@@ -151,6 +151,12 @@ describe('signumIntegrationService', () => {
       ).rejects.toThrow('Signum create failed: 500');
     });
 
+    it('a non-2xx carries its status, so the caller knows Signum did no work (R-175)', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'busy' });
+      const { sendForSigning } = await import('@/modules/accounting/services/afs/signumIntegrationService');
+      await expect(sendForSigning('doc-id-1', 'comp-id', '<html/>', 'Title', [])).rejects.toMatchObject({ status: 503 });
+    });
+
     it('throws when SIGNUM_API_URL is not configured', async () => {
       delete process.env.SIGNUM_API_URL;
       const { sendForSigning } = await import(

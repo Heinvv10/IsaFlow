@@ -1,12 +1,15 @@
 // The bank page's supplier list loads on its own and must say when it failed or
 // was cut at the cap, instead of silently showing a short list (PUR-01 round 2).
 import { renderHook, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn(async () => new Response('{}', { status: 200 })) }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/fetchAllSuppliers', async (original) => ({ ...await original<typeof import('@/lib/fetchAllSuppliers')>(), fetchAllSuppliers: vi.fn() }));
 
+import { apiFetch } from '@/lib/apiFetch';
 import { fetchAllSuppliers, truncatedSuppliersNotice } from '@/lib/fetchAllSuppliers';
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
 
@@ -15,7 +18,8 @@ const setters = () => ({
   setCc1Options: vi.fn(), setCc2Options: vi.fn(), setBuOptions: vi.fn(), setSelectedBank: vi.fn(),
   setRefDataLoaded: vi.fn(), setSuppliersStatus: vi.fn(),
 });
-afterEach(() => vi.mocked(fetchAllSuppliers).mockReset());
+beforeEach(() => vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify({ success: true, data: [] }), { status: 200 })));
+afterEach(() => { vi.mocked(fetchAllSuppliers).mockReset(); vi.mocked(apiFetch).mockReset(); });
 
 describe('useBankTxRefData suppliers', () => {
   it('reports truncation', async () => {

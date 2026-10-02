@@ -58,13 +58,12 @@ const MAX_BATCH_SIZE = 20;
 // statement file: 32kb fits only ~150-250 OFX transactions, well under a
 // months-long catch-up on a busy account.
 //
-// This is a real 32× increase in per-request cost and the rate limits do NOT
-// bound it as tightly as their nominal values suggest: checkRateLimit keeps a
-// 5s LRU and skips the shared counter entirely while a key is under
-// floor(max*0.5), so the per-IP 300/min admits bursts on the order of 150 per
-// 5s PER PROCESS before the DB counter is consulted. Next also parses the body
-// before the handler runs, so the buffer + JSON.parse cost is paid ahead of
-// both the per-IP check below and any authentication.
+// This is a real 32× increase in per-request cost. Since R-175 checkRateLimit
+// counts every admitted call on the shared counter (a refused call consumes
+// nothing), so the per-IP 300/min holds at its nominal value across processes.
+// Next still parses the body before the handler runs, so the buffer +
+// JSON.parse cost is paid ahead of both the per-IP check below and any
+// authentication.
 //
 // Accepted deliberately for the import use case. If MCP traffic grows, the
 // right fix is a size check keyed on the tool being called rather than one
@@ -181,8 +180,12 @@ const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Prom
   }
 
   // A batch packs N JSON-RPC calls into one HTTP request. Cap the batch and
-  // charge the per-company limiter PER CALL so a batch can't bypass the
-  // 120/min budget (one request could otherwise pack hundreds of writes).
+  // charge the per-company limiter one unit PER CALL so a batch can't bypass
+  // the 120/min budget (one request could otherwise pack hundreds of writes).
+  // One atomic charge of N (R-175): the whole batch fits and is charged, or
+  // nothing is charged and the batch is refused. Charging a unit at a time
+  // spent what was left of the window on a batch that then ran nothing.
+  // Calls a role-lock skip later leaves unrun stay charged, as before.
   const rpcCount = Array.isArray(body) ? body.length : 1;
   if (rpcCount > MAX_BATCH_SIZE) {
     res.status(400).json(
@@ -190,14 +193,11 @@ const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Prom
     );
     return;
   }
-  for (let i = 0; i < rpcCount; i++) {
-    const allowed = await checkRateLimit(`mcp:${req.companyId}`, { max: 120, windowSecs: 60 });
-    if (!allowed) {
-      res.status(200).json(
-        rpcError(null, RPC_CODES.SERVER_ERROR, 'Rate limit exceeded. Slow down and retry.'),
-      );
-      return;
-    }
+  if (rpcCount > 0 && !(await checkRateLimit(`mcp:${req.companyId}`, { max: 120, windowSecs: 60, cost: rpcCount }))) {
+    res.status(200).json(
+      rpcError(null, RPC_CODES.SERVER_ERROR, 'Rate limit exceeded. Slow down and retry.'),
+    );
+    return;
   }
 
   const ctx: McpToolContext = {

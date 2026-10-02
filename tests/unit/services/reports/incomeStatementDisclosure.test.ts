@@ -320,8 +320,8 @@ describe('buildIncomeStatementSubtypeDisclosure — contra-revenue in the ceilin
     // those accounts, which is the NET R60,000. Absolutes there would tell the
     // reader R140,000 is sitting in turnover when R60,000 is.
     expect(d?.revenueAmount).toBeCloseTo(60000, 2);
-    expect(d?.message).toMatch(/2 revenue accounts carrying R\s*60\s*000,00/);
-    expect(d?.message).not.toMatch(/140\s*000,00/);
+    expect(d?.message).toMatch(/2 revenue accounts carrying R 60 000\.00/);
+    expect(d?.message).not.toMatch(/140 000\.00/);
   });
 });
 
@@ -339,8 +339,8 @@ describe('buildIncomeStatementSubtypeDisclosure — per-type sentence counts its
     ]);
     expect(d?.message).toContain('1 revenue account');
     // en-ZA groups thousands with a NON-BREAKING space (U+00A0), so match \s.
-    expect(d?.message).toMatch(/12\s410\s997,90/);
-    expect(d?.message).not.toMatch(/12\s434\s321,32/);
+    expect(d?.message).toMatch(/12 410 997\.90/);
+    expect(d?.message).not.toMatch(/12 434 321\.32/);
   });
 });
 
@@ -370,7 +370,7 @@ describe('the ceiling sentence names BOTH halves', () => {
 describe('money and plurals in the rendered sentences', () => {
   it('renders cents, so a rounded figure cannot pass as exact', () => {
     const d = buildIncomeStatementSubtypeDisclosure([expenseRow({ amount: 1234.56 })]);
-    expect(d?.message).toMatch(/1\s234,56/);
+    expect(d?.message).toMatch(/1 234\.56/);
   });
 
   it('agrees in number for one account and for many', () => {

@@ -2,8 +2,9 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { readPackPrintCss } from './packPrintCss';
 
-const CSS = readFileSync(join(process.cwd(), 'styles/packPrint.css'), 'utf8');
+const CSS = readPackPrintCss();
 
 /** Strip comments so a rule mentioned in prose cannot satisfy an assertion.
  *  A test that greps source text is a linter unless it reads only real rules. */
