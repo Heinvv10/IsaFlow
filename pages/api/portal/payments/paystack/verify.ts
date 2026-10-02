@@ -112,7 +112,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             await recordGatewayInvoiceReceipt({
               companyId: pr.company_id,
               invoiceId: pr.customer_invoice_id,
-              amountRand: Number(pr.amount_cents) / 100,
+              requestedCents: Number(pr.amount_cents),
+              // R-181: bank what Paystack verified, the same figure the webhook reports.
+              reported: { amountCents: live.amountCents, currency: live.currency },
               reference: pr.paystack_reference,
               // verifyTransaction reports paidAt but no fee. The webhook does
               // carry `fees`, and postGatewayFee runs on its dedupe path too, so
