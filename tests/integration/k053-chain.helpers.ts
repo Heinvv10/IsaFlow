@@ -171,6 +171,7 @@ export async function cleanup(co: Co): Promise<void> {
   const c = co.id;
   await sql`DELETE FROM soft_delete_journal_reversals WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM vat_returns WHERE company_id = ${c}::UUID`;
+  await sql`DELETE FROM vat_period_locks WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE company_id = ${c}::UUID)`;
   await sql`DELETE FROM customer_payments WHERE company_id = ${c}::UUID`;
   await sql`DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id = ${c}::UUID)`;
