@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Send, CreditCard } from 'lucide-react';
 
@@ -77,13 +77,14 @@ export default function InvoicesPage() {
       if (from) params.set('date_from', from);
       if (to)   params.set('date_to',   to);
       const res  = await apiFetch(`/api/admin/billing/invoices?${params}`);
+      await assertOk(res, 'Could not load invoices - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load invoices');
       const d = json.data as PagedResponse;
       setRows(d.items);
       setTotal(d.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setRows([]); setTotal(0);
+      setError(apiErrorMessage(err, 'Could not load invoices - try again'));
     } finally {
       setLoading(false);
     }
@@ -104,6 +105,7 @@ export default function InvoicesPage() {
 
   async function handleAction(id: string, action: 'send' | 'mark_paid') {
     setActionId(id);
+    const failure = action === 'send' ? 'Could not send the invoice - try again' : 'Could not mark the invoice as paid - try again';
     try {
       // Route files use hyphens; mark_paid → mark-paid
       const route = action === 'mark_paid' ? 'mark-paid' : action;
@@ -113,11 +115,10 @@ export default function InvoicesPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body,
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Action failed');
+      await assertOk(res, failure);
       void load(search, status, dateFrom, dateTo, page);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+      setError(apiErrorMessage(err, failure));
     } finally {
       setActionId(null);
     }
@@ -142,13 +143,12 @@ export default function InvoicesPage() {
           notes:          form.notes || null,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to create invoice');
+      await assertOk(res, 'Could not create the invoice - try again');
       setShowForm(false);
       setForm(EMPTY_FORM);
       void load(search, status, dateFrom, dateTo, 1);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed');
+      setFormError(apiErrorMessage(err, 'Could not create the invoice - try again'));
     } finally {
       setSaving(false);
     }

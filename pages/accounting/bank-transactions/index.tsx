@@ -7,7 +7,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import {
   BankTxTable,
   type AllocType, type BankTx, type SelectOption, type RowSelection,
@@ -102,15 +103,13 @@ export default function BankTransactionsPage() {
   const [createEntityType, setCreateEntityType] = useState<AllocType | null>(null);
   // Column visibility — company settings + localStorage override
   useEffect(() => {
-    Promise.all([
-      apiFetch('/api/accounting/accounting-settings?key=enable_cost_centres').then(r => r.json()),
-      apiFetch('/api/accounting/accounting-settings?key=enable_business_units').then(r => r.json()),
-    ]).then(([ccJson, buJson]) => {
+    const readSetting = (key: string) => apiFetch(`/api/accounting/accounting-settings?key=${key}`).then(async r => { await assertOk(r, 'Could not load the column settings'); return r.json(); });
+    Promise.all([readSetting('enable_cost_centres'), readSetting('enable_business_units')]).then(([ccJson, buJson]) => {
       const ccLocal = localStorage.getItem('isaflow_bank_showCC');
       const buLocal = localStorage.getItem('isaflow_bank_showBU');
       setShowCC(ccLocal !== null ? ccLocal !== 'false' : ccJson.data?.value === 'true');
       setShowBU(buLocal !== null ? buLocal !== 'false' : buJson.data?.value === 'true');
-    }).catch(() => { /* defaults */ });
+    }).catch(err => log.warn('Column settings unavailable, using defaults', { error: err }, 'bank-transactions'));
   }, []);
   // Debounce search — 500ms
   useEffect(() => {
@@ -134,11 +133,11 @@ export default function BankTransactionsPage() {
       if (txType !== 'all') params.set('tx_type', txType);
       if (allocType !== 'all') params.set('alloc_type', allocType);
       if (hasSuggestion !== 'all') params.set('has_suggestion', hasSuggestion);
-      const res = await apiFetch(`/api/accounting/bank-transactions?${params}`);
+      const res = await apiFetch(`/api/accounting/bank-transactions?${params}`); await assertOk(res, 'Could not load transactions - try again');
       const json = await res.json();
       const data = json.data || json;
       setTransactions(data.transactions || []); setTotal(data.total || 0);
-    } catch { setError('Failed to load transactions'); }
+    } catch (err) { setTransactions([]); setTotal(0); setError(apiErrorMessage(err, 'Could not load transactions - try again')); }
     finally { setIsLoading(false); }
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion]);
 

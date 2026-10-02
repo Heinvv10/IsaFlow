@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, PieChart, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { ServiceMixRow } from '@/modules/accounting/services/practice/practiceReportsService';
 import { PeriodPicker } from '@/components/practice/PeriodPicker';
 import type { PeriodRange } from '@/components/practice/PeriodPicker';
@@ -53,11 +53,12 @@ export default function ServiceMixPage() {
     const qs = new URLSearchParams({ dateFrom: period.dateFrom, dateTo: period.dateTo });
     apiFetch(`/api/accounting/practice/reports/service-mix?${qs.toString()}`)
       .then(async (res) => {
+        await assertOk(res, 'Could not load the service mix - try again');
         const json = (await res.json()) as { data?: ServiceMixRow[] } | ServiceMixRow[];
         const data = (json && typeof json === 'object' && 'data' in json ? (json as { data: ServiceMixRow[] }).data : json) as ServiceMixRow[];
         setRows(data ?? []);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
+      .catch((e: unknown) => { setRows([]); setError(apiErrorMessage(e, 'Could not load the service mix - try again')); })
       .finally(() => setLoading(false));
   }, [period.dateFrom, period.dateTo]);
 

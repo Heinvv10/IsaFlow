@@ -9,7 +9,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, Loader2, AlertCircle, Plus, Search, Download, Upload, X } from 'lucide-react';
 import Link from 'next/link';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 type ClientStatus = 'prospect' | 'onboarding' | 'active' | 'inactive' | 'archived';
 type BillingModel = 'hourly' | 'fixed' | 'retainer';
@@ -94,12 +94,13 @@ export default function PracticeClientsPage() {
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (debouncedSearch) params.set('search', debouncedSearch);
       const res = await apiFetch(`/api/accounting/practice/clients?${params}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the clients - try again');
       const json = await res.json();
       const payload = json.data ?? json;
       setClients((payload?.clients ?? payload ?? []) as PracticeClient[]);
-    } catch {
-      setError('Failed to load clients');
+    } catch (err) {
+      setClients([]);
+      setError(apiErrorMessage(err, 'Could not load the clients - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -121,7 +122,7 @@ export default function PracticeClientsPage() {
         method: 'POST',
         body: JSON.stringify({ action: 'export', ids }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not export the clients - try again');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -131,8 +132,8 @@ export default function PracticeClientsPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    } catch {
-      setError('Failed to export');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not export the clients - try again'));
     } finally {
       setExporting(false);
     }
@@ -148,16 +149,13 @@ export default function PracticeClientsPage() {
         method: 'POST',
         body: JSON.stringify({ action: 'import', csv }),
       });
+      await assertOk(res, 'Could not import the clients - try again');
       const json = await res.json();
-      if (!res.ok) {
-        setImportError(json?.error?.message ?? `HTTP ${res.status}`);
-        return;
-      }
       const payload = json.data ?? json;
       setImportResult(payload);
       if (payload.created > 0) void loadClients();
     } catch (err) {
-      setImportError(err instanceof Error ? err.message : 'Import failed');
+      setImportError(apiErrorMessage(err, 'Could not import the clients - try again'));
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';

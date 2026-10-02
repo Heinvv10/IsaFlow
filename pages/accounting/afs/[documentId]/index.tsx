@@ -7,7 +7,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   Clock, CheckCircle, Lock, ChevronRight, FileText,
@@ -22,7 +22,8 @@ import { AfsExportTab } from '@/components/accounting/afs/AfsExportTab';
 
 type TabId = 'overview' | 'notes' | 'statements' | 'review' | 'compliance' | 'export';
 
-interface PageProps { documentId: string; periodStart: string; periodEnd: string; }
+interface PageProps { documentId: string; periodStart: string; periodEnd: string; periodError: string | null; }
+const PERIOD_ERROR = 'Could not work out the reporting period for this document - reload the page to try again';
 
 const STATUS_CONFIG: Record<DocumentStatus, { label: string; colour: string; icon: React.ReactNode }> = {
   draft:          { label: 'Draft',          colour: 'bg-zinc-700 text-zinc-200',     icon: <Clock className="w-3 h-3" /> },
@@ -50,7 +51,7 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   { id: 'export',      label: 'Export',      icon: <Download className="w-4 h-4" /> },
 ];
 
-const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodEnd }) => {
+const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodEnd, periodError }) => {
   const router = useRouter();
   const [doc, setDoc] = useState<AfsDocument | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
@@ -58,13 +59,16 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
   const [actionError, setActionError] = useState('');
 
   const loadDoc = useCallback(async () => {
+    setActionError('');
     try {
       const res = await apiFetch(`/api/accounting/afs/${documentId}`, { credentials: 'include' });
-      const json = await res.json() as { data?: { document?: AfsDocument }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the document - try again');
+      const json = await res.json() as { data?: { document?: AfsDocument } };
       if (json.data?.document) setDoc(json.data.document);
     } catch (err) {
       log.error('Failed to load AFS document', { error: err, documentId }, 'afs-document-page');
+      setDoc(null);
+      setActionError(apiErrorMessage(err, 'Could not load the document - try again'));
     }
   }, [documentId]);
 
@@ -78,11 +82,11 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'submit_for_review' }),
       });
-      const json = await res.json() as { data?: { document?: AfsDocument }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to submit');
+      await assertOk(res, 'Could not submit the document for review - try again');
+      const json = await res.json() as { data?: { document?: AfsDocument } };
       if (json.data?.document) setDoc(json.data.document);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Action failed');
+      setActionError(apiErrorMessage(err, 'Could not submit the document for review - try again'));
       log.error('Workflow action failed', { error: err }, 'afs-document-page');
     } finally { setSubmitting(false); }
   }
@@ -95,13 +99,23 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'sign_off' }),
       });
-      const json = await res.json() as { data?: { document?: AfsDocument }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to sign off');
+      await assertOk(res, 'Could not sign off the document - try again');
+      const json = await res.json() as { data?: { document?: AfsDocument } };
       if (json.data?.document) setDoc(json.data.document);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Action failed');
+      setActionError(apiErrorMessage(err, 'Could not sign off the document - try again'));
       log.error('Sign off failed', { error: err }, 'afs-document-page');
     } finally { setSubmitting(false); }
+  }
+
+  if (periodError) {
+    return (
+      <AppLayout>
+        <div role="alert" className="max-w-xl mx-auto mt-16 p-4 rounded-lg bg-red-900/20 border border-red-800 text-sm text-red-400">
+          {periodError} <Link href="/accounting/afs" className="underline">Back to AFS</Link>
+        </div>
+      </AppLayout>
+    );
   }
 
   const title = doc
@@ -214,7 +228,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
   );
 };
 
-export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query, req }) => {
+export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query, req, resolvedUrl }) => {
   const documentId = Array.isArray(query.documentId) ? query.documentId[0] : query.documentId;
   if (!documentId) return { notFound: true };
 
@@ -224,6 +238,7 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query,
 
   let periodStart: string | null = null;
   let periodEnd: string | null = null;
+  let periodError: string | null = null;
 
   // Otherwise derive the period from the API route — keeps DB access
   // out of the page layer and ensures company_id scoping.
@@ -234,13 +249,21 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query,
         `${baseUrl}/api/accounting/afs/${documentId}/period`,
         { headers: { cookie: req.headers.cookie ?? '' } },
       );
+      if (apiRes.status === 404) return { notFound: true };
+      // 401: the session cookie outlived its token. Reloading can never clear a period-error page, and rendering with a guessed year would show the wrong period, so sign in again and come back.
+      if (apiRes.status === 401) return { redirect: { destination: `/login?returnTo=${encodeURIComponent(resolvedUrl)}`, permanent: false } };
+      // 403: the client load explains the refusal; this is not a failure to work out the period.
       if (apiRes.ok) {
         const json = (await apiRes.json()) as { data?: { periodStart?: string; periodEnd?: string } };
         periodStart = json.data?.periodStart ?? null;
         periodEnd   = json.data?.periodEnd   ?? null;
+      } else if (apiRes.status !== 403) {
+        periodError = PERIOD_ERROR;
       }
-    } catch {
-      // Fall through to the safe default below
+    } catch (err) {
+      // Never fall back to the current year for a document whose period is unknown: the page would show the wrong period.
+      log.error('Could not resolve the AFS period', { error: err, documentId }, 'afs-document-page');
+      periodError = PERIOD_ERROR;
     }
   }
 
@@ -251,6 +274,7 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query,
       documentId,
       periodStart: queryStart ?? periodStart ?? `${fallbackYear}-01-01`,
       periodEnd:   queryEnd   ?? periodEnd   ?? `${fallbackYear}-12-31`,
+      periodError,
     },
   };
 };

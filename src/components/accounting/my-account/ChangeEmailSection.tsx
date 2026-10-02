@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Mail } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import toast from 'react-hot-toast';
 
 export function ChangeEmailSection({ currentEmail }: { currentEmail: string }) {
@@ -25,17 +25,13 @@ export function ChangeEmailSection({ currentEmail }: { currentEmail: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ newEmail: trimmed, currentPassword }),
       });
-      const json = await res.json();
-      if (!res.ok) {
-        toast.error(json.error?.message ?? 'Failed to change email');
-        return;
-      }
+      await assertOk(res, 'Could not change your email - try again');
       setChangedTo(trimmed);
       setNewEmail('');
       setCurrentPassword('');
       toast.success(`Email changed to ${trimmed}`);
-    } catch {
-      toast.error('Failed to change email');
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not change your email - try again'));
     } finally {
       setSaving(false);
     }

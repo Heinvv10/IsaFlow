@@ -36,8 +36,9 @@ vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => ({
 
 import handler from '../../../pages/api/accounting/company-groups';
 
-const GROUP = 'group-1';
-const MY_COMPANY = 'company-mine';
+// UUIDs: the route checks id shape (400) first (D4 round 10).
+const GROUP = '80000000-0000-4000-8000-000000000001';
+const MY_COMPANY = '10000000-0000-4000-8000-0000000000a1';
 
 function mockReqRes(query: Record<string, unknown>) {
   const req = {

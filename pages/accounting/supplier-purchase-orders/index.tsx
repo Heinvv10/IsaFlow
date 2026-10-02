@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ClipboardList, Plus, Search, Loader2, Trash2, ChevronRight } from 'lucide-react';
 import { StatusPill, PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 
@@ -40,11 +40,11 @@ export default function SupplierPurchaseOrdersPage() {
       if (tab !== 'all') p.set('status', tab);
       if (search) p.set('search', search);
       const res = await apiFetch(`/api/accounting/supplier-purchase-orders?${p}`);
+      await assertOk(res, 'Could not load purchase orders - try again');
       const json = await res.json();
-      if (!res.ok) { setError(json.error?.message || json.message || 'Failed to load purchase orders'); return; }
       const d = json.data || json;
       setOrders(d.orders || []); setTotal(d.total || 0);
-    } catch { setError('Failed to load purchase orders'); }
+    } catch (err) { setOrders([]); setTotal(0); setError(apiErrorMessage(err, 'Could not load purchase orders - try again')); }
     finally { setLoading(false); }
   }, [tab, search]);
 
@@ -55,9 +55,9 @@ export default function SupplierPurchaseOrdersPage() {
     setDeleting(id);
     try {
       const res = await apiFetch('/api/accounting/supplier-purchase-orders', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-      if (res.ok) { void load(); }
-      else { const json = await res.json(); setError(json.error?.message || json.message || 'Failed to delete purchase order'); }
-    } catch { setError('Failed to delete purchase order'); }
+      await assertOk(res, 'Could not delete the purchase order - try again');
+      void load();
+    } catch (err) { setError(apiErrorMessage(err, 'Could not delete the purchase order - try again')); }
     finally { setDeleting(null); }
   };
 

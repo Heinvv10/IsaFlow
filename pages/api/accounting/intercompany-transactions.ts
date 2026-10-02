@@ -16,7 +16,37 @@ import {
   matchIntercompanyTransactions,
   getIntercompanyReconciliation,
 } from '@/modules/accounting/services/reports/groupCompanyService';
-import { userBelongsToGroup } from '@/modules/accounting/services/core/companyAccessService';
+import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
+import { isUuidParam } from '@/lib/validation';
+import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
+import {
+  INTERCOMPANY_TRANSACTION_TYPES, IntercompanyNotFoundError,
+} from '@/modules/accounting/services/reports/intercompanyService';
+
+/**
+ * 400 text for a create body's values, or null — typeof first; each reached SQL unchecked and a
+ * bad one 500'd (blind review of 5446d243c). Ids are checked separately (badUuid).
+ */
+function intercompanyValueError(body: Record<string, unknown>): string | null {
+  if (typeof body.transactionType !== 'string' || !(INTERCOMPANY_TRANSACTION_TYPES as readonly string[]).includes(body.transactionType)) {
+    return `transactionType must be one of ${INTERCOMPANY_TRANSACTION_TYPES.join(', ')}`;
+  }
+  if (typeof body.amount !== 'number' || !Number.isFinite(body.amount) || body.amount <= 0) return 'amount must be a positive number';
+  // The column is NUMERIC(15,2): 1e13 overflows (a 500), and 0.001 would be stored as 0.00.
+  if (body.amount >= 1e13) return 'amount must be less than 10,000,000,000,000';
+  if (!/^\d+(\.\d{1,2})?$/.test(String(body.amount))) return 'amount must have at most 2 decimal places';
+  if (!isLedgerDate(body.transactionDate)) return `transactionDate ${LEDGER_DATE_MESSAGE}`;
+  if (body.currency !== undefined && typeof body.currency !== 'string') return 'currency must be a string';
+  if (body.description !== undefined && typeof body.description !== 'string') return 'description must be a string';
+  return null;
+}
+
+/** First of `fields` (in `body`) that is present-or-required and not a UUID string, or null. typeof first. */
+function badUuid(body: Record<string, unknown>, required: string[], optional: string[] = []): string | null {
+  for (const f of required) if (!isUuidParam(body[f])) return f;
+  for (const f of optional) if (body[f] !== undefined && body[f] !== null && body[f] !== '' && !isUuidParam(body[f])) return f;
+  return null;
+}
 
 // Uses withAuth (not withCompany) because intercompany transactions cross company
 // boundaries. Security is provided by verifyGroupAccess() which ensures the user
@@ -54,6 +84,10 @@ async function journalEntryBelongsToCompany(journalEntryId: string, companyId: s
   return rows.length > 0;
 }
 
+// Both POST branches WRITE: a matched transaction becomes an elimination on the next
+// auto-eliminate, so membership (any role) reads and a group write role writes.
+const WRITE_REFUSED = 'Your role in this group does not allow this change.';
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const action = (req.query.action || req.body?.action) as string | undefined;
@@ -61,6 +95,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'GET') {
     if (!groupId) return apiResponse.badRequest(res, 'group_id required');
+    // group_id / company_id reach ::UUID and the dates ::DATE: checked first (typeof), 400 not 500.
+    const badGet = badUuid(req.query, ['group_id'], ['company_id'])
+      ?? (['period_start', 'period_end'] as const).find(d => req.query[d] !== undefined && req.query[d] !== '' && !isLedgerDate(req.query[d]));
+    if (badGet) {
+      return apiResponse.badRequest(res, badGet.startsWith('period_') ? `${badGet} ${LEDGER_DATE_MESSAGE}` : `${badGet} must be a valid UUID`);
+    }
+    if (req.query.status !== undefined && typeof req.query.status !== 'string') return apiResponse.badRequest(res, 'status must be a string');
     if (!(await verifyGroupAccess(groupId, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
 
     if (action === 'reconciliation') {
@@ -86,8 +127,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { sourceId, targetId, groupId: matchGroupId } = req.body;
       if (!sourceId || !targetId) return apiResponse.badRequest(res, 'sourceId and targetId required');
       if (!matchGroupId) return apiResponse.badRequest(res, 'groupId required');
+      // Each reaches a ::UUID cast: a malformed or repeated value used to 500 (D4 round 9).
+      const badMatch = badUuid(req.body, ['sourceId', 'targetId', 'groupId']);
+      if (badMatch) return apiResponse.badRequest(res, `${badMatch} must be a valid UUID`);
       if (!(await verifyGroupAccess(matchGroupId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
-      await matchIntercompanyTransactions(sourceId, targetId, matchGroupId as string);
+      if (!(await userCanWriteGroup(userId, matchGroupId as string))) return apiResponse.forbidden(res, WRITE_REFUSED);
+      try {
+        await matchIntercompanyTransactions(sourceId, targetId, matchGroupId as string);
+      } catch (err) {
+        if (err instanceof IntercompanyNotFoundError) return apiResponse.notFound(res, 'Intercompany transaction', err.missing.join(', '));
+        throw err;
+      }
       return apiResponse.success(res, { matched: true });
     }
 
@@ -96,7 +146,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!gId || !sourceCompanyId || !targetCompanyId || !transactionType || !amount || !transactionDate) {
       return apiResponse.badRequest(res, 'groupId, sourceCompanyId, targetCompanyId, transactionType, amount, transactionDate required');
     }
+    const badCreate = badUuid(req.body, ['groupId', 'sourceCompanyId', 'targetCompanyId'], ['sourceJournalEntryId', 'targetJournalEntryId']);
+    if (badCreate) return apiResponse.badRequest(res, `${badCreate} must be a valid UUID`);
+    const badValue = intercompanyValueError(req.body);
+    if (badValue) return apiResponse.badRequest(res, badValue);
     if (!(await verifyGroupAccess(gId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
+    if (!(await userCanWriteGroup(userId, gId as string))) return apiResponse.forbidden(res, WRITE_REFUSED);
 
     // Both source and target companies must be active members of the group — reject
     // forged/foreign companyIds before they reach the INSERT (cross-tenant forgery).

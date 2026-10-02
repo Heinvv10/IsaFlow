@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2, AlertCircle, CheckCircle2, CalendarDays, Hash } from 'lucide-react';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 // 🟢 WORKING: ZAR currency formatter (2 decimal places for reconciliation context)
 const fmt = (amount: number): string =>
@@ -52,14 +53,16 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
       `/api/accounting/bank-import-batches?bankAccountId=${encodeURIComponent(bankAccountId)}`,
       { credentials: 'include' }
     )
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the statement data - try again'); return r.json(); })
       .then(json => {
         if (cancelled) return;
         const batches: ImportBatch[] = json?.data?.batches ?? [];
         setBatch(batches[0] ?? null);
       })
-      .catch(() => {
-        if (!cancelled) setError('Failed to load statement data');
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setBatch(null);
+        setError(apiErrorMessage(err, 'Could not load the statement data - try again'));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

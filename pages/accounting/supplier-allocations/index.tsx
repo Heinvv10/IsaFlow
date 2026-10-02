@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle, Check } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -29,6 +29,7 @@ export default function SupplierAllocationsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/supplier-payments?unallocated=true', { credentials: 'include' });
+      await assertOk(res, 'Could not load the unallocated payments - try again');
       const json = await res.json();
       const d = json.data;
       const raw: (Payment & { totalAmount?: number })[] = Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || [];
@@ -41,7 +42,8 @@ export default function SupplierAllocationsPage() {
       }));
       setPayments(mapped.filter(p => (p.amount - p.allocatedAmount) > 0.01));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setPayments([]);
+      setError(apiErrorMessage(err, 'Could not load the unallocated payments - try again'));
     } finally {
       setLoading(false);
     }
@@ -51,11 +53,18 @@ export default function SupplierAllocationsPage() {
 
   const selectPayment = async (p: Payment) => {
     setSelected(p); setAllocs({}); setMsg(''); setLoadingInv(true);
-    const res = await apiFetch(`/api/accounting/supplier-invoices?supplier_id=${p.supplierId}&status=approved`, { credentials: 'include' });
-    const json = await res.json();
-    const rawInv: Invoice[] = (() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || []; })();
-    setInvoices(rawInv.map(i => ({ ...i, total: Number(i.total), outstanding: Number(i.outstanding) })));
-    setLoadingInv(false);
+    try {
+      const res = await apiFetch(`/api/accounting/supplier-invoices?supplier_id=${p.supplierId}&status=approved`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the supplier invoices - try again');
+      const json = await res.json();
+      const rawInv: Invoice[] = (() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || []; })();
+      setInvoices(rawInv.map(i => ({ ...i, total: Number(i.total), outstanding: Number(i.outstanding) })));
+    } catch (err) {
+      setInvoices([]);
+      setError(apiErrorMessage(err, 'Could not load the supplier invoices - try again'));
+    } finally {
+      setLoadingInv(false);
+    }
   };
 
   const toggleAlloc = (inv: Invoice) => {
@@ -71,15 +80,21 @@ export default function SupplierAllocationsPage() {
 
   const doAllocate = async () => {
     if (!selected || totalAlloc <= 0) return;
-    setSaving(true);
+    setSaving(true); setMsg(''); setError('');
     const allocations = Object.entries(allocs).filter(([, a]) => a > 0).map(([invoiceId, amount]) => ({ invoiceId, amount }));
-    const res = await apiFetch('/api/accounting/supplier-allocations', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ paymentId: selected.id, allocations }),
-    });
-    if (res.ok) { setMsg('Allocated successfully'); setSelected(null); setAllocs({}); await loadPayments(); }
-    else { setMsg('Allocation failed'); }
-    setSaving(false);
+    try {
+      const res = await apiFetch('/api/accounting/supplier-allocations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ paymentId: selected.id, allocations }),
+      });
+      await assertOk(res, 'Could not allocate the payment - try again');
+      setMsg('Allocated successfully'); setSelected(null); setAllocs({});
+      await loadPayments();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not allocate the payment - try again'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

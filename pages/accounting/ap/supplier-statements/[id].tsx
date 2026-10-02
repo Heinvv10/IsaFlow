@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, RefreshCw, CheckCircle2, X, ChevronDown, ChevronUp, ArrowLeft, ExternalLink } from 'lucide-react';
 
 type ReconStatus = 'unreconciled' | 'reconciled' | 'disputed' | 'archived';
@@ -98,12 +98,12 @@ export default function SupplierStatementDetailPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch(`/api/accounting/supplier-statements/${reconId}`);
-      const json = await res.json() as { data?: SupplierStatementReconciliation; error?: string };
-      if (!res.ok) { setError(json.error ?? 'Failed to load reconciliation'); return; }
+      await assertOk(res, 'Could not load the reconciliation - try again');
+      const json = await res.json() as { data?: SupplierStatementReconciliation };
       const data = json.data ?? null;
       setRecon(data);
       if (data && data.missingInStatementCount > 0) setMissingOpen(true);
-    } catch { setError('Network error loading reconciliation'); }
+    } catch (err) { setRecon(null); setError(apiErrorMessage(err, 'Could not load the reconciliation - try again')); }
     finally { setLoading(false); }
   }, [reconId]);
 
@@ -114,11 +114,11 @@ export default function SupplierStatementDetailPage() {
     setRematching(true);
     try {
       const res = await apiFetch(`/api/accounting/supplier-statements/${reconId}/rematch`, { method: 'POST' });
-      const json = await res.json() as { data?: SupplierStatementReconciliation; error?: string };
-      if (!res.ok) { showToast(json.error ?? 'Rematch failed', 'err'); return; }
+      await assertOk(res, 'Could not re-match the statement - try again');
+      const json = await res.json() as { data?: SupplierStatementReconciliation };
       setRecon(json.data ?? null);
       showToast('Rematch complete', 'ok');
-    } catch { showToast('Network error during rematch', 'err'); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not re-match the statement - try again'), 'err'); }
     finally { setRematching(false); }
   }, [reconId, showToast]);
 
@@ -127,10 +127,10 @@ export default function SupplierStatementDetailPage() {
     setMarking(true);
     try {
       const res = await apiFetch(`/api/accounting/supplier-statements/${reconId}/mark-reconciled`, { method: 'POST' });
-      if (!res.ok) { showToast('Failed to mark reconciled', 'err'); return; }
+      await assertOk(res, 'Could not mark the statement as reconciled - try again');
       showToast('Marked as reconciled', 'ok');
       void load();
-    } catch { showToast('Network error', 'err'); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not mark the statement as reconciled - try again'), 'err'); }
     finally { setMarking(false); }
   }, [reconId, load, showToast]);
 

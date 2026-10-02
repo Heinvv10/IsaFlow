@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, waitFor } from '@testing-library/react';
+import { render, waitFor, screen, act } from '@testing-library/react';
 
 const register = vi.fn(() => Promise.resolve());
 const getRegistrations = vi.fn(() => Promise.resolve([]));
@@ -24,6 +24,9 @@ vi.mock('next/router', () => ({
   useRouter: () => ({ pathname, events: { on: () => {}, off: () => {} } }),
 }));
 vi.mock('@/components/analytics/TrackerScript', () => ({ TrackerScript: () => null }));
+
+// The first import of pages/_app is slow under a loaded machine; the 5 s default failed pre-push gates. Timing only.
+const LOAD_TIMEOUT = 60_000;
 
 describe('pages/_app.tsx — service worker registration', () => {
   beforeEach(() => {
@@ -58,15 +61,17 @@ describe('pages/_app.tsx — service worker registration', () => {
     // gate let the page through; which one depends only on the environment.
     await waitFor(() => {
       expect(register.mock.calls.length + getRegistrations.mock.calls.length).toBeGreaterThan(0);
-    });
-  });
+    }, { timeout: 15_000 });
+  }, LOAD_TIMEOUT);
 
   it('does not touch it at all on the public share page', async () => {
     pathname = '/share/[token]';
     await mount();
-    // Given a tick to be wrong in.
-    await new Promise(r => setTimeout(r, 0));
+    // App has mounted (its page text is on screen), and the effects get 400 ms to be wrong in: a bare
+    // setTimeout(0) after a slow import would pass without checking anything.
+    expect(await screen.findByText('page')).toBeTruthy();
+    await act(async () => { await new Promise(r => setTimeout(r, 400)); });
     expect(register).not.toHaveBeenCalled();
     expect(getRegistrations).not.toHaveBeenCalled();
-  });
+  }, LOAD_TIMEOUT);
 });

@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Loader2, BarChart3, AlertCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { FiscalPeriod, TrialBalanceRow } from '@/modules/accounting/types/gl.types';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
@@ -35,12 +35,14 @@ export function ReportsTab() {
   // balance over whatever subset of accounts happened to be returned.
   const [totals, setTotals] = useState({ debit: 0, credit: 0, difference: 0, balanced: true });
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => { void loadPeriods(); }, []);
 
   const loadPeriods = async () => {
     try {
       const res = await apiFetch('/api/accounting/fiscal-periods');
+      await assertOk(res, 'Could not load the fiscal periods - try again');
       const data = await res.json();
       const list: FiscalPeriod[] = data.data || data || [];
       setPeriods(list);
@@ -48,13 +50,16 @@ export function ReportsTab() {
       if (current) setSelectedPeriod(current.id);
     } catch (err) {
       log.error('Failed to load periods for reports', { error: err }, 'accounting-ui');
+      setError(apiErrorMessage(err, 'Could not load the fiscal periods - try again'));
     }
   };
 
   const loadTrialBalance = async (periodId: string) => {
     setIsLoading(true);
+    setError('');
     try {
       const res = await apiFetch(`/api/accounting/reports-trial-balance?fiscal_period_id=${periodId}`);
+      await assertOk(res, 'Could not load the trial balance - try again');
       const data = await res.json();
       const payload = data.data || data;
       setTrialBalance(payload.rows || []);
@@ -66,6 +71,8 @@ export function ReportsTab() {
       });
     } catch (err) {
       log.error('Failed to load trial balance', { error: err }, 'accounting-ui');
+      setTrialBalance([]);
+      setError(apiErrorMessage(err, 'Could not load the trial balance - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -102,6 +109,8 @@ export function ReportsTab() {
           ))}
         </select>
       </div>
+
+      {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
 
       {/* Trial Balance */}
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">

@@ -56,15 +56,20 @@ export default function PortalPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: loginEmail, password: loginPassword }),
       });
+      if (!res.ok) {
+        const failure = await res.json().catch(() => null);
+        setLoginError(failure?.error?.message || (res.status >= 500 ? 'Sign-in is temporarily unavailable - please try again shortly' : 'Invalid credentials'));
+        return;
+      }
       const json = await res.json();
-      if (!res.ok || !json.data?.user) {
-        setLoginError(json.error?.message || 'Invalid credentials');
+      if (!json.data?.user) {
+        setLoginError('Could not sign in - please try again');
         return;
       }
       setUser(json.data.user);
       localStorage.setItem('portal_user', JSON.stringify(json.data.user));
     } catch {
-      setLoginError('Login failed');
+      setLoginError('Could not sign in - please try again');
     } finally {
       setLoggingIn(false);
     }
@@ -90,34 +95,36 @@ export default function PortalPage() {
     setInvoicesError('');
     fetch(`/api/portal/invoices?clientId=${user.clientId}`)
       .then(async r => {
-        const json = await r.json();
         // R-095 round 3 (LOW-5): a 404 (the account was soft-deleted, or a
         // stale session outlived a delete — see R-095 L4) used to fall
         // through `json.data?.items ?? []` and render as an ordinary,
         // misleading "no invoices" empty state. Surface it instead.
         if (!r.ok) {
+          const failure = await r.json().catch(() => null);
           setInvoices([]);
-          setInvoicesError(json.error?.message || 'Could not load your invoices.');
+          setInvoicesError(failure?.error?.message || 'Could not load your invoices.');
           return;
         }
+        const json = await r.json();
         setInvoices(json.data?.items ?? []);
       })
-      .catch(() => setInvoicesError('Could not load your invoices.'))
+      .catch(() => { setInvoices([]); setInvoicesError('Could not load your invoices.'); })
       .finally(() => setLoading(false));
 
     setStatementLoading(true);
     setStatementError('');
     fetch(`/api/portal/statement?clientId=${user.clientId}`)
       .then(async r => {
-        const json = await r.json();
         if (!r.ok) {
+          const failure = await r.json().catch(() => null);
           setStatement(null);
-          setStatementError(json.error?.message || 'Could not load your statement.');
+          setStatementError(failure?.error?.message || 'Could not load your statement.');
           return;
         }
+        const json = await r.json();
         setStatement(json.data ?? null);
       })
-      .catch(() => setStatementError('Could not load your statement.'))
+      .catch(() => { setStatement(null); setStatementError('Could not load your statement.'); })
       .finally(() => setStatementLoading(false));
   }, [user]);
 

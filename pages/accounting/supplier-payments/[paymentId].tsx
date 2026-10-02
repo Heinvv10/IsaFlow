@@ -73,10 +73,12 @@ export default function SupplierPaymentDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/supplier-payments?id=${paymentId}`);
+      await assertOk(res, 'Could not load the payment - try again');
       const json = await res.json();
       setPayment(json.data || null);
-    } catch {
-      setError('Failed to load payment');
+    } catch (err) {
+      setPayment(null);
+      setError(apiErrorMessage(err, 'Could not load the payment - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -97,10 +99,10 @@ export default function SupplierPaymentDetailPage() {
       });
       // The body's `error` is an object ({ code, message }); rendering it
       // crashed the page. `assertOk` pulls out the refusal's own message.
-      await assertOk(res, `Failed to ${action} payment`);
+      await assertOk(res, `Could not ${action} the payment - try again`);
       void load();
     } catch (err) {
-      setError(apiErrorMessage(err, `Failed to ${action} payment`));
+      setError(apiErrorMessage(err, `Could not ${action} the payment - try again`));
     } finally {
       setActionBusy('');
     }

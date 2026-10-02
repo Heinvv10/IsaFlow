@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { Loader2, CheckCircle, XCircle, Undo2 } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { DisputeRow } from '@/components/accounting/disputes/types';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -45,13 +45,10 @@ export function ResolveModal({
                 ...(mode === 'resolve_with_credit' ? { creditDate } : {}),
               }),
             });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json?.error?.message ?? `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not resolve the dispute - try again');
       onDone();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Failed to resolve dispute');
+      setErr(apiErrorMessage(e, 'Could not resolve the dispute - try again'));
     } finally {
       setSubmitting(false);
     }

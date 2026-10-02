@@ -10,13 +10,14 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ArrowLeft, AlertCircle, Loader2 } from 'lucide-react';
 import { ClientHomeView } from '@/components/bureau/ClientHomeView';
 import { bureauClientErrorMessage } from '@/components/bureau/clientHomeError';
 import type { WorkItem } from '@/modules/bureau/services/bureauWorkTypes';
 import type { ClientMetrics } from '@/modules/bureau/services/bureauClientMetricsService';
 
+import { notify } from '@/utils/toast';
 interface ClientHomeData {
   company: { id: string; name: string; bureauName: string };
   metrics: ClientMetrics;
@@ -36,11 +37,12 @@ export default function BureauClientHomePage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch(`/api/bureau/client/${companyId}`);
-      const json = await res.json() as { data?: ClientHomeData; error?: { message?: string }; message?: string };
-      if (!res.ok) throw new Error(bureauClientErrorMessage(res.status, json));
+      await assertOk(res, 'Could not load this client - try again');
+      const json = await res.json() as { data?: ClientHomeData };
       setData(json.data ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      setData(null);
+      setError(bureauClientErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -50,7 +52,8 @@ export default function BureauClientHomePage() {
 
   const handleOpen = async (item: WorkItem) => {
     if (activeCompany?.id !== item.companyId) {
-      await switchCompany(item.companyId);
+      try { await switchCompany(item.companyId); }
+      catch (e) { notify.error(apiErrorMessage(e, 'Could not switch company - try again')); return; }   // still on the old company: do not navigate
     }
     void router.push(item.href);
   };

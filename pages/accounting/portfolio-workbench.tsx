@@ -9,7 +9,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { countClosable } from '@/lib/closeAgentView';
 import type {
   PortfolioWorkbench,
@@ -116,13 +117,11 @@ export default function PortfolioWorkbenchPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId }),
       });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({})) as { error?: { message?: string } };
-        throw new Error(json.error?.message ?? `Switch failed (${res.status})`);
-      }
-      await router.push(`/accounting/month-end-workbench?period=${encodeURIComponent(period)}`);
+      await assertOk(res, 'Could not switch to this client - try again');
+      try { await router.push(`/accounting/month-end-workbench?period=${encodeURIComponent(period)}`); } catch (e) { log.warn('navigation failed', { error: e }, 'portfolio-workbench'); }
+      setSwitching(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to switch company');
+      setError(apiErrorMessage(e, 'Could not switch to this client - try again'));
       setSwitching(null);
     }
   }, [period, router]);
@@ -132,13 +131,15 @@ export default function PortfolioWorkbenchPage() {
     setError(null);
     try {
       const res = await apiFetch(`/api/accounting/portfolio-workbench?period=${encodeURIComponent(p)}`);
+      await assertOk(res, 'Could not load the portfolio - try again');
       const json = await res.json() as ApiEnvelope<PortfolioWorkbench>;
-      if (!res.ok || !json.success) {
-        throw new Error(json.error?.message ?? 'Failed to load portfolio');
+      if (!json.success) {
+        throw new ApiEnvelopeError(json.error?.message ?? 'Could not load the portfolio - try again');
       }
       setData(json.data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load portfolio');
+      setData(null);
+      setError(apiErrorMessage(e, 'Could not load the portfolio - try again'));
     } finally {
       setLoading(false);
     }

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import type { GetServerSidePropsContext, InferGetServerSidePropsType } from 'next';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { verifyPortalToken } from '@/lib/auth/portalJwt';
 import { PORTAL_ACCESS_RULES } from '@/modules/accounting/services/afs/afsTypes';
 
@@ -79,6 +80,7 @@ export default function PortalDocumentPage({
   const [commentText, setCommentText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<string[]>([]);
+  const [commentError, setCommentError] = useState('');
 
   const isLocked = doc.status === 'signed_off' || doc.status === 'filed';
   const typeLabel = doc.document_type === 'afs' ? 'Annual Financial Statements' : 'Management Pack';
@@ -86,17 +88,19 @@ export default function PortalDocumentPage({
   async function submitComment(sectionId: string) {
     if (!commentText.trim()) return;
     setSubmitting(true);
+    setCommentError('');
     try {
       const res = await fetch(`/api/accounting/portal/documents/${doc.id}/annotate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sectionId, body: commentText.trim() }),
       });
-      if (res.ok) {
-        setSubmitted((p) => [...p, sectionId]);
-        setAnnotating(null);
-        setCommentText('');
-      }
+      await assertOk(res, 'Could not submit your comment - try again');
+      setSubmitted((p) => [...p, sectionId]);
+      setAnnotating(null);
+      setCommentText('');
+    } catch (err) {
+      setCommentError(apiErrorMessage(err, 'Could not submit your comment - try again'));
     } finally {
       setSubmitting(false);
     }
@@ -159,13 +163,14 @@ export default function PortalDocumentPage({
                     ) : annotating === s.id ? (
                       <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem' }}>
                         <textarea value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Add a comment…" rows={3} style={{ width:'100%', padding:'0.625rem', border:'1.5px solid #d1d5db', borderRadius:'0.5rem', fontSize:'0.875rem', fontFamily:'inherit', boxSizing:'border-box', resize:'vertical' }} autoFocus />
+                        {commentError && <p role="alert" style={{ color:'#dc2626', fontSize:'0.875rem', margin:0 }}>{commentError}</p>}
                         <div style={{ display:'flex', gap:'0.5rem' }}>
                           <button onClick={() => submitComment(s.id)} disabled={submitting || !commentText.trim()} style={{ background:'#0ea5e9', color:'#fff', border:'none', borderRadius:'0.375rem', padding:'0.5rem 1rem', fontSize:'0.875rem', fontWeight:500, cursor:'pointer' }}>{submitting ? 'Saving…' : 'Submit'}</button>
-                          <button onClick={() => { setAnnotating(null); setCommentText(''); }} style={{ background:'transparent', color:'#64748b', border:'1px solid #d1d5db', borderRadius:'0.375rem', padding:'0.5rem 1rem', fontSize:'0.875rem', cursor:'pointer' }}>Cancel</button>
+                          <button onClick={() => { setAnnotating(null); setCommentText(''); setCommentError(''); }} style={{ background:'transparent', color:'#64748b', border:'1px solid #d1d5db', borderRadius:'0.375rem', padding:'0.5rem 1rem', fontSize:'0.875rem', cursor:'pointer' }}>Cancel</button>
                         </div>
                       </div>
                     ) : (
-                      <button onClick={() => setAnnotating(s.id)} style={{ background:'transparent', color:'#0ea5e9', border:'1px dashed #bae6fd', borderRadius:'0.375rem', padding:'0.375rem 0.75rem', fontSize:'0.8125rem', cursor:'pointer' }}>+ Add comment</button>
+                      <button onClick={() => { setCommentError(''); setAnnotating(s.id); }} style={{ background:'transparent', color:'#0ea5e9', border:'1px dashed #bae6fd', borderRadius:'0.375rem', padding:'0.375rem 0.75rem', fontSize:'0.8125rem', cursor:'pointer' }}>+ Add comment</button>
                     )}
                   </div>
                 )}

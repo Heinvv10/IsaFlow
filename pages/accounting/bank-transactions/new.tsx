@@ -10,7 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeft, Loader2, Receipt, Banknote } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { log } from '@/lib/logger';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { fetchAllSuppliers, truncatedSuppliersNotice } from '@/lib/fetchAllSuppliers';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
@@ -73,7 +73,7 @@ export default function NewBankTransactionPage() {
   useEffect(() => {
     let mounted = true;
     const promises = [
-      apiJson('/api/accounting/bank-accounts').then(data => {
+      apiJson('/api/accounting/bank-accounts', undefined, 'Could not load the bank accounts - try again').then(data => {
         if (!mounted) return;
         const list: BankAcct[] = Array.isArray(data) ? data : [];
         setBankAccounts(list);
@@ -82,13 +82,13 @@ export default function NewBankTransactionPage() {
         log.error('Failed to load bank accounts', { error: err }, 'accounting-ui');
         if (mounted) notify.error('Could not load bank accounts — reload the page to try again');
       }),
-      apiFetch('/api/accounting/chart-of-accounts').then(r => r.json()).then(json => {
+      apiFetch('/api/accounting/chart-of-accounts').then(async r => { await assertOk(r, 'Could not load accounts - try again'); return r.json(); }).then(json => {
         if (!mounted) return;
         const list = asArray<GlAccountOption>(json.data ?? json);
         setGlAccounts(list
           .filter(a => !isBankSubtype(a.accountSubtype))
           .map(a => ({ id: a.id, code: a.accountCode ?? a.code ?? undefined, name: a.accountName ?? a.name ?? '' })));
-      }),
+      }).catch((err) => { log.error('Failed to load accounts', { error: err }, 'accounting-ui'); if (mounted) notify.error(apiErrorMessage(err, 'Could not load accounts - try again')); }),
       fetchAllSuppliers().then(({ suppliers: list, truncated }) => {
         if (!mounted) return;
         setSuppliers(list.map(s => ({ id: String(s.id), name: s.name ?? '', code: s.code ?? undefined })));
@@ -97,11 +97,11 @@ export default function NewBankTransactionPage() {
         log.warn('Failed to load suppliers for new bank transaction', { error: err }, 'accounting-ui');
         if (mounted) setSuppliersFailed(true);
       }),
-      apiFetch('/api/accounting/customers').then(r => r.json()).then(json => {
+      apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); }).then(json => {
         if (!mounted) return;
         const list = asArray<EntityOption>(json.data);
         setCustomers(list.map(c => ({ id: String(c.id), name: c.company_name ?? c.companyName ?? c.name ?? '' })));
-      }),
+      }).catch((err) => { log.error('Failed to load customers', { error: err }, 'accounting-ui'); if (mounted) notify.error(apiErrorMessage(err, 'Could not load customers - try again')); }),
     ];
     void Promise.allSettled(promises).finally(() => { if (mounted) setIsLoadingRef(false); });
     return () => { mounted = false; };
@@ -154,14 +154,14 @@ export default function NewBankTransactionPage() {
           entityId: form.entityId || undefined, vatCode: form.vatCode,
         }),
       });
+      await assertOk(res, 'Could not record the transaction - try again');
       const json = await res.json();
-      if (!res.ok || json.success === false)
-        throw new Error(json.error?.message ?? json.message ?? 'Failed to record transaction');
+      if (json.success === false) { notify.error(json.error?.message ?? json.message ?? 'Could not record the transaction - try again'); return; }
       notify.success('Transaction recorded successfully');
       notifyLateClaims(json); // VAT claimed in a later period (s16(3))
-      void router.push('/accounting/bank-transactions');
+      try { await router.push('/accounting/bank-transactions'); } catch (e) { log.warn('navigation failed', { error: e }, 'bank-transactions-new'); }
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : 'Failed to record transaction');
+      notify.error(apiErrorMessage(error, 'Could not record the transaction - try again'));
     } finally {
       setIsSubmitting(false);
     }

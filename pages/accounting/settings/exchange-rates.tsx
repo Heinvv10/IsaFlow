@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { AddRateForm, ConverterWidget } from '@/components/accounting/exchangeRates/ExchangeRateForms';
 import type { Currency } from '@/components/accounting/exchangeRates/ExchangeRateForms';
@@ -35,12 +35,16 @@ export default function ExchangeRatesSettingsPage() {
         apiFetch('/api/accounting/currencies'),
         apiFetch('/api/accounting/exchange-rates'),
       ]);
+      await assertOk(currRes, 'Could not load exchange rate data - try again');
+      await assertOk(ratesRes, 'Could not load exchange rate data - try again');
       const currJson = await currRes.json();
       const ratesJson = await ratesRes.json();
       setCurrencies(currJson.data?.currencies ?? []);
       setRates(ratesJson.data?.rates ?? []);
-    } catch {
-      setError('Failed to load exchange rate data');
+    } catch (err) {
+      setCurrencies([]);
+      setRates([]);
+      setError(apiErrorMessage(err, 'Could not load exchange rate data - try again'));
     } finally {
       setLoading(false);
     }
@@ -54,15 +58,11 @@ export default function ExchangeRatesSettingsPage() {
       const res = await apiFetch(`/api/accounting/exchange-rates?id=${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({})) as { message?: string };
-        notify.error(json.message || 'Failed to delete rate');
-        return;
-      }
+      await assertOk(res, 'Could not delete the exchange rate - try again');
       notify.success('Exchange rate deleted');
       setRates(prev => prev.filter(r => r.id !== id));
-    } catch {
-      notify.error('Failed to delete exchange rate');
+    } catch (err) {
+      notify.error(apiErrorMessage(err, 'Could not delete the exchange rate - try again'));
     } finally {
       setDeleting(null);
     }

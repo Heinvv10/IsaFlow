@@ -41,15 +41,19 @@ const ROW = {
   totalSales: 100, paymentsReceived: 40, totalPurchases: 100, paymentsMade: 40,
   outstanding: 60,
 };
-vi.mock('@/lib/apiFetch', () => ({
-  apiFetch: vi.fn(async (url: string) => {
-    asked.push(String(url));
-    return new Response(JSON.stringify({ success: true, data: [ROW] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }),
-}));
+vi.mock('@/lib/apiFetch', async () => {
+  const real = await vi.importActual<typeof import('@/lib/apiFetch')>('@/lib/apiFetch');
+  return {
+    ...real,
+    apiFetch: vi.fn(async (url: string) => {
+      asked.push(String(url));
+      return new Response(JSON.stringify({ success: true, data: [ROW] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }),
+  };
+});
 
 import SalesByCustomerPage from '../../../../pages/accounting/reports/sales-by-customer';
 import PurchasesBySupplierPage from '../../../../pages/accounting/reports/purchases-by-supplier';

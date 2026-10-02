@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, History, ArrowLeft, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 type Tone = 'polite' | 'firm' | 'final' | 'legal';
 type EmailStatus = 'sent' | 'failed' | 'pending';
@@ -71,10 +71,12 @@ export default function DunningRunsPage() {
         ? `/api/accounting/ar/dunning/sends?responseAction=${filter}&limit=200`
         : '/api/accounting/ar/dunning/sends?limit=200';
       const res = await apiFetch(url);
+      await assertOk(res, 'Could not load send history - try again');
       const json = await res.json();
       setSends(json?.data?.sends ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load send history');
+      setSends([]);
+      setError(apiErrorMessage(err, 'Could not load send history - try again'));
     } finally {
       setLoading(false);
     }

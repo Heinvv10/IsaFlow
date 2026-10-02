@@ -7,9 +7,10 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Briefcase, Loader2, AlertCircle, ArrowLeft, Clock } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { JobStatusBadge } from '@/components/practice/JobStatusBadge';
 import { JobBudgetPanel } from '@/components/practice/JobBudgetPanel';
+import { TabError } from '@/components/practice/TabError';
 import type { PracticeJob } from '@/modules/accounting/services/practice/practiceJobService';
 import type { PracticeTask } from '@/modules/accounting/services/practice/practiceTaskService';
 import type { PracticeTimeEntry } from '@/modules/accounting/services/practice/practiceTimeEntryService';
@@ -44,10 +45,12 @@ export default function JobDetailPage() {
   const [form, setForm] = useState<Partial<PracticeJob>>({});
   const [tasks, setTasks] = useState<PracticeTask[]>([]);
   const [tasksLoaded, setTasksLoaded] = useState(false);
+  const [tasksError, setTasksError] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
   const [adding, setAdding] = useState(false);
   const [entries, setEntries] = useState<PracticeTimeEntry[]>([]);
   const [timeLoaded, setTimeLoaded] = useState(false);
+  const [timeError, setTimeError] = useState('');
   const [users, setUsers] = useState<CompanyUserSummary[]>([]);
 
   const loadJob = useCallback(async () => {
@@ -59,48 +62,49 @@ export default function JobDetailPage() {
         apiFetch('/api/accounting/practice/users'),
       ]);
       if (jobRes.status === 404) { setError('Job not found'); return; }
-      if (!jobRes.ok) throw new Error(`HTTP ${jobRes.status}`);
+      await assertOk(jobRes, 'Could not load the job - try again');
       const j = await jobRes.json() as { data?: PracticeJob } | PracticeJob;
       const job = ('data' in j ? j.data : j) as PracticeJob;
       setJob(job); setForm(job);
-      if (usersRes.ok) {
+      try {
+        await assertOk(usersRes, 'Could not load the team members - assignees show as IDs');
         const uj = await usersRes.json() as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
         setUsers(Array.isArray(uj) ? uj : ((uj as { data?: CompanyUserSummary[] }).data ?? []));
-      }
-    } catch { setError('Failed to load job'); }
+      } catch (e) { setUsers([]); setBanner(apiErrorMessage(e, 'Could not load the team members - assignees show as IDs')); }
+    } catch (err) { setUsers([]); setError(apiErrorMessage(err, 'Could not load the job - try again')); }
     finally { setLoading(false); }
   }, [jobId]);
 
   useEffect(() => { void loadJob(); }, [loadJob]);
 
   useEffect(() => {
-    if (tab !== 'tasks' || tasksLoaded || !jobId) return;
+    if (tab !== 'tasks' || tasksLoaded || tasksError || !jobId) return;
     void apiFetch(`/api/accounting/practice/tasks?jobId=${jobId}`)
-      .then(r => r.ok ? r.json() : null)
-      .then((j: { data?: { tasks: PracticeTask[] }; tasks?: PracticeTask[] } | null) => {
-        if (j) { const p = j.data ?? j; setTasks((p as { tasks: PracticeTask[] }).tasks ?? []); }
+      .then(async r => { await assertOk(r, 'Could not load the tasks - try again'); return r.json(); })
+      .then((j: { data?: { tasks: PracticeTask[] }; tasks?: PracticeTask[] }) => {
+        const p = j.data ?? j; setTasks((p as { tasks: PracticeTask[] }).tasks ?? []);
+        setTasksLoaded(true);
       })
-      .finally(() => setTasksLoaded(true));
-  }, [tab, tasksLoaded, jobId]);
+      // Not marked loaded: a failed tab shows its error with a Retry, never an empty list.
+      .catch(e => setTasksError(apiErrorMessage(e, 'Could not load the tasks - try again')));
+  }, [tab, tasksLoaded, tasksError, jobId]);
 
   useEffect(() => {
-    if (tab !== 'time' || timeLoaded || !jobId) return;
+    if (tab !== 'time' || timeLoaded || timeError || !jobId) return;
     void apiFetch(`/api/accounting/practice/time-entries?jobId=${jobId}`)
-      .then(r => r.ok ? r.json() : null)
-      .then((j: { data?: { entries: PracticeTimeEntry[] } } | null) => {
-        if (j) setEntries(j.data?.entries ?? []);
-      })
-      .finally(() => setTimeLoaded(true));
-  }, [tab, timeLoaded, jobId]);
+      .then(async r => { await assertOk(r, 'Could not load the time entries - try again'); return r.json(); })
+      .then((j: { data?: { entries: PracticeTimeEntry[] } }) => { setEntries(j.data?.entries ?? []); setTimeLoaded(true); })
+      .catch(e => setTimeError(apiErrorMessage(e, 'Could not load the time entries - try again')));
+  }, [tab, timeLoaded, timeError, jobId]);
 
   async function save() {
     if (!job) return;
     setSaving(true); setBanner('');
     try {
       const r = await apiFetch(`/api/accounting/practice/jobs/${job.id}`, { method: 'PUT', body: JSON.stringify(form) });
-      await assertOk(r, 'Save failed');
+      await assertOk(r, 'Could not save the job - try again');
       await loadJob();
-    } catch (e) { setBanner(e instanceof Error ? e.message : 'Save failed'); }
+    } catch (e) { setBanner(apiErrorMessage(e, 'Could not save the job - try again')); }
     finally { setSaving(false); }
   }
 
@@ -108,18 +112,18 @@ export default function JobDetailPage() {
     if (!job) return; setBanner('');
     try {
       const r = await apiFetch('/api/accounting/practice/jobs/transition', { method: 'POST', body: JSON.stringify({ id: job.id, newStatus: s }) });
-      if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? `HTTP ${r.status}`); }
+      await assertOk(r, 'Could not change the job status - try again');
       await loadJob();
-    } catch (e) { setBanner(e instanceof Error ? e.message : 'Transition failed'); }
+    } catch (e) { setBanner(apiErrorMessage(e, 'Could not change the job status - try again')); }
   }
 
   async function del() {
     if (!job || !confirm('Delete this job?')) return; setBanner('');
     try {
       const r = await apiFetch(`/api/accounting/practice/jobs/${job.id}`, { method: 'DELETE' });
-      if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? `HTTP ${r.status}`); }
+      await assertOk(r, 'Could not delete the job - try again');
       void router.push('/accounting/practice/jobs');
-    } catch (e) { setBanner(e instanceof Error ? e.message : 'Delete failed'); }
+    } catch (e) { setBanner(apiErrorMessage(e, 'Could not delete the job - try again')); }
   }
 
   async function addTask() {
@@ -127,8 +131,9 @@ export default function JobDetailPage() {
     setAdding(true);
     try {
       const r = await apiFetch('/api/accounting/practice/tasks', { method: 'POST', body: JSON.stringify({ jobId: job.id, title: taskTitle.trim() }) });
-      if (r.ok) { const j = await r.json() as { data?: PracticeTask } | PracticeTask; setTasks(p => [...p, ('data' in j ? j.data : j) as PracticeTask]); setTaskTitle(''); }
-    } catch { /* non-critical */ }
+      await assertOk(r, 'Could not add the task - try again');
+      const j = await r.json() as { data?: PracticeTask } | PracticeTask; setTasks(p => [...p, ('data' in j ? j.data : j) as PracticeTask]); setTaskTitle('');
+    } catch (e) { setBanner(apiErrorMessage(e, 'Could not add the task - try again')); }
     finally { setAdding(false); }
   }
 
@@ -247,7 +252,8 @@ export default function JobDetailPage() {
 
           {tab === 'tasks' && (
             <div className="space-y-4">
-              {!tasksLoaded ? <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-500" /></div>
+              {tasksError ? <TabError message={tasksError} onRetry={() => setTasksError('')} />
+                : !tasksLoaded ? <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-500" /></div>
                 : tasks.length === 0 ? <div className="text-center py-12 text-[var(--ff-text-secondary)]">No tasks yet</div>
                 : <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-bg-secondary)]">
                     <table className="w-full text-sm"><thead><tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)]">{['Title', 'Assignee', 'Due', 'Priority', 'Status'].map(h => <TH key={h} h={h} />)}</tr></thead>
@@ -264,7 +270,7 @@ export default function JobDetailPage() {
 
           {tab === 'time' && (
             <div className="space-y-4">
-              {!timeLoaded ? <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-500" /></div> : (
+              {timeError ? <TabError message={timeError} onRetry={() => setTimeError('')} /> : !timeLoaded ? <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-500" /></div> : (
                 <>
                   <div className="grid grid-cols-3 gap-4">
                     {[['Total Hours', totalH.toFixed(1)], ['Billable Hours', billH.toFixed(1)], ['Total Value', `R${totalV.toFixed(2)}`]].map(([l, v]) => (

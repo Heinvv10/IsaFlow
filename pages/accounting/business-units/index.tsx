@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Plus, Loader2, ToggleLeft, ToggleRight, Pencil } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface BusinessUnit {
   id: string;
@@ -24,6 +24,7 @@ export default function BusinessUnitsPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [form, setForm] = useState({ name: '', code: '', description: '' });
   const [search, setSearch] = useState('');
 
@@ -32,6 +33,7 @@ export default function BusinessUnitsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/business-units', { credentials: 'include' });
+      await assertOk(res, 'Could not load business units - try again');
       const json = await res.json() as { data?: BusinessUnit[] | { items?: BusinessUnit[] } };
       const data = json.data;
       const rawRows: BusinessUnit[] = Array.isArray(data)
@@ -43,7 +45,8 @@ export default function BusinessUnitsPage() {
         staffCount: d.staffCount,
       })));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load business units');
+      setItems([]);
+      setError(apiErrorMessage(e, 'Could not load business units - try again'));
     } finally {
       setLoading(false);
     }
@@ -53,7 +56,7 @@ export default function BusinessUnitsPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setError(''); setBusy('save');
+    setError(''); setSuccess(''); setBusy('save');
     try {
       if (editId) {
         const res = await apiFetch(`/api/departments/${editId}`, {
@@ -61,21 +64,20 @@ export default function BusinessUnitsPage() {
           credentials: 'include',
           body: JSON.stringify({ name: form.name, code: form.code, description: form.description }),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.message || 'Failed');
+        await assertOk(res, 'Could not save the business unit - try again');
       } else {
         const res = await apiFetch('/api/accounting/cost-centres', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ name: form.name, code: form.code, description: form.description }),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.message || 'Failed');
+        await assertOk(res, 'Could not save the business unit - try again');
       }
       setShowForm(false); setEditId(null);
       setForm({ name: '', code: '', description: '' });
+      setSuccess('Business unit saved');
       await load();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not save the business unit - try again')); }
     finally { setBusy(''); }
   };
 
@@ -85,15 +87,17 @@ export default function BusinessUnitsPage() {
   };
 
   const toggleActive = async (bu: BusinessUnit) => {
-    setBusy(bu.id);
+    setBusy(bu.id); setSuccess('');
     try {
-      await apiFetch(`/api/departments/${bu.id}`, {
+      const res = await apiFetch(`/api/departments/${bu.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ isActive: !bu.isActive }),
       });
+      await assertOk(res, 'Could not change the business unit - try again');
+      setSuccess('Business unit updated');
       await load();
-    } catch { /* ignore */ }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not change the business unit - try again')); }
     setBusy('');
   };
 
@@ -127,6 +131,7 @@ export default function BusinessUnitsPage() {
 
         <div className="p-6 space-y-4">
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
+          {success && <div className="p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">{success}</div>}
 
           <div className="flex items-center gap-3">
             <input

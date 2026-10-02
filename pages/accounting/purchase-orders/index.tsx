@@ -7,7 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ShoppingCart, Loader2, Plus, Search } from 'lucide-react';
 import Link from 'next/link';
 import { StatusPill } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 
 interface PO {
@@ -25,16 +25,25 @@ export default function PurchaseOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('all');
   const [search, setSearch] = useState('');
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (tab !== 'all') params.set('status', tab);
-    if (search) params.set('search', search);
-    const res = await apiFetch(`/api/accounting/purchase-orders?${params}`, { credentials: 'include' });
-    const json = await res.json();
-    setOrders(json.data || []);
-    setLoading(false);
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      if (tab !== 'all') params.set('status', tab);
+      if (search) params.set('search', search);
+      const res = await apiFetch(`/api/accounting/purchase-orders?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load purchase orders - try again');
+      const json = await res.json();
+      setOrders(json.data || []);
+    } catch (err) {
+      setOrders([]);
+      setError(apiErrorMessage(err, 'Could not load purchase orders - try again'));
+    } finally {
+      setLoading(false);
+    }
   }, [tab, search]);
 
   useEffect(() => { void load(); }, [load]);
@@ -79,6 +88,10 @@ export default function PurchaseOrdersPage() {
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search PO #, supplier…" className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 text-slate-900 dark:text-slate-100 transition-colors w-56" />
             </div>
           </div>
+
+          {error && (
+            <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error}</div>
+          )}
 
           {/* Table */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">

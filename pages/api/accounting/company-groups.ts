@@ -12,10 +12,14 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
-  userBelongsToCompany,
   userBelongsToGroup,
-  userCreatedGroup,
+  userCanWriteCompany,
+  userCanWriteGroup,
 } from '@/modules/accounting/services/core/companyAccessService';
+import {
+  COMPANY_CHART_REFUSED, creatorMayBootstrapGroup, groupRequestError, mappingAccountsBelong, mappingCompanyId,
+  refuseGroupCompanyRead, refuseGroupCompanyWrite, type Refusal,
+} from '@/modules/accounting/services/core/groupRouteGuards';
 import {
   getGroup,
   listGroupsForUser,
@@ -44,18 +48,26 @@ import {
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const action = (req.query.action || req.body?.action) as string | undefined;
+  // An unknown action is refused on every method (DELETE used to fall through to delete-group),
+  // and every id is UUID-checked before any ::UUID cast, whatever the action; see groupRouteGuards.
+  const requestError = groupRequestError(req.method ?? '', action, req.query, req.body);
+  if (requestError) return apiResponse.badRequest(res, requestError);
+  const refuse = (r: Refusal) => (r.status === 400 ? apiResponse.badRequest(res, r.message) : apiResponse.forbidden(res, r.message));
 
-  // Both guards delegate to companyAccessService. They used to be inline copies
-  // that compared company_users.user_id (text) to a ::UUID cast, so every
-  // guarded action on this route 500'd — including adding the first member,
-  // which left a newly created group permanently orphaned.
+  // Guards delegate to companyAccessService / groupRouteGuards (inline copies once 500'd on a text = uuid cast).
   const verifyGroupAccess = (gId: string) => userBelongsToGroup(userId, gId);
+  // Body-supplied companyIds are never trusted (pentest H1, cross-tenant IDOR). Putting a company into a group (member or holding) exposes its ledger to the whole group:
+  // that needs a WRITE role in the company itself, not just membership (D4 round 9).
+  const COMPANY_WRITE_REFUSED = 'Adding a company to a group needs an owner, admin or manager role in that company.';
 
-  // Verify the user is a member of a SPECIFIC company. Body-supplied companyIds
-  // (add-member / auto-generate-coa / set-mapping / auto-map) must be gated by this
-  // so a group member cannot pull an unrelated tenant's company into the group and
-  // read its COA/financials (pentest H1 — cross-tenant IDOR).
-  const verifyCompanyMembership = (cId: string) => userBelongsToCompany(userId, cId);
+  // Every POST / PUT / DELETE on an existing group changes what the consolidation
+  // reports (members, ownership, group chart, mappings), so it needs a group WRITE role:
+  // owner / admin / manager of a current member company (userCanWriteGroup). Membership
+  // alone (any role, incl. viewer) still reads. 403 for a member, 'Access denied' otherwise.
+  const refuseGroupWrite = async (gId: string): Promise<string | null> => {
+    if (!(await verifyGroupAccess(gId))) return 'Access denied to this group';
+    return (await userCanWriteGroup(userId, gId)) ? null : 'Your role in this group does not allow this change.';
+  };
 
   // ── GET ────────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
@@ -76,11 +88,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'mappings' && groupId) {
       if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       const companyId = req.query.company_id as string | undefined;
-      if (companyId) {
-        if (!(await verifyCompanyMembership(companyId))) {
-          return apiResponse.forbidden(res, 'Access denied to the specified company');
-        }
-      }
+      const refused = companyId ? await refuseGroupCompanyRead(userId, groupId, companyId) : null;
+      if (refused) return refuse(refused);
       const mappings = await getCoaMappings(groupId, companyId);
       return apiResponse.success(res, { items: mappings });
     }
@@ -88,9 +97,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'unmapped' && groupId) {
       const companyId = req.query.company_id as string;
       if (!companyId) return apiResponse.badRequest(res, 'company_id required');
-      if (!(await verifyCompanyMembership(companyId))) {
-        return apiResponse.forbidden(res, 'Access denied to the specified company');
-      }
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+      const refused = await refuseGroupCompanyRead(userId, groupId, companyId);
+      if (refused) return refuse(refused);
       const unmapped = await getUnmappedAccounts(groupId, companyId);
       return apiResponse.success(res, { items: unmapped });
     }
@@ -113,14 +122,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'add-member') {
       const { groupId, companyId, ownershipPct, consolidationMethod } = req.body;
       if (!groupId || !companyId) return apiResponse.badRequest(res, 'groupId and companyId required');
-      // A group created without a holding company has no members yet, so
-      // verifyGroupAccess cannot pass and the first member could never be added
-      // — the group stayed orphaned forever. The creator may bootstrap it.
-      // verifyCompanyMembership below still prevents pulling in a foreign tenant.
+      // A group member needs a write role. The creator may bootstrap a group with no members
+      // (it could never gain its first one otherwise) only while every member is a company they
+      // still belong to. userCanWriteCompany below still bars a foreign or view-only company.
       const mayAddMember =
-        (await verifyGroupAccess(groupId)) || (await userCreatedGroup(userId, groupId));
-      if (!mayAddMember) return apiResponse.forbidden(res, 'Access denied to this group');
-      if (!(await verifyCompanyMembership(companyId))) return apiResponse.forbidden(res, 'Access denied to the specified company');
+        (await userCanWriteGroup(userId, groupId)) || (await creatorMayBootstrapGroup(userId, groupId));
+      if (!mayAddMember) {
+        const member = await verifyGroupAccess(groupId);
+        return apiResponse.forbidden(res, member ? 'Your role in this group does not allow this change.' : 'Access denied to this group');
+      }
+      if (!(await userCanWriteCompany(userId, companyId))) return apiResponse.forbidden(res, COMPANY_WRITE_REFUSED);
       const member = await addMember(groupId, companyId, {
         ownershipPct: ownershipPct ?? 100,
         consolidationMethod: consolidationMethod ?? 'full',
@@ -133,7 +144,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!groupId || !accountCode || !accountName || !accountType) {
         return apiResponse.badRequest(res, 'groupId, accountCode, accountName, accountType required');
       }
-      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+      const refused = await refuseGroupWrite(groupId);
+      if (refused) return apiResponse.forbidden(res, refused);
       const account = await createGroupAccount(groupId, {
         accountCode, accountName, accountType, accountSubtype, parentAccountId, normalBalance, level, displayOrder,
       });
@@ -143,8 +155,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'auto-generate-coa') {
       const { groupId, sourceCompanyId } = req.body;
       if (!groupId || !sourceCompanyId) return apiResponse.badRequest(res, 'groupId and sourceCompanyId required');
-      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
-      if (!(await verifyCompanyMembership(sourceCompanyId))) return apiResponse.forbidden(res, 'Access denied to the specified company');
+      const refused = await refuseGroupWrite(groupId);
+      if (refused) return apiResponse.forbidden(res, refused);
+      const refusedCompany = await refuseGroupCompanyWrite(userId, groupId, sourceCompanyId);
+      if (refusedCompany) return refuse(refusedCompany);
       const count = await autoGenerateGroupCOA(groupId, sourceCompanyId);
       return apiResponse.success(res, { accountsCreated: count });
     }
@@ -154,8 +168,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!groupId || !companyId || !companyAccountId || !groupAccountId) {
         return apiResponse.badRequest(res, 'groupId, companyId, companyAccountId, groupAccountId required');
       }
-      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
-      if (!(await verifyCompanyMembership(companyId))) return apiResponse.forbidden(res, 'Access denied to the specified company');
+      const refused = await refuseGroupWrite(groupId);
+      if (refused) return apiResponse.forbidden(res, refused);
+      const refusedCompany = await refuseGroupCompanyWrite(userId, groupId, companyId);
+      if (refusedCompany) return refuse(refusedCompany);
+      const owned = await mappingAccountsBelong(companyId, companyAccountId, groupId, groupAccountId);
+      if (!owned.company) return apiResponse.badRequest(res, 'companyAccountId is not an account of that company');
+      if (!owned.group) return apiResponse.badRequest(res, 'groupAccountId is not an account of this group');
       const mapping = await setCoaMapping(groupId, companyId, companyAccountId, groupAccountId);
       return apiResponse.success(res, mapping);
     }
@@ -163,25 +182,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'auto-map') {
       const { groupId, companyId } = req.body;
       if (!groupId || !companyId) return apiResponse.badRequest(res, 'groupId and companyId required');
-      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
-      if (!(await verifyCompanyMembership(companyId))) return apiResponse.forbidden(res, 'Access denied to the specified company');
+      const refused = await refuseGroupWrite(groupId);
+      if (refused) return apiResponse.forbidden(res, refused);
+      const refusedCompany = await refuseGroupCompanyWrite(userId, groupId, companyId);
+      if (refusedCompany) return refuse(refusedCompany);
       const count = await autoMapAccounts(groupId, companyId);
       return apiResponse.success(res, { mappedCount: count });
     }
 
-    // An unrecognised action must NOT fall through to create-group. The COA tab
-    // used to POST action:'add-account' — no such action — and the fall-through
-    // created a COMPANY GROUP named after the GL account while reporting
-    // "Account added". Reject unknown actions explicitly.
-    if (action) return apiResponse.badRequest(res, `Unknown action: ${action}`);
-
-    // Default POST (no action): create group
+    // No action: create group. (An unknown action never reaches here — groupRequestError refuses
+    // it; the COA tab's old 'add-account' used to fall through and create a GROUP.)
     const { name, holdingCompanyId, defaultCurrency, financialYearStart } = req.body;
     if (!name) return apiResponse.badRequest(res, 'name is required');
     // createGroup auto-enrolls holdingCompanyId as a group member, so it is the same
     // cross-tenant injection vector as add-member — gate it on caller membership (H1).
-    if (holdingCompanyId && !(await verifyCompanyMembership(holdingCompanyId))) {
-      return apiResponse.forbidden(res, 'Access denied to the specified holding company');
+    if (holdingCompanyId && !(await userCanWriteCompany(userId, holdingCompanyId))) {
+      return apiResponse.forbidden(res, COMPANY_WRITE_REFUSED);
     }
     const group = await createGroup({ name, holdingCompanyId, defaultCurrency, financialYearStart }, userId);
     return apiResponse.success(res, group);
@@ -193,7 +209,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { memberId, groupId: memberGroupId, ownershipPct, consolidationMethod } = req.body;
       if (!memberId) return apiResponse.badRequest(res, 'memberId required');
       if (!memberGroupId) return apiResponse.badRequest(res, 'groupId required');
-      if (!(await verifyGroupAccess(memberGroupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+      const refused = await refuseGroupWrite(memberGroupId);
+      if (refused) return apiResponse.forbidden(res, refused);
       await updateMember(memberId, { ownershipPct, consolidationMethod }, memberGroupId);
       return apiResponse.success(res, { updated: true });
     }
@@ -202,23 +219,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { accountId, groupId: accountGroupId, ...updates } = req.body;
       if (!accountId) return apiResponse.badRequest(res, 'accountId required');
       if (!accountGroupId) return apiResponse.badRequest(res, 'groupId required');
-      if (!(await verifyGroupAccess(accountGroupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+      const refused = await refuseGroupWrite(accountGroupId);
+      if (refused) return apiResponse.forbidden(res, refused);
       const account = await updateGroupAccount(accountId, updates, accountGroupId);
       return apiResponse.success(res, account);
     }
 
-    // Same fall-through hazard as POST: 'update-account' was not a real action.
-    if (action) return apiResponse.badRequest(res, `Unknown action: ${action}`);
-
     const { groupId, ...updates } = req.body;
     if (!groupId) return apiResponse.badRequest(res, 'groupId required');
-    if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+    const refused = await refuseGroupWrite(groupId);
+    if (refused) return apiResponse.forbidden(res, refused);
     // Same cross-tenant injection vector the create branch guards (pentest H1):
     // holdingCompanyId arrives in the body. This path was unreachable while the
     // UI sent `id` instead of `groupId`, so fixing that casing would otherwise
     // have activated an ungated body-supplied companyId.
-    if (updates.holdingCompanyId && !(await verifyCompanyMembership(updates.holdingCompanyId))) {
-      return apiResponse.forbidden(res, 'Access denied to the specified holding company');
+    if (updates.holdingCompanyId && !(await userCanWriteCompany(userId, updates.holdingCompanyId))) {
+      return apiResponse.forbidden(res, COMPANY_WRITE_REFUSED);
     }
     const group = await updateGroup(groupId, updates);
     return apiResponse.success(res, group);
@@ -231,7 +247,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const groupId = req.query.group_id as string;
       if (!memberId) return apiResponse.badRequest(res, 'member_id required');
       if (!groupId) return apiResponse.badRequest(res, 'group_id required');
-      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+      const refused = await refuseGroupWrite(groupId);
+      if (refused) return apiResponse.forbidden(res, refused);
       await removeMember(memberId, groupId);
       return apiResponse.success(res, { removed: true });
     }
@@ -241,7 +258,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const groupId = req.query.group_id as string;
       if (!mappingId) return apiResponse.badRequest(res, 'mapping_id required');
       if (!groupId) return apiResponse.badRequest(res, 'group_id required');
-      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+      const refused = await refuseGroupWrite(groupId);
+      if (refused) return apiResponse.forbidden(res, refused);
+      // Removing a company's mapping changes its consolidated figures: a write role in it, as set-mapping.
+      const mappedCompany = await mappingCompanyId(mappingId, groupId);
+      if (!mappedCompany) return apiResponse.notFound(res, 'Mapping');
+      if (!(await userCanWriteCompany(userId, mappedCompany))) return apiResponse.forbidden(res, COMPANY_CHART_REFUSED);
       await removeCoaMapping(mappingId, groupId);
       return apiResponse.success(res, { removed: true });
     }
@@ -251,14 +273,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const groupId = req.query.group_id as string;
       if (!accountId) return apiResponse.badRequest(res, 'account_id required');
       if (!groupId) return apiResponse.badRequest(res, 'group_id required');
-      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+      const refused = await refuseGroupWrite(groupId);
+      if (refused) return apiResponse.forbidden(res, refused);
       await deleteGroupAccount(accountId, groupId);
       return apiResponse.success(res, { deleted: true });
     }
 
     const groupId = req.query.group_id as string;
     if (!groupId) return apiResponse.badRequest(res, 'group_id required');
-    if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+    const refused = await refuseGroupWrite(groupId);
+    if (refused) return apiResponse.forbidden(res, refused);
     await deleteGroup(groupId);
     return apiResponse.success(res, { deleted: true });
   }

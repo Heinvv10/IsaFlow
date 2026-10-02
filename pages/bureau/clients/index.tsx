@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   Briefcase, AlertCircle, Loader2, Building2, Plus, Trash2, ArrowLeft,
 } from 'lucide-react';
@@ -48,13 +48,14 @@ export default function BureauClientsPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch('/api/bureau');
+      await assertOk(res, 'Could not load your bureaus - try again');
       const json = await res.json() as { data?: DashboardData; message?: string };
-      if (!res.ok) throw new Error(json.message || 'Failed to load');
       const list = json.data?.bureaus ?? [];
       setBureaus(list);
       if (list.length > 0 && !activeBureauId) setActiveBureauId(list[0]!.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      setBureaus([]);
+      setError(apiErrorMessage(err, 'Could not load your bureaus - try again'));
     } finally {
       setLoading(false);
     }
@@ -63,11 +64,12 @@ export default function BureauClientsPage() {
   const loadClients = useCallback(async (bureauId: string) => {
     try {
       const res = await apiFetch(`/api/bureau/clients?bureauId=${bureauId}`);
+      await assertOk(res, 'Could not load the bureau clients - try again');
       const json = await res.json() as { data?: { companies: BureauClient[] }; message?: string };
-      if (!res.ok) throw new Error(json.message || 'Failed to load clients');
       setClients(json.data?.companies ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load clients');
+      setClients([]);
+      setError(apiErrorMessage(err, 'Could not load the bureau clients - try again'));
     }
   }, []);
 
@@ -82,13 +84,10 @@ export default function BureauClientsPage() {
         method: 'POST',
         body: JSON.stringify({ bureauId: activeBureauId, companyId }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.message || 'Failed to link');
-      }
+      await assertOk(res, 'Could not link that company - try again');
       await loadClients(activeBureauId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to link');
+      setError(apiErrorMessage(err, 'Could not link that company - try again'));
     } finally {
       setWorking(false);
     }
@@ -103,13 +102,10 @@ export default function BureauClientsPage() {
         method: 'DELETE',
         body: JSON.stringify({ bureauId: activeBureauId, companyId }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.message || 'Failed to unlink');
-      }
+      await assertOk(res, 'Could not remove that client - try again');
       await loadClients(activeBureauId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to unlink');
+      setError(apiErrorMessage(err, 'Could not remove that client - try again'));
     } finally {
       setWorking(false);
     }
@@ -131,8 +127,10 @@ export default function BureauClientsPage() {
     return (
       <AppLayout>
         <div className="p-6">
-          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm">
-            <AlertCircle className="h-4 w-4" /> You aren&apos;t a member of any bureau.
+          <div role={error ? 'alert' : undefined} className={error
+            ? 'flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm'
+            : 'flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm'}>
+            <AlertCircle className="h-4 w-4" /> {error || <>You aren&apos;t a member of any bureau.</>}
           </div>
         </div>
       </AppLayout>

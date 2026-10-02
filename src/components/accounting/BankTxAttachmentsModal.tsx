@@ -14,65 +14,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Paperclip, Trash2, Upload, FileImage, FileText, AlertCircle, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { type Attachment, MAX_BYTES, ACCEPT, ACCEPTED_MIME, SAFE_HREF, formatBytes, fileIcon, readFileAsDataUrl } from './bankTxAttachmentHelpers';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-
-interface Attachment {
-  id: string;
-  bank_transaction_id: string;
-  file_url: string;
-  file_name: string;
-  file_size: number | null;
-  uploaded_by: string | null;
-  created_at: string;
-}
 
 interface Props {
   bankTransactionId: string;
   transactionDescription?: string;
   onClose: () => void;
-}
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-const MAX_BYTES = 2 * 1024 * 1024; // 2 MB
-const ACCEPT = '.jpg,.jpeg,.png,.pdf';
-const ACCEPTED_MIME = ['image/jpeg', 'image/png', 'application/pdf'];
-
-// Stored attachments are server-mirrored data-URLs (whitelisted MIME at write
-// time) or https links. Refuse to hyperlink anything else — a corrupt or
-// directly-inserted data:text/html row must never become a clickable XSS.
-// SECURITY-CRITICAL allowlist: this is the single render sink for stored attachment
-// data URLs and is the last line of defence against a magic-byte polyglot (a valid
-// image/PDF header with appended markup). Do NOT widen it to gif/svg/html/* — the
-// upload magic-byte validation (src/lib/fileMagic.ts) assumes inert MIMEs render here.
-const SAFE_HREF = /^(https:\/\/|data:(image\/(jpeg|png|webp|tiff)|application\/pdf);base64,)/;
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatBytes(bytes: number | null): string {
-  if (bytes === null) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function fileIcon(name: string): 'image' | 'pdf' | 'generic' {
-  const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  if (['jpg', 'jpeg', 'png'].includes(ext)) return 'image';
-  if (ext === 'pdf') return 'pdf';
-  return 'generic';
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsDataURL(file);
-  });
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -93,11 +44,11 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       const res = await apiFetch(
         `/api/accounting/bank-tx-attachments?bankTransactionId=${encodeURIComponent(bankTransactionId)}`,
       );
+      await assertOk(res, 'Could not load attachments');
       const json = await res.json() as { success: boolean; data: Attachment[] };
-      if (!res.ok || !json.success) throw new Error('Failed to load attachments');
-      setAttachments(json.data);
+      if (!json.success) throw new ApiEnvelopeError('Could not load attachments'); setAttachments(json.data);
     } catch {
-      notify.error('Could not load attachments');
+      setAttachments([]); notify.error('Could not load attachments');
     } finally {
       setLoading(false);
     }
@@ -129,12 +80,13 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
           fileSize: file.size,
         }),
       });
-      const json = await res.json() as { success: boolean; message?: string };
-      if (!res.ok || !json.success) throw new Error(json.message ?? 'Upload failed');
+      await assertOk(res, 'Could not upload the file - try again');
+      const json = await res.json() as { success: boolean; error?: { message?: string } };
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Could not upload the file - try again');
       notify.success(`${file.name} uploaded`);
       await fetchAttachments();
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Upload failed');
+      notify.error(apiErrorMessage(err, 'Could not upload the file - try again'));
     } finally {
       setUploading(false);
     }
@@ -163,12 +115,13 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
         `/api/accounting/bank-tx-attachments?id=${encodeURIComponent(id)}`,
         { method: 'DELETE' },
       );
-      const json = await res.json() as { success: boolean; message?: string };
-      if (!res.ok || !json.success) throw new Error(json.message ?? 'Delete failed');
+      await assertOk(res, 'Could not remove the attachment - try again');
+      const json = await res.json() as { success: boolean; error?: { message?: string } };
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Could not remove the attachment - try again');
       notify.success(`${name} removed`);
       setAttachments(prev => prev.filter(a => a.id !== id));
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Delete failed');
+      notify.error(apiErrorMessage(err, 'Could not remove the attachment - try again'));
     } finally {
       setDeletingId(null);
     }

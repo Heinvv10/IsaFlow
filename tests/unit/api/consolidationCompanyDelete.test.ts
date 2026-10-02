@@ -40,7 +40,8 @@ const getGroupCompaniesMock = vi.fn(async () => [] as unknown[]);
 
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
+// The write-role gate itself is tested in consolidationCompaniesWriteAccess.test.ts.
+vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/modules/accounting/services/core/companyAccessService', () => ({
@@ -56,8 +57,8 @@ vi.mock('@/modules/accounting/services/reports/consolidationService', () => ({
 
 import handler from '../../../pages/api/accounting/consolidation/companies';
 
-const PARENT = 'company-parent';
-const CHILD = 'company-child';
+const PARENT = '10000000-0000-4000-8000-0000000000a1';
+const CHILD = '10000000-0000-4000-8000-0000000000a2';
 const USER = 'user-1';
 
 function mockReqRes(method: string, opts: { body?: unknown; query?: Record<string, string> } = {}) {

@@ -19,7 +19,7 @@ import {
   ClipboardList,
   ExternalLink,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import {
   CustomerStatementPreview, type Customer, type StatementResult,
@@ -49,9 +49,11 @@ export default function CustomerStatementPage() {
     setSearching(true);
     try {
       const res = await apiFetch(`/api/accounting/customers?q=${encodeURIComponent(q)}`, { credentials: 'include' });
+      await assertOk(res, 'Could not search customers - try again');
       const json = await res.json();
+      setError('');
       setCustomerResults((json.data || []).slice(0, 10));
-    } catch { setCustomerResults([]); }
+    } catch (err) { setCustomerResults([]); setError(apiErrorMessage(err, 'Could not search customers - try again')); }
     finally { setSearching(false); }
   }, []);
 
@@ -80,11 +82,12 @@ export default function CustomerStatementPage() {
         toDate,
       });
       const res = await apiFetch(`/api/accounting/customer-statement?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the statement - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to load statement');
       setStatement(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load statement');
+      setStatement(null);
+      setError(apiErrorMessage(err, 'Could not load the statement - try again'));
     } finally {
       setLoading(false);
     }
@@ -99,12 +102,13 @@ export default function CustomerStatementPage() {
       let companyName = '', companyVatNumber = '', companyEmail = '', companyPhone = '', companyAddress = '', accentColor = '#0d9488';
       try {
         const cRes = await apiFetch('/api/accounting/company-details', { credentials: 'include' });
+        await assertOk(cRes, 'Could not load your company details for the PDF - try again');
         const cJson = await cRes.json() as { data?: Record<string, string> } & Record<string, string>;
         const c = (cJson.data ?? cJson) as Record<string, string>;
         companyName = c.name || ''; companyVatNumber = c.vat_number || '';
         companyEmail = c.email || ''; companyPhone = c.phone || '';
         companyAddress = c.address || ''; accentColor = c.primary_color || '#0d9488';
-      } catch { /* use empty defaults */ }
+      } catch (err) { setError(apiErrorMessage(err, 'Could not load your company details for the PDF - try again')); return; }
 
       const blob = await generateStatementPdf({
         clientName: statement.customer.name,
@@ -126,7 +130,7 @@ export default function CustomerStatementPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate PDF');
+      setError(apiErrorMessage(err, 'Could not generate the PDF - try again'));
     } finally {
       setDownloadingPdf(false);
     }

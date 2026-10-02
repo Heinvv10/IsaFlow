@@ -10,7 +10,7 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
 import { CheckCircle2, XCircle, Loader2, AlertTriangle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 type VerifyState = 'verifying' | 'completed' | 'failed' | 'cancelled' | 'error';
 
@@ -47,7 +47,7 @@ export default function PaystackReturnPage() {
         const res = await apiFetch(
           `/api/portal/payments/paystack/verify?ref=${encodeURIComponent(r)}`,
         );
-        if (!res.ok) throw new Error(`Verification failed (${res.status})`);
+        await assertOk(res, 'We could not confirm this payment - please check your payment status or contact support');
         const json = (await res.json()) as { data: VerifyResponse };
         if (cancelled) return;
         const verified = json.data;
@@ -62,7 +62,7 @@ export default function PaystackReturnPage() {
       } catch (err) {
         if (cancelled) return;
         setState('error');
-        setErrorMsg(err instanceof Error ? err.message : 'Verification failed.');
+        setErrorMsg(apiErrorMessage(err, 'We could not confirm this payment - please check your payment status or contact support'));
       }
     })();
     return () => { cancelled = true; };

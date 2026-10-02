@@ -5,7 +5,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { FileText, Plus, Loader2, AlertCircle, Clock, CheckCircle, Lock } from 'lucide-react';
 import { PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import type { AfsDocument, DocumentStatus } from '@/modules/accounting/services/afs/afsTypes';
 import { AfsCreateModal, type AfsCreateValues } from '@/components/accounting/afs/AfsCreateModal';
 
@@ -61,11 +61,12 @@ export default function AfsIndexPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/afs', { credentials: 'include' });
-      const json = await res.json() as { data?: { documents?: AfsDocument[] }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to load documents');
+      await assertOk(res, 'Could not load the AFS documents - try again');
+      const json = await res.json() as { data?: { documents?: AfsDocument[] } };
       setDocuments(json.data?.documents ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load AFS documents');
+      setDocuments([]);
+      setError(apiErrorMessage(err, 'Could not load the AFS documents - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -86,13 +87,13 @@ export default function AfsIndexPage() {
           fiscalYear: values.fiscalYear,
         }),
       });
-      const json = await res.json() as { data?: { document?: AfsDocument }; error?: { message?: string } };
-      if (!res.ok) return json.error?.message ?? 'Failed to create document';
+      await assertOk(res, 'Could not create the AFS document - try again');
+      const json = await res.json() as { data?: { document?: AfsDocument } };
       if (json.data?.document) setDocuments(prev => [json.data!.document!, ...prev]);
       setShowCreateModal(false);
       return null;
     } catch (err) {
-      return err instanceof Error ? err.message : 'Failed to create AFS document';
+      return apiErrorMessage(err, 'Could not create AFS document - try again');
     } finally {
       setIsCreating(false);
     }

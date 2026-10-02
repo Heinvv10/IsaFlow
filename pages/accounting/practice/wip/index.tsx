@@ -160,11 +160,11 @@ export default function WipBoardPage() {
     setLoading(true); setLoadError(null);
     try {
       const res = await apiFetch('/api/accounting/practice/wip');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the WIP data - try again');
       const json = (await res.json()) as { data?: WipClientRow[] } | WipClientRow[];
       setGroups(Array.isArray(json) ? json : (json.data ?? []));
       setSelected({});
-    } catch (err) { setLoadError(err instanceof Error ? err.message : 'Failed to load WIP data'); }
+    } catch (err) { setGroups([]); setLoadError(apiErrorMessage(err, 'Could not load the WIP data - try again')); }
     finally { setLoading(false); }
   }, []);
 
@@ -198,7 +198,7 @@ export default function WipBoardPage() {
       const res = await apiFetch('/api/accounting/practice/wip/invoice', { method: 'POST', body: JSON.stringify(input) });
       // R-120: the error envelope is { error: { message } }; reading json.error
       // as a string showed "[object Object]". assertOk reads it properly.
-      await assertOk(res, 'Invoice generation failed');
+      await assertOk(res, 'Could not generate the invoice - try again');
       const json = (await res.json()) as { data?: InvoiceResult } & InvoiceResult;
       const r: InvoiceResult = json.data ?? json;
       // R-120: entries a peer billed or that stopped being billable are left out
@@ -208,7 +208,7 @@ export default function WipBoardPage() {
       setModalClient(null);
       setModalState({ invoiceDate: todayIso(), taxRate: 15, groupBy: 'detailed' });
       await loadWip();
-    } catch (err) { setModalError(apiErrorMessage(err, 'Invoice generation failed')); }
+    } catch (err) { setModalError(apiErrorMessage(err, 'Could not generate the invoice - try again')); }
     finally { setModalLoading(false); }
   }
 

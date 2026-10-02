@@ -12,6 +12,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Loader2, AlertCircle, Plus } from 'lucide-react';
+import { apiErrorMessage } from '@/lib/apiFetch';
 import {
   fetchWorkItems,
   createWorkItem,
@@ -85,7 +86,7 @@ export function WorkItemManager({ categoryId }: { categoryId: string }) {
       const next = await fetchWorkItems(categoryId, true);
       if (alive.current) setItems(next);
     } catch (err) {
-      if (alive.current) setError(err instanceof Error ? err.message : 'Failed to load work items');
+      if (alive.current) setError(apiErrorMessage(err, 'Could not load the work items - try again'));
     } finally {
       if (alive.current) setIsLoading(false);
     }
@@ -103,7 +104,7 @@ export function WorkItemManager({ categoryId }: { categoryId: string }) {
       setNewName('');
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add work item');
+      setError(apiErrorMessage(err, 'Could not add the work item - try again'));
     } finally {
       setIsAdding(false);
     }
@@ -117,7 +118,7 @@ export function WorkItemManager({ categoryId }: { categoryId: string }) {
       await setWorkItemActive(item.id, !item.isActive);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update work item');
+      setError(apiErrorMessage(err, 'Could not update the work item - try again'));
     }
   }
 

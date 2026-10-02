@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from 'react';
 import { XCircle, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import {
   PROVIDER_LABELS, PROVIDER_DESCRIPTIONS,
@@ -80,8 +80,8 @@ export function AddConnectionModal({ bankAccounts, onClose, onCreated }: Props) 
           externalAccountId,
         }),
       });
+      await assertOk(res, 'Could not pair extension - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed to pair extension');
       const data = (json?.data ?? json) as PairResponse;
 
       window.postMessage({
@@ -101,7 +101,7 @@ export function AddConnectionModal({ bankAccounts, onClose, onCreated }: Props) 
       notify.success('Extension paired. Open your bank tab to sync.');
       onCreated();
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Pairing failed');
+      notify.error(apiErrorMessage(err, 'Could not pair the extension - try again'));
     } finally {
       setSaving(false);
     }
@@ -119,12 +119,11 @@ export function AddConnectionModal({ bankAccounts, onClose, onCreated }: Props) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed to create connection');
+      await assertOk(res, 'Could not create connection - try again');
       notify.success('Bank feed connection created');
       onCreated();
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Failed to create connection');
+      notify.error(apiErrorMessage(err, 'Could not create connection - try again'));
     } finally {
       setSaving(false);
     }

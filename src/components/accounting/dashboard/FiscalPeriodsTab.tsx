@@ -4,7 +4,7 @@
 
 import { useState, useEffect } from 'react';
 import { Loader2, Plus, Calendar, ClipboardCheck } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { FiscalPeriod } from '@/modules/accounting/types/gl.types';
 import { CloseReadinessChecklist } from '@/components/accounting/fiscal-periods/CloseReadinessChecklist';
@@ -17,7 +17,7 @@ const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dar
 
 export function FiscalPeriodsTab() {
   const [periods, setPeriods] = useState<FiscalPeriod[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); const [loadError, setLoadError] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null);
@@ -29,13 +29,12 @@ export function FiscalPeriodsTab() {
   useEffect(() => { void loadPeriods(); }, []);
 
   const loadPeriods = async () => {
-    setIsLoading(true);
+    setIsLoading(true); setLoadError('');
     try {
-      const res = await apiFetch('/api/accounting/fiscal-periods');
+      const res = await apiFetch('/api/accounting/fiscal-periods'); await assertOk(res, 'Could not load fiscal periods - try again');
       const data = await res.json() as { data?: FiscalPeriod[] };
       setPeriods(data.data || []);
-    } catch (err) {
-      log.error('Failed to load fiscal periods', { error: err }, 'accounting-ui');
+    } catch (err) { setPeriods([]); log.error('Failed to load fiscal periods', { error: err }, 'accounting-ui'); setLoadError(apiErrorMessage(err, 'Could not load fiscal periods - try again'));
     } finally { setIsLoading(false); }
   };
 
@@ -48,13 +47,13 @@ export function FiscalPeriodsTab() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action, ids }),
       });
-      const json = await res.json() as { data?: { results: Array<{ id: string; ok: boolean; error?: string }>; okCount: number; total: number }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message || 'Bulk action failed');
+      await assertOk(res, 'Could not run the bulk action - try again');
+      const json = await res.json() as { data?: { results: Array<{ id: string; ok: boolean; error?: string }>; okCount: number; total: number } };
       const data = json.data!;
       setBulkResult({
         ok: data.okCount,
         total: data.total,
-        failures: data.results.filter(r => !r.ok).map(r => ({ id: r.id, error: r.error || 'Unknown error' })),
+        failures: data.results.filter(r => !r.ok).map(r => ({ id: r.id, error: r.error || 'This period could not be updated' })),
       });
       setChecked(new Set());
       await loadPeriods();
@@ -63,7 +62,7 @@ export function FiscalPeriodsTab() {
       // Network/server error: the server may have processed some periods
       // before the connection broke. Reload to surface whatever did land,
       // and tell the user the count is best-effort.
-      const msg = err instanceof Error ? err.message : 'Failed';
+      const msg = apiErrorMessage(err, 'Could not run the bulk action - try again');
       setBulkResult({
         ok: 0,
         total: ids.length,
@@ -94,13 +93,11 @@ export function FiscalPeriodsTab() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ id: periodId, action }),
       });
-      if (!res.ok) {
-        const body = await res.json() as { error?: { message?: string }; message?: string };
-        throw new Error(body.error?.message || body.message || 'Action failed');
-      }
+      await assertOk(res, 'Could not update the fiscal period - try again');
       await loadPeriods();
     } catch (err) {
       log.error('Fiscal period action failed', { error: err, periodId, action }, 'accounting-ui');
+      setLoadError(apiErrorMessage(err, 'Could not update the fiscal period - try again'));
     } finally { setActionLoading(null); }
   };
 
@@ -110,6 +107,7 @@ export function FiscalPeriodsTab() {
 
   return (
     <div className="space-y-4">
+      {loadError && <div className="p-3 rounded-lg text-sm bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400">{loadError}</div>}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-sm text-slate-500 dark:text-slate-400">
           {periods.length} period{periods.length !== 1 ? 's' : ''} across {[...new Set(periods.map(p => p.fiscalYear))].length} year{[...new Set(periods.map(p => p.fiscalYear))].length !== 1 ? 's' : ''}

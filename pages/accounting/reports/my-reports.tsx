@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { formatDate } from '@/utils/formatters';
 import { PlusCircle, Play, Edit2, Trash2, Share2, AlertCircle, FileText } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface Template {
   id: string;
@@ -48,11 +48,12 @@ export default function MyReportsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/custom-reports', { credentials: 'include' });
+      await assertOk(res, 'Could not load your reports - try again');
       const json = await res.json();
-      if (!res.ok) { setError(json.message || 'Failed to load'); return; }
       setTemplates(json.data?.items ?? []);
-    } catch {
-      setError('Failed to load reports');
+    } catch (err) {
+      setTemplates([]);
+      setError(apiErrorMessage(err, 'Could not load your reports - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -67,11 +68,11 @@ export default function MyReportsPage() {
       const res = await apiFetch(`/api/accounting/custom-reports?id=${id}`, {
         method: 'DELETE', credentials: 'include',
       });
-      if (!res.ok) { showToast('Failed to delete'); return; }
+      await assertOk(res, 'Could not delete the report - try again');
       setTemplates(prev => prev.filter(t => t.id !== id));
       showToast('Report deleted');
-    } catch {
-      showToast('Failed to delete');
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not delete the report - try again'));
     } finally {
       setDeleting(null);
     }

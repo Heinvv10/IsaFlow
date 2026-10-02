@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { CalendarRange, Plus, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import type { FiscalPeriod } from '@/modules/accounting/types/gl.types';
 import { groupPeriodsIntoYears } from '@/components/accounting/financialYears/types';
@@ -40,12 +40,13 @@ export default function FinancialYearsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/fiscal-periods');
+      await assertOk(res, 'Could not load fiscal periods - try again');
       const json = await res.json() as { data?: FiscalPeriod[] };
-      if (!res.ok) throw new Error('Failed to load fiscal periods');
       setPeriods(json.data ?? []);
     } catch (err) {
       log.error('Failed to fetch fiscal periods', { error: err }, 'financial-years-page');
-      setError('Failed to load fiscal periods');
+      setPeriods([]);
+      setError(apiErrorMessage(err, 'Could not load fiscal periods - try again'));
     } finally {
       setLoading(false);
     }
@@ -54,12 +55,14 @@ export default function FinancialYearsPage() {
   const fetchJeCounts = useCallback(async (year: number) => {
     try {
       const res = await apiFetch(`/api/accounting/fiscal-periods?jeCounts=true&year=${year}`);
+      await assertOk(res, 'Could not load the journal counts');
       const json = await res.json() as { data?: Record<string, number> };
-      if (res.ok && json.data) {
+      if (json.data) {
         setJeCounts(prev => ({ ...prev, ...json.data }));
       }
     } catch (err) {
-      log.error('Failed to fetch JE counts', { year, error: err }, 'financial-years-page');
+      // Secondary badge counts: a miss only hides the badge, the periods themselves still load
+      log.warn('Failed to fetch JE counts', { year, error: err }, 'financial-years-page');
     }
   }, []);
 
@@ -82,12 +85,11 @@ export default function FinancialYearsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, action }),
       });
-      const json = await res.json() as { message?: string };
-      if (!res.ok) throw new Error(json.message ?? 'Action failed');
+      await assertOk(res, 'Could not update that period - try again');
       await fetchPeriods();
     } catch (err) {
       log.error('Period action failed', { id, action, error: err }, 'financial-years-page');
-      setError(err instanceof Error ? err.message : 'Action failed');
+      setError(apiErrorMessage(err, 'Could not update that period - try again'));
     } finally {
       setLoadingPeriodId(null);
     }
@@ -109,13 +111,12 @@ export default function FinancialYearsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'close_year', fiscalYear: closeYearTarget }),
       });
-      const json = await res.json() as { message?: string };
-      if (!res.ok) throw new Error(json.message ?? 'Failed to close year');
+      await assertOk(res, 'Could not close the year - try again');
       setCloseYearTarget(null);
       await fetchPeriods();
     } catch (err) {
       log.error('Close year failed', { year: closeYearTarget, error: err }, 'financial-years-page');
-      setError(err instanceof Error ? err.message : 'Failed to close year');
+      setError(apiErrorMessage(err, 'Could not close the year - try again'));
       setCloseYearTarget(null);
     } finally {
       setClosingYearSaving(false);
@@ -131,8 +132,8 @@ export default function FinancialYearsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ year }),
     });
-    const json = await res.json() as { message?: string };
-    if (!res.ok) throw new Error(json.message ?? 'Failed to create year');
+    // AddYearModal turns the thrown ApiRequestError into its message (apiErrorMessage).
+    await assertOk(res, 'Could not create the financial year - try again');
     await fetchPeriods();
   }, [fetchPeriods]);
 
