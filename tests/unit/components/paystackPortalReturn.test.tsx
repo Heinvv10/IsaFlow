@@ -45,13 +45,17 @@ describe('Paystack portal return page', () => {
   it('pending on every try: stops after 10 polls on a neutral "still confirming" state', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mocked.mockResolvedValue(answer({ status: 'pending', amountCents: 11500 }));
-    render(<PaystackReturnPage />);
-    for (let i = 0; i < 15; i += 1) {
-      await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    const { unmount } = render(<PaystackReturnPage />);
+    try {
+      for (let i = 0; i < 15; i += 1) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+      }
+      expect(mocked).toHaveBeenCalledTimes(10);
+      await waitFor(() => expect(screen.getByText('Still confirming your payment')).toBeDefined());
+      expect(screen.queryByText(/couldn.t verify/)).toBeNull();
+    } finally {
+      unmount(); // stops a poll that would otherwise outlive the test
     }
-    await waitFor(() => expect(screen.getByText('Still confirming your payment')).toBeDefined());
-    expect(mocked).toHaveBeenCalledTimes(10);
-    expect(screen.queryByText(/couldn.t verify/)).toBeNull();
   });
 
   it('a rate-limited verify (429) ends on the neutral state, not an error', async () => {

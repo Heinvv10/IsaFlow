@@ -117,3 +117,13 @@ BASELINE:       Tests  53 passed (53)
 U1 line 58 '>' -> '>=' :      × pass-on fee within fees: requested_amount 8ms      × requested_amount differs from the request 1ms      × excess equal to fees is trusted (R103 / R100 / R3) 1ms       Tests  3 failed | 50 passed (53) 
 U2 line 111 Math.min(clamped, banked) -> clamped :      × fee larger than the receipt: capped at the receipt 8ms       Tests  1 failed | 52 passed (53) 
 AFTER:       Tests  53 passed (53)
+
+PR #618 final review LOW-2 — verify response (r181-pr618 int suite, fixture 55563) and the return page (component suite)
+BASELINE int: 8 passed (8) | component: 4 passed (4)
+V1 verify answers the request amount [pages/api/portal/payments/paystack/verify.ts]: 2 failed | 6 passed (8) -> KILLED; red: a R50 charge on a R115 request: amountCents 5000, applied to the invoice; settled by the webhook first: verify reports the banked receipt without asking Paystack
+V2 appliedToInvoice always true [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 7 passed (8) -> KILLED; red: a draft invoice: banked in full but not applied
+P1 page names the invoice whether or not it took the money [pages/portal/payments/paystack/return.tsx]: 1 failed | 3 passed (4) -> KILLED; red: completed but not applied (invoice not open for payment): no invoice wording
+P2 polling unbounded (bound removed): not a clean mutant - with no bound the loop stops sleeping after poll 10 and spins; the component run crashed (worker OOM, exit non-zero), which the regex above misread as SURVIVED. Replaced by P2b.
+P2b bound raised (MAX_POLLS 10 -> 1000) [pages/portal/payments/paystack/return.tsx]: 1 failed | 3 passed (4) -> KILLED; red: pending on every try: stops after 10 polls on a neutral "still confirming" state (the test now unmounts in a finally)
+P3 a 429 is an error [pages/portal/payments/paystack/return.tsx]: 1 failed | 3 passed (4) -> KILLED; red: a rate-limited verify (429) ends on the neutral state, not an error
+AFTER int: 8 passed (8) | component: 4 passed (4)

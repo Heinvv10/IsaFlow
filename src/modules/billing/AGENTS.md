@@ -56,9 +56,9 @@ PAYG Flow wallet, subscription billing, and Stitch Express payments. Owns mutati
 
 ## Gotchas
 - **A customer-invoice `charge.success` settles on what Paystack reports (R-181), not the request's
-  `amount_cents`.** The handler passes `amount`, `currency` and `requested_amount` (the charge
-  before a customer-paid fee; `verifyTransaction` maps it to `requestedAmountCents`) to
-  `recordGatewayInvoiceReceipt`. What is banked, flagged and fee-posted is decided in
+  `amount_cents`.** The handler passes `amount`, `currency`, `requested_amount` (the charge
+  before a customer-paid fee) and `fees` to `recordGatewayInvoiceReceipt`; `verifyTransaction`
+  maps the last two to `requestedAmountCents` and `feesCents`, and verify passes the same four. What is banked, flagged and fee-posted is decided in
   `accounting/services/ar` — see its `.claude.md`.
 - **Recurring debits run through Paystack, not Stitch.** `runQueuedCharges` calls
   `paystackClient.chargeAuthorization` against the mandate's `paystack_authorization_code`; that
