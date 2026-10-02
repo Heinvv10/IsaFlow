@@ -98,6 +98,8 @@ const OUTAGES: Array<[string, () => ReturnType<typeof vi.fn>]> = [
   ['GoTrue 503', () => vi.fn(async () => new Response('', { status: 503 }))],
   ['a network error', () => vi.fn(async () => { throw new TypeError('fetch failed'); })],
   ['a timeout', hangingFetch],
+  ['a 200 whose body is cut off mid-read', () => vi.fn(async () => new Response(
+    new ReadableStream({ start(c) { c.error(new TypeError('terminated')); } }), { status: 200 }))],
 ];
 
 let restoreBound: () => void;
