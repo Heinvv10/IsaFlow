@@ -11,7 +11,7 @@
  * bare `toFixed(2)` on a sheet whose money column read `(1 546)` — an ASCII
  * hyphen and an accounting bracket for the same idea, two rows apart.
  */
-import { formatDays, formatMoney, formatPct, formatPctLevel, formatRatio, type MoneyScale } from '@/lib/format/money';
+import { formatDays, formatMoney, formatPct, formatPctLevel, formatTimes, type MoneyScale } from '@/lib/format/money';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 
 /** The pack's one glyph for a figure measured and nil — page 12 defines it,
@@ -80,7 +80,7 @@ export function formatFigureText(
   switch (figure.format) {
     case 'money': return formatMoney(figure.value, { scale });
     case 'pct': return reads === 'change' ? formatPct(figure.value, 1, { pack: true }) : formatPctLevel(figure.value);
-    case 'ratio': return formatRatio(figure.value);
+    case 'ratio': return formatTimes(figure.value);
     case 'days': return formatDays(figure.value);
   }
 }

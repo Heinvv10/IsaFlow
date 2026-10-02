@@ -222,6 +222,13 @@ export function formatRatio(n: number, dp = 2): string {
   return bracketed(n, dp) ? `(${body})` : body;
 }
 
+/** A multiple — "1.50×", "(0.14)×": `formatRatio`, the × outside the bracket.
+ *  The board pack's unit for every ratio it prints, as `ratioPresentation`'s
+ *  'times' is everywhere else. */
+export function formatTimes(n: number, dp = 2): string {
+  return Number.isFinite(n) ? `${formatRatio(n, dp)}×` : ZERO_DASH;
+}
+
 /**
  * A day count — debtor days, creditor days — in the same convention.
  *

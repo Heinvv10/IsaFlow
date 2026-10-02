@@ -14,7 +14,7 @@ const fig = (value: number, format: PackFigure['format']): PackFigure => ({ valu
 
 describe('formatFigureText nil handling by unit', () => {
   it('prints a small non-zero ratio as that ratio, not as nil', () => {
-    expect(formatFigureText(fig(0.004, 'ratio'), 'R')).toBe('0.00');
+    expect(formatFigureText(fig(0.004, 'ratio'), 'R')).toBe('0.00×');
   });
   it('prints a small non-zero day count as days, not as nil', () => {
     expect(formatFigureText(fig(0.004, 'days'), 'R')).toBe('0 days');

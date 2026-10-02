@@ -21,7 +21,7 @@
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { rankedBy, superlativeClause } from './statedRelation';
 import { MONEY_TOLERANCE } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
-import { formatMoney, formatRatio, inProse, pctWithWord, type MoneyScale } from '@/lib/format/money';
+import { formatMoney, formatTimes, inProse, pctWithWord, type MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type {
   PackChartSpec,
@@ -221,7 +221,7 @@ export function positionCaption(set: PackFigureSet, scale: MoneyScale): string {
   const coverClause = cover === null
     ? 'Current liabilities are not a positive base, so no cover percentage is meaningful'
     : `Current assets cover current liabilities ${pctWithWord(cover, 'at', 'at negative')} `
-      + `— a current ratio of ${formatRatio(currentAssets / currentLiabilities)}`;
+      + `— a current ratio of ${inProse(formatTimes(currentAssets / currentLiabilities))}`;
   return `${coverClause}; working capital stands at ${inProse(formatMoney(workingCapital, { scale }))}.`;
 }
 
