@@ -131,6 +131,8 @@ export async function revokeStandingLink(
   const live = (await sql`
     SELECT 1 FROM portal_payment_links
     WHERE invoice_id = ${invoiceId}::UUID AND status = 'active' AND charges_balance
+      AND EXISTS (SELECT 1 FROM customer_invoices ci
+                  WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID)
     LIMIT 1
   `) as unknown[];
   if (live.length === 0 && !locked[0].payment_url) return { ok: false, reason: 'no_active_link' };

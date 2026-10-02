@@ -11,6 +11,8 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { CO, USER, addLink, create, deliver, getLink, pool, requests } from './r167-portal-links.helpers';
 import { invoice, links, payNow, tokenOf } from './r177-portal-followups.helpers';
 import { log } from '@/lib/logger';
+import { getCustomerInvoiceDetail } from '@/modules/accounting/services/ar/customerInvoiceReadService';
+import { als } from '@/lib/als';
 import { revoke, revokeInTx, row, setupRevokeFixture, status, teardownRevokeFixture, viewerToken } from './link-revoke.helpers';
 
 assertDisposable();
@@ -237,5 +239,27 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
     const r = await revoke(id, { csrf: false });
     expect(r.statusCode).toBe(403);
     expect(await status(token)).toBe('active');
+  });
+
+  it('the invoice detail read says whether an active standing link exists, scoped to the company', async () => {
+    const detail = async (id: string, co = CO) => {
+      const client = await pool.connect();
+      try {
+        return await als.run({ client, userId: USER, companyId: co, claims: {} } as never, () => getCustomerInvoiceDetail(co, id));
+      } finally { client.release(); }
+    };
+    const none = await invoice();
+    expect((await detail(none))?.has_standing_link).toBe(false);
+    const pre717 = await invoice();
+    await addLink(pre717, 10, true); // charges_balance true by default, no payment_url
+    expect((await detail(pre717))?.has_standing_link).toBe(true);
+    const fixed = await invoice();
+    await addLink(fixed, 10, false);
+    expect((await detail(fixed))?.has_standing_link).toBe(false);
+    const paid = await invoice();
+    const l = await addLink(paid, 10, true);
+    await pool.query("UPDATE portal_payment_links SET status = 'paid' WHERE id = $1", [l.linkId]);
+    expect((await detail(paid))?.has_standing_link).toBe(false);
+    expect(await detail(pre717, randomUUID())).toBeNull();
   });
 });

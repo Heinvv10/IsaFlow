@@ -8,10 +8,10 @@ vi.mock('next/router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 import { useCustomerInvoiceActions } from '@/modules/accounting/hooks/useCustomerInvoiceActions';
 
 const noop = () => undefined;
-function overflow(paymentUrl: string | null, onShowRevokeConfirm: () => void = noop, enabled = !!paymentUrl) {
+function overflow(paymentUrl: string | null, onShowRevokeConfirm: () => void = noop, enabled = !!paymentUrl, hasStandingLink?: boolean) {
   return useCustomerInvoiceActions({
     invoiceId: 'inv-1',
-    invoice: { status: 'sent', total_amount: 115, amount_paid: 0, client_id: 'c-1', online_payment_enabled: enabled, payment_url: paymentUrl } as never,
+    invoice: { status: 'sent', total_amount: 115, amount_paid: 0, client_id: 'c-1', online_payment_enabled: enabled, payment_url: paymentUrl, has_standing_link: hasStandingLink } as never,
     actionLoading: '', paymentLoading: false, portalLinkLoading: false, portalLinkCopied: false, linkCopied: false,
     onOpenEmailModal: noop, onCopyPortalLink: noop, onPayNow: noop, onCopyPaymentLink: noop, onAction: noop,
     onShowCancelConfirm: noop, onShowRevokeConfirm,
@@ -33,6 +33,14 @@ describe('useCustomerInvoiceActions — Revoke payment link', () => {
 
   it('is not offered when online payment is on but there is no payment_url', () => {
     expect(overflow(null, noop, true).map((a) => a.label)).not.toContain('Revoke payment link');
+  });
+
+  it('is offered with no payment_url when an active standing link exists (a pre-deploy link)', () => {
+    expect(overflow(null, noop, false, true).map((a) => a.label)).toContain('Revoke payment link');
+  });
+
+  it('is not offered with no payment_url and no standing link', () => {
+    expect(overflow(null, noop, false, false).map((a) => a.label)).not.toContain('Revoke payment link');
   });
 
   it('opens the confirmation instead of revoking directly', () => {
