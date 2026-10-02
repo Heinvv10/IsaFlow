@@ -27,9 +27,11 @@ import { getSystemAccount } from '../gl/systemAccountResolver';
 import { postGatewayFee } from './gatewayFeeService';
 import { spendPaymentLinkOfRequest } from './portalLinkCharge';
 import {
+  firstReportedAmountCents,
   flagSettlementForReview,
   isBookCurrency,
   merchantFee,
+  receiptDescription,
   settledCharge,
   type ReportedCharge,
 } from './gatewaySettlementReview';
@@ -104,9 +106,10 @@ export async function recordGatewayInvoiceReceipt(
     bank_account_id: string | null;
     payment_date: string;
     total_amount: string;
+    description: string | null;
   }>`
     SELECT id, created_by::text AS created_by, bank_account_id::text AS bank_account_id,
-           payment_date::text AS payment_date, total_amount::text AS total_amount
+           payment_date::text AS payment_date, total_amount::text AS total_amount, description
     FROM customer_payments
     WHERE company_id = ${companyId}::UUID
       AND bank_reference = ${reference}
@@ -121,6 +124,11 @@ export async function recordGatewayInvoiceReceipt(
     // receipt that already exists, in that receipt's period.
     log.info('Gateway receipt already recorded', { reference, invoiceId }, 'accounting');
     const bankedRand = Number(already[0].total_amount);
+    // Two disagreements: the figure each would bank, and Paystack's own `amount` (PR #618 LOW-5).
+    const firstAmountCents = firstReportedAmountCents(already[0].description, Math.round(bankedRand * 100));
+    const reportedAmountCents = typeof receipt.reported.amountCents === 'number' ? receipt.reported.amountCents : null;
+    const disagrees = Math.abs(bankedRand - amountRand) > EPS
+      || (reportedAmountCents !== null && reportedAmountCents !== firstAmountCents);
     const fee = merchantFee(receipt.feeRand, receipt.reported, Math.round(bankedRand * 100));
     await postGatewayFee(
       { ...receipt, feeRand: fee.feeRand },
@@ -131,12 +139,12 @@ export async function recordGatewayInvoiceReceipt(
     // This report's own reasons too (a currency or a missing amount the first report did not have).
     const reviews = [
       ...charge.reviews,
-      ...(Math.abs(bankedRand - amountRand) > EPS ? ['amount_disagrees_with_first_report'] : []),
+      ...(disagrees ? ['amount_disagrees_with_first_report'] : []),
       ...fee.reviews,
     ];
     if (reviews.length > 0) {
       await flagSettlementForReview(companyId, reference, reviews, {
-        paymentId: already[0].id, invoiceId, bankedRand, reportedRand: amountRand,
+        paymentId: already[0].id, invoiceId, bankedRand, reportedRand: amountRand, firstAmountCents,
         reportedCents: receipt.reported.amountCents, reportedCurrency: receipt.reported.currency,
       });
     }
@@ -157,9 +165,7 @@ export async function recordGatewayInvoiceReceipt(
   const actorId = await resolveCompanyActor(companyId, String(invoice.created_by));
   const paymentDate = settlementDate(receipt);
   // A non-ZAR charge is banked as reported (Hein) and says so on the receipt.
-  const description = isBookCurrency(receipt.reported)
-    ? `Paystack card payment ${reference}`
-    : `Paystack card payment ${reference} (${String(receipt.reported.currency)} ${amountRand.toFixed(2)} reported, booked as ZAR)`;
+  const description = receiptDescription(reference, receipt.reported, charge.cents);
 
   // Written here rather than through createCustomerPayment: that service
   // requires allocations to equal the payment total, an invariant an

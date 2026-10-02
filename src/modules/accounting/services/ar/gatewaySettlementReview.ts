@@ -116,6 +116,29 @@ export function merchantFee(
   return { feeRand: posted, reviews };
 }
 
+const AMOUNT_TAG = /\[paystack amount (\d+) cents\]/;
+
+/**
+ * The receipt's description. It names a non-ZAR currency, and tags Paystack's
+ * `amount` when it differs from what is banked, so a second report can compare
+ * its `amount` with the first's without a column for it.
+ */
+export function receiptDescription(reference: string, reported: ReportedCharge, bankedCents: number): string {
+  const amount = positiveCents(reported.amountCents);
+  const parts = [`Paystack card payment ${reference}`];
+  if (!isBookCurrency(reported)) {
+    parts.push(`(${String(reported.currency)} ${(bankedCents / 100).toFixed(2)} reported, booked as ZAR)`);
+  }
+  if (amount !== null && amount !== bankedCents) parts.push(`[paystack amount ${amount} cents]`);
+  return parts.join(' ');
+}
+
+/** The first report's Paystack `amount`: its tag, else what it banked. */
+export function firstReportedAmountCents(description: string | null, bankedCents: number): number {
+  const tag = description ? AMOUNT_TAG.exec(description) : null;
+  return tag ? Number(tag[1]) : bankedCents;
+}
+
 /**
  * Why the invoice may not take the money, or null when it may. Outside the
  * ledger means a draft, pending approval or cancelled (`documentInPopulation`),
