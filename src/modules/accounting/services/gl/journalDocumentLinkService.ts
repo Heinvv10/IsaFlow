@@ -16,7 +16,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { journalStandsFragment } from '../shared/journalInForceAsAt';
+import { journalStandsFragment, journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import {
   assertDocumentNotAlreadyPosted, DocumentAlreadyPostedRefusal, DocumentAlreadyLinkedRefusal,
@@ -71,7 +71,7 @@ async function loadLinkableJournal(companyId: string, journalEntryId: string): P
   const rows = (await sql`
     SELECT je.id FROM gl_journal_entries je
     WHERE je.id = ${journalEntryId}::UUID AND je.company_id = ${companyId}::UUID
-      AND je.status = 'posted' AND ${journalStandsFragment('je.id', companyId)}
+      AND je.status = 'posted' AND ${journalStandsUnbrokenFragment('je.id', companyId)}
   `) as DbRow[];
   return rows[0] ? { id: String(rows[0].id) } : null;
 }

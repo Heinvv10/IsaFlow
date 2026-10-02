@@ -47,7 +47,7 @@ import {
   DocumentAlreadyPostedRefusal,
   DocumentAlreadyLinkedRefusal,
 } from '@/modules/accounting/services/gl/documentJournalClaimGuard';
-import { journalStandsFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
+import { journalStandsUnbrokenFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
 
 export type ProvisionalAttachResult =
   | { kind: 'attached'; bankTxId: string | null }
@@ -76,7 +76,7 @@ export async function attachDocumentToProvisional(
     // Standing by its reversal chain, not its stamp (D8, as the automatic attach):
     // a provisional reversed and re-reversed books the bank line again.
     const je = await lockWithTimeout(jeId, async () => (await sql`
-      SELECT je.needs_evidence, ${journalStandsFragment('je.id', companyId)} AS stands
+      SELECT je.needs_evidence, ${journalStandsUnbrokenFragment('je.id', companyId)} AS stands
       FROM gl_journal_entries je
       WHERE je.id = ${jeId}::UUID AND je.company_id = ${companyId}::UUID
       FOR UPDATE OF je`) as DbRow[]);

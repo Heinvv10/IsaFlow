@@ -48,15 +48,40 @@ export function journalInForceAsAtFragment(journalIdColumn: JournalIdColumn, asA
 /**
  * As the ledger stands NOW: every posted reversal counts, whatever its date —
  * the reading `reversed_at` gives a single reversal, so a write guard swapping
- * `reversed_at IS NULL` for this changes nothing but the re-reversed chain.
+ * `reversed_at IS NULL` for this changes the re-reversed chain, and one more
+ * shape: a journal STAMPED reversed with no posted contra (a broken chain — a
+ * stranded claim, a hand edit) reads as standing, because the ledger does carry
+ * it. That is the safe answer for a guard that BLOCKS while a journal stands.
  */
 export function journalStandsFragment(journalIdColumn: JournalIdColumn, companyId: string) {
   return chainParity(journalIdColumn, companyId, null);
 }
 
-function chainParity(journalIdColumn: JournalIdColumn, companyId: string, asAtStr: string | null) {
+/**
+ * For a guard that PERMITS an action on the journal itself (link a document to
+ * it, evidence it): standing as above AND not a broken chain. A journal stamped
+ * reversed with no posted contra was refused by the old `reversed_at IS NULL`
+ * and stays refused (D8 round 5; r107 pins it) — permitting on it would act on
+ * an entry whose state nobody can vouch for. The row must expose `reversed_at`
+ * under the same alias.
+ */
+export function journalStandsUnbrokenFragment(journalIdColumn: JournalIdColumn, companyId: string) {
+  const alias = journalIdColumn.split('.')[0];
   return sql.unsafe(
-    `(WITH RECURSIVE reversals AS (
+    `(${chainParitySql(journalIdColumn)} AND NOT (${alias}.reversed_at IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM gl_journal_entries r0
+        WHERE r0.reversal_of_id = ${journalIdColumn} AND r0.company_id = $1::UUID AND r0.status = 'posted')))`,
+    [companyId, null],
+  );
+}
+
+function chainParity(journalIdColumn: JournalIdColumn, companyId: string, asAtStr: string | null) {
+  return sql.unsafe(chainParitySql(journalIdColumn), [companyId, asAtStr]);
+}
+
+/** $1 = company id, $2 = as-at date or NULL (every posted reversal counts). */
+function chainParitySql(journalIdColumn: JournalIdColumn): string {
+  return `(WITH RECURSIVE reversals AS (
         SELECT r.id, r.entry_date, ARRAY[r.reversal_of_id, r.id] AS path
         FROM gl_journal_entries r
         WHERE r.reversal_of_id = ${journalIdColumn}
@@ -69,7 +94,5 @@ function chainParity(journalIdColumn: JournalIdColumn, companyId: string, asAtSt
           AND NOT j.id = ANY(reversals.path) AND cardinality(reversals.path) < ${MAX_CHAIN_DEPTH}
       )
       SELECT COUNT(*) FILTER (WHERE $2::DATE IS NULL OR reversals.entry_date <= $2::DATE) % 2 = 0
-      FROM reversals)`,
-    [companyId, asAtStr],
-  );
+      FROM reversals)`;
 }
