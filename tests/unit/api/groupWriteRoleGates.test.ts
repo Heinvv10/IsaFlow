@@ -27,6 +27,15 @@ vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/modules/accounting/services/core/companyAccessService', () => access);
+// Real id checks; the DB-backed guards are steered per test (their SQL has its own DB test).
+const guards = vi.hoisted(() => ({
+  creatorMayBootstrapGroup: vi.fn(), refuseGroupCompanyRead: vi.fn(), refuseGroupCompanyWrite: vi.fn(), mappingAccountsBelong: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/core/groupRouteGuards', async () => ({
+  ...(await vi.importActual<typeof import('@/modules/accounting/services/core/groupRouteGuards')>('@/modules/accounting/services/core/groupRouteGuards')),
+  ...guards,
+}));
+
 vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => svc);
 
 import groupsHandler from '../../../pages/api/accounting/company-groups';
@@ -35,20 +44,21 @@ import intercoHandler from '../../../pages/api/accounting/intercompany-transacti
 const G = '80000000-0000-4000-8000-000000000001';
 const CO = '10000000-0000-4000-8000-0000000000a1';
 const CO2 = '10000000-0000-4000-8000-0000000000a2';
+const ID = '70000000-0000-4000-8000-0000000000e1';
 
 type Case = [string, 'groups' | 'interco', string, Record<string, unknown>, Record<string, unknown>, keyof typeof svc];
 const CASES: Case[] = [
   ['add-member', 'groups', 'POST', {}, { action: 'add-member', groupId: G, companyId: CO }, 'addMember'],
   ['create-group-account', 'groups', 'POST', {}, { action: 'create-group-account', groupId: G, accountCode: 'G1', accountName: 'n', accountType: 'asset' }, 'createGroupAccount'],
   ['auto-generate-coa', 'groups', 'POST', {}, { action: 'auto-generate-coa', groupId: G, sourceCompanyId: CO }, 'autoGenerateGroupCOA'],
-  ['set-mapping', 'groups', 'POST', {}, { action: 'set-mapping', groupId: G, companyId: CO, companyAccountId: 'c', groupAccountId: 'g' }, 'setCoaMapping'],
+  ['set-mapping', 'groups', 'POST', {}, { action: 'set-mapping', groupId: G, companyId: CO, companyAccountId: ID, groupAccountId: ID }, 'setCoaMapping'],
   ['auto-map', 'groups', 'POST', {}, { action: 'auto-map', groupId: G, companyId: CO }, 'autoMapAccounts'],
-  ['update-member', 'groups', 'PUT', {}, { action: 'update-member', memberId: 'm', groupId: G, ownershipPct: 60 }, 'updateMember'],
-  ['update-group-account', 'groups', 'PUT', {}, { action: 'update-group-account', accountId: 'a', groupId: G, accountName: 'x' }, 'updateGroupAccount'],
+  ['update-member', 'groups', 'PUT', {}, { action: 'update-member', memberId: ID, groupId: G, ownershipPct: 60 }, 'updateMember'],
+  ['update-group-account', 'groups', 'PUT', {}, { action: 'update-group-account', accountId: ID, groupId: G, accountName: 'x' }, 'updateGroupAccount'],
   ['update-group', 'groups', 'PUT', {}, { groupId: G, name: 'renamed' }, 'updateGroup'],
-  ['remove-member', 'groups', 'DELETE', { action: 'remove-member', member_id: 'm', group_id: G }, {}, 'removeMember'],
-  ['remove-mapping', 'groups', 'DELETE', { action: 'remove-mapping', mapping_id: 'p', group_id: G }, {}, 'removeCoaMapping'],
-  ['delete-group-account', 'groups', 'DELETE', { action: 'delete-group-account', account_id: 'a', group_id: G }, {}, 'deleteGroupAccount'],
+  ['remove-member', 'groups', 'DELETE', { action: 'remove-member', member_id: ID, group_id: G }, {}, 'removeMember'],
+  ['remove-mapping', 'groups', 'DELETE', { action: 'remove-mapping', mapping_id: ID, group_id: G }, {}, 'removeCoaMapping'],
+  ['delete-group-account', 'groups', 'DELETE', { action: 'delete-group-account', account_id: ID, group_id: G }, {}, 'deleteGroupAccount'],
   ['delete-group', 'groups', 'DELETE', { group_id: G }, {}, 'deleteGroup'],
   ['interco create', 'interco', 'POST', {}, { groupId: G, sourceCompanyId: CO, targetCompanyId: CO2, transactionType: 'sale', amount: 1000000, transactionDate: '2026-01-15' }, 'createIntercompanyTransaction'],
   ['interco match', 'interco', 'POST', {}, { action: 'match', groupId: G, sourceId: CO, targetId: CO2 }, 'matchIntercompanyTransactions'],
@@ -70,6 +80,10 @@ beforeEach(() => {
   access.userCanWriteGroup.mockReset().mockResolvedValue(true);
   access.userCreatedGroup.mockReset().mockResolvedValue(false);
   access.userCanWriteCompany.mockReset().mockResolvedValue(true);
+  guards.creatorMayBootstrapGroup.mockReset().mockResolvedValue(false);
+  guards.refuseGroupCompanyRead.mockReset().mockResolvedValue(null);
+  guards.refuseGroupCompanyWrite.mockReset().mockResolvedValue(null);
+  guards.mappingAccountsBelong.mockReset().mockResolvedValue({ company: true, group: true });
 });
 
 describe.each(CASES)('%s', (...c) => {
@@ -102,7 +116,7 @@ describe('add-member bootstrap', () => {
   it('the group creator may still add the first member without a write role in it', async () => {
     access.userBelongsToGroup.mockResolvedValue(false);
     access.userCanWriteGroup.mockResolvedValue(false);
-    access.userCreatedGroup.mockResolvedValue(true);
+    guards.creatorMayBootstrapGroup.mockResolvedValue(true);
     const res = await call(CASES[0]!);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(svc.addMember).toHaveBeenCalledTimes(1);
