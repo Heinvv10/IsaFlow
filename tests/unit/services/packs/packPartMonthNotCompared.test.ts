@@ -76,6 +76,10 @@ describe('where the part month still prints', () => {
   it('is page 5\'s table, as a row marked part', () => {
     const page = pageNamed(buildBoardPackPages(velocityInput), 'Monthly results');
     expect(JSON.stringify(page.blocks)).toContain('Oct 2026 (part)');
+    // …and the sheet says the row is on no panel, or "the window page 10
+    // draws from" reads as a claim that October is drawn.
+    const windowNote = notesOf(page).find((n) => n.startsWith('The window:'));
+    expect(windowNote).toMatch(/Oct 2026 is a part month: it covers 2 of its 31 days, so .*page 10 does not draw it\./);
   });
 });
 
