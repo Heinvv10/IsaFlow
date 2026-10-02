@@ -59,8 +59,15 @@ export const BALANCE_TOLERANCE = 0.005;
 interface PeriodBasis {
   periodStart: string;
   periodEnd: string;
-  /** First day of the fiscal year the period falls in — the income-statement cut-off. */
+  /**
+   * First day of the fiscal year containing the period END — the income-statement
+   * cut-off for the closing balance, the floor every ledger listing uses
+   * (fiscalYearCloseRows). Not the period START: a Jan–Dec period on a March
+   * company starts in one fiscal year and ends in the next (D4).
+   */
   fyStart: string;
+  /** First day of the fiscal year containing the period START — the opening's cut-off. */
+  openingFyStart: string;
 }
 
 async function loadPeriodBasis(companyId: string, fiscalPeriodId: string): Promise<PeriodBasis | null> {
@@ -86,16 +93,24 @@ async function loadPeriodBasis(companyId: string, fiscalPeriodId: string): Promi
     companyId,
     { fallback: DEFAULT_FY_START_MONTH },
   );
-  return { periodStart, periodEnd, fyStart: fiscalYearStart(periodStart, fyStartMonth) };
+  return {
+    periodStart,
+    periodEnd,
+    fyStart: fiscalYearStart(periodEnd, fyStartMonth),
+    openingFyStart: fiscalYearStart(periodStart, fyStartMonth),
+  };
 }
 
 /**
  * Balances as at the end of `fiscalPeriodId`.
  *
  * Balance-sheet accounts are cumulative from inception; income-statement
- * accounts are year-to-date within the fiscal year containing the period. Each
- * row also carries the opening balance and the period's own debit/credit
- * movement, so opening + movement reconciles to the closing balance.
+ * accounts are year-to-date within the fiscal year containing the period END.
+ * Each row also carries the opening balance at the period start and the
+ * period's posted debit/credit movement — the account ledger's opening,
+ * periodNet and closing. Opening + movement = closing, except where the period
+ * crosses a fiscal-year start: there the gap is the derived year-end close the
+ * ledger listings show as a row.
  */
 export async function getTrialBalance(
   companyId: string,
@@ -116,7 +131,7 @@ async function rowsForBasis(
 ): Promise<TrialBalanceRow[]> {
   const { costCentreId, businessUnitId } = options;
   try {
-    const { periodStart, periodEnd, fyStart } = basis;
+    const { periodStart, periodEnd, fyStart, openingFyStart } = basis;
     // The selector contains both CC types; legacy attribution is independent.
     const ccId = costCentreId ?? null;
     const buId = businessUnitId ?? null;
@@ -129,6 +144,10 @@ async function rowsForBasis(
         COALESCE(SUM(CASE WHEN ga.account_type IN ('asset', 'liability', 'equity')
                             OR je.entry_date >= ${fyStart}
                           THEN jl.credit ELSE 0 END), 0) AS closing_credit,
+        COALESCE(SUM(CASE WHEN je.entry_date < ${periodStart}
+                           AND (ga.account_type IN ('asset', 'liability', 'equity')
+                             OR je.entry_date >= ${openingFyStart})
+                          THEN jl.debit - jl.credit ELSE 0 END), 0) AS opening_net,
         COALESCE(SUM(CASE WHEN je.entry_date >= ${periodStart} THEN jl.debit ELSE 0 END), 0) AS period_debit,
         COALESCE(SUM(CASE WHEN je.entry_date >= ${periodStart} THEN jl.credit ELSE 0 END), 0) AS period_credit
       FROM gl_journal_lines jl
@@ -150,8 +169,11 @@ async function rowsForBasis(
       : rows.map(toTrialBalanceRow).filter(isNonEmpty);
 
     const broughtForward = await getRetainedEarningsBroughtForward(companyId, fyStart, costCentreId, businessUnitId);
-    if (Math.abs(broughtForward) >= 0.01) {
-      appendBroughtForward(result, fyStart, broughtForward);
+    const openingBroughtForward = openingFyStart === fyStart
+      ? broughtForward
+      : await getRetainedEarningsBroughtForward(companyId, openingFyStart, costCentreId, businessUnitId);
+    if (Math.abs(broughtForward) >= 0.01 || Math.abs(openingBroughtForward) >= 0.01) {
+      appendBroughtForward(result, fyStart, broughtForward, openingBroughtForward);
       result.sort((a, b) => a.accountCode.localeCompare(b.accountCode));
     }
 
@@ -167,7 +189,9 @@ function toTrialBalanceRow(r: Row): TrialBalanceRow {
   const periodCredit = round2(Number(r.period_credit));
   const closingNet = round2(Number(r.closing_debit) - Number(r.closing_credit));
   const closing = splitNet(closingNet);
-  const opening = splitNet(closingNet - (periodDebit - periodCredit));
+  // On the ledger listings' basis, so it equals their opening. Within one fiscal year it is
+  // closing − movement; across a fiscal-year start the gap is the derived year-end close.
+  const opening = splitNet(Number(r.opening_net));
   return {
     accountCode: String(r.account_code),
     accountName: String(r.account_name),
@@ -185,11 +209,14 @@ function toTrialBalanceRow(r: Row): TrialBalanceRow {
 /**
  * Drop accounts that neither carry a balance nor moved. An account whose gross
  * turnover nets to zero within the range is genuinely dormant here; an account
- * that moved at all is kept so the movement columns stay complete.
+ * that moved at all is kept so the movement columns stay complete. So is one
+ * that only OPENS with a balance — an income-statement account closed to zero
+ * at a fiscal-year start inside the period — or the opening column would not foot.
  */
 function isNonEmpty(row: TrialBalanceRow): boolean {
   return row.debitBalance !== 0 || row.creditBalance !== 0
-    || row.periodDebit !== 0 || row.periodCredit !== 0;
+    || row.periodDebit !== 0 || row.periodCredit !== 0
+    || row.openingDebit !== 0 || row.openingCredit !== 0;
 }
 
 /**
@@ -206,9 +233,11 @@ function appendBroughtForward(
   rows: TrialBalanceRow[],
   fyStart: string,
   broughtForward: number,
+  openingBroughtForward: number,
 ): void {
   const { accountCode, accountName } = broughtForwardLine(fyStart);
   const split = splitNet(-broughtForward);
+  const opening = splitNet(-openingBroughtForward);
   rows.push({
     accountCode,
     accountName,
@@ -217,8 +246,8 @@ function appendBroughtForward(
     derived: true,
     debitBalance: split.debit,
     creditBalance: split.credit,
-    openingDebit: split.debit,
-    openingCredit: split.credit,
+    openingDebit: opening.debit,
+    openingCredit: opening.credit,
     periodDebit: 0,
     periodCredit: 0,
   });
