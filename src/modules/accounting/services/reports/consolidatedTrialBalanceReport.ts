@@ -33,6 +33,7 @@
 import { log } from '@/lib/logger';
 import { BROUGHT_FORWARD_CODE, broughtForwardLine, round2, splitNet } from '../gl/trialBalanceBasis';
 import { BALANCE_TOLERANCE } from '../gl/trialBalanceService';
+import { fiscalYearEndBefore, fiscalYearStartsWithin } from '../gl/fiscalYearCloseRows';
 import {
   memberBalances,
   memberBroughtForward,
@@ -98,6 +99,12 @@ export interface ConsolidatedTrialBalance {
   entityNames: Record<string, string>;
   /** The fiscal year start each member's income statement was measured from. */
   fiscalYearStarts: Record<string, string>;
+  /**
+   * Per member, the fiscal years ending inside the range (D4): their profit was closed to
+   * retained earnings — derived, not posted — and sits on RE-BF. Empty when the range is
+   * inside one fiscal year. The report has no opening column, so there is no per-row close.
+   */
+  fiscalYearEndsClosed: Record<string, string[]>;
   /**
    * False when members do not share a year end, so the income-statement columns
    * cover different windows and are not additive without adjustment.
@@ -168,6 +175,7 @@ export async function getConsolidatedTrialBalance(
 
     const unmappedByEntity: ConsolidatedUnmappedEntity[] = [];
     const fiscalYearStarts: Record<string, string> = {};
+    const fiscalYearEndsClosed: Record<string, string[]> = {};
     const entityNames: Record<string, string> = Object.fromEntries(
       members.map(m => [m.companyId, m.companyName]),
     );
@@ -176,6 +184,9 @@ export async function getConsolidatedTrialBalance(
       const mappings = allMappings.get(member.companyId) ?? new Map<string, MappingEntry>();
       const fyStart = await memberFiscalYearStart(member.companyId, periodEnd);
       fiscalYearStarts[member.companyId] = fyStart;
+      // D4: dates only. The P&L rows start at fyStart; profit of the years ending here is on RE-BF.
+      fiscalYearEndsClosed[member.companyId] = fiscalYearStartsWithin(periodStart, periodEnd, Number(fyStart.slice(5, 7)))
+        .map(fiscalYearEndBefore);
 
       let unmappedCount = 0;
       let unmappedValue = 0;
@@ -269,6 +280,7 @@ export async function getConsolidatedTrialBalance(
       },
       entityNames,
       fiscalYearStarts,
+      fiscalYearEndsClosed,
       coterminous: years.length <= 1 || years.every(y => y.slice(5) === years[0]!.slice(5)),
     };
   } catch (err) {

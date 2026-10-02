@@ -41,7 +41,7 @@ describe('trial balance page — derived year-end close', () => {
       rows: [tbRow('5200', 'Labour', 'expense', 250, -1300), tbRow('RE-BF', 'Retained Earnings b/f', 'equity', 1207, -1200, true)],
     });
     render(<TrialBalancePage />);
-    expect(await screen.findByText(/net R\s?1\s?300,00 closed to retained earnings/)).toBeTruthy();
+    expect(await screen.findByText(/net R\s?1\s?300,00 closed to retained earnings — derived, not posted/)).toBeTruthy();
     expect(screen.getByText(/includes fiscal years closed in this period: net R\s?1\s?200,00 loss/)).toBeTruthy();
     const note = screen.getByRole('note');
     expect(note.textContent).toContain('fiscal year end 2026-02-28');
