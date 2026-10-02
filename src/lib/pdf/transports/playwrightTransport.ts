@@ -7,9 +7,10 @@
 
 import { chromium, type Browser } from 'playwright';
 import {
-  FOOTER_HTML, HEADER_HTML, PDF_MARGIN_MM, PRINT_READY_SELECTOR, PRINT_READY_TIMEOUT_MS,
+  FOOTER_HTML, HEADER_HTML, PDF_MARGIN_MM, PRINT_ERROR_ATTRIBUTE_PREFIX, PRINT_READY_SELECTOR, PRINT_READY_TIMEOUT_MS,
   mm, type PdfRenderRequest, type PdfTransport,
 } from '../pdfTransport';
+import { writePdfInfoDictionary } from '../pdfInfoDictionary';
 import { log } from '@/lib/logger';
 
 // One Chromium for the life of the process, not one per render. A launch is
@@ -37,25 +38,26 @@ async function getBrowser(): Promise<Browser> {
 
 export const playwrightTransport: PdfTransport = {
   name: 'playwright',
-  // page.pdf() exposes no document information dictionary at all — there is no
-  // option to pass and no post-processing step in this path.
-  capabilities: { metadata: false },
+  // page.pdf() exposes no metadata OPTION, which is not the same as this
+  // transport being unable to write metadata. It said `false`, the call site
+  // dutifully passed a title, an author and a subject anyway, and this file
+  // logged that it was throwing them away: `pdfinfo` on the rendered board
+  // pack read `Creator: Chromium` with no title at all, on a document a
+  // director forwards to their bank. `writePdfInfoDictionary` appends the
+  // Info dictionary as an incremental update to the bytes Chromium returns —
+  // see that file for why an incremental update cannot damage the page
+  // content, and for what it refuses to touch.
+  //
+  // BEST-EFFORT, not a guarantee, and the difference is the whole reason the
+  // capability stopped being a boolean. The writer declines — unchanged bytes,
+  // a log line — for a PDF whose cross-reference section it does not
+  // recognise, and a `true` here told a call site gating PDF/A on this that
+  // the metadata was certainly there. Chromium's Skia writer emits a classic
+  // xref table today, so the practical risk is small; the claim was wrong at
+  // any risk level.
+  capabilities: { metadata: 'best-effort' },
   async render(request: PdfRenderRequest): Promise<Buffer> {
     const { hostname } = new URL(request.url);
-    if (request.metadata) {
-      // WARN, not throw, and deliberately so. Metadata here is descriptive
-      // rather than load-bearing, and this transport is the INCIDENT FALLBACK:
-      // turning a cosmetic gap into a total PDF outage on the day production
-      // switches to it is the wrong trade. A requirement that really is
-      // load-bearing (PDF/A for archival retention) belongs at the call site,
-      // gated on `transport.capabilities.metadata` — which exists for exactly
-      // that, so nobody has to hope this line was read.
-      log.warn(
-        'playwrightTransport: dropping PDF metadata — this transport supports none',
-        { dropped: Object.keys(request.metadata), url: request.url },
-        'pdf',
-      );
-    }
     const browser = await getBrowser();
     const context = await browser.newContext();
     try {
@@ -84,7 +86,32 @@ export const playwrightTransport: PdfTransport = {
       // 'load', not 'networkidle': the app keeps background connections open
       // that never go quiet. waitForSelector is the real readiness gate.
       await page.goto(request.url, { waitUntil: 'load' });
-      await page.waitForSelector(PRINT_READY_SELECTOR, { timeout: PRINT_READY_TIMEOUT_MS });
+      // Ready OR failed, decided in ONE page-side evaluation. A print page that
+      // reports `data-print-error-*` will never become ready, so waiting out
+      // the timeout only delays the same failure and hides its reason — and a
+      // page that reported it could not render must not be printed because the
+      // attribute was withdrawn afterwards (`clearPrintError`). The predicate
+      // therefore returns WHAT IT OBSERVED, in the same instant: any error
+      // attribute (even an empty-valued one, even alongside the ready marker)
+      // is a failure, exactly as under Gotenberg, whose wait expression throws
+      // on the first one it sees. Nothing is re-read after the wait.
+      const handle = await page.waitForFunction(
+        ([ready, prefix]) => {
+          const errors = Array.from(document.documentElement.attributes)
+            .filter((a) => a.name.startsWith(prefix!))
+            .map((a) => a.value);
+          if (errors.length > 0) return { ready: false, errors };
+          return document.querySelector(ready!) !== null ? { ready: true, errors: [] as string[] } : false;
+        },
+        [PRINT_READY_SELECTOR, PRINT_ERROR_ATTRIBUTE_PREFIX],
+        { timeout: PRINT_READY_TIMEOUT_MS },
+      );
+      // Truthy by construction: the wait only resolves on an object.
+      const observed = (await handle.jsonValue()) as { ready: boolean; errors: string[] };
+      if (observed.errors.length > 0) {
+        const reasons = observed.errors.filter((e) => e !== '').join('; ') || 'no reason given';
+        throw new Error(`playwrightTransport: the print page reported it cannot render: ${reasons}`);
+      }
       await page.emulateMedia({ media: 'print' });
 
       const pdf = await page.pdf({
@@ -99,8 +126,20 @@ export const playwrightTransport: PdfTransport = {
         headerTemplate: HEADER_HTML,
         footerTemplate: request.footerHtml ?? FOOTER_HTML,
       });
-      log.info('playwrightTransport: rendered', { url: request.url, bytes: pdf.length }, 'pdf');
-      return pdf;
+      // `metadataWritten` reaches the log rather than being swallowed: this
+      // transport is the incident fallback, and "the pack came out without a
+      // title" is a thing whoever is on the incident needs to be able to see
+      // afterwards. It does not throw — declining is a cosmetic gap and a
+      // cosmetic gap must not become a PDF outage; the honest capability
+      // above is what stops a caller assuming otherwise.
+      const result = request.metadata ? writePdfInfoDictionary(pdf, request.metadata) : null;
+      const out = result?.pdf ?? pdf;
+      log.info(
+        'playwrightTransport: rendered',
+        { url: request.url, bytes: out.length, metadataWritten: result?.written ?? null },
+        'pdf',
+      );
+      return out;
     } finally {
       // The context goes, the browser stays. Closing the context releases the
       // page, its cookies and its route handlers; leaking one would keep this

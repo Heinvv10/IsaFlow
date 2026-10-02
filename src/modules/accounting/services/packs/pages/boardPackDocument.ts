@@ -1,0 +1,182 @@
+/**
+ * Everything the board pack needs from the database, fetched once, then
+ * composed.
+ *
+ * `buildBoardPackPages` is synchronous by contract — it chooses which model
+ * lands on which page and computes nothing — so SOMETHING has to do the
+ * fetching. This is that something, and it is the only place the twelve-page
+ * pack meets the ledger.
+ *
+ * SEQUENTIAL, NOT `Promise.all`. Under `withAuth` a request-scoped
+ * transaction is in flight and `sql` routes every query through the ONE pg
+ * client held in the async-local store; concurrent queries on a single pg
+ * connection are a known hazard in this repo. `buildPackFigureSet` documents
+ * the same rule for the same reason.
+ *
+ * READ-ONLY. `withAuth` COMMITs its transaction before the response flushes
+ * and only rolls back on a 5xx, so a 4xx after a write would COMMIT that
+ * write. Nothing here writes, and nothing here should start.
+ */
+
+import { log } from '@/lib/logger';
+import { withSavepoint } from '@/lib/neon';
+import { isFailedRead } from '@/modules/accounting/services/packs/packFailedRead';
+import { getCompanyName } from '@/modules/accounting/services/reports/companyName';
+import { getBrandProfile } from '@/modules/accounting/services/afs/brandProfileService';
+import { readPackDraftState } from './packDraftState';
+import {
+  getLedgerPostedThrough,
+  NO_LEDGER_READ,
+} from '@/modules/accounting/services/reports/postedThroughService';
+import { resolvePackBrandForRender } from '@/modules/accounting/services/packs/packBrandForRender';
+import { buildPackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
+import { getPackTrend } from '@/modules/accounting/services/packs/packTrendService';
+import { buildMatters } from './packMatters';
+import {
+  reconcileSubledger,
+  type SubledgerReconciliation,
+} from '@/modules/accounting/services/reconciliation/subledgerReconciliationService';
+import { formatPackPeriod } from './packPeriodLabel';
+import { buildBoardPackPages } from './boardPackPages';
+import type { PackPagesDocument } from './packPageModel';
+
+/** Re-exported: both formatters moved to `packPeriodLabel.ts` so
+ *  `boardPackPages.ts` can head its comparative column with the same words
+ *  page 1 heads the current period with, without importing this module and
+ *  closing a cycle. Every existing import path still resolves. */
+export { formatPackDate, formatPackPeriod } from './packPeriodLabel';
+
+const TREND_MONTHS = 12;
+
+export interface BoardPackDocumentRequest {
+  companyId: string;
+  from: string;
+  to: string;
+  /** Printed on page 1 as the preparer. The authenticated caller. */
+  preparedBy: string;
+  /** ISO timestamp the ledger was read at — page 12's `extractedAt`. */
+  generatedAt: string;
+}
+
+export async function buildBoardPackDocument(
+  request: BoardPackDocumentRequest,
+): Promise<PackPagesDocument> {
+  const { companyId, from, to } = request;
+
+  const companyLegalName = await getCompanyName(companyId);
+  const set = await buildPackFigureSet(companyId, companyLegalName, from, to);
+  const trend = await getPackTrend(companyId, to, TREND_MONTHS);
+  const matters = await buildMatters(companyId, set.currentWindow);
+  // THE DECOMPOSITION OF THE DEBTORS DIFFERENCE, AND THE ONE READ IN THIS
+  // FUNCTION THAT IS NOT FOR A FIGURE THE PACK PRINTS.
+  //
+  // `reconcileSubledger` has always been able to say that 4 175 of
+  // Brightsphere's gap is open documents carrying no link to a journal entry
+  // and 320 is postings referencing no document — itemised to document ids,
+  // point-in-time correct on both sides, closing to nothing unexplained on
+  // both tenants. Nothing connected it to the pack, so page 11 could state
+  // that two debtors figures disagree and not what the disagreement was made
+  // of. It is called for its ITEMS; the pack's own two figures still come
+  // from the aging report and the figure set, because this service's
+  // `agedTotal` is the SUBLEDGER total and differs from the bucket total
+  // page 11 prints.
+  //
+  // A FAILURE HERE IS NOT A FAILED PACK. Every other read in this function
+  // produces a figure some sheet must print; this one produces an
+  // explanation, and a pack that states the difference without decomposing
+  // it is the pack that shipped before this round. Sequential, like the rest
+  // — one pg client, one query at a time.
+  let receivablesItems: SubledgerReconciliation | null = null;
+  //
+  // IN ITS OWN SAVEPOINT, AND ONLY WHERE THE READ ITSELF FAILED. Caught bare,
+  // a database error left the request's transaction aborted and the brand,
+  // watermark and draft-state reads below were refused — the shorter note was
+  // a 500. And a defect in the reconciliation is not "no decomposition".
+  try {
+    receivablesItems = await withSavepoint('pack_receivables_recon', () =>
+      reconcileSubledger(companyId, 'ar', set.currentWindow.end));
+  } catch (error) {
+    if (!isFailedRead(error)) throw error;
+    log.warn(
+      'buildBoardPackDocument: the receivables reconciliation failed; page 11 states the '
+        + 'difference without decomposing it',
+      { companyId, error: error instanceof Error ? error.name : typeof error },
+      'packs',
+    );
+  }
+  // AND ONLY WHILE ITS OWN ARITHMETIC HOLDS. The service returns its
+  // invariants rather than throwing on them, because a violation is a finding
+  // for whoever fixes the ledger. It is not a list to itemise for a board: an
+  // item that claims more than the documents it cites are worth prints as a
+  // fact about the company's debtors.
+  const broken = receivablesItems?.invariants.filter((invariant) => !invariant.holds) ?? [];
+  if (broken.length > 0) {
+    log.warn(
+      'buildBoardPackDocument: the receivables reconciliation failed its own invariants; '
+        + 'page 11 states the difference without decomposing it',
+      { companyId, invariants: broken.map((invariant) => invariant.name) },
+      'packs',
+    );
+    receivablesItems = null;
+  }
+  const brand = await resolvePackBrandForRender(await getBrandProfile(companyId));
+
+  // R-P46: the real ledger watermark, or an explicit absence — never a proxy.
+  // `getLedgerPostedThrough` still returns the deprecated epoch sentinel when
+  // the window consumed no posted journal (see its own docblock and
+  // docs/mcp/CONTRACTS.md); that is converted to `null` HERE rather than
+  // passed on, because page 12 renders null as "unavailable" and would
+  // otherwise print 1970-01-01 as this pack's audit anchor.
+  const postedThrough = await getLedgerPostedThrough(companyId, to, from);
+  const ledgerVersion = postedThrough === NO_LEDGER_READ ? null : postedThrough;
+
+  // A PACK HAS TO EARN "FINAL". It was `periodStatus !== 'closed'`, which
+  // measures whether the FIGURES can still move and then asserted something
+  // else on the cover — that the pack is finished. Brightsphere's September
+  // period is closed in the ledger, so its pack told a board it was FINAL
+  // while carrying no approved commentary at all, on the same day the demo
+  // pack said DRAFT. Both facts are now stated, and the absence of either
+  // produces a draft. Read from `packDraftState.ts` rather than derived here,
+  // because the PDF footer and the Info dictionary read the same answer and
+  // a second derivation is how they came to disagree with this one. The
+  // approved commentary page 4 prints comes back with it: it is the same
+  // rows the `unapprovedCommentary` reason is decided on.
+  const { reasons, commentary } = await readPackDraftState(companyId, 'board', from, to);
+
+  log.info(
+    'buildBoardPackDocument',
+    { companyId, from, to, draftReasons: reasons, matters: matters.matters.length, trend: trend.length },
+    'packs',
+  );
+
+  return buildBoardPackPages({
+    companyLegalName,
+    period: formatPackPeriod(from, to),
+    generatedAt: request.generatedAt,
+    draftReasons: reasons,
+    preparedBy: request.preparedBy,
+    brand,
+    set,
+    trend,
+    matters: matters.matters,
+    // Page 11's reconciliation and page 4's debtors-base note are both taken
+    // from this — see `packReceivablesReconciliation.ts`.
+    receivables: {
+      agedDebtorsTotal: matters.agedDebtorsTotal,
+      subledgerTotal: matters.subledgerTotal,
+      controlBalance: receivablesItems?.controlAccountBalance ?? null,
+      items: receivablesItems?.reconcilingItems.filter((i) => i.bridge === 'subledger_to_control')
+        ?? [],
+      unexplained: receivablesItems?.unexplainedDifference ?? null,
+    },
+    commentary,
+    // Page 11's commentary on the matters. Nothing in this codebase stores
+    // board-matter commentary — `report_commentary` rows are filed under
+    // statement section refs (`income_statement`, `balance_sheet`) — so this
+    // is null and the page prints the pending placeholder. Reusing page 4's
+    // approved sentences here would put commentary about the income statement
+    // under a heading that says it is about the matters.
+    mattersCommentary: null,
+    ledgerVersion,
+  });
+}

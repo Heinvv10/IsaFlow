@@ -90,7 +90,10 @@ describe('equity-divided ratios with negative equity', () => {
       expect(r[key], `${key} should be null`).toBeNull();
       expect(r.notMeaningful[key], `${key} has no reason`).toMatch(/negative/i);
     }
-    expect(Object.keys(r.notMeaningful).sort()).toEqual([...expected].sort());
+    // Exactly those four carry the EQUITY reason. Other ratios may be unstated
+    // for reasons of their own (no interest expense, no employee count).
+    expect(Object.keys(r.notMeaningful).filter((k) => /equity/i.test(r.notMeaningful[k]!)).sort())
+      .toEqual([...expected].sort());
     // And the exported list must still name exactly those four.
     expect([...EQUITY_DIVIDED_RATIOS].sort()).toEqual([...expected].sort());
   });

@@ -1,0 +1,129 @@
+/**
+ * ONE GLYPH, TWO MEANINGS, AND A PAGE THAT SAID IT HAD ONE.
+ *
+ * Page 12 declared: "A dash (–) is that zero: a figure measured and nil."
+ * That is a single-meaning claim, and the scorecard breaks it — in page 9's
+ * TARGET column a dash means NO TARGET EXISTS, which is not a target of nil.
+ * The proof the two are distinct is on the sheet itself: a cash ratio of
+ * (0.16) against a nil target would be a MISS, and the row reads UNSCORED.
+ * Four rows of the demo scorecard and five of Brightsphere's use the dash the
+ * second way, under a page that has told the reader it has one.
+ *
+ * These hold both halves: page 12 states the second meaning, and the second
+ * meaning is really there to state.
+ */
+import { describe, expect, it } from 'vitest';
+import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { brightsphereLiveInput } from './fixtures/boardPackInputs';
+import { liveDemoRenderedInput } from './fixtures/liveDemoBoardPack';
+import type { PackDefinition, PackScorecardRow } from '@/modules/accounting/services/packs/pages/packBlockModel';
+
+const FIXTURES: Array<[string, BoardPackInput]> = [
+  ['the live demo company as it renders', liveDemoRenderedInput],
+  ['Brightsphere as the live route composed it', brightsphereLiveInput],
+];
+
+function definitions(input: BoardPackInput): PackDefinition[] {
+  for (const page of buildBoardPackPages(input).pages) {
+    for (const block of page.blocks) {
+      if (block.kind === 'definitions') return block.entries;
+    }
+  }
+  throw new Error('the pack has no definitions block');
+}
+
+function scorecardRows(input: BoardPackInput): PackScorecardRow[] {
+  for (const page of buildBoardPackPages(input).pages) {
+    for (const block of page.blocks) {
+      if (block.kind === 'scorecard') return block.groups.flatMap((g) => g.rows);
+    }
+  }
+  throw new Error('the pack has no scorecard');
+}
+
+describe('page 12 declares both meanings of the dash', () => {
+  it.each(FIXTURES)('%s', (unusedName, input) => {
+    const terms = definitions(input);
+    const all = terms.map((t) => t.definition).join(' ');
+
+    // The measured-nil meaning, which the pack has always stated.
+    expect(all).toMatch(/A dash \(–\) is that zero: a figure measured and nil/);
+    // And the TARGET-column meaning, which it did not.
+    expect(all, 'page 12 still claims the dash carries one meaning')
+      .toMatch(/TARGET cell prints a dash rather than a nil target/);
+
+    // The entry that states the nil meaning must not leave it a universal:
+    // a reader who meets a dash and reads that entry first has to be sent on.
+    const notMeaningful = terms.find((t) => t.term.startsWith('Not meaningful'))!;
+    expect(notMeaningful.definition,
+      'the n/m entry states the dash convention with no exception').toMatch(/bar Scored below/);
+  });
+});
+
+describe('the second meaning is really on the paper', () => {
+  it.each(FIXTURES)('%s', (unusedName, input) => {
+    // A row with no target, a measured actual, and a status of unscored. The
+    // TARGET column renders `–` for it (ScorecardTable.formatTarget), and if
+    // that dash meant a target of nil the row would be scored against nil
+    // instead — a miss or a pass, never unscored. That is the whole argument
+    // for the exception page 12 now states.
+    const rows = scorecardRows(input);
+    const unscoredWithoutTarget = rows.filter(
+      (r) => r.target === null && r.status === 'unscored' && r.actual.value !== null,
+    );
+    expect(unscoredWithoutTarget.length,
+      'no row uses the dash for "no target", so the exception page 12 states is dead text')
+      .toBeGreaterThan(0);
+    // And the pack does NOT score them, which is what distinguishes the two
+    // meanings rather than merely asserting they are distinct.
+    for (const row of unscoredWithoutTarget) {
+      expect(row.status).not.toBe('missed');
+      expect(row.status).not.toBe('met');
+    }
+  });
+});
+
+/**
+ * THE BRACKET RULE CARVED OUT NO PROSE EXCEPTION, AND THE PROSE IS RIGHT.
+ *
+ * Page 12 said negatives print "in brackets — (12 345) — for currency,
+ * percentages and ratios alike. No minus sign is used anywhere in this pack."
+ * The derived sentences print "Operating margin is a negative 1522.9%": no
+ * bracket and no minus. Both are deliberate — `pctWithWord` names the
+ * direction in WORDS because two captions once printed a bare magnitude above
+ * a table reading the negative of it — so the rule had to admit the practice
+ * rather than the practice change.
+ */
+describe('page 12 states how a negative reads in prose as well as in a table', () => {
+  it.each(FIXTURES)('%s', (unusedName, input) => {
+    const negatives = definitions(input).find((t) => t.term === 'Negative figures')!;
+    // AND THE WORDS RULE IS SCOPED TO WHAT IT IS TRUE OF. It read "in prose,
+    // in words" without qualification, and money in prose keeps its brackets
+    // — page 11 prints "trade receivables of (330)", page 7 "working capital
+    // stands at (3 821)". The practice is deliberate on both counts; only the
+    // sentence was loose.
+    expect(negatives.definition).toMatch(/a percentage in prose, in words/);
+    // The bracket rule itself is untouched, and still names all three kinds.
+    expect(negatives.definition).toMatch(/In brackets/);
+    for (const kind of ['money', 'percentages', 'ratios']) {
+      expect(negatives.definition).toContain(kind);
+    }
+    expect(negatives.definition).toMatch(/No minus sign is used in this pack/);
+  });
+
+  it('and the prose the exception is about is really there', () => {
+    // Anti-vacuity: a carve-out for a practice the pack had abandoned would
+    // be a rule about nothing.
+    const prose: string[] = [];
+    for (const page of buildBoardPackPages(liveDemoRenderedInput).pages) {
+      prose.push(page.title);
+      for (const block of page.blocks) {
+        if (block.kind === 'disclosure') prose.push(...block.disclosure.notes.map((n) => n.body));
+        if (block.kind === 'narrative' && block.narrative.body !== null) {
+          prose.push(block.narrative.body);
+        }
+      }
+    }
+    expect(prose.join(' ')).toMatch(/a negative \d/);
+  });
+});
