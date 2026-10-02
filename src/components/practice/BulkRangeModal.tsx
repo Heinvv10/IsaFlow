@@ -5,8 +5,9 @@
 
 import { useState, useEffect } from 'react';
 import { CalendarRange, Loader2, AlertCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { fetchEntryTemplates, type EntryTemplate } from './practiceApi';
+import { JobBudgetPicker } from './JobBudgetPicker';
 import type { BulkFromTemplateInput, BulkFromTemplateResult } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 import { addDaysISO, localISODate } from '@/lib/dateUtils';
 
@@ -36,6 +37,7 @@ export function BulkRangeModal({ onClose, onDone }: BulkRangeModalProps) {
   const [weekdays, setWeekdays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [hoursOverride, setHoursOverride] = useState('');
   const [taskOverride, setTaskOverride] = useState('');
+  const [jobId, setJobId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -58,6 +60,10 @@ export function BulkRangeModal({ onClose, onDone }: BulkRangeModalProps) {
     return () => { cancelled = true; };
   }, []);
 
+  // A job belongs to one client: the template decides the client, so a new template clears the job.
+  useEffect(() => { setJobId(''); }, [templateId]);
+  const templateClientId = templates.find((t) => t.id === templateId)?.practiceClientId ?? '';
+
   function toggleDay(d: number) {
     setWeekdays((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort());
   }
@@ -69,12 +75,13 @@ export function BulkRangeModal({ onClose, onDone }: BulkRangeModalProps) {
       const body: BulkFromTemplateInput = { templateId, dateFrom, dateTo, weekdays };
       if (hoursOverride) body.hoursOverride = Number(hoursOverride);
       if (taskOverride.trim()) body.taskOverride = taskOverride.trim();
+      if (jobId) body.jobId = jobId;
       const res = await apiFetch('/api/accounting/practice/time-entries/bulk', {
         method: 'POST',
         body: JSON.stringify(body),
       });
-      const json = (await res.json()) as { data?: BulkFromTemplateResult; error?: string };
-      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      await assertOk(res, 'Bulk fill failed');
+      const json = (await res.json()) as { data?: BulkFromTemplateResult };
       onDone(json.data!);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Bulk fill failed');
@@ -99,6 +106,9 @@ export function BulkRangeModal({ onClose, onDone }: BulkRangeModalProps) {
               {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </label>
+          <JobBudgetPicker practiceClientId={templateClientId} jobId={jobId} onChange={setJobId} refreshKey={0}
+            selectClassName="w-full rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-teal-500 disabled:opacity-50"
+            labelClassName="block text-xs font-medium text-[var(--ff-text-secondary)]" />
           <div className="grid grid-cols-2 gap-3">
             <label className="block space-y-1">
               <span className="text-xs font-medium text-[var(--ff-text-secondary)]">From</span>

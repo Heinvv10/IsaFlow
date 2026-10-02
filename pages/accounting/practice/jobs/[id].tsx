@@ -7,7 +7,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Briefcase, Loader2, AlertCircle, ArrowLeft, Clock } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { JobStatusBadge } from '@/components/practice/JobStatusBadge';
 import { JobBudgetPanel } from '@/components/practice/JobBudgetPanel';
 import type { PracticeJob } from '@/modules/accounting/services/practice/practiceJobService';
@@ -98,7 +98,7 @@ export default function JobDetailPage() {
     setSaving(true); setBanner('');
     try {
       const r = await apiFetch(`/api/accounting/practice/jobs/${job.id}`, { method: 'PUT', body: JSON.stringify(form) });
-      if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? `HTTP ${r.status}`); }
+      await assertOk(r, 'Save failed');
       await loadJob();
     } catch (e) { setBanner(e instanceof Error ? e.message : 'Save failed'); }
     finally { setSaving(false); }

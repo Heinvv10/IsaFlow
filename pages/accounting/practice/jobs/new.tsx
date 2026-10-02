@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Briefcase, Loader2, ArrowLeft, Save, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import type { PracticeJob } from '@/modules/accounting/services/practice/practiceJobService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 
@@ -101,7 +101,7 @@ export default function NewPracticeJobPage() {
         budgetAmount: form.budgetAmount ? Number(form.budgetAmount) : undefined,
       };
       const res = await apiFetch('/api/accounting/practice/jobs', { method: 'POST', body: JSON.stringify(body) });
-      if (!res.ok) { const j = await res.json().catch(() => ({})) as { error?: string }; throw new Error(j.error ?? `HTTP ${res.status}`); }
+      await assertOk(res, 'Failed to create job');
       const j = await res.json() as { data?: PracticeJob } | PracticeJob;
       await router.push(`/accounting/practice/jobs/${((j as { data?: PracticeJob }).data ?? (j as PracticeJob)).id}`);
     } catch (err) {
