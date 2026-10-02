@@ -13,7 +13,7 @@ import { movementSentence, type Domain } from './packTrendScale';
 import { monthLabel } from './packPartialMonth';
 import type { PackChartSpec } from './packPageModel';
 import { PANEL, type MoneyPanel, type RatioPanel } from './packTrendPanelSet';
-import { withZeroLabelled } from './packPanelZero';
+import { panelAxisLabels } from './packPanelZero';
 
 export function moneyPanel(
   panel: MoneyPanel,
@@ -114,7 +114,7 @@ export function moneyPanel(
     title: clauses.join(' '),
     kind: 'line',
     sharedScale: drawn.shared,
-    svg: renderChartSvg(withZeroLabelled(smallMultipleOption(points, drawn.domain, money, undefined, { endpoints: true }), drawn.domain), PANEL),
+    svg: renderChartSvg(panelAxisLabels(smallMultipleOption(points, drawn.domain, money, undefined, { endpoints: true }), drawn.domain), PANEL),
     plotMm: PANEL.heightMm,
     heightMm: PANEL.heightMm,
   };
@@ -192,7 +192,7 @@ export function ratioPanel(panel: RatioPanel, trend: PackTrendPoint[], scale: Mo
     // the page's scale note is derived from the panels rather than from a
     // second list of which ones are money.
     sharedScale: false,
-    svg: renderChartSvg(withZeroLabelled(smallMultipleOption(points, domain, panel.format, undefined, { endpoints: true }), domain), PANEL),
+    svg: renderChartSvg(panelAxisLabels(smallMultipleOption(points, domain, panel.format, undefined, { endpoints: true }), domain), PANEL),
     plotMm: PANEL.heightMm,
     heightMm: PANEL.heightMm,
   };
