@@ -201,7 +201,7 @@ export async function listCustomers(
   search?: string | null,
   page: CustomerPage = { limit: 200, offset: 0 },
 ): Promise<Row[]> {
-  const searchTerm = search && search.trim() ? `%${search.trim()}%` : null;
+  const searchTerm = search && search.trim() ? containsPattern(search.trim()) : null;
 
   return (await sql`
     SELECT
