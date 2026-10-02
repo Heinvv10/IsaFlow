@@ -69,15 +69,19 @@ leaves an unapplied receipt on the customer, and that does show in the unapplied
   through the existing over-settlement path. The flag is written in the same transaction as the
   receipt. A second delivery banks nothing; since review round 1 it compares its amount with
   what was banked (below).
-- **Callers.** The webhook passes `{ amountCents: event.data.amount, currency: event.data.currency }`
-  on both branches. `verify` passes `{ amountCents: live.amountCents, currency: live.currency }`.
-  Both report the same Paystack transaction, so whichever arrives first banks the same amount.
+- **Callers.** Both pass four reported fields. The webhook passes `{ amountCents: data.amount,
+  currency: data.currency, requestedAmountCents: data.requested_amount, feeCents: data.fees }` on
+  both branches, with `feeRand` from `data.fees`. `verify` passes the same four from
+  `verifyTransaction` (`amountCents`, `currency`, `requestedAmountCents`, `feesCents`), and since
+  PR #618 its `feeRand` too. Both report the same Paystack transaction, so whichever arrives first
+  banks the same amount; a second report that disagrees is flagged (review rounds 1-2, PR #618).
 
 ## Argument against
 
-- **Currency.** A non-ZAR charge is banked as if its minor units were cents of rand and is still
-  allocated. That follows the decision ("bank the reported amount"), but the figure is wrong in a
-  different way. A Paystack ZA merchant settles only in ZAR, so this is a flag for an
+- **Currency.** A non-ZAR charge is banked as if its minor units were cents of rand (the decision:
+  "bank the reported amount"), but since review round 2 it is held unapplied (`unapplied_currency`)
+  and its fee is not posted, so it never settles the ZAR invoice. The banked figure is still wrong
+  in a different way. A Paystack ZA merchant settles only in ZAR, so this is a flag for an
   impossible-in-practice case, not a conversion.
 - **The flag lives on the request, not the receipt.** A reviewer has to join through the
   reference. A real review column on `customer_payments` would need a migration, and that was not
@@ -299,3 +303,40 @@ orchestrator. Every other R-181 evidence log (red, green, mutations, regression)
   `requested_amount` (Q4), and an excess equal to the fee distrusted (Q5).
 - **`paystackClient.ts` is 432 lines** (425 at 82bd2afdc, +7 from R-181): registered as R-183, not
   split here.
+
+## PR #618 blind review (SHIP, 7 LOWs; LOW-6 is R-183)
+
+- **LOW-1. Verify had the fee but did not post it.** If the webhook never lands, Bank stayed
+  overstated by the fee. Verify now passes `feeRand` from its own `fees` (null when absent);
+  `postGatewayFee`'s reference + posting-agent idempotency keeps the webhook from posting it again
+  (tested: one fee journal after verify then webhook). The stale comment is gone.
+- **LOW-2. A NaN invoice balance** (numeric NaN in `total_amount` or `amount_paid`, a real legacy
+  state, R-166) banked the receipt unapplied with no flag or log. A non-finite balance now blocks
+  the allocation like an invoice outside the ledger: `invoice_balance_invalid`. The test writes the
+  legacy NaN with triggers off for that one statement (migration 692 refuses new NaNs).
+- **LOW-3. The lock-order note was wrong.** The real order is request row → explicit-amount link
+  (`spendPaymentLinkOfRequest`) → the receipt's own payment row → the invoice. `customerMergeService`
+  takes invoice → link, the opposite: a merge racing the settlement of the same customer's
+  explicit-amount link can raise 40P01. Pre-existing and recoverable (the webhook answers 500 and
+  is redelivered; the merge errors and is retried). Documented in `gatewayReceiptAllocation.ts` and
+  `ar/.claude.md`; `spendPaymentLinkOfRequest` was not moved (instruction).
+- **LOW-4. A charged payer could be told "failed".** A request stored `failed` that Paystack says
+  succeeded, whose settlement then throws (a 5s invoice-lock timeout in the test), answered
+  `failed`. Verify now answers `pending` whenever Paystack said success and the settlement threw;
+  the request stays as stored and the webhook settles it.
+- **LOW-5. Two different Paystack `amount`s for one transaction went unflagged** when the figure
+  each would bank was the same (verify `amount` R100; webhook `amount` R103, `requested_amount`
+  R100, fees R3). The first report's `amount` is now recoverable without a migration: when it
+  differs from what was banked it is tagged in the receipt description
+  (`[paystack amount 10300 cents]`); otherwise it equals the receipt. A second report whose
+  `amount` differs from it is flagged `amount_disagrees_with_first_report`, in both orders.
+  Residual: a first report with no `amount` is taken to have reported what it banked, so a second
+  report then compares against that figure.
+- **LOW-7.** fix.md "Fix → Callers" and "Argument against → Currency" corrected; the R-181 entry in
+  `ar/.claude.md` rewritten as a rule list (banked / allocated / fee leg / second report / flagged /
+  lock order); mirrors regenerated.
+
+Tests: `tests/integration/r181-pr618.int.test.ts` (5 cases) and the round-2 case LOW-5 named, now
+expecting the flag. Red 5 of 18 on a8aad8465 (`red.r7.int.log`); green 55/55 over the four R-181
+suites; mutants S1..S7 all killed (`mutations.log`); regression 246 of 247 (the one failure is the
+pre-existing k061 contention case above). All on `isaflow-fixture-r181`, 127.0.0.1:55563.
