@@ -72,7 +72,7 @@ Browser proof of the button and dialog (run by the lead).
 4. Tests: refusal asserted as the specific 400 (not `!== 200`); hook docstring corrected; the dialog
    reloads the invoice after a failed attempt too (a stale item disappears), then shows the message.
 5. Dialog copy: "Every Pay Now link on INV will stop working for anyone who has it. Fixed-amount links
-   created since 1 October 2026 are not affected, and a payment already started at Paystack can still complete. The next
+   created after 06:45 on 1 October 2026 are not affected, and a payment already started at Paystack can still complete. The next
    Pay Now creates a new link."
 
 Integration 19/19 (was 13/13; the old "explicit link named by payment_url is 404" test became the
@@ -93,6 +93,13 @@ above has not been re-proved in the browser.
 
 - Dialog copy corrected: links made through the payment-link POST before migration 717 (2026-10-01)
   carry `charges_balance` true and are cancelled like any standing link, so the copy now says
-  "Fixed-amount links created since 1 October 2026 are not affected."
+  "Fixed-amount links created after 06:45 on 1 October 2026 are not affected."
 - New test: a pre-717 fixed-amount link is cancelled, a post-717 one is not, and `cancelled` equals
   the number of active standing links counted before the call. Mutant (count capped at 1): killed.
+
+## Review round 3
+
+The code that writes `charges_balance` false reached production in the deploy at 06:45 SAST on
+1 October 2026 (e00c8f237 contains 7fb687cfa), so the cutoff in the dialog copy is exact: "Fixed-amount
+links created after 06:45 on 1 October 2026 are not affected." Links made through the payment-link
+POST before that deploy carry `charges_balance` true and are cancelled.
