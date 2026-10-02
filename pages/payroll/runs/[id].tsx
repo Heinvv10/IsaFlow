@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiJson, ApiRequestError } from '@/lib/apiFetch';
 import { CalendarDays, ArrowLeft, Loader2, AlertCircle, Calculator, CheckCircle2, Lock, Unlock, GitCompare, BookOpen, ShieldCheck } from 'lucide-react';
 import { PayrollApproveDialog, type ApproveResult } from '@/components/payroll/PayrollApproveDialog';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -14,6 +14,7 @@ import { PayrollRunStatusBadge as StatusBadge, isLocked } from '@/components/pay
 import { canWrite } from '@/lib/auth/writeRoles';
 import { PayrollRunWarnings, type RunLineWarning } from '@/components/payroll/PayrollRunWarnings';
 import { PayrollRunLinesTable, PayrollRunTotals } from '@/components/payroll/PayrollRunLinesTable';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -73,16 +74,15 @@ export default function PayrollRunDetailPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await apiFetch(`/api/payroll/runs/${runId}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      setRun((json.data ?? json) as RunDetail);
+      setRun((await apiJson(`/api/payroll/runs/${runId}`)) as RunDetail);
       hasRun.current = true;
       if (!keepNotice) setApprovedNow(null);
-    } catch {
+    } catch (err) {
+      const status = err instanceof ApiRequestError ? err.status : 0;
       setError(hasRun.current
         ? 'Could not refresh this run — reload the page to see its latest state.'
-        : 'Failed to load run');
+        : status === 404 ? 'Pay run not found'
+        : payrollLoadMessage(status, 'Failed to load run'));
     } finally {
       setIsLoading(false);
     }

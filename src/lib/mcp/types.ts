@@ -14,6 +14,11 @@ export interface McpToolContext {
   /** PAT id or OAuth authorisation id — audit identity of the token. */
   tokenJti: string | null;
   oauthAppId: string | null;
+  /**
+   * The caller's role in `companyId` (company_users.role), from the bearer pipeline's membership
+   * check. Absent or null is a role that cannot write: a tool that needs one fails closed.
+   */
+  companyRole?: string | null;
 }
 
 export interface McpToolResult {
@@ -81,5 +86,11 @@ export interface McpTool {
    * irreversible entries".
    */
   requiresScope?: string;
+  /**
+   * Per-employee payroll data or a payroll write: only owner/admin/manager (the HTTP routes'
+   * `withWriteAccess` set) may call it, whatever scope the token holds. Enforced once, in the
+   * registry, before the handler — a viewer's token with `read:payroll` is refused.
+   */
+  requiresWriteRole?: boolean;
   handler(args: Record<string, unknown>, ctx: McpToolContext): Promise<McpToolResult>;
 }

@@ -25,6 +25,7 @@ import { buildEnvelope, decodeCursor, encodeCursor, isDetailLevel } from '../con
 import type { DetailLevel } from '../contracts';
 import { clampLimit, ok, strArg, toolError } from './toolHelpers';
 import { fmtDate } from '@/lib/fmtDate';
+import { canWrite } from '@/lib/auth/writeRoles';
 
 const EMPLOYEE_STATUSES = ['active', 'terminated', 'suspended', 'on_leave'] as const;
 const RUN_STATUSES = ['draft', 'calculated', 'approved', 'paid', 'cancelled'] as const;
@@ -83,6 +84,13 @@ export const listEmployeesTool: McpTool = {
   handler: async (args, ctx) => {
     const detail = detailOf(args);
     const limit = clampLimit(args, 50, 200);
+    // A role that cannot write payroll gets who the employees are and nothing about them: no ID or
+    // tax numbers (not even masked), no dates, no cost centre — the same line employees/index draws.
+    const namesOnly = !canWrite(ctx.companyRole);
+    if (namesOnly && (args.reveal_identity_numbers === true || strArg(args, 'status'))) {
+      // A status filter on a names-only list would still say which named people are terminated or suspended.
+      return toolError('reveal_identity_numbers and the status filter need the owner, admin or manager role; this connection\'s role in the company does not allow them.');
+    }
 
     const rawCursor = strArg(args, 'cursor');
     let after: readonly string[] | undefined;
@@ -101,7 +109,13 @@ export const listEmployeesTool: McpTool = {
 
     const last = page.rows[page.rows.length - 1];
     const envelope = buildEnvelope({
-      rows: page.rows.map((e) => ({
+      rows: page.rows.map((e) => namesOnly ? {
+        id: e.id,
+        employee_number: e.employeeNumber,
+        first_name: e.firstName,
+        last_name: e.lastName,
+        employment_type: e.employmentType,
+      } : ({
         id: e.id,
         employee_number: e.employeeNumber,
         first_name: e.firstName,

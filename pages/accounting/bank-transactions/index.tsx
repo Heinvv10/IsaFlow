@@ -17,6 +17,7 @@ import { BankTxFilters } from '@/components/accounting/bank-transactions/BankTxF
 import { BankTxBatchPanel, type RulePrompt } from '@/components/accounting/bank-transactions/BankTxBatchPanel';
 import { BankTxModals } from '@/components/accounting/bank-transactions/BankTxModals';
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
+import { useRelinkTransfers } from '@/components/accounting/bank-transactions/useRelinkTransfers';
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { BankTxSuppliersNotice, type SuppliersStatus } from '@/components/accounting/bank-transactions/BankTxSuppliersNotice';
@@ -64,7 +65,6 @@ export default function BankTransactionsPage() {
   const [transactions, setTransactions] = useState<BankTx[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [relinkFailed, setRelinkFailed] = useState(false);
   // Filter / pagination
   const [tab, setTab] = useState<Tab>('new');
   const [page, setPage] = useState(1);
@@ -170,27 +170,7 @@ export default function BankTransactionsPage() {
     }, 4000);
   }, [loadTransactions]);
 
-  // Re-link any imported transactions that are the counterpart of an existing
-  // allocation (covers 'account' type pointing to a bank GL). The pass swallows
-  // its own error to stay non-fatal, so `failed` is the only way a user learns
-  // their transfers were not linked; anything else stays silent.
-  useEffect(() => {
-    if (!selectedBank) return;
-    let cancelled = false;
-    setRelinkFailed(false);
-    apiFetch('/api/accounting/bank-relink-transfers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bankAccountId: selectedBank }),
-    })
-      .then(async res => {
-        if (cancelled || !res.ok) return;
-        const json = await res.json();
-        if (json?.data?.failed) setRelinkFailed(true);
-      })
-      .catch(() => {/* non-fatal */});
-    return () => { cancelled = true; };
-  }, [selectedBank]);
+  const relinkFailed = useRelinkTransfers(selectedBank);
 
   // ---- Seed rowSelections from DB suggestion fields ----
   useEffect(() => {

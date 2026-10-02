@@ -10,6 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { Users, Loader2, AlertCircle, CheckCircle2, ChevronRight } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface CostCentre {
   id: string;
@@ -114,7 +115,7 @@ export default function BulkUpdatePage() {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? 'Preview failed');
+        setError(payrollLoadMessage(res.status, j.error?.message ?? j.message ?? 'Preview failed'));
         setPreview(null);
         return;
       }

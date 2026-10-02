@@ -59,7 +59,6 @@ export function planBody(
       lines: PLAN_LINES,
       totalDebit: 75927.12, totalCredit: 75927.12,
       totals: { gross: 75000, paye: 19966.33, uif: 354.24, sdl: 750, eti: 0, etiUsed: 0, net: 41681.55, employerUif: 177.12, otherDeductions: 13175 },
-      blockers: blocker ? [blocker] : [],
       advisories: [],
       ...opts.plan,
     },

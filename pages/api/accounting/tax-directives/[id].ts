@@ -9,7 +9,6 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
-import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   getTaxDirective,
@@ -17,6 +16,7 @@ import {
   deleteTaxDirective,
   type DirectiveStatus,
 } from '@/modules/accounting/services/payroll/taxDirectiveService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_STATUSES: DirectiveStatus[] = ['pending', 'approved', 'expired', 'cancelled'];
@@ -64,4 +64,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.badRequest(res, 'Method not allowed');
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
