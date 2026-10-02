@@ -4,7 +4,7 @@
  * failure the server's message is then handed to `onError`.
  */
 import { useState } from 'react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 interface Props {
@@ -24,12 +24,12 @@ export function RevokePaymentLinkDialog({ open, invoiceId, invoiceNumber, onClos
     try {
       await assertOk(
         await apiFetch(`/api/accounting/customer-invoices/${invoiceId}/payment-link/revoke`, { method: 'POST' }),
-        'Failed to revoke payment link',
+        'Could not revoke the payment link - try again',
       );
       onDone();
     } catch (e) {
       onDone();
-      onError(e instanceof Error ? e.message : 'Failed to revoke payment link');
+      onError(apiErrorMessage(e, 'Could not revoke the payment link - try again'));
     } finally {
       setRevoking(false);
       onClose();
