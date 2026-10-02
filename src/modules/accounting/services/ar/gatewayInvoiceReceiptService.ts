@@ -26,6 +26,12 @@ import { confirmCustomerPayment } from './customerPaymentAllocationService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { postGatewayFee } from './gatewayFeeService';
 import { spendPaymentLinkOfRequest } from './portalLinkCharge';
+import {
+  flagSettlementForReview,
+  invoiceReview,
+  settledCharge,
+  type ReportedCharge,
+} from './gatewaySettlementReview';
 
 /** posting_agent stamp: unattended, so never `human:<userId>`. */
 export const GATEWAY_RECEIPT_AGENT = 'system:paystack-receipt:v1';
@@ -38,8 +44,13 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 export interface GatewayInvoiceReceipt {
   companyId: string;
   invoiceId: string;
-  /** Settled amount in rand (Paystack reports cents). */
-  amountRand: number;
+  /** What the checkout asked for: `paystack_payment_requests.amount_cents`. */
+  requestedCents: number;
+  /**
+   * What Paystack reports it received. This, not the request, is banked
+   * (R-181); a difference is flagged for review. See gatewaySettlementReview.
+   */
+  reported: ReportedCharge;
   /** Paystack reference — the idempotency key, stored as bank_reference. */
   reference: string;
   /**
@@ -57,13 +68,17 @@ interface InvoiceRow {
   created_by: string;
   total_amount: string;
   amount_paid: string | null;
+  status: string | null;
+  deleted_at: string | null;
 }
 
 /**
  * Record a settled gateway payment against a customer invoice: one confirmed
  * `customer_payments` row for the WHOLE receipt, allocated to the invoice up to
  * what the invoice still owes, and posted to the ledger by the same code path a
- * manual receipt uses.
+ * manual receipt uses. The receipt is what Paystack reported, and an invoice
+ * outside the ledger (draft, pending approval, cancelled, soft-deleted) is
+ * allocated nothing; either case flags the request for review (R-181).
  *
  * Idempotent on `reference`: a second call for the same Paystack reference
  * (webhook and verify route both firing, or a webhook redelivery) records
@@ -72,7 +87,7 @@ interface InvoiceRow {
 export async function recordGatewayInvoiceReceipt(
   receipt: GatewayInvoiceReceipt,
 ): Promise<{ paymentId: string; journalEntryId?: string } | null> {
-  const { companyId, invoiceId, amountRand, reference } = receipt;
+  const { companyId, invoiceId, reference } = receipt;
   // R-167: a settled charge spends the portal link it came from, whichever of the webhook and
   // the verify route gets here first (both run this in their settlement transaction).
   await spendPaymentLinkOfRequest(companyId, reference);
@@ -109,7 +124,8 @@ export async function recordGatewayInvoiceReceipt(
 
   const invRows = await sql<InvoiceRow>`
     SELECT COALESCE(client_id, customer_id) AS client_id, created_by,
-           total_amount::text AS total_amount, amount_paid::text AS amount_paid
+           total_amount::text AS total_amount, amount_paid::text AS amount_paid,
+           status, deleted_at::text AS deleted_at
     FROM customer_invoices
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
   `;
@@ -132,15 +148,22 @@ export async function recordGatewayInvoiceReceipt(
   `;
   const pending = Number(pendingRows[0]?.pending ?? 0);
 
+  // R-181: bank what Paystack received. An invoice outside the ledger takes none of it: the
+  // whole receipt stays on the customer unapplied, for a person to place.
+  const charge = settledCharge(receipt.requestedCents, receipt.reported);
+  const amountRand = charge.cents / 100;
+  const invoiceBlock = invoiceReview(invoice.status, invoice.deleted_at);
+  const reviews = invoiceBlock ? [...charge.reviews, invoiceBlock] : charge.reviews;
+
   // The gateway can settle more than the invoice still owes — an EFT part-payment
   // landing between the payment link and the card charge is enough. The excess is
   // real cash in the bank, so the receipt is banked in full and only the part the
   // invoice can absorb is allocated; the remainder stays on the customer as an
   // unapplied receipt. Truncating the receipt to fit would drop that cash.
   const outstanding = Number(invoice.total_amount) - Number(invoice.amount_paid ?? 0) - pending;
-  const allocated = Math.max(0, Math.min(amountRand, outstanding));
+  const allocated = invoiceBlock ? 0 : Math.max(0, Math.min(amountRand, outstanding));
   const unallocated = amountRand - allocated;
-  if (unallocated > EPS) {
+  if (unallocated > EPS && !invoiceBlock) {
     log.warn(
       'Gateway receipt exceeds the invoice balance — the excess is banked as an unapplied receipt',
       { reference, invoiceId, amountRand, outstanding, pending, unallocated },
@@ -178,6 +201,13 @@ export async function recordGatewayInvoiceReceipt(
     postingAgent: GATEWAY_RECEIPT_AGENT,
   });
   await postGatewayFee(receipt, actorId, String(bankAccount.id), paymentDate);
+  if (reviews.length > 0) {
+    await flagSettlementForReview(companyId, reference, reviews, {
+      paymentId, invoiceId, invoiceStatus: invoice.status, invoiceDeleted: invoice.deleted_at !== null,
+      expectedCents: receipt.requestedCents, reportedCents: receipt.reported.amountCents,
+      reportedCurrency: receipt.reported.currency, bankedRand: amountRand, allocated,
+    });
+  }
 
   log.info(
     'Recorded gateway invoice receipt',

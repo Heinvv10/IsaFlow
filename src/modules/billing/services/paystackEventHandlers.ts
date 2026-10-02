@@ -91,6 +91,8 @@ async function handleChargeSuccess(
 ): Promise<void> {
   const auth = event.data.authorization ?? {};
   const customer = event.data.customer ?? {};
+  // R-181: what Paystack received is what is banked, not the request's amount_cents.
+  const reported = { amountCents: event.data.amount, currency: event.data.currency };
 
   const prRows = await sql<{
     id: string;
@@ -139,7 +141,8 @@ async function handleChargeSuccess(
       await recordGatewayInvoiceReceipt({
         companyId: done.company_id,
         invoiceId: done.customer_invoice_id,
-        amountRand: Number(done.amount_cents) / 100,
+        requestedCents: Number(done.amount_cents),
+        reported,
         reference,
         paidAt: event.data.paid_at ?? null,
         feeRand: typeof event.data.fees === 'number' ? event.data.fees / 100 : null,
@@ -160,7 +163,8 @@ async function handleChargeSuccess(
     await recordGatewayInvoiceReceipt({
       companyId: pr.company_id,
       invoiceId: pr.customer_invoice_id,
-      amountRand: Number(pr.amount_cents) / 100,
+      requestedCents: Number(pr.amount_cents),
+      reported,
       reference,
       paidAt: event.data.paid_at ?? null,
       feeRand: typeof event.data.fees === 'number' ? event.data.fees / 100 : null,
