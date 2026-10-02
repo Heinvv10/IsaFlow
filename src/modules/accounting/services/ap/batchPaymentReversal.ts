@@ -122,11 +122,10 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
     await recomputeInvoiceStatus(companyId, 'supplier', String(r.invoice_id));
   }
   // (3) The journal last: locked, re-checked for a bank line matched meanwhile, unmatched.
-  let reversalEntryId: string | null = null;
-  if (!leg.alreadyReversed) {
-    await lockJournalAndUnmatch(companyId, journalId, leg, `Batch ${number}`);
-    reversalEntryId = String((await reverseJournalEntry(companyId, leg.reverseId, userId)).id); // the chain head (D8)
-  }
+  // The bank line is freed even when the chain is already out (D8 round 6).
+  await lockJournalAndUnmatch(companyId, journalId, leg, `Batch ${number}`);
+  const reversalEntryId = leg.alreadyReversed
+    ? null : String((await reverseJournalEntry(companyId, leg.reverseId, userId)).id); // the chain head (D8)
   await sql`
     UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
     WHERE batch_id = ${batchId}::UUID AND company_id = ${companyId}::UUID AND status = 'processed'

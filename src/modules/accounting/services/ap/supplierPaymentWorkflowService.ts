@@ -244,7 +244,7 @@ async function voidSupplierPaymentInner(
     assertSameJournal(journalId, payment.glJournalEntryId);
     // A bank ALLOCATION posted this journal: undo it the MCP void's way — bills,
     // payment, contra and bank line in one call (`voidViaBankAllocation`).
-    if (leg && !leg.alreadyReversed
+    if (leg // an OUT chain too: the bank path frees the line and reverses nothing (D8)
       && await voidViaBankAllocation(companyId, leg, userId, `Payment ${payment.paymentNumber}`)) {
       return (await getSupplierPaymentById(companyId, id)) ?? { ...payment, status: 'cancelled' };
     }
@@ -274,10 +274,10 @@ async function voidSupplierPaymentInner(
     }
 
     // (4) Free the bank line, then reverse the payment journal — its chain head
-    // (`leg.reverseId`, D8). Skipped when the chain is already out of the ledger.
-    if (journalId && leg && !leg.alreadyReversed) {
+    // (`leg.reverseId`, D8). The line is freed even when the chain is already out.
+    if (journalId && leg) {
       await lockJournalAndUnmatch(companyId, journalId, leg, `Payment ${payment.paymentNumber}`);
-      await reverseJournalEntry(companyId, leg.reverseId, userId);
+      if (!leg.alreadyReversed) await reverseJournalEntry(companyId, leg.reverseId, userId);
     }
 
     // Guarded flip: the status re-assertion is now redundant against a

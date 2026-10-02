@@ -28,6 +28,7 @@ import { RecurringTemplateLockTimeoutError } from '@/modules/accounting/services
 import { WipEntriesLockedError } from '@/modules/accounting/services/practice/wipEntryLock';
 import { SystemRoleLockTimeoutError } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import { GlAccountLockTimeoutError } from '@/modules/accounting/services/gl/glAccountLock';
+import { JournalReversalLockTimeoutError } from '@/modules/accounting/services/gl/journalEntryReversalClaim';
 
 export function respondIfLockTimeout(res: NextApiResponse, err: unknown): boolean {
   if (!(err instanceof DocumentNumberLockTimeoutError)
@@ -36,7 +37,10 @@ export function respondIfLockTimeout(res: NextApiResponse, err: unknown): boolea
     && !(err instanceof RecurringTemplateLockTimeoutError)
     && !(err instanceof WipEntriesLockedError)
     && !(err instanceof SystemRoleLockTimeoutError)
-    && !(err instanceof GlAccountLockTimeoutError)) {
+    && !(err instanceof GlAccountLockTimeoutError)
+    // D8 round 6: also raised by shared/journalChainHead.lockChainHead, which every
+    // cancel / void / dismiss now reaches before the reversal's own claim.
+    && !(err instanceof JournalReversalLockTimeoutError)) {
     return false;
   }
   res.setHeader('Retry-After', '2');

@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
 import { als } from '@/lib/als';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { claimEvidencedProvisional } from '@/modules/accounting/services/ap/provisionalInvoiceSettlement';
 import { voidSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 import { unapplySupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentUnapply';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
@@ -124,5 +125,33 @@ describe('D8 round 4: the settlement refusal runs after the reversal claim and g
     });
     const { rows } = await pool.query('SELECT status, provisional_je_id FROM bank_transactions WHERE id = $1', [bt]);
     expect(rows[0]).toEqual({ status: 'imported', provisional_je_id: null });
+  });
+});
+
+describe('D8 round 6: a refused provisional claim leaves the request\'s lock_timeout as it found it', () => {
+  it('a broken provisional chain refuses the claim and lock_timeout is back to the default for the rest of the request', async () => {
+    const doc = await seedDoc();
+    const { je } = await seedProvisional({ totalAmount: 115, evidencedBy: doc });
+    // Stamped reversed with no posted contra: the claim's SQL reads it as standing, the chain-head lock as broken.
+    await pool.query('UPDATE gl_journal_entries SET reversed_at = NOW(), reversed_by = $2 WHERE id = $1', [je, user]);
+    const invoiceId = await seedInvoice({ documentId: doc, totalAmount: 115 });
+
+    const c = await pool.connect();
+    let err: unknown = null;
+    let after = '';
+    try {
+      await c.query('BEGIN');
+      // The claim itself, as a caller without its own savepoint meets it — approve's
+      // savepoint would roll the SET LOCAL back on its own and hide a missing restore.
+      await als.run({ client: c, userId: user, companyId: company, claims: {} } as never, async () => {
+        await claimEvidencedProvisional(company, invoiceId).catch((e: unknown) => { err = e; });
+      });
+      after = String((await c.query("SELECT current_setting('lock_timeout') AS v")).rows[0].v);
+      await c.query('ROLLBACK');
+    } finally {
+      c.release();
+    }
+    expect(String((err as Error)?.message)).toMatch(/reversal chain/);
+    expect(after).toBe('0');
   });
 });

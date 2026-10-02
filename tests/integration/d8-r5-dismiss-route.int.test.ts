@@ -24,7 +24,8 @@ async function dismiss(je: string) {
   req.url = `/api/accounting/provisional/${je}/dismiss`;
   const out = response();
   await dismissRoute(req as never, out.res as never);
-  return out.state as { statusCode: number; body: { message?: string; data?: { reversalJournalEntryId: string | null } } };
+  return { ...(out.state as { statusCode: number; body: { message?: string; error?: { code?: string }; data?: { reversalJournalEntryId: string | null } } }),
+    retryAfter: (out.res as unknown as { getHeader: (k: string) => unknown }).getHeader('Retry-After') };
 }
 
 const contras = async (id: string) => (await pool.query(
@@ -55,4 +56,23 @@ describe('D8 round 5: the dismiss route reports whether anything was reversed', 
     expect(await contras(r.id)).toBe(0);
     expect((await btState(bt)).status).toBe('imported');
   });
+
+  it('a provisional whose journal another request holds: 503 + Retry-After within the lock budget, nothing changed (D8 round 6)', async () => {
+    const { je, bt } = await seedProvisional({ totalAmount: 99 });
+    const holder = await pool.connect();
+    await holder.query('BEGIN');
+    await holder.query('SELECT id FROM gl_journal_entries WHERE id = $1 FOR UPDATE', [je]);
+    let state: Awaited<ReturnType<typeof dismiss>>;
+    try {
+      state = await dismiss(je);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(state.statusCode).toBe(503);
+    expect(state.retryAfter).toBe('2');
+    expect(state.body.error?.code).toBe('SERVICE_UNAVAILABLE');
+    expect(await contras(je)).toBe(0);
+    expect((await btState(bt)).status).toBe('provisional');
+  }, 30000);
 });

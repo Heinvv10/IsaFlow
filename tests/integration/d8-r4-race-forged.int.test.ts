@@ -134,8 +134,12 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 4: race / forged / drafts /
     }));
     const d = diff(t0, await tb(c));
     const [st] = (await sql`SELECT status FROM customer_invoices WHERE id = ${inv.id}::UUID`) as Row[];
-    // Expected: cancelled AND out of AR, or refused with the invoice still open.
-    if (st!.status === 'cancelled') expect(d).toMatchObject({ ar: 0, sales: 0, vatOut: 0 });
+    // The re-walk finds the new head (R4) and the cancel completes: cancelled AND out of AR, once.
+    // (Round 6, review finding 2: "refused" also used to pass, so a lockChainHead without the
+    // re-walk — which reverses the stale head and throws "already reversed" — stayed green.)
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(st!.status).toBe('cancelled');
+    expect(d).toMatchObject({ ar: 0, sales: 0, vatOut: 0 });
   });
 
   it('C5-AP: same race through the bill cancel (fires on lockStandingChainHead\'s walk, after the plan\'s)', async () => {
@@ -148,7 +152,9 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 4: race / forged / drafts /
     }));
     const d = diff(t0, await tb(c));
     const [st] = (await sql`SELECT status FROM supplier_invoices WHERE id = ${bill.id}::UUID`) as Row[];
-    if (st!.status === 'cancelled') expect(d).toMatchObject({ ap: 0, expense: 0, vatIn: 0 });
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(st!.status).toBe('cancelled');
+    expect(d).toMatchObject({ ap: 0, expense: 0, vatIn: 0 });
   });
 
   it('F1: a forged loop on every D8 flow ends inside 5s and books nothing', async () => {
