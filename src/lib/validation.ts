@@ -74,8 +74,8 @@ export function safeInt(value: unknown, fallback: number, max = 1000): number {
   return isNaN(n) ? fallback : Math.min(Math.max(n, 1), max);
 }
 
-const NUL_MAX_DEPTH = 8;
-const NUL_MAX_NODES = 100000;
+export const NUL_MAX_DEPTH = 8;
+export const NUL_MAX_NODES = 100000;
 
 /**
  * True when a string, an object key, or any value inside an array/object contains a NUL byte
