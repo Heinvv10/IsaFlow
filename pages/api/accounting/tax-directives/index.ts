@@ -8,7 +8,6 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
-import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   listTaxDirectives,
@@ -16,6 +15,7 @@ import {
   type TaxDirectiveCreateInput,
   type DirectiveStatus,
 } from '@/modules/accounting/services/payroll/taxDirectiveService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 const VALID_TYPES = ['lump_sum', 'retirement', 'severance', 'death'] as const;
 const VALID_STATUSES = ['pending', 'approved', 'expired', 'cancelled'] as const;
@@ -74,4 +74,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.badRequest(res, 'Method not allowed');
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

@@ -7,6 +7,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Banknote, Loader2, AlertCircle, Plus } from 'lucide-react';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
 
 interface LoanRow {
   id: string;
@@ -50,7 +52,7 @@ export default function LoansListPage() {
         apiFetch(`/api/payroll/loans${qs}`),
         apiFetch('/api/payroll/components'),
       ]);
-      if (!loansRes.ok) throw new Error(`HTTP ${loansRes.status}`);
+      if (!loansRes.ok) { setError(payrollLoadMessage(loansRes.status, 'Failed to load loans')); return; }
       const json = await loansRes.json();
       setLoans((json.data ?? json) as LoanRow[]);
       if (compRes.ok) {
@@ -91,9 +93,11 @@ export default function LoansListPage() {
               <p className="text-sm text-[var(--ff-text-secondary)]">Loan agreements, amortisation, and in-period deductions</p>
             </div>
           </div>
-          <Link href="/payroll/loans/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
-            <Plus className="h-4 w-4" /> New Loan
-          </Link>
+          <WriteOnly>
+            <Link href="/payroll/loans/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
+              <Plus className="h-4 w-4" /> New Loan
+            </Link>
+          </WriteOnly>
         </div>
 
         <div className="p-6 space-y-4">
@@ -102,10 +106,12 @@ export default function LoansListPage() {
               <div className="text-amber-300">
                 Loan payslip components not configured. Without these, loan payments record but don&apos;t appear on payslips.
               </div>
-              <button onClick={seedComponents} disabled={seeding}
-                className="px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium disabled:opacity-50">
-                {seeding ? 'Creating...' : 'Create loan components'}
-              </button>
+              <WriteOnly>
+                <button onClick={seedComponents} disabled={seeding}
+                  className="px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium disabled:opacity-50">
+                  {seeding ? 'Creating...' : 'Create loan components'}
+                </button>
+              </WriteOnly>
             </div>
           )}
 
@@ -129,9 +135,11 @@ export default function LoansListPage() {
             <div className="text-center py-16">
               <Banknote className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)] font-medium">No loans yet</p>
-              <Link href="/payroll/loans/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
-                <Plus className="h-4 w-4" /> Create first loan
-              </Link>
+              <WriteOnly>
+                <Link href="/payroll/loans/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
+                  <Plus className="h-4 w-4" /> Create first loan
+                </Link>
+              </WriteOnly>
             </div>
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">

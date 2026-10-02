@@ -158,10 +158,11 @@ describe('R-136 — leave writes are limited to owner/admin/manager', () => {
     expect(await row(id)).toBeUndefined();
   });
 
-  it('a viewer can still GET a request (200)', async () => {
+  it('a viewer cannot GET a request (403): leave is per-employee data, for write roles (D3, 2026-10-02)', async () => {
     const id = await pendingLeave();
     const state = await call(leaveById, 'viewer', 'GET', { id });
-    expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(403);
+    expect((await call(leaveById, 'owner', 'GET', { id })).statusCode).toBe(200);
   });
 
   const createBody = () => ({ employeeId: employee, leaveTypeId: leaveType, startDate: '2026-11-02',
@@ -236,7 +237,8 @@ describe('R-122 — leave RLS as app_user with withAuth GUCs (not reproduced; pi
 
   it('the list route returns own-company leave only, and another company’s id is 404', async () => {
     const own = await pendingLeave();
-    const list = await call(leaveIndex, 'viewer', 'GET', {});
+    expect((await call(leaveIndex, 'viewer', 'GET', {})).statusCode).toBe(403);
+    const list = await call(leaveIndex, 'owner', 'GET', {});
     expect(list.statusCode, JSON.stringify(list.body)).toBe(200);
     const ids = ((list.body as { data: Array<{ id: string }> }).data).map((r) => r.id);
     expect(ids).toContain(own);

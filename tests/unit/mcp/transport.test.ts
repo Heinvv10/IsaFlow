@@ -18,6 +18,7 @@ const h = vi.hoisted(() => ({
     scopes: ['read:reports'],
     patId: 'pat-jti-1',
     authMethod: 'pat' as const,
+    companyRole: 'viewer',
   },
 }));
 
@@ -208,8 +209,27 @@ describe('/api/mcp transport', () => {
     expect(seenContexts[0]!.companyId).toBe(COMPANY_ID); // from req, not params
     expect(seenContexts[0]!.userId).toBe('user-gotrue-1');
     expect(seenContexts[0]!.tokenJti).toBe('pat-jti-1');
+    // The membership role the bearer pipeline resolved is what payroll tools are fenced on (D3 round 3).
+    expect(seenContexts[0]!.companyRole).toBe('viewer');
     const result = (res.body as { result: { content: Array<{ text: string }> } }).result;
     expect(result.content[0]!.text).toContain(COMPANY_ID);
+  });
+
+  it('a request with NO resolved role reaches the tool as null, and a fenced tool refuses it', async () => {
+    const saved = { ...h.auth };
+    try {
+      (h.auth as Record<string, unknown>).companyRole = undefined;
+      (h.auth as Record<string, unknown>).scopes = ['read:reports', 'read:payroll', 'write:payroll'];
+      const res = makeRes();
+      await route(makeReq('POST', rpc('tools/call', { name: 'echo_ctx', arguments: {} })) as never, res);
+      expect(seenContexts.at(-1)!.companyRole).toBeNull(); // never defaulted to a role
+      const refused = makeRes();
+      await route(makeReq('POST', rpc('tools/call', { name: 'get_employee', arguments: { employee_id: '11111111-1111-4111-8111-111111111111' } })) as never, refused);
+      const text = JSON.stringify(refused.body);
+      expect(text).toMatch(/owner, admin and manager/);
+    } finally {
+      Object.assign(h.auth, saved);
+    }
   });
 
   it('tools/call without a name → -32602', async () => {

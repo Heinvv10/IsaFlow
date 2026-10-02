@@ -214,7 +214,7 @@ describe('BRK-596', () => {
     expect((await doApprove(id, { user: viewer })).statusCode).toBe(403);
     expect((await doCalculate(id, { user: viewer })).statusCode).toBe(403);
     expect(await header(id)).toEqual(before);
-    // The run detail GET is unchanged here (reported, not fixed): a viewer still reads it.
-    expect((await call(runDetail as Route, 'GET', url(id, ''), id, { user: viewer })).statusCode).toBe(200);
+    // D3 (owner's ruling 2026-10-02): per-employee figures are for write roles; a viewer gets 403 on the run detail.
+    expect((await call(runDetail as Route, 'GET', url(id, ''), id, { user: viewer })).statusCode).toBe(403);
   });
 });

@@ -7,6 +7,8 @@ import Link from 'next/link';
 import { BarChart3, Loader2, AlertCircle, ArrowLeft, Play, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface BalanceRow {
   employeeId: string;
@@ -56,7 +58,7 @@ export default function LeaveBalancesPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/leave/balances?year=${year}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) { setError(payrollLoadMessage(res.status, 'Failed to load leave balances')); return; }
       const json = await res.json() as { data?: BalanceRow[] };
       const rows = (json.data ?? []) as BalanceRow[];
 
@@ -158,26 +160,30 @@ export default function LeaveBalancesPage() {
               </div>
             </div>
             <div className="ml-auto flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void runAccrual()}
-                disabled={actionBusy !== null}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm font-medium disabled:opacity-50"
-                title="Apply BCEA accrual up to the current month"
-              >
-                {actionBusy === 'accrue' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                Run Monthly Accrual
-              </button>
-              <button
-                type="button"
-                onClick={() => void runRollover()}
-                disabled={actionBusy !== null}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm font-medium disabled:opacity-50"
-                title={`Carry balances from ${year - 1} into ${year}`}
-              >
-                {actionBusy === 'rollover' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-                Roll Over Year
-              </button>
+              <WriteOnly>
+                <button
+                  type="button"
+                  onClick={() => void runAccrual()}
+                  disabled={actionBusy !== null}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm font-medium disabled:opacity-50"
+                  title="Apply BCEA accrual up to the current month"
+                >
+                  {actionBusy === 'accrue' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                  Run Monthly Accrual
+                </button>
+              </WriteOnly>
+              <WriteOnly>
+                <button
+                  type="button"
+                  onClick={() => void runRollover()}
+                  disabled={actionBusy !== null}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm font-medium disabled:opacity-50"
+                  title={`Carry balances from ${year - 1} into ${year}`}
+                >
+                  {actionBusy === 'rollover' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                  Roll Over Year
+                </button>
+              </WriteOnly>
               <select
                 value={year}
                 onChange={e => setYear(Number(e.target.value))}

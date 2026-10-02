@@ -19,6 +19,7 @@ import {
   endEmployeeComponent,
   listEmployeeComponentAssignments,
 } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -80,4 +81,4 @@ async function handler(
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'DELETE']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
