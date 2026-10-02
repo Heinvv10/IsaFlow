@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, User, MapPin, Users, Activity, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { DeliveryAddressesTab } from '@/components/accounting/customers/DeliveryAddressesTab';
 import { ContactsTab } from '@/components/accounting/customers/ContactsTab';
@@ -96,13 +96,13 @@ export default function CustomerDetailPage() {
     setActivityLoading(true);
     setActivityError('');
     try {
-      const res = await apiFetch(`/api/accounting/customers?id=${customerId as string}&include=activity`);
+      const res = await apiFetch(`/api/accounting/customers?id=${customerId as string}&include=activity`); await assertOk(res, 'Could not load activity - try again');
       const json = await res.json() as { data?: ActivityRow[] } | ActivityRow[];
       const data = (json as { data?: ActivityRow[] }).data ?? (json as ActivityRow[]);
       setActivity(Array.isArray(data) ? data : []);
       setActivityLoaded(true);
-    } catch {
-      setActivityError('Failed to load activity');
+    } catch (err) {
+      setActivityError(apiErrorMessage(err, 'Could not load activity - try again'));
     } finally {
       setActivityLoading(false);
     }
@@ -142,7 +142,7 @@ export default function CustomerDetailPage() {
   const loadCustomer = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/accounting/customers?id=${customerId as string}`);
+      const res = await apiFetch(`/api/accounting/customers?id=${customerId as string}`); await assertOk(res, 'Could not load customer - try again');
       const json = await res.json() as { data?: Customer | Customer[] } | Customer | Customer[];
       const data = (json as { data?: Customer | Customer[] }).data ?? json;
       if (Array.isArray(data)) {
@@ -152,8 +152,8 @@ export default function CustomerDetailPage() {
       } else {
         setCustomer(data as Customer);
       }
-    } catch {
-      setError('Failed to load customer');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load customer - try again'));
     } finally {
       setLoading(false);
     }

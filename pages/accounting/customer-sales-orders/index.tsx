@@ -6,7 +6,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ClipboardList, Plus, Search, Loader2, Trash2, Edit, X, FileText } from 'lucide-react';
 import { StatusPill, PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -31,8 +31,8 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 };
 const TABS = ['all', 'draft', 'confirmed', 'invoiced'] as const;
 
-interface ModalProps { customers: CustomerOption[]; onClose: () => void; onCreated: () => void }
-function CreateOrderModal({ customers, onClose, onCreated }: ModalProps) {
+interface ModalProps { customers: CustomerOption[]; customersError: string; onClose: () => void; onCreated: () => void }
+function CreateOrderModal({ customers, customersError, onClose, onCreated }: ModalProps) {
   const [form, setForm] = useState({
     customer_id: '', order_date: localISODate(),
     delivery_date: '', reference: '', notes: '', internal_notes: '',
@@ -69,6 +69,7 @@ function CreateOrderModal({ customers, onClose, onCreated }: ModalProps) {
                 <option value="">Select a customer…</option>
                 {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+              {customersError && <p className="text-xs text-red-500 mt-1">{customersError}</p>}
             </div>
             <div><label className={lbl}>Order Date</label><input type="date" value={form.order_date} onChange={e => setForm(p => ({ ...p, order_date: e.target.value }))} className={inp} /></div>
             <div><label className={lbl}>Delivery Date</label><input type="date" value={form.delivery_date} onChange={e => setForm(p => ({ ...p, delivery_date: e.target.value }))} className={inp} /></div>
@@ -134,6 +135,7 @@ export default function CustomerSalesOrdersPage() {
   const [showNew, setShowNew] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
+  const [customersError, setCustomersError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -142,20 +144,21 @@ export default function CustomerSalesOrdersPage() {
       if (tab !== 'all') params.set('status', tab);
       if (search) params.set('search', search);
       const res = await apiFetch(`/api/accounting/customer-sales-orders?${params}`);
+      await assertOk(res, 'Could not load sales orders - try again');
       const json = await res.json();
       const d = json.data || json;
       setOrders(d.orders || []); setTotal(d.total || 0);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setError(apiErrorMessage(err, 'Could not load sales orders - try again'));
     } finally { setLoading(false); }
   }, [tab, search]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    apiFetch('/api/accounting/customers').then(r => r.json()).then((json: { data?: CustomerOption[] }) => {
+    apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); }).then((json: { data?: CustomerOption[] }) => {
       const list = Array.isArray(json.data) ? json.data : [];
       setCustomers(list.map((c: CustomerOption) => ({ id: String(c.id), name: String(c.name) })));
-    }).catch(() => {/* non-fatal */});
+    }).catch(err => setCustomersError(apiErrorMessage(err, 'Could not load customers - try again')));
   }, []);
 
   const handleDelete = async (id: string) => {
@@ -244,7 +247,7 @@ export default function CustomerSalesOrdersPage() {
           </div>
         </div>
       </div>
-      {showNew && <CreateOrderModal customers={customers} onClose={() => setShowNew(false)} onCreated={load} />}
+      {showNew && <CreateOrderModal customers={customers} customersError={customersError} onClose={() => setShowNew(false)} onCreated={load} />}
     </AppLayout>
   );
 }

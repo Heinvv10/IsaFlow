@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ClaimHeaderBanners, ClaimToast } from '@/components/accounting/expense/ClaimHeaderBanners';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import {
@@ -120,11 +120,11 @@ export default function ExpenseClaimDetail() {
 
   const loadAccounts = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/accounting/chart-of-accounts?limit=500');
+      const res = await apiFetch('/api/accounting/chart-of-accounts?limit=500'); await assertOk(res, 'Could not load GL accounts - try again');
       const json = await res.json() as { data?: { accounts?: GlAccount[] } };
       setAccounts(json.data?.accounts ?? []);
-    } catch { /* non-critical */ }
-  }, []);
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not load GL accounts - try again'), false); }
+  }, [showToast]);
 
   useEffect(() => { void loadClaim(); void loadAccounts(); }, [loadClaim, loadAccounts]);
 

@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tag, Plus, Pencil, Trash2, Loader2, X, Check } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface Category { id: string; name: string; description: string; clientCount: number; }
@@ -18,10 +18,13 @@ export default function CustomerCategoriesPage() {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: '', description: '' });
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     const res = await apiFetch('/api/accounting/customer-categories', { credentials: 'include' });
+    await assertOk(res, 'Could not load categories - try again');
     const json = await res.json();
+    setError('');
     setItems(json.data || []);
     setLoading(false);
   }, []);
@@ -29,6 +32,7 @@ export default function CustomerCategoriesPage() {
   useEffect(() => {
     load().catch((err) => {
       setLoading(false);
+      setError(apiErrorMessage(err, 'Could not load categories - try again'));
       log.error('Failed to load customer categories', { error: err }, 'customer-categories-page');
     });
   }, [load]);
@@ -84,6 +88,7 @@ export default function CustomerCategoriesPage() {
         </div>
 
         <div className="p-6">
+          {error && <div className="mb-4 p-3 rounded-lg text-sm bg-red-500/10 text-red-400">{error}</div>}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             <table className="w-full text-sm">
               <thead><tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">

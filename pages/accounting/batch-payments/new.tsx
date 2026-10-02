@@ -35,7 +35,7 @@ export default function NewBatchPaymentPage() {
   const [reservationsUnavailable, setReservationsUnavailable] = useState(false);
 
   useEffect(() => {
-    apiFetch('/api/accounting/supplier-invoices?status=approved&status=partially_paid', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/supplier-invoices?status=approved&status=partially_paid', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load supplier invoices - try again'); return r.json(); }).then(res => {
       const d = res.data || res;
       const list: Invoice[] = (Array.isArray(d) ? d : d.invoices || d.items || [])
         .filter((inv: Invoice) => Number(inv.totalAmount) - Number(inv.amountPaid) > 0.01);
@@ -51,7 +51,7 @@ export default function NewBatchPaymentPage() {
         // Reservations unavailable: still list the bills at their outstanding and
         // say so; the server refuses anything already promised, with its message.
         .catch(() => { setReservationsUnavailable(true); setInvoices(list); });
-    }).catch(() => {/* non-critical */});
+    }).catch(err => setError(apiErrorMessage(err, 'Could not load supplier invoices - try again')));
   }, []);
 
   const total = lines.reduce((s, l) => s + (l.amount || 0), 0);

@@ -31,11 +31,12 @@ export default function BankTransfersPage() {
     setIsLoading(true);
     try {
       const res = await apiFetch('/api/accounting/chart-of-accounts?subtype=bank');
+      await assertOk(res, 'Could not load bank accounts - try again');
       const json = await res.json();
       const data = json.data || json;
       setBankAccounts(data.accounts || []);
-    } catch {
-      setMessage({ type: 'error', text: 'Failed to load bank accounts' });
+    } catch (err) {
+      setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not load bank accounts - try again') });
     } finally {
       setIsLoading(false);
     }

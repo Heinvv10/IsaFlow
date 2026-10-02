@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowRightLeft, Loader2, Check } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
@@ -38,6 +38,8 @@ export default function DRCVatPage() {
       apiFetch('/api/accounting/drc-vat', { credentials: 'include' }),
       apiFetch('/api/accounting/drc-vat?tab=history', { credentials: 'include' }),
     ]);
+    await assertOk(eligRes, 'Could not load DRC VAT data - try again');
+    await assertOk(histRes, 'Could not load DRC VAT data - try again');
     const eligJson = await eligRes.json();
     const histJson = await histRes.json();
     setEligible(eligJson.data?.items || []);
@@ -48,7 +50,7 @@ export default function DRCVatPage() {
   useEffect(() => {
     load().catch((err) => {
       setLoading(false);
-      setError(err instanceof Error ? err.message : 'Failed to load DRC VAT data');
+      setError(apiErrorMessage(err, 'Could not load DRC VAT data - try again'));
     });
   }, [load]);
 

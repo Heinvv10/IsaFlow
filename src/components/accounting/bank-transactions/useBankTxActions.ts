@@ -4,7 +4,7 @@
  * and all derived handler functions.
  */
 
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { log } from '@/lib/logger';
 import { extractPattern } from '@/components/accounting/CreateRuleModal';
@@ -130,7 +130,8 @@ export function buildBankTxActions(deps: ActionDeps) {
         body: JSON.stringify({ action: 'update_notes', bankTransactionId: txId, notes }),
       });
       await assertOk(res, 'Failed to save note');
-      const json = await res.json(); if (json.success === false) throw new Error(json.error?.message || 'Failed to save note');
+      const json = await res.json();
+      if (json.success === false) throw new Error(json.error?.message || 'Failed to save note');
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to save note'); loadTransactions(); }
   };
   const handleBatchAccept = async () => {
@@ -212,13 +213,13 @@ export function buildBankTxActions(deps: ActionDeps) {
           body: JSON.stringify({ action: 'categorize', bankAccountId: selectedBank }),
           signal: controller.signal,
         });
-        clearTimeout(timeout);
+        clearTimeout(timeout); await assertOk(smartRes, 'Smart categorisation could not run - try again');
         const smartJson = await smartRes.json();
         smartCategorized = smartJson.data?.categorized ?? 0;
         totalSkipped = smartJson.data?.skipped ?? 0;
         const residualCount: number = smartJson.data?.residualCount ?? 0;
         if (residualCount > 0) onLlmResidual?.(residualCount);
-      } catch { /* AI categorization timed out */ }
+      } catch (e) { if (e instanceof ApiRequestError) notify.error(apiErrorMessage(e, 'Smart categorisation could not run - try again')); /* else: AI categorization timed out */ }
       notify.success(rulesApplied + smartCategorized > 0
         ? `${rulesApplied} rules applied, ${smartCategorized} smart-categorised, ${totalSkipped} skipped`
         : 'No new categorisations found');

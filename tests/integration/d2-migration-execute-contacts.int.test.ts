@@ -41,3 +41,25 @@ it('imports suppliers and customers with their addresses', async () => {
   const supp = await pool.query('SELECT address, vat_number FROM suppliers WHERE company_id=$1', [company]);
   expect(supp.rows).toEqual([{ address: '2 Dock St, Durban', vat_number: '4222222222' }]);
 });
+
+it('counts what was inserted and reports the rest as skipped', async () => {
+  // The migration-created schema has no unique key on name, so give the fixture one
+  // to make ON CONFLICT DO NOTHING skip a row, as a company with such a key would.
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS d2_tmp_cust_name ON customers(company_id, name)');
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS d2_tmp_supp_name ON suppliers(company_id, name)');
+  try {
+    const co = crypto.randomUUID();
+    await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [co, 'D2 skipped fixture']);
+    const rows = (p: string) => [{ name: `${p} A` }, { name: `${p} A` }, { name: `${p} B` }, { name: '  ' }];
+    const first = await executeMigration(co, user, 'xero', [], rows('C'), rows('S'));
+    expect(first).toMatchObject({ customersImported: 2, customersSkipped: 2, suppliersImported: 2, suppliersSkipped: 2 });
+    const again = await executeMigration(co, user, 'xero', [], rows('C'), rows('S'));
+    expect(again).toMatchObject({ customersImported: 0, customersSkipped: 4, suppliersImported: 0, suppliersSkipped: 4 });
+    await pool.query('DELETE FROM suppliers WHERE company_id=$1', [co]);
+    await pool.query('DELETE FROM customers WHERE company_id=$1', [co]);
+    await pool.query('DELETE FROM companies WHERE id=$1', [co]);
+  } finally {
+    await pool.query('DROP INDEX IF EXISTS d2_tmp_cust_name');
+    await pool.query('DROP INDEX IF EXISTS d2_tmp_supp_name');
+  }
+});

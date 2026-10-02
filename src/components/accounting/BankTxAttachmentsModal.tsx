@@ -130,7 +130,8 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
         }),
       });
       await assertOk(res, 'Upload failed');
-      const json = await res.json() as { success: boolean; error?: { message?: string } }; if (!json.success) throw new Error(json.error?.message ?? 'Upload failed');
+      const json = await res.json() as { success: boolean; error?: { message?: string } };
+      if (!json.success) throw new Error(json.error?.message ?? 'Upload failed');
       notify.success(`${file.name} uploaded`);
       await fetchAttachments();
     } catch (err) {
@@ -164,7 +165,8 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
         { method: 'DELETE' },
       );
       await assertOk(res, 'Delete failed');
-      const json = await res.json() as { success: boolean; error?: { message?: string } }; if (!json.success) throw new Error(json.error?.message ?? 'Delete failed');
+      const json = await res.json() as { success: boolean; error?: { message?: string } };
+      if (!json.success) throw new Error(json.error?.message ?? 'Delete failed');
       notify.success(`${name} removed`);
       setAttachments(prev => prev.filter(a => a.id !== id));
     } catch (err) {

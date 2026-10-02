@@ -103,3 +103,55 @@ it('opening balances import shows the server message, not "Import failed"', asyn
   expect(await screen.findByText(MSG)).toBeTruthy();
   expect(screen.queryByText('Import failed')).toBeNull();
 });
+
+/** Same lookups as `answer`, but the page's POST route succeeds with `data`. */
+function answerOk(postRoute: string, data: unknown) {
+  vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => {
+    const u = String(url);
+    if (u.includes(postRoute)) return json({ success: true, data });
+    if (u.includes('/migration/session')) return json({ success: true, data: { id: 's-1', session: { id: 's-1' } } });
+    if (u.includes('suppliers-list')) return json({ success: true, data: { suppliers: [], total: 0 } });
+    return json({ success: true, data: [] });
+  });
+}
+
+it('success: AP invoices import renders the data it received', async () => {
+  answerOk('/migration/ap-invoices', { imported: 37, skipped: 4 });
+  const { container } = render(<ApInvoicesPage />);
+  await upload(container);
+  fireEvent.click(await screen.findByRole('button', { name: /Import 2 Invoices/ }));
+  expect(await screen.findByText(/Imported 37 invoices\. Skipped: 4\./)).toBeTruthy();
+});
+
+it('success: AR invoices import renders the data it received', async () => {
+  answerOk('/migration/ar-invoices', { imported: 41, skipped: 6 });
+  const { container } = render(<ArInvoicesPage />);
+  await upload(container);
+  fireEvent.click(await screen.findByRole('button', { name: /Import 2 Invoices/ }));
+  expect(await screen.findByText(/Imported 41 invoices\. Skipped: 6\./)).toBeTruthy();
+});
+
+it('success: customers import renders the data it received', async () => {
+  answerOk('/migration/customers', { succeeded: 53, skipped: 7, failed: 2 });
+  const { container } = render(<CustomersImportPage />);
+  await upload(container);
+  fireEvent.click(await screen.findByRole('button', { name: /Import 2 Customers/ }));
+  expect(await screen.findByText(/Imported 53 customers\. Skipped: 7\. Failed: 2\./)).toBeTruthy();
+});
+
+it('success: suppliers import renders the data it received', async () => {
+  answerOk('/migration/suppliers', { succeeded: 29, skipped: 3, failed: 1 });
+  const { container } = render(<SuppliersImportPage />);
+  await upload(container);
+  fireEvent.click(await screen.findByRole('button', { name: /Import 2 Suppliers/ }));
+  expect(await screen.findByText(/Imported 29 suppliers\. Skipped: 3\. Failed: 1\./)).toBeTruthy();
+});
+
+it('success: opening balances import renders the data it received', async () => {
+  answerOk('/migration/opening-balances', { balancesSet: 61, journalId: 'J-777' });
+  const { container } = render(<OpeningBalancesPage />);
+  await upload(container);
+  fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2026-03-01' } });
+  fireEvent.click(await screen.findByRole('button', { name: /Set Opening Balances/ }));
+  expect(await screen.findByText(/Opening balances set for 61 accounts\. Journal ID: J-777/)).toBeTruthy();
+});

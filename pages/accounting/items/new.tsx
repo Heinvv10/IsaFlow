@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Package, ArrowLeft, Loader2, Database } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { log } from '@/lib/logger';
 import {
@@ -67,22 +67,22 @@ export default function NewItemPage() {
   const loadCategories = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/item-categories', { credentials: 'include' });
-      const json = await res.json();
-      setCategories(json.data || []);
+      await assertOk(res, 'Could not load the item categories - try again');
+      setCategories((await res.json()).data || []);
     } catch (err) {
       log.error('Failed to load item categories', { error: err }, 'new-item-page');
-      setCategories([]);
+      setCategories([]); setError(apiErrorMessage(err, 'Could not load the item categories - try again'));
     }
   }, []);
 
   const loadAccounts = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' });
-      const json = await res.json();
-      setAccounts(json.data || []);
+      await assertOk(res, 'Could not load the accounts - try again');
+      setAccounts((await res.json()).data || []);
     } catch (err) {
       log.error('Failed to load chart of accounts', { error: err }, 'new-item-page');
-      setAccounts([]);
+      setAccounts([]); setError(apiErrorMessage(err, 'Could not load the accounts - try again'));
     }
   }, []);
 

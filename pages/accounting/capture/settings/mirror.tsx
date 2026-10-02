@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   Server, Plus, RefreshCw, AlertCircle, Loader2, Trash2,
   PowerOff, ChevronLeft, ListChecks, CheckCircle2, XCircle,
@@ -183,9 +183,9 @@ export default function MirrorSettingsPage() {
     setLogEntries([]);
     try {
       const res = await apiFetch(`/api/accounting/capture/mirror/${id}/log?limit=100`);
-      const json = await res.json() as { data?: { entries?: ScanLogEntry[] } };
+      await assertOk(res, 'Could not load the scan log - try again'); const json = await res.json() as { data?: { entries?: ScanLogEntry[] } };
       setLogEntries(json.data?.entries ?? []);
-    } catch { /* non-fatal */ }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not load the scan log - try again'), false); }
   }
 
   return (

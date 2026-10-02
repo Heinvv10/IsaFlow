@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   Landmark, CalendarCheck, ChevronLeft, CheckCircle2, AlertCircle, Loader2, Lock,
 } from 'lucide-react';
@@ -60,6 +60,7 @@ export default function LoanPeriodClosePage() {
     setLoading(true);
     setFlash(null);
     const res = await apiFetch(`/api/accounting/loans/period-close?month=${month}&year=${year}`);
+    await assertOk(res, 'Could not load period data - try again');
     const json = (await res.json()) as { data: PeriodCloseResponse };
     setData(json.data ?? null);
     setLoading(false);
@@ -68,7 +69,7 @@ export default function LoanPeriodClosePage() {
   useEffect(() => {
     load().catch((err) => {
       setLoading(false);
-      setFlash({ type: 'error', msg: err instanceof Error ? err.message : 'Failed to load period data' });
+      setFlash({ type: 'error', msg: apiErrorMessage(err, 'Could not load period data - try again') });
     });
   }, [load]);
 
@@ -78,6 +79,7 @@ export default function LoanPeriodClosePage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ loanIds, month, year }),
     });
+    await assertOk(res, 'Could not post the journals - try again');
     const json = (await res.json()) as { data: PostResult };
     return json.data;
   }
@@ -92,6 +94,8 @@ export default function LoanPeriodClosePage() {
         setFlash({ type: 'success', msg: 'Journal posted successfully' });
         await load();
       }
+    } catch (err) {
+      setFlash({ type: 'error', msg: apiErrorMessage(err, 'Could not post the journals - try again') });
     } finally {
       setPosting(prev => { const s = new Set(prev); s.delete(loanId); return s; });
     }
@@ -113,6 +117,8 @@ export default function LoanPeriodClosePage() {
         setFlash({ type: 'success', msg: `Posted journals for ${ok} loan(s)` });
       }
       await load();
+    } catch (err) {
+      setFlash({ type: 'error', msg: apiErrorMessage(err, 'Could not post the journals - try again') });
     } finally {
       setPostingAll(false);
     }

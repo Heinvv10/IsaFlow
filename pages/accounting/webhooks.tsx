@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Webhook, Plus, Loader2, AlertCircle } from 'lucide-react';
 import { WebhookForm, type WebhookFormState } from '@/components/accounting/webhooks/WebhookForm';
@@ -41,11 +41,12 @@ export default function WebhooksPage() {
     setError(null);
     try {
       const res = await apiFetch('/api/accounting/webhooks');
+      await assertOk(res, 'Could not load the webhooks - try again');
       const json = await res.json() as { data: WebhookType[] };
       setWebhooks(json.data);
     } catch (err) {
       log.error('Failed to fetch webhooks', { error: err }, 'webhooks-page');
-      setError('Failed to load webhooks');
+      setError(apiErrorMessage(err, 'Could not load the webhooks - try again'));
     } finally {
       setLoading(false);
     }
@@ -56,10 +57,12 @@ export default function WebhooksPage() {
   const fetchDeliveries = useCallback(async (webhookId: string) => {
     try {
       const res = await apiFetch(`/api/accounting/webhook-deliveries?webhook_id=${webhookId}&limit=20`);
+      await assertOk(res, 'Could not load the delivery history - try again');
       const json = await res.json() as { data: Delivery[] };
       setDeliveries(prev => ({ ...prev, [webhookId]: json.data }));
     } catch (err) {
       log.error('Failed to fetch deliveries', { error: err }, 'webhooks-page');
+      setError(apiErrorMessage(err, 'Could not load the delivery history - try again'));
     }
   }, []);
 
@@ -121,10 +124,12 @@ export default function WebhooksPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ webhookId: id }),
       });
+      await assertOk(res, 'Could not send the test webhook - try again');
       const json = await res.json() as { data: TestResult };
       setTestResults(prev => ({ ...prev, [id]: json.data }));
     } catch (err) {
       log.error('Failed to test webhook', { error: err }, 'webhooks-page');
+      setError(apiErrorMessage(err, 'Could not send the test webhook - try again'));
     } finally {
       setTesting(null);
     }

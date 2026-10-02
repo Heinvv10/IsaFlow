@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowUpDown, Plus, Loader2, Check } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 const fmtQty = (n: number) => new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 4 }).format(n);
@@ -29,34 +29,36 @@ export default function ItemAdjustmentsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const res = await apiFetch('/api/accounting/item-adjustments', { credentials: 'include' });
+    await assertOk(res, 'Could not load items - try again');
     const json = await res.json();
     setItems(json.data || []);
     setLoading(false);
   }, []);
 
   useEffect(() => {
-    load().catch(() => {
+    load().catch((err) => {
       setLoading(false);
-      setMsg('Failed to load items');
+      setMsg(apiErrorMessage(err, 'Could not load items - try again'));
     });
   }, [load]);
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaving(true); setMsg('');
-    const res = await apiFetch('/api/accounting/item-adjustments', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify(form),
-    });
-    if (res.ok) {
+    try {
+      const res = await apiFetch('/api/accounting/item-adjustments', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify(form),
+      });
+      await assertOk(res, 'Could not save the adjustment - try again');
       setMsg('Adjustment saved'); setShowForm(false);
       setForm({ itemId: '', adjustmentType: 'increase', quantity: '', reason: '', date: localISODate() });
       await load();
-    } else {
-      const json = await res.json();
-      setMsg(json.error?.message || 'Failed');
+    } catch (err) {
+      setMsg(apiErrorMessage(err, 'Could not save the adjustment - try again'));
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   return (

@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { User, Lock, Settings2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import toast from 'react-hot-toast';
@@ -71,6 +71,7 @@ export default function MyAccountPage() {
     setProfileLoading(true);
     try {
       const res = await apiFetch('/api/auth/profile');
+      await assertOk(res, 'Could not load your profile - try again');
       const json = await res.json();
       if (json.success && json.data) {
         const d = json.data;
@@ -82,8 +83,8 @@ export default function MyAccountPage() {
           mobile: d.mobile ?? '',
         });
       }
-    } catch {
-      toast.error('Failed to load profile');
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not load your profile - try again'));
     } finally {
       setProfileLoading(false);
     }
@@ -92,6 +93,7 @@ export default function MyAccountPage() {
   async function loadPreferences() {
     try {
       const res = await apiFetch('/api/auth/preferences');
+      await assertOk(res, 'Could not load your preferences - try again');
       const json = await res.json();
       if (json.success && json.data) {
         setPrefs(prev => ({
@@ -101,6 +103,7 @@ export default function MyAccountPage() {
       }
     } catch (e) {
       log.warn('Failed to load preferences', { error: e }, 'account');
+      toast.error(apiErrorMessage(e, 'Could not load your preferences - try again'));
     }
   }
 

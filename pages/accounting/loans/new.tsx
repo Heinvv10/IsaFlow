@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Landmark, ArrowLeft, Loader2 } from 'lucide-react';
 import { RateCurve } from '@/components/loans/types';
 
@@ -54,9 +54,9 @@ export default function NewLoanPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/loan-rate-curves')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the rate curves - try again'); return r.json(); })
       .then(j => setCurves(j.data ?? []))
-      .catch(() => setCurves([]));
+      .catch(err => { setCurves([]); setError(apiErrorMessage(err, 'Could not load the rate curves - try again')); });
   }, []);
 
   const set = <K extends keyof LoanForm>(k: K, v: LoanForm[K]) =>

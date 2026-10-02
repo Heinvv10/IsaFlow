@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCompany } from '@/contexts/CompanyContext';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   Calculator, BookOpen, FileSpreadsheet, Calendar, BarChart3, Loader2,
@@ -47,6 +47,7 @@ export default function AccountingPage() {
   const [activeTab, setActiveTab] = useState<AccountingTab>('overview');
   const [isMounted, setIsMounted] = useState(false);
   const [heroStats, setHeroStats] = useState<DashboardHeroStats | undefined>();
+  const [heroError, setHeroError] = useState('');
 
   useEffect(() => { setIsMounted(true); }, []);
 
@@ -109,8 +110,9 @@ export default function AccountingPage() {
   // Load hero KPI stats
   useEffect(() => {
     if (!isMounted) return;
+    setHeroError('');
     apiFetch('/api/accounting/kpi-dashboard')
-      .then(res => res.json())
+      .then(async res => { await assertOk(res, 'Could not load the dashboard figures - try again'); return res.json(); })
       .then((json: KpiResponse) => {
         const kpis = json.data?.kpis;
         if (!kpis) return;
@@ -120,7 +122,10 @@ export default function AccountingPage() {
           cashPosition:        kpis.cash?.total        ?? 0,
         });
       })
-      .catch(err => log.error('Failed to load hero stats', { error: err }, 'accounting-page'));
+      .catch(err => {
+        log.error('Failed to load hero stats', { error: err }, 'accounting-page');
+        setHeroError(apiErrorMessage(err, 'Could not load the dashboard figures - try again'));
+      });
   }, [isMounted, activeCompany?.id]);
 
   if (!isMounted) {
@@ -150,6 +155,7 @@ export default function AccountingPage() {
             activeTab={activeTab}
             onTabChange={handleTabChange}
           />
+          {heroError && <p role="alert" className="mt-2 text-sm text-red-500">{heroError}</p>}
         </div>
 
         {/* key={activeCompany?.id} forces full remount when company switches,

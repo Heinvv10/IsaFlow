@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Users, User, Plus, Trash2, Star, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface CustomerContact {
   id: string;
@@ -24,14 +24,19 @@ export function ContactsTab({ customerId }: { customerId: string }) {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const res = await apiFetch(`/api/accounting/customer-contacts?customerId=${customerId}`);
+      await assertOk(res, 'Could not load contacts - try again');
       const json = await res.json() as { data?: CustomerContact[] } | CustomerContact[];
       const data = (json as { data?: CustomerContact[] }).data ?? (json as CustomerContact[]);
       setContacts(data);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load contacts - try again'));
     } finally {
       setLoading(false);
     }
@@ -73,6 +78,8 @@ export function ContactsTab({ customerId }: { customerId: string }) {
           <Plus className="h-4 w-4" /> Add Contact
         </button>
       </div>
+
+      {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
 
       {showForm && (
         <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg p-4 space-y-3">

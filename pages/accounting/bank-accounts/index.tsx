@@ -37,11 +37,12 @@ export default function BankAccountsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/bank-accounts');
+      await assertOk(res, 'Could not load bank accounts - try again');
       const json = await res.json();
       const data = json.data || json;
       setAccounts(Array.isArray(data) ? data : []);
-    } catch {
-      setError('Failed to load bank accounts');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load bank accounts - try again'));
     } finally {
       setIsLoading(false);
     }

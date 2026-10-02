@@ -63,13 +63,16 @@ describe('admin migration tool', () => {
 
   it('a clean 200 execute renders the real counts and "Migration complete"', async () => {
     script(parsedOk(), json({ success: true, data: {
-      accountsImported: 2, customersImported: 3, suppliersImported: 4, openingBalancesSet: 1, errors: [] } }));
+      accountsImported: 2, customersImported: 3, suppliersImported: 4, customersSkipped: 5, suppliersSkipped: 0,
+      openingBalancesSet: 1, errors: [] } }));
     await uploadAndExecute();
     expect(await screen.findByText('Migration complete')).toBeTruthy();
     expect(screen.getByText('2 imported')).toBeTruthy();
     expect(screen.getByText('3 imported')).toBeTruthy();
     expect(screen.getByText('4 imported')).toBeTruthy();
     expect(screen.getByText('1 opening balances set')).toBeTruthy();
+    expect(screen.getByText('5 skipped')).toBeTruthy();   // customers: sent but not inserted
+    expect(screen.queryByText('0 skipped')).toBeNull();
     expect(screen.queryByText('Migration finished with problems')).toBeNull();
   });
 

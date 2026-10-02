@@ -10,7 +10,7 @@ import { Wallet, Plus, Loader2, AlertCircle, ChevronRight } from 'lucide-react';
 import type { SupplierPayment } from '@/modules/accounting/types/ap.types';
 import { formatCurrency } from '@/utils/formatters';
 import { StatusPill, PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 const TABS = ['all', 'draft', 'approved', 'processed', 'reconciled', 'cancelled'] as const;
 type Tab = typeof TABS[number];
@@ -33,12 +33,13 @@ export default function SupplierPaymentsPage() {
       const params = new URLSearchParams();
       if (tab !== 'all') params.set('status', tab);
       const res = await apiFetch(`/api/accounting/supplier-payments?${params}`);
+      await assertOk(res, 'Could not load payments - try again');
       const json = await res.json();
       const payload = json.data || json;
       setPayments(payload.payments || []);
       setTotal(payload.total || 0);
-    } catch {
-      setError('Failed to load payments');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load payments - try again'));
     } finally {
       setIsLoading(false);
     }

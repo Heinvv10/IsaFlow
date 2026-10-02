@@ -1,11 +1,13 @@
 // PUR-01: suppliers-list answers 25 rows by default, so a picker fed by the bare
 // call cannot reach supplier #26. SupplierSelect must search server-side and
 // resolve a preselected id that is not in the first page.
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { StrictMode, useState } from 'react';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
 import { SupplierTypeahead } from '@/components/accounting/supplier-invoices/SupplierTypeahead';

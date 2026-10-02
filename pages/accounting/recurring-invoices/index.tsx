@@ -6,7 +6,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { RefreshCw, Plus, Pause, Play, XCircle, Zap, Loader2, Pencil, Download, Clock, CheckCircle, AlertCircle, X } from 'lucide-react';
 import { StatusPill } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -40,10 +40,12 @@ export default function RecurringInvoicesPage() {
     setLoading(true);
     try {
       const res = await apiFetch('/api/accounting/recurring-invoices');
+      await assertOk(res, 'Could not load recurring invoices - try again');
       const json = await res.json() as { data?: { items?: RecurringInvoice[] } };
       setItems(json.data?.items ?? []);
     } catch (err) {
       log.error('Failed to load recurring invoices', { error: err }, 'recurring-invoices-page');
+      setError(apiErrorMessage(err, 'Could not load recurring invoices - try again'));
     } finally {
       setLoading(false);
     }

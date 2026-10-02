@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, Banknote, CheckCircle, ArrowRight, Info } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface BankTxRow {
   id: string;
@@ -62,13 +62,12 @@ export default function ReceiptMatchQueuePage() {
     try {
       setLoading(true);
       setError('');
-      const res = await apiFetch('/api/accounting/bank-transactions?status=imported&limit=50');
+      const res = await apiFetch('/api/accounting/bank-transactions?status=imported&limit=50'); await assertOk(res, 'Could not load receipts - try again');
       const json = await res.json();
       const all: BankTxRow[] = json?.data?.transactions ?? json?.transactions ?? [];
-      const onlyReceipts = all.filter((t) => Number(t.amount) > 0);
-      setReceipts(onlyReceipts);
+      setReceipts(all.filter((t) => Number(t.amount) > 0));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load receipts');
+      setError(apiErrorMessage(err, 'Could not load receipts - try again'));
     } finally {
       setLoading(false);
     }
@@ -77,10 +76,11 @@ export default function ReceiptMatchQueuePage() {
   const loadShortlist = useCallback(async (bankTxId: string) => {
     try {
       const res = await apiFetch(`/api/accounting/ar/receipt-match/${bankTxId}`);
+      await assertOk(res, 'Could not load match suggestions - try again');
       const json = (await res.json()) as { data?: ShortlistResponse };
-      const candidates = json?.data?.candidates ?? [];
-      setShortlists((prev) => ({ ...prev, [bankTxId]: candidates }));
-    } catch (_err) {
+      setShortlists((prev) => ({ ...prev, [bankTxId]: json?.data?.candidates ?? [] }));
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load match suggestions - try again'));
       setShortlists((prev) => ({ ...prev, [bankTxId]: [] }));
     }
   }, []);

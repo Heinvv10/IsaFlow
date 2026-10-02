@@ -11,7 +11,7 @@ import { SupplierSelect } from '@/components/accounting/supplier-invoices/Suppli
 import { useVendorSupplierMatch } from '@/components/accounting/supplier-invoices/matchVendorSupplier';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface OutstandingInvoice { id: string; invoiceNumber: string; totalAmount: number; balance: number }
@@ -40,11 +40,12 @@ export default function NewSupplierPaymentPage() {
 
   useEffect(() => {
     if (!form.supplierId) { setInvoices([]); return; }
-    apiFetch(`/api/accounting/supplier-invoices?supplier_id=${form.supplierId}&status=approved`).then(r => r.json()).then(res => {
+    setError('');
+    apiFetch(`/api/accounting/supplier-invoices?supplier_id=${form.supplierId}&status=approved`).then(async r => { await assertOk(r, 'Could not load outstanding invoices - try again'); return r.json(); }).then(res => {
       const payload = res.data || res;
       const all = payload.invoices || [];
       setInvoices(all.filter((inv: OutstandingInvoice) => inv.balance > 0));
-    }).catch(() => setInvoices([]));
+    }).catch((err: unknown) => { setInvoices([]); setError(apiErrorMessage(err, 'Could not load outstanding invoices - try again')); });
   }, [form.supplierId]);
 
   const addAllocation = () => setAllocations(prev => [...prev, { key: crypto.randomUUID(), invoiceId: '', amount: 0 }]);
@@ -87,11 +88,11 @@ export default function NewSupplierPaymentPage() {
           allocations: allocations.filter(a => a.invoiceId && a.amount > 0).map(a => ({ invoiceId: a.invoiceId, amount: a.amount })),
         }),
       });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || 'Failed to create payment'); }
+      await assertOk(res, 'Could not create the payment - try again');
       const json = await res.json();
       const payment = json.data || json;
       void router.push(`/accounting/supplier-payments/${payment.id}`);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to create payment'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not create the payment - try again')); }
     finally { setIsSubmitting(false); }
   };
 

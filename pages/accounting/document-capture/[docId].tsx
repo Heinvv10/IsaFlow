@@ -14,7 +14,7 @@ import {
 import { notify } from '@/utils/toast';
 import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -117,12 +117,12 @@ export default function DocumentCaptureDetailPage() {
           },
         }),
       });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error?.message || 'Confirm failed');
+      await assertOk(res, 'Could not confirm the document - try again'); const json = await res.json();
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Confirm failed');
       notify.success('Document confirmed');
       void loadDocument();
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Confirm failed');
+      notify.error(apiErrorMessage(err, 'Could not confirm the document - try again'));
     } finally {
       setIsSaving(false);
     }
@@ -141,12 +141,12 @@ export default function DocumentCaptureDetailPage() {
           data: { notes: notes || 'Rejected' },
         }),
       });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error?.message || 'Reject failed');
+      await assertOk(res, 'Could not reject the document - try again'); const json = await res.json();
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Reject failed');
       notify.success('Document rejected');
       void loadDocument();
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Reject failed');
+      notify.error(apiErrorMessage(err, 'Could not reject the document - try again'));
     } finally {
       setIsSaving(false);
     }
@@ -168,13 +168,13 @@ export default function DocumentCaptureDetailPage() {
           data: { bankTxId: bankTxId.trim() },
         }),
       });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error?.message || 'Match failed');
+      await assertOk(res, 'Could not match the document - try again'); const json = await res.json();
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Match failed');
       notify.success('Matched to bank transaction');
       setBankTxId('');
       void loadDocument();
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Match failed');
+      notify.error(apiErrorMessage(err, 'Could not match the document - try again'));
     } finally {
       setIsMatching(false);
     }

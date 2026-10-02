@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   BankTxTable,
   type AllocType, type BankTx, type SelectOption, type RowSelection,
@@ -134,11 +134,11 @@ export default function BankTransactionsPage() {
       if (txType !== 'all') params.set('tx_type', txType);
       if (allocType !== 'all') params.set('alloc_type', allocType);
       if (hasSuggestion !== 'all') params.set('has_suggestion', hasSuggestion);
-      const res = await apiFetch(`/api/accounting/bank-transactions?${params}`);
+      const res = await apiFetch(`/api/accounting/bank-transactions?${params}`); await assertOk(res, 'Could not load transactions - try again');
       const json = await res.json();
       const data = json.data || json;
       setTransactions(data.transactions || []); setTotal(data.total || 0);
-    } catch { setError('Failed to load transactions'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load transactions - try again')); }
     finally { setIsLoading(false); }
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion]);
 

@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Percent, Plus, Check, Loader2 } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 import { localISODate } from '@/lib/dateUtils';
@@ -41,13 +41,14 @@ export default function VATAdjustmentsPage() {
 
   const load = useCallback(async () => {
     const res = await apiFetch('/api/accounting/vat-adjustments', { credentials: 'include' });
+    await assertOk(res, 'Could not load VAT adjustments - try again');
     const json = await res.json();
     setItems(json.data?.items || []);
     setLoading(false);
   }, []);
 
   useEffect(() => {
-    load().catch(() => { setLoading(false); setError('Failed to load VAT adjustments'); });
+    load().catch((err) => { setLoading(false); setError(apiErrorMessage(err, 'Could not load VAT adjustments - try again')); });
   }, [load]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {

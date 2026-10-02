@@ -9,11 +9,13 @@
  * Rendered, not grepped: the message travels through a catch and a state
  * setter, and the form must stay open so the user's edits aren't lost.
  */
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
 vi.mock('next/router', () => ({
   useRouter: () => ({ query: { invoiceId: 'inv-1' } }),

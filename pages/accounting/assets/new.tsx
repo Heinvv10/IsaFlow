@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Package, ArrowLeft, Loader2, Database } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface Category {
@@ -54,9 +54,9 @@ export default function NewAssetPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/assets-categories', { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load asset categories - try again'); return r.json(); })
       .then(j => setCategories(j.data || []))
-      .catch(() => { setCategories([]); });
+      .catch(err => { setCategories([]); setError(apiErrorMessage(err, 'Could not load asset categories - try again')); });
   }, []);
 
   const handleCategoryChange = (code: string) => {

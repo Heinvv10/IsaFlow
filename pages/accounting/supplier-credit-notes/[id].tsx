@@ -11,7 +11,7 @@ import {
   CheckCircle2, RotateCcw, Pencil, Trash2,
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { CreditNote } from '@/modules/accounting/types/ar.types';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -48,12 +48,12 @@ export default function SupplierCreditNoteDetailPage() {
     if (!id || typeof id !== 'string') return;
     setLoading(true);
     apiFetch(`/api/accounting/supplier-credit-notes?id=${id}`)
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the supplier credit note - try again'); return r.json(); })
       .then((json: { data?: CreditNote } | CreditNote) => {
         const data = (json as { data?: CreditNote }).data ?? (json as CreditNote);
         setNote(data);
       })
-      .catch(() => setError('Failed to load supplier credit note'))
+      .catch((err: unknown) => setError(apiErrorMessage(err, 'Could not load the supplier credit note - try again')))
       .finally(() => setLoading(false));
   }, [id]);
 

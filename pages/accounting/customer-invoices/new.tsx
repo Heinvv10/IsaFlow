@@ -6,7 +6,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Plus, Trash2, Loader2, Info, SlidersHorizontal, Receipt } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
@@ -36,12 +36,12 @@ export default function NewCustomerInvoicePage() {
   const [lines, setLines] = useState<LineItem[]>([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0 }]);
 
   useEffect(() => {
-    apiFetch('/api/accounting/customers', { credentials: 'include' }).then(r => r.json()).then(json => {
+    apiFetch('/api/accounting/customers', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load clients - try again'); return r.json(); }).then(json => {
       const d = json.data || json; setClients(Array.isArray(d) ? d : d.clients || []);
-    }).catch(() => {/* non-critical */});
-    apiFetch('/api/accounting/currencies', { credentials: 'include' }).then(r => r.json()).then(json => {
+    }).catch(err => setError(apiErrorMessage(err, 'Could not load clients - try again')));
+    apiFetch('/api/accounting/currencies', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load currencies - try again'); return r.json(); }).then(json => {
       const d = json.data || json; setCurrencies(Array.isArray(d) ? d : []);
-    }).catch(() => {/* non-critical */});
+    }).catch(err => setError(apiErrorMessage(err, 'Could not load currencies - try again')));
   }, []);
 
   const updateLine = (key: string, field: string, value: string | number) =>

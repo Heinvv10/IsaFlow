@@ -49,18 +49,20 @@ export function BundleEditor({ itemId, parentDescription, onSaved }: Props) {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/item-bundles?itemId=${itemId}`);
+      await assertOk(res, 'Could not load the bundle components - try again');
       const json = await res.json() as { data?: BundleLine[] };
       setLines(json.data ?? []);
-    } catch { setError('Failed to load bundle lines'); }
+    } catch (e) { setError(apiErrorMessage(e, 'Could not load the bundle components - try again')); }
     finally { setLoading(false); }
   }, [itemId]);
 
   const loadItems = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/items?active=true');
+      await assertOk(res, 'Could not load the items list - try again');
       const json = await res.json() as { data?: ItemOption[] };
       setAllItems((json.data ?? []).filter((it) => it.id !== itemId));
-    } catch { setAllItems([]); }
+    } catch (e) { setAllItems([]); setError(apiErrorMessage(e, 'Could not load the items list - try again')); }
   }, [itemId]);
 
   useEffect(() => { void loadBundleLines(); void loadItems(); }, [loadBundleLines, loadItems]);

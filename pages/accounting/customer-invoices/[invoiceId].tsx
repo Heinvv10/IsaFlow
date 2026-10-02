@@ -10,7 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, ArrowRight, FileText, Loader2, AlertCircle, Pencil } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { startPayNowCheckout } from '@/modules/accounting/utils/payNowCheckout';
 import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
@@ -58,10 +58,11 @@ export default function CustomerInvoiceDetailPage() {
     setLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/customer-invoices-detail?id=${invoiceId}`);
+      await assertOk(res, 'Could not load the invoice - try again');
       const json = await res.json();
       setInvoice(json.data || json);
-    } catch {
-      setError('Failed to load invoice');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the invoice - try again'));
     } finally {
       setLoading(false);
     }

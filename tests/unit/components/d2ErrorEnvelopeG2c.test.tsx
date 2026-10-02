@@ -118,3 +118,46 @@ it('exchange rates: a refused delete toasts the server message', async () => {
   expect(notifyMock.error).not.toHaveBeenCalledWith('Failed to delete rate');
   expect(notifyMock.error).not.toHaveBeenCalledWith('Failed to delete exchange rate');
 });
+
+it('success: sales reps renders the data it received and the save completes', async () => {
+  let name = 'Jane Smith';
+  script((u, init) => {
+    if (u.includes('/sales-reps')) {
+      if (init?.method === 'PUT') { name = 'Zelda Zeta'; return ok({}); }
+      return ok([{ ...REP, name }]);
+    }
+    return undefined;
+  });
+  render(<SalesRepsPage />);
+  await screen.findByText('Jane Smith');
+  fireEvent.click(screen.getByTitle('Edit'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Save Changes' }));
+  expect(await screen.findByText('Zelda Zeta')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Save Changes' })).toBeNull();
+});
+
+it('success: account reporting groups renders the data it received and a delete completes', async () => {
+  script((u, init) => {
+    if (u.includes('/account-reporting-groups')) return init?.method === 'DELETE' ? ok({}) : ok({ items: [{ ...GROUP, name: 'Zeta Intangibles' }] });
+    return undefined;
+  });
+  render(<AccountReportingGroupsPage />);
+  await screen.findByText('Zeta Intangibles');
+  fireEvent.click(screen.getByTitle('Delete group'));
+  fireEvent.click(screen.getByTitle('Click again to confirm delete'));
+  await vi.waitFor(() => expect(screen.queryByText('Zeta Intangibles')).toBeNull());
+});
+
+it('success: exchange rates renders the data it received and a delete completes', async () => {
+  const rate = { id: 'x-1', fromCurrency: 'USD', toCurrency: 'ZAR', rate: 18.123456, effectiveDate: '2026-01-01' };
+  script((u, init) => {
+    if (u.includes('/exchange-rates')) return init?.method === 'DELETE' ? ok({}) : ok({ rates: [rate] });
+    if (u.includes('/currencies')) return ok({ currencies: [] });
+    return undefined;
+  });
+  render(<ExchangeRatesSettingsPage />);
+  expect(await screen.findByText('18.123456')).toBeTruthy();
+  fireEvent.click(screen.getByTitle('Delete rate'));
+  await vi.waitFor(() => expect(notifyMock.success).toHaveBeenCalledWith('Exchange rate deleted'));
+  expect(screen.queryByText('18.123456')).toBeNull();
+});

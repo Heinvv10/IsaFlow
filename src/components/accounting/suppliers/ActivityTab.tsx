@@ -9,7 +9,7 @@ import {
   MessageSquare, Phone, Mail, DollarSign, FileText, RefreshCw,
   Clock, Plus, Trash2, Loader2, AlertCircle,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 type ActivityType =
@@ -114,12 +114,13 @@ export function ActivityTab({ supplierId }: { supplierId: string }) {
     setError('');
     try {
       const res  = await apiFetch(`/api/accounting/supplier-activities?supplierId=${supplierId}`);
+      await assertOk(res, 'Could not load the activities - try again');
       const json = await res.json() as { data?: SupplierActivity[] } | SupplierActivity[];
       const data = (json as { data?: SupplierActivity[] }).data ?? (json as SupplierActivity[]);
       setActivities(data);
     } catch (err) {
       log.error('Failed to load supplier activities', { supplierId, error: err }, 'activity-tab');
-      setError('Failed to load activities');
+      setError(apiErrorMessage(err, 'Could not load the activities - try again'));
     } finally {
       setLoading(false);
     }

@@ -10,7 +10,7 @@ import { ContactsTab } from '@/components/accounting/suppliers/ContactsTab';
 import { ActivityTab } from '@/components/accounting/suppliers/ActivityTab';
 import Link from 'next/link';
 import { ArrowLeft, Building2, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 import { DrcFlagToggle } from '@/components/accounting/suppliers/DrcFlagToggle';
 
@@ -43,14 +43,15 @@ export default function SupplierDetailPage() {
     setLoading(true);
     try {
       const res  = await apiFetch(`/api/accounting/suppliers-list?id=${supplierId}`);
+      await assertOk(res, 'Could not load the supplier - try again');
       const json = await res.json() as { data?: Supplier; success?: boolean };
       if (!json.success || !json.data) {
         setError('Supplier not found');
         return;
       }
       setSupplier(json.data);
-    } catch {
-      setError('Failed to load supplier');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the supplier - try again'));
     } finally {
       setLoading(false);
     }

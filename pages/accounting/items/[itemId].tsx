@@ -10,7 +10,7 @@ import Link from 'next/link';
 import {
   ArrowLeft, Box, Loader2, AlertCircle, CheckCircle2, XCircle, Layers,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { BundleEditor } from '@/components/accounting/items/BundleEditor';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 import { localISODate } from '@/lib/dateUtils';
@@ -54,6 +54,7 @@ export default function ItemDetailPage() {
     setLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/items?id=${String(itemId)}`);
+      await assertOk(res, 'Could not load the item - try again');
       const json = await res.json() as { data?: unknown };
       const data = json.data;
       if (data && typeof data === 'object' && 'id' in data) {
@@ -63,8 +64,8 @@ export default function ItemDetailPage() {
       } else {
         setError('Item not found');
       }
-    } catch {
-      setError('Failed to load item');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the item - try again'));
     } finally {
       setLoading(false);
     }

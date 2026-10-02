@@ -81,9 +81,7 @@ export default function NewLeaveRequestPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ employeeId, leaveTypeId, startDate, endDate, days, reason: reason || undefined }),
       });
-      if (!res.ok) {
-        await assertOk(res, `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not save the leave request - try again');
       await router.push('/payroll/leave');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');

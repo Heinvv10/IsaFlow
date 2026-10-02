@@ -25,7 +25,7 @@ const fmt = (n: number) =>
 
 export default function TrialBalancePage() {
   const [rows, setRows] = useState<TBRowData[]>([]);
-  const { periods, selectedPeriod, setSelectedPeriod, costCentreId, setCostCentreId,
+  const { periods, periodsError, selectedPeriod, setSelectedPeriod, costCentreId, setCostCentreId,
     businessUnitId, setBusinessUnitId, comparePeriodId, setComparePeriodId,
     showMovement, setShowMovement, returnTo, filtersReady } = useTrialBalanceFilters();
   const [totalDebit, setTotalDebit] = useState(0);
@@ -190,10 +190,10 @@ export default function TrialBalancePage() {
             </div>
           )}
 
-          {loading ? (
+          {loading && !periodsError ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-indigo-500" /></div>
-          ) : error ? (
-            <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
+          ) : error || periodsError ? (
+            <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error || periodsError}</span></div>
           ) : rows.length === 0 ? (
             <div className="text-center py-12">
               <Scale className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />

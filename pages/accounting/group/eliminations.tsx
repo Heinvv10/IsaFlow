@@ -46,13 +46,13 @@ export default function EliminationsPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/company-groups')
-      .then((r) => r.json())
+      .then(async (r) => { await assertOk(r, 'Could not load company groups - try again'); return r.json(); })
       .then((json) => {
         const list: EntityGroup[] = json.data?.items || json.data?.groups || json.data || [];
         setGroups(list);
         if (list.length > 0 && !selectedGroupId && list[0]) setSelectedGroupId(list[0].id);
       })
-      .catch(() => { /* non-critical */ });
+      .catch((err) => setError(apiErrorMessage(err, 'Could not load company groups - try again')));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

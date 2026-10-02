@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ClipboardList, Loader2, AlertCircle, Download, ChevronRight, Search } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { fmtDate } from '@/lib/fmtDate';
 
 interface CustomerBalance {
@@ -86,12 +86,13 @@ export default function CustomerStatementsPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/customer-statements?as_at_date=${asAtDate}`);
+      await assertOk(res, 'Could not load the customer statements - try again');
       const json = await res.json();
       const data = json.data || json;
       setCustomers(data.customers || []);
       setHasMore(Boolean(json.meta?.hasMore));
-    } catch {
-      setError('Failed to load customer statements');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the customer statements - try again'));
     } finally {
       setIsLoading(false);
     }

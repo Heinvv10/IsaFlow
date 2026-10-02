@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { Zap, X, Loader2 } from 'lucide-react';
 
 interface Bundle {
@@ -31,12 +31,12 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
     setError('');
     setLoading(true);
     apiFetch('/api/billing/flows/bundles')
-      .then((r) => r.json())
+      .then(async (r) => { await assertOk(r, 'Could not load the top-up bundles - try again'); return r.json(); })
       .then((j) => {
         if (j.success === false) throw new Error(j.error?.message ?? 'Failed to load bundles');
         setBundles(j.data as Bundle[]);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed'))
+      .catch((err: unknown) => setError(apiErrorMessage(err, 'Could not load the top-up bundles - try again')))
       .finally(() => setLoading(false));
   }, [open]);
 

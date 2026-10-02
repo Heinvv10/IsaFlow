@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tag, Save, Loader2, Search } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -23,6 +23,7 @@ export default function ItemPricingPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const res = await apiFetch('/api/accounting/item-pricing', { credentials: 'include' });
+    await assertOk(res, 'Could not load items - try again');
     const json = await res.json();
     setItems(json.data || []);
     setEdits({});
@@ -30,9 +31,9 @@ export default function ItemPricingPage() {
   }, []);
 
   useEffect(() => {
-    load().catch(() => {
+    load().catch(err => {
       setLoading(false);
-      setMsg('Failed to load items');
+      setMsg(apiErrorMessage(err, 'Could not load items - try again'));
     });
   }, [load]);
 

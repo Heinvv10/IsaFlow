@@ -44,6 +44,7 @@ export default function LoanDetailPage() {
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [loadingCurve, setLoadingCurve] = useState(false);
   const [error, setError] = useState('');
+  const [tabError, setTabError] = useState('');
 
   const loadLoan = useCallback(async () => {
     if (!id) return;
@@ -63,17 +64,30 @@ export default function LoanDetailPage() {
   const loadSchedule = useCallback(async () => {
     if (!id) return;
     setLoadingSchedule(true);
-    const res = await apiFetch(`/api/accounting/loans/${id}/schedule`);
-    const json = await res.json();
-    setScheduleRows(json.data?.rows ?? []);
-    setLoadingSchedule(false);
+    setTabError('');
+    try {
+      const res = await apiFetch(`/api/accounting/loans/${id}/schedule`);
+      await assertOk(res, 'Could not load the repayment schedule - try again');
+      const json = await res.json();
+      setScheduleRows(json.data?.rows ?? []);
+    } catch (err) {
+      setTabError(apiErrorMessage(err, 'Could not load the repayment schedule - try again'));
+    } finally {
+      setLoadingSchedule(false);
+    }
   }, [id]);
 
   const loadEvents = useCallback(async () => {
     if (!id) return;
-    const res = await apiFetch(`/api/accounting/loans/${id}/events`);
-    const json = await res.json();
-    setEvents(json.data ?? []);
+    setTabError('');
+    try {
+      const res = await apiFetch(`/api/accounting/loans/${id}/events`);
+      await assertOk(res, 'Could not load the loan events - try again');
+      const json = await res.json();
+      setEvents(json.data ?? []);
+    } catch (err) {
+      setTabError(apiErrorMessage(err, 'Could not load the loan events - try again'));
+    }
   }, [id]);
 
   const loadCurve = useCallback(async (curveId: string) => {
@@ -196,6 +210,7 @@ export default function LoanDetailPage() {
         </div>
 
         <div className="p-6">
+          {tabError && (tab === 'schedule' || tab === 'events') && <p className="mb-4 text-red-400">{tabError}</p>}
           {tab === 'overview' && (
             <LoanOverviewTab loan={loan} onRefresh={loadLoan} />
           )}

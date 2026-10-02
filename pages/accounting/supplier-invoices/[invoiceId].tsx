@@ -11,7 +11,7 @@ import Link from 'next/link';
 import { ArrowLeft, Receipt, Loader2, AlertCircle, FileText } from 'lucide-react';
 import type { SupplierInvoice, SupplierInvoiceItem } from '@/modules/accounting/types/ap.types';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ThreeWayMatchPanel } from '@/components/accounting/ap/ThreeWayMatchPanel';
 import { MarkVatDeclaredElsewhereButton } from '@/components/accounting/sars/MarkVatDeclaredElsewhereButton';
 import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
@@ -58,10 +58,11 @@ export default function SupplierInvoiceDetailPage() {
     setIsLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/supplier-invoices-detail?id=${invoiceId}`);
+      await assertOk(res, 'Could not load the invoice - try again');
       const json = await res.json();
       setInvoice(json.data || json);
-    } catch {
-      setError('Failed to load invoice');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the invoice - try again'));
     } finally {
       setIsLoading(false);
     }

@@ -127,3 +127,63 @@ it('write-offs: a refused create shows the server message', async () => {
   expect(await screen.findByText(MSG)).toBeTruthy();
   expect(screen.queryByText('Failed')).toBeNull();
 });
+
+it('success: timesheets renders the data it received and invoice creation completes', async () => {
+  script((u, init) => {
+    if (u.includes('/time-entries-invoice')) return ok({ invoiceNumber: 'INV-ZETA-71' });
+    if (u.includes('/time-entries')) return init?.method === 'POST' ? undefined : ok({ entries: [ENTRY] });
+    return undefined;
+  });
+  render(<TimesheetsPage />);
+  await screen.findByText('Review ledger');
+  const boxes = screen.getAllByRole('checkbox');
+  fireEvent.click(boxes[boxes.length - 1]!);
+  fireEvent.click(await screen.findByRole('button', { name: /Create Invoice \(1\)/ }));
+  expect(await screen.findByText('Invoice INV-ZETA-71 created')).toBeTruthy();
+});
+
+it('success: time tracking renders the data it received and a bulk submit completes', async () => {
+  script((u) => {
+    if (u.includes('/time-entries-action')) return ok({ count: 7 });
+    if (u.includes('/time-entries')) return ok({ entries: [ENTRY], total: 1 });
+    return undefined;
+  });
+  render(<TimeTrackingPage />);
+  await screen.findByText('Review ledger');
+  fireEvent.click(screen.getAllByRole('checkbox')[1]!);
+  fireEvent.click(await screen.findByRole('button', { name: /^Submit$/ }));
+  expect(await screen.findByText('Submitted 7 entries')).toBeTruthy();
+});
+
+it('success: VAT adjustments renders the data it received after a create', async () => {
+  let created = false;
+  const item = { id: 'v-1', adjustmentNumber: 'VA-ZETA-31', adjustmentDate: '2026-01-05', vatPeriod: '2026-01', adjustmentType: 'input', amount: 1234, reason: 'Bad debt', status: 'draft' };
+  script((u, init) => {
+    if (u.includes('/vat-adjustments')) {
+      if (init?.method === 'POST') { created = true; return ok({}); }
+      return ok({ items: created ? [item] : [] });
+    }
+    return undefined;
+  });
+  const { container } = render(<VATAdjustmentsPage />);
+  fireEvent.click(await screen.findByRole('button', { name: /New Adjustment/ }));
+  fireEvent.submit(container.querySelector('form')!);
+  expect(await screen.findByText('VA-ZETA-31')).toBeTruthy();
+});
+
+it('success: write-offs renders the data it received after a create', async () => {
+  let created = false;
+  const item = { id: 'w-1', writeOffNumber: 'WO-ZETA-52', clientName: 'Zeta Traders', invoiceNumber: 'INV-9', amount: 321, writeOffDate: '2026-01-05', status: 'draft' };
+  script((u, init) => {
+    if (u.includes('/write-offs')) {
+      if (init?.method === 'POST') { created = true; return ok({}); }
+      return ok({ items: created ? [item] : [] });
+    }
+    return undefined;
+  });
+  const { container } = render(<WriteOffsPage />);
+  fireEvent.click(await screen.findByRole('button', { name: /New Write-Off/ }));
+  fireEvent.submit(container.querySelector('form')!);
+  expect(await screen.findByText('WO-ZETA-52')).toBeTruthy();
+  expect(screen.getByText('Zeta Traders')).toBeTruthy();
+});

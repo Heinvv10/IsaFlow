@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Wallet, Plus, Trash2, Loader2, Copy } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface GLAccount { id: string; accountCode: string; accountName: string }
 interface BudgetEntry {
@@ -31,6 +31,7 @@ export default function BudgetManagementPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const res = await apiFetch(`/api/accounting/budgets?fiscal_year=${fiscalYear}`, { credentials: 'include' });
+    await assertOk(res, 'Could not load budgets - try again');
     const json = await res.json();
     setBudgets(json.data?.items || []);
     setLoading(false);
@@ -39,12 +40,13 @@ export default function BudgetManagementPage() {
   useEffect(() => {
     load().catch((err) => {
       setLoading(false);
-      setError(err instanceof Error ? err.message : 'Failed to load budgets');
+      setError(apiErrorMessage(err, 'Could not load budgets - try again'));
     });
   }, [load]);
 
   useEffect(() => {
-    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
+      .then(async r => { await assertOk(r, 'Could not load GL accounts - try again'); return r.json(); }).then(res => {
       const d = res.data || res;
       const list = Array.isArray(d) ? d : d.accounts || d.items || [];
       setAccounts(list
@@ -58,8 +60,8 @@ export default function BudgetManagementPage() {
           accountName: String(a.accountName || a.account_name || ''),
         }))
       );
-    }).catch(() => {
-      setError('Failed to load GL accounts');
+    }).catch((err) => {
+      setError(apiErrorMessage(err, 'Could not load GL accounts - try again'));
     });
   }, []);
 
@@ -85,11 +87,15 @@ export default function BudgetManagementPage() {
 
   const handleDelete = async (id: string) => {
     setBusy(id);
-    await apiFetch('/api/accounting/budgets-action', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ action: 'delete', id }),
-    });
-    await load(); setBusy('');
+    try {
+      const res = await apiFetch('/api/accounting/budgets-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ action: 'delete', id }),
+      });
+      await assertOk(res, 'Could not delete the budget - try again');
+      await load();
+    } catch (err) { setError(apiErrorMessage(err, 'Could not delete the budget - try again')); }
+    finally { setBusy(''); }
   };
 
   const handleCopy = async () => {

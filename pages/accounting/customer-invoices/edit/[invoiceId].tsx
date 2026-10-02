@@ -7,7 +7,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Plus, Trash2, Loader2, AlertCircle, Receipt, SlidersHorizontal } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 
 interface Client { id: string; name: string }
@@ -49,9 +49,9 @@ export default function EditCustomerInvoicePage() {
     if (!invoiceId) return;
     const id = String(invoiceId);
     void Promise.all([
-      apiFetch('/api/accounting/customers', { credentials: 'include' }).then(r => r.json()),
-      apiFetch('/api/accounting/currencies', { credentials: 'include' }).then(r => r.json()),
-      apiFetch(`/api/accounting/customer-invoices-detail?id=${id}`, { credentials: 'include' }).then(r => r.json()),
+      apiFetch('/api/accounting/customers', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load clients - try again'); return r.json(); }),
+      apiFetch('/api/accounting/currencies', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load currencies - try again'); return r.json(); }),
+      apiFetch(`/api/accounting/customer-invoices-detail?id=${id}`, { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load the invoice - try again'); return r.json(); }),
     ]).then(([cRes, curRes, invRes]) => {
       const cData = cRes.data || cRes; setClients(Array.isArray(cData) ? cData : cData.clients || []);
       const curData = curRes.data || curRes; setCurrencies(Array.isArray(curData) ? curData : []);
@@ -96,7 +96,7 @@ export default function EditCustomerInvoicePage() {
       }) : [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0 }]);
       setLoading(false);
     }).catch((err: unknown) => {
-      setError(err instanceof Error ? err.message : 'Failed to load invoice');
+      setError(apiErrorMessage(err, 'Could not load the invoice - try again'));
       setLoading(false);
     });
   }, [invoiceId]);

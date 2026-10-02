@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Save, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { Company, DocumentNumber, CompanyDocument } from '@/components/accounting/settings/settingsTypes';
 import { mapApiCompany } from '@/components/accounting/settings/mapApiCompany';
@@ -64,23 +64,31 @@ export default function CompanySettingsPage() {
     setLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/companies?id=${companyId}`);
+      await assertOk(res, 'Could not load company - try again');
       const json = await res.json();
       const c = json.data;
       if (c) setCompany(mapApiCompany(c as Record<string, unknown>));
-    } catch {
-      setError('Failed to load company');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load company - try again'));
     } finally {
       setLoading(false);
     }
   }, []);
 
   const fetchSupplementary = useCallback(async (companyId: string) => {
+    const get = async (url: string) => {
+      const r = await apiFetch(url);
+      await assertOk(r, 'Could not load some company settings - try again');
+      return r.json();
+    };
     const [docsRes, numRes, msgRes, dispRes] = await Promise.allSettled([
-      apiFetch(`/api/accounting/company-documents?companyId=${companyId}`).then(r => r.json()),
-      apiFetch('/api/accounting/company-settings?type=document-numbers').then(r => r.json()),
-      apiFetch('/api/accounting/company-settings?type=messages').then(r => r.json()),
-      apiFetch('/api/accounting/accounting-settings?key=document_display_fields').then(r => r.json()),
+      get(`/api/accounting/company-documents?companyId=${companyId}`),
+      get('/api/accounting/company-settings?type=document-numbers'),
+      get('/api/accounting/company-settings?type=messages'),
+      get('/api/accounting/accounting-settings?key=document_display_fields'),
     ]);
+    const failed = [docsRes, numRes, msgRes, dispRes].find((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (failed) setError(apiErrorMessage(failed.reason, 'Could not load some company settings - try again'));
     if (docsRes.status === 'fulfilled' && docsRes.value.data) setDocuments(docsRes.value.data as CompanyDocument[]);
     if (numRes.status === 'fulfilled' && numRes.value.data) setDocNumbers(numRes.value.data as DocumentNumber[]);
     if (msgRes.status === 'fulfilled' && msgRes.value.data) {

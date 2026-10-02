@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Layers, Plus, Check, Zap, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface Batch {
@@ -28,19 +28,25 @@ export default function BatchPaymentsPage() {
   const [items, setItems] = useState<Batch[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    const res = await apiFetch('/api/accounting/batch-payments', { credentials: 'include' });
-    const json = await res.json();
-    setItems(json.data?.items || []);
-    setLoading(false);
+    setError('');
+    try {
+      const res = await apiFetch('/api/accounting/batch-payments', { credentials: 'include' });
+      await assertOk(res, 'Could not load batch payments - try again');
+      const json = await res.json();
+      setItems(json.data?.items || []);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load batch payments - try again'));
+      log.error('Failed to load batch payments', { error: err }, 'batch-payments-page');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    load().catch((err) => {
-      setLoading(false);
-      log.error('Failed to load batch payments', { error: err }, 'batch-payments-page');
-    });
+    void load();
   }, [load]);
 
   const doAction = async (action: string, id: string) => {
@@ -78,7 +84,8 @@ export default function BatchPaymentsPage() {
               </tr></thead>
               <tbody>
                 {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
-                {!loading && items.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No batch payments</td></tr>}
+                {error && <tr><td colSpan={7} className="px-4 py-3 text-center text-red-400">{error}</td></tr>}
+                {!loading && !error && items.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No batch payments</td></tr>}
                 {items.map(item => (
                   <tr key={item.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">

@@ -31,11 +31,12 @@ export default function OpeningBalancesPage() {
     setIsLoading(true);
     try {
       const res = await apiFetch('/api/accounting/opening-balances');
+      await assertOk(res, 'Could not load accounts - try again');
       const json = await res.json();
       const data = json.data || json;
       setAccounts(data.accounts || []);
-    } catch {
-      setMessage({ type: 'error', text: 'Failed to load accounts' });
+    } catch (err) {
+      setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not load accounts - try again') });
     } finally {
       setIsLoading(false);
     }

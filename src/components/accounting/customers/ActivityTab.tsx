@@ -9,7 +9,7 @@ import {
   MessageSquare, Phone, Mail, DollarSign, FileText, RefreshCw,
   Clock, Plus, Trash2, Loader2,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 type ActivityType =
   | 'note'
@@ -106,14 +106,19 @@ export function ActivityTab({ customerId }: { customerId: string }) {
   const [showForm, setShowForm]     = useState(false);
   const [saving, setSaving]         = useState(false);
   const [form, setForm]             = useState(EMPTY_FORM);
+  const [error, setError]           = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const res  = await apiFetch(`/api/accounting/customer-activities?customerId=${customerId}`);
+      await assertOk(res, 'Could not load activities - try again');
       const json = await res.json() as { data?: CustomerActivity[] } | CustomerActivity[];
       const data = (json as { data?: CustomerActivity[] }).data ?? (json as CustomerActivity[]);
       setActivities(data);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load activities - try again'));
     } finally {
       setLoading(false);
     }
@@ -158,6 +163,7 @@ export function ActivityTab({ customerId }: { customerId: string }) {
 
   return (
     <div className="space-y-4">
+      {error && <p className="text-sm text-red-500">{error}</p>}
       {/* Header row */}
       <div className="flex justify-between items-center">
         <h3 className="text-sm font-medium text-[var(--ff-text-secondary)] uppercase tracking-wide">

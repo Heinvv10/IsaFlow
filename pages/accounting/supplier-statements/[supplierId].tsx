@@ -6,7 +6,8 @@ import { fmtDate } from '@/lib/fmtDate';
 import { ArrowLeft, ClipboardList, Loader2, AlertCircle, Download, FileText, Search, ExternalLink } from 'lucide-react';
 // generateStatementPdf is loaded dynamically inside handleDownloadPDF
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { notify } from '@/utils/toast';
 import { TypeBadge, getTransactionUrl, type SupplierInfo, type Summary } from '@/components/accounting/supplierStatementParts';
 
 interface Transaction {
@@ -98,12 +99,13 @@ export default function SupplierStatementDetailPage() {
     let companyName = '', companyVatNumber = '', companyEmail = '', companyPhone = '', companyAddress = '', accentColor = '#0d9488';
     try {
       const cRes = await apiFetch('/api/accounting/company-details');
+      await assertOk(cRes, 'Could not load your company details for the PDF - try again');
       const cJson = await cRes.json() as { data?: Record<string, string> } & Record<string, string>;
       const c = (cJson.data ?? cJson) as Record<string, string>;
       companyName = c.name || ''; companyVatNumber = c.vat_number || '';
       companyEmail = c.email || ''; companyPhone = c.phone || '';
       companyAddress = c.address || ''; accentColor = c.primary_color || '#0d9488';
-    } catch { /* use defaults */ }
+    } catch (err) { notify.error(apiErrorMessage(err, 'Could not load your company details for the PDF - try again')); return; }
 
     const blob = await generateStatementPdf({
       clientName: supplier.name,

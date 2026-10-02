@@ -17,6 +17,8 @@ interface AfsDocument {
   created_at: string;
 }
 
+const LOAD_ERROR = 'Could not load your documents - try again';
+
 export async function getServerSideProps(context: GetServerSidePropsContext) {
   const cookie = context.req.cookies['portal_session'];
   if (!cookie) {
@@ -34,11 +36,12 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
     const res = await fetch(`${baseUrl}/api/accounting/portal/documents`, {
       headers: { Cookie: `portal_session=${cookie}` },
     });
-    const json = (await res.json()) as { data?: { documents: AfsDocument[] } };
+    const json = (await res.json().catch(() => ({}))) as { data?: { documents: AfsDocument[] }; error?: { message?: string } };
+    if (!res.ok) return { props: { session, documents: [], loadError: json.error?.message || LOAD_ERROR } };
     const documents: AfsDocument[] = json.data?.documents ?? [];
-    return { props: { session, documents } };
+    return { props: { session, documents, loadError: '' } };
   } catch {
-    return { props: { session, documents: [] } };
+    return { props: { session, documents: [], loadError: LOAD_ERROR } };
   }
 }
 
@@ -59,6 +62,7 @@ const STATUS_COLORS: Record<string, string> = {
 export default function PortalDashboardPage({
   session,
   documents,
+  loadError,
 }: InferGetServerSidePropsType<typeof getServerSideProps>) {
   const afsDocs = documents.filter((d) => d.document_type === 'afs');
   const managementPacks = documents
@@ -87,6 +91,7 @@ export default function PortalDashboardPage({
         </header>
 
         <main style={styles.main}>
+          {loadError && <p role="alert" style={styles.error}>{loadError}</p>}
           {/* Latest AFS */}
           <section style={styles.section}>
             <h2 style={styles.sectionTitle}>Annual Financial Statements</h2>
@@ -204,6 +209,11 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '1.125rem',
     fontWeight: 700,
     color: '#0f172a',
+    marginBottom: '1rem',
+  },
+  error: {
+    color: '#b91c1c',
+    fontSize: '0.9rem',
     marginBottom: '1rem',
   },
   empty: {

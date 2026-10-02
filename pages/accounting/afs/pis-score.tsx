@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   Scale, Loader2, AlertCircle, Save, RefreshCw, AlertTriangle, CheckCircle, Info,
 } from 'lucide-react';
@@ -48,15 +48,15 @@ export default function PisScorePage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/afs/pis-score');
-      const json = await res.json();
-      const d = json.data as PisBreakdown;
+      await assertOk(res, 'Could not load the PIS score - try again');
+      const d = (await res.json()).data as PisBreakdown;
       setData(d);
       setEmpBegin(d.employees.beginning);
       setEmpEnd(d.employees.end);
       setShCount(d.shareholders.count);
       setAllDirs(d.allShareholdersAreDirectors);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load PIS score');
+      setError(apiErrorMessage(err, 'Could not load the PIS score - try again'));
     } finally {
       setLoading(false);
     }

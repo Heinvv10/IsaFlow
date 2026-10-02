@@ -15,7 +15,7 @@ import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import { ReconciliationBalances } from '@/components/accounting/bank/ReconciliationBalances';
 import type { BankReconciliation, BankTransaction } from '@/modules/accounting/types/bank.types';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 function TxStatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -67,8 +67,7 @@ export default function ReconciliationDetailPage() {
       const [reconRes, txRes] = await Promise.all([
         apiFetch(`/api/accounting/bank-reconciliations?id=${reconId}`),
         apiFetch(`/api/accounting/bank-transactions?reconciliation_id=${reconId}&limit=500`),
-      ]);
-
+      ]); await assertOk(reconRes, 'Could not load the reconciliation - try again'); await assertOk(txRes, 'Could not load the reconciliation transactions - try again');
       const reconJson = await reconRes.json();
       const reconData = reconJson.data || reconJson;
       setRecon(reconData);
@@ -80,7 +79,7 @@ export default function ReconciliationDetailPage() {
 
       // Load unmatched GL lines for this bank account
       if (reconData?.bankAccountId) {
-        const glRes = await apiFetch(`/api/accounting/journal-entries?gl_account_id=${reconData.bankAccountId}&status=posted&limit=200`);
+        const glRes = await apiFetch(`/api/accounting/journal-entries?gl_account_id=${reconData.bankAccountId}&status=posted&limit=200`); await assertOk(glRes, 'Could not load the bank ledger lines - try again');
         const glJson = await glRes.json();
         const entries = glJson.data?.entries || glJson.entries || [];
         const lines: GLLine[] = [];
@@ -106,8 +105,8 @@ export default function ReconciliationDetailPage() {
         );
         setGlLines(lines.filter(l => !matchedLineIds.has(l.id)));
       }
-    } catch {
-      setError('Failed to load reconciliation data');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to load reconciliation data'));
     } finally {
       setIsLoading(false);
     }
@@ -265,7 +264,7 @@ export default function ReconciliationDetailPage() {
     return (
       <AppLayout>
         <div className="min-h-screen bg-[var(--ff-bg-primary)] flex items-center justify-center">
-          <p className="text-[var(--ff-text-secondary)]">Reconciliation not found</p>
+          <p className="text-[var(--ff-text-secondary)]">{error || 'Reconciliation not found'}</p>
         </div>
       </AppLayout>
     );

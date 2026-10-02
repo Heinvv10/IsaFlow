@@ -247,7 +247,8 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
         body: JSON.stringify(body),
       });
       await assertOk(res, 'Failed to create rule');
-      const json = await res.json(); if (json.success === false) throw new Error(json.error?.message || 'Failed to create rule');
+      const json = await res.json();
+      if (json.success === false) throw new Error(json.error?.message || 'Failed to create rule');
       const rawApplied = (json as { data?: { applied?: unknown } }).data?.applied;
       const applied = typeof rawApplied === 'number' && Number.isFinite(rawApplied) ? rawApplied : 0;
       const verb = autoCreateEntry ? 'allocated' : 'matched';

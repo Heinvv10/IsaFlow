@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingDown, Play, Loader2 } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   calculatePolicyDepreciation,
@@ -104,10 +104,10 @@ export default function DepreciationPage() {
   const [categoryFilter, setCategoryFilter] = useState('');
 
   const loadAssets = useCallback(async () => {
+    setError('');
     try {
-      const res = await apiFetch('/api/accounting/assets?status=available,assigned,in_maintenance&limit=200', {
-        credentials: 'include',
-      });
+      const res = await apiFetch('/api/accounting/assets?status=available,assigned,in_maintenance&limit=200', { credentials: 'include' });
+      await assertOk(res, 'Could not load the assets - try again');
       const json = await res.json();
       const list = json.data?.items || json.data?.assets || json.data || [];
       setAssets(
@@ -119,7 +119,7 @@ export default function DepreciationPage() {
       );
     } catch (err) {
       log.error('Failed to load depreciable assets', { error: err }, 'depreciation-page');
-      setAssets([]);
+      setAssets([]); setError(apiErrorMessage(err, 'Could not load the assets - try again'));
     }
     setLoading(false);
   }, []);

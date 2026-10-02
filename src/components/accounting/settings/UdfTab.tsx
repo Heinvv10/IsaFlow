@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Save, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { INPUT_CLS, SECTION_CLS, Toggle } from './settingsTypes';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -72,6 +72,7 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
     setLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/udf-definitions?entityType=${entityType}`);
+      await assertOk(res, 'Could not load field definitions - try again');
       const json = await res.json() as { data: UdfDefinition[] };
       if (json.data) {
         const incoming = json.data;
@@ -92,8 +93,8 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
           return next;
         });
       }
-    } catch {
-      setError('Failed to load field definitions');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load field definitions - try again'));
     } finally {
       setLoading(false);
     }

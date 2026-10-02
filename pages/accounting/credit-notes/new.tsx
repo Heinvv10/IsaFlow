@@ -7,7 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Loader2, Receipt } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -37,11 +37,11 @@ export default function NewCreditNotePage() {
   const totalAmount = form.subtotal + taxAmount;
 
   useEffect(() => {
-    apiFetch('/api/accounting/customers').then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load clients - try again'); return r.json(); }).then(res => {
       const data = res.data || res;
       setClients(Array.isArray(data) ? data : data.clients || []);
-    }).catch(() => {
-      setError('Failed to load clients');
+    }).catch((err: unknown) => {
+      setError(apiErrorMessage(err, 'Could not load clients - try again'));
     });
   }, []);
 
@@ -64,11 +64,10 @@ export default function NewCreditNotePage() {
           taxRate: form.taxRate,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed to create credit note');
+      await assertOk(res, 'Could not create the credit note - try again');
       void router.push('/accounting/credit-notes');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create credit note');
+      setError(apiErrorMessage(err, 'Could not create the credit note - try again'));
     } finally { setIsSubmitting(false); }
   };
 

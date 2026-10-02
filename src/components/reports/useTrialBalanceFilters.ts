@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { queryText, reportHref } from './reportReturnState';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -12,6 +12,7 @@ export function useTrialBalanceFilters() {
   const ready = router.isReady !== false;
   const [periods, setPeriods] = useState<FiscalPeriod[]>([]);
   const [periodsLoaded, setPeriodsLoaded] = useState(false);
+  const [periodsError, setPeriodsError] = useState('');
   const [restoredKey, setRestoredKey] = useState('');
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [costCentreId, setCostCentreId] = useState('');
@@ -21,10 +22,11 @@ export function useTrialBalanceFilters() {
 
   useEffect(() => {
     let cancelled = false;
+    const failure = 'Could not load the fiscal periods - try again';
     apiFetch('/api/accounting/fiscal-periods', { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, failure); return r.json(); })
       .then(res => { if (!cancelled) setPeriods(res.data?.items || res.data || []); })
-      .catch(() => { /* selector remains empty when reference data is unavailable */ })
+      .catch((err: unknown) => { if (!cancelled) setPeriodsError(apiErrorMessage(err, failure)); })
       .finally(() => { if (!cancelled) setPeriodsLoaded(true); });
     return () => { cancelled = true; };
   }, []);
@@ -55,7 +57,7 @@ export function useTrialBalanceFilters() {
     business_unit_id: businessUnitId,
     compare_period_id: comparePeriodId, show_movement: String(showMovement),
   });
-  return { periods, selectedPeriod, setSelectedPeriod, costCentreId, setCostCentreId,
+  return { periods, periodsError, selectedPeriod, setSelectedPeriod, costCentreId, setCostCentreId,
     businessUnitId, setBusinessUnitId,
     comparePeriodId, setComparePeriodId, showMovement, setShowMovement, returnTo,
     filtersReady: ready && periodsLoaded && restoredKey === queryKey };

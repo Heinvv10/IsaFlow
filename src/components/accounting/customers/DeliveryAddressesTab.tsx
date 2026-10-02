@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { MapPin, Plus, Trash2, Star, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface DeliveryAddress {
   id: string;
@@ -35,15 +35,20 @@ export function DeliveryAddressesTab({ customerId }: { customerId: string }) {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const res = await apiFetch(`/api/accounting/customer-delivery-addresses?customerId=${customerId}`);
+      await assertOk(res, 'Could not load delivery addresses - try again');
       const json = await res.json() as { data?: DeliveryAddress[] } | DeliveryAddress[];
       const data = (json as { data?: DeliveryAddress[] }).data ?? (json as DeliveryAddress[]);
       setAddresses(data);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load delivery addresses - try again'));
     } finally {
       setLoading(false);
     }
@@ -113,7 +118,9 @@ export function DeliveryAddressesTab({ customerId }: { customerId: string }) {
         </div>
       )}
 
-      {addresses.length === 0 && !showForm && (
+      {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
+
+      {addresses.length === 0 && !showForm && !error && (
         <div className="text-center py-12 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
           <MapPin className="h-8 w-8 text-[var(--ff-text-tertiary)] mx-auto mb-2" />
           <p className="text-sm text-[var(--ff-text-secondary)]">No delivery addresses yet</p>

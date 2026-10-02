@@ -7,7 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { ArrowLeft, TrendingUp, Loader2, AlertTriangle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { TrendAnalysis as TrendData } from '@/modules/accounting/services/reports/trendAnalysisService';
 
@@ -29,14 +29,19 @@ export default function TrendAnalysisPage() {
   const [months, setMonths] = useState(6);
   const [analysis, setAnalysis] = useState<TrendData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const loadData = useCallback(async () => {
-    setLoading(true);
+    setLoading(true); setError('');
     try {
       const res = await apiFetch(`/api/accounting/reports-trend-analysis?metric=${metric}&months=${months}`);
+      await assertOk(res, 'Could not load the trend analysis - try again');
       const json = await res.json();
       if (json.data?.analysis) setAnalysis(json.data.analysis);
-    } catch (err) { log.error('Failed to load trend analysis', { error: err instanceof Error ? err.message : String(err) }, 'TrendAnalysisPage'); }
+    } catch (err) {
+      log.error('Failed to load trend analysis', { error: err instanceof Error ? err.message : String(err) }, 'TrendAnalysisPage');
+      setAnalysis(null); setError(apiErrorMessage(err, 'Could not load the trend analysis - try again'));
+    }
     finally { setLoading(false); }
   }, [metric, months]);
 
@@ -79,6 +84,7 @@ export default function TrendAnalysisPage() {
             </select>
           </div>
 
+          {error && <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">{error}</div>}
           {loading ? (
             <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 text-teal-500 animate-spin" /></div>
           ) : analysis ? (

@@ -36,11 +36,12 @@ export default function YearEndPage() {
     setIsLoading(true);
     try {
       const res = await apiFetch('/api/accounting/year-end');
+      await assertOk(res, 'Could not load the fiscal years - try again');
       const json = await res.json();
       const data = json.data || json;
       setFiscalYears(data.years || []);
-    } catch {
-      setMessage({ type: 'error', text: 'Failed to load fiscal years' });
+    } catch (err) {
+      setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not load the fiscal years - try again') });
     } finally {
       setIsLoading(false);
     }
