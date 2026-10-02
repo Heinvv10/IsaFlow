@@ -28,6 +28,9 @@ import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis'
 import { comparativeLengthClause } from '@/modules/accounting/services/packs/pages/packPeriodLabel';
 import { formatMoney, inProse, MONEY_SCALES } from '@/lib/format/money';
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
+import { ScorecardTable } from '@/components/accounting/packs/primitives/ScorecardTable';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
@@ -343,13 +346,29 @@ describe('two conventions the pack applied and did not declare', () => {
   it('a positive percentage that is not a change prints unsigned', () => {
     const doc = buildBoardPackPages(liveDemoRenderedInput);
     const levels = [...doc.provenance.all().entries()]
-      .filter(([source]) => source.includes('pctOfRevenue') || source.includes('target'))
+      .filter(([source]) => source.includes('pctOfRevenue'))
       .flatMap(([source, list]) => list.map((f) => ({ source, f })))
       .filter(({ f }) => f.format === 'pct' && (f.value ?? 0) > 0);
 
-    expect(levels.length, 'no positive percentage that is not a change').toBeGreaterThan(0);
+    expect(levels.length, 'no positive share of revenue').toBeGreaterThan(0);
     for (const { source, f } of levels) {
       expect(formatFigureText(f, PACK_SCALE), `${source} prints signed`).not.toContain('+');
+    }
+
+    // A target is a raw number the scorecard prints through its own
+    // formatter, so it is read off the rendered scorecard: the third cell.
+    const targets = doc.pages.flatMap((page) => page.blocks).flatMap((block) => {
+      if (block.kind !== 'scorecard') return [];
+      const html = renderToStaticMarkup(createElement(ScorecardTable, { groups: block.groups, scale: PACK_SCALE }));
+      const cells = [...html.matchAll(/<tr class="pack-scorecard-row">(.*?)<\/tr>/g)]
+        .map((row) => [...row[1]!.matchAll(/<td[^>]*>(.*?)<\/td>/g)].map((cell) => cell[1]!.replace(/<[^>]*>/g, '')));
+      const rows = block.groups.flatMap((group) => group.rows);
+      expect(cells.length, 'scorecard rows printed').toBe(rows.length);
+      return rows.flatMap((row, i) => (row.actual.format === 'pct' && (row.target ?? 0) > 0 ? [{ metric: row.metric, printed: cells[i]![2]! }] : []));
+    });
+    expect(targets.length, 'no positive percentage target').toBeGreaterThan(0);
+    for (const { metric, printed } of targets) {
+      expect(printed, `${metric}'s target`).toMatch(/^\d[\d.]*%$/);
     }
 
     const basis = proseOf(pageNamed(liveDemoRenderedInput, 'Basis of preparation'));
