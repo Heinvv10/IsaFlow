@@ -113,6 +113,7 @@ export default function AssetDetailPage() {
     setLoading(true);
     try {
       const res = await apiFetch('/api/accounting/assets');
+      await assertOk(res, 'Could not load the asset - try again');
       const json = await res.json() as { data?: unknown };
       const data = json.data ?? json;
       if (Array.isArray(data)) {
@@ -122,7 +123,7 @@ export default function AssetDetailPage() {
       } else { setAsset(data as Asset); }
     } catch (err) {
       log.error('Failed to load asset', { err, assetId }, 'accounting');
-      setError('Failed to load asset');
+      setError(apiErrorMessage(err, 'Could not load the asset - try again'));
     } finally { setLoading(false); }
   }, [assetId]);
 

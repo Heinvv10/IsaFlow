@@ -8,7 +8,7 @@ import { Fragment, useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, Users, TrendingDown, Clock, Percent, ChevronDown, ChevronRight, Search } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type {
   DebtorSummary,
   CollectionStats,
@@ -64,13 +64,14 @@ export default function DebtorsManagerPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/debtors-manager');
+      await assertOk(res, 'Could not load debtors data - try again');
       const json = await res.json();
       const payload = json.data ?? json;
       setSummary(Array.isArray(payload.summary) ? payload.summary : []);
       setStats(payload.stats ?? null);
       setOverdueInvoices(Array.isArray(payload.overdueInvoices) ? payload.overdueInvoices : []);
-    } catch {
-      setError('Failed to load debtors data');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load debtors data - try again'));
     } finally {
       setIsLoading(false);
     }

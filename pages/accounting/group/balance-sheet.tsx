@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { BarChart3, Loader2, AlertCircle, Download, Building2, CheckCircle2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 /* ------------------------------------------------------------------ */
@@ -74,7 +74,7 @@ export default function ConsolidatedBalanceSheetPage() {
   /* ---------- Load available groups ---------- */
   useEffect(() => {
     apiFetch('/api/accounting/company-groups')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load company groups - try again'); return r.json(); })
       .then(json => {
         const items: EntityGroup[] = json.data?.items || json.data?.groups || json.data || [];
         setGroups(items);
@@ -82,9 +82,7 @@ export default function ConsolidatedBalanceSheetPage() {
           setSelectedGroupId(items[0].id);
         }
       })
-      .catch(() => {
-        // Non-critical — group list load failure
-      });
+      .catch(err => setError(apiErrorMessage(err, 'Could not load company groups - try again')));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

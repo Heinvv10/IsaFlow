@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { AlertCircle, Loader2, ChevronRight, Calendar, BarChart3 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AddSubsidiaryModal } from '@/components/accounting/consolidation/AddSubsidiaryModal';
 import { GroupCompaniesSection } from '@/components/accounting/consolidation/GroupCompaniesSection';
 import { ConsolidatedTBTable } from '@/components/accounting/consolidation/ConsolidatedTBTable';
@@ -41,13 +41,18 @@ export default function ConsolidationPage() {
   const [loadingReport, setLoadingReport]       = useState(false);
   const [reportError, setReportError]           = useState('');
   const [showModal, setShowModal]               = useState(false);
+  const [companiesError, setCompaniesError]     = useState('');
 
   const loadGroupCompanies = useCallback(async () => {
     setLoadingCompanies(true);
+    setCompaniesError('');
     try {
       const res  = await apiFetch('/api/accounting/consolidation/companies');
+      await assertOk(res, 'Could not load group companies - try again');
       const json = await res.json();
       setGroupCompanies((json.data?.items ?? []) as GroupCompany[]);
+    } catch (err) {
+      setCompaniesError(apiErrorMessage(err, 'Could not load group companies - try again'));
     } finally {
       setLoadingCompanies(false);
     }
@@ -63,14 +68,15 @@ export default function ConsolidationPage() {
     try {
       const params = new URLSearchParams({ periodStart, periodEnd });
       const res  = await apiFetch(`/api/accounting/consolidation/trial-balance?${params}`);
+      await assertOk(res, 'Could not load the report - try again');
       const json = await res.json();
       if (!json.success) {
         setReportError(json.error?.message ?? 'Failed to load report');
         return;
       }
       setReport(json.data as ConsolidatedTrialBalance);
-    } catch {
-      setReportError('Network error loading report');
+    } catch (err) {
+      setReportError(apiErrorMessage(err, 'Could not load the report - try again'));
     } finally {
       setLoadingReport(false);
     }
@@ -86,6 +92,11 @@ export default function ConsolidationPage() {
           </p>
         </div>
 
+        {companiesError && (
+          <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            <AlertCircle className="h-4 w-4 shrink-0" /> {companiesError}
+          </div>
+        )}
         <GroupCompaniesSection
           items={groupCompanies}
           loading={loadingCompanies}

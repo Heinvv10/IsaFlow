@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { SlidersHorizontal, Plus, Check, Loader2 } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
 interface Adjustment {
@@ -39,6 +39,7 @@ export default function AdjustmentsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const res = await apiFetch(`/api/accounting/adjustments?entityType=${entityType}`, { credentials: 'include' });
+    await assertOk(res, 'Could not load adjustments - try again');
     const json = await res.json();
     setItems(json.data?.items || []);
     setLoading(false);
@@ -47,20 +48,20 @@ export default function AdjustmentsPage() {
   useEffect(() => {
     load().catch((err) => {
       setLoading(false);
-      setError(err instanceof Error ? err.message : 'Failed to load adjustments');
+      setError(apiErrorMessage(err, 'Could not load adjustments - try again'));
     });
   }, [load]);
   useEffect(() => {
     if (entityType === 'supplier') return; // suppliers are searched by SupplierSelect
-    apiFetch('/api/accounting/customers').then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); }).then(res => {
       const d = res.data || res;
       setEntities(
         Array.isArray(d)
           ? d
           : d.clients || d.customers || d.suppliers || d.items || [],
       );
-    }).catch(() => {
-      setError('Failed to load customers');
+    }).catch((err) => {
+      setError(apiErrorMessage(err, 'Could not load customers - try again'));
     });
   }, [entityType]);
 

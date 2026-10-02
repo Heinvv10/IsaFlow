@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { ScanLine, Loader2, CheckCircle2, AlertTriangle, X } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
@@ -56,8 +56,9 @@ export function ScanAndFillButton({ onExtracted, className = '', label = 'Scan &
         body: formData,
       });
 
+      await assertOk(res, 'Could not scan the document - try again');
       const json = await res.json();
-      if (!json.success) throw new Error(json.error?.message || 'Extraction failed');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Extraction failed');
 
       const extracted = json.data.extracted as ExtractedDocument;
       setLastResult({
@@ -75,7 +76,7 @@ export function ScanAndFillButton({ onExtracted, className = '', label = 'Scan &
         notify.error('Low confidence extraction — please review all fields');
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Extraction failed';
+      const msg = apiErrorMessage(err, 'Could not scan the document - try again');
       notify.error(msg);
     } finally {
       setIsExtracting(false);

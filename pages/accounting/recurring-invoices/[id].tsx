@@ -10,7 +10,7 @@ import Link from 'next/link';
 import {
   ArrowLeft, Repeat, Loader2, AlertCircle, Save,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   LineItemsSection,
@@ -63,22 +63,20 @@ export default function EditRecurringInvoicePage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/customers')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); })
       .then((json: { data?: unknown }) => {
         const d = json.data;
         const list = Array.isArray(d) ? d : (d as { clients?: Customer[] })?.clients ?? [];
         setCustomers(list as Customer[]);
       })
-      .catch(err => {
-        log.error('Failed to load customers', { error: err }, 'recurring-edit');
-      });
+      .catch(err => { log.error('Failed to load customers', { error: err }, 'recurring-edit'); setError(apiErrorMessage(err, 'Could not load customers - try again')); });
   }, []);
 
   useEffect(() => {
     if (!id) return;
     setLoading(true);
     apiFetch('/api/accounting/recurring-invoices')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the recurring invoice - try again'); return r.json(); })
       .then((json: { data?: { items?: Record<string, unknown>[] } }) => {
         const found = json.data?.items?.find(i => i.id === id);
         if (!found) { setError('Recurring invoice not found'); return; }
@@ -109,7 +107,7 @@ export default function EditRecurringInvoicePage() {
       })
       .catch(err => {
         log.error('Failed to load recurring invoice', { id, error: err }, 'recurring-edit');
-        setError('Failed to load recurring invoice');
+        setError(apiErrorMessage(err, 'Could not load the recurring invoice - try again'));
       })
       .finally(() => setLoading(false));
   }, [id]);

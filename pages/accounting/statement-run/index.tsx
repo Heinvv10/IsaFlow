@@ -14,7 +14,7 @@ import {
   SendHorizonal,
 } from 'lucide-react';
 import { log } from '@/lib/logger';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { fmtDate } from '@/lib/fmtDate';
 import {
   CustomerStatementTable,
@@ -46,11 +46,12 @@ export default function StatementRunPage() {
       const res = await apiFetch(
         `/api/accounting/customer-statements?as_at_date=${asAtDate}`
       );
+      await assertOk(res, 'Could not load customers - try again');
       const json = await res.json();
       const data = json.data || json;
       setCustomers(data.customers || []);
-    } catch {
-      setError('Failed to load customers');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load customers - try again'));
     } finally {
       setIsLoading(false);
     }

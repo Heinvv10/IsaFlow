@@ -40,23 +40,25 @@ export default function RecurringJournalsPage() {
 
   const load = useCallback(async () => {
     const res = await apiFetch('/api/accounting/recurring-journals', { credentials: 'include' });
+    await assertOk(res, 'Could not load recurring journals - try again');
     const json = await res.json();
     setItems(json.data?.items || []);
     setLoading(false);
   }, []);
 
   useEffect(() => {
-    load().catch(err => { setLoading(false); setError(err instanceof Error ? err.message : 'Failed to load recurring journals'); });
+    load().catch(err => { setLoading(false); setError(apiErrorMessage(err, 'Could not load recurring journals - try again')); });
   }, [load]);
   useEffect(() => {
-    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
+      .then(async r => { await assertOk(r, 'Could not load accounts - try again'); return r.json(); }).then(res => {
       const d = res.data || res;
       const list = Array.isArray(d) ? d : d.accounts || d.items || [];
       setAccounts(list.map((a: Record<string, unknown>) => ({
         id: String(a.id), accountCode: String(a.accountCode || a.account_code || ''),
         accountName: String(a.accountName || a.account_name || ''),
       })));
-    }).catch(err => setError(err instanceof Error ? err.message : 'Failed to load accounts'));
+    }).catch(err => setError(apiErrorMessage(err, 'Could not load accounts - try again')));
   }, []);
 
   const totalDebit = formLines.reduce((s, l) => s + (l.debit || 0), 0);

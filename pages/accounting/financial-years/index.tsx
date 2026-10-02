@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { CalendarRange, Plus, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import type { FiscalPeriod } from '@/modules/accounting/types/gl.types';
 import { groupPeriodsIntoYears } from '@/components/accounting/financialYears/types';
@@ -40,12 +40,12 @@ export default function FinancialYearsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/fiscal-periods');
+      await assertOk(res, 'Could not load fiscal periods - try again');
       const json = await res.json() as { data?: FiscalPeriod[] };
-      if (!res.ok) throw new Error('Failed to load fiscal periods');
       setPeriods(json.data ?? []);
     } catch (err) {
       log.error('Failed to fetch fiscal periods', { error: err }, 'financial-years-page');
-      setError('Failed to load fiscal periods');
+      setError(apiErrorMessage(err, 'Could not load fiscal periods - try again'));
     } finally {
       setLoading(false);
     }

@@ -62,11 +62,11 @@ export default function TimeTrackingPage() {
   const [form, setForm] = useState({ ...BLANK_FORM });
 
   useEffect(() => {
-    apiFetch('/api/accounting/customers').then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); }).then(res => {
       const d = res.data || res;
       const list = Array.isArray(d) ? d : d.items || [];
       setCustomers(list.map((c: Record<string, unknown>) => ({ id: String(c.id), companyName: String(c.companyName || c.company_name || '') })));
-    }).catch(() => { /* non-critical */ });
+    }).catch(err => setError(apiErrorMessage(err, 'Could not load customers - try again')));
   }, []);
 
   const loadEntries = useCallback(async () => {
@@ -82,10 +82,11 @@ export default function TimeTrackingPage() {
     params.set('limit', '100');
     try {
       const res = await apiFetch(`/api/accounting/time-entries?${params}`);
+      await assertOk(res, 'Could not load time entries - try again');
       const json = await res.json();
       const d = json.data || json;
       setEntries(d.entries || []); setTotal(d.total || 0);
-    } catch { setError('Failed to load time entries'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load time entries - try again')); }
     setLoading(false);
   }, [tab, filterStatus, filterProject, filterCustomer, filterBillable, filterDateFrom, filterDateTo]);
 
@@ -96,9 +97,10 @@ export default function TimeTrackingPage() {
     if (filterDateTo) params.set('dateTo', filterDateTo);
     try {
       const res = await apiFetch(`/api/accounting/time-summary?${params}`);
+      await assertOk(res, 'Could not load the summary - try again');
       const json = await res.json();
       setSummary(json.data || null);
-    } catch { setError('Failed to load summary'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load the summary - try again')); }
     setLoading(false);
   }, [filterDateFrom, filterDateTo]);
 

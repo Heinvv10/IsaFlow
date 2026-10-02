@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   Server, Plus, RefreshCw, AlertCircle, Loader2, Trash2,
   ChevronLeft, ListChecks, CheckCircle2, XCircle, Link2,
@@ -177,13 +177,13 @@ export default function SentMirrorSettingsPage() {
   }
 
   async function openLog(id: string) {
-    setLogOpenId(id);
-    setLogEntries([]);
+    setLogOpenId(id); setLogEntries([]);
     try {
       const res = await apiFetch(`/api/accounting/ar/sent-mirror/connections/${id}/log?limit=100`);
+      await assertOk(res, 'Could not load the scan log - try again');
       const json = await res.json() as { data?: { items?: ScanLogEntry[] } };
       setLogEntries(json.data?.items ?? []);
-    } catch { /* non-fatal */ }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not load the scan log - try again'), false); }
   }
 
   return (

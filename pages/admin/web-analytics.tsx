@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
 import { TrafficTimeseriesChart, type TimeseriesPoint } from '@/components/admin/charts/TrafficTimeseriesChart';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Activity, Loader2, Globe, Download, Bot } from 'lucide-react';
 
 type Range = '24h' | '7d' | '30d' | '90d';
@@ -124,16 +124,16 @@ export default function AdminWebAnalytics() {
     void (async () => {
       try {
         const res = await apiFetch('/api/admin/analytics/web/websites');
-        const json = await res.json();
-        const ws: Website[] = json?.data?.websites ?? [];
+        await assertOk(res, 'Could not load websites - try again');
+        const ws: Website[] = (await res.json())?.data?.websites ?? [];
         setWebsites(ws);
         // No websites (or a failed load, below) means loadSummary's
         // `if (!websiteId) return` guard never fires — clear `loading`
         // here or the initial spinner runs forever.
         if (ws.length > 0) setWebsiteId(prev => prev || ws[0]!.id);
         else setLoading(false);
-      } catch (_e) {
-        setError('Failed to load websites');
+      } catch (err) {
+        setError(apiErrorMessage(err, 'Could not load websites - try again'));
         setLoading(false);
       }
     })();

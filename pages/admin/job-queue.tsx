@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { JobBulkActionsBar } from '@/components/admin/job-queue/JobBulkActionsBar';
 import { JobTable } from '@/components/admin/job-queue/JobTable';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Loader2, RefreshCw, Zap, Trash2 } from 'lucide-react';
 import type { BackgroundJob } from '@/modules/accounting/services/core/jobQueueService';
@@ -33,6 +33,7 @@ export default function JobQueuePage() {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [deletingOld, setDeletingOld] = useState(false);
   const [toastMsg, setToastMsg]       = useState<string | null>(null);
+  const [loadError, setLoadError]     = useState('');
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -45,13 +46,16 @@ export default function JobQueuePage() {
       const params = new URLSearchParams({ limit: '100' });
       if (activeTab !== 'all') params.set('status', activeTab);
       const res = await apiFetch(`/api/admin/job-queue?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the job queue - try again');
       const json = await res.json() as { data: { jobs: BackgroundJob[]; total: number } };
       setJobs(json.data?.jobs ?? []);
       setTotal(json.data?.total ?? 0);
       setLastRefresh(new Date());
       setSelectedIds(new Set());
+      setLoadError('');
     } catch (err) {
       log.error('Failed to load job queue', { error: err }, 'admin-ui');
+      setLoadError(apiErrorMessage(err, 'Could not load the job queue - try again'));
       setJobs([]);
     } finally {
       setLoading(false);
@@ -94,6 +98,7 @@ export default function JobQueuePage() {
       headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
       body: JSON.stringify({ action, ids: [...selectedIds] }),
     });
+    await assertOk(res, 'Could not complete the bulk action - try again');
     return ((await res.json()) as { data: BulkResult }).data;
   };
 
@@ -103,6 +108,7 @@ export default function JobQueuePage() {
       const r = await callBulk('retry');
       showToast(`Retried ${r.processed} job(s)${r.errors.length ? ` (${r.errors.length} skipped)` : ''}`);
       await load();
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not retry the jobs - try again'));
     } finally { setBulkLoading(false); }
   };
 
@@ -112,6 +118,7 @@ export default function JobQueuePage() {
       const r = await callBulk('cancel');
       showToast(`Cancelled ${r.processed} job(s)${r.errors.length ? ` (${r.errors.length} skipped)` : ''}`);
       await load();
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not cancel the jobs - try again'));
     } finally { setBulkLoading(false); }
   };
 
@@ -123,9 +130,11 @@ export default function JobQueuePage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ action: 'delete_old', olderThanDays: 30 }),
       });
+      await assertOk(res, 'Could not delete the old jobs - try again');
       const json = await res.json() as { data: { processed: number } };
       showToast(`Deleted ${json.data?.processed ?? 0} old job(s) (30d+)`);
       await load();
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not delete the old jobs - try again'));
     } finally { setDeletingOld(false); }
   };
 
@@ -196,6 +205,7 @@ export default function JobQueuePage() {
 
         {/* Table */}
         <div className="p-6">
+          {loadError && <p className="mb-4 text-sm text-red-400">{loadError}</p>}
           {selectedIds.size > 0 && (
             <JobBulkActionsBar
               count={selectedIds.size} loading={bulkLoading}

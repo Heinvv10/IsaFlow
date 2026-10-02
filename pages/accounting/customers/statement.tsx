@@ -19,7 +19,7 @@ import {
   ClipboardList,
   ExternalLink,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import {
   CustomerStatementPreview, type Customer, type StatementResult,
@@ -99,12 +99,13 @@ export default function CustomerStatementPage() {
       let companyName = '', companyVatNumber = '', companyEmail = '', companyPhone = '', companyAddress = '', accentColor = '#0d9488';
       try {
         const cRes = await apiFetch('/api/accounting/company-details', { credentials: 'include' });
+        await assertOk(cRes, 'Could not load your company details for the PDF - try again');
         const cJson = await cRes.json() as { data?: Record<string, string> } & Record<string, string>;
         const c = (cJson.data ?? cJson) as Record<string, string>;
         companyName = c.name || ''; companyVatNumber = c.vat_number || '';
         companyEmail = c.email || ''; companyPhone = c.phone || '';
         companyAddress = c.address || ''; accentColor = c.primary_color || '#0d9488';
-      } catch { /* use empty defaults */ }
+      } catch (err) { setError(apiErrorMessage(err, 'Could not load your company details for the PDF - try again')); return; }
 
       const blob = await generateStatementPdf({
         clientName: statement.customer.name,

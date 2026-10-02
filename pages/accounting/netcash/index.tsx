@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Banknote, RefreshCw, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 
 interface Submission {
@@ -52,10 +52,11 @@ export default function NetcashSubmissionsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/netcash/submissions?limit=50');
+      await assertOk(res, 'Could not load submissions - try again');
       const json = await res.json() as { data?: { items: Submission[]; total: number } };
       if (json.data) { setItems(json.data.items); setTotal(json.data.total); }
-    } catch {
-      setError('Failed to load submissions');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load submissions - try again'));
     } finally {
       setLoading(false);
     }

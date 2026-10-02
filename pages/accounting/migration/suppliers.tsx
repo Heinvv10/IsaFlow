@@ -78,6 +78,7 @@ export default function SuppliersImportPage() {
     setError('');
     try {
       const sessionRes = await apiFetch('/api/accounting/migration/session');
+      await assertOk(sessionRes, 'Could not load the migration session - try again');
       const sessionJson = await sessionRes.json();
       const sessionId = sessionJson.data?.id;
       if (!sessionId) throw new Error('No active migration session');

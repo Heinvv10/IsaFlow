@@ -4,6 +4,7 @@
  */
 
 import { sql, transaction } from '@/lib/neon';
+import { insertCustomers, insertSuppliers } from './migrationExecuteContacts';
 import { log } from '@/lib/logger';
 import { postOpeningBalances } from './migrationOpeningBalanceService';
 import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationParserService';
@@ -23,6 +24,9 @@ export interface ExecuteMigrationResult {
   accountsImported: number;
   customersImported: number;
   suppliersImported: number;
+  /** Rows sent but not inserted: no name, or already there (ON CONFLICT DO NOTHING). */
+  customersSkipped: number;
+  suppliersSkipped: number;
   openingBalancesSet: number;
   errors: string[];
 }
@@ -97,7 +101,7 @@ async function executeUnderLock(
   } catch (err) {
     if (!(err instanceof VatPeriodLockedError)) throw err;
     log.warn('Migration refused: it would change a filed VAT period', { companyId, source, error: err.message }, 'migration');
-    return { accountsImported: 0, customersImported: 0, suppliersImported: 0, openingBalancesSet: 0, errors: [...errors, err.message] };
+    return { accountsImported: 0, customersImported: 0, suppliersImported: 0, customersSkipped: 0, suppliersSkipped: 0, openingBalancesSet: 0, errors: [...errors, err.message] };
   }
 
   if (validAccounts.length > 0) {
@@ -166,21 +170,7 @@ async function executeUnderLock(
   const validCustomers = customers.filter(c => c.name?.trim());
   if (validCustomers.length > 0) {
     try {
-      await transaction((txSql) =>
-        validCustomers.map(cust => txSql`
-          INSERT INTO customers (company_id, name, email, phone, vat_number, billing_address)
-          VALUES (
-            ${companyId}::UUID,
-            ${cust.name},
-            ${cust.email ?? null},
-            ${cust.phone ?? null},
-            ${cust.vatNumber ?? null},
-            ${cust.address ?? null}
-          )
-          ON CONFLICT DO NOTHING
-        `)
-      );
-      customersImported = validCustomers.length;
+      customersImported = await insertCustomers(companyId, validCustomers);
     } catch (err) {
       errors.push(`Customers batch: ${textUnlessLockError(err)}`);
     }
@@ -190,21 +180,7 @@ async function executeUnderLock(
   const validSuppliers = suppliers.filter(s => s.name?.trim());
   if (validSuppliers.length > 0) {
     try {
-      await transaction((txSql) =>
-        validSuppliers.map(sup => txSql`
-          INSERT INTO suppliers (company_id, name, email, phone, vat_number, address)
-          VALUES (
-            ${companyId}::UUID,
-            ${sup.name},
-            ${sup.email ?? null},
-            ${sup.phone ?? null},
-            ${sup.vatNumber ?? null},
-            ${sup.address ?? null}
-          )
-          ON CONFLICT DO NOTHING
-        `)
-      );
-      suppliersImported = validSuppliers.length;
+      suppliersImported = await insertSuppliers(companyId, validSuppliers);
     } catch (err) {
       errors.push(`Suppliers batch: ${textUnlessLockError(err)}`);
     }
@@ -215,7 +191,10 @@ async function executeUnderLock(
   }, 'migration');
 
   clearSystemAccountCacheAfterCommit(companyId);   // a re-import renames its own accounts, a role holder among them
-  return { accountsImported, customersImported, suppliersImported, openingBalancesSet, errors };
+  return {
+    accountsImported, customersImported, suppliersImported, openingBalancesSet, errors,
+    customersSkipped: customers.length - customersImported, suppliersSkipped: suppliers.length - suppliersImported,
+  };
 }
 
 // ── Verify balances ───────────────────────────────────────────────────────────

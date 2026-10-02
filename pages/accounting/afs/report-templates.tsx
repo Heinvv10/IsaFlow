@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { FileText, Loader2, AlertCircle, Copy, Check } from 'lucide-react';
 
 // ── Types ─────��─────────────────────────────────��───────────────────────────
@@ -61,10 +61,11 @@ export default function ReportTemplatesPage() {
       const res = await apiFetch(
         `/api/accounting/afs/report-templates?type=${reportType}&entity_type=${entityType}&framework=${framework}`,
       );
+      await assertOk(res, 'Could not load report templates - try again');
       const json = await res.json();
       setData(json.data);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load templates');
+      setError(apiErrorMessage(err, 'Could not load report templates - try again'));
     } finally {
       setLoading(false);
     }

@@ -21,12 +21,15 @@ interface ExecResult {
   accountsImported: number;
   customersImported: number;
   suppliersImported: number;
+  customersSkipped: number;
+  suppliersSkipped: number;
   openingBalancesSet: number;
   errors: string[];
 }
 const IMPORTED: Record<FileType, keyof Pick<ExecResult, 'accountsImported' | 'customersImported' | 'suppliersImported'>> = {
   accounts: 'accountsImported', customers: 'customersImported', suppliers: 'suppliersImported',
 };
+const SKIPPED = { customers: 'customersSkipped', suppliers: 'suppliersSkipped' } as const;
 
 const BLANK: ZoneState = { status: 'idle', count: 0, error: '', parsed: [] };
 
@@ -128,7 +131,7 @@ export default function AdminMigrationsPage() {
       });
       await assertOk(res, 'Migration failed');
       const { data } = await res.json() as { data: ExecResult };
-      setResult({ ...data, errors: Array.isArray(data.errors) ? data.errors : [] });
+      setResult({ ...data, customersSkipped: data.customersSkipped ?? 0, suppliersSkipped: data.suppliersSkipped ?? 0, errors: Array.isArray(data.errors) ? data.errors : [] });
     } catch (err) {
       setExecErr(apiErrorMessage(err, 'Migration failed'));
     } finally { setExecuting(false); }
@@ -254,6 +257,9 @@ export default function AdminMigrationsPage() {
                 <div key={type} className="bg-white dark:bg-gray-800 rounded-lg py-3 px-2">
                   <p className="font-medium text-gray-900 dark:text-white">{label}</p>
                   <p className="text-teal-600 dark:text-teal-400 mt-1">{result[IMPORTED[type]]} imported</p>
+                  {type !== 'accounts' && result[SKIPPED[type]] > 0 && (
+                    <p className="text-amber-600 dark:text-amber-400 text-xs">{result[SKIPPED[type]]} skipped</p>
+                  )}
                 </div>
               ))}
             </div>

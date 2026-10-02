@@ -83,10 +83,12 @@ export function ChartOfAccountsTab() {
       if (viewMode === 'tree') params.set('view', 'tree');
       if (showInactive) params.set('includeInactive', 'true');
       const res = await apiFetch(`/api/accounting/chart-of-accounts?${params}`);
+      await assertOk(res, 'Could not load the chart of accounts - try again');
       const data = await res.json();
       setAccounts(data.data || data || []);
     } catch (err) {
       log.error('Failed to load accounts', { error: err }, 'accounting-ui');
+      notify.error(apiErrorMessage(err, 'Could not load the chart of accounts - try again'));
     } finally {
       setIsLoading(false);
     }

@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -65,6 +65,7 @@ export default function FarReportPage() {
     setLoading(true);
     setError(null);
     const res = await apiFetch(`/api/accounting/assets/far-report?asAt=${date}`);
+    await assertOk(res, 'Could not load the report - try again');
     const json = await res.json() as { success: boolean; data?: FarReport; error?: string };
     if (json.success && json.data) {
       setReport(json.data);
@@ -77,7 +78,7 @@ export default function FarReportPage() {
   useEffect(() => {
     load(asAt).catch((err) => {
       setLoading(false);
-      setError(err instanceof Error ? err.message : 'Failed to load report');
+      setError(apiErrorMessage(err, 'Could not load the report - try again'));
     });
   }, [asAt, load]);
 

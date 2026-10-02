@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, CheckCircle2, Loader2, Save, Bell } from 'lucide-react';
 
 interface PlatformSettings {
@@ -114,16 +114,15 @@ export default function AdminSettings() {
         apiFetch('/api/admin/settings'),
         apiFetch('/api/admin/alert-settings'),
       ]);
+      await assertOk(settingsRes, 'Could not load the settings - try again');
+      await assertOk(alertRes, 'Could not load the alert settings - try again');
       const settingsJson = await settingsRes.json() as { data: PlatformSettings };
-      if (!settingsRes.ok) throw new Error('Failed to load settings');
       setSettings(settingsJson.data);
 
-      if (alertRes.ok) {
-        const alertJson = await alertRes.json() as { data: AlertSettings };
-        setAlertSettings(alertJson.data ?? { health_alert_email: '', health_alert_webhook_url: '' });
-      }
+      const alertJson = await alertRes.json() as { data: AlertSettings };
+      setAlertSettings(alertJson.data ?? { health_alert_email: '', health_alert_webhook_url: '' });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load settings');
+      setError(apiErrorMessage(err, 'Could not load the settings - try again'));
     } finally {
       setLoading(false);
     }

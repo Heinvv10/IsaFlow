@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Clock, AlertCircle, Loader2, Paperclip, X, ChevronUp, ChevronDown, CheckCircle2 } from 'lucide-react';
 
@@ -81,9 +81,10 @@ export default function ProvisionalEntriesPage() {
     setAttachJeId(jeId); setDocsLoading(true);
     try {
       const res = await apiFetch('/api/accounting/document-capture?status=extracted&pageSize=50');
+      await assertOk(res, 'Could not load documents - try again');
       const json = await res.json() as { data?: CapturedDoc[] };
       setDocs(json.data ?? []);
-    } catch { log.error('Failed to load captured documents', {}, 'provisional-ui'); setDocs([]); }
+    } catch (err) { log.error('Failed to load captured documents', {}, 'provisional-ui'); setDocs([]); setToast({ msg: apiErrorMessage(err, 'Could not load documents - try again'), kind: 'err' }); }
     finally { setDocsLoading(false); }
   }, []);
 

@@ -103,9 +103,7 @@ export default function StaffRatesPage() {
           effectiveTo: form.effectiveTo || undefined,
         }),
       });
-      if (!res.ok) {
-        await assertOk(res, `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not add the rate - try again');
       setForm((f) => ({ ...EMPTY_FORM, userId: f.userId, currency: f.currency }));
       await loadRates(selectedUser);
     } catch (err) {

@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Plus, Loader2, ToggleLeft, ToggleRight, Pencil } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface BusinessUnit {
   id: string;
@@ -32,6 +32,7 @@ export default function BusinessUnitsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/business-units', { credentials: 'include' });
+      await assertOk(res, 'Could not load business units - try again');
       const json = await res.json() as { data?: BusinessUnit[] | { items?: BusinessUnit[] } };
       const data = json.data;
       const rawRows: BusinessUnit[] = Array.isArray(data)
@@ -43,7 +44,7 @@ export default function BusinessUnitsPage() {
         staffCount: d.staffCount,
       })));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load business units');
+      setError(apiErrorMessage(e, 'Could not load business units - try again'));
     } finally {
       setLoading(false);
     }
@@ -85,13 +86,14 @@ export default function BusinessUnitsPage() {
   const toggleActive = async (bu: BusinessUnit) => {
     setBusy(bu.id);
     try {
-      await apiFetch(`/api/departments/${bu.id}`, {
+      const res = await apiFetch(`/api/departments/${bu.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ isActive: !bu.isActive }),
       });
+      await assertOk(res, 'Could not change the business unit - try again');
       await load();
-    } catch { /* ignore */ }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not change the business unit - try again')); }
     setBusy('');
   };
 

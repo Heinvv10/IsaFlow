@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Settings, Loader2, AlertCircle, Save, Check } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AutoPostLlmSection } from '@/components/accounting/AutoPostLlmSection';
 
 interface SettingItem {
@@ -61,10 +61,12 @@ export default function AccountingSettingsPage() {
         for (const def of SETTINGS_DEFINITIONS) {
           try {
             const res = await apiFetch(`/api/accounting/accounting-settings?key=${def.key}`, { credentials: 'include' });
+            await assertOk(res, 'Could not load settings - try again');
             const json = await res.json();
             loaded.push({ ...def, value: String(json.data?.value || '') });
-          } catch {
+          } catch (err) {
             loaded.push({ ...def, value: '' });
+            setError(apiErrorMessage(err, 'Could not load settings - try again'));
           }
         }
         setSettings(loaded);
@@ -79,14 +81,12 @@ export default function AccountingSettingsPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/bank-auto-post', { credentials: 'include' })
-      .then((r) => r.json())
+      .then(async (r) => { await assertOk(r, 'Could not load auto-post settings - try again'); return r.json(); })
       .then((j: { data?: { settings?: AutoPostSettings } }) => {
         if (j?.data?.settings) setAp(j.data.settings);
         // else: leave defaults; card still renders with sensible values
       })
-      .catch(() => {
-        // Leave defaults — the card still renders; non-fatal on settings load
-      });
+      .catch((err) => setError(apiErrorMessage(err, 'Could not load auto-post settings - try again')));
   }, []);
 
   // Sync the editable string drafts whenever ap changes (initial GET hydration
@@ -109,11 +109,12 @@ export default function AccountingSettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       });
+      await assertOk(res, 'Could not save auto-post settings - try again');
       const j = (await res.json()) as { data?: { settings?: AutoPostSettings }; error?: string };
       if (j?.data?.settings) setAp(j.data.settings);
       else setError(j?.error ?? 'Failed to save auto-post settings');
-    } catch {
-      setError('Failed to save auto-post settings');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save auto-post settings - try again'));
     } finally {
       setApSaving(false);
     }

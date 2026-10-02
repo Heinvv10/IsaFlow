@@ -73,10 +73,11 @@ export default function SupplierPaymentDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/supplier-payments?id=${paymentId}`);
+      await assertOk(res, 'Could not load the payment - try again');
       const json = await res.json();
       setPayment(json.data || null);
-    } catch {
-      setError('Failed to load payment');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the payment - try again'));
     } finally {
       setIsLoading(false);
     }

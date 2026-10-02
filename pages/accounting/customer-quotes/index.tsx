@@ -7,7 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight,
   ExternalLink, ClipboardList, Trash2, Download } from 'lucide-react';
 import { StatusPill, PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface Quote { id: string; quoteNumber: string; customerName: string; quoteDate: string; expiryDate: string | null; status: string; total: number; invoiceId?: string }
@@ -135,24 +135,29 @@ export default function CustomerQuotesPage() {
   const [convertingToSO, setConvertingToSO] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<{ text: string; invoiceId: string } | null>(null);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
+  const [loadError, setLoadError] = useState('');
 
   const load = useCallback(async () => {
-    setLoading(true);
+    setLoading(true); setLoadError('');
     const p = new URLSearchParams();
     if (tab !== 'all') p.set('status', tab);
     if (search) p.set('search', search);
-    const res = await apiFetch(`/api/accounting/customer-quotes?${p}`);
-    const json = await res.json() as { data?: { quotes?: Quote[]; total?: number }; quotes?: Quote[]; total?: number };
-    const d = json.data || json;
-    setQuotes(d.quotes || []); setTotal(d.total || 0); setLoading(false);
+    try {
+      const res = await apiFetch(`/api/accounting/customer-quotes?${p}`);
+      await assertOk(res, 'Could not load quotes - try again');
+      const json = await res.json() as { data?: { quotes?: Quote[]; total?: number }; quotes?: Quote[]; total?: number };
+      const d = json.data || json;
+      setQuotes(d.quotes || []); setTotal(d.total || 0);
+    } catch (err) { setQuotes([]); setLoadError(apiErrorMessage(err, 'Could not load quotes - try again')); }
+    finally { setLoading(false); }
   }, [tab, search]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    apiFetch('/api/accounting/customers').then(r => r.json()).then((json: { data?: CustomerOption[] }) => {
+    apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); }).then((json: { data?: CustomerOption[] }) => {
       const list = Array.isArray(json.data) ? json.data : [];
       setCustomers(list.map((c: CustomerOption) => ({ id: String(c.id), name: String(c.name) })));
-    }).catch(() => {/* non-fatal */});
+    }).catch(err => setLoadError(apiErrorMessage(err, 'Could not load customers - try again')));
   }, []);
 
   const handleAction = async (id: string, action: string) => {
@@ -164,7 +169,7 @@ export default function CustomerQuotesPage() {
     if (!window.confirm(`Convert ${q.quoteNumber} (${fmt(q.total)}) to an invoice?`)) return;
     setConverting(q.id); setSuccessMsg(null);
     const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id, action: 'convert' }) });
-    const json = await res.json() as { data?: { invoiceId?: string }; invoiceId?: string; error?: { message?: string } };
+    const json = await res.json().catch(() => ({})) as { data?: { invoiceId?: string }; invoiceId?: string; error?: { message?: string } };
     if (res.ok) { setSuccessMsg({ text: `${q.quoteNumber} converted.`, invoiceId: json.data?.invoiceId || json.invoiceId || '' }); void load(); }
     else window.alert(json?.error?.message || 'Failed to convert');
     setConverting(null);
@@ -174,7 +179,7 @@ export default function CustomerQuotesPage() {
     if (!window.confirm(`Convert ${q.quoteNumber} to a Sales Order?`)) return;
     setConvertingToSO(q.id);
     const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id, action: 'convert-to-order' }) });
-    const json = await res.json() as {
+    const json = await res.json().catch(() => ({})) as {
       data?: { salesOrderId?: string }; salesOrderId?: string;
       error?: { message?: string; details?: { salesOrderId?: string | null } };
     };
@@ -184,7 +189,7 @@ export default function CustomerQuotesPage() {
     const existingOrderId = json.error?.details?.salesOrderId;
     if (res.ok) await router.push(`/accounting/customer-sales-orders/${json.data?.salesOrderId || json.salesOrderId}`);
     else if (res.status === 409 && existingOrderId) await router.push(`/accounting/customer-sales-orders/${existingOrderId}`);
-    else window.alert(json?.error?.message || 'Failed');
+    else window.alert(json?.error?.message || 'Could not convert the quote - try again');
     setConvertingToSO(null);
   };
 
@@ -224,6 +229,8 @@ export default function CustomerQuotesPage() {
               </div>
             </div>
           )}
+
+          {loadError && <div className="text-sm text-red-600 dark:text-red-400">{loadError}</div>}
 
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
             {loading ? (

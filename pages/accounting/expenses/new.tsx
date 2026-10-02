@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ChevronLeft, Loader2 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -27,11 +27,12 @@ export default function NewExpenseClaim() {
     void (async () => {
       try {
         const res = await apiFetch('/api/payroll/employees');
+        await assertOk(res, 'Could not load the employees - try again');
         const json = await res.json() as { data?: Employee[] | { items?: Employee[] } };
         const list = Array.isArray(json.data) ? json.data : json.data?.items ?? [];
         setEmployees(list);
         if (list[0]) setEmployeeId(list[0].id);
-      } catch { /* ignore */ }
+      } catch (err) { setError(apiErrorMessage(err, 'Could not load the employees - try again')); }
     })();
   }, []);
 

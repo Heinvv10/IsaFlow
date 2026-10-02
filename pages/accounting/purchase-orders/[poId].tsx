@@ -20,7 +20,7 @@ import {
   Download,
   PackagePlus,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
 const fmt = (n: number) =>
@@ -125,7 +125,7 @@ export default function PurchaseOrderDetailPage() {
   useEffect(() => {
     if (!editing) return;
     apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
-      .then(r => r.json()).then(j => setAccounts((j.data || []).filter((a: GlAccount & { is_active?: boolean }) => a.is_active !== false))).catch(() => {});
+      .then(async r => { await assertOk(r, 'Could not load GL accounts - try again'); return r.json(); }).then(j => setAccounts((j.data || []).filter((a: GlAccount & { is_active?: boolean }) => a.is_active !== false))).catch(err => setSaveError(apiErrorMessage(err, 'Could not load GL accounts - try again')));
   }, [editing]);
 
   const startEdit = () => {

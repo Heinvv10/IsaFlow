@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Users, User, Plus, Trash2, Star, Loader2, AlertCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface SupplierContact {
@@ -32,12 +32,13 @@ export function ContactsTab({ supplierId }: { supplierId: string }) {
     setError('');
     try {
       const res  = await apiFetch(`/api/accounting/supplier-contacts?supplierId=${supplierId}`);
+      await assertOk(res, 'Could not load contacts - try again');
       const json = await res.json() as { data?: SupplierContact[] } | SupplierContact[];
       const data = (json as { data?: SupplierContact[] }).data ?? (json as SupplierContact[]);
       setContacts(data);
     } catch (err) {
       log.error('Failed to load supplier contacts', { supplierId, error: err }, 'contacts-tab');
-      setError('Failed to load contacts');
+      setError(apiErrorMessage(err, 'Could not load contacts - try again'));
     } finally {
       setLoading(false);
     }

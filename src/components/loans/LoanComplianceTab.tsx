@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, ShieldCheck, Loader2, Play } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { fmt, fmtDate } from '@/components/loans/types';
 
 interface Assessment {
@@ -44,11 +44,12 @@ export function LoanComplianceTab({ loanId }: Props) {
     setLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/loans/${loanId}/compliance`, { credentials: 'include' });
+      await assertOk(res, 'Could not load compliance history - try again');
       const json = await res.json();
       setHistory(json.data ?? []);
     } catch (err) {
       setHistory([]);
-      setError(err instanceof Error ? err.message : 'Failed to load compliance history');
+      setError(apiErrorMessage(err, 'Could not load compliance history - try again'));
     }
     setLoading(false);
   }, [loanId]);

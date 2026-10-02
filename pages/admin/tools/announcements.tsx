@@ -11,7 +11,7 @@ import {
   EMPTY_FORM,
   type AnnouncementFormState,
 } from '@/components/admin/AnnouncementModal';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { Plus, Pencil, Trash2, AlertCircle, Loader2 } from 'lucide-react';
 import type { Announcement } from '@/modules/admin/types/admin.types';
 
@@ -54,10 +54,11 @@ export default function AdminAnnouncementsPage() {
     setError('');
     try {
       const res  = await apiFetch('/api/admin/announcements?limit=100');
+      await assertOk(res, 'Could not load announcements - try again');
       const data = await res.json();
       setRows(data.data?.items ?? []);
-    } catch {
-      setError('Failed to load announcements.');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load announcements - try again'));
     } finally {
       setLoading(false);
     }

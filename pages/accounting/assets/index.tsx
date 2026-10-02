@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Package, Loader2, Plus, Search, CircleDollarSign, Landmark, TrendingDown } from 'lucide-react';
 import Link from 'next/link';
 import { KpiStrip } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { log } from '@/lib/logger';
 
@@ -48,21 +48,25 @@ const statusColors: Record<string, string> = {
 export default function AssetsListPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
 
   const loadAssets = useCallback(async () => {
+    setError('');
     try {
       const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
       if (categoryFilter) params.set('category', categoryFilter);
       if (search) params.set('search', search);
       const res = await apiFetch(`/api/accounting/assets?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load assets - try again');
       const json = await res.json();
       setAssets(json.data || []);
     } catch (err) {
       log.error('Failed to load assets', { error: err }, 'assets-list-page');
+      setError(apiErrorMessage(err, 'Could not load assets - try again'));
       setAssets([]);
     }
     setLoading(false);
@@ -141,6 +145,10 @@ export default function AssetsListPage() {
             </select>
             <span className="text-sm text-[var(--ff-text-secondary)]">{assets.length} assets</span>
           </div>
+
+          {error && (
+            <div role="alert" className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-500 text-sm">{error}</div>
+          )}
 
           {/* Table */}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">

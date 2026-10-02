@@ -81,9 +81,7 @@ export default function LeaveDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
-      if (!res.ok) {
-        await assertOk(res, `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not update the leave request - try again');
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed');

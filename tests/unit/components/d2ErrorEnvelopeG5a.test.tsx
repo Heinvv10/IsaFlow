@@ -137,3 +137,73 @@ describe('BankTxQueryModal send', () => {
     expect(await screen.findByText(m)).toBeTruthy();
   });
 });
+
+describe('success paths (200 envelope { success:true, data })', () => {
+  it('success: ExternalMigrationWizard renders the data it received', async () => {
+    const parsed = [{ sourceCode: '1000', sourceName: 'Distinctive Bank 7391', sourceType: 'BANK', mappedType: 'asset', openingBalance: 5 }];
+    const results = [{ accountCode: '1000', sourceName: 'Distinctive Bank 7391', sourceBalance: 5, isaflowBalance: 5, difference: 0, matched: true }];
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      const u = String(url);
+      if (u.includes('migration-parse')) return ok({ parsed });
+      if (u.includes('migration-execute')) return ok({ accountsImported: 1, customersImported: 0, suppliersImported: 0, openingBalancesSet: 0, errors: [] });
+      return ok({ results });
+    });
+    const { container } = render(<ExternalMigrationWizard source="xero" onDone={() => undefined} onBack={() => undefined} />);
+    fireEvent.change(container.querySelectorAll('input[type="file"]')[0]!, {
+      target: { files: [new File(['a,b'], 'accounts.csv', { type: 'text/csv' })] },
+    });
+    await screen.findByText(/1 records parsed/);
+    fireEvent.click(screen.getByRole('button', { name: /next: map accounts/i }));
+    fireEvent.click(screen.getByRole('button', { name: /next: review/i }));
+    fireEvent.click(screen.getByRole('button', { name: /import now/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /verify balances/i }));
+    expect(await screen.findByText('Distinctive Bank 7391')).toBeTruthy();
+    expect(screen.getByText('All balances matched')).toBeTruthy();
+  });
+
+  it('success: AccountReportingGroupModal save completes', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) => (String(url).includes('chart-of-accounts') ? ok({ items: [] }) : ok({ id: 'g9' })));
+    const onSaved = vi.fn();
+    render(<AccountReportingGroupModal group={null} onClose={() => undefined} onSaved={onSaved} />);
+    fireEvent.change(screen.getByPlaceholderText('e.g. Current Assets'), { target: { value: 'New group' } });
+    fireEvent.click(screen.getByRole('button', { name: /create group/i }));
+    await vi.waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+  });
+
+  it('success: BundleEditor renders the data it received and save completes', async () => {
+    const line = { child_item_id: 'c1', child_code: 'ZK9', child_description: 'Distinctive Widget 8842', child_unit: null, child_selling_price_excl: 10, quantity: 2 };
+    vi.mocked(apiFetch).mockImplementation(async (url, init) =>
+      (init as RequestInit | undefined)?.method === 'POST' ? ok({}) : ok(String(url).includes('item-bundles') ? [line] : []));
+    render(<BundleEditor itemId="item-1" />);
+    expect(await screen.findByText('Distinctive Widget 8842')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /save bundle/i }));
+    expect(await screen.findByText('Saved successfully')).toBeTruthy();
+  });
+
+  it('success: MergeCustomersModal merge completes', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => ok({ merged: true, target_id: 'merged-target-5531' }));
+    const a = { id: 'a', name: 'Acme', email: null, vat: null, invoiceCount: 1 };
+    const b = { id: 'b', name: 'Acme Ltd', email: null, vat: null, invoiceCount: 2 };
+    const onMerged = vi.fn();
+    render(<MergeCustomersModal candidateA={a} candidateB={b} onClose={() => undefined} onMerged={onMerged} />);
+    fireEvent.click(screen.getByRole('button', { name: /confirm merge/i }));
+    await vi.waitFor(() => expect(onMerged).toHaveBeenCalledWith('merged-target-5531'));
+  });
+
+  it('success: BankTxQueryModal send completes', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if ((init as RequestInit | undefined)?.method === 'POST') return ok({});
+      if (String(url).includes('/settings')) return ok({ clientQueryWhatsapp: '+27821234567', companyName: 'Acme' });
+      return ok([]);
+    });
+    const tx = { id: 'tx-1', transactionDate: '2026-09-01', description: 'Deposit', amount: 100, status: 'pending' } as BankTx;
+    const onSent = vi.fn();
+    const onClose = vi.fn();
+    render(<BankTxQueryModal tx={tx} onClose={onClose} onSent={onSent} />);
+    const send = await screen.findByRole('button', { name: /^send$/i });
+    await vi.waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send);
+    await vi.waitFor(() => expect(onSent).toHaveBeenCalledTimes(1));
+    expect(onClose).toHaveBeenCalled();
+  });
+});

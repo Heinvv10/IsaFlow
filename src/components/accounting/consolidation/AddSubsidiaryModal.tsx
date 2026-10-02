@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { Plus, X, AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { GroupCompany } from '@/modules/accounting/services/reports/consolidationTypes';
 
 interface Props {
@@ -33,10 +33,13 @@ export function AddSubsidiaryModal({ onClose, onSaved }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ childCompanyId: childCompanyId.trim(), ownershipPercent: pct, relationshipType }),
       });
+      await assertOk(res, 'Could not add the subsidiary - try again');
       const json = await res.json();
       if (!json.success) { setError(json.error?.message ?? 'Failed'); return; }
       onSaved((json.data?.items ?? []) as GroupCompany[]);
       onClose();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not add the subsidiary - try again'));
     } finally {
       setBusy(false);
     }

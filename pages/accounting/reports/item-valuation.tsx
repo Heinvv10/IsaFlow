@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { DollarSign, Loader2, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -22,10 +22,11 @@ export default function ItemValuationReport() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/reports/item-valuation', { credentials: 'include' });
+      await assertOk(res, 'Could not load item valuation - try again');
       const json = await res.json();
       setRows(json.data || []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setError(apiErrorMessage(err, 'Could not load item valuation - try again'));
     } finally {
       setLoading(false);
     }

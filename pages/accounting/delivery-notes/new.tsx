@@ -6,7 +6,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { Truck, Loader2, ArrowLeft } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   DeliveryNoteLineEditor,
   emptyLine,
@@ -44,7 +44,7 @@ export default function NewDeliveryNotePage() {
   useEffect(() => {
     setLoadingCustomers(true);
     apiFetch('/api/accounting/customers')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); })
       .then((json: { data?: CustomerOption[] } | CustomerOption[]) => {
         const list: CustomerOption[] = Array.isArray(json)
           ? json
@@ -56,7 +56,7 @@ export default function NewDeliveryNotePage() {
           name: String(c.name ?? c.company_name ?? c.companyName ?? ''),
         })));
       })
-      .catch(() => setError('Failed to load customers'))
+      .catch(err => setError(apiErrorMessage(err, 'Could not load customers - try again')))
       .finally(() => setLoadingCustomers(false));
   }, []);
 
@@ -69,9 +69,9 @@ export default function NewDeliveryNotePage() {
     if (!customerId) { setSalesOrders([]); setSalesOrderId(''); return; }
     setLoadingOrders(true);
     apiFetch('/api/accounting/customer-sales-orders?status=confirmed')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load sales orders - try again'); return r.json(); })
       .then((json: { data?: { orders?: SalesOrderOption[] } }) => { setSalesOrders(json?.data?.orders ?? []); })
-      .catch(() => setSalesOrders([]))
+      .catch(err => { setSalesOrders([]); setError(apiErrorMessage(err, 'Could not load sales orders - try again')); })
       .finally(() => setLoadingOrders(false));
   }, [customerId]);
 

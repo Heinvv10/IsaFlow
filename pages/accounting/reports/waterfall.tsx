@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BarChart3, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   DataQualityNotice,
   type UnclassifiedWarning,
@@ -22,20 +22,26 @@ export default function WaterfallPage() {
   const [tab, setTab] = useState<TabType>('profit');
   const [steps, setSteps] = useState<WaterfallStep[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const now = new Date();
       const to = localISODate(now);
       const fromDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
       const from = localISODate(fromDate);
       const res = await apiFetch(`/api/accounting/reports-waterfall?type=${tab}&from=${from}&to=${to}`);
+      await assertOk(res, 'Could not load the waterfall chart - try again');
       const json = await res.json();
       if (json.data?.steps) setSteps(json.data.steps);
       setUnclassified(json.data?.unclassifiedAccounts ?? null);
-    } catch { /* empty state */ }
+    } catch (err) {
+      setSteps([]);
+      setError(apiErrorMessage(err, 'Could not load the waterfall chart - try again'));
+    }
     finally { setLoading(false); }
   }, [tab]);
 
@@ -78,6 +84,8 @@ export default function WaterfallPage() {
               </button>
             ))}
           </div>
+
+          {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</div>}
 
           {/* Chart */}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6">

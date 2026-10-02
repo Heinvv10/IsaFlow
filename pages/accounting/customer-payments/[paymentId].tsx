@@ -11,7 +11,7 @@ import { ArrowLeft, Wallet, Loader2, AlertCircle, Check, X } from 'lucide-react'
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { notify } from '@/utils/toast';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -64,11 +64,12 @@ export default function CustomerPaymentDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/customer-payments?id=${paymentId}`);
+      await assertOk(res, 'Could not load the payment - try again');
       const json = await res.json();
       const data = json.data || json;
       setPayment(data);
-    } catch {
-      setError('Failed to load payment');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the payment - try again'));
     } finally {
       setIsLoading(false);
     }

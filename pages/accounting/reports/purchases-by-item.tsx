@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ShoppingCart, Loader2, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -26,10 +26,11 @@ export default function PurchasesByItemReport() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/reports/purchases-by-item?from=${from}&to=${to}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the purchases report - try again');
       const json = await res.json();
       setRows(json.data || []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setError(apiErrorMessage(err, 'Could not load the purchases report - try again'));
     } finally {
       setLoading(false);
     }

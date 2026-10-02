@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { AlertTriangle, Loader2, CheckCircle2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface BelowThresholdAsset {
   id: string;
@@ -37,10 +37,12 @@ export default function BelowThresholdPage() {
 
   const load = useCallback(() => {
     setLoading(true);
+    setError(null);
     apiFetch('/api/accounting/assets/below-threshold', { credentials: 'include' })
-      .then(r => r.json())
-      .then(j => { setAssets(j.data || []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .then(async r => { await assertOk(r, 'Could not load assets - try again'); return r.json(); })
+      .then(j => setAssets(j.data || []))
+      .catch(err => setError(apiErrorMessage(err, 'Could not load assets - try again')))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);

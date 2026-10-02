@@ -12,7 +12,7 @@ vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNod
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, push: vi.fn(), replace: vi.fn() }) }));
 vi.mock('@/components/accounting/reports/ReportBuilderFilters', () => ({ ReportBuilderFilters: () => null }));
-vi.mock('@/components/accounting/reports/ReportBuilderPreview', () => ({ ReportBuilderPreview: () => null }));
+vi.mock('@/components/accounting/reports/ReportBuilderPreview', () => ({ ReportBuilderPreview: (p: { rowCount: number }) => (p.rowCount > 0 ? <div>{`ran ${p.rowCount} rows`}</div> : null) }));
 vi.mock('@/components/accounting/reports/ReportBuilderSidebar', () => ({
   ReportBuilderSidebar: (p: { onSourceChange: (s: string) => void; onAddField: (f: { field: string; label: string; type: string }) => void }) => (
     <div>
@@ -84,4 +84,42 @@ it('caseware-export shows the server message when auto-suggest is refused', asyn
   render(<CaseWareExportPage />);
   fireEvent.click(await screen.findByRole('button', { name: /auto-suggest/i }));
   expect(await screen.findByText(new RegExp(msg))).toBeTruthy();
+});
+
+describe('success: the actions complete', () => {
+  it('success: builder run completes and hands the result to the preview', async () => {
+    script(() => false, '', 0, { fields: [], columns: [], rows: [], totals: {}, rowCount: 4242 });
+    await configureBuilder();
+    fireEvent.click(screen.getByRole('button', { name: /^run$/i }));
+    expect(await screen.findByText('ran 4242 rows')).toBeTruthy();
+  });
+
+  it('success: builder save completes', async () => {
+    script(() => false, '', 0, { fields: [], id: 'rep-1' });
+    await configureBuilder();
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    expect(await screen.findByText('Report saved successfully')).toBeTruthy();
+  });
+
+  it('success: disclosure-notes save completes and reloads the list', async () => {
+    let saved = false;
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (_url, init) => {
+      if (String((init as RequestInit | undefined)?.method ?? 'GET').toUpperCase() === 'POST') { saved = true; return ok({}); }
+      return ok({ notes: saved ? [{ noteNumber: 20, title: 'Quasar Subsequent Event', content: 'c', source: 'manual', id: 'n1' }] : [] });
+    });
+    render(<DisclosureNotesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /add note/i }));
+    fireEvent.change(screen.getByPlaceholderText(/subsequent events/i), { target: { value: 'Title' } });
+    fireEvent.change(screen.getByPlaceholderText(/enter note content/i), { target: { value: 'Body' } });
+    fireEvent.click(screen.getByRole('button', { name: /save note/i }));
+    expect(await screen.findByText('Quasar Subsequent Event')).toBeTruthy();
+    expect(screen.queryByPlaceholderText(/enter note content/i)).toBeNull();
+  });
+
+  it('success: caseware-export auto-suggest completes', async () => {
+    script(() => false, '', 0, { items: [], applied: 3 });
+    render(<CaseWareExportPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /auto-suggest/i }));
+    expect(await screen.findByText('Auto-suggested 3 account codes')).toBeTruthy();
+  });
 });

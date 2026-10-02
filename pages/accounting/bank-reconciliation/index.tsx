@@ -12,7 +12,7 @@ import {
 import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import type { BankReconciliation } from '@/modules/accounting/types/bank.types';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { EmptyState } from '@/components/ui';
 
 function StatusBadge({ status }: { status: string }) {
@@ -39,11 +39,12 @@ export default function BankReconciliationListPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/bank-reconciliations');
+      await assertOk(res, 'Could not load the reconciliations - try again');
       const json = await res.json();
       const data = json.data || json;
       setReconciliations(Array.isArray(data) ? data : []);
-    } catch {
-      setError('Failed to load reconciliations');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the reconciliations - try again'));
     } finally {
       setIsLoading(false);
     }

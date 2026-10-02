@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Upload, Download, Trash2, FileText, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   Company, CompanyDocument, Toggle,
   INPUT_CLS, LABEL_CLS, SECTION_CLS,
@@ -46,10 +46,11 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
       });
       if (!res.ok) throw new Error('Failed to upload document');
       const updated = await apiFetch(`/api/accounting/company-documents?companyId=${company.id}`);
+      await assertOk(updated, 'The document was uploaded but the list could not be refreshed - reload the page');
       const json = await updated.json();
       if (json.data) onDocumentsChange(json.data as CompanyDocument[]);
-    } catch {
-      onError('Failed to upload document');
+    } catch (err) {
+      onError(apiErrorMessage(err, 'Failed to upload document'));
     } finally {
       setUploadingDoc(false);
       e.target.value = '';

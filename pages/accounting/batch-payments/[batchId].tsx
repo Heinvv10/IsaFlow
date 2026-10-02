@@ -59,10 +59,11 @@ export default function BatchPaymentDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/batch-payments?id=${batchId}`);
+      await assertOk(res, 'Could not load the batch - try again');
       const json = await res.json();
       setBatch(json.data || null);
-    } catch {
-      setError('Failed to load batch');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the batch - try again'));
     } finally {
       setIsLoading(false);
     }

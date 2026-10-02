@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import { FileText, Plus, Loader2, AlertCircle, Download } from 'lucide-react';
 import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 const TABS = ['all', 'draft', 'approved', 'partially_applied', 'applied', 'cancelled'] as const;
@@ -45,12 +45,13 @@ export default function SupplierCreditNotesPage() {
       const params = new URLSearchParams();
       if (tab !== 'all') params.set('status', tab);
       const res = await apiFetch(`/api/accounting/supplier-credit-notes?${params.toString()}`);
+      await assertOk(res, 'Could not load supplier credit notes - try again');
       const json = await res.json() as { data?: { creditNotes?: CreditNote[]; total?: number } };
       const payload = json.data ?? {};
       setCreditNotes(payload.creditNotes ?? []);
       setTotal(payload.total ?? 0);
-    } catch {
-      setError('Failed to load supplier credit notes');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load supplier credit notes - try again'));
     } finally {
       setIsLoading(false);
     }

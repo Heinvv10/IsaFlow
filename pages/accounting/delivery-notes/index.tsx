@@ -6,7 +6,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Truck, Plus, Loader2, XCircle, CheckCircle, Send } from 'lucide-react';
 import { StatusPill } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface DeliveryNote {
   id: string; deliveryNoteNumber: string; customerName: string;
@@ -43,11 +43,12 @@ export default function DeliveryNotesPage() {
       const params = new URLSearchParams();
       if (tab !== 'all') params.set('status', tab);
       const res = await apiFetch(`/api/accounting/delivery-notes?${params}`);
+      await assertOk(res, 'Could not load delivery notes - try again');
       const json = (await res.json()) as { data?: { notes?: DeliveryNote[]; total?: number } };
       const d = json.data ?? {};
       setNotes(d.notes ?? []); setTotal(d.total ?? 0);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load delivery notes');
+      setError(apiErrorMessage(err, 'Could not load delivery notes - try again'));
     } finally { setLoading(false); }
   }, [tab]);
 

@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { Loader2, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { AdminWebhookDetail, DeliveryAttempt } from '@/modules/admin/services/adminWebhookService';
 
 interface Props {
@@ -60,10 +60,11 @@ export function DeliveryLog({ webhookId }: Props) {
     setLoading(true);
     try {
       const res  = await apiFetch(`/api/admin/webhooks/${webhookId}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load deliveries - try again');
       const json = await res.json() as { data: AdminWebhookDetail };
       setDetail(json.data);
-    } catch {
-      showToast('Failed to load deliveries');
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not load deliveries - try again'));
     } finally {
       setLoading(false);
     }

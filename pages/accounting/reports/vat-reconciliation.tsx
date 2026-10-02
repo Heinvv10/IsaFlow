@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   FileSearch, Loader2, AlertCircle, AlertTriangle, CheckCircle, TrendingUp,
 } from 'lucide-react';
@@ -109,7 +109,7 @@ export default function VatReconciliationPage() {
       const url = mode === 'multi_year'
         ? '/api/accounting/vat-reconciliation?multi_year=3'
         : `/api/accounting/vat-reconciliation?from=${from}&to=${to}`;
-      const res = await apiFetch(url);
+      const res = await apiFetch(url); await assertOk(res, 'Could not load the VAT reconciliation - try again');
       const json = await res.json();
       if (mode === 'multi_year') {
         setMultiData(json.data);
@@ -117,7 +117,7 @@ export default function VatReconciliationPage() {
         setReconData(json.data);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      setError(apiErrorMessage(err, 'Could not load the VAT reconciliation - try again'));
     } finally {
       setLoading(false);
     }

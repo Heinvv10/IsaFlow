@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ShoppingCart, Loader2, Download, ChevronDown, ChevronRight } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface SupplierPoRow {
@@ -192,10 +192,11 @@ export default function SupplierPosReport() {
       const res = await apiFetch(`/api/accounting/reports-supplier-pos?${params}`, {
         credentials: 'include',
       });
+      await assertOk(res, 'Could not load the report - try again');
       const json = await res.json() as { data: SupplierPosReportResponse };
       setData(json.data ?? null);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load report');
+      setError(apiErrorMessage(err, 'Could not load the report - try again'));
     } finally {
       setLoading(false);
     }

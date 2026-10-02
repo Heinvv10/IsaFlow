@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { Clock, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import type { AgingBucket } from '@/modules/accounting/types/ap.types';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { fmtDate } from '@/lib/fmtDate';
 import { AgingInvoicesPanel } from '@/components/accounting/AgingInvoicesPanel';
 import { useAgingReturn } from '@/components/accounting/useAgingReturn';
@@ -31,11 +31,12 @@ export default function ARAgingPage() {
       const params = new URLSearchParams();
       if (asAtDate) params.set('as_at_date', asAtDate);
       const res = await apiFetch(`/api/accounting/ar-aging?${params}`);
+      await assertOk(res, 'Could not load AR aging - try again');
       const json = await res.json();
       const data = json.data || json;
       setBuckets(Array.isArray(data) ? data : []);
-    } catch {
-      setError('Failed to load AR aging');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load AR aging - try again'));
     } finally {
       setIsLoading(false);
     }

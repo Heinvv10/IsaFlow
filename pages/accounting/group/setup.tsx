@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Layers, Users, BookOpen, Link2, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { GroupDetailsTab } from '@/components/accounting/group/GroupDetailsTab';
 import { GroupCoaTab } from '@/components/accounting/group/GroupCoaTab';
@@ -57,11 +57,12 @@ export default function GroupSetupPage() {
     setLoading(true);
     try {
       const res = await apiFetch('/api/accounting/company-groups');
+      await assertOk(res, 'Could not load the group - try again');
       const json = await res.json();
       const groups: CompanyGroup[] = json.data?.items ?? json.data ?? [];
       setGroup(groups[0] ?? null);
-    } catch {
-      flash('Failed to load group', 'error');
+    } catch (err) {
+      flash(apiErrorMessage(err, 'Could not load the group - try again'), 'error');
     } finally {
       setLoading(false);
     }
@@ -70,6 +71,7 @@ export default function GroupSetupPage() {
   const fetchUserCompanies = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/companies?action=user-companies');
+      await assertOk(res, 'Could not load your companies - try again');
       const json = await res.json();
       // The API returns camelCase rows (companyId/companyName). Feeding them
       // straight in left every id/name undefined, so the Holding Company and
@@ -78,16 +80,18 @@ export default function GroupSetupPage() {
       setUserCompanies(toSimpleCompanies(rows));
     } catch (e) {
       log.warn('Group setup step failed', { error: e }, 'group');
+      flash(apiErrorMessage(e, 'Could not load your companies - try again'), 'error');
     }
-  }, []);
+  }, [flash]);
 
   const fetchMembers = useCallback(async (groupId: string) => {
     try {
       const res = await apiFetch(`/api/accounting/company-groups?action=members&group_id=${groupId}`);
+      await assertOk(res, 'Could not load members - try again');
       const json = await res.json();
       setMembers(json.data?.items ?? json.data ?? []);
-    } catch {
-      flash('Failed to load members', 'error');
+    } catch (err) {
+      flash(apiErrorMessage(err, 'Could not load members - try again'), 'error');
     }
   }, [flash]);
 
@@ -95,10 +99,11 @@ export default function GroupSetupPage() {
     setLoadingCoa(true);
     try {
       const res = await apiFetch(`/api/accounting/company-groups?action=accounts&group_id=${groupId}`);
+      await assertOk(res, 'Could not load the group chart of accounts - try again');
       const json = await res.json();
       setGroupAccounts(json.data?.items ?? json.data ?? []);
-    } catch {
-      flash('Failed to load group chart of accounts', 'error');
+    } catch (err) {
+      flash(apiErrorMessage(err, 'Could not load the group chart of accounts - try again'), 'error');
     } finally {
       setLoadingCoa(false);
     }
@@ -110,10 +115,11 @@ export default function GroupSetupPage() {
       const res = await apiFetch(
         `/api/accounting/company-groups?action=mappings&group_id=${groupId}&company_id=${companyId}`,
       );
+      await assertOk(res, 'Could not load mappings - try again');
       const json = await res.json();
       setMappings(json.data?.items ?? json.data ?? []);
-    } catch {
-      flash('Failed to load mappings', 'error');
+    } catch (err) {
+      flash(apiErrorMessage(err, 'Could not load mappings - try again'), 'error');
     } finally {
       setLoadingMappings(false);
     }

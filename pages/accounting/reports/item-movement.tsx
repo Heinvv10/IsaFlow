@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface Row { date: string; type: string; reference: string; itemCode: string; itemName: string; qtyIn: number; qtyOut: number; balance: number; }
@@ -24,10 +24,11 @@ export default function ItemMovementReport() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/reports/item-movement?from=${from}&to=${to}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the report - try again');
       const json = await res.json();
       setRows(json.data || []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setError(apiErrorMessage(err, 'Could not load the report - try again'));
     } finally {
       setLoading(false);
     }

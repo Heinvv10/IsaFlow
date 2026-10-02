@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiErrorMessage, apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { postedTotals } from '@/components/reports/generalLedgerRows';
 import { postableAccounts } from '@/components/reports/postableAccounts';
@@ -58,11 +58,13 @@ export default function AccountTransactionsPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    apiFetch('/api/accounting/cost-centres', { credentials: 'include' }).then(r => r.json()).then(res => {
+    const ccFailure = 'Could not load the cost centres - try again';
+    apiFetch('/api/accounting/cost-centres', { credentials: 'include' }).then(async r => { await assertOk(r, ccFailure); return r.json(); }).then(res => {
       const list = res.data?.items || [];
       setCostCentres(list.map((c: Record<string, unknown>) => ({ id: String(c.id), code: String(c.code), name: String(c.name) })));
-    }).catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
-    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
+    }).catch(err => setError(apiErrorMessage(err, ccFailure)));
+    const coaFailure = 'Could not load the chart of accounts - try again';
+    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(async r => { await assertOk(r, coaFailure); return r.json(); }).then(res => {
       const d = res.data || res;
       const list = Array.isArray(d) ? d : d.accounts || d.items || [];
       setAccounts(postableAccounts(list.map((a: Record<string, unknown>) => ({
@@ -73,7 +75,7 @@ export default function AccountTransactionsPage() {
         level: a.level == null ? null : Number(a.level),
         hasTransactions: a.hasTransactions === true || a.has_transactions === true,
       }))));
-    }).catch(() => setError('Failed to load chart of accounts'));
+    }).catch(err => setError(apiErrorMessage(err, coaFailure)));
   }, []);
 
   const requestRef = useRef(0);

@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tags, Plus, Pencil, Trash2, Loader2, X, Check } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface Category { id: string; name: string; description: string; supplierCount: number; }
@@ -18,19 +18,25 @@ export default function SupplierCategoriesPage() {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: '', description: '' });
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    const res = await apiFetch('/api/accounting/supplier-categories', { credentials: 'include' });
-    const json = await res.json();
-    setItems(json.data || []);
-    setLoading(false);
+    setError('');
+    try {
+      const res = await apiFetch('/api/accounting/supplier-categories', { credentials: 'include' });
+      await assertOk(res, 'Could not load supplier categories - try again');
+      const json = await res.json();
+      setItems(json.data || []);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load supplier categories - try again'));
+      log.error('Failed to load supplier categories', { error: err }, 'SupplierCategoriesPage');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    load().catch((error) => {
-      setLoading(false);
-      log.error('Failed to load supplier categories', { error }, 'SupplierCategoriesPage');
-    });
+    void load();
   }, [load]);
 
   const save = async () => {
@@ -115,7 +121,8 @@ export default function SupplierCategoriesPage() {
                   </tr>
                 )}
                 {loading && <tr><td colSpan={4} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
-                {!loading && items.length === 0 && !adding && (
+                {error && <tr><td colSpan={4} className="px-4 py-3 text-center text-red-400">{error}</td></tr>}
+                {!loading && !error && items.length === 0 && !adding && (
                   <tr><td colSpan={4} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No categories yet</td></tr>
                 )}
                 {items.map(cat => editing === cat.id ? null : (

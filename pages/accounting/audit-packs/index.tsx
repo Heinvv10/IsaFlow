@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   FileCheck, Plus, RefreshCw, Loader2, AlertCircle, Download, Link as LinkIcon,
   ShieldCheck, Copy, Check, X,
@@ -52,6 +52,12 @@ function fmtZAR(n: number): string {
 function fmtDate(s: string | null): string {
   if (!s) return '—';
   try { return new Date(s).toLocaleString('en-ZA'); } catch { return s; }
+}
+
+async function fetchSessions(exportId: string): Promise<PortalSession[]> {
+  const res = await apiFetch(`/api/accounting/audit-exports/${exportId}/sessions`);
+  await assertOk(res, 'Could not load the auditor sessions - try again');
+  return ((await res.json()) as { data?: { sessions?: PortalSession[] } }).data?.sessions ?? [];
 }
 
 export default function AuditTrailPage() {
@@ -117,10 +123,8 @@ export default function AuditTrailPage() {
     setInviteEmail(''); setInviteTtl('168');
     setInviteResult(null);
     try {
-      const res = await apiFetch(`/api/accounting/audit-exports/${id}/sessions`);
-      const json = await res.json() as { data?: { sessions?: PortalSession[] } };
-      setSessions(json.data?.sessions ?? []);
-    } catch { setSessions([]); }
+      setSessions(await fetchSessions(id));
+    } catch (err) { setSessions([]); showToast(apiErrorMessage(err, 'Could not load the auditor sessions - try again'), false); }
   }
 
   async function handleInvite() {
@@ -136,10 +140,8 @@ export default function AuditTrailPage() {
       }
       setInviteResult({ portalUrl: json.data.portalUrl, accessToken: json.data.accessToken ?? '' });
       setInviteEmail('');
-      const sres = await apiFetch(`/api/accounting/audit-exports/${inviteId}/sessions`);
-      const sjson = await sres.json() as { data?: { sessions?: PortalSession[] } };
-      setSessions(sjson.data?.sessions ?? []);
-    } catch { showToast('Network error', false); }
+      setSessions(await fetchSessions(inviteId));
+    } catch (err) { showToast(apiErrorMessage(err, 'Network error'), false); }
   }
 
   async function revokeSession(id: string) {
@@ -147,13 +149,10 @@ export default function AuditTrailPage() {
     if (!confirm('Revoke this auditor session?')) return;
     try {
       const res = await apiFetch(`/api/accounting/audit-exports/${inviteId}/sessions/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast('Revoked', true);
-        const sres = await apiFetch(`/api/accounting/audit-exports/${inviteId}/sessions`);
-        const sjson = await sres.json() as { data?: { sessions?: PortalSession[] } };
-        setSessions(sjson.data?.sessions ?? []);
-      }
-    } catch { showToast('Network error', false); }
+      await assertOk(res, 'Could not revoke the session - try again');
+      showToast('Revoked', true);
+      setSessions(await fetchSessions(inviteId));
+    } catch (err) { showToast(apiErrorMessage(err, 'Network error'), false); }
   }
 
   async function copyUrl(url: string) {

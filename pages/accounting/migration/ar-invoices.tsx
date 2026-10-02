@@ -3,7 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import InvoiceImportResult, { type InvoiceImportResultData } from '@/components/accounting/migration/InvoiceImportResult';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 const AR_FIELDS = [
   'invoice_number', 'customer_name', 'invoice_date', 'due_date',
@@ -40,11 +40,12 @@ export default function ArInvoicesPage() {
   const loadCustomers = async () => {
     try {
       const res = await apiFetch('/api/accounting/customers?limit=500');
+      await assertOk(res, 'Could not load the customer list - try again');
       const json = await res.json();
       const list: CustomerOption[] = (json.data ?? json.customers ?? []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name }));
       setCustomers(list);
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the customer list - try again'));
     }
   };
 

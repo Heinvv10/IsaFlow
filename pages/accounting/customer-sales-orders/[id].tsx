@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ClipboardList, ArrowLeft, CheckCircle, FileText, Loader2, AlertCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 
 interface SalesOrderItem {
@@ -67,13 +67,13 @@ export default function SalesOrderDetailPage() {
     setLoading(true);
     setError('');
     apiFetch(`/api/accounting/customer-sales-orders?id=${id}`)
-      .then((r) => r.json())
+      .then(async (r) => { await assertOk(r, 'Could not load the order - try again'); return r.json(); })
       .then((json) => {
         const d = json.data || json;
         setOrder(d);
       })
       .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : 'Failed to load order')
+        setError(apiErrorMessage(err, 'Could not load the order - try again'))
       )
       .finally(() => setLoading(false));
   }, [id]);
@@ -89,11 +89,8 @@ export default function SalesOrderDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: order.id, action }),
       });
+      await assertOk(res, `Action '${action}' failed`);
       const json = await res.json();
-      if (!res.ok) {
-        setError(json?.error?.message || `Action '${action}' failed`);
-        return;
-      }
       if (action === 'invoice') {
         const invoiceId = json.data?.invoiceId || json.invoiceId;
         await router.push(`/accounting/customer-invoices/${invoiceId}`);
@@ -102,8 +99,11 @@ export default function SalesOrderDetailPage() {
       setSuccessMsg(action === 'confirm' ? 'Order confirmed successfully.' : 'Done.');
       // Reload the order
       const refreshRes = await apiFetch(`/api/accounting/customer-sales-orders?id=${order.id}`);
+      await assertOk(refreshRes, 'Could not reload the order - refresh the page');
       const refreshJson = await refreshRes.json();
       setOrder(refreshJson.data || refreshJson);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Something went wrong - try again'));
     } finally {
       setActionBusy(false);
     }

@@ -7,7 +7,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, PackageCheck, Loader2, Receipt } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface PurchaseOrder {
@@ -66,8 +66,9 @@ export default function NewGRNPage() {
       return;
     }
     setLoadingItems(true);
+    setError('');
     apiFetch(`/api/accounting/purchase-orders/${selectedPO}`)
-      .then((r) => r.json())
+      .then(async (r) => { await assertOk(r, 'Could not load the purchase order - try again'); return r.json(); })
       .then((json) => {
         const d = json.data || json;
         const items: POItem[] = Array.isArray(d.items) ? d.items : [];
@@ -79,7 +80,7 @@ export default function NewGRNPage() {
         }
         setReceivedQtys(qtys);
       })
-      .catch(() => setPoItems([]))
+      .catch((err) => { setPoItems([]); setError(apiErrorMessage(err, 'Could not load the purchase order - try again')); })
       .finally(() => setLoadingItems(false));
   }, [selectedPO]);
 

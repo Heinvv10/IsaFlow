@@ -66,9 +66,9 @@ export default function ReportBuilderPage() {
     setResult({ columns: [], rows: [], totals: {}, rowCount: 0 });
     if (source) {
       apiFetch(`/api/accounting/custom-reports-fields?source=${source}`, { credentials: 'include' })
-        .then(r => r.json())
+        .then(async r => { await assertOk(r, 'Could not load report fields - try again'); return r.json(); })
         .then(json => setAvailableFields(json.data?.fields ?? []))
-        .catch(() => setAvailableFields([]));
+        .catch(err => { setAvailableFields([]); showToast(apiErrorMessage(err, 'Could not load report fields - try again')); });
     } else {
       setAvailableFields([]);
     }

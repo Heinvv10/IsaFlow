@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Clock, Plus, ChevronLeft, ChevronRight, FileText, Loader2, X, Check } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { TimeEntryModal } from '@/components/accounting/time-tracking/TimeEntryModal';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -59,7 +59,7 @@ export default function TimesheetsPage() {
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
   useEffect(() => {
-    void apiFetch('/api/accounting/customers').then(r => r.json()).then((res: unknown) => {
+    void apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); }).then((res: unknown) => {
       const d: Record<string, unknown>[] = Array.isArray((res as { data?: unknown }).data)
         ? (res as { data: Record<string, unknown>[] }).data
         : Array.isArray(res) ? (res as Record<string, unknown>[]) : [];
@@ -68,7 +68,7 @@ export default function TimesheetsPage() {
         name: String(c.name ?? c.company_name ?? ''),
         companyName: String(c.name ?? c.company_name ?? ''),
       })));
-    }).catch(() => { /* non-critical */ });
+    }).catch((err: unknown) => setToast({ msg: apiErrorMessage(err, 'Could not load customers - try again'), ok: false }));
   }, []);
 
   function showToast(msg: string, ok: boolean) { setToast({ msg, ok }); }
@@ -81,9 +81,10 @@ export default function TimesheetsPage() {
     if (filterCustomer) p.set('customerId', filterCustomer);
     try {
       const r = await apiFetch(`/api/accounting/time-entries?${p.toString()}`);
+      await assertOk(r, 'Could not load entries - try again');
       const j = await r.json() as { data?: { entries?: TimeEntry[] } };
       setEntries(j.data?.entries ?? []);
-    } catch { showToast('Failed to load entries', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not load entries - try again'), false); }
     setLoading(false);
   }, [weekStart, filterCustomer]);
 

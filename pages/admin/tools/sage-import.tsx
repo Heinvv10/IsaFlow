@@ -12,7 +12,7 @@ import Link from 'next/link';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { SageCommitSummary, type SageCommitSummaryData } from '@/components/admin/SageCommitSummary';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   ArrowLeft, Download, CheckCircle2, AlertCircle, Loader2,
   Database, Users, Building2, FileText, ShieldCheck, Cable, KeyRound,
@@ -114,9 +114,9 @@ export default function AdminSageImportPage() {
 
   useEffect(() => {
     apiFetch('/api/admin/companies?limit=200')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load companies - try again'); return r.json(); })
       .then(d => setCompanies(d.data?.items ?? []))
-      .catch(() => setCompaniesError('Failed to load companies.'));
+      .catch((err: unknown) => setCompaniesError(apiErrorMessage(err, 'Could not load companies - try again')));
   }, []);
 
   const resetSteps = useCallback(() => {

@@ -64,3 +64,31 @@ describe('admin pages show the refusal message of the real envelope', () => {
     expect(await screen.findByText(/D2 server says no: subscription/)).toBeTruthy();
   });
 });
+
+describe('success: admin pages render the data they received', () => {
+  it('success: audit log renders the data it received', async () => {
+    const entry = { id: 'a1', source: 'admin', user_id: null, user_name: 'Quokka Ada', user_email: null, company_id: null, company_name: null,
+      action: 'quokka_frozen', entity_type: null, entity_id: null, entity_ref: null, details: null, ip_address: null, created_at: '2026-10-01T10:00:00Z' };
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => json({ success: true, data:
+      pathOf(url) === '/api/admin/audit' ? { items: [entry], total: 1, page: 1, limit: 50, total_pages: 1 } : { items: [] } }));
+    render(<AuditPage />);
+    expect(await screen.findByText('Quokka Ada')).toBeTruthy();
+  });
+
+  it('success: waitlist renders the data it received', async () => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async () => json({ success: true, data:
+      { items: [{ ...ROW, name: 'Wombat Wanderer' }], total: 1, page: 1, limit: 20, total_pages: 1 } }));
+    render(<WaitlistPage />);
+    expect(await screen.findByText('Wombat Wanderer')).toBeTruthy();
+  });
+
+  it('success: company billing tab renders the data it received', async () => {
+    const sub = { id: 's1', company_id: 'co-1', company_name: 'Co', plan_id: 'p1', plan_name: 'Platinum Pangolin Plan', plan_code: 'plat',
+      status: 'active', billing_cycle: 'monthly', current_period_start: '2026-10-01', current_period_end: '2026-11-01',
+      cancel_at_period_end: false, discount_percent: 0, monthly_amount_cents: 12300, created_at: '2026-01-01' };
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => json({ success: true, data:
+      pathOf(url) === '/api/admin/billing/subscriptions' ? { items: [sub] } : { items: [] } }));
+    render(<CompanyBillingTab companyId="co-1" />);
+    expect(await screen.findByText('Platinum Pangolin Plan')).toBeTruthy();
+  });
+});

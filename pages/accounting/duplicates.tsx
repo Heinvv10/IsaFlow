@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Copy, Merge, Loader2, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { PageHeader } from '@/components/ui';
@@ -112,11 +112,12 @@ export default function DuplicatesPage() {
     setMergeSuccess(null);
     try {
       const res = await apiFetch(`/api/accounting/duplicates?entity_type=${activeTab}`);
+      await assertOk(res, 'Could not scan for duplicates - try again');
       const json = await res.json() as { data: { duplicates: DuplicatePair[] } };
       setResults(prev => ({ ...prev, [activeTab]: json.data.duplicates }));
     } catch (err) {
       log.error('Duplicate scan failed', { error: err }, 'duplicates-page');
-      setError('Failed to scan for duplicates. Please try again.');
+      setError(apiErrorMessage(err, 'Could not scan for duplicates - try again'));
     } finally {
       setLoading(false);
     }
