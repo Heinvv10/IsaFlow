@@ -176,3 +176,24 @@ describe('LOW: the customer is re-read under the invoice lock', () => {
     expect((await settlement(A, ref, id)).invoicePaid).toBe('115.00');
   });
 });
+
+describe('round 3: the fee leg never exceeds the receipt; verify trusting requested_amount', () => {
+  it('a fee larger than the receipt is capped at the receipt and flagged', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id, 10000);
+    expect((await deliver(ref, 10000, 'ZAR', { fees: 20000 })).statusCode).toBe(200);
+    expect(await ledger(A, ref)).toMatchObject({ feeExpense: '100.00', bankNet: '0.00', balanced: true });
+    expect((await settlement(A, ref, id)).review).toBe('review:fee_exceeds_receipt');
+  });
+
+  it('verify trusts requested_amount within its fee (R103, R100, R3): R100 banked; the webhook with the same figures posts no fee', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id, 10000);
+    paystackSays(10300, { requestedAmountCents: 10000, feesCents: 300 });
+    expect((await verify(ref)).body.data?.status).toBe('completed');
+    expect(await settlement(A, ref, id)).toMatchObject({ payments: [{ total: '100.00', allocated: '100.00' }], review: null });
+    expect((await deliver(ref, 10300, 'ZAR', { requested_amount: 10000, fees: 300 })).statusCode).toBe(200);
+    expect(await ledger(A, ref)).toMatchObject({ bankNet: '100.00', receivableCredit: '100.00', feeExpense: '0.00', balanced: true });
+    expect(await settlement(A, ref, id)).toMatchObject({ payments: [{ total: '100.00', allocated: '100.00' }], review: null });
+  });
+});
