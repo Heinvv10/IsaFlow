@@ -102,12 +102,12 @@ describe('the legacy bridge, in the print face', () => {
     });
   }
 
-  it('holds on 1 000 seeded bridges at 240, 320 and 420px, three widths', () => {
+  it('holds on 1 000 seeded bridges at 240, 320 and 420px, four widths — 657px the print box', () => {
     const failures: string[] = [];
     let k = 0;
     for (const steps of bridges(424_242, 1_000)) {
       const height = [240, 320, 420][k % 3]!;
-      const width = [480, 700, 900][Math.floor(k / 3) % 3]!;
+      const width = [480, 657, 700, 900][Math.floor(k / 3) % 4]!;
       const svg = render(steps, width, height);
       for (const b of breaches(svg, steps, height)) failures.push(`#${k} ${width}x${height}: ${b}`);
       k += 1;

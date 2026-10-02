@@ -62,7 +62,7 @@ function faults(svg: string, steps: WaterfallStep[]): string[] {
   ];
 }
 
-const SEEDS = [424_242, 777_001, 13_579, 20_260_930, 5_550_123, 31_415_927];
+const SEEDS = [424_242, 777_001, 13_579, 20_260_930, 5_550_123, 31_415_927, 60_917_011];
 /** Per seed and per path. Sized so the pack's fuzz tests together stay near a
  *  minute of the unit run; the raster harness runs thousands more per seed. */
 const PER_SEED = 320;
