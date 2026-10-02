@@ -10,7 +10,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertDocumentNotAlreadyPosted } from '@/modules/accounting/services/gl/documentJournalClaimGuard';
-import { journalStandsFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
+import { journalStandsUnbrokenFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
 
 type Row = DbRow;
 
@@ -138,7 +138,7 @@ export async function attachEvidenceToProvisional(
             evidenced_at         = NOW(),
             extraction_confidence = COALESCE(${docConfidence}, extraction_confidence)
         WHERE je.id = ${jeId}::UUID AND je.company_id = ${companyId}::UUID
-          AND je.needs_evidence = true AND ${journalStandsFragment('je.id', companyId)}
+          AND je.needs_evidence = true AND ${journalStandsUnbrokenFragment('je.id', companyId)}
         RETURNING je.id
       `) as Row[];
       if (flipped.length === 0) throw new Error(`Provisional journal ${jeId} was evidenced by another request`);
