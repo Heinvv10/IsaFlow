@@ -75,6 +75,7 @@ export async function getVatReconciliation(
 ): Promise<VatReconciliation> {
   log.info('vatReconciliationService: generating reconciliation', { companyId, periodStart, periodEnd });
 
+  const otherMonthLink = deletedDocumentChainLinkFragment('gje', companyId, 'otherMonth');
   // Run all queries in parallel
   const [glMonthly, invoiceMonthly, returnMonthly, capitalSplit] = await Promise.all([
     // 1. GL-based monthly revenue and VAT
@@ -95,18 +96,17 @@ export async function getVatReconciliation(
         --   gl_input_vat   LEDGER by entry date, chain and all. Leaving the chain
         --                  out here reported a variance against a return that
         --                  matched the ledger exactly (round 3).
-        --   trade_output_vat  the rate's numerator, on gl_revenue's basis: the
-        --                  rate is about the MONTH'S supplies, and a chain link
-        --                  undoes another month's at ITS rates (a mixed-rate
-        --                  reversal read July at 22.5% on the ledger: P4).
+        --   rate_revenue, rate_output_vat  THE RATE'S ONE ROW SET: the month's
+        --                  ledger less only the chain links of a deleted document
+        --                  whose own journal is dated in ANOTHER month.
         COALESCE(SUM(CASE WHEN ga.account_type = 'revenue'
           THEN CASE WHEN ${deletedDocumentChainLinkFragment('gje', companyId)} THEN 0
                     ELSE gjl.credit - gjl.debit END
           ELSE 0 END), 0) AS gl_revenue,
-        COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_output'
-          THEN CASE WHEN ${deletedDocumentChainLinkFragment('gje', companyId)} THEN 0
-                    ELSE gjl.credit - gjl.debit END
-          ELSE 0 END), 0) AS trade_output_vat,
+        COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' AND NOT ${otherMonthLink}
+          THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS rate_revenue,
+        COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_output' AND NOT ${otherMonthLink}
+          THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS rate_output_vat,
         COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_output'
           THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS gl_output_vat,
         COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_input'
@@ -245,9 +245,9 @@ export async function getVatReconciliation(
     const revenueVariance = r2(glRevenue - invoiceRevenue);
     const outputVatVariance = returnOutputVat !== null ? r2(glOutputVat - returnOutputVat) : 0;
     const inputVatVariance = returnInputVat !== null ? r2(glInputVat - returnInputVat) : 0;
-    // Trade over trade: both leave a deleted document's chain out (query 1).
-    const tradeOutputVat = toNum(gl?.trade_output_vat);
-    const effectiveVatRate = glRevenue > 0 ? r2((tradeOutputVat / glRevenue) * 100) : 0;
+    // Numerator and denominator from ONE row set (query 1's rate_* arms).
+    const rateRevenue = toNum(gl?.rate_revenue);
+    const effectiveVatRate = rateRevenue > 0 ? r2((toNum(gl?.rate_output_vat) / rateRevenue) * 100) : 0;
 
     // Flag issues
     if (Math.abs(revenueVariance) > 100) {

@@ -88,10 +88,10 @@ describeIfDb('D7 VAT recon: each GL arm against its own source', () => {
     expect(recon.issues.filter((i) => /variance/i.test(i.message))).toEqual([]);
   }, 120000);
 
-  it('V3: the effective VAT rate is trade VAT over trade revenue, both without the chain', async () => {
-    // August carries a live sale AND a deleted document's R2. The revenue arm
-    // leaves R2 out (the invoice leg never had it), so the rate's VAT must
-    // leave it out too: the ledger's VAT over the revenue arm read 30%.
+  it('V3: the rate\'s VAT and revenue come from one row set — a later-month chain link is in neither', async () => {
+    // August carries a live sale AND the R2 of a document deleted in June. R2
+    // undoes June's supply, so August's rate leaves it out of BOTH figures:
+    // the ledger's VAT over the revenue arm read 30%.
     const co = await makeCompany('D7V3'); cos.push(co);
     const del = await arInvoice(co, '-DEL', '2026-06-15', 1000, 150);
     await inTx(co, () => softDelete(co.id, 'customer_invoice', del, co.user));
@@ -126,4 +126,42 @@ describeIfDb('D7 VAT recon: each GL arm against its own source', () => {
       .toEqual([['2026-06', 1000, 75, 0, 7.5], ['2026-07', 2000, 225, 0, 15]]);
     expect(recon.issues.filter((i) => /Effective VAT rate/.test(i.message) && i.month === '2026-07')).toEqual([]);
   }, 180000);
+
+  it('V5 (rev-d7-4b773cdb7): a deleted invoice reversed in its OWN month is no supply of that month', async () => {
+    // June is open, so the delete's reversal is dated with the invoice. The
+    // pair nets to nothing in June; rating the original alone read 7.5% and
+    // flagged a month with no live supplies.
+    const co = await makeCompany('D7V5'); cos.push(co);
+    const mixed = await arInvoice(co, '-MIX', '2026-06-15', 1000, 75);
+    await inTx(co, () => softDelete(co.id, 'customer_invoice', mixed, co.user));
+
+    const recon = await getVatReconciliation(co.id, '2026-06-01', '2026-06-30');
+    // The revenue arm still carries the original (the invoice leg does too).
+    expect(recon.months.map((m) => [m.month, m.glRevenue, m.revenueVariance, m.glOutputVat, m.effectiveVatRate]))
+      .toEqual([['2026-06', 1000, 0, 0, 0]]);
+    expect(recon.issues.filter((i) => /Effective VAT rate/.test(i.message))).toEqual([]);
+  }, 120000);
+
+  it('V6 (rev-d7-4b773cdb7): a live 15% invoice beside a deleted zero-rated one, same month, reads 15%', async () => {
+    const co = await makeCompany('D7V6'); cos.push(co);
+    await arInvoice(co, '-LIVE', '2026-06-10', 1000, 150);
+    const zero = await arInvoice(co, '-ZERO', '2026-06-15', 1000, 0);
+    await inTx(co, () => softDelete(co.id, 'customer_invoice', zero, co.user));
+
+    const recon = await getVatReconciliation(co.id, '2026-06-01', '2026-06-30');
+    expect(recon.months.map((m) => [m.month, m.glRevenue, m.revenueVariance, m.glOutputVat, m.effectiveVatRate]))
+      .toEqual([['2026-06', 2000, 0, 150, 15]]);
+    expect(recon.issues.filter((i) => /Effective VAT rate/.test(i.message))).toEqual([]);
+  }, 120000);
+
+  it('the mirror: a LIVE mixed-rate invoice reversed by hand still moves the rate (ledger, unchanged)', async () => {
+    const co = await makeCompany('D7V7'); cos.push(co);
+    const mixed = await arInvoice(co, '-MIX', '2026-06-15', 1000, 75);
+    await arInvoice(co, '-LIVE', '2026-07-20', 2000, 300);
+    await reverseTip(co, await journalOf(co, mixed), '2026-07-01');
+
+    const recon = await getVatReconciliation(co.id, '2026-07-01', '2026-07-31');
+    expect(recon.months.map((m) => [m.month, m.glRevenue, m.glOutputVat, m.effectiveVatRate]))
+      .toEqual([['2026-07', 1000, 225, 22.5]]);
+  }, 120000);
 });
