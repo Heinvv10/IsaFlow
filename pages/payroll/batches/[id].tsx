@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Layers, Loader2, AlertCircle, CheckCircle2, Send, Plus, Trash2, ArrowLeft } from 'lucide-react';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface Employee {
   id: string;
@@ -92,7 +93,7 @@ export default function BatchGridPage() {
         apiFetch(`/api/payroll/batches/${id}`),
         apiFetch('/api/payroll/employees'),
       ]);
-      if (!batchRes.ok) throw new Error(`HTTP ${batchRes.status}`);
+      if (!batchRes.ok) { setError(payrollLoadMessage(batchRes.status, 'Failed to load batch')); return; }
       const batchJson = await batchRes.json();
       const payload = (batchJson.data ?? batchJson) as { batch: Batch; lines: BatchLine[] };
       setBatch(payload.batch);

@@ -14,9 +14,7 @@ import { PayrollRunStatusBadge as StatusBadge, isLocked } from '@/components/pay
 import { canWrite } from '@/lib/auth/writeRoles';
 import { PayrollRunWarnings, type RunLineWarning } from '@/components/payroll/PayrollRunWarnings';
 import { PayrollRunLinesTable, PayrollRunTotals } from '@/components/payroll/PayrollRunLinesTable';
-
-// A viewer sees run totals in the list but not one person's pay (the route answers 403).
-const NO_DETAIL_ACCESS = "You don't have access to payroll detail.";
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -83,9 +81,8 @@ export default function PayrollRunDetailPage() {
       const status = err instanceof ApiRequestError ? err.status : 0;
       setError(hasRun.current
         ? 'Could not refresh this run — reload the page to see its latest state.'
-        : status === 403 ? NO_DETAIL_ACCESS
         : status === 404 ? 'Pay run not found'
-        : 'Failed to load run');
+        : payrollLoadMessage(status, 'Failed to load run'));
     } finally {
       setIsLoading(false);
     }

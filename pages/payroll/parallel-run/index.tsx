@@ -13,6 +13,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { ParallelRunUploadCard } from '@/components/payroll/parallelRun/ParallelRunUploadCard';
 import { ParallelRunReportView } from '@/components/payroll/parallelRun/ParallelRunReportView';
 import type { ParallelRunComparisonReport } from '@/modules/accounting/services/payroll/payrollParallelRunTypes';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface ImportSummary {
   id: string;
@@ -64,7 +65,7 @@ export default function ParallelRunPage() {
     setReport(null);
     try {
       const res = await apiFetch(`/api/payroll/parallel-run/compare?importId=${importId}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) { setError(payrollLoadMessage(res.status, 'Failed to load comparison')); return; }
       const json = await res.json() as { data?: ReportPayload };
       setReport(json.data ?? null);
     } catch {
@@ -100,7 +101,7 @@ export default function ParallelRunPage() {
   const handleExport = async (importId: string) => {
     setError('');
     const res = await apiFetch(`/api/payroll/parallel-run/export?importId=${importId}`);
-    if (!res.ok) { setError('Export failed'); return; }
+    if (!res.ok) { setError(payrollLoadMessage(res.status, 'Export failed')); return; }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
