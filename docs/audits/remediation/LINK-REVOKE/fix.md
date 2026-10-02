@@ -139,3 +139,7 @@ link as something to do (it cancels it and answers 200). That is harmless and ac
 `active` and is now `cancelled`), the only caller that can reach it with just an expired link is a
 stale page or a direct call, and treating it as "nothing to do" would leave a dead-but-active row
 behind. The expiry on the read only decides whether the button is shown.
+
+Mutant for the expired-link pin: `AND COALESCE(expires_at > NOW(), true)` added to both the live-link
+check and the cancel UPDATE of `revokeStandingLink` -> killed (the expired-link revoke test goes red;
+1 failed, the rest green). Reverted.
