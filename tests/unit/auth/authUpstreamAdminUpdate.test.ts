@@ -222,6 +222,7 @@ describe('change-password: every probe outcome but a definite credentials reject
     ['an outage (503)', async () => new Response('', { status: 503 })],
     ['a 400 that is not "invalid credentials"', async () => new Response('{"code":400,"error_code":"email_not_confirmed","msg":"Email not confirmed"}', { status: 400 })],
     ['a 422', async () => new Response('{"code":422,"msg":"unprocessable"}', { status: 422 })],
+    ['a 401 carrying invalid_credentials', async () => new Response(INVALID_CREDENTIALS, { status: 401 })],
     ['a 400 with an unreadable body', async () => new Response('<html>bad gateway</html>', { status: 400 })],
     ['a 200 whose body is cut off', OUTAGES[4]![1]],
   ];
