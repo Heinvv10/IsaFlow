@@ -12,7 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { isJobFenceRefusal } from '@/modules/accounting/services/practice/practiceClientFence';
 import { isJsonObjectBody, isUuidParam } from '@/lib/validation';
-import type { PracticeTimeEntry } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
+import type { PracticeTimeEntry, PracticeTimeEntryInput } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
 import {
   listPracticeEntries,
   createPracticeEntry,
@@ -37,9 +37,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    if (!isJsonObjectBody(req.body)) return apiResponse.badRequest(res, 'Request body must be a JSON object');
+    const input = req.body as PracticeTimeEntryInput;
+    if (!isJsonObjectBody(input)) return apiResponse.badRequest(res, 'Request body must be a JSON object');
     try {
-      const entry = await createPracticeEntry(companyId, req.user.id, req.body);
+      const entry = await createPracticeEntry(companyId, req.user.id, input);
       return apiResponse.created(res, entry);
     } catch (err) {
       if (isJobFenceRefusal(err)) {

@@ -200,8 +200,10 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // amount or table, raised before any write. No MCP tool reaches it today.
   'HAND_CORRECTION_REFUSED',
   // Engagement Budget out of range (normaliseBudgetAmount): one fixed sentence, raised before any write.
+  // No MCP tool reaches it today (no tool writes a job); registered so the census holds.
   'JOB_BUDGET_INVALID',
   // Moving a job to another client while its time entries are its current client's (mig 851). Fixed sentence.
+  // No MCP tool reaches it today (no tool writes a job); registered so the census holds.
   'JOB_CLIENT_HAS_ENTRIES',
   'JOURNAL_REVERSAL_LOCK_TIMEOUT',
   'LOAN_POST_LOCK_TIMEOUT',

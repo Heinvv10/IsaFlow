@@ -11,6 +11,12 @@
 
 export type JobBudgetState = 'none' | 'ok' | 'warning' | 'over';
 
+/**
+ * Job statuses time may no longer be newly captured against. Shared by the
+ * server fence (assertJobForPracticeClient) and the time entry Job pickers.
+ */
+export const CLOSED_JOB_STATUSES: readonly string[] = ['complete', 'cancelled', 'billed'];
+
 export interface JobBudgetStatus {
   jobId: string;
   budgetAmount: number | null;

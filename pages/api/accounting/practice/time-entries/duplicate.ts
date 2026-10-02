@@ -10,6 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { isJobFenceRefusal } from '@/modules/accounting/services/practice/practiceClientFence';
+import { isJsonObjectBody } from '@/lib/validation';
 import { duplicatePracticeEntry } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -18,6 +19,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+  if (!isJsonObjectBody(req.body)) return apiResponse.badRequest(res, 'Request body must be a JSON object');
   const { id, newDate } = req.body as { id?: string; newDate?: string };
 
   if (!id || !newDate) return apiResponse.badRequest(res, 'id and newDate are required');

@@ -61,6 +61,15 @@ describeIfDb('Engagement budgets — routes, bulk and MCP refuse a foreign or cl
     });
   });
 
+  it.each([['bulk', () => bulkRoute], ['duplicate', () => duplicateRoute]])(
+    'POST /time-entries/%s answers a null or array body with 400 naming the body', async (_l, route) => {
+      for (const body of [null, []]) {
+        const r = await f.call(route(), 'POST', body);
+        expect(r.statusCode).toBe(400);
+        expect(r.body.error?.message).toBe('Request body must be a JSON object');
+      }
+    });
+
   it('GET /time-entries answers a malformed jobId with 400, a real one with 200', async () => {
     expect((await f.call(timeEntriesRoute, 'GET', {}, { jobId: 'nope' })).statusCode).toBe(400);
     expect((await f.call(timeEntriesRoute, 'GET', {}, { jobId: J.own! })).statusCode).toBe(200);
@@ -174,7 +183,13 @@ describeIfDb('Engagement budgets — routes, bulk and MCP refuse a foreign or cl
     it('refuses a non-string job_id', async () => {
       const r = await log({ job_id: 7 });
       expect(r.isError).toBe(true);
-      expect(r.content[0]?.text).toMatch(/job_id must be a string/);
+      expect(r.content[0]?.text).toMatch(/job_id must be a string or null/);
+    });
+
+    it('treats job_id null as no job, as REST does', async () => {
+      const r = await log({ job_id: null });
+      expect(r.isError, r.content[0]?.text).toBeFalsy();
+      expect(await f.jobOf(String(JSON.parse(r.content[0]!.text).id))).toBeNull();
     });
   });
 });

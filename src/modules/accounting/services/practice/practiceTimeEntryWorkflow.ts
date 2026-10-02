@@ -1,4 +1,4 @@
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { resolveRate } from './practiceStaffRateService';
@@ -11,7 +11,7 @@ import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
 import { roundHours, lineTotalFor } from './practiceTimeEntryTypes';
 import { getEntryTemplate } from './practiceEntryTemplateService';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
-import { assertJobForPracticeClient } from './practiceClientFence';
+import { assertJobForPracticeClient, rethrowJobFkAsRefusal } from './practiceClientFence';
 
 export interface BulkFromTemplateInput {
   templateId: string;
@@ -29,6 +29,20 @@ export interface BulkFromTemplateResult {
   failed: Array<{ date: string; error: string }>;
 }
 
+/** Sequenced: Postgres shadows a re-declared savepoint name. */
+let workflowSeq = 0;
+
+/**
+ * What a failed bulk date says: a service refusal's own message (a bare Error,
+ * or a typed refusal with a named code), never a database error's text — a pg
+ * error carries a 5-character SQLSTATE and may name tables and constraints.
+ */
+function bulkFailureText(err: unknown): string {
+  if (!(err instanceof Error)) return 'Could not create this entry';
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) ? 'Could not create this entry' : err.message;
+}
+
 export async function bulkCreateFromTemplate(
   companyId: string,
   userId: string,
@@ -40,6 +54,8 @@ export async function bulkCreateFromTemplate(
   if (!template.practiceClientId || !template.jobCategoryId || !template.workItemId) {
     throw new Error('template is incomplete — client, category and work item required before bulk use');
   }
+  // Narrowed copies: the per-date closure below would otherwise see them as nullable again.
+  const { practiceClientId, jobCategoryId, workItemId } = template;
 
   const hours = input.hoursOverride ?? template.defaultHours;
   if (hours == null) {
@@ -83,21 +99,22 @@ export async function bulkCreateFromTemplate(
 
   for (const entryDate of filteredDates) {
     try {
-      await createPracticeEntry(companyId, userId, {
+      // One savepoint per date: a refused date must not abort the dates after it (25P02).
+      await withSavepoint(`bulk_date_${++workflowSeq}`, () => createPracticeEntry(companyId, userId, {
         entryDate,
         hours,
-        practiceClientId: template.practiceClientId,
-        jobCategoryId: template.jobCategoryId,
-        workItemId: template.workItemId,
+        practiceClientId,
+        jobCategoryId,
+        workItemId,
         taskDescription,
         notes: template.notes ?? undefined,
         billable: template.billable,
         origin: 'recurring',
         jobId,
-      });
+      }));
       created++;
     } catch (err) {
-      failed.push({ date: entryDate, error: err instanceof Error ? err.message : String(err) });
+      failed.push({ date: entryDate, error: bulkFailureText(err) });
     }
   }
 
@@ -140,7 +157,7 @@ export async function duplicatePracticeEntry(
   const hours = roundHours(Number(src.hours));
   const lineTotal = lineTotalFor(hours, appliedRate);
 
-  const rows = (await sql`
+  const rows = await withSavepoint(`dup_ins_${++workflowSeq}`, async () => (await sql`
     INSERT INTO time_entries (
       company_id, user_id, entry_date, hours,
       practice_client_id, job_category_id, work_item_id,
@@ -154,7 +171,7 @@ export async function duplicatePracticeEntry(
       ${appliedRate}, ${lineTotal}, ${appliedRate}, ${lineTotal},
       'recurring', 'draft', ${jobId}::UUID
     ) RETURNING *
-  `) as DbRow[];
+  `) as DbRow[]).catch((err: unknown) => rethrowJobFkAsRefusal(err, jobId));
   if (!rows[0]) throw new Error('database returned no row after insert/update');
 
   log.info('Duplicated practice time entry', { sourceId: id, newId: rows[0].id, newDate }, 'practice');
