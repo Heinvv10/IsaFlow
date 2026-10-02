@@ -21,6 +21,7 @@ import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { verifyTransaction } from '@/modules/billing/services/paystackClient';
 import { withPublicRouteTransaction } from '@/lib/publicRouteTx';
 import { recordGatewayInvoiceReceipt } from '@/modules/accounting/services/ar/gatewayInvoiceReceiptService';
+import { receiptCurrency } from '@/modules/accounting/services/ar/gatewaySettlementReview';
 
 interface PrRow {
   id: string;
@@ -153,8 +154,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // What was actually banked, and whether the invoice took any of it (R-181, PR #618 LOW-2):
   // the receipt can differ from the request, and an invoice outside the ledger takes nothing.
   const receipt = pr.purpose === 'customer_invoice'
-    ? await sql<{ total: string; applied: string }>`
-        SELECT cp.total_amount::text AS total,
+    ? await sql<{ total: string; applied: string; description: string | null }>`
+        SELECT cp.total_amount::text AS total, cp.description,
                COALESCE(SUM(a.amount_allocated) FILTER (WHERE a.invoice_id = ${pr.customer_invoice_id}::UUID), 0)::text AS applied
         FROM customer_payments cp
         LEFT JOIN customer_payment_allocations a ON a.payment_id = cp.id
@@ -176,6 +177,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     status: publicStatus,
     amountCents: banked ? Math.round(Number(banked.total) * 100) : Number(pr.amount_cents),
     appliedToInvoice: banked ? Number(banked.applied) > 0.005 : false,
+    // The currency the money was reported in: a non-ZAR receipt's figure is not rand.
+    currency: banked ? receiptCurrency(banked.description) : 'ZAR',
     invoiceNumber: pr.invoice_number ?? undefined,
     companyName: pr.company_name ?? undefined,
   });

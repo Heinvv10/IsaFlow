@@ -48,6 +48,14 @@ describe('Paystack portal return page', () => {
     expect(screen.queryByText(/against invoice/)).toBeNull();
   });
 
+  it('completed in a foreign currency: no rand figure, a plain "received"', async () => {
+    mocked.mockResolvedValue(answer({ status: 'completed', amountCents: 11500, currency: 'USD', appliedToInvoice: false }));
+    render(<PaystackReturnPage />);
+    await waitFor(() => expect(screen.getByText('Payment received')).toBeDefined());
+    expect(screen.getByText(/Your payment has been received\./)).toBeDefined();
+    expect(screen.queryByText(/115,00/)).toBeNull();
+  });
+
   it('pending on every try: stops after 10 polls on a neutral "still confirming" state', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mocked.mockResolvedValue(answer({ status: 'pending', amountCents: 11500 }));
