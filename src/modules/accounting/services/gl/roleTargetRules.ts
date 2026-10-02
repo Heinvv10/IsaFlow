@@ -5,9 +5,11 @@
  * inactive account — the live holder was demoted and the role had no holder).
  *
  * The account must be active (the resolver ignores inactive rows), must not be
- * a header with sub-accounts (hidden from the balance sheet, refused for direct
- * posting — migration 484), and must be unclassified ('other' or NULL) or
- * already classified for that role (Hein, 2026-09-30: no reclassifying by
+ * a header with sub-accounts when the role is a balance-sheet one
+ * (`isBalanceSheetType` — hidden from the balance sheet, migration 484; an
+ * income-statement role may go to a header, Hein 2026-10-02), and must be
+ * unclassified ('other' or NULL) or already classified for that role
+ * (Hein, 2026-09-30: no reclassifying by
  * assignment — which is also what keeps an account that holds ANOTHER role
  * from being taken from it). And its TYPE must be one the role allows
  * (`typeFitsSubtype`, the resolver's own table) — the EFFECTIVE type, the one
@@ -35,10 +37,11 @@ const UNCLASSIFIED = new Set(['other']);
  * for a header; a reactivation is the account itself coming back.
  */
 const HEADER_ADVICE = {
-  save: (code: string, setting: string) => `Account ${code} is a header with sub-accounts; choose one of its sub-accounts for '${setting}'`,
-  import: (code: string, setting: string) => `Account ${code} is a header with sub-accounts, so it cannot hold the '${setting}' role. `
+  save: (code: string, setting: string) => `Account ${code} is a header with sub-accounts, and a balance-sheet role cannot be held by a header; `
+    + `choose one of its sub-accounts for '${setting}'`,
+  import: (code: string, setting: string) => `Account ${code} is a header with sub-accounts, so it cannot hold the '${setting}' role (a balance-sheet role cannot be held by a header). `
     + `Map the role to an account that has none — or, if your file's ${code} is not the chart's ${code}, renumber it in the file and import again.`,
-  reactivate: (code: string, setting: string) => `Account ${code} has sub-accounts, and the account that holds the ${setting} role cannot be a header. `
+  reactivate: (code: string, setting: string) => `Account ${code} has sub-accounts, and an account that holds a balance-sheet role such as ${setting} cannot be a header. `
     + 'Move its sub-accounts to another parent first, or choose another account for the role in Default Accounts.',
 } as const;
 
@@ -53,7 +56,7 @@ export function roleTargetRefusal(
     return `Account for '${setting}' must be of type '${allowed.join("' or '")}' (got '${target.type}')`;
   }
   if (!target.isActive) return `Account ${code} for '${setting}' is inactive`;
-  if (target.hasChildren) return HEADER_ADVICE[caller](code, setting);
+  if (target.hasChildren && isBalanceSheetType(target.type)) return HEADER_ADVICE[caller](code, setting);
   if (subtype !== null && subtype !== role && !UNCLASSIFIED.has(subtype)) {
     // "Subtype" is what the Chart of Accounts screen calls this field.
     return `Account ${code} has the subtype '${subtype}'; only an account with the subtype 'other' (or none), or one that already has the subtype '${role}', can hold that role. Change its subtype to 'other' first.`
@@ -72,6 +75,16 @@ export function roleTargetRefusal(
  */
 export const HOLDER_NO_CHILDREN_TYPES = ['asset', 'liability', 'equity'] as const;
 
+/**
+ * THE balance-sheet test for both header rules: a holder of this type may not
+ * gain sub-accounts (`roleBarringChildren`), and a role may not be assigned to
+ * an account of this type that has them (`roleTargetRefusal`). The type is the
+ * role's too: `typeFitsSubtype` admits no role on both sides of the split.
+ */
+export function isBalanceSheetType(accountType: unknown): boolean {
+  return (HOLDER_NO_CHILDREN_TYPES as readonly string[]).includes(String(accountType));
+}
+
 /** The role a row holds, or null. */
 export function roleHeldBy(row: { account_subtype?: unknown; is_system_account?: unknown }): string | null {
   return row.is_system_account === true && isSystemAccountKey(row.account_subtype) ? row.account_subtype : null;
@@ -86,15 +99,14 @@ export function roleHeldBy(row: { account_subtype?: unknown; is_system_account?:
  * post-condition's header check (which is what judges the COA import and a
  * merge that moves children).
  *
- * NOT the same as `roleTargetRefusal`'s header rule, deliberately: ASSIGNING a
- * role to an account that already has sub-accounts is refused for every type
- * (not ruled on; unchanged). So 4100 may gain children while it holds the
- * revenue role, but the role cannot be moved onto an account that has them.
+ * The same split decides ASSIGNMENT (`roleTargetRefusal`, Hein 2026-10-02): an
+ * income-statement role may be moved onto an account that has sub-accounts, a
+ * balance-sheet one may not — both through `isBalanceSheetType`.
  */
 export function roleBarringChildren(
   row: { account_type?: unknown; account_subtype?: unknown; is_system_account?: unknown },
 ): string | null {
-  return (HOLDER_NO_CHILDREN_TYPES as readonly string[]).includes(String(row.account_type)) ? roleHeldBy(row) : null;
+  return isBalanceSheetType(row.account_type) ? roleHeldBy(row) : null;
 }
 
 export function holderAsParentRefusal(code: string, role: string): string {
