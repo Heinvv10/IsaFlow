@@ -266,10 +266,15 @@ case). Regression: 238 tests across k-036, k095*, k096, r166, r167*, r177, r178,
 r181*: 238 of 239 pass. The one failure is a k061 contention case (`a bulk allocation
 interleaving ... with a merge`): it expects a 40P01 that does not occur. It passes alone (3/3, and
 36/36 for the k061 files). **It reproduces on master**: a detached worktree at origin/master
-82bd2afdc, the same 24 non-R-181 files against the fixture on port 55790 (migrations 718/719),
-1-minute load under 30, failed 2 of 6 runs with the identical assertion
-(`expected 'committed' to be '40P01'`); the branch head b331f20e2, alternating with it, also failed
-2 of 6. It is a pre-existing timing-sensitive test, not an R-181 regression.
+82bd2afdc, the same 24 non-R-181 files, 1-minute load under 30, failed 3 of 7 runs with the
+identical assertion (`expected 'committed' to be '40P01'`); the branch head b331f20e2, alternating
+with it, failed 2 of 6 completed runs (a seventh was stopped mid-run). It is a pre-existing
+timing-sensitive test, not an R-181 regression.
+Fixture caveat: those attribution runs used 127.0.0.1:55790, which is `isaflow-fixture-brk-d8c`,
+a peer session's container, chosen by mistake (it was the only local fixture with migrations
+718/719). The stopped seventh branch run left 8 test companies there, reported to the
+orchestrator. Every other R-181 evidence log (red, green, mutations, regression) ran on
+`isaflow-fixture-r181`, 127.0.0.1:55563.
 
 ## Accepted residual risk
 

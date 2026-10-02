@@ -98,3 +98,5 @@ Q3 verify passes no fee figure (verify cannot trust requested_amount) [pages/api
 Q4 verify passes no requested_amount [pages/api/portal/payments/paystack/verify.ts]: 3 failed | 10 passed (13) -> KILLED; red: verify with no fee figure banks amount (flagged unverified); the webhook fee then nets Bank to the settlement; verify with the fee figure trusts requested_amount: R115 banked, no review; verify trusts requested_amount within its fee (R103, R100, R3): R100 banked; the webhook with the same figures posts no fee
 Q5 excess equal to the fee distrusted [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 3 failed | 10 passed (13) -> KILLED; red: verify with the fee figure trusts requested_amount: R115 banked, no review; verify banks R100, then the webhook reports R103 with R3 fees: no fee expense, Bank nets R100; verify trusts requested_amount within its fee (R103, R100, R3): R100 banked; the webhook with the same figures posts no fee
 AFTER: 13 passed (13)
+
+FIXTURE: every batch in this log ran through scratchpad/int.sh, i.e. isaflow-fixture-r181 at 127.0.0.1:55563.
