@@ -75,6 +75,27 @@ describe('company-groups: every id is UUID-checked first (400)', () => {
   });
 });
 
+// Round 11 (blind review of 28cd87199): an unknown action is refused on every method — DELETE had
+// no such check and fell through to delete-group — and every id is checked whatever the action.
+describe('company-groups: unknown actions and ids outside the action\'s own list', () => {
+  it.each([
+    ['DELETE', { action: 'foo', group_id: 'junk' }, {}, 'Unknown action: foo'],
+    ['DELETE', { action: 'foo', group_id: U }, {}, 'Unknown action: foo'],
+    ['GET', { action: 'everything', group_id: U }, {}, 'Unknown action: everything'],
+    ['POST', {}, { action: 'add-account', groupId: U }, 'Unknown action: add-account'],
+    ['PUT', {}, { action: 'update-account', groupId: U }, 'Unknown action: update-account'],
+    ['DELETE', { action: ['remove-member', 'x'], group_id: U }, {}, 'action must be a string'],
+    ['POST', {}, { action: 'add-member', groupId: U, companyId: U, holdingCompanyId: 'junk' }, 'holdingCompanyId must be a valid UUID'],
+    ['DELETE', { group_id: U, mapping_id: 'junk' }, {}, 'mapping_id must be a valid UUID'],
+    ['PUT', { group_id: 'junk' }, { groupId: U, name: 'x' }, 'group_id must be a valid UUID'],
+  ] as const)('%s %j %j → 400 %s', async (method, query, body, message) => {
+    const res = await call(groupsHandler, method, query as Record<string, unknown>, body);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(msg(res)).toContain(message);
+    for (const fn of Object.values(access)) expect(fn).not.toHaveBeenCalled();
+  });
+});
+
 describe('consolidation/companies: ids are UUID-checked (400)', () => {
   it.each([
     ['POST', {}, { childCompanyId: 'child-1' }, 'childCompanyId'],

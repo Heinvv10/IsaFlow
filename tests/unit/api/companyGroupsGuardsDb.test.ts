@@ -114,6 +114,72 @@ describe('company-groups guards (Postgres)', async () => {
     });
   });
 
+  // Round 11: a company that has LEFT the group is no longer one of its members for any mapping route.
+  it.skipIf(!reachable)('a company that left the group is refused on every mapping route (400)', async () => {
+    await withGroups(async () => {
+      await sql`INSERT INTO company_group_members (group_id, company_id, left_date) VALUES (${G}::uuid, ${OUTSIDE}::uuid, '2026-01-31')`;
+      for (const body of [
+        { action: 'auto-generate-coa', groupId: G, sourceCompanyId: OUTSIDE },
+        { action: 'auto-map', groupId: G, companyId: OUTSIDE },
+        { action: 'set-mapping', groupId: G, companyId: OUTSIDE, companyAccountId: acct(1), groupAccountId: gacct(1) },
+      ]) {
+        const res = await call('POST', 'attacker', body);
+        expect([body.action, res.statusCode, JSON.stringify(res.sent)]).toEqual([body.action, 400, expect.stringContaining('not a member of this group')]);
+      }
+      for (const action of ['mappings', 'unmapped']) {
+        expect([action, (await call('GET', 'attacker', {}, { action, group_id: G, company_id: OUTSIDE })).statusCode]).toEqual([action, 400]);
+      }
+    });
+  });
+
+  // Round 11: a mapping row stored BEFORE the write guard (forged directly here) must not leak the
+  // foreign account's code or name through GET mappings.
+  it.skipIf(!reachable)('a pre-existing forged mapping row leaks nothing through GET mappings', async () => {
+    await withGroups(async () => {
+      await sql`INSERT INTO group_coa_mappings (group_id, company_id, company_account_id, group_account_id) VALUES
+        (${G}::uuid, ${MINE}::uuid, ${acct(9)}::uuid, ${gacct(1)}::uuid),
+        (${G}::uuid, ${MINE}::uuid, ${acct(1)}::uuid, ${gacct(9)}::uuid)`;
+      for (const query of [{ action: 'mappings', group_id: G }, { action: 'mappings', group_id: G, company_id: MINE }]) {
+        const listed = await call('GET', 'attacker', {}, query);
+        expect(listed.statusCode).toBe(200);
+        expect(JSON.stringify(listed.sent)).not.toMatch(/VICTIM SECRET LOAN|OTHER GROUP SECRET|9999/);
+        expect((listed.sent as { data: { items: unknown[] } }).data.items).toEqual([]);
+      }
+    });
+  });
+
+  // Round 11: removing a company's mapping needs a write role in that company, as set-mapping does.
+  it.skipIf(!reachable)('remove-mapping needs a write role in the mapped company; an unknown mapping is a 404', async () => {
+    await withGroups(async () => {
+      await sql`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type) VALUES
+        (${acct(2)}::uuid, ${VIEWED}::uuid, '2000', 'Creditors', 'liability')`;
+      const [viewedMap, mineMap] = (await sql`INSERT INTO group_coa_mappings (group_id, company_id, company_account_id, group_account_id) VALUES
+        (${G}::uuid, ${VIEWED}::uuid, ${acct(2)}::uuid, ${gacct(1)}::uuid), (${G}::uuid, ${MINE}::uuid, ${acct(1)}::uuid, ${gacct(1)}::uuid)
+        RETURNING id`) as Array<{ id: string }>;
+      const remove = (id: string) => call('DELETE', 'attacker', {}, { action: 'remove-mapping', mapping_id: id, group_id: G });
+      // A group writer (admin of MINE) who is only a viewer of VIEWED cannot remove VIEWED's mapping.
+      const refused = await remove(viewedMap!.id);
+      expect([refused.statusCode, JSON.stringify(refused.sent)]).toEqual([403, expect.stringContaining('owner, admin or manager role in that company')]);
+      expect(await sql`SELECT count(*)::int AS n FROM group_coa_mappings`).toEqual([{ n: 2 }]);
+      expect((await remove(mineMap!.id)).statusCode).toBe(200);
+      expect(await sql`SELECT count(*)::int AS n FROM group_coa_mappings`).toEqual([{ n: 1 }]);
+      expect((await remove('70000000-0000-4000-8000-0000000000ee')).statusCode).toBe(404);
+    });
+  });
+
+  // Round 11 (test gap): the bootstrap is the CREATOR's. Someone else who belongs to every member
+  // company but holds no write role in the group cannot add a member.
+  it.skipIf(!reachable)('a non-creator who belongs to every member company, as a viewer, cannot add a member', async () => {
+    await withGroups(async () => {
+      const NEW_CO = '10000000-0000-4000-8000-0000000000c1';
+      await sql`INSERT INTO company_users VALUES (${MINE}::uuid, 'onlooker', 'viewer'), (${VIEWED}::uuid, 'onlooker', 'viewer'),
+        (${NEW_CO}::uuid, 'onlooker', 'owner')`;
+      const res = await call('POST', 'onlooker', { action: 'add-member', groupId: G, companyId: NEW_CO });
+      expect([res.statusCode, JSON.stringify(res.sent)]).toEqual([403, expect.stringContaining('does not allow this change')]);
+      expect(await sql`SELECT count(*)::int AS n FROM company_group_members WHERE company_id = ${NEW_CO}::uuid`).toEqual([{ n: 0 }]);
+    });
+  });
+
   it.skipIf(!reachable)('creator bootstrap holds only while every member is a company the creator still belongs to', async () => {
     await withGroups(async () => {
       const CREATOR = '90000000-0000-4000-8000-000000000001';

@@ -50,6 +50,12 @@ describe('create: values are validated before any query (400)', () => {
     [{ transactionType: ['sale'] }, 'transactionType must be one of'],
     [{ amount: '1250.50' }, 'amount must be a positive number'],
     [{ amount: -5 }, 'amount must be a positive number'],
+    [{ amount: -0.5 }, 'amount must be a positive number'],
+    // NUMERIC(15,2): 1e13 overflowed (a 500) and 0.001 was stored as 0.00 (blind review of 28cd87199).
+    [{ amount: 1e13 }, 'amount must be less than'],
+    [{ amount: 0.001 }, 'at most 2 decimal places'],
+    [{ amount: 10.005 }, 'at most 2 decimal places'],
+    [{ amount: 1e-7 }, 'at most 2 decimal places'],
     [{ amount: Number.POSITIVE_INFINITY }, 'amount must be a positive number'],
     [{ transactionDate: '2026-02-30' }, 'transactionDate must be a real date'],
     [{ transactionDate: ['2026-01-15'] }, 'transactionDate must be a real date'],
@@ -68,6 +74,12 @@ describe('create: values are validated before any query (400)', () => {
     const res = await call(CREATE);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(svc.createIntercompanyTransaction).toHaveBeenCalledWith(expect.objectContaining({ transactionType: 'sale', amount: 1250.5, transactionDate: '2026-01-15' }));
+  });
+
+  it.each([0.01, 0.07, 1250.5, 9999999999999.99])('amount %d fits NUMERIC(15,2) and is recorded', async (amount) => {
+    const res = await call({ ...CREATE, amount });
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(svc.createIntercompanyTransaction).toHaveBeenCalledWith(expect.objectContaining({ amount }));
   });
 
   it('every type the page offers is accepted, and no other', () => {

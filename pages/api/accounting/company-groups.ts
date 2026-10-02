@@ -17,7 +17,7 @@ import {
   userCanWriteGroup,
 } from '@/modules/accounting/services/core/companyAccessService';
 import {
-  creatorMayBootstrapGroup, firstMalformedGroupId, mappingAccountsBelong,
+  COMPANY_CHART_REFUSED, creatorMayBootstrapGroup, groupRequestError, mappingAccountsBelong, mappingCompanyId,
   refuseGroupCompanyRead, refuseGroupCompanyWrite, type Refusal,
 } from '@/modules/accounting/services/core/groupRouteGuards';
 import {
@@ -48,9 +48,10 @@ import {
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const action = (req.query.action || req.body?.action) as string | undefined;
-  // Every id is UUID-checked before any ::UUID cast (D4 round 10); see groupRouteGuards.
-  const malformed = firstMalformedGroupId(req.method ?? '', action, req.query, req.body);
-  if (malformed) return apiResponse.badRequest(res, `${malformed} must be a valid UUID`);
+  // An unknown action is refused on every method (DELETE used to fall through to delete-group),
+  // and every id is UUID-checked before any ::UUID cast, whatever the action; see groupRouteGuards.
+  const requestError = groupRequestError(req.method ?? '', action, req.query, req.body);
+  if (requestError) return apiResponse.badRequest(res, requestError);
   const refuse = (r: Refusal) => (r.status === 400 ? apiResponse.badRequest(res, r.message) : apiResponse.forbidden(res, r.message));
 
   // Guards delegate to companyAccessService / groupRouteGuards (inline copies once 500'd on a text = uuid cast).
@@ -189,13 +190,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { mappedCount: count });
     }
 
-    // An unrecognised action must NOT fall through to create-group. The COA tab
-    // used to POST action:'add-account' — no such action — and the fall-through
-    // created a COMPANY GROUP named after the GL account while reporting
-    // "Account added". Reject unknown actions explicitly.
-    if (action) return apiResponse.badRequest(res, `Unknown action: ${action}`);
-
-    // Default POST (no action): create group
+    // No action: create group. (An unknown action never reaches here — groupRequestError refuses
+    // it; the COA tab's old 'add-account' used to fall through and create a GROUP.)
     const { name, holdingCompanyId, defaultCurrency, financialYearStart } = req.body;
     if (!name) return apiResponse.badRequest(res, 'name is required');
     // createGroup auto-enrolls holdingCompanyId as a group member, so it is the same
@@ -228,9 +224,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const account = await updateGroupAccount(accountId, updates, accountGroupId);
       return apiResponse.success(res, account);
     }
-
-    // Same fall-through hazard as POST: 'update-account' was not a real action.
-    if (action) return apiResponse.badRequest(res, `Unknown action: ${action}`);
 
     const { groupId, ...updates } = req.body;
     if (!groupId) return apiResponse.badRequest(res, 'groupId required');
@@ -267,6 +260,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!groupId) return apiResponse.badRequest(res, 'group_id required');
       const refused = await refuseGroupWrite(groupId);
       if (refused) return apiResponse.forbidden(res, refused);
+      // Removing a company's mapping changes its consolidated figures: a write role in it, as set-mapping.
+      const mappedCompany = await mappingCompanyId(mappingId, groupId);
+      if (!mappedCompany) return apiResponse.notFound(res, 'Mapping');
+      if (!(await userCanWriteCompany(userId, mappedCompany))) return apiResponse.forbidden(res, COMPANY_CHART_REFUSED);
       await removeCoaMapping(mappingId, groupId);
       return apiResponse.success(res, { removed: true });
     }
