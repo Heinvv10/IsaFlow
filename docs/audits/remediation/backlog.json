@@ -15104,6 +15104,36 @@
       "title": "AUTH_POOL_MAX (and the other pool-size variables) are read without validation; a bad value makes the pool unbounded",
       "claim": "src/lib/auth/authPool.ts reads AUTH_POOL_MAX with a plain Number(); a non-numeric value becomes NaN and pg treats a NaN max as no limit. PG_POOL_MAX and PLATFORM_ADMIN_POOL_MAX have the same shape. R-175's RATE_LIMIT_POOL_MAX validates 1-100 and falls back with a warning.",
       "processNotes": "2026-10-02: found while adding RATE_LIMIT_POOL_MAX (R-175). Not fixed. Also relevant: the shared Postgres (port 7772) serves prod, isaflow_dev, CI and Supabase services with max_connections 100; ~42-52 in use when quiet, and a master Golden Paths run on 2026-10-02 hit 'remaining connection slots are reserved'."
+    },
+    {
+      "area": "billing",
+      "affectedPaths": [
+        "src/modules/billing/services/paystackClient.ts"
+      ],
+      "sourceLabel": "R-181 review round 3, 2026-10-02",
+      "sourceIds": [
+        "R-181"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Maintainability only: the repo's 300-line file limit is breached by a pre-existing file; no behaviour is wrong.",
+      "auditedSha": "82bd2afdc",
+      "currentSha": "76f5c3227",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None.",
+      "canonicalItem": null,
+      "branch": null,
+      "id": "R-183",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "paystackClient.ts is over the 300-line file limit (432 lines)",
+      "claim": "src/modules/billing/services/paystackClient.ts was 425 lines at 82bd2afdc, already over CLAUDE.md's 300-line limit. R-181 added 7 (verifyTransaction maps requested_amount and fees), making 432. A split (for example transactions, subscriptions and plans into separate modules) is out of R-181's scope.",
+      "processNotes": "2026-10-02: recorded by the R-181 round 3 review. Pre-existing; not fixed."
     }
   ],
   "sourceInventory": [
