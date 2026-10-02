@@ -1,0 +1,28 @@
+BASELINE: 16 passed (16)
+M1 bank the request amount always [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 6 failed | 10 passed (16) -> KILLED
+M2 no amount_mismatch flag [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 6 failed | 10 passed (16) -> KILLED
+M3 no currency check [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 15 passed (16) -> KILLED
+M4 accept amount 0 [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 15 passed (16) -> KILLED
+M5 accept fractional cents [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 15 passed (16) -> KILLED
+M6 deleted invoice not blocked [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 15 passed (16) -> KILLED
+M7 population rule dropped [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 5 failed | 11 passed (16) -> KILLED
+M8 flag write scope dropped (company_id) [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 16 passed (16) -> SURVIVED
+M9 review logged at info, not error [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 6 failed | 10 passed (16) -> KILLED
+M10 blocked invoice still allocated [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 5 failed | 11 passed (16) -> KILLED
+M11 flag never written [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 13 failed | 3 passed (16) -> KILLED
+M12 invoice review not added to reasons [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 6 failed | 10 passed (16) -> KILLED
+M13 webhook main branch passes no reported amount [src/modules/billing/services/paystackEventHandlers.ts]: 11 failed | 5 passed (16) -> KILLED
+M14 verify passes no reported amount [pages/api/portal/payments/paystack/verify.ts]: 3 failed | 13 passed (16) -> KILLED
+M16 already-completed branch passes no reported amount [src/modules/billing/services/paystackEventHandlers.ts]: 1 failed | 15 passed (16) -> KILLED
+M15 invoice status not read [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 5 failed | 11 passed (16) -> KILLED
+AFTER: 16 passed (16)
+
+NOTES
+- M8 SURVIVED, equivalent: paystack_payment_requests_paystack_reference_key is UNIQUE over the whole
+  table, so `paystack_reference = $ref` names one row in one company with or without the company_id
+  predicate; no test can tell the two apart. The predicate stays as tenant scoping (CLAUDE.md rule).
+- An earlier run's M9 replaced `log.error(` with `void (`; that failed all tests including the
+  ones that never flag (module load error), so it said nothing about the guard and was replaced
+  by the info-level mutant above. That batch is superseded by this one.
+- The batch script is applied one mutant at a time to the committed file and restored after each run;
+  AFTER is the post-batch rerun on the restored tree.
