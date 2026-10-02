@@ -29,6 +29,23 @@ export interface PackMetricRead {
 }
 
 /**
+ * THE MEASUREMENT THE ENGINE ROUNDED AWAY, AND ONLY THAT.
+ *
+ * `calculateExtendedRatios` rounds every ratio to two places, so Velocity
+ * Fibre's cash ratio — 277 over 80 584, in R'000, 0.0034 — reached page 9 as
+ * exactly 0 and printed as the dash page 12 defines as nil. Where the engine
+ * states a zero over a numerator that is not nil, the quotient is taken from
+ * the same two figures the engine divided. Everywhere else the engine's own
+ * figure stands, so the pack still agrees with Financial Analysis.
+ */
+function measured<T extends number | null>(engine: T, numerator: number, denominator: number, times = 1): T | number {
+  return engine === 0 && numerator !== 0 && denominator !== 0 ? (numerator / denominator) * times : engine;
+}
+
+/** The day count the engine annualises on — see page 12's definitions. */
+const DAYS_IN_YEAR = 365;
+
+/**
  * `debtorDays` is receivables over revenue. On non-positive revenue the
  * quotient's sign stops tracking the story: Brightsphere's net-debit revenue
  * printed "−4 days", which reads as a debtor book collected before the sale
@@ -45,7 +62,7 @@ export function readDebtorDays(ratios: ExtendedRatioResult, raw: ReportPackFigur
       unavailable: 'Revenue is not positive, so days of sales outstanding cannot be measured.',
     };
   }
-  return { value: ratios.debtorDays };
+  return { value: measured(ratios.debtorDays, raw.accountsReceivable, raw.revenue, DAYS_IN_YEAR) };
 }
 
 /**
@@ -67,7 +84,7 @@ export function readCreditorDays(ratios: ExtendedRatioResult, raw: ReportPackFig
       unavailable: 'Cost of sales is not positive, so days of purchases outstanding cannot be measured.',
     };
   }
-  return { value: ratios.creditorDays };
+  return { value: measured(ratios.creditorDays, raw.accountsPayable, raw.costOfSales, DAYS_IN_YEAR) };
 }
 
 export const DEBT_TO_EQUITY_SOURCE = 'calculateExtendedRatios.debtToEquity';
@@ -92,7 +109,7 @@ export function readDebtToEquity(ratios: ExtendedRatioResult, raw: ReportPackFig
           ratios.notMeaningful.debtToEquity ?? 'Equity is not positive, so this ratio has no meaning.',
       }
     : {
-        value: ratios.debtToEquity,
+        value: measured(ratios.debtToEquity, raw.totalLiabilities, raw.totalEquity),
         basis: { numerator: raw.totalLiabilities, denominator: raw.totalEquity },
       };
 }
@@ -122,7 +139,11 @@ export function readInterestCover(ratios: ExtendedRatioResult, raw: ReportPackFi
       ? { value: null, unavailable, notRecorded: true }
       : { value: null, unavailable };
   }
-  return { value: ratios.interestCoverage, basis: { numerator: operatingProfitOf(raw), denominator: raw.interestExpense } };
+  const numerator = operatingProfitOf(raw);
+  return {
+    value: measured(ratios.interestCoverage, numerator, raw.interestExpense),
+    basis: { numerator, denominator: raw.interestExpense },
+  };
 }
 
 /**
@@ -146,7 +167,7 @@ export function readOverCurrentLiabilities(
   currentLiabilities: number,
 ): PackMetricRead {
   if (currentLiabilities === 0 || value === null) return { value: null, unavailable: NO_CURRENT_LIABILITIES };
-  return { value, basis: { numerator, denominator: currentLiabilities } };
+  return { value: measured(value, numerator, currentLiabilities), basis: { numerator, denominator: currentLiabilities } };
 }
 
 /**
