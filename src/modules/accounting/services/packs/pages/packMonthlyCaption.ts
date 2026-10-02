@@ -6,7 +6,7 @@
  */
 import { formatMoney, inProse, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
-import { monthLabel } from './packPartialMonth';
+import { monthLabel, wholeMonthsOf } from './packPartialMonth';
 import { MEASURES, trendWindowLabel } from './packMonthlyMeasures';
 
 /**
@@ -17,7 +17,12 @@ import { MEASURES, trendWindowLabel } from './packMonthlyMeasures';
  * every month is the same figure there is no spread to name and the sentence
  * states the level instead, the same rule `movementSentence` follows.
  */
-export function monthlyResultsTitle(trend: PackTrendPoint[], scale: MoneyScale): string {
+export function monthlyResultsTitle(series: PackTrendPoint[], scale: MoneyScale): string {
+  // RANKED OVER WHOLE MONTHS. A two-day stub with a month's rent and no
+  // revenue yet is not "the lowest month" — the comparison page 10 no longer
+  // makes either (`wholeMonthsOf`). The table still prints it, marked.
+  const trend = wholeMonthsOf(series);
+  const whole = trend.length < series.length ? 'whole ' : '';
   // A DIGIT, because the title rule (`assertPageTitleIsAMessage`, a test-time
   // guard) fails a bare label — and the count is the fact anyway: none of the
   // months could be built.
@@ -25,7 +30,7 @@ export function monthlyResultsTitle(trend: PackTrendPoint[], scale: MoneyScale):
   const money = (n: number) => inProse(formatMoney(n, { scale }));
   const best = trend.reduce((a, b) => (b.netProfit > a.netProfit ? b : a));
   const worst = trend.reduce((a, b) => (b.netProfit < a.netProfit ? b : a));
-  const months = trend.length === 1 ? 'the one month' : `the ${trend.length} months`;
+  const months = trend.length === 1 ? `the one ${whole}month` : `the ${trend.length} ${whole}months`;
   if (best.netProfit === worst.netProfit) {
     return `Net profit is ${money(best.netProfit)} in every one of ${months} shown.`;
   }

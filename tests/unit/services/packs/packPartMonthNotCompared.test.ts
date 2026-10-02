@@ -93,3 +93,25 @@ describe('a series that ends on a whole month', () => {
     expect(period).not.toMatch(/not drawn/);
   });
 });
+
+describe('page 5\'s headline, which ranks the months', () => {
+  // A stub of two days with a month's rent posted on the 1st and no revenue
+  // yet is not "the lowest month" — the same comparison page 10 no longer makes.
+  const stubbed: BoardPackInput = {
+    ...demoInput,
+    trend: demoInput.trend.map((point, i, all) => (i === all.length - 1
+      ? { ...point, partial: true, daysCovered: 2, revenue: 0, otherIncome: 0, costOfSales: 0, operatingExpenses: 150_000, expenses: 150_000, netProfit: -150_000 }
+      : point)),
+  };
+
+  it('ranks whole months only, and says so', () => {
+    const title = pageNamed(buildBoardPackPages(stubbed), 'Monthly results').title;
+    expect(title).not.toContain('(part)');
+    expect(title).toMatch(/across the 12 whole months\.$/);
+  });
+
+  it('is unchanged where every month is whole', () => {
+    expect(pageNamed(buildBoardPackPages(demoInput), 'Monthly results').title).toMatch(/across the 13 months\.$/);
+  });
+});
+
