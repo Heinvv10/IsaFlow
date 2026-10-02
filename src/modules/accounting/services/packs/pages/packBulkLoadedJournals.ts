@@ -29,7 +29,7 @@ export function bulkLoadedMatter(b: BulkLoadedJournals, movement: string): PackM
     kind: 'finding',
     issue: `${plural(b.journals, 'journal')} dated as far back as ${formatPackDate(b.oldestEntryDate)} `
       + `${b.journals === 1 ? 'was' : 'were'} recorded in bulk ${when}: ${BULK_LOAD_MIN} or more journals `
-      + `dated over ${BACKDATE_DAYS} days earlier were recorded on ${b.days === 1 ? 'that day' : 'each'}, `
+      + `dated over ${BACKDATE_DAYS} days earlier were recorded on ${b.days === 1 ? 'that day' : 'each of those days'}, `
       + 'so none is listed here one by one for late recording.',
     quantum: null,
     owner: 'Finance',

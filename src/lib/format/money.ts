@@ -263,7 +263,8 @@ export function formatDays(n: number, dp = 0): string {
  * That is not a formatting bug; it is a false statement about the business.
  *
  * The remedy is the shape `TrustedChartSvg` uses (`src/lib/charts/trustedChartSvg.ts`):
- * a branded value with exactly ONE guarded way to obtain it. The magnitude
+ * a branded value with guarded ways only (this, and `pctLevelWithWord`, which
+ * wraps it for a level and still takes both words). The magnitude
  * formatter below is no longer exported, so a sentence cannot be handed a
  * bare percentage from this module at all — the next author of the next
  * sentence has to name the word that carries the sign, and forgetting is a

@@ -160,7 +160,7 @@ describe('buildMatters', () => {
     expect(loads[0]!.issue).toBe(
       '19\u00a0581 journals dated as far back as 1 April 2025 were recorded in bulk on 12 days between '
       + '5 September 2026 and 18 September 2026: 10 or more journals dated over 5 days earlier were recorded '
-      + 'on each, so none is listed here one by one for late recording.',
+      + 'on each of those days, so none is listed here one by one for late recording.',
     );
     // The journals the source still flags are still there.
     expect(matters.filter((m) => m.issue.startsWith('Journal ')).length).toBe(1);
