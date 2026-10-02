@@ -1,7 +1,7 @@
 /**
  * Confirmation + call for revoking an invoice's standing "Pay now" link.
  * `onDone` runs after every attempt (the invoice is reloaded so a stale item disappears); on a
- * failure the server's message is then handed to `onError`.
+ * failure the server's message, or a plain fallback sentence, is then handed to `onError`.
  */
 import { useState } from 'react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
@@ -16,6 +16,8 @@ interface Props {
   onError: (message: string) => void;
 }
 
+const REVOKE_FAILED = 'Could not revoke the payment link - try again';
+
 export function RevokePaymentLinkDialog({ open, invoiceId, invoiceNumber, onClose, onDone, onError }: Props) {
   const [revoking, setRevoking] = useState(false);
 
@@ -24,12 +26,12 @@ export function RevokePaymentLinkDialog({ open, invoiceId, invoiceNumber, onClos
     try {
       await assertOk(
         await apiFetch(`/api/accounting/customer-invoices/${invoiceId}/payment-link/revoke`, { method: 'POST' }),
-        'Could not revoke the payment link - try again',
+        REVOKE_FAILED,
       );
       onDone();
     } catch (e) {
       onDone();
-      onError(apiErrorMessage(e, 'Could not revoke the payment link - try again'));
+      onError(apiErrorMessage(e, REVOKE_FAILED));
     } finally {
       setRevoking(false);
       onClose();
