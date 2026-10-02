@@ -7,8 +7,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import PurchaseOrderDetailPage from '@/../pages/accounting/purchase-orders/[poId]';
 import { apiFetch } from '@/lib/apiFetch';
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({children}: {children: React.ReactNode}) => <>{children}</> }));
 const route = vi.hoisted(() => ({ query: { poId: 'po-1' } as Record<string, string>, isReady: true, push: vi.fn() }));
 vi.mock('next/router', () => ({ useRouter: () => route }));
@@ -49,7 +51,7 @@ it('shows a generic message when the refusal has no JSON body', async () => {
   deleteAnswers(new Response('Bad gateway', {status: 502}));
   render(<PurchaseOrderDetailPage />);
   fireEvent.click(await screen.findByRole('button', {name: /delete/i}));
-  expect(await screen.findByText('Delete failed')).toBeInTheDocument();
+  expect(await screen.findByText('Could not delete the purchase order - try again')).toBeInTheDocument();
   expect(route.push).not.toHaveBeenCalled();
 });
 

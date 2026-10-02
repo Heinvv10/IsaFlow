@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { XCircle, Plus, Check, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface WriteOff {
   id: string; writeOffNumber: string; clientId: string; clientName?: string;
@@ -34,31 +34,37 @@ export default function WriteOffsPage() {
   const [error, setError] = useState('');
   const [form, setForm] = useState({ clientId: '', invoiceId: '', amount: '', reason: '' });
 
-  const load = useCallback(async () => {
-    const res = await apiFetch('/api/accounting/write-offs', { credentials: 'include' });
-    const json = await res.json();
-    setItems(json.data?.items || []);
-    setLoading(false);
+  // Resolves to a load error message ('' when fine): a failed load clears the rows, never throws into a write's flow.
+  const load = useCallback(async (): Promise<string> => {
+    try {
+      const res = await apiFetch('/api/accounting/write-offs', { credentials: 'include' });
+      await assertOk(res, 'Could not load write-offs - try again');
+      const json = await res.json();
+      setItems(json.data?.items || []);
+      return '';
+    } catch (err) {
+      setItems([]);
+      return apiErrorMessage(err, 'Could not load write-offs - try again');
+    } finally { setLoading(false); }
   }, []);
 
+  useEffect(() => { void load().then(msg => { if (msg) setError(msg); }); }, [load]);
   useEffect(() => {
-    load().catch(() => { setLoading(false); setError('Failed to load write-offs'); });
-  }, [load]);
-  useEffect(() => {
-    apiFetch('/api/accounting/customers', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/customers', { credentials: 'include' })
+      .then(async r => { await assertOk(r, 'Could not load clients - try again'); return r.json(); }).then(res => {
       const d = res.data || res;
       setClients(Array.isArray(d) ? d : d.clients || []);
-    }).catch(() => setError('Failed to load clients'));
+    }).catch(err => setError(apiErrorMessage(err, 'Could not load clients - try again')));
   }, []);
 
   useEffect(() => {
     if (!form.clientId) { setInvoices([]); return; }
     apiFetch(`/api/customer-invoices?client_id=${form.clientId}&status=approved&status=sent&status=partially_paid&status=overdue`, { credentials: 'include' })
-      .then(r => r.json()).then(res => {
+      .then(async r => { await assertOk(r, 'Could not load invoices - try again'); return r.json(); }).then(res => {
         const d = res.data || res;
         const list = Array.isArray(d) ? d : d.invoices || [];
         setInvoices(list.filter((inv: Invoice) => Number(inv.total_amount) - Number(inv.amount_paid) > 0.01));
-      }).catch(() => setError('Failed to load invoices'));
+      }).catch(err => setError(apiErrorMessage(err, 'Could not load invoices - try again')));
   }, [form.clientId]);
 
   const selectedInv = invoices.find(i => i.id === form.invoiceId);
@@ -73,22 +79,25 @@ export default function WriteOffsPage() {
         credentials: 'include',
         body: JSON.stringify({ clientId: form.clientId, invoiceId: form.invoiceId, amount: Number(form.amount), reason: form.reason }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      await assertOk(res, 'Could not save the write-off - try again');
       setShowForm(false);
       setForm({ clientId: '', invoiceId: '', amount: '', reason: '' });
-      await load();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+      if (await load()) setError('The write-off was saved, but the list could not be refreshed - reload the page');
+    } catch (err) { setError(apiErrorMessage(err, 'Could not save the write-off - try again')); }
     finally { setBusy(''); }
   };
 
   const approve = async (id: string) => {
     setBusy(id);
-    await apiFetch('/api/accounting/write-offs-action', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ action: 'approve', id }),
-    });
-    await load(); setBusy('');
+    try {
+      const res = await apiFetch('/api/accounting/write-offs-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ action: 'approve', id }),
+      });
+      await assertOk(res, 'Could not approve the write-off - try again');
+      if (await load()) setError('The write-off was approved, but the list could not be refreshed - reload the page');
+    } catch (err) { setError(apiErrorMessage(err, 'Could not approve the write-off - try again')); }
+    finally { setBusy(''); }
   };
 
   return (

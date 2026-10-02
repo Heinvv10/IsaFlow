@@ -5,7 +5,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -64,20 +65,26 @@ export default function FarReportPage() {
   const load = useCallback(async (date: string) => {
     setLoading(true);
     setError(null);
-    const res = await apiFetch(`/api/accounting/assets/far-report?asAt=${date}`);
-    const json = await res.json() as { success: boolean; data?: FarReport; error?: string };
-    if (json.success && json.data) {
-      setReport(json.data);
-    } else {
-      setError(json.error ?? 'Failed to load report');
+    try {
+      const res = await apiFetch(`/api/accounting/assets/far-report?asAt=${date}`);
+      await assertOk(res, 'Could not load the report - try again');
+      const json = await res.json() as { success: boolean; data?: FarReport; error?: string };
+      if (json.success && json.data) {
+        setReport(json.data);
+      } else {
+        log.warn('FAR report returned no data', { error: json.error }, 'far-report');
+        setReport(null);
+        setError('Could not load the report - try again');
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
     load(asAt).catch((err) => {
-      setLoading(false);
-      setError(err instanceof Error ? err.message : 'Failed to load report');
+      setReport(null);
+      setError(apiErrorMessage(err, 'Could not load the report - try again'));
     });
   }, [asAt, load]);
 

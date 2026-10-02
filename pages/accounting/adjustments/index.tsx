@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { SlidersHorizontal, Plus, Check, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
 interface Adjustment {
@@ -34,33 +34,35 @@ export default function AdjustmentsPage() {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [success, setSuccess] = useState('');
   const [form, setForm] = useState({ entityId: '', adjustmentType: 'debit', amount: '', reason: '' });
 
   const load = useCallback(async () => {
-    setLoading(true);
-    const res = await apiFetch(`/api/accounting/adjustments?entityType=${entityType}`, { credentials: 'include' });
-    const json = await res.json();
-    setItems(json.data?.items || []);
-    setLoading(false);
+    setLoading(true); setLoadFailed(false);
+    try {
+      const res = await apiFetch(`/api/accounting/adjustments?entityType=${entityType}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load adjustments - try again');
+      const json = await res.json();
+      setItems(json.data?.items || []);
+    } catch (err) {
+      setItems([]); setLoadFailed(true);
+      setError(apiErrorMessage(err, 'Could not load adjustments - try again'));
+    } finally { setLoading(false); }
   }, [entityType]);
 
-  useEffect(() => {
-    load().catch((err) => {
-      setLoading(false);
-      setError(err instanceof Error ? err.message : 'Failed to load adjustments');
-    });
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (entityType === 'supplier') return; // suppliers are searched by SupplierSelect
-    apiFetch('/api/accounting/customers').then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); }).then(res => {
       const d = res.data || res;
       setEntities(
         Array.isArray(d)
           ? d
           : d.clients || d.customers || d.suppliers || d.items || [],
       );
-    }).catch(() => {
-      setError('Failed to load customers');
+    }).catch((err) => {
+      setError(apiErrorMessage(err, 'Could not load customers - try again'));
     });
   }, [entityType]);
 
@@ -70,29 +72,34 @@ export default function AdjustmentsPage() {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!form.entityId) { setError(`Please select a ${entityType === 'supplier' ? 'supplier' : 'client'}`); return; }
-    setError(''); setBusy('new');
+    setError(''); setSuccess(''); setBusy('new');
     try {
       const res = await apiFetch('/api/accounting/adjustments', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ entityType, entityId: form.entityId, adjustmentType: form.adjustmentType, amount: Number(form.amount), reason: form.reason }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      await assertOk(res, 'Could not create the adjustment - try again');
       setShowForm(false);
       setForm({ entityId: '', adjustmentType: 'debit', amount: '', reason: '' });
+      setSuccess('Adjustment created');
       await load();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not create the adjustment - try again')); }
     finally { setBusy(''); }
   };
 
   const approve = async (id: string) => {
-    setBusy(id);
-    await apiFetch('/api/accounting/adjustments-action', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ action: 'approve', id }),
-    });
-    await load(); setBusy('');
+    setBusy(id); setError(''); setSuccess('');
+    try {
+      const res = await apiFetch('/api/accounting/adjustments-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ action: 'approve', id }),
+      });
+      await assertOk(res, 'Could not approve the adjustment - try again');
+      setSuccess('Adjustment approved');
+      await load();
+    } catch (err) { setError(apiErrorMessage(err, 'Could not approve the adjustment - try again')); }
+    finally { setBusy(''); }
   };
 
   return (
@@ -116,6 +123,7 @@ export default function AdjustmentsPage() {
 
         <div className="p-6 space-y-4">
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
+          {success && <div className="p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">{success}</div>}
 
           {showForm && (
             <form onSubmit={handleSubmit} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 space-y-4">
@@ -154,7 +162,7 @@ export default function AdjustmentsPage() {
               </tr></thead>
               <tbody>
                 {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
-                {!loading && items.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No adjustments</td></tr>}
+                {!loading && !loadFailed && items.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No adjustments</td></tr>}
                 {items.map(item => (
                   <tr key={item.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{item.adjustmentNumber}</td>

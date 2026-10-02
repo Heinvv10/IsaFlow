@@ -134,7 +134,7 @@ describe('report drill cost centre selection', () => {
     drill.unmount();
 
     render(<EvidenceDrillModal accountId="5000" accountName="Expense" {...dates} onClose={vi.fn()} />);
-    expect(await screen.findByText('Failed to load evidence')).toBeInTheDocument();
+    expect(await screen.findByText('Could not load the evidence - try again')).toBeInTheDocument();
     expect(screen.queryByText('No journal entries found for this period')).not.toBeInTheDocument();
   });
 

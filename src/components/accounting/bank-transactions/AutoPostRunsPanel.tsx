@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { HandOffsetNotice, type HandOffset } from './HandOffsetNotice';
 
 interface AutoPostRun {
@@ -56,14 +56,16 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
   const [runs, setRuns] = useState<AutoPostRun[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState('');
   const [undoNotice, setUndoNotice] = useState<string | null>(null);
   const [handOffsets, setHandOffsets] = useState<{ runId: string; offsets: HandOffset[] } | null>(null);
 
   const load = useCallback(() => {
+    setLoadError('');
     apiFetch('/api/accounting/bank-auto-post', { credentials: 'include' })
-      .then((r) => r.json())
+      .then(async (r) => { await assertOk(r, 'Could not load recent auto-post runs - try again'); return r.json(); })
       .then((j: AutoPostRunsResponse) => setRuns(j?.data?.runs ?? []))
-      .catch(() => setRuns([]));
+      .catch((err) => { setRuns([]); setLoadError(apiErrorMessage(err, 'Could not load recent auto-post runs - try again')); });
   }, []);
 
   useEffect(() => {
@@ -83,19 +85,16 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
         body: JSON.stringify({ action: 'undo', runId }),
       });
       if (res.status === 409) {
-        throw new Error('Another request is working on this run\'s lines — try again in a moment.');
+        throw new ApiEnvelopeError('Another request is working on this run\'s lines — try again in a moment.');
       }
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({})) as { error?: { message?: string } };
-        throw new Error(errJson.error?.message ?? `Undo failed (${res.status})`);
-      }
+      await assertOk(res, 'Could not undo this run - try again');
       const result = ((await res.json()) as { data?: UndoResult }).data;
       if (result?.undone === false) setUndoNotice(partialUndoMessage(result));
       if (result?.handOffsets?.length) setHandOffsets({ runId, offsets: result.handOffsets });
       load();
       onUndone?.();
     } catch (err) {
-      setUndoError(err instanceof Error ? err.message : 'Undo failed — please try again');
+      setUndoError(apiErrorMessage(err, 'Could not undo this run - try again'));
     } finally {
       setBusy(null);
     }
@@ -113,11 +112,14 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
   }
 
   const active = runs.filter((r) => !r.undoneAt && r.postedCount > 0);
-  if (active.length === 0) return null;
+  if (active.length === 0 && !loadError) return null;
 
   return (
     <div className="mb-4 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-3">
       <h3 className="text-xs font-semibold text-[var(--ff-text-secondary)] mb-2">Recent auto-post runs</h3>
+      {loadError && (
+        <p role="alert" className="text-xs text-red-400 mb-2">{loadError}</p>
+      )}
       {undoError && (
         <p className="text-xs text-red-400 mb-2">{undoError}</p>
       )}

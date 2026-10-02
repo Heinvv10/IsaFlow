@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { RefreshCw, Plus, Play, Trash2, Edit2, Loader2, AlertCircle, CheckCircle, XCircle, Calendar } from 'lucide-react';
 import {
@@ -49,11 +49,13 @@ export default function RecurringTransactionsPage() {
     setError(null);
     try {
       const res = await apiFetch('/api/accounting/recurring-transactions');
+      await assertOk(res, 'Could not load templates - try again');
       const json = await res.json() as { data: RecurringTemplate[] };
       setTemplates(json.data);
     } catch (err) {
       log.error('Failed to fetch recurring templates', { error: err }, 'recurring-page');
-      setError('Failed to load templates');
+      setTemplates([]);
+      setError(apiErrorMessage(err, 'Could not load templates - try again'));
     } finally {
       setLoading(false);
     }
@@ -88,16 +90,17 @@ export default function RecurringTransactionsPage() {
     setSaving(true);
     try {
       const body = { ...buildTemplateInput(form), ...(editId ? { id: editId } : {}) };
-      await apiFetch('/api/accounting/recurring-transactions', {
+      const res = await apiFetch('/api/accounting/recurring-transactions', {
         method: editId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      await assertOk(res, 'Could not save the template - try again');
       setShowModal(false);
       await fetchTemplates();
     } catch (err) {
       log.error('Failed to save recurring template', { error: err }, 'recurring-page');
-      setFormError('Failed to save template');
+      setFormError(apiErrorMessage(err, 'Could not save the template - try again'));
     } finally {
       setSaving(false);
     }
@@ -106,10 +109,12 @@ export default function RecurringTransactionsPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this recurring template?')) return;
     try {
-      await apiFetch(`/api/accounting/recurring-transactions?id=${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/accounting/recurring-transactions?id=${id}`, { method: 'DELETE' });
+      await assertOk(res, 'Could not delete the template - try again');
       await fetchTemplates();
     } catch (err) {
       log.error('Failed to delete template', { error: err }, 'recurring-page');
+      setError(apiErrorMessage(err, 'Could not delete the template - try again'));
     }
   };
 
@@ -121,11 +126,13 @@ export default function RecurringTransactionsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ templateId: id }),
       });
+      await assertOk(res, 'Could not run the template - try again');
       const json = await res.json() as { data: { entityType: string; entityId: string; posted: boolean } };
       setExecResults(prev => ({ ...prev, [id]: json.data }));
       await fetchTemplates();
     } catch (err) {
       log.error('Failed to execute recurring template', { error: err }, 'recurring-page');
+      setError(apiErrorMessage(err, 'Could not run the template - try again'));
       setExecResults(prev => ({ ...prev, [id]: 'error' }));
     } finally {
       setExecuting(null);

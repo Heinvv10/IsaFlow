@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Mail, Loader2, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate, monthStartISO } from '@/lib/dateUtils';
 
 interface CommRecord {
@@ -101,10 +101,12 @@ export default function CustomerCommunicationReport() {
         `/api/accounting/reports/customer-communication?${buildParams()}`,
         { credentials: 'include' }
       );
+      await assertOk(res, 'Could not load the report - try again');
       const json = await res.json() as { data: ReportResponse };
       setData(json.data ?? null);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load report');
+      setData(null);
+      setError(apiErrorMessage(err, 'Could not load the report - try again'));
     } finally {
       setLoading(false);
     }

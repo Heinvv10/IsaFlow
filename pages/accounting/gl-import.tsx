@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import type ExcelJS from 'exceljs';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   Upload, ArrowRight, ArrowLeft, CheckCircle2, XCircle,
@@ -116,7 +116,7 @@ export default function GlImportPage() {
       try {
         const data = e.target?.result;
         if (!data) {
-          setFileError('Failed to read file contents');
+          setFileError('Could not read the file contents - try again');
           return;
         }
         const buffer = data instanceof ArrayBuffer ? data : new TextEncoder().encode(data as string).buffer;
@@ -161,7 +161,7 @@ export default function GlImportPage() {
         setStep(2);
       } catch (err) {
         log.error('Failed to parse spreadsheet', { error: err }, 'gl-import-page');
-        setFileError('Failed to read file — make sure it is a valid Excel or CSV file');
+        setFileError('Could not read the file - make sure it is a valid Excel or CSV file');
       }
     };
     reader.readAsArrayBuffer(file);
@@ -195,17 +195,16 @@ export default function GlImportPage() {
     try {
       const rows = buildImportRows();
       const res = await apiFetch('/api/accounting/gl-import-validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }),
       });
+      await assertOk(res, 'Could not validate the import file - try again');
       const json = await res.json() as { data: ValidationSummary };
       setSummary(json.data);
       setValidRows(rows.filter((_, i) => json.data.validations[i]?.valid));
       setStep(3);
     } catch (err) {
       log.error('Validation API error', { error: err }, 'gl-import-page');
-      setValidateError('Validation failed — please try again');
+      setValidateError(apiErrorMessage(err, 'Could not validate the import file - try again'));
     } finally {
       setValidating(false);
     }
@@ -216,15 +215,14 @@ export default function GlImportPage() {
     setImportError('');
     try {
       const res = await apiFetch('/api/accounting/gl-import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: validRows, postImmediately }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: validRows, postImmediately }),
       });
+      await assertOk(res, 'Could not import the journal entries - try again');
       const json = await res.json() as { data: { entriesCreated: number; linesCreated: number; totalValue: number } };
       setImportResult(json.data);
     } catch (err) {
       log.error('Import API error', { error: err }, 'gl-import-page');
-      setImportError('Import failed — please try again');
+      setImportError(apiErrorMessage(err, 'Could not import the journal entries - try again'));
     } finally {
       setImporting(false);
     }

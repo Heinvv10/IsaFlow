@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ScanLine, RefreshCw } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { UploadZone } from '@/components/accounting/document-capture/UploadZone';
 import { ExtractionReview } from '@/components/accounting/document-capture/ExtractionReview';
@@ -42,12 +42,15 @@ export default function DocumentCapturePage() {
       const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
       const res = await apiFetch(`/api/accounting/document-capture?${params}`);
+      await assertOk(res, 'Could not load documents - try again');
       const json = await res.json();
-      if (!json.success) throw new Error(json.error?.message || 'Failed to load');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Could not load documents - try again');
       setDocuments(json.data || []);
       setTotal(json.pagination?.total || 0);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load documents');
+      setDocuments([]);
+      setTotal(0);
+      setError(apiErrorMessage(err, 'Could not load documents - try again'));
     } finally { setIsLoading(false); }
   }, [statusFilter]);
 

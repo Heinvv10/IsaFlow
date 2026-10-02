@@ -11,7 +11,8 @@ import { Users, Loader2, ArrowLeft, Save } from 'lucide-react';
 import Link from 'next/link';
 import { notify } from '@/utils/toast';
 import { CustomerForm, type CustomerFormData, INITIAL_CUSTOMER_FORM } from '@/components/accounting/CustomerForm';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 export default function NewCustomerPage() {
   const router = useRouter();
@@ -54,19 +55,19 @@ export default function NewCustomerPage() {
         }),
       });
 
+      await assertOk(res, 'Could not create the customer - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
 
       notify.success('Customer created successfully');
       if (andNew) {
         setForm(INITIAL_CUSTOMER_FORM);
         setFieldErrors({});
-        await router.push('/accounting/customers/new');
+        try { await router.push('/accounting/customers/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'customers-new'); }
       } else {
-        await router.push(`/accounting/customers/${json.data?.id ?? ''}`);
+        try { await router.push(`/accounting/customers/${json.data?.id ?? ''}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customers-new'); }
       }
     } catch (err: unknown) {
-      notify.error(err instanceof Error ? err.message : 'Failed to create customer');
+      notify.error(apiErrorMessage(err, 'Could not create the customer - try again'));
     } finally {
       setIsSubmitting(false);
     }

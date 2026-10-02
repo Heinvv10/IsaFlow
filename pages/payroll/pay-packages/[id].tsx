@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Package, ArrowLeft, Loader2, AlertCircle, Plus, X, Save } from 'lucide-react';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -65,25 +65,27 @@ export default function PayPackageEditPage() {
         apiFetch(`/api/payroll/pay-packages/${packageId}`),
         apiFetch('/api/payroll/components'),
       ]);
-      if (pRes.ok) {
-        const json = await pRes.json();
-        const loaded = (json.data ?? json) as Pkg;
-        setPkg(loaded);
-        setRows(loaded.components.map(c => ({
-          componentId: c.componentId, amount: c.amount, isRecurring: c.isRecurring,
-        })));
-      }
-      if (cRes.ok) {
-        const json = await cRes.json();
-        setAllComponents(((json.data ?? json) as Component[]) ?? []);
-      }
+      await assertOk(pRes, 'Could not load the package - try again');
+      await assertOk(cRes, 'Could not load the payroll components - try again');
+      const json = await pRes.json();
+      const loaded = (json.data ?? json) as Pkg;
+      const cJson = await cRes.json();
+      setPkg(loaded);
+      setRows(loaded.components.map(c => ({
+        componentId: c.componentId, amount: c.amount, isRecurring: c.isRecurring,
+      })));
+      setAllComponents(((cJson.data ?? cJson) as Component[]) ?? []);
+    } catch (err) {
+      setPkg(null); setRows([]); setAllComponents([]);
+      throw err;
     } finally {
       setLoading(false);
     }
   }, [packageId]);
   useEffect(() => {
+    setError('');
     load().catch((err) => {
-      setError(err instanceof Error ? err.message : 'Failed to load package');
+      setError(apiErrorMessage(err, 'Could not load the package - try again'));
     });
   }, [load]);
 
@@ -104,12 +106,12 @@ export default function PayPackageEditPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ components: rows }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? 'Save failed');
-        return;
+      await assertOk(res, 'Could not save the components - try again');
+      try { await load(); } catch {
+        setError('The components were saved but the package could not be reloaded - reload the page');
       }
-      await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the components - try again'));
     } finally {
       setSaving(false);
     }
@@ -119,9 +121,15 @@ export default function PayPackageEditPage() {
     return (
       <AppLayout>
         <div className="max-w-4xl mx-auto px-6 py-6">
-          <div className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)]">
-            <Loader2 className="h-4 w-4 animate-spin" />Loading package...
-          </div>
+          {loading || !error ? (
+            <div className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)]">
+              <Loader2 className="h-4 w-4 animate-spin" />Loading package...
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-red-400">
+              <AlertCircle className="h-4 w-4" />{error}
+            </div>
+          )}
         </div>
       </AppLayout>
     );

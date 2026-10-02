@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, Upload, FileText } from 'lucide-react';
 
 type ImportStatus = 'extracted' | 'reviewing' | 'committed' | 'rolled_back';
@@ -58,10 +58,10 @@ export default function BankStatementsIndexPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/bank-statements');
-      const json = await res.json() as { data?: BankStatementImport[]; error?: string };
-      if (!res.ok) { setError(json.error ?? 'Failed to load statement imports'); return; }
+      await assertOk(res, 'Could not load the statement imports - try again');
+      const json = await res.json() as { data?: BankStatementImport[] };
       setImports(Array.isArray(json.data) ? json.data : []);
-    } catch { setError('Network error loading statement imports'); }
+    } catch (err) { setImports([]); setError(apiErrorMessage(err, 'Could not load the statement imports - try again')); }
     finally { setLoading(false); }
   }, []);
 

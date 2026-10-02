@@ -181,9 +181,10 @@ export function parseStandardBankStatement(text: string): BankCsvParseResult {
         balance: balance ?? undefined,
       });
     } catch (err) {
+      log.warn('Standard Bank PDF: a transaction line could not be read', { row: tx.lineNum, error: err }, 'accounting-pdf');
       result.errors.push({
         row: tx.lineNum,
-        error: `Parse error: ${err instanceof Error ? err.message : String(err)}`,
+        error: 'Could not read this Standard Bank statement line - check it in the PDF and add it by hand if needed',
       });
     }
     pending = null;

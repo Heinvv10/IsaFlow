@@ -15,7 +15,8 @@ import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import { ReconciliationBalances } from '@/components/accounting/bank/ReconciliationBalances';
 import type { BankReconciliation, BankTransaction } from '@/modules/accounting/types/bank.types';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 function TxStatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -67,8 +68,7 @@ export default function ReconciliationDetailPage() {
       const [reconRes, txRes] = await Promise.all([
         apiFetch(`/api/accounting/bank-reconciliations?id=${reconId}`),
         apiFetch(`/api/accounting/bank-transactions?reconciliation_id=${reconId}&limit=500`),
-      ]);
-
+      ]); await assertOk(reconRes, 'Could not load the reconciliation - try again'); await assertOk(txRes, 'Could not load the reconciliation transactions - try again');
       const reconJson = await reconRes.json();
       const reconData = reconJson.data || reconJson;
       setRecon(reconData);
@@ -80,7 +80,7 @@ export default function ReconciliationDetailPage() {
 
       // Load unmatched GL lines for this bank account
       if (reconData?.bankAccountId) {
-        const glRes = await apiFetch(`/api/accounting/journal-entries?gl_account_id=${reconData.bankAccountId}&status=posted&limit=200`);
+        const glRes = await apiFetch(`/api/accounting/journal-entries?gl_account_id=${reconData.bankAccountId}&status=posted&limit=200`); await assertOk(glRes, 'Could not load the bank ledger lines - try again');
         const glJson = await glRes.json();
         const entries = glJson.data?.entries || glJson.entries || [];
         const lines: GLLine[] = [];
@@ -106,8 +106,9 @@ export default function ReconciliationDetailPage() {
         );
         setGlLines(lines.filter(l => !matchedLineIds.has(l.id)));
       }
-    } catch {
-      setError('Failed to load reconciliation data');
+    } catch (err) {
+      setRecon(null); setTransactions([]); setGlLines([]);
+      setError(apiErrorMessage(err, 'Could not load the reconciliation - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -115,22 +116,19 @@ export default function ReconciliationDetailPage() {
 
   useEffect(() => { void loadData(); }, [loadData]);
 
+  const postAction = async (url: string, body: Record<string, unknown>, fallback: string) => {
+    const res = await apiFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) });
+    await assertOk(res, fallback);
+    return res.json();
+  };
+  const TX_URL = '/api/accounting/bank-transactions-action';
+  const RECON_URL = '/api/accounting/bank-reconciliations-action';
+
   const handleAutoMatch = async () => {
     if (!recon) return;
     setActionLoading('auto_match');
     try {
-      const res = await apiFetch('/api/accounting/bank-transactions-action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          action: 'auto_match',
-          bankAccountId: recon.bankAccountId,
-          reconciliationId: reconId,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Auto-match failed');
+      const json = await postAction(TX_URL, { action: 'auto_match', bankAccountId: recon.bankAccountId, reconciliationId: reconId }, 'Could not auto-match - try again');
       const data = (json?.data ?? {}) as {
         matched?: number; skippedRaced?: number; skippedUnavailable?: number;
       };
@@ -142,7 +140,7 @@ export default function ReconciliationDetailPage() {
       );
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Auto-match failed');
+      setError(apiErrorMessage(err, 'Could not auto-match - try again'));
     } finally {
       setActionLoading('');
     }
@@ -152,23 +150,13 @@ export default function ReconciliationDetailPage() {
     if (!selectedTx || !selectedGl) return;
     setActionLoading('match');
     try {
-      const res = await apiFetch('/api/accounting/bank-transactions-action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          action: 'match',
-          bankTransactionId: selectedTx,
-          journalLineId: selectedGl,
-          reconciliationId: reconId,
-        }),
-      });
-      if (!res.ok) throw new Error('Match failed');
+      await postAction(TX_URL, { action: 'match', bankTransactionId: selectedTx, journalLineId: selectedGl, reconciliationId: reconId }, 'Could not match - try again');
+      setNotice('Transaction matched');
       setSelectedTx(null);
       setSelectedGl(null);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Match failed');
+      setError(apiErrorMessage(err, 'Could not match - try again'));
     } finally {
       setActionLoading('');
     }
@@ -177,15 +165,11 @@ export default function ReconciliationDetailPage() {
   const handleUnmatch = async (txId: string) => {
     setActionLoading(txId);
     try {
-      await apiFetch('/api/accounting/bank-transactions-action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ action: 'unmatch', bankTransactionId: txId }),
-      });
+      await postAction(TX_URL, { action: 'unmatch', bankTransactionId: txId }, 'Could not unmatch - try again');
+      setNotice('Transaction unmatched');
       await loadData();
-    } catch {
-      setError('Unmatch failed');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not unmatch - try again'));
     } finally {
       setActionLoading('');
     }
@@ -194,15 +178,11 @@ export default function ReconciliationDetailPage() {
   const handleExclude = async (txId: string) => {
     setActionLoading(txId);
     try {
-      await apiFetch('/api/accounting/bank-transactions-action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ action: 'exclude', bankTransactionId: txId }),
-      });
+      await postAction(TX_URL, { action: 'exclude', bankTransactionId: txId }, 'Could not exclude - try again');
+      setNotice('Transaction excluded');
       await loadData();
-    } catch {
-      setError('Exclude failed');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not exclude - try again'));
     } finally {
       setActionLoading('');
     }
@@ -211,17 +191,11 @@ export default function ReconciliationDetailPage() {
   const handleComplete = async () => {
     setActionLoading('complete');
     try {
-      const res = await apiFetch('/api/accounting/bank-reconciliations-action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ action: 'complete', reconciliationId: reconId }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Cannot complete');
+      await postAction(RECON_URL, { action: 'complete', reconciliationId: reconId }, 'Could not complete the reconciliation - try again');
+      setNotice('Reconciliation completed');
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Cannot complete reconciliation');
+      setError(apiErrorMessage(err, 'Could not complete the reconciliation - try again'));
     } finally {
       setActionLoading('');
     }
@@ -231,21 +205,14 @@ export default function ReconciliationDetailPage() {
     setActionLoading('cancel');
     setError('');
     try {
-      const res = await apiFetch('/api/accounting/bank-reconciliations-action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ action: 'cancel', reconciliationId: reconId }),
-      });
-      const json = await res.json();
       // apiFetch resolves on 4xx — the status is the only signal that the
       // reconciliation was refused (already completed, reconciled rows).
-      if (!res.ok) throw new Error(json?.error?.message || 'Cannot cancel reconciliation');
+      await postAction(RECON_URL, { action: 'cancel', reconciliationId: reconId }, 'Could not cancel the reconciliation - try again');
       setConfirmCancelOpen(false);
-      await router.push('/accounting/bank-reconciliation');
+      try { await router.push('/accounting/bank-reconciliation'); } catch (e) { log.warn('navigation failed', { error: e }, 'bank-reconciliation-reconId'); }
     } catch (err) {
       setConfirmCancelOpen(false);
-      setError(err instanceof Error ? err.message : 'Cannot cancel reconciliation');
+      setError(apiErrorMessage(err, 'Could not cancel the reconciliation - try again'));
     } finally {
       setActionLoading('');
     }
@@ -265,7 +232,7 @@ export default function ReconciliationDetailPage() {
     return (
       <AppLayout>
         <div className="min-h-screen bg-[var(--ff-bg-primary)] flex items-center justify-center">
-          <p className="text-[var(--ff-text-secondary)]">Reconciliation not found</p>
+          <div className="text-center"><p className="text-[var(--ff-text-secondary)]">{error || 'Reconciliation not found'}</p>{notice && <p className="mt-2 text-sm text-teal-400">{notice}</p>}</div>
         </div>
       </AppLayout>
     );

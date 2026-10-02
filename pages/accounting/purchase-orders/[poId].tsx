@@ -20,7 +20,7 @@ import {
   Download,
   PackagePlus,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
 const fmt = (n: number) =>
@@ -110,11 +110,11 @@ export default function PurchaseOrderDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/purchase-orders/${poId}`, { credentials: 'include' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Not found');
-      setPo(json.data);
-    } catch {
-      setError('Failed to load purchase order');
+      await assertOk(res, 'Could not load the purchase order - try again');
+      setPo((await res.json()).data);
+    } catch (err) {
+      setPo(null);
+      setError(apiErrorMessage(err, 'Could not load the purchase order - try again'));
     } finally {
       setLoading(false);
     }
@@ -125,7 +125,7 @@ export default function PurchaseOrderDetailPage() {
   useEffect(() => {
     if (!editing) return;
     apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
-      .then(r => r.json()).then(j => setAccounts((j.data || []).filter((a: GlAccount & { is_active?: boolean }) => a.is_active !== false))).catch(() => {});
+      .then(async r => { await assertOk(r, 'Could not load GL accounts - try again'); return r.json(); }).then(j => setAccounts((j.data || []).filter((a: GlAccount & { is_active?: boolean }) => a.is_active !== false))).catch(err => setSaveError(apiErrorMessage(err, 'Could not load GL accounts - try again')));
   }, [editing]);
 
   const startEdit = () => {
@@ -194,13 +194,12 @@ export default function PurchaseOrderDetailPage() {
           })),
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Save failed');
-      setPo(json.data);
+      await assertOk(res, 'Could not save the purchase order - try again');
+      setPo((await res.json()).data);
       setEditing(false);
       setForm(null);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Save failed');
+      setSaveError(apiErrorMessage(err, 'Could not save the purchase order - try again'));
     } finally {
       setSaving(false);
     }
@@ -215,14 +214,10 @@ export default function PurchaseOrderDetailPage() {
       const res = await apiFetch(`/api/accounting/purchase-orders/${poId}`, {
         method: 'DELETE', credentials: 'include',
       });
-      if (!res.ok) {
-        // A non-JSON body (a proxy error page) falls back to the generic message.
-        const json = await res.json().catch(() => null) as { error?: { message?: string } } | null;
-        throw new Error(json?.error?.message || 'Delete failed');
-      }
+      await assertOk(res, 'Could not delete the purchase order - try again');
       void router.push('/accounting/purchase-orders');
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Delete failed');
+      setSaveError(apiErrorMessage(err, 'Could not delete the purchase order - try again'));
       setDeleting(false);
     }
   };

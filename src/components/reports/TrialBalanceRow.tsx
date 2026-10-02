@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { useTableDensity } from '@/contexts/TableDensityContext';
+import { YearEndCloseNote } from './TrialBalanceYearEndNote';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -37,6 +38,8 @@ export interface TBRowData {
   /** Debit / credit turnover within the period. */
   periodDebit?: number;
   periodCredit?: number;
+  /** Derived year-end close on the normal side: opening + movement + this = closing. */
+  closedToRetainedEarnings?: number;
   /** Computed line with no journal behind it — retained earnings brought forward. */
   derived?: boolean;
 }
@@ -110,6 +113,7 @@ export function TrialBalanceRow({
               {r.accountName}
             </Link>
           )}
+          <YearEndCloseNote closed={r.closedToRetainedEarnings} derived={derived} />
         </td>
         <td className={rowClass}>
           <span className={`px-2 py-0.5 rounded text-xs font-medium uppercase tracking-wide ${TYPE_PILL[r.accountType.toLowerCase()] ?? NEUTRAL_PILL}`}>

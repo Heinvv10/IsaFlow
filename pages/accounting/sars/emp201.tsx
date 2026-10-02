@@ -12,7 +12,7 @@ import {
   ChevronLeft, ChevronDown, ChevronRight, Users, AlertTriangle,
 } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 interface EMP201PayrollRun {
   id: string;
@@ -83,11 +83,11 @@ export default function EMP201Page() {
         `/api/accounting/sars/sars-emp201?from=${from}&to=${to}`,
         { credentials: 'include' }
       );
+      await assertOk(res, 'Could not generate the EMP201 - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       setData(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate EMP201');
+      setData(null); setError(apiErrorMessage(err, 'Could not generate the EMP201 - try again'));
     } finally {
       setLoading(false);
     }
@@ -104,12 +104,12 @@ export default function EMP201Page() {
         credentials: 'include',
         body: JSON.stringify({ periodStart: from, periodEnd: to }),
       });
+      await assertOk(res, 'Could not save the EMP201 draft - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       setSavedId(json.data?.id || '');
       setSuccess('EMP201 draft saved successfully');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save draft');
+      setError(apiErrorMessage(err, 'Could not save the EMP201 draft - try again'));
     } finally {
       setSaving(false);
     }
@@ -126,13 +126,12 @@ export default function EMP201Page() {
         credentials: 'include',
         body: JSON.stringify({ id: savedId, action: 'mark_submitted', reference: sarsRef.trim() }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
+      await assertOk(res, 'Could not mark the EMP201 as submitted - try again');
       setSuccess('EMP201 marked as submitted to SARS');
       setShowSubmitModal(false);
       setSarsRef('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to mark as submitted');
+      setError(apiErrorMessage(err, 'Could not mark the EMP201 as submitted - try again'));
     } finally {
       setSubmitting(false);
     }

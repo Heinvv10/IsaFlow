@@ -5,7 +5,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import { Loader2, Plus, ArrowRight } from 'lucide-react';
@@ -55,13 +55,14 @@ export function AddRateForm({ currencies, onAdded }: AddRateFormProps) {
         method: 'POST',
         body: JSON.stringify({ fromCurrency: from, toCurrency: to, rate: rateVal, effectiveDate: date }),
       });
+      await assertOk(res, 'Could not add the exchange rate - try again');
       const json = await res.json();
-      if (!res.ok || json.success === false) { notify.error(json.message || 'Failed to add rate'); return; }
+      if (json.success === false) { notify.error(json.error?.message || 'Could not add the exchange rate - try again'); return; }
       notify.success(`Rate ${from}/${to} added`);
       setRate('');
       onAdded();
-    } catch {
-      notify.error('Failed to add exchange rate');
+    } catch (err) {
+      notify.error(apiErrorMessage(err, 'Could not add the exchange rate - try again'));
     } finally {
       setSaving(false);
     }
@@ -149,14 +150,15 @@ export function ConverterWidget({ currencies }: ConverterWidgetProps) {
         method: 'POST',
         body: JSON.stringify({ amount: amt, fromCurrency: from, toCurrency: to, date }),
       });
+      await assertOk(res, 'Could not convert the amount - try again');
       const json = await res.json();
-      if (!res.ok || json.success === false) {
-        notify.error(json.message || 'No rate available for this pair');
+      if (json.success === false) {
+        notify.error(json.error?.message || 'Could not convert the amount - try again');
         return;
       }
       setResult(json.data as ConvertResult);
-    } catch {
-      notify.error('Conversion failed');
+    } catch (err) {
+      notify.error(apiErrorMessage(err, 'Could not convert the amount - try again'));
     } finally {
       setConverting(false);
     }

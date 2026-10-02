@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { History, Loader2 } from 'lucide-react';
+import { History, Loader2, AlertCircle } from 'lucide-react';
 
 interface HistoryEntry {
   id: string;
@@ -33,17 +33,20 @@ function formatValue(fieldName: string, value: string | null): string {
 export function EmployeeHistoryCard({ employeeId }: Props) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const res = await apiFetch(`/api/payroll/employees/${employeeId}/history`);
-      if (res.ok) {
-        const json = await res.json();
-        setEntries(((json.data ?? json) as HistoryEntry[]) ?? []);
-      }
+      await assertOk(res, 'Could not load the change history - try again');
+      const json = await res.json();
+      setEntries(((json.data ?? json) as HistoryEntry[]) ?? []);
     } catch (err) {
       log.error('Failed to load employee history', { error: err }, 'payroll-ui');
+      setEntries([]);
+      setError(apiErrorMessage(err, 'Could not load the change history - try again'));
     } finally {
       setLoading(false);
     }
@@ -60,6 +63,8 @@ export function EmployeeHistoryCard({ employeeId }: Props) {
         <div className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)]">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading history...
         </div>
+      ) : error ? (
+        <div className="flex items-center gap-2 text-sm text-red-400"><AlertCircle className="h-4 w-4" />{error}</div>
       ) : entries.length === 0 ? (
         <div className="text-sm text-[var(--ff-text-secondary)]">
           No recorded changes yet. History tracks department, cost centre and employment-type changes.

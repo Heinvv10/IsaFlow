@@ -16,11 +16,23 @@ type ZoneStatus = 'idle' | 'uploading' | 'parsed' | 'error';
 interface Company { id: string; name: string; trading_name: string | null }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 interface ZoneState { status: ZoneStatus; count: number; error: string; parsed: any[] }
+/** What POST /api/accounting/migration-execute returns (ExecuteMigrationResult). */
 interface ExecResult {
-  accounts?:  { succeeded: number; failed: number };
-  customers?: { succeeded: number; failed: number };
-  suppliers?: { succeeded: number; failed: number };
+  accountsImported: number;
+  customersImported: number;
+  suppliersImported: number;
+  customersSkipped: number;
+  suppliersSkipped: number;
+  customersFailed: number;
+  suppliersFailed: number;
+  openingBalancesSet: number;
+  errors: string[];
 }
+const IMPORTED: Record<FileType, keyof Pick<ExecResult, 'accountsImported' | 'customersImported' | 'suppliersImported'>> = {
+  accounts: 'accountsImported', customers: 'customersImported', suppliers: 'suppliersImported',
+};
+const SKIPPED = { customers: 'customersSkipped', suppliers: 'suppliersSkipped' } as const;
+const FAILED = { customers: 'customersFailed', suppliers: 'suppliersFailed' } as const;
 
 const BLANK: ZoneState = { status: 'idle', count: 0, error: '', parsed: [] };
 
@@ -54,6 +66,7 @@ export default function AdminMigrationsPage() {
   const [executing, setExecuting]   = useState(false);
   const [result, setResult]         = useState<ExecResult | null>(null);
   const [execErr, setExecErr]       = useState('');
+  const [coErr, setCoErr]           = useState('');
 
   const refs = {
     accounts:  useRef<HTMLInputElement>(null),
@@ -65,17 +78,19 @@ export default function AdminMigrationsPage() {
     setZones(prev => ({ ...prev, [t]: { ...prev[t], ...p } }));
 
   const loadCompanies = useCallback(async () => {
-    setLoadingCo(true);
+    setLoadingCo(true); setCoErr('');
     try {
       const res  = await apiFetch('/api/admin/companies?limit=200&sort_by=name&sort_dir=asc');
+      await assertOk(res, 'Could not load the companies - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
       const items: Company[] = (json.data?.items ?? []).map((c: Company) =>
         ({ id: c.id, name: c.name, trading_name: c.trading_name }));
       setCompanies(items);
       if (items.length > 0 && items[0]) setCompanyId(items[0].id);
     } catch (err) {
       log.error('Failed to load companies for migration tool', { error: err }, 'admin-ui');
+      setCompanies([]); setCompanyId('');
+      setCoErr(apiErrorMessage(err, 'Could not load the companies - try again'));
     } finally { setLoadingCo(false); }
   }, []);
 
@@ -102,11 +117,11 @@ export default function AdminMigrationsPage() {
         headers: { 'X-Company-Id': companyId },
         body: fd,
       });
+      await assertOk(res, 'Could not read the file - check it and try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Parse failed');
       patch(type, { status: 'parsed', count: json.data?.count ?? 0, parsed: json.data?.parsed ?? [] });
     } catch (err) {
-      patch(type, { status: 'error', error: err instanceof Error ? err.message : 'Upload failed' });
+      patch(type, { status: 'error', error: apiErrorMessage(err, 'Could not read the file - check it and try again') });
     }
   };
 
@@ -120,10 +135,11 @@ export default function AdminMigrationsPage() {
         headers: { 'Content-Type': 'application/json', 'X-Company-Id': companyId },
         body: JSON.stringify({ source, accounts: zones.accounts.parsed, customers: zones.customers.parsed, suppliers: zones.suppliers.parsed }),
       });
-      await assertOk(res, 'Migration failed');
-      setResult((await res.json()).data as ExecResult);
+      await assertOk(res, 'Could not run the migration - try again');
+      const { data } = await res.json() as { data: ExecResult };
+      setResult({ ...data, customersSkipped: data.customersSkipped ?? 0, suppliersSkipped: data.suppliersSkipped ?? 0, customersFailed: data.customersFailed ?? 0, suppliersFailed: data.suppliersFailed ?? 0, errors: Array.isArray(data.errors) ? data.errors : [] });
     } catch (err) {
-      setExecErr(apiErrorMessage(err, 'Migration failed'));
+      setExecErr(apiErrorMessage(err, 'Could not run the migration - try again'));
     } finally { setExecuting(false); }
   };
 
@@ -164,6 +180,7 @@ export default function AdminMigrationsPage() {
                   {companies.map(c => <option key={c.id} value={c.id}>{c.trading_name ?? c.name}</option>)}
                 </select>
               )}
+              {coErr && <p role="alert" className="mt-1 text-xs text-red-500">{coErr}</p>}
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Source System</label>
@@ -238,21 +255,32 @@ export default function AdminMigrationsPage() {
           <div className="bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-800 rounded-xl p-5 space-y-3">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-teal-600 dark:text-teal-400" />
-              <p className="text-sm font-semibold text-teal-900 dark:text-teal-200">Migration complete</p>
+              <p className="text-sm font-semibold text-teal-900 dark:text-teal-200">
+                {result.errors.length > 0 ? 'Migration finished with problems' : 'Migration complete'}
+              </p>
             </div>
             <div className="grid grid-cols-3 gap-3 text-center text-sm">
-              {ZONES.map(({ type, label }) => {
-                const r = result[type];
-                if (!r) return <div key={type} className="bg-white dark:bg-gray-800 rounded-lg py-3 px-2 text-gray-600 dark:text-gray-400 text-xs">{label}<br />not imported</div>;
-                return (
-                  <div key={type} className="bg-white dark:bg-gray-800 rounded-lg py-3 px-2">
-                    <p className="font-medium text-gray-900 dark:text-white">{label}</p>
-                    <p className="text-teal-600 dark:text-teal-400 mt-1">{r.succeeded} imported</p>
-                    {r.failed > 0 && <p className="text-red-500 text-xs">{r.failed} failed</p>}
-                  </div>
-                );
-              })}
+              {ZONES.map(({ type, label }) => (
+                <div key={type} className="bg-white dark:bg-gray-800 rounded-lg py-3 px-2">
+                  <p className="font-medium text-gray-900 dark:text-white">{label}</p>
+                  <p className="text-teal-600 dark:text-teal-400 mt-1">{result[IMPORTED[type]]} imported</p>
+                  {type !== 'accounts' && result[SKIPPED[type]] > 0 && (
+                    <p className="text-amber-600 dark:text-amber-400 text-xs">{result[SKIPPED[type]]} skipped</p>
+                  )}
+                  {type !== 'accounts' && result[FAILED[type]] > 0 && (
+                    <p className="text-red-500 text-xs">{result[FAILED[type]]} failed, nothing was saved</p>
+                  )}
+                </div>
+              ))}
             </div>
+            {result.openingBalancesSet > 0 && (
+              <p className="text-sm text-teal-900 dark:text-teal-200">{result.openingBalancesSet} opening balances set</p>
+            )}
+            {result.errors.length > 0 && (
+              <ul className="text-xs text-red-600 dark:text-red-400 list-disc pl-5 space-y-1">
+                {result.errors.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            )}
           </div>
         )}
 

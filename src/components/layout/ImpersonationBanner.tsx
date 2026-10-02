@@ -2,6 +2,7 @@
 // Orange bar shown when an admin is impersonating another user.
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 function readCookie(name: string): string | null {
   if (typeof document === 'undefined') return null;
@@ -25,15 +26,16 @@ export function ImpersonationBanner() {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
       });
+      await assertOk(res, 'Could not end impersonation - try again');
       const json = await res.json() as { success: boolean; data?: { redirect: string }; error?: { message: string } };
       if (json.success && json.data?.redirect) {
         window.location.href = json.data.redirect;
       } else {
-        alert(json.error?.message ?? 'Failed to end impersonation');
+        alert(json.error?.message ?? 'Could not end impersonation - try again');
         setBusy(false);
       }
-    } catch {
-      alert('Network error. Please try again.');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Could not end impersonation - try again'));
       setBusy(false);
     }
   }, []);

@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { AlertCircle, Loader2, Zap } from 'lucide-react';
 import Link from 'next/link';
@@ -46,11 +46,12 @@ export default function PaygCompaniesPage() {
       if (search.trim())    qs.set('search', search.trim());
       if (nudgeFilter)      qs.set('nudgeLevel', nudgeFilter);
       const res = await apiFetch(`/api/admin/billing/payg/companies?${qs.toString()}`);
+      await assertOk(res, 'Could not load PAYG companies - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message ?? 'Failed to load PAYG companies');
       setCompanies(json.data.companies as PaygCompany[]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load PAYG companies');
+      setCompanies([]);
+      setError(apiErrorMessage(err, 'Could not load PAYG companies - try again'));
     } finally {
       setLoading(false);
     }
@@ -69,14 +70,15 @@ export default function PaygCompaniesPage() {
     const reason = window.prompt('Reason for this adjustment (audit log):');
     if (!reason || !reason.trim()) return;
 
-    const res = await apiFetch(`/api/admin/billing/payg/${companyId}/adjust`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
-      body: JSON.stringify({ flows, reason }),
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      window.alert(json?.error?.message ?? 'Adjustment failed');
+    try {
+      const res = await apiFetch(`/api/admin/billing/payg/${companyId}/adjust`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        body: JSON.stringify({ flows, reason }),
+      });
+      await assertOk(res, 'Could not adjust the wallet - try again');
+    } catch (err) {
+      window.alert(apiErrorMessage(err, 'Could not adjust the wallet - try again'));
       return;
     }
     await load();

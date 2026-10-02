@@ -46,6 +46,10 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
   // older one. Bumped past on unmount too, so a response that resolves after
   // the component is gone updates nothing.
   const requestId = useRef(0);
+  // The params key the current `rows` were loaded for. A failed refresh for a
+  // DIFFERENT key must not leave the old pack's sentences (with Approve/Reject)
+  // on screen under the new pack.
+  const loadedKey = useRef<string | null>(null);
   useEffect(() => () => { requestId.current += 1; }, []);
 
   const refresh = useCallback(async () => {
@@ -54,7 +58,7 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
     setError(null);
     try {
       const qs = new URLSearchParams({ type, from, to });
-      const r = await apiJson(`/api/accounting/commentary?${qs.toString()}`);
+      const r = await apiJson(`/api/accounting/commentary?${qs.toString()}`, undefined, 'Could not load the commentary - try again');
       if (requestId.current !== id) return;
       // NOT `: []`. The route's type is a union of the GET and POST envelopes,
       // and an empty array for the wrong arm renders as "no commentary yet" —
@@ -62,9 +66,11 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
       // named person already approved.
       if (!('commentary' in r)) throw new ApiEnvelopeError('The commentary response did not contain any commentary rows.');
       setRows(r.commentary);
+      loadedKey.current = `${type}|${from}|${to}`;
     } catch (err) {
       if (requestId.current !== id) return;
-      setError(apiErrorMessage(err, 'Could not load commentary.'));
+      if (loadedKey.current !== `${type}|${from}|${to}`) setRows([]);
+      setError(apiErrorMessage(err, 'Could not load the commentary - try again'));
     } finally {
       if (requestId.current === id) setLoading(false);
     }
@@ -74,39 +80,39 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
     void refresh();
   }, [refresh]);
 
-  // Never mutates `rows` on failure — a rejected request leaves the last
-  // successfully-loaded state exactly as it was, and `refresh()` is the only
-  // path that replaces it.
+  // generate/approve/reject never mutate `rows` on failure — a rejected request
+  // leaves the last successfully-loaded state exactly as it was. Only
+  // `refresh()` replaces it, and clears it when it fails for changed params.
   const generate = useCallback(async (replace = false) => {
     setError(null);
     try {
       await apiJson('/api/accounting/commentary', {
         method: 'POST',
         body: JSON.stringify({ params: { type, from, to }, replace }),
-      });
+      }, 'Could not generate the commentary - try again');
       await refresh();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not generate commentary.'));
+      setError(apiErrorMessage(err, 'Could not generate the commentary - try again'));
     }
   }, [type, from, to, refresh]);
 
   const approve = useCallback(async (id: string) => {
     setError(null);
     try {
-      await apiJson(`/api/accounting/commentary/${id}/approve`, { method: 'POST' });
+      await apiJson(`/api/accounting/commentary/${id}/approve`, { method: 'POST' }, 'Could not approve the commentary - try again');
       await refresh();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not approve that commentary.'));
+      setError(apiErrorMessage(err, 'Could not approve the commentary - try again'));
     }
   }, [refresh]);
 
   const reject = useCallback(async (id: string) => {
     setError(null);
     try {
-      await apiJson(`/api/accounting/commentary/${id}/reject`, { method: 'POST' });
+      await apiJson(`/api/accounting/commentary/${id}/reject`, { method: 'POST' }, 'Could not reject the commentary - try again');
       await refresh();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not reject that commentary.'));
+      setError(apiErrorMessage(err, 'Could not reject the commentary - try again'));
     }
   }, [refresh]);
 
