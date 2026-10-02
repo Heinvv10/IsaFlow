@@ -10,7 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/gotrue';
 import { AuthUpstreamUnavailableError, respondToAuthOutage } from '@/lib/auth/authUpstream';
 import { sql } from '@/lib/neon';
-import { chargeRateLimit, refundRateLimit } from '@/lib/rateLimit';
+import { chargeRateLimit, refundRateLimit, withRateLimit } from '@/lib/rateLimit';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
@@ -291,4 +291,6 @@ const handler: NextApiHandler = async (req, res) => {
 // withErrorHandler OUTSIDE withInviteToken -- see the note on
 // pages/api/invitations/[token]/index.ts. A GoTrue outage rethrows out of the
 // handler and must reach the caller as JSON, not as a Next HTML 500.
-export default withErrorHandler(withInviteToken(handler));
+// D9: the per-token charge is refunded on a GoTrue outage, so a per-IP limit that is NEVER refunded bounds how
+// many GoTrue calls one link holder can drive during an outage. Charged before the invite-token transaction opens.
+export default withErrorHandler(withRateLimit(withInviteToken(handler), { max: 20, windowSecs: 900 }, 'invite-accept-by-ip'));
