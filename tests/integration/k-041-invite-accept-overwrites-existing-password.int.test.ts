@@ -184,7 +184,7 @@ it('L4: an unknown token is refused without minting a rate-limit row for it', as
   expect(counters.rowCount).toBe(0);
 });
 
-it('L3: an attempt that dies inside GoTrue is still counted against the invitation', async () => {
+it('L3: an attempt that dies inside GoTrue is charged first, then refunded once it is classified as an outage (D9)', async () => {
   await pool.query(
     `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at,gotrue_user_id)
      VALUES($1,$2,'viewer',$3,$4, now()+interval '7 days', $5)`,
@@ -199,13 +199,11 @@ it('L3: an attempt that dies inside GoTrue is still counted against the invitati
     setRecording(false);
   }
 
-  // Round-3 L7: the route is wrapped in withErrorHandler now, so a GoTrue
-  // outage answers JSON rather than escaping as a bare Next HTML 500 that
-  // pages/accept-invite.tsx cannot parse (it reported "Network error" for
-  // every server fault). withErrorHandler sits OUTSIDE withInviteToken, so the
-  // invite-token transaction is still rolled back before this is written.
-  expect(result.state.statusCode).toBe(500);
-  expect(result.state.body).toMatchObject({ success: false, code: 'INTERNAL_SERVER_ERROR' });
+  // Round-3 L7 made a GoTrue outage answer JSON rather than a bare Next HTML
+  // 500. D9 (2026-10-02) classifies it: a network error, timeout or 5xx from
+  // GoTrue is 503 AUTH_UNAVAILABLE + Retry-After, not a server fault.
+  expect(result.state.statusCode).toBe(503);
+  expect(result.state.body).toMatchObject({ success: false, error: { code: 'AUTH_UNAVAILABLE' } });
 
   // Round-3 L1: the GoTrue call that threw runs BEFORE the admin client opens a
   // transaction. Without `if (opened)` this request issues a bare ROLLBACK on a
@@ -218,13 +216,13 @@ it('L3: an attempt that dies inside GoTrue is still counted against the invitati
   expect(adminSql).not.toContain('ROLLBACK');
   expect(adminSql).not.toContain('BEGIN');
 
-  // checkRateLimit writes through `sql`, which routes onto the invite-token
-  // transaction when one is in flight — and withInviteToken ROLLBACKs that
-  // transaction on a throw, taking the attempt with it. Run on the module pool
-  // the count survives, which is what "counted exactly" has to mean for a
-  // limiter whose whole job is to bound guesses that fail. Nor is it refunded:
-  // an outage is not a verdict reached after a successful sign-in.
+  // The limiter writes on its own pool (not the invite-token transaction), so
+  // the charge is made BEFORE GoTrue is called and survives whatever happens
+  // next. D9 reversed the earlier "nor is it refunded": a classified outage
+  // judged no password, so it bounds no guess, and five outage retries must not
+  // lock the invitee out once GoTrue is back. The units are handed back AFTER
+  // the outcome is known — the row exists (the charge happened) at count 0.
   const counters = await pool.query('SELECT count FROM rate_limit_counters WHERE key=$1',
     [`invite-accept:${stored(outageToken)}`]);
-  expect(counters.rows).toEqual([{ count: 2 }]);
+  expect(counters.rows).toEqual([{ count: 0 }]);
 });
