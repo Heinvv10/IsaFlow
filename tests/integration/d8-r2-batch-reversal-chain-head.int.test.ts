@@ -74,7 +74,7 @@ describeIfDb('D8 round 2 — a re-reversed batch journal is reversed at its chai
     expect(contras).toHaveLength(1);
   });
 
-  it('a batch whose journal chain is already OUT is refused 409 and posts nothing (D8 round 4)', async () => {
+  it('a batch whose journal chain is already OUT is reversed as documents only: bills reopened, nothing posted (D8 round 5)', async () => {
     const x = await bill(fx.pool, { supplier: ids.SUP_A, status: 'approved' });
     const batchId = await f.approvedBatch([{ billId: x, amount: 200 }]);
     expect((await f.batchAction('process', batchId)).statusCode).toBe(200);
@@ -85,10 +85,16 @@ describeIfDb('D8 round 2 — a re-reversed batch journal is reversed at its chai
 
     const state = await f.batchAction('reverse', batchId);
 
-    expect(state.statusCode, text(state)).toBe(409);
+    expect(state.statusCode, text(state)).toBe(200);
+    expect((state.body as { data: { reversalEntryId: string | null } }).data.reversalEntryId).toBeNull();
     expect({ ap: await net(ids.AP_GL), bank: await net(ids.BANK_GL) }).toEqual(before);
     expect((await q("SELECT id FROM gl_journal_entries WHERE reversal_of_id = $1 AND status = 'posted'", [r])).rows)
       .toHaveLength(0);
-    expect(await f.batchStatus(batchId)).toBe('processed');
+    expect(await billState(fx.pool, x)).toEqual({ paid: 0, status: 'approved' });
+    expect(await f.batchStatus(batchId)).toBe('reversed');
+    expect((await q('SELECT DISTINCT status FROM supplier_payments WHERE batch_id = $1', [batchId])).rows)
+      .toEqual([{ status: 'cancelled' }]);
+    // A second click is still the double-click's loser.
+    expect((await f.batchAction('reverse', batchId)).statusCode).toBe(409);
   });
 });

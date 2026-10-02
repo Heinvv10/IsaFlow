@@ -68,7 +68,7 @@ function answer(strings: TemplateStringsArray): unknown[] {
   if (/SELECT id FROM bank_transactions/.test(text)) { events.push('peek bank'); return [{ id: BANK_TX_ID }]; }
   if (/FROM gl_journal_entries[\s\S]*FOR UPDATE/.test(text)) {
     events.push('lock journal');
-    return [{ needs_evidence: true, reversed_at: null }];
+    return [{ needs_evidence: true, stands: true }];
   }
   if (/source_document_id/.test(text) && /status = 'posted'/.test(text)) {
     events.push('guard: document not already posted');

@@ -41,7 +41,8 @@ export class BatchAlreadyReversedError extends Error {
   }
 }
 
-export interface BatchReversal { reversalEntryId: string; billsReopened: number }
+/** `reversalEntryId` is null when the batch journal's chain was already out of the ledger: nothing was posted. */
+export interface BatchReversal { reversalEntryId: string | null; billsReopened: number }
 
 export async function reverseBatch(companyId: string, batchId: string, userId: string): Promise<BatchReversal> {
   return withSavepoint('reverse_payment_batch', () => reverseBatchInner(companyId, batchId, userId));
@@ -76,7 +77,10 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
   const journalId = batch.gl_journal_entry_id ? String(batch.gl_journal_entry_id) : null;
   if (!journalId || !leg) throw new SupplierPaymentRefusal(`Batch ${number} has no journal to reverse.`);
   assertSameJournal(peekedJournal, journalId);
-  if (leg.alreadyReversed) throw new BatchAlreadyReversedError(number);
+  // A journal chain already OUT of the ledger (reversed from the GL) is not a
+  // refusal (D8 round 5): the batch's documents are still voided and its bills
+  // reopened, and nothing is posted — as the single void does. Refusing left
+  // the bills paid against a ledger that holds no payment.
   if (leg.allocatedLineIds.length > 0) {
     throw new SupplierPaymentRefusal(`Batch ${number}'s journal is claimed by an allocated bank line — undo that first.`);
   }
@@ -118,8 +122,11 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
     await recomputeInvoiceStatus(companyId, 'supplier', String(r.invoice_id));
   }
   // (3) The journal last: locked, re-checked for a bank line matched meanwhile, unmatched.
-  await lockJournalAndUnmatch(companyId, journalId, leg, `Batch ${number}`);
-  const reversal = await reverseJournalEntry(companyId, leg.reverseId, userId); // the chain head (D8)
+  let reversalEntryId: string | null = null;
+  if (!leg.alreadyReversed) {
+    await lockJournalAndUnmatch(companyId, journalId, leg, `Batch ${number}`);
+    reversalEntryId = String((await reverseJournalEntry(companyId, leg.reverseId, userId)).id); // the chain head (D8)
+  }
   await sql`
     UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
     WHERE batch_id = ${batchId}::UUID AND company_id = ${companyId}::UUID AND status = 'processed'
@@ -129,7 +136,7 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
     WHERE id = ${batchId}::UUID AND company_id = ${companyId}::UUID AND status = 'processed'
   `;
   log.info('Reversed supplier payment batch', {
-    batchId, userId, journalId, reversalEntryId: reversal.id, bills: perBill.length, bankLines: leg.bankLineIds.length,
+    batchId, userId, journalId, reversalEntryId, bills: perBill.length, bankLines: leg.bankLineIds.length,
   }, 'accounting');
-  return { reversalEntryId: String(reversal.id), billsReopened: perBill.length };
+  return { reversalEntryId, billsReopened: perBill.length };
 }
