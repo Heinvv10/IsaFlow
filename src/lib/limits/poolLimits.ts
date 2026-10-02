@@ -21,8 +21,8 @@
 //     or a request refused for capacity has already failed on the pool;
 //   - its concurrency ceiling is a fraction of the pool size, so renders and
 //     their inbound fetches cannot take every connection.
-// Change a value here and the semaphore's ceilings move with it. These numbers
-// are not restated anywhere else.
+// Change a value here and the semaphore's ceilings move with it: it derives
+// them from these and restates none of them.
 
 import { log } from '@/lib/logger';
 
@@ -41,7 +41,8 @@ export const MIN_PG_POOL_MAX = 2;
 
 const LARGEST_POOL = 100;
 /** What pg-pool 3.13 made of an unusable `max` (`max = max || poolSize || 10`):
- *  NaN and 0 became 10. An invalid value never gives more than this. */
+ *  NaN and 0 became 10. A value with no usable size (NaN, 0, negative,
+ *  Infinity) gives no more than this. */
 const INVALID_VALUE_CEILING = 10;
 const warned = new Set<string>();
 
@@ -51,13 +52,14 @@ const warned = new Set<string>();
  * or blank is `fallback`, silently.
  *
  * Anything else is refused with ONE warning per (name, value). It gives
- * `min(fallback, 10, ceil(Number(text)))` when `Number(text)` is a finite
- * positive number, else `min(fallback, 10)`; and never below `minimum`. Apart
- * from that floor, no spelling the old plain `Number(...)` read as a usable
- * size (`5.0`, `+5`, `0x5`, `2.5`, `1e1`) gives a pool with more connections
- * than pg-pool allowed for it (it opened up to ceil(max)). NaN and 0 give 10,
- * which is what pg-pool made of them. Negative and Infinity values, which were
- * broken before, also give `min(fallback, 10)`.
+ * `min(fallback, ceil(Number(text)))` when `Number(text)` is a finite positive
+ * number, else `min(fallback, 10)`; and never below `minimum`. So a spelling
+ * the old plain `Number(...)` read as a usable size (`5.0`, `+5`, `0x5`, `2.5`,
+ * `1e1`) gives the size it meant (rounded up, as pg-pool opened up to
+ * ceil(max)) and never more than the default: `20.0`, `+20` and `2e1` mean the
+ * default 20 and give 20, and `50.0` gives the default, not 50. NaN and 0 give
+ * 10, which is what pg-pool made of them. Negative and Infinity values, which
+ * were broken before, also give `min(fallback, 10)`.
  *
  * `minimum` is itself held to `min(minimum, fallback, 10)`, so a floor can never
  * make a refused value give a pool bigger than the default or 10.
@@ -94,7 +96,8 @@ export function poolSizeFromEnv(name: string, fallback: number, category = 'pool
   }
   const asNumber = Number(text);
   const honoured = Number.isFinite(asNumber) && asNumber > 0 ? Math.ceil(asNumber) : Infinity;
-  const used = Math.max(floor, Math.min(fallback, INVALID_VALUE_CEILING, honoured));
+  const unusable = Math.min(fallback, INVALID_VALUE_CEILING);
+  const used = Math.max(floor, Number.isFinite(honoured) ? Math.min(fallback, honoured) : unusable);
   const key = `${name}=${text}`;
   if (!warned.has(key)) {
     warned.add(key);

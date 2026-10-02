@@ -1,0 +1,228 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r182-pool-size
+
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts (54 tests | 15 failed) 64ms
+     × invalid "0x10" gives 16, with one warning 12ms
+     × invalid "1E2" gives 20, with one warning 4ms
+     × invalid "101" gives 20, with one warning 1ms
+     × invalid "1000000" gives 20, with one warning 1ms
+     × invalid "20.0" gives 20, with one warning 1ms
+     × invalid "+20" gives 20, with one warning 1ms
+     × invalid "2e1" gives 20, with one warning 1ms
+     × invalid "0x14" gives 20, with one warning 1ms
+     × invalid "19.5" gives 20, with one warning 0ms
+     × invalid "15.0" gives 15, with one warning 1ms
+     × records that a value was digits only (a number out of range) 1ms
+     × AUTH_POOL_MAX "20.0" means the default: it does not halve the pool 1ms
+     × AUTH_POOL_MAX "+20" means the default: it does not halve the pool 4ms
+     × AUTH_POOL_MAX "2e1" means the default: it does not halve the pool 1ms
+     × '50.0' gives the default 20 while '50' gives 50 2ms
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts (119 tests | 20 failed) 1541ms
+     × is bounded for "500", never bigger than before 5ms
+     × is bounded for "0x10", never bigger than before 2ms
+     × is bounded for "20.0", never bigger than before 1ms
+     × is bounded for "+20", never bigger than before 1ms
+     × is bounded for "2e1", never bigger than before 1ms
+     × is bounded for "500", never bigger than before 1ms
+     × is bounded for "0x10", never bigger than before 1ms
+     × is bounded for "20.0", never bigger than before 1ms
+     × is bounded for "+20", never bigger than before 1ms
+     × is bounded for "2e1", never bigger than before 1ms
+     × is bounded for "500", never bigger than before 3ms
+     × is bounded for "0x10", never bigger than before 3ms
+     × is bounded for "20.0", never bigger than before 3ms
+     × is bounded for "+20", never bigger than before 3ms
+     × is bounded for "2e1", never bigger than before 3ms
+     × is bounded for "500", never bigger than before 5ms
+     × is bounded for "0x10", never bigger than before 3ms
+     × is bounded for "20.0", never bigger than before 3ms
+     × is bounded for "+20", never bigger than before 3ms
+     × is bounded for "2e1", never bigger than before 3ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 35 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > invalid "0x10" gives 16, with one warning
+AssertionError: expected 10 to be 16 // Object.is equality
+
+- Expected
++ Received
+
+- 16
++ 10
+
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts:55:39
+     53|   ])('invalid %j gives %j, with one warning', (raw, expected) => {
+     54|     vi.stubEnv(NAME, raw);
+     55|     expect(poolSizeFromEnv(NAME, 20)).toBe(expected);
+       |                                       ^
+     56|     expect(warn).toHaveBeenCalledTimes(1);
+     57|     expect(warn.mock.calls[0]![1]).toMatchObject({ name: NAME, default…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/35]⎯
+
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > invalid "1E2" gives 20, with one warning
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > invalid "101" gives 20, with one warning
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > invalid "1000000" gives 20, with one warning
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > invalid "20.0" gives 20, with one warning
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > invalid "+20" gives 20, with one warning
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > invalid "2e1" gives 20, with one warning
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > invalid "0x14" gives 20, with one warning
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > invalid "19.5" gives 20, with one warning
+AssertionError: expected 10 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 10
+
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts:55:39
+     53|   ])('invalid %j gives %j, with one warning', (raw, expected) => {
+     54|     vi.stubEnv(NAME, raw);
+     55|     expect(poolSizeFromEnv(NAME, 20)).toBe(expected);
+       |                                       ^
+     56|     expect(warn).toHaveBeenCalledTimes(1);
+     57|     expect(warn.mock.calls[0]![1]).toMatchObject({ name: NAME, default…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/35]⎯
+
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > invalid "15.0" gives 15, with one warning
+AssertionError: expected 10 to be 15 // Object.is equality
+
+- Expected
++ Received
+
+- 15
++ 10
+
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts:55:39
+     53|   ])('invalid %j gives %j, with one warning', (raw, expected) => {
+     54|     vi.stubEnv(NAME, raw);
+     55|     expect(poolSizeFromEnv(NAME, 20)).toBe(expected);
+       |                                       ^
+     56|     expect(warn).toHaveBeenCalledTimes(1);
+     57|     expect(warn.mock.calls[0]![1]).toMatchObject({ name: NAME, default…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/35]⎯
+
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > records that a value was digits only (a number out of range)
+AssertionError: expected 10 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 10
+
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts:90:39
+     88|   it('records that a value was digits only (a number out of range)', (…
+     89|     vi.stubEnv(NAME, '4242');
+     90|     expect(poolSizeFromEnv(NAME, 20)).toBe(20);
+       |                                       ^
+     91|     expect(warn.mock.calls[0]![1]).toMatchObject({ length: 4, digitsOn…
+     92|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/35]⎯
+
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > AUTH_POOL_MAX "20.0" means the default: it does not halve the pool
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > AUTH_POOL_MAX "+20" means the default: it does not halve the pool
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > AUTH_POOL_MAX "2e1" means the default: it does not halve the pool
+AssertionError: expected 10 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 10
+
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts:102:27
+    100|   it.each(['20.0', '+20', '2e1'])('AUTH_POOL_MAX %j means the default:…
+    101|     vi.stubEnv('AUTH_POOL_MAX', raw);
+    102|     expect(authPoolMax()).toBe(20);
+       |                           ^
+    103|   });
+    104|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/35]⎯
+
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > '50.0' gives the default 20 while '50' gives 50
+AssertionError: expected 10 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 10
+
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts:154:39
+    152|     expect(poolSizeFromEnv(NAME, 20)).toBe(50);
+    153|     vi.stubEnv(NAME, '50.0');
+    154|     expect(poolSizeFromEnv(NAME, 20)).toBe(20);
+       |                                       ^
+    155|   });
+    156| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/35]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded for "500", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded for "20.0", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded for "+20", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded for "2e1", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded for "500", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded for "20.0", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded for "+20", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded for "2e1", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded for "500", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded for "20.0", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded for "+20", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded for "2e1", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded for "500", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded for "20.0", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded for "+20", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded for "2e1", never bigger than before
+AssertionError: expected 10 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 10
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:115:30
+    113|   it.each(BAD)('is bounded for %j, never bigger than before', async (r…
+    114|     vi.stubEnv(site.env, raw);
+    115|     expect(await site.max()).toBe(Math.min(site.fallback, ceiling));
+       |                              ^
+    116|   });
+    117| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/35]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded for "0x10", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded for "0x10", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded for "0x10", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded for "0x10", never bigger than before
+AssertionError: expected 10 to be 16 // Object.is equality
+
+- Expected
++ Received
+
+- 16
++ 10
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:115:30
+    113|   it.each(BAD)('is bounded for %j, never bigger than before', async (r…
+    114|     vi.stubEnv(site.env, raw);
+    115|     expect(await site.max()).toBe(Math.min(site.fallback, ceiling));
+       |                              ^
+    116|   });
+    117| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/35]⎯
+
+
+ Test Files  2 failed | 1 passed (3)
+      Tests  35 failed | 157 passed (192)
+   Start at  13:48:18
+   Duration  2.41s (transform 1.13s, setup 0ms, import 828ms, tests 1.62s, environment 3ms)
+
