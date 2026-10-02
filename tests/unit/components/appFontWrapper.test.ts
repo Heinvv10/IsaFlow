@@ -33,13 +33,16 @@ async function renderApp(pathname: string, query: Record<string, string> = {}) {
   );
 }
 
+// The first import of pages/_app is slow under a loaded machine; the 5 s default failed pre-push gates. Timing only.
+const LOAD_TIMEOUT = 60_000;
+
 describe('pages/_app.tsx — the font wrapper', () => {
   it('puts the font variable AND font-sans on the same element for an ordinary page', async () => {
     const html = await renderApp('/oauth/authorize');
     expect(html).toContain('__variable_test');
     // same element, not merely both present somewhere in the tree
     expect(html).toMatch(/class="[^"]*__variable_test[^"]*font-sans[^"]*"/);
-  });
+  }, LOAD_TIMEOUT);
 
   // packPrint.css pins the pack's own face on `html.print-mode body`, and this
   // div is a descendant of body. Declaring font-sans here would override it and
@@ -50,5 +53,5 @@ describe('pages/_app.tsx — the font wrapper', () => {
     const html = await renderApp('/accounting/reports/report-packs', { print: '1' });
     expect(html).toContain('__variable_test');
     expect(html).not.toMatch(/class="[^"]*font-sans[^"]*"/);
-  });
+  }, LOAD_TIMEOUT);
 });
