@@ -97,11 +97,11 @@ export default function CreditNoteDetailPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, creditNoteId, ...extra }),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || 'Failed'); }
+      await assertOk(res, 'Could not complete that action - try again');
       const json = await res.json();
       setNote(json.data || json);
       if (action === 'apply') setShowApplyModal(false);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); }
+    } catch (e) { setError(apiErrorMessage(e, 'Could not complete that action - try again')); }
     finally { setActionLoading(''); }
   };
 

@@ -45,6 +45,7 @@ export default function RecurringInvoicesPage() {
       setItems(json.data?.items ?? []);
     } catch (err) {
       log.error('Failed to load recurring invoices', { error: err }, 'recurring-invoices-page');
+      setItems([]);
       setError(apiErrorMessage(err, 'Could not load recurring invoices - try again'));
     } finally {
       setLoading(false);
@@ -59,14 +60,15 @@ export default function RecurringInvoicesPage() {
   const doAction = async (action: string, id: string) => {
     setBusy(id); setError('');
     try {
-      await apiFetch('/api/accounting/recurring-invoices-action', {
+      const res = await apiFetch('/api/accounting/recurring-invoices-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, id }),
       });
+      await assertOk(res, 'Could not update the recurring invoice - try again');
       await load();
     } catch (err) {
       log.error('Recurring invoice action failed', { action, id, error: err }, 'recurring-invoices-page');
-      setError(err instanceof Error ? err.message : 'Action failed');
+      setError(apiErrorMessage(err, 'Could not update the recurring invoice - try again'));
     } finally { setBusy(''); }
   };
 
@@ -77,13 +79,13 @@ export default function RecurringInvoicesPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ recurring_invoice_id: id }),
       });
+      await assertOk(res, 'Could not run the recurring invoice - try again');
       const json = await res.json() as { data?: RunResult };
-      if (!res.ok) throw new Error('Run failed');
       setRunResult(json.data ?? null);
       await load();
     } catch (err) {
       log.error('Run recurring invoice failed', { id, error: err }, 'recurring-invoices-page');
-      setError(err instanceof Error ? err.message : 'Run failed');
+      setError(apiErrorMessage(err, 'Could not run the recurring invoice - try again'));
     } finally { setBusy(''); }
   };
 
@@ -94,13 +96,13 @@ export default function RecurringInvoicesPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
+      await assertOk(res, 'Could not run the due invoices - try again');
       const json = await res.json() as { data?: RunResult };
-      if (!res.ok) throw new Error('Run All failed');
       setRunResult(json.data ?? null);
       await load();
     } catch (err) {
       log.error('Run all due recurring invoices failed', { error: err }, 'recurring-invoices-page');
-      setError(err instanceof Error ? err.message : 'Run All failed');
+      setError(apiErrorMessage(err, 'Could not run the due invoices - try again'));
     } finally { setRunAllBusy(false); }
   };
 

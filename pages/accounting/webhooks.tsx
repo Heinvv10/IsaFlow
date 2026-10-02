@@ -89,18 +89,19 @@ export default function WebhooksPage() {
     setError(null);
     try {
       const payload = { ...form, ...(editId ? { id: editId } : {}) };
-      await apiFetch('/api/accounting/webhooks', {
+      const res = await apiFetch('/api/accounting/webhooks', {
         method: editId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      await assertOk(res, 'Could not save the webhook - try again');
       setShowForm(false);
       setEditId(null);
       setForm(DEFAULT_FORM);
       await fetchWebhooks();
     } catch (err) {
       log.error('Failed to save webhook', { error: err }, 'webhooks-page');
-      setError('Failed to save webhook');
+      setError(apiErrorMessage(err, 'Could not save the webhook - try again'));
     } finally {
       setSaving(false);
     }
@@ -109,10 +110,12 @@ export default function WebhooksPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this webhook endpoint?')) return;
     try {
-      await apiFetch(`/api/accounting/webhooks?id=${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/accounting/webhooks?id=${id}`, { method: 'DELETE' });
+      await assertOk(res, 'Could not delete the webhook - try again');
       await fetchWebhooks();
     } catch (err) {
       log.error('Failed to delete webhook', { error: err }, 'webhooks-page');
+      setError(apiErrorMessage(err, 'Could not delete the webhook - try again'));
     }
   };
 

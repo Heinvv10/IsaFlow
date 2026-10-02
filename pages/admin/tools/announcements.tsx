@@ -58,6 +58,7 @@ export default function AdminAnnouncementsPage() {
       const data = await res.json();
       setRows(data.data?.items ?? []);
     } catch (err) {
+      setRows([]);
       setError(apiErrorMessage(err, 'Could not load announcements - try again'));
     } finally {
       setLoading(false);
@@ -68,6 +69,7 @@ export default function AdminAnnouncementsPage() {
 
   const handleSave = async (form: AnnouncementFormState) => {
     setSaving(true);
+    setError('');
     try {
       const targetIds = form.target_ids
         ? form.target_ids.split(',').map(s => s.trim()).filter(Boolean)
@@ -83,21 +85,16 @@ export default function AdminAnnouncementsPage() {
         is_dismissible: form.is_dismissible,
       };
 
-      if (editItem) {
-        await apiFetch(`/api/admin/announcements/${editItem.id}`, {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body),
-        });
-      } else {
-        await apiFetch('/api/admin/announcements', {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body),
-        });
-      }
+      const res = await apiFetch(editItem ? `/api/admin/announcements/${editItem.id}` : '/api/admin/announcements', {
+        method: editItem ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body),
+      });
+      await assertOk(res, 'Could not save the announcement - try again');
 
       setEditItem(null);
       setShowNew(false);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save announcement');
+      setError(apiErrorMessage(err, 'Could not save the announcement - try again'));
     } finally {
       setSaving(false);
     }
@@ -105,12 +102,14 @@ export default function AdminAnnouncementsPage() {
 
   const handleDelete = async () => {
     if (!deleteId) return;
+    setError('');
     try {
-      await apiFetch(`/api/admin/announcements/${deleteId}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
+      const res = await apiFetch(`/api/admin/announcements/${deleteId}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
+      await assertOk(res, 'Could not delete the announcement - try again');
       setDeleteId(null);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete announcement');
+      setError(apiErrorMessage(err, 'Could not delete the announcement - try again'));
       setDeleteId(null);
     }
   };
@@ -156,7 +155,7 @@ export default function AdminAnnouncementsPage() {
         </div>
 
         {error && (
-          <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
+          <div role="alert" className={`flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg p-3${isModalOpen ? ' fixed top-4 inset-x-4 z-[60] shadow-lg' : ''}`}>
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             {error}
           </div>

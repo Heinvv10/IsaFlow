@@ -92,15 +92,24 @@ export default function LoanDetailPage() {
 
   const loadCurve = useCallback(async (curveId: string) => {
     setLoadingCurve(true);
-    const [curveRes, pointsRes] = await Promise.all([
-      apiFetch(`/api/accounting/loan-rate-curves`),
-      apiFetch(`/api/accounting/loan-rate-curves/${curveId}/points`),
-    ]);
-    const [curvesJson, pointsJson] = await Promise.all([curveRes.json(), pointsRes.json()]);
-    const found = (curvesJson.data ?? []).find((c: RateCurve) => c.id === curveId) ?? null;
-    setCurve(found);
-    setCurvePoints(pointsJson.data ?? []);
-    setLoadingCurve(false);
+    setTabError('');
+    try {
+      const [curveRes, pointsRes] = await Promise.all([
+        apiFetch(`/api/accounting/loan-rate-curves`),
+        apiFetch(`/api/accounting/loan-rate-curves/${curveId}/points`),
+      ]);
+      await assertOk(curveRes, 'Could not load the rate curve - try again');
+      await assertOk(pointsRes, 'Could not load the rate curve - try again');
+      const [curvesJson, pointsJson] = await Promise.all([curveRes.json(), pointsRes.json()]);
+      const found = (curvesJson.data ?? []).find((c: RateCurve) => c.id === curveId) ?? null;
+      setCurve(found);
+      setCurvePoints(pointsJson.data ?? []);
+    } catch (err) {
+      setCurve(null); setCurvePoints([]);
+      setTabError(apiErrorMessage(err, 'Could not load the rate curve - try again'));
+    } finally {
+      setLoadingCurve(false);
+    }
   }, []);
 
 
@@ -210,7 +219,7 @@ export default function LoanDetailPage() {
         </div>
 
         <div className="p-6">
-          {tabError && (tab === 'schedule' || tab === 'events') && <p className="mb-4 text-red-400">{tabError}</p>}
+          {tabError && (tab === 'schedule' || tab === 'events' || tab === 'curve') && <p className="mb-4 text-red-400">{tabError}</p>}
           {tab === 'overview' && (
             <LoanOverviewTab loan={loan} onRefresh={loadLoan} />
           )}

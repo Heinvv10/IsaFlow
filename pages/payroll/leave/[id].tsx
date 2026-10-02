@@ -7,7 +7,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { CalendarOff, Loader2, AlertCircle, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface LeaveRequest {
   id: string;
@@ -49,22 +49,25 @@ export default function LeaveDetailPage() {
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState('');
 
-  const load = useCallback(async () => {
-    if (!id) return;
+  const load = useCallback(async (): Promise<boolean> => {
+    if (!id) return true;
     // Guard: if id is not a UUID (e.g. a nav typo like "types"), redirect to the list
     if (!UUID_RE.test(id)) {
       await router.replace('/payroll/leave');
-      return;
+      return true;
     }
     setIsLoading(true);
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/leave/${id}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the leave request - try again');
       const json = await res.json() as { data?: LeaveRequest };
       setRequest((json.data ?? null) as LeaveRequest | null);
-    } catch {
-      setError('Failed to load leave request');
+      return true;
+    } catch (err) {
+      setRequest(null);
+      setError(apiErrorMessage(err, 'Could not load the leave request - try again'));
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -82,9 +85,9 @@ export default function LeaveDetailPage() {
         body: JSON.stringify({ status }),
       });
       await assertOk(res, 'Could not update the leave request - try again');
-      await load();
+      if (!(await load())) setError('The leave request was updated, but could not be reloaded - refresh the page');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+      setError(apiErrorMessage(err, 'Could not update the leave request - try again'));
     } finally {
       setActionLoading('');
     }
@@ -93,11 +96,13 @@ export default function LeaveDetailPage() {
   const handleDelete = async () => {
     if (!confirm('Delete this pending leave request?')) return;
     setActionLoading('delete');
+    setError('');
     try {
-      await apiFetch(`/api/payroll/leave/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/payroll/leave/${id}`, { method: 'DELETE' });
+      await assertOk(res, 'Could not delete the leave request - try again');
       await router.push('/payroll/leave');
-    } catch {
-      setError('Delete failed');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not delete the leave request - try again'));
       setActionLoading('');
     }
   };
@@ -122,12 +127,13 @@ export default function LeaveDetailPage() {
         <div className="p-6 max-w-xl">
           {isLoading ? (
             <div className="flex items-center justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-teal-500" /></div>
-          ) : error ? (
-            <div className="flex items-center gap-2 text-red-400 py-4"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
           ) : !request ? (
-            <p className="text-[var(--ff-text-secondary)]">Request not found.</p>
+            error
+              ? <div className="flex items-center gap-2 text-red-400 py-4"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
+              : <p className="text-[var(--ff-text-secondary)]">Request not found.</p>
           ) : (
             <>
+              {error && <div className="flex items-center gap-2 text-red-400 pb-4"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>}
               <div className="flex items-center gap-2 mb-6">
                 <span className={`px-3 py-1 rounded-full text-sm font-medium capitalize ${STATUS_COLORS[request.status] ?? ''}`}>
                   {request.status}

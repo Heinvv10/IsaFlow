@@ -117,7 +117,7 @@ export default function VatReconciliationPage() {
         setReconData(json.data);
       }
     } catch (err: unknown) {
-      setError(apiErrorMessage(err, 'Could not load the VAT reconciliation - try again'));
+      setReconData(null); setMultiData(null); setError(apiErrorMessage(err, 'Could not load the VAT reconciliation - try again'));
     } finally {
       setLoading(false);
     }

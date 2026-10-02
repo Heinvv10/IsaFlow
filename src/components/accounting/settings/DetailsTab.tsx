@@ -44,13 +44,13 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId: company.id, documentType: docType, documentName: file.name, fileData, mimeType: file.type, fileSize: file.size }),
       });
-      if (!res.ok) throw new Error('Failed to upload document');
+      await assertOk(res, 'Could not upload the document - try again');
       const updated = await apiFetch(`/api/accounting/company-documents?companyId=${company.id}`);
       await assertOk(updated, 'The document was uploaded but the list could not be refreshed - reload the page');
       const json = await updated.json();
       if (json.data) onDocumentsChange(json.data as CompanyDocument[]);
     } catch (err) {
-      onError(apiErrorMessage(err, 'Failed to upload document'));
+      onError(apiErrorMessage(err, 'Could not upload the document - try again'));
     } finally {
       setUploadingDoc(false);
       e.target.value = '';
@@ -60,21 +60,22 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
   const handleDocDownload = async (docId: string, docName: string) => {
     try {
       const res = await apiFetch(`/api/accounting/company-documents?id=${docId}&download=1`);
+      await assertOk(res, 'Could not download the document - try again');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = docName;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch { onError('Failed to download document'); }
+    } catch (err) { onError(apiErrorMessage(err, 'Could not download the document - try again')); }
   };
 
   const handleDocDelete = async (docId: string) => {
     if (!window.confirm('Are you sure you want to delete this document?')) return;
     try {
       const res = await apiFetch(`/api/accounting/company-documents?id=${docId}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete');
+      await assertOk(res, 'Could not delete the document - try again');
       onDocumentsChange(documents.filter(d => d.id !== docId));
-    } catch { onError('Failed to delete document'); }
+    } catch (err) { onError(apiErrorMessage(err, 'Could not delete the document - try again')); }
   };
 
   return (

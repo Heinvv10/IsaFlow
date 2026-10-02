@@ -25,6 +25,7 @@ import { ClientTriageBoard } from '@/components/bureau/ClientTriageBoard';
 import type { Severity } from '@/modules/bureau/services/bureauWorkTypes';
 import type { ClientTriage } from '@/modules/bureau/services/bureauClientTriageService';
 
+import { notify } from '@/utils/toast';
 interface WorkItem {
   bureauId: string;
   bureauName: string;
@@ -100,7 +101,8 @@ export default function BureauDashboardPage() {
 
   const handleOpen = async (item: WorkItem) => {
     if (activeCompany?.id !== item.companyId) {
-      await switchCompany(item.companyId);
+      try { await switchCompany(item.companyId); }
+      catch (e) { notify.error(e instanceof Error ? e.message : 'Could not switch company - try again'); return; }   // still on the old company: do not navigate
     }
     void router.push(item.href);
   };

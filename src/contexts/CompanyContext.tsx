@@ -9,7 +9,7 @@ import {
   ReactNode,
 } from 'react';
 import { useAuth } from './AuthContext';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   mapCompanyRow, mapCompanyUsers, readStoredCompany, readStoredCompanyId,
@@ -195,21 +195,24 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
   const switchCompany = useCallback(async (companyId: string) => {
     setLoading(true);
     const match = companies.find(c => c.companyId === companyId);
-    if (match) setCompanyRole(match.role);
 
     // Flip the HTTP-only active_company_id cookie — withAuth on the server reads
     // the cookie, not the X-Company-Id header. Without this every tenant sees
     // the first company's data because the cookie is frozen at login.
-    const switchRes = await apiFetch('/api/auth/switch-company', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ companyId }),
-    });
-    if (!switchRes.ok) {
-      log.warn('switch-company failed', { status: switchRes.status }, 'context');
+    try {
+      const switchRes = await apiFetch('/api/auth/switch-company', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId }),
+      });
+      await assertOk(switchRes, 'Could not switch company - try again');
+    } catch (e) {
+      // Still on the old company: keep its role, and tell the caller so it does not carry on as if switched
+      log.warn('switch-company failed', { error: e }, 'context');
       setLoading(false);
-      return;
+      throw new Error(apiErrorMessage(e, 'Could not switch company - try again'));
     }
+    if (match) setCompanyRole(match.role);
 
     // Best-effort: persist as user's default company for next login.
     try {

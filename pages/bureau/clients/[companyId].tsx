@@ -17,6 +17,7 @@ import { bureauClientErrorMessage } from '@/components/bureau/clientHomeError';
 import type { WorkItem } from '@/modules/bureau/services/bureauWorkTypes';
 import type { ClientMetrics } from '@/modules/bureau/services/bureauClientMetricsService';
 
+import { notify } from '@/utils/toast';
 interface ClientHomeData {
   company: { id: string; name: string; bureauName: string };
   metrics: ClientMetrics;
@@ -50,7 +51,8 @@ export default function BureauClientHomePage() {
 
   const handleOpen = async (item: WorkItem) => {
     if (activeCompany?.id !== item.companyId) {
-      await switchCompany(item.companyId);
+      try { await switchCompany(item.companyId); }
+      catch (e) { notify.error(e instanceof Error ? e.message : 'Could not switch company - try again'); return; }   // still on the old company: do not navigate
     }
     void router.push(item.href);
   };

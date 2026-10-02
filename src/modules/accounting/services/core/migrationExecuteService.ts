@@ -24,9 +24,12 @@ export interface ExecuteMigrationResult {
   accountsImported: number;
   customersImported: number;
   suppliersImported: number;
-  /** Rows sent but not inserted: no name, or already there (ON CONFLICT DO NOTHING). */
+  /** Rows left out on purpose: no name, or already there (ON CONFLICT DO NOTHING). */
   customersSkipped: number;
   suppliersSkipped: number;
+  /** Rows of a batch that threw and rolled back (the reason is in errors[]). */
+  customersFailed: number;
+  suppliersFailed: number;
   openingBalancesSet: number;
   errors: string[];
 }
@@ -62,6 +65,8 @@ async function executeUnderLock(
   let accountsImported = 0;
   let customersImported = 0;
   let suppliersImported = 0;
+  let customersFailed = 0;
+  let suppliersFailed = 0;
   let openingBalancesSet = 0;
 
   log.info('Starting migration execution', { companyId, source, accountCount: accounts.length }, 'migration');
@@ -101,7 +106,7 @@ async function executeUnderLock(
   } catch (err) {
     if (!(err instanceof VatPeriodLockedError)) throw err;
     log.warn('Migration refused: it would change a filed VAT period', { companyId, source, error: err.message }, 'migration');
-    return { accountsImported: 0, customersImported: 0, suppliersImported: 0, customersSkipped: 0, suppliersSkipped: 0, openingBalancesSet: 0, errors: [...errors, err.message] };
+    return { accountsImported: 0, customersImported: 0, suppliersImported: 0, customersSkipped: 0, suppliersSkipped: 0, customersFailed: 0, suppliersFailed: 0, openingBalancesSet: 0, errors: [...errors, err.message] };
   }
 
   if (validAccounts.length > 0) {
@@ -172,6 +177,7 @@ async function executeUnderLock(
     try {
       customersImported = await insertCustomers(companyId, validCustomers);
     } catch (err) {
+      customersFailed = validCustomers.length;
       errors.push(`Customers batch: ${textUnlessLockError(err)}`);
     }
   }
@@ -182,6 +188,7 @@ async function executeUnderLock(
     try {
       suppliersImported = await insertSuppliers(companyId, validSuppliers);
     } catch (err) {
+      suppliersFailed = validSuppliers.length;
       errors.push(`Suppliers batch: ${textUnlessLockError(err)}`);
     }
   }
@@ -193,7 +200,8 @@ async function executeUnderLock(
   clearSystemAccountCacheAfterCommit(companyId);   // a re-import renames its own accounts, a role holder among them
   return {
     accountsImported, customersImported, suppliersImported, openingBalancesSet, errors,
-    customersSkipped: customers.length - customersImported, suppliersSkipped: suppliers.length - suppliersImported,
+    customersSkipped: customers.length - customersImported - customersFailed, customersFailed,
+    suppliersSkipped: suppliers.length - suppliersImported - suppliersFailed, suppliersFailed,
   };
 }
 

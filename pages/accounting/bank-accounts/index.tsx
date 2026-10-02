@@ -42,6 +42,7 @@ export default function BankAccountsPage() {
       const data = json.data || json;
       setAccounts(Array.isArray(data) ? data : []);
     } catch (err) {
+      setAccounts([]);
       setError(apiErrorMessage(err, 'Could not load bank accounts - try again'));
     } finally {
       setIsLoading(false);
@@ -85,9 +86,10 @@ export default function BankAccountsPage() {
           normalBalance: 'debit',
         }),
       });
+      await assertOk(res, 'Could not create the bank account - try again');
       const json = await res.json();
-      if (!res.ok || json.success === false) {
-        notify.error(json?.error?.message || 'Failed to create account');
+      if (json.success === false) {
+        notify.error(json?.error?.message || 'Could not create the bank account - try again');
         return;
       }
       // If bank account number provided, save it separately
@@ -109,8 +111,8 @@ export default function BankAccountsPage() {
       setShowAddModal(false);
       setForm(EMPTY_ADD);
       void loadAccounts();
-    } catch {
-      notify.error('Failed to create bank account');
+    } catch (err) {
+      notify.error(apiErrorMessage(err, 'Could not create the bank account - try again'));
     } finally {
       setSaving(false);
     }
@@ -145,11 +147,7 @@ export default function BankAccountsPage() {
           description: editForm.description.trim() || null,
         }),
       });
-      if (!coaRes.ok) {
-        const json = await coaRes.json();
-        notify.error(json?.error?.message || 'Failed to update account');
-        return;
-      }
+      await assertOk(coaRes, 'Could not update the account - try again');
       // Update bank account number + group assignment
       const bankRes = await apiFetch('/api/accounting/bank-accounts', {
         method: 'PUT',
@@ -161,17 +159,14 @@ export default function BankAccountsPage() {
           parentAccountId: editForm.parentAccountId || null,
         }),
       });
-      if (!bankRes.ok) {
-        const json = await bankRes.json();
-        notify.error(json?.error?.message || 'Failed to update bank account');
-        return;
-      }
+      await assertOk(bankRes, 'Could not update the bank account - try again');
       notify.success('Bank account updated');
       setEditingAccount(null);
-      void loadAccounts();
-    } catch {
-      notify.error('Failed to update bank account');
+    } catch (err) {
+      notify.error(apiErrorMessage(err, 'Could not update the bank account - try again'));
     } finally {
+      // Reload either way: the name update may have landed even when the bank-number update failed
+      void loadAccounts();
       setSaving(false);
     }
   };

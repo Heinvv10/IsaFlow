@@ -97,12 +97,11 @@ export default function NewRecurringInvoicePage() {
       const res = await apiFetch('/api/accounting/recurring-invoices', {
         method: 'POST', body: JSON.stringify(payload),
       });
-      const json = await res.json() as { error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Create failed');
+      await assertOk(res, 'Could not create the recurring invoice - try again');
       await router.push('/accounting/recurring-invoices');
     } catch (err) {
       log.error('Failed to create recurring invoice', { error: err }, 'recurring-new');
-      setError(err instanceof Error ? err.message : 'Failed to create recurring invoice');
+      setError(apiErrorMessage(err, 'Could not create the recurring invoice - try again'));
     } finally { setSubmitting(false); }
   };
 

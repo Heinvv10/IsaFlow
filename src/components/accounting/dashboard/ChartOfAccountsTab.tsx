@@ -30,8 +30,8 @@ export function ChartOfAccountsTab() {
   const [sidebarType, setSidebarType] = useState<AccountCategoryType>('all');
   const [sidebarPrefix, setSidebarPrefix] = useState('');
   const [showInactive, setShowInactive] = useState(false);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false); const [isSaving, setIsSaving] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [addForm, setAddForm] = useState<AddAccountFormState>({
     accountCode: '', accountName: '', accountType: 'asset',
     accountSubtype: '', parentAccountId: '', description: '',
@@ -77,7 +77,7 @@ export function ChartOfAccountsTab() {
   }, [showAddForm, addForm.accountType, addForm.accountSubtype, addForm.parentAccountId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadAccounts = async () => {
-    setIsLoading(true);
+    setIsLoading(true); setLoadError('');
     try {
       const params = new URLSearchParams();
       if (viewMode === 'tree') params.set('view', 'tree');
@@ -87,6 +87,7 @@ export function ChartOfAccountsTab() {
       const data = await res.json();
       setAccounts(data.data || data || []);
     } catch (err) {
+      setAccounts([]); setLoadError(apiErrorMessage(err, 'Could not load the chart of accounts - try again'));
       log.error('Failed to load accounts', { error: err }, 'accounting-ui');
       notify.error(apiErrorMessage(err, 'Could not load the chart of accounts - try again'));
     } finally {
@@ -105,7 +106,7 @@ export function ChartOfAccountsTab() {
         credentials: 'include',
         body: JSON.stringify({ ...addForm, accountSubtype: addForm.accountSubtype || undefined, parentAccountId: addForm.parentAccountId || undefined, description: addForm.description || undefined, normalBalance }),
       });
-      await assertOk(res, 'Failed to create account');   // the envelope is { error: { message } }: the refusal's own words
+      await assertOk(res, 'Failed to create account'); notify.success('Account created');   // the envelope is { error: { message } }: the refusal's own words
       setShowAddForm(false);
       setAddForm({ accountCode: '', accountName: '', accountType: 'asset', accountSubtype: '', parentAccountId: '', description: '' });
       setSuggestedCode('');
@@ -135,7 +136,7 @@ export function ChartOfAccountsTab() {
   ) => {
     try {
       const res = await apiFetch('/api/accounting/chart-of-accounts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id, ...data }) });
-      await assertOk(res, 'Failed to update account');
+      await assertOk(res, 'Failed to update account'); notify.success('Account updated');
       await loadAccounts();
     } catch (err) {
       log.error('Failed to update account', { error: err }, 'accounting-ui');
@@ -154,7 +155,7 @@ export function ChartOfAccountsTab() {
     setIsDeleting(true);
     try {
       const res = await apiFetch(`/api/accounting/chart-of-accounts-detail?id=${id}`, { method: 'DELETE', credentials: 'include' });
-      await assertOk(res, 'Failed to delete account');
+      await assertOk(res, 'Failed to delete account'); notify.success('Account deleted');
       setPendingDeleteId(null);
       await loadAccounts();
     } catch (err) {
@@ -185,7 +186,7 @@ export function ChartOfAccountsTab() {
   const flatAccounts = flattenAccounts(accounts);
   const parentOptions = flatAccounts.filter(a => a.isActive);
 
-  if (!isLoading && accounts.length === 0) {
+  if (!isLoading && !loadError && accounts.length === 0) {
     return <CoaSeedEmptyState onSeeded={loadAccounts} />;
   }
 
@@ -197,6 +198,7 @@ export function ChartOfAccountsTab() {
     <div className="flex gap-5">
       <AccountCategorySidebar accounts={accounts} selectedType={sidebarType} searchPrefix={sidebarPrefix} onSelectType={setSidebarType} onSearchPrefixChange={setSidebarPrefix} />
       <div className="flex-1 min-w-0 space-y-4">
+        {loadError && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{loadError}</div>}
         {/* Toolbar */}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="relative">

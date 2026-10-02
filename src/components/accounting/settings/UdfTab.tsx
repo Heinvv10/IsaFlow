@@ -66,10 +66,11 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   const fetchDefs = useCallback(async () => {
-    setLoading(true);
+    setLoading(true); setLoadFailed(false); setError('');
     try {
       const res = await apiFetch(`/api/accounting/udf-definitions?entityType=${entityType}`);
       await assertOk(res, 'Could not load field definitions - try again');
@@ -94,6 +95,7 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
         });
       }
     } catch (err) {
+      setLoadFailed(true);
       setError(apiErrorMessage(err, 'Could not load field definitions - try again'));
     } finally {
       setLoading(false);
@@ -121,8 +123,8 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
       // Only save slots that have a label
       const toSave = Object.values(slots).filter(s => s.fieldLabel.trim().length > 0);
       await Promise.all(
-        toSave.map(slot =>
-          apiFetch('/api/accounting/udf-definitions', {
+        toSave.map(async slot => {
+          const res = await apiFetch('/api/accounting/udf-definitions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -134,13 +136,14 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
               isRequired: slot.isRequired,
               isActive: slot.isActive,
             }),
-          }),
-        ),
+          });
+          await assertOk(res, 'Could not save the field definitions - try again');
+        }),
       );
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    } catch {
-      setError('Failed to save field definitions');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the field definitions - try again'));
     } finally {
       setSaving(false);
     }
@@ -176,11 +179,11 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
             <div className="flex items-center gap-2 text-[var(--ff-text-tertiary)] py-4">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading...
             </div>
+          ) : loadFailed ? (
+            <p className="text-xs text-red-400 mb-2">{error}</p>
           ) : (
             <>
-              {error && (
-                <p className="text-xs text-red-400 mb-2">{error}</p>
-              )}
+              {error && <p className="text-xs text-red-400 mb-2">{error}</p>}
 
               {/* Column headers */}
               <div className="grid grid-cols-12 gap-2 text-xs font-medium text-[var(--ff-text-secondary)] px-1">

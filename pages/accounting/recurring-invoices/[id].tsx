@@ -47,7 +47,7 @@ export default function EditRecurringInvoicePage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(''); const [loaded, setLoaded] = useState(false);
 
   const [form, setForm] = useState({
     templateName: '',
@@ -104,6 +104,7 @@ export default function EditRecurringInvoicePage() {
             glAccountId: String(l.glAccountId ?? l.gl_account_id ?? ''),
           })));
         }
+        setLoaded(true);
       })
       .catch(err => {
         log.error('Failed to load recurring invoice', { id, error: err }, 'recurring-edit');
@@ -143,12 +144,11 @@ export default function EditRecurringInvoicePage() {
         method: 'PUT',
         body: JSON.stringify(payload),
       });
-      const json = await res.json() as { error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Update failed');
+      await assertOk(res, 'Could not save the recurring invoice - try again');
       await router.push('/accounting/recurring-invoices');
     } catch (err) {
       log.error('Failed to update recurring invoice', { id, error: err }, 'recurring-edit');
-      setError(err instanceof Error ? err.message : 'Update failed');
+      setError(apiErrorMessage(err, 'Could not save the recurring invoice - try again'));
     } finally {
       setSubmitting(false);
     }
@@ -320,7 +320,7 @@ export default function EditRecurringInvoicePage() {
             </Link>
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || !loaded}
               className="inline-flex items-center gap-2 px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors text-sm font-medium disabled:opacity-50"
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}

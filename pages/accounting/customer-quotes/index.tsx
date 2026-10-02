@@ -35,12 +35,11 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId: form.clientId, customerName: form.customerName, quoteDate: form.quoteDate, expiryDate: form.expiryDate, notes: form.notes, lines: lines.filter(l => l.desc).map(l => ({ description: l.desc, quantity: l.qty, unitPrice: l.price, taxRate: 15 })) }),
       });
-      const json = await res.json() as { error?: { message?: string }; message?: string };
-      if (!res.ok) throw new Error(json.error?.message ?? json.message ?? `Create failed (${res.status})`);
+      await assertOk(res, 'Could not create the quote - try again');
       onCreated();
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create quote');
+      setError(apiErrorMessage(e, 'Could not create the quote - try again'));
     } finally {
       setSaving(false);
     }
@@ -161,36 +160,39 @@ export default function CustomerQuotesPage() {
   }, []);
 
   const handleAction = async (id: string, action: string) => {
-    await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action }) });
-    void load();
+    setLoadError('');
+    try {
+      const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action }) });
+      await assertOk(res, 'Could not update the quote - try again');
+      void load();
+    } catch (err) { setLoadError(apiErrorMessage(err, 'Could not update the quote - try again')); }
   };
 
   const handleConvert = async (q: Quote) => {
     if (!window.confirm(`Convert ${q.quoteNumber} (${fmt(q.total)}) to an invoice?`)) return;
     setConverting(q.id); setSuccessMsg(null);
-    const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id, action: 'convert' }) });
-    const json = await res.json().catch(() => ({})) as { data?: { invoiceId?: string }; invoiceId?: string; error?: { message?: string } };
-    if (res.ok) { setSuccessMsg({ text: `${q.quoteNumber} converted.`, invoiceId: json.data?.invoiceId || json.invoiceId || '' }); void load(); }
-    else window.alert(json?.error?.message || 'Failed to convert');
-    setConverting(null);
+    try {
+      const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id, action: 'convert' }) });
+      await assertOk(res, 'Could not convert the quote - try again');
+      const json = await res.json().catch(() => ({})) as { data?: { invoiceId?: string }; invoiceId?: string };
+      setSuccessMsg({ text: `${q.quoteNumber} converted.`, invoiceId: json.data?.invoiceId || json.invoiceId || '' }); void load();
+    } catch (err) { window.alert(apiErrorMessage(err, 'Could not convert the quote - try again')); }
+    finally { setConverting(null); }
   };
 
   const handleConvertToSO = async (q: Quote) => {
     if (!window.confirm(`Convert ${q.quoteNumber} to a Sales Order?`)) return;
     setConvertingToSO(q.id);
-    const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id, action: 'convert-to-order' }) });
-    const json = await res.json().catch(() => ({})) as {
-      data?: { salesOrderId?: string }; salesOrderId?: string;
-      error?: { message?: string; details?: { salesOrderId?: string | null } };
-    };
-    // A 409 with an order id is the double-click: the first click already made
-    // the order, so open it rather than reporting a failure the user caused by
-    // succeeding twice.
-    const existingOrderId = json.error?.details?.salesOrderId;
-    if (res.ok) await router.push(`/accounting/customer-sales-orders/${json.data?.salesOrderId || json.salesOrderId}`);
-    else if (res.status === 409 && existingOrderId) await router.push(`/accounting/customer-sales-orders/${existingOrderId}`);
-    else window.alert(json?.error?.message || 'Could not convert the quote - try again');
-    setConvertingToSO(null);
+    try {
+      const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id, action: 'convert-to-order' }) });
+      const json = await res.json().catch(() => ({})) as { data?: { salesOrderId?: string }; salesOrderId?: string; error?: { message?: string; details?: { salesOrderId?: string | null } } };
+      // A 409 with an order id is a double-click: the order exists, so open it.
+      const existingOrderId = json.error?.details?.salesOrderId;
+      if (res.ok) await router.push(`/accounting/customer-sales-orders/${json.data?.salesOrderId || json.salesOrderId}`);
+      else if (res.status === 409 && existingOrderId) await router.push(`/accounting/customer-sales-orders/${existingOrderId}`);
+      else window.alert(json?.error?.message || 'Could not convert the quote - try again');
+    } catch (err) { window.alert(apiErrorMessage(err, 'Could not convert the quote - try again')); }
+    finally { setConvertingToSO(null); }
   };
 
   return (

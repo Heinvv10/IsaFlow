@@ -48,6 +48,7 @@ export function DeliveryAddressesTab({ customerId }: { customerId: string }) {
       const data = (json as { data?: DeliveryAddress[] }).data ?? (json as DeliveryAddress[]);
       setAddresses(data);
     } catch (err) {
+      setAddresses([]);
       setError(apiErrorMessage(err, 'Could not load delivery addresses - try again'));
     } finally {
       setLoading(false);
@@ -59,23 +60,33 @@ export function DeliveryAddressesTab({ customerId }: { customerId: string }) {
   const handleAdd = async () => {
     if (!form.addressName.trim()) return;
     setSaving(true);
+    setError('');
     try {
-      await apiFetch('/api/accounting/customer-delivery-addresses', {
+      const res = await apiFetch('/api/accounting/customer-delivery-addresses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customerId, ...form }),
       });
+      await assertOk(res, 'Could not save the address - try again');
       setForm(EMPTY_FORM);
       setShowForm(false);
       void load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the address - try again'));
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    await apiFetch(`/api/accounting/customer-delivery-addresses?id=${id}`, { method: 'DELETE' });
-    void load();
+    setError('');
+    try {
+      const res = await apiFetch(`/api/accounting/customer-delivery-addresses?id=${id}`, { method: 'DELETE' });
+      await assertOk(res, 'Could not delete the address - try again');
+      void load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not delete the address - try again'));
+    }
   };
 
   if (loading) {

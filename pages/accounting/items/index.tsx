@@ -39,6 +39,7 @@ export default function ItemsListPage() {
   const [categories, setCategories] = useState<ItemCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [catError, setCatError] = useState('');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -66,6 +67,7 @@ export default function ItemsListPage() {
 
   const loadCategories = useCallback(async () => {
     try {
+      setCatError('');
       const res = await apiFetch('/api/accounting/item-categories', { credentials: 'include' });
       await assertOk(res, 'Could not load item categories - try again');
       const json = await res.json();
@@ -73,7 +75,7 @@ export default function ItemsListPage() {
     } catch (err) {
       log.error('Failed to load item categories', { error: err }, 'items-list-page');
       setCategories([]);
-      setError(apiErrorMessage(err, 'Could not load item categories - try again'));
+      setCatError(apiErrorMessage(err, 'Could not load item categories - try again'));
     }
   }, []);
 
@@ -123,6 +125,7 @@ export default function ItemsListPage() {
           ]} />
 
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
+          {catError && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{catError}</div>}
 
           {/* Filters */}
           <div className="flex items-center gap-3 flex-wrap">

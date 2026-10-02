@@ -33,10 +33,10 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
     apiFetch('/api/billing/flows/bundles')
       .then(async (r) => { await assertOk(r, 'Could not load the top-up bundles - try again'); return r.json(); })
       .then((j) => {
-        if (j.success === false) throw new Error(j.error?.message ?? 'Failed to load bundles');
+        if (j.success === false) throw new Error(j.error?.message ?? 'Could not load the top-up bundles - try again');
         setBundles(j.data as Bundle[]);
       })
-      .catch((err: unknown) => setError(apiErrorMessage(err, 'Could not load the top-up bundles - try again')))
+      .catch((err: unknown) => { setBundles([]); setError(apiErrorMessage(err, 'Could not load the top-up bundles - try again')); })
       .finally(() => setLoading(false));
   }, [open]);
 
@@ -49,8 +49,8 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bundleId }),
       });
+      await assertOk(res, 'Could not start the purchase - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message ?? 'Purchase failed');
 
       // When Paystack is configured the API returns a checkout URL — redirect
       // the browser to complete payment; the webhook credits the wallet and
@@ -65,7 +65,7 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
       onSuccess();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Purchase failed');
+      setError(apiErrorMessage(err, 'Could not start the purchase - try again'));
     } finally {
       setPurchasing(null);
     }

@@ -39,16 +39,21 @@ function CreateOrderModal({ customers, customersError, onClose, onCreated }: Mod
   });
   const [lines, setLines] = useState([{ description: '', quantity: 1, unit_price: 0, tax_rate: 15 }]);
   const [saving, setSaving] = useState(false);
+  const [createError, setCreateError] = useState('');
   const subtotal = lines.reduce((s, l) => s + l.quantity * l.unit_price, 0);
 
   const handleCreate = async () => {
     if (lines.every(l => !l.description)) return;
-    setSaving(true);
-    await apiFetch('/api/accounting/customer-sales-orders', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, items: lines.filter(l => l.description) }),
-    });
-    setSaving(false); onCreated(); onClose();
+    setSaving(true); setCreateError('');
+    try {
+      const res = await apiFetch('/api/accounting/customer-sales-orders', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, items: lines.filter(l => l.description) }),
+      });
+      await assertOk(res, 'Could not create the sales order - try again');
+      onCreated(); onClose();
+    } catch (err) { setCreateError(apiErrorMessage(err, 'Could not create the sales order - try again')); }
+    finally { setSaving(false); }
   };
 
   return (
@@ -112,6 +117,7 @@ function CreateOrderModal({ customers, customersError, onClose, onCreated }: Mod
             )}
           </div>
         </div>
+        {createError && <p className="px-6 pb-4 text-sm text-red-600 dark:text-red-400">{createError}</p>}
         <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-800/20">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
           <button onClick={handleCreate} disabled={saving || !form.customer_id || lines.every(l => !l.description)} className="px-5 py-2 text-sm font-semibold bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">
@@ -149,6 +155,7 @@ export default function CustomerSalesOrdersPage() {
       const d = json.data || json;
       setOrders(d.orders || []); setTotal(d.total || 0);
     } catch (err: unknown) {
+      setOrders([]); setTotal(0);
       setError(apiErrorMessage(err, 'Could not load sales orders - try again'));
     } finally { setLoading(false); }
   }, [tab, search]);
@@ -163,12 +170,16 @@ export default function CustomerSalesOrdersPage() {
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this draft sales order?')) return;
-    setDeleting(id);
-    await apiFetch('/api/accounting/customer-sales-orders', {
-      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
-    setDeleting(null); void load();
+    setDeleting(id); setError('');
+    try {
+      const res = await apiFetch('/api/accounting/customer-sales-orders', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      await assertOk(res, 'Could not delete the sales order - try again');
+      void load();
+    } catch (err) { setError(apiErrorMessage(err, 'Could not delete the sales order - try again')); }
+    finally { setDeleting(null); }
   };
 
   return (

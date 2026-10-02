@@ -108,13 +108,11 @@ export default function ExpenseClaimDetail() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch(`/api/accounting/expense-claims/${id}`);
-      const json = await res.json() as { data?: { claim?: Claim }; error?: { message?: string } | string };
-      if (!res.ok || !json.data?.claim) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Failed to load';
-        setError(msg); return;
-      }
+      await assertOk(res, 'Could not load the expense claim - try again');
+      const json = await res.json() as { data?: { claim?: Claim } };
+      if (!json.data?.claim) { setClaim(null); setError('Could not load the expense claim - try again'); return; }
       setClaim(json.data.claim);
-    } catch { setError('Network error'); }
+    } catch (err) { setClaim(null); setError(apiErrorMessage(err, 'Could not load the expense claim - try again')); }
     finally { setLoading(false); }
   }, [id]);
 
@@ -145,16 +143,14 @@ export default function ExpenseClaimDetail() {
           kmTravelled: null, kmRate: null, mileageFrom: null, mileageTo: null,
         }),
       });
-      const json = await res.json() as { data?: { claim?: Claim }; error?: { message?: string } | string };
-      if (!res.ok || !json.data?.claim) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Add failed';
-        showToast(msg, false); return;
-      }
+      await assertOk(res, 'Could not add the line - try again');
+      const json = await res.json() as { data?: { claim?: Claim } };
+      if (!json.data?.claim) { showToast('Could not add the line - try again', false); return; }
       showToast('Line added', true);
       setClaim(json.data.claim);
       setRcMerchant(''); setRcDescription(''); setRcAmount(''); setRcVat(''); setRcGlAccount('');
       setAddMode('none');
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not add the line - try again'), false); }
     finally { setBusy(false); }
   }
 
@@ -169,16 +165,13 @@ export default function ExpenseClaimDetail() {
           from: mlFrom || null, to: mlTo || null,
         }),
       });
-      const json = await res.json() as { data?: { claim?: Claim }; error?: { message?: string } | string };
-      if (!res.ok) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Add failed';
-        showToast(msg, false); return;
-      }
+      await assertOk(res, 'Could not add the mileage - try again');
+      const json = await res.json() as { data?: { claim?: Claim } };
       showToast(`Added mileage (${mlKm} km)`, true);
       if (json.data?.claim) setClaim(json.data.claim);
       setMlKm(''); setMlFrom(''); setMlTo('');
       setAddMode('none');
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not add the mileage - try again'), false); }
     finally { setBusy(false); }
   }
 
@@ -189,17 +182,15 @@ export default function ExpenseClaimDetail() {
       const res = await apiFetch(`/api/accounting/expense-claims/${id}/${endpoint}`, {
         method: 'POST', body: JSON.stringify(body),
       });
-      const json = await res.json() as { data?: { claim?: Claim; warnings?: string[] }; error?: { message?: string } | string };
-      if (!res.ok || !json.data?.claim) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Failed';
-        showToast(msg, false); return;
-      }
+      await assertOk(res, 'Could not update the claim - try again');
+      const json = await res.json() as { data?: { claim?: Claim; warnings?: string[] } };
+      if (!json.data?.claim) { showToast('Could not update the claim - try again', false); return; }
       setVatAdvice(json.data.warnings ?? []);
       setClaim(json.data.claim);
       showToast(`Claim ${json.data.claim.status}`, true);
       notifyLateClaims(json); // post: VAT claimed in a later period (s16(3))
       if (endpoint === 'post') setPostMode(false);
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not update the claim - try again'), false); }
     finally { setBusy(false); }
   }
 

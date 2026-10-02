@@ -4,7 +4,7 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { GraduationCap, Loader2, AlertCircle, Plus, X } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -69,28 +69,26 @@ export default function TrainingPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const [eRes, emRes] = await Promise.all([
         apiFetch(`/api/payroll/training-events?year=${year}`),
         apiFetch('/api/payroll/employees'),
       ]);
-      if (eRes.ok) {
-        const json = await eRes.json();
-        setEvents(((json.data ?? json) as Event[]) ?? []);
-      }
-      if (emRes.ok) {
-        const json = await emRes.json();
-        setEmployees(((json.data ?? json) as Employee[]) ?? []);
-      }
+      await assertOk(eRes, 'Could not load the training events - try again');
+      await assertOk(emRes, 'Could not load the employees - try again');
+      const json = await eRes.json();
+      setEvents(((json.data ?? json) as Event[]) ?? []);
+      const emJson = await emRes.json();
+      setEmployees(((emJson.data ?? emJson) as Employee[]) ?? []);
+    } catch (err) {
+      setEvents([]); setEmployees([]);
+      setError(apiErrorMessage(err, 'Could not load the training events - try again'));
     } finally {
       setLoading(false);
     }
   }, [year]);
-  useEffect(() => {
-    load().catch((err) => {
-      setError(err instanceof Error ? err.message : 'Failed to load training events');
-    });
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   async function handleCreate(): Promise<void> {
     setSaving(true);
@@ -112,26 +110,30 @@ export default function TrainingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? 'Create failed');
-        return;
-      }
+      await assertOk(res, 'Could not create the training event - try again');
       setShowForm(false);
       setForm({ ...form, description: '', provider: '', costPlanned: 0 });
       await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not create the training event - try again'));
     } finally {
       setSaving(false);
     }
   }
 
   async function setStatus(id: string, status: string): Promise<void> {
-    await apiFetch(`/api/payroll/training-events/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    });
-    await load();
+    setError('');
+    try {
+      const res = await apiFetch(`/api/payroll/training-events/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      await assertOk(res, 'Could not update the training event - try again');
+      await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not update the training event - try again'));
+    }
   }
 
   const employeeName = (id: string): string => {
@@ -200,12 +202,13 @@ export default function TrainingPage() {
                 {saving ? 'Saving...' : 'Save'}
               </button>
             </div>
-            {error && (
-              <div className="flex items-center gap-2 text-sm text-red-400">
-                <AlertCircle className="h-4 w-4" />{error}
-              </div>
-            )}
           </section>
+        )}
+
+        {error && (
+          <div role="alert" className="flex items-center gap-2 text-sm text-red-400">
+            <AlertCircle className="h-4 w-4" />{error}
+          </div>
         )}
 
         <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] overflow-hidden">

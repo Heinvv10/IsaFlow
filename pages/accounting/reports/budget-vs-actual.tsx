@@ -62,6 +62,7 @@ export default function BudgetVsActualPage() {
       const data = json.data || json;
       setReport(data.report || data);
     } catch (err) {
+      setReport(null);
       setError(apiErrorMessage(err, 'Could not load the budget report - try again'));
     } finally {
       setIsLoading(false);

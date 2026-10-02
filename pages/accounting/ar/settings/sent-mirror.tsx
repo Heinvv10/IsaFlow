@@ -99,13 +99,10 @@ export default function SentMirrorSettingsPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/ar/sent-mirror/connections');
-      const json = await res.json() as { data?: { items?: Connection[] }; error?: { message?: string } | string };
-      if (!res.ok) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Failed to load connections';
-        setError(msg); return;
-      }
+      await assertOk(res, 'Could not load the sent-mirror connections - try again');
+      const json = await res.json() as { data?: { items?: Connection[] } };
       setConnections(json.data?.items ?? []);
-    } catch { setError('Network error loading sent-mirror connections'); }
+    } catch (err) { setConnections([]); setError(apiErrorMessage(err, 'Could not load the sent-mirror connections - try again')); }
     finally { setLoading(false); }
   }, []);
 
@@ -126,17 +123,13 @@ export default function SentMirrorSettingsPage() {
           sentFolder: sentFolder || 'Sent',
         }),
       });
-      const json = await res.json() as { error?: { message?: string } | string };
-      if (!res.ok) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Create failed';
-        showToast(msg, false); return;
-      }
+      await assertOk(res, 'Could not add the connection - try again');
       showToast('Sent-mirror connection added', true);
       setAddMode(false);
       setDisplayName(''); setAccountEmail(''); setImapHost(''); setImapUsername('');
       setImapPassword(''); setSentFolder('Sent');
       void load();
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not add the connection - try again'), false); }
     finally { setSaving(false); }
   }
 
@@ -144,21 +137,15 @@ export default function SentMirrorSettingsPage() {
     setScanningId(id);
     try {
       const res = await apiFetch(`/api/accounting/ar/sent-mirror/connections/${id}/scan-now`, { method: 'POST', body: '{}' });
-      const json = await res.json() as {
-        data?: { scanned?: number; linked?: number; captured?: number; errors?: number };
-        error?: { message?: string } | string;
-      };
-      if (!res.ok) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Scan failed';
-        showToast(msg, false); return;
-      }
+      await assertOk(res, 'Could not run the scan - try again');
+      const json = await res.json() as { data?: { scanned?: number; linked?: number; captured?: number; errors?: number } };
       const d = json.data ?? {};
       showToast(
         `Scanned ${d.scanned ?? 0} · linked ${d.linked ?? 0} · captured ${d.captured ?? 0}${d.errors ? ` · ${d.errors} errors` : ''}`,
         true,
       );
       void load();
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not run the scan - try again'), false); }
     finally { setScanningId(null); }
   }
 
@@ -166,14 +153,10 @@ export default function SentMirrorSettingsPage() {
     if (!confirm('Delete this sent-mirror connection? Scan history is also removed.')) return;
     try {
       const res = await apiFetch(`/api/accounting/ar/sent-mirror/connections/${id}`, { method: 'DELETE' });
-      const json = await res.json() as { error?: { message?: string } | string };
-      if (!res.ok) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Delete failed';
-        showToast(msg, false); return;
-      }
+      await assertOk(res, 'Could not remove the connection - try again');
       showToast('Removed', true);
       void load();
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not remove the connection - try again'), false); }
   }
 
   async function openLog(id: string) {

@@ -48,6 +48,7 @@ export default function DeliveryNotesPage() {
       const d = json.data ?? {};
       setNotes(d.notes ?? []); setTotal(d.total ?? 0);
     } catch (err: unknown) {
+      setNotes([]); setTotal(0);
       setError(apiErrorMessage(err, 'Could not load delivery notes - try again'));
     } finally { setLoading(false); }
   }, [tab]);
@@ -55,25 +56,31 @@ export default function DeliveryNotesPage() {
   useEffect(() => { void load(); }, [load]);
 
   const handleStatusChange = async (id: string, status: string) => {
-    setPatching(id);
+    setPatching(id); setError('');
     try {
-      await apiFetch('/api/accounting/delivery-notes', {
+      const res = await apiFetch('/api/accounting/delivery-notes', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, status }),
       });
+      await assertOk(res, 'Could not update the delivery note - try again');
       void load();
+    } catch (err: unknown) {
+      setError(apiErrorMessage(err, 'Could not update the delivery note - try again'));
     } finally { setPatching(null); }
   };
 
   const handleCancel = async (id: string) => {
     if (!window.confirm('Cancel this delivery note?')) return;
-    setDeleting(id);
+    setDeleting(id); setError('');
     try {
-      await apiFetch('/api/accounting/delivery-notes', {
+      const res = await apiFetch('/api/accounting/delivery-notes', {
         method: 'DELETE', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
       });
+      await assertOk(res, 'Could not cancel the delivery note - try again');
       void load();
+    } catch (err: unknown) {
+      setError(apiErrorMessage(err, 'Could not cancel the delivery note - try again'));
     } finally { setDeleting(null); }
   };
 

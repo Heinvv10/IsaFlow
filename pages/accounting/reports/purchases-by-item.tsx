@@ -30,6 +30,7 @@ export default function PurchasesByItemReport() {
       const json = await res.json();
       setRows(json.data || []);
     } catch (err: unknown) {
+      setRows([]);
       setError(apiErrorMessage(err, 'Could not load the purchases report - try again'));
     } finally {
       setLoading(false);

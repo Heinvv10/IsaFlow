@@ -5,7 +5,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { CheckSquare } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { cn } from '@/utils/cn';
 import { SetupGuideDrawer } from './SetupGuideDrawer';
 import { TOTAL_TASK_COUNT } from './setupGuideConfig';
@@ -55,6 +56,8 @@ export function SetupGuideButton() {
   const [manualDone, setManualDone] = useState<Set<string>>(new Set());
   const [pulse, setPulse] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   // Load both auto-detected status and manual completions
   useEffect(() => {
@@ -69,12 +72,17 @@ export function SetupGuideButton() {
 
         if (cancelled) return;
 
-        if (guideRes.ok) {
+        // Unknown state must not render as 'every task still to do': hide the guide instead
+        if (!guideRes.ok || !prefRes.ok) {
+          setLoadFailed(true);
+          return;
+        }
+        {
           const guideJson = (await guideRes.json()) as { data: SetupGuideApiResponse };
           setAutoCompleted(new Set(guideJson.data.completedTasks));
         }
 
-        if (prefRes.ok) {
+        {
           const prefJson = (await prefRes.json()) as { data: PreferencesApiResponse };
           const prefs = prefJson.data;
           setManualDone(parseManualDone(prefs[PREF_MANUAL_KEY]));
@@ -82,17 +90,19 @@ export function SetupGuideButton() {
 
           // Record first-seen timestamp if not already set
           if (!prefs[PREF_CREATED_AT_KEY]) {
-            void apiFetch('/api/auth/preferences', {
+            // Pure telemetry: a missed write only means the new-user pulse restarts next visit
+            apiFetch('/api/auth/preferences', {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 preferences: { [PREF_CREATED_AT_KEY]: new Date().toISOString() },
               }),
-            });
+            }).catch((err: unknown) => log.warn('setup guide first-seen write failed', { err }));
           }
         }
-      } catch {
-        // Non-critical — guide still works without auto-detection
+      } catch (err) {
+        log.warn('setup guide load failed', { err });
+        if (!cancelled) setLoadFailed(true);
       } finally {
         if (!cancelled) setLoaded(true);
       }
@@ -105,27 +115,25 @@ export function SetupGuideButton() {
   const completedTasks = new Set([...autoCompleted, ...manualDone]);
   const remainingCount = TOTAL_TASK_COUNT - completedTasks.size;
 
-  const handleMarkDone = useCallback((taskId: string) => {
-    setManualDone(prev => {
-      const next = new Set(prev);
-      next.add(taskId);
-
-      // Persist manually-marked tasks to preferences
-      const toStore = [...next];
-
-      void apiFetch('/api/auth/preferences', {
+  const handleMarkDone = useCallback(async (taskId: string) => {
+    const next = new Set(manualDone).add(taskId);
+    setManualDone(next);
+    setSaveError('');
+    try {
+      const res = await apiFetch('/api/auth/preferences', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          preferences: { [PREF_MANUAL_KEY]: JSON.stringify(toStore) },
-        }),
+        body: JSON.stringify({ preferences: { [PREF_MANUAL_KEY]: JSON.stringify([...next]) } }),
       });
+      await assertOk(res, 'Could not save that task - try again');
+    } catch (err) {
+      // Not saved: take the tick back so the guide never shows a task done that will be undone on reload
+      setManualDone(prev => { const r = new Set(prev); r.delete(taskId); return r; });
+      setSaveError(apiErrorMessage(err, 'Could not save that task - try again'));
+    }
+  }, [manualDone]);
 
-      return next;
-    });
-  }, []);
-
-  if (!loaded) return null;
+  if (!loaded || loadFailed) return null;
 
   return (
     <>
@@ -158,11 +166,16 @@ export function SetupGuideButton() {
         )}
       </button>
 
+      {saveError && (
+        <div role="alert" className="fixed bottom-4 right-4 z-[60] rounded-lg bg-red-600 px-3 py-2 text-sm text-white shadow-lg">
+          {saveError}
+        </div>
+      )}
       <SetupGuideDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         completedTasks={completedTasks}
-        onMarkDone={handleMarkDone}
+        onMarkDone={(id) => { void handleMarkDone(id); }}
       />
     </>
   );

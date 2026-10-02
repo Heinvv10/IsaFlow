@@ -69,6 +69,7 @@ export default function CustomerPaymentDetailPage() {
       const data = json.data || json;
       setPayment(data);
     } catch (err) {
+      setPayment(null);
       setError(apiErrorMessage(err, 'Could not load the payment - try again'));
     } finally {
       setIsLoading(false);
@@ -91,12 +92,11 @@ export default function CustomerPaymentDetailPage() {
           credentials: 'include',
           body: JSON.stringify({ action: 'cancel', paymentId: payment.id, reason }),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error?.message || 'Cancel failed');
+        await assertOk(res, 'Could not cancel the payment - try again');
         notify.success('Payment cancelled');
         void loadPayment();
       } catch (err) {
-        notify.error(err instanceof Error ? err.message : 'Failed to cancel');
+        notify.error(apiErrorMessage(err, 'Could not cancel the payment - try again'));
       } finally {
         setActing(false);
       }
@@ -109,12 +109,11 @@ export default function CustomerPaymentDetailPage() {
           credentials: 'include',
           body: JSON.stringify({ action: 'confirm', paymentId: payment.id }),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error?.message || 'Confirm failed');
+        await assertOk(res, 'Could not confirm the payment - try again');
         notify.success('Payment confirmed and GL posted');
         void loadPayment();
       } catch (err) {
-        notify.error(err instanceof Error ? err.message : 'Failed to confirm');
+        notify.error(apiErrorMessage(err, 'Could not confirm the payment - try again'));
       } finally {
         setActing(false);
       }

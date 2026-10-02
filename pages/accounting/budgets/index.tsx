@@ -30,19 +30,18 @@ export default function BudgetManagementPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await apiFetch(`/api/accounting/budgets?fiscal_year=${fiscalYear}`, { credentials: 'include' });
-    await assertOk(res, 'Could not load budgets - try again');
-    const json = await res.json();
-    setBudgets(json.data?.items || []);
-    setLoading(false);
+    try {
+      const res = await apiFetch(`/api/accounting/budgets?fiscal_year=${fiscalYear}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load budgets - try again');
+      const json = await res.json();
+      setBudgets(json.data?.items || []);
+    } catch (err) {
+      setBudgets([]);
+      setError(apiErrorMessage(err, 'Could not load budgets - try again'));
+    } finally { setLoading(false); }
   }, [fiscalYear]);
 
-  useEffect(() => {
-    load().catch((err) => {
-      setLoading(false);
-      setError(apiErrorMessage(err, 'Could not load budgets - try again'));
-    });
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
     apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
@@ -67,7 +66,7 @@ export default function BudgetManagementPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setError(''); setBusy('save');
+    setError(''); setSuccess(''); setBusy('save');
     try {
       const res = await apiFetch('/api/accounting/budgets', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -77,22 +76,24 @@ export default function BudgetManagementPage() {
           annualAmount: Number(form.annualAmount), notes: form.notes || undefined,
         }),
       });
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not save the budget - try again');
       setShowForm(false);
       setForm({ glAccountId: '', annualAmount: '', notes: '' });
+      setSuccess('Budget saved');
       await load();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not save the budget - try again')); }
     finally { setBusy(''); }
   };
 
   const handleDelete = async (id: string) => {
-    setBusy(id);
+    setBusy(id); setSuccess('');
     try {
       const res = await apiFetch('/api/accounting/budgets-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action: 'delete', id }),
       });
       await assertOk(res, 'Could not delete the budget - try again');
+      setSuccess('Budget deleted');
       await load();
     } catch (err) { setError(apiErrorMessage(err, 'Could not delete the budget - try again')); }
     finally { setBusy(''); }
@@ -106,10 +107,10 @@ export default function BudgetManagementPage() {
         credentials: 'include',
         body: JSON.stringify({ action: 'copy', fromYear: fiscalYear, toYear: fiscalYear + 1 }),
       });
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not copy the budgets - try again');
       const json = await res.json();
       setSuccess(`Copied ${json.data?.copied || 0} budgets to ${fiscalYear + 1}`);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not copy the budgets - try again')); }
     finally { setBusy(''); }
   };
 

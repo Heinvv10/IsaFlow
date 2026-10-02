@@ -57,6 +57,7 @@ export default function JobQueuePage() {
       log.error('Failed to load job queue', { error: err }, 'admin-ui');
       setLoadError(apiErrorMessage(err, 'Could not load the job queue - try again'));
       setJobs([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
@@ -72,12 +73,14 @@ export default function JobQueuePage() {
   const handleRetry = async (jobId: string) => {
     setRetrying(jobId);
     try {
-      await apiFetch('/api/admin/job-queue', {
+      const res = await apiFetch('/api/admin/job-queue', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ action: 'retry', jobId }),
       });
+      await assertOk(res, 'Could not retry the job - try again');
       await load();
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not retry the job - try again'));
     } finally { setRetrying(null); }
   };
 

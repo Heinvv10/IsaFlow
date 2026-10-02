@@ -56,21 +56,27 @@ export default function LoanPeriodClosePage() {
   const [postingAll, setPostingAll] = useState(false);
   const [flash, setFlash] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
+  const [loadErr, setLoadErr] = useState('');
+
   const load = useCallback(async () => {
     setLoading(true);
-    setFlash(null);
-    const res = await apiFetch(`/api/accounting/loans/period-close?month=${month}&year=${year}`);
-    await assertOk(res, 'Could not load period data - try again');
-    const json = (await res.json()) as { data: PeriodCloseResponse };
-    setData(json.data ?? null);
-    setLoading(false);
+    setLoadErr('');
+    try {
+      const res = await apiFetch(`/api/accounting/loans/period-close?month=${month}&year=${year}`);
+      await assertOk(res, 'Could not load period data - try again');
+      const json = (await res.json()) as { data: PeriodCloseResponse };
+      setData(json.data ?? null);
+    } catch (err) {
+      setData(null);
+      setLoadErr(apiErrorMessage(err, 'Could not load period data - try again'));
+    } finally {
+      setLoading(false);
+    }
   }, [month, year]);
 
   useEffect(() => {
-    load().catch((err) => {
-      setLoading(false);
-      setFlash({ type: 'error', msg: apiErrorMessage(err, 'Could not load period data - try again') });
-    });
+    setFlash(null);
+    void load();
   }, [load]);
 
   async function postLoans(loanIds: string[]): Promise<PostResult> {
@@ -161,6 +167,12 @@ export default function LoanPeriodClosePage() {
         </div>
 
         <div className="p-6 space-y-4">
+          {loadErr && (
+            <div className="flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium border bg-red-500/10 border-red-500/30 text-red-400">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              {loadErr}
+            </div>
+          )}
           {flash && (
             <div className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium border ${
               flash.type === 'success'

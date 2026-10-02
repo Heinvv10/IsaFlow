@@ -49,13 +49,13 @@ export default function NewGRNPage() {
   useEffect(() => {
     Promise.all(['approved', 'partially_received'].map(async (status) => {
       const response = await apiFetch(`/api/accounting/purchase-orders?status=${status}`);
-      if (!response.ok) throw new Error('Failed to load purchase orders');
+      await assertOk(response, 'Could not load the purchase orders - try again');
       const json = await response.json();
       const data = json.data || json;
       return Array.isArray(data) ? data as PurchaseOrder[] : [];
     }))
       .then((orders) => setPos(orders.flat()))
-      .catch(() => setPos([]))
+      .catch((err) => { setPos([]); setError(apiErrorMessage(err, 'Could not load the purchase orders - try again')); })
       .finally(() => setLoadingPOs(false));
   }, []);
 
@@ -100,9 +100,10 @@ export default function NewGRNPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ purchaseOrderId: selectedPO, receivedDate, receivedBy: deliveryNote || null, notes: notes || null, items }),
       });
-      const json = await res.json();
-      if (!res.ok) { setError(json?.error?.message || 'Failed to create GRN'); return; }
+      await assertOk(res, 'Could not create the goods received note - try again');
       await router.push('/accounting/goods-received');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not create the goods received note - try again'));
     } finally {
       setSaving(false);
     }

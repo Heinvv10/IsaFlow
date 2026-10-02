@@ -19,22 +19,26 @@ export default function ItemPricingPage() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await apiFetch('/api/accounting/item-pricing', { credentials: 'include' });
-    await assertOk(res, 'Could not load items - try again');
-    const json = await res.json();
-    setItems(json.data || []);
-    setEdits({});
-    setLoading(false);
+    try {
+      const res = await apiFetch('/api/accounting/item-pricing', { credentials: 'include' });
+      await assertOk(res, 'Could not load items - try again');
+      const json = await res.json();
+      setItems(json.data || []);
+      setEdits({});
+    } catch (e) {
+      setItems([]); setEdits({});
+      throw e;
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    load().catch(err => {
-      setLoading(false);
-      setMsg(apiErrorMessage(err, 'Could not load items - try again'));
-    });
+    load().catch(e => setErr(apiErrorMessage(e, 'Could not load items - try again')));
   }, [load]);
 
   const filtered = useMemo(() => {
@@ -48,14 +52,22 @@ export default function ItemPricingPage() {
   const save = async () => {
     const updates = Object.entries(edits).map(([itemId, sellingPrice]) => ({ itemId, sellingPrice: Number(sellingPrice) }));
     if (!updates.length) return;
-    setSaving(true); setMsg('');
-    const res = await apiFetch('/api/accounting/item-pricing', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ updates }),
-    });
-    if (res.ok) { setMsg(`${updates.length} price(s) updated`); await load(); }
-    else { setMsg('Failed to save'); }
-    setSaving(false);
+    setSaving(true); setMsg(''); setErr('');
+    let written = false;
+    try {
+      const res = await apiFetch('/api/accounting/item-pricing', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ updates }),
+      });
+      await assertOk(res, 'Could not save the prices - try again');
+      written = true;
+      setMsg(`${updates.length} price(s) updated`);
+      await load();
+    } catch (e) {
+      setErr(apiErrorMessage(e, written ? 'Could not reload items - try again' : 'Could not save the prices - try again'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -83,7 +95,8 @@ export default function ItemPricingPage() {
         </div>
 
         <div className="p-6 space-y-4">
-          {msg && <div className={`p-3 rounded-lg text-sm ${msg.includes('updated') ? 'bg-teal-500/10 text-teal-400' : 'bg-red-500/10 text-red-400'}`}>{msg}</div>}
+          {msg && <div className="p-3 rounded-lg text-sm bg-teal-500/10 text-teal-400">{msg}</div>}
+          {err && <div className="p-3 rounded-lg text-sm bg-red-500/10 text-red-400">{err}</div>}
 
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             {loading ? (

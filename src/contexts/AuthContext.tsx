@@ -10,6 +10,7 @@ import {
 import type { AuthRole } from '@/lib/auth/types';
 import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
 import { log } from '@/lib/logger';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 /**
  * Authenticated user shape returned from /api/auth/me
@@ -127,11 +128,14 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
         } else {
           setUser(null);
         }
-      } else {
+      } else if (res.status === 401 || res.status === 403) {
         setUser(null);
+      } else {
+        // A 5xx is not 'signed out': keep the current session rather than bounce the user to /login
+        log.warn('Auth check failed; keeping the current session', { status: res.status }, 'auth-context');
       }
     } catch (err) {
-      setUser(null);
+      // A dropped connection is not 'signed out' either
       log.error('Failed to check auth session', { error: err }, 'auth-context');
     } finally {
       setLoading(false);
@@ -179,11 +183,8 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
         credentials: 'include',
       });
 
+      await assertOk(res, 'Could not sign in - try again');
       const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error?.message || data.message || 'Login failed');
-      }
 
       // 2FA required — signal caller to show TOTP step
       if (data.data?.requiresTwoFactor || data.data?.requires_2fa) {
@@ -194,9 +195,9 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
       setUser(raw ? mapApiUser(raw) : null);
       return false;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Login failed';
+      const message = apiErrorMessage(err, 'Could not sign in - try again');
       setError(message);
-      throw err;
+      throw new Error(message);
     } finally {
       setLoading(false);
     }

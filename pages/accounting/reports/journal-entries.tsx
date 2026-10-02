@@ -131,6 +131,7 @@ export default function JournalEntriesReport() {
       const json = await res.json() as { data: ReportResponse };
       setData(json.data ?? null);
     } catch (err: unknown) {
+      setData(null);
       setError(apiErrorMessage(err, 'Could not load the journal report - try again'));
     } finally {
       setLoading(false);

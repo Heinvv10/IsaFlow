@@ -164,15 +164,12 @@ export default function NewSupplierInvoicePage() {
           })),
         }),
       });
-      if (!res.ok) {
-        const err = await res.json() as { error?: { message?: string } };
-        throw new Error(err.error?.message ?? 'Failed to create invoice');
-      }
+      await assertOk(res, 'Could not create the invoice - try again');
       const json = await res.json() as { data?: { id: string }; id?: string };
       const invoice = json.data ?? json;
       await router.push(`/accounting/supplier-invoices/${(invoice as { id: string }).id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create invoice');
+      setError(apiErrorMessage(err, 'Could not create the invoice - try again'));
     } finally {
       setIsSubmitting(false);
     }

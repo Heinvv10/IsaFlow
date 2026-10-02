@@ -67,6 +67,7 @@ export default function ReceiptMatchQueuePage() {
       const all: BankTxRow[] = json?.data?.transactions ?? json?.transactions ?? [];
       setReceipts(all.filter((t) => Number(t.amount) > 0));
     } catch (err) {
+      setReceipts([]);
       setError(apiErrorMessage(err, 'Could not load receipts - try again'));
     } finally {
       setLoading(false);
@@ -108,10 +109,7 @@ export default function ReceiptMatchQueuePage() {
           amount: Math.min(Number(tx.amount), Number(candidate.amount)),
         }),
       });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json?.error?.message ?? json?.message ?? 'Confirm failed');
-      }
+      await assertOk(res, 'Could not confirm the match - try again');
       setReceipts((prev) => prev.filter((r) => r.id !== tx.id));
       setShortlists((prev) => {
         const next = { ...prev };
@@ -119,7 +117,7 @@ export default function ReceiptMatchQueuePage() {
         return next;
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to confirm match');
+      setError(apiErrorMessage(err, 'Could not confirm the match - try again'));
     } finally {
       setConfirming(null);
     }
@@ -147,7 +145,7 @@ export default function ReceiptMatchQueuePage() {
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
           </div>
-        ) : receipts.length === 0 ? (
+        ) : receipts.length === 0 && !error ? (
           <div className="text-center py-12 text-slate-500">
             <CheckCircle className="w-12 h-12 mx-auto mb-3 text-emerald-400" />
             <p className="text-lg font-medium text-slate-900">All receipts allocated</p>

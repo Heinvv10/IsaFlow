@@ -36,6 +36,7 @@ export default function ARAgingPage() {
       const data = json.data || json;
       setBuckets(Array.isArray(data) ? data : []);
     } catch (err) {
+      setBuckets([]);
       setError(apiErrorMessage(err, 'Could not load AR aging - try again'));
     } finally {
       setIsLoading(false);

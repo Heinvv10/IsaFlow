@@ -99,7 +99,7 @@ describe('customer quotes: convert to invoice', () => {
     await run(emptyBody);
     await waitFor(() => expect(alertSpy).toHaveBeenCalledTimes(1));
     const shown = String(alertSpy.mock.calls[0]?.[0]);
-    expect(shown).toBe('Failed to convert');
+    expect(shown).toBe('Could not convert the quote - try again');
     expect(shown).not.toMatch(NO_JSON);
   });
 

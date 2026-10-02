@@ -56,6 +56,7 @@ export default function NetcashSubmissionsPage() {
       const json = await res.json() as { data?: { items: Submission[]; total: number } };
       if (json.data) { setItems(json.data.items); setTotal(json.data.total); }
     } catch (err) {
+      setItems([]); setTotal(0);
       setError(apiErrorMessage(err, 'Could not load submissions - try again'));
     } finally {
       setLoading(false);
@@ -66,9 +67,13 @@ export default function NetcashSubmissionsPage() {
 
   const handlePollStatus = async (submissionId: string) => {
     setPollingId(submissionId);
+    setError('');
     try {
-      await apiFetch(`/api/accounting/netcash/status?submissionId=${submissionId}`);
+      const res = await apiFetch(`/api/accounting/netcash/status?submissionId=${submissionId}`);
+      await assertOk(res, 'Could not check the submission status - try again');
       await fetchSubmissions();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not check the submission status - try again'));
     } finally {
       setPollingId(null);
     }

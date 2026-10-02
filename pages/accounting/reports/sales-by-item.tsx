@@ -30,6 +30,7 @@ export default function SalesByItemReport() {
       const json = await res.json();
       setRows(json.data || []);
     } catch (err: unknown) {
+      setRows([]);
       setError(apiErrorMessage(err, 'Could not load sales by item - try again'));
     } finally {
       setLoading(false);

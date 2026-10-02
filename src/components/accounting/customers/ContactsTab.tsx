@@ -36,6 +36,7 @@ export function ContactsTab({ customerId }: { customerId: string }) {
       const data = (json as { data?: CustomerContact[] }).data ?? (json as CustomerContact[]);
       setContacts(data);
     } catch (err) {
+      setContacts([]);
       setError(apiErrorMessage(err, 'Could not load contacts - try again'));
     } finally {
       setLoading(false);
@@ -47,23 +48,33 @@ export function ContactsTab({ customerId }: { customerId: string }) {
   const handleAdd = async () => {
     if (!form.fullName.trim()) return;
     setSaving(true);
+    setError('');
     try {
-      await apiFetch('/api/accounting/customer-contacts', {
+      const res = await apiFetch('/api/accounting/customer-contacts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customerId, ...form }),
       });
+      await assertOk(res, 'Could not save the contact - try again');
       setForm(EMPTY_FORM);
       setShowForm(false);
       void load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the contact - try again'));
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    await apiFetch(`/api/accounting/customer-contacts?id=${id}`, { method: 'DELETE' });
-    void load();
+    setError('');
+    try {
+      const res = await apiFetch(`/api/accounting/customer-contacts?id=${id}`, { method: 'DELETE' });
+      await assertOk(res, 'Could not delete the contact - try again');
+      void load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not delete the contact - try again'));
+    }
   };
 
   if (loading) {

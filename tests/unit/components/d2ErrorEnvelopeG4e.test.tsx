@@ -76,6 +76,16 @@ describe('admin migration tool', () => {
     expect(screen.queryByText('Migration finished with problems')).toBeNull();
   });
 
+  it('a batch that failed says failed, not skipped', async () => {
+    script(parsedOk(), json({ success: true, data: {
+      accountsImported: 0, customersImported: 0, suppliersImported: 4, customersSkipped: 1, customersFailed: 2, suppliersSkipped: 0,
+      suppliersFailed: 0, openingBalancesSet: 0, errors: ['Customers batch: value too long'] } }));
+    await uploadAndExecute();
+    expect(await screen.findByText('2 failed, nothing was saved')).toBeTruthy();
+    expect(screen.getByText('1 skipped')).toBeTruthy();
+    expect(screen.queryByText('3 skipped')).toBeNull();
+  });
+
   it('a 200 execute with batch errors renders "finished with problems" and the error text', async () => {
     script(parsedOk(), json({ success: true, data: {
       accountsImported: 2, customersImported: 3, suppliersImported: 0, openingBalancesSet: 0, errors: ['Suppliers batch: boom'] } }));
