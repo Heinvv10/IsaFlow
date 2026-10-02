@@ -75,4 +75,24 @@ describe('D8 round 5: the dismiss route reports whether anything was reversed', 
     expect(await contras(je)).toBe(0);
     expect((await btState(bt)).status).toBe('provisional');
   }, 30000);
+
+  it('a provisional whose BANK LINE another request holds: 503 + Retry-After, not a masked 500 (D8 round 9)', async () => {
+    const { je, bt } = await seedProvisional({ totalAmount: 98 });
+    const holder = await pool.connect();
+    await holder.query('BEGIN');
+    await holder.query('SELECT id FROM bank_transactions WHERE id = $1 FOR UPDATE', [bt]);
+    let state: Awaited<ReturnType<typeof dismiss>>;
+    try {
+      state = await dismiss(je);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(state.statusCode).toBe(503);
+    expect(state.retryAfter).toBe('2');
+    expect(state.body.error?.code).toBe('SERVICE_UNAVAILABLE');
+    expect(await contras(je)).toBe(0);
+    expect((await btState(bt)).status).toBe('provisional');
+  }, 30000);
 });
+

@@ -21,10 +21,8 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { log } from '@/lib/logger';
 import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
-
-const LOCK_NOT_AVAILABLE = '55P03';
+import { withRowLockBudget } from '../core/rowLockBudget';
 
 /** Far past any chain built by hand; a guard, not a limit anyone meets. */
 export const MAX_CHAIN_DEPTH = 64;
@@ -104,10 +102,10 @@ export const CHAIN_HEAD_LOCK_BUDGET_MS = 5000;
  * whether the chain stands or not: the lock is what keeps a concurrent reversal
  * from flipping the answer before the caller acts on it.
  *
- * BOUNDED WAIT (D8 round 6, security review): the lock waits at most
- * CHAIN_HEAD_LOCK_BUDGET_MS in total across passes, through a transaction-local
- * `lock_timeout` restored to its previous value on the way out — the pattern
- * `claimJournalReversal` uses — and a timeout is that claim's retryable
+ * BOUNDED WAIT (D8 rounds 6 and 9): the lock waits at most
+ * CHAIN_HEAD_LOCK_BUDGET_MS in total across passes, through the shared
+ * `core/rowLockBudget.withRowLockBudget` (transaction-local `lock_timeout`, the
+ * caller's value restored), and a timeout is the reversal claim's retryable
  * `JournalReversalLockTimeoutError` (503 + Retry-After at the route), never an
  * unbounded wait on a pooled connection.
  */
@@ -116,41 +114,20 @@ export async function lockChainHead(
   rootId: string,
   refuse: (message: string) => Error = (m) => new JournalChainBrokenError(m),
 ): Promise<{ id: string; standing: boolean } | null> {
+  // One deadline across every pass: the budget bounds the whole wait, not each lock (D8 round 9: core/rowLockBudget).
   const deadline = Date.now() + CHAIN_HEAD_LOCK_BUDGET_MS;
-  const [setting] = (await sql`SELECT current_setting('lock_timeout') AS v`) as DbRow[];
-  const previous = String(setting?.v ?? '0');
-  try {
-    for (let pass = 0; pass < MAX_CHAIN_DEPTH; pass++) {
-      const chain = await findJournalChainHead(companyId, rootId);
-      if (!chain) return null;
-      if (chain.kind === 'broken') throw refuse(brokenChainMessage(rootId, chain));
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) throw new JournalReversalLockTimeoutError(rootId);
-      await sql`SELECT set_config('lock_timeout', ${`${remaining}ms`}, true)`;
-      let row: DbRow | undefined;
-      try {
-        [row] = (await sql`
-          SELECT status, reversed_at FROM gl_journal_entries
-          WHERE id = ${chain.id}::UUID AND company_id = ${companyId}::UUID
-          FOR UPDATE
-        `) as DbRow[];
-      } catch (err) {
-        if ((err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE) throw new JournalReversalLockTimeoutError(rootId);
-        throw err;
-      }
-      if (row && row.status === 'posted' && row.reversed_at == null) return { id: chain.id, standing: chain.standing };
-    }
-    throw refuse(`Journal entry ${rootId}'s reversal chain kept changing while it was being reversed. Retry.`);
-  } finally {
-    // Guarded: after a lock timeout the transaction is aborted and this raises
-    // 25P02, which must not replace the real error (the rollback discards the
-    // setting anyway).
-    try {
-      await sql`SELECT set_config('lock_timeout', ${previous}, true)`;
-    } catch (restoreErr) {
-      log.error('Failed to restore lock_timeout after locking a chain head', { rootId, error: restoreErr }, 'accounting');
-    }
+  for (let pass = 0; pass < MAX_CHAIN_DEPTH; pass++) {
+    const chain = await findJournalChainHead(companyId, rootId);
+    if (!chain) return null;
+    if (chain.kind === 'broken') throw refuse(brokenChainMessage(rootId, chain));
+    const [row] = await withRowLockBudget(async () => (await sql`
+      SELECT status, reversed_at FROM gl_journal_entries
+      WHERE id = ${chain.id}::UUID AND company_id = ${companyId}::UUID
+      FOR UPDATE
+    `) as DbRow[], () => new JournalReversalLockTimeoutError(rootId), { deadline });
+    if (row && row.status === 'posted' && row.reversed_at == null) return { id: chain.id, standing: chain.standing };
   }
+  throw refuse(`Journal entry ${rootId}'s reversal chain kept changing while it was being reversed. Retry.`);
 }
 
 /**

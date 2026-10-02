@@ -26,6 +26,7 @@ import { claimEvidencedProvisional, settleClaimedProvisional } from './provision
 import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
+import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 
 type Row = DbRow;
 
@@ -302,16 +303,15 @@ async function cancelSupplierInvoiceInner(
   opts?: PostingActorOpts,
 ): Promise<SupplierInvoice> {
   try {
-    // FOR UPDATE: serialise concurrent cancels — both passing the guards
-    // would double-reverse the same approval journal.
+    // FOR UPDATE: serialise concurrent cancels (both passing the guards would double-reverse the journal).
     // K-053: a soft-deleted bill is not cancellable — same reasoning as
     // customerInvoiceCancelService, where it is spelled out.
-    const lockRows = (await sql`
+    const lockRows = await withRowLockBudget(async () => (await sql`
       SELECT id, status, gl_journal_entry_id FROM supplier_invoices
       WHERE id = ${id} AND company_id = ${companyId}::UUID
         AND deleted_at IS NULL
       FOR UPDATE
-    `) as Row[];
+    `) as Row[], () => new RowLockTimeoutError(`Supplier invoice ${id}`)); // bounded (D8 round 9)
     if (lockRows.length === 0) throw new Error(`Supplier invoice ${id} not found`);
     const locked = lockRows[0]!;
     const status = String(locked.status);

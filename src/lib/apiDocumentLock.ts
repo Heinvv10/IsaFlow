@@ -21,28 +21,23 @@
 
 import type { NextApiResponse } from 'next';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
-import { DocumentNumberLockTimeoutError } from '@/modules/accounting/services/core/companySettingsService';
-import { TimeEntryLockTimeoutError } from '@/modules/accounting/services/practice/timeEntryLock';
-import { DocumentClaimLockTimeoutError } from '@/modules/accounting/services/core/documentClaimLock';
-import { RecurringTemplateLockTimeoutError } from '@/modules/accounting/services/core/recurringTemplateLock';
-import { WipEntriesLockedError } from '@/modules/accounting/services/practice/wipEntryLock';
-import { SystemRoleLockTimeoutError } from '@/modules/accounting/services/gl/systemRoleWriteLock';
-import { GlAccountLockTimeoutError } from '@/modules/accounting/services/gl/glAccountLock';
-import { JournalReversalLockTimeoutError } from '@/modules/accounting/services/gl/journalEntryReversalClaim';
+
+/**
+ * ONE predicate for every row-lock timeout (D8 round 9): each class carries a
+ * `code` ending in `_LOCK_TIMEOUT` — DOCUMENT_NUMBER_, BANK_TX_, PAYMENT_,
+ * JOURNAL_REVERSAL_, ROW_ (core/rowLockBudget), CREDIT_NOTE_, … — so a new
+ * class is answered without a list to forget it in. The list it replaces
+ * missed BankTransactionLockTimeoutError: dismiss's bank-line lock answered 500.
+ * Structural, not `instanceof`, for the reason `isBankTransactionLockTimeout` gives.
+ */
+export function isLockTimeoutError(err: unknown): err is Error & { code: string } {
+  const code = (err as { code?: unknown } | null)?.code;
+  return err instanceof Error && typeof code === 'string'
+    && (/_LOCK_TIMEOUT$/.test(code) || code === 'WIP_ENTRIES_LOCKED');
+}
 
 export function respondIfLockTimeout(res: NextApiResponse, err: unknown): boolean {
-  if (!(err instanceof DocumentNumberLockTimeoutError)
-    && !(err instanceof TimeEntryLockTimeoutError)
-    && !(err instanceof DocumentClaimLockTimeoutError)
-    && !(err instanceof RecurringTemplateLockTimeoutError)
-    && !(err instanceof WipEntriesLockedError)
-    && !(err instanceof SystemRoleLockTimeoutError)
-    && !(err instanceof GlAccountLockTimeoutError)
-    // D8 round 6: also raised by shared/journalChainHead.lockChainHead, which every
-    // cancel / void / dismiss now reaches before the reversal's own claim.
-    && !(err instanceof JournalReversalLockTimeoutError)) {
-    return false;
-  }
+  if (!isLockTimeoutError(err)) return false;
   res.setHeader('Retry-After', '2');
   apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE, err.message, { code: err.code });
   return true;

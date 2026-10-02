@@ -9,6 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { log } from '@/lib/logger';
 import { confirmCustomerPayment, cancelCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
@@ -49,6 +50,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       log.info('Customer payment action hit a contended row', { error: err }, 'accounting-api');
       return apiResponse.conflict(res, (err as Error).message);
     }
+    // Any row-lock timeout (D8 round 9: the reversal chain's head, a document row) is 503 + Retry-After.
+    if (respondIfLockTimeout(res, err)) return;
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Customer payment action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

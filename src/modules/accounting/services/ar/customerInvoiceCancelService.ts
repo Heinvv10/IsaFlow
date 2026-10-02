@@ -33,6 +33,8 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reverseJournalEntry } from '../gl/journalEntryService';
 import { lockStandingChainHead } from '../shared/journalChainHead';
+import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
+import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
 
 type Row = DbRow;
 
@@ -93,13 +95,13 @@ async function cancelCustomerInvoiceInner(
     // change exists to hold, broken from the other side. Refusing reads as not
     // found, which is what the delete has already made the document to every
     // list, and matches what softDeleteInvoiceGuards says on the way in.
-    const invRows = (await sql`
+    const invRows = await withRowLockBudget(async () => (await sql`
       SELECT id, status, amount_paid, gl_journal_entry_id
       FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
         AND deleted_at IS NULL
       FOR UPDATE
-    `) as Row[];
+    `) as Row[], () => new RowLockTimeoutError(`Invoice ${invoiceId}`)); // bounded (D8 round 9)
     if (invRows.length === 0) throw new InvoiceNotFoundError(invoiceId);
     const inv = invRows[0]!;
 
@@ -138,11 +140,11 @@ async function cancelCustomerInvoiceInner(
     let reversedJournalEntryId: string | null = null;
     const journalEntryId = inv.gl_journal_entry_id ? String(inv.gl_journal_entry_id) : null;
     if (journalEntryId) {
-      await sql`
+      await withRowLockBudget(() => sql`
         SELECT id FROM gl_journal_entries
         WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID
         FOR UPDATE
-      `;
+      `, () => new JournalReversalLockTimeoutError(journalEntryId));
       const head = await lockStandingChainHead(companyId, journalEntryId);
       if (head) {
         const reversal = await reverseJournalEntry(companyId, head, userId);

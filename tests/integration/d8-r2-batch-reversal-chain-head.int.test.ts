@@ -134,4 +134,31 @@ describeIfDb('D8 round 2 — a re-reversed batch journal is reversed at its chai
     expect(await f.batchStatus(batchId)).toBe('processed');
     await q('UPDATE bank_transactions SET matched_journal_line_id = NULL WHERE id = $1', [bt]);
   });
+
+  // D8 round 9 (rev-d8-9ecdfa549 finding 1): the journals lock waits under the shared budget — 503, not a hang.
+  it('the batch journal held by another request: 503 within the budget, the batch still processed', async () => {
+    const x = await bill(fx.pool, { supplier: ids.SUP_A, status: 'approved' });
+    const batchId = await f.approvedBatch([{ billId: x, amount: 120 }]);
+    expect((await f.batchAction('process', batchId)).statusCode).toBe(200);
+    const journal = String((await q('SELECT gl_journal_entry_id AS j FROM supplier_payment_batches WHERE id = $1',
+      [batchId])).rows[0].j);
+    const holder = await fx.pool.connect();
+    await holder.query('BEGIN');
+    await holder.query('SELECT id FROM gl_journal_entries WHERE id = $1 FOR UPDATE', [journal]);
+    const release = setTimeout(() => { void holder.query('ROLLBACK'); }, 12000); // an unbounded mutant proceeds, late
+    const started = Date.now();
+    let state;
+    try {
+      state = await f.batchAction('reverse', batchId);
+    } finally {
+      clearTimeout(release);
+      await holder.query('ROLLBACK').catch(() => undefined);
+      holder.release();
+    }
+    expect(Date.now() - started).toBeLessThan(9000);
+    expect(state.statusCode, text(state)).toBe(503);
+    expect(text(state)).toMatch(/SERVICE_UNAVAILABLE/);
+    expect(await f.batchStatus(batchId)).toBe('processed');
+  }, 40000);
 });
+
