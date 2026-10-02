@@ -3,8 +3,9 @@
 // The auth pool's size and acquire timeout, plus the one validated reader every
 // pool size comes through (R-182). No `pg` behind it. Deliberately its OWN
 // module rather than exports on authPool.ts: src/lib/pdf/renderSemaphore.ts
-// derives its ceilings from these, and importing them from authPool.ts would pull `pg` (and the pgTypes
-// side-effect import) into the PDF library's module graph for two constants.
+// derives its ceilings from these, and importing them from authPool.ts would
+// pull `pg` (and the pgTypes side-effect import) into the PDF library's module
+// graph for two constants.
 //
 // It sits under lib/limits/ rather than lib/auth/ because both sides read it.
 // While it lived in lib/auth/, `lib/auth` imported `lib/pdf` (withAuth's print
@@ -31,46 +32,55 @@ export const DEFAULT_AUTH_POOL_MAX = 20;
 
 const LARGEST_POOL = 100;
 /** What pg-pool 3.13 made of an unusable `max` (`max = max || poolSize || 10`):
- *  NaN and 0 became 10. An invalid value falls back to no more than this, so a
- *  typo never makes a pool bigger than it was before this reader existed. */
+ *  NaN and 0 became 10. An invalid value never gives more than this. */
 const INVALID_VALUE_CEILING = 10;
-const LOGGED_VALUE_LENGTH = 40;
 const warned = new Set<string>();
 
 /**
  * A pool's size from the environment (R-182): a whole number from 1 to 100
- * written as plain decimal digits. Unset or blank is `fallback`, silently.
- * Anything else is refused with ONE warning per (name, value) and gives
- * `min(fallback, 10)`, which is what pg-pool already made of NaN and 0.
+ * written as plain decimal digits is used as given. Unset or blank is
+ * `fallback`, silently.
+ *
+ * Anything else is refused with ONE warning per (name, value). It gives
+ * `min(fallback, 10, ceil(Number(text)))` when `Number(text)` is a finite
+ * positive number, else `min(fallback, 10)`. So no spelling that the old plain
+ * `Number(...)` read as a usable size (`5.0`, `+5`, `0x5`, `2.5`, `1e1`) gives
+ * a pool with more connections than pg-pool allowed for it (it opened up to
+ * ceil(max)); NaN and 0 give 10, which is what pg-pool made of them. Negative
+ * and Infinity values, which were broken before, also give `min(fallback, 10)`.
  *
  * Why not a plain `Number(...)`: pg-pool turns NaN and 0 into 10 on its own, so
  * those were never unbounded. The dangers were a huge or Infinity value (a pool
  * with no real limit) and a negative one (truthy, so the pool is always "full"
- * and every acquire waits out its timeout). Digits only, so `0x10`, `1e1`,
- * `10.0` and `+5` are refused rather than read as 16, 10, 10 and 5.
+ * and every acquire waits out its timeout).
+ *
+ * The warning logs the variable's name, the value's length and whether it was
+ * digits only, never its text: a pool variable can hold a pasted DSN.
  *
  * The cap is PER VARIABLE, not per process. AUTH_POOL_MAX sizes four pools
- * (authPool, withExtensionToken, bearerPipeline, the platform-admin app pool),
- * so 100 would be 400 connections in one process, against a Postgres whose
- * max_connections is 100 and is shared with dev, CI and Supabase. Set it to 10
- * or less per pool unless the connection budget has been re-measured
- * (docs/audits/remediation/R-182/fix.md).
+ * (authPool, withExtensionToken, bearerPipeline, the platform-admin app pool).
+ * AUTH_POOL_MAX advice: its default of 20 is 80 connections per process and 100
+ * would be 400, so with max_connections 100 shared with dev, CI and Supabase,
+ * set it no higher than the default and lower it (10 gives 40) if connections
+ * run short (docs/audits/remediation/R-182/fix.md).
  */
 export function poolSizeFromEnv(name: string, fallback: number, category = 'pool'): number {
   const raw = process.env[name];
   if (raw === undefined || raw.trim() === '') return fallback;
   const text = raw.trim();
-  if (/^[0-9]+$/.test(text)) {
+  const digitsOnly = /^[0-9]+$/.test(text);
+  if (digitsOnly) {
     const n = Number(text);
     if (n >= 1 && n <= LARGEST_POOL) return n;
   }
-  const used = Math.min(fallback, INVALID_VALUE_CEILING);
-  const value = raw.length > LOGGED_VALUE_LENGTH ? `${raw.slice(0, LOGGED_VALUE_LENGTH)}...` : raw;
-  const key = `${name}=${value}`;
+  const asNumber = Number(text);
+  const honoured = Number.isFinite(asNumber) && asNumber > 0 ? Math.ceil(asNumber) : Infinity;
+  const used = Math.min(fallback, INVALID_VALUE_CEILING, honoured);
+  const key = `${name}=${text}`;
   if (!warned.has(key)) {
     warned.add(key);
     log.warn(`${name} is not a whole number from 1 to ${LARGEST_POOL}; using ${used}`, {
-      name, value, default: fallback, using: used,
+      name, length: raw.length, digitsOnly, default: fallback, using: used,
     }, category);
   }
   return used;

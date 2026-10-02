@@ -31,12 +31,17 @@ describe('RATE_LIMIT_POOL_MAX (R-175)', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it.each(['abc', '0', '-2', '2.5', '101', '1e9', 'NaN', 'Infinity'])('falls back to 10, with a warning, for %j', (raw) => {
+  it.each(['abc', '0', '-2', '101', '1e9', 'NaN', 'Infinity'])('falls back to 10, with a warning, for %j', (raw) => {
     vi.stubEnv('RATE_LIMIT_POOL_MAX', raw);
     expect(rateLimitPoolMax()).toBe(10);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]![1]).toMatchObject({ value: raw, default: 10 });
+    expect(warn.mock.calls[0]![1]).toMatchObject({ name: 'RATE_LIMIT_POOL_MAX', default: 10, using: 10 });
     expect(warn.mock.calls[0]![2]).toBe('rateLimit');
+  });
+
+  it.each([['2.5', 3], ['5.0', 5], ['+5', 5], ['1e1', 10]])('%j is no longer taken as given: it gives %j (R-182)', (raw, expected) => {
+    vi.stubEnv('RATE_LIMIT_POOL_MAX', raw);
+    expect(rateLimitPoolMax()).toBe(expected);
   });
 
   it('the pool is built with the configured size', async () => {

@@ -6,17 +6,21 @@
 pg-pool 3.13.0 (`index.js:89`, `max = max || poolSize || 10`) NaN and 0 already became 10,
 so a typo was not unbounded. The real dangers were a huge or Infinity value (no practical
 limit) and a negative one (truthy, so the pool is always "full" and every acquire waits out
-its timeout). Pinned against the real library in `tests/unit/lib/pgPoolMaxPremise.test.ts`.
+its timeout). Pinned against the real library, reached through `pg`, in `tests/unit/lib/pgPoolMaxPremise.test.ts`.
 The shared Postgres (`max_connections` 100) serves prod, dev, CI and Supabase services.
 `RATE_LIMIT_POOL_MAX` (R-175) already validated.
 
 ## Fix
 `poolSizeFromEnv(name, default, category = 'pool')` in `src/lib/limits/poolLimits.ts`: plain
 decimal digits, whole number 1-100 is used as given. Unset or blank is the default, silently.
-Anything else gives `min(default, 10)` (what pg-pool made of NaN/0, so a typo never makes a
-pool bigger than before) with one warning per (name, value), value truncated to 40 chars.
-Refused spellings include `0x10`, `1e1`, `10.0` and `+5` (the old rate-limit reader accepted
-those; now they fall back). The rate-limit warning stays under its `rateLimit` category.
+Anything else is refused with one warning per (name, value) and gives
+`min(default, 10, ceil(Number(text)))` when `Number(text)` is finite and above 0, else
+`min(default, 10)`. So `5.0`, `+5` and `0x5` give 5, `2.5` gives 3 (pg-pool opened ceil(max)),
+`1e1` gives 10; NaN and 0 give 10 as pg-pool did; negative and Infinity (broken before) give
+`min(default, 10)`. No spelling the old `Number()` accepted gives more connections than
+pg-pool allowed for it. The warning logs the name, the value's length and a digits-only flag,
+never the text (a pool variable can hold a pasted DSN). The old rate-limit reader accepted
+`1e1`, `10.0` and `+5` as given; they now go through this rule. The rate-limit warning stays under its `rateLimit` category.
 `authPoolMax()` is now validated and every pool reads through it or the reader:
 
 | Site | Variable | Default |
@@ -51,8 +55,9 @@ the environment. Defaults are unchanged for unset and valid values.
 
 The cap of 100 is per variable, not per process: `AUTH_POOL_MAX` sizes four pools, so 100
 would be 400 connections in one process. With `max_connections` 100 shared with dev, CI and
-Supabase, an operator should leave it at the default or set it to 10 or less; the budget is
-already over at defaults.
+Supabase, AUTH_POOL_MAX advice: its default of 20 is 80 connections per process and 100 would be 400, so
+with max_connections 100 shared with dev, CI and Supabase, set it no higher than the default and
+lower it (10 gives 40) if connections run short.
 
 Sum of the per-process pools: **117**, plus 2 per in-flight verify-email request and 1 per
 impersonation write. That exceeds `max_connections` 100 on its own, before dev, CI and
@@ -88,3 +93,19 @@ app) alone are 80 (one variable).
 4. Per-variable cap documented in the reader, the budget section and `rateLimit.claude.md`.
 5. Rate-limit warning keeps the `rateLimit` category; the newly refused spellings are noted above.
 6. Evidence reconciled as listed under Tests.
+
+## Review round 2
+1. A refused spelling the old `Number()` read as usable gives at most ceil of that size
+   (`5.0`, `+5`, `0x5` give 5; `2.5` gives 3; tested at the reader, at every pool site and at the
+   rate-limit pool; `0.5` gives 1). The claim in `poolLimits.ts`, the test headers and this file is
+   the one sentence above.
+2. The warning no longer logs the value: name, length and digits-only only. A test feeds a URL
+   with a password and asserts neither the password nor the user name is in the log.
+3. `pgPoolMaxPremise.test.ts` reaches pg-pool through `pg` (`new pg.Pool`), the copy the app uses,
+   and now also pins that a fractional max opens ceil(max) connections.
+4. The warned set: every warning case in `poolSizeFromEnv.test.ts` uses a value unique for its
+   name, with a header comment saying why; `poolSizesBuilt.test.ts` resets modules per test.
+5. One AUTH_POOL_MAX advice sentence, the same in `poolLimits.ts`, `rateLimit.claude.md` and
+   this file; `poolLimits.ts` header reflowed in round 1.
+Evidence: `green.round2.log` (exact commands; 149 passed in 5 files; wider suite 1859 passed,
+6 skipped) and 7 round-2 mutants in `mutations.log`, baseline 149 passed first, all red.
