@@ -114,3 +114,27 @@ describe('LOW-5: two different Paystack amounts for one transaction are flagged'
     expect(await ledger(A, ref)).toMatchObject({ bankNet: '100.00', feeExpense: '0.00', balanced: true });
   });
 });
+
+describe('LOW-2: verify answers with what was banked, and whether the invoice took it', () => {
+  it('a R50 charge on a R115 request: amountCents 5000, applied to the invoice', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    paystackSays(5000);
+    expect((await verify(ref)).body.data).toMatchObject({ status: 'completed', amountCents: 5000, appliedToInvoice: true });
+  });
+
+  it('a draft invoice: banked in full but not applied', async () => {
+    const id = await invoice(A, 'draft');
+    const ref = await checkout(A, id);
+    paystackSays(11500);
+    expect((await verify(ref)).body.data).toMatchObject({ status: 'completed', amountCents: 11500, appliedToInvoice: false });
+  });
+
+  it('settled by the webhook first: verify reports the banked receipt without asking Paystack', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    expect((await deliver(ref, 5000)).statusCode).toBe(200);
+    expect((await verify(ref)).body.data).toMatchObject({ status: 'completed', amountCents: 5000, appliedToInvoice: true });
+    expect(h.verifyTransaction).not.toHaveBeenCalled();
+  });
+});
