@@ -38,10 +38,11 @@ vi.mock('@/modules/accounting/services/reports/consolidationService', () => ({
 
 import handler from '../../../pages/api/accounting/consolidation/companies';
 
-const PARENT = 'company-parent';
-const CHILD_MINE = 'company-child-mine';
-const CHILD_FOREIGN = 'company-foreign';
-const CHILD_MISSING = 'company-missing';
+// UUIDs: the route checks id shape (400) first (D4 round 10).
+const PARENT = '10000000-0000-4000-8000-0000000000a1';
+const CHILD_MINE = '10000000-0000-4000-8000-0000000000a2';
+const CHILD_FOREIGN = '10000000-0000-4000-8000-0000000000a3';
+const CHILD_MISSING = '10000000-0000-4000-8000-0000000000a4';
 
 function mockReqRes(body: Record<string, unknown>) {
   const req = {

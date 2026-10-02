@@ -12,12 +12,14 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
-  userBelongsToCompany,
   userBelongsToGroup,
   userCanWriteCompany,
   userCanWriteGroup,
-  userCreatedGroup,
 } from '@/modules/accounting/services/core/companyAccessService';
+import {
+  creatorMayBootstrapGroup, firstMalformedGroupId, mappingAccountsBelong,
+  refuseGroupCompanyRead, refuseGroupCompanyWrite, type Refusal,
+} from '@/modules/accounting/services/core/groupRouteGuards';
 import {
   getGroup,
   listGroupsForUser,
@@ -46,19 +48,14 @@ import {
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const action = (req.query.action || req.body?.action) as string | undefined;
+  // Every id is UUID-checked before any ::UUID cast (D4 round 10); see groupRouteGuards.
+  const malformed = firstMalformedGroupId(req.method ?? '', action, req.query, req.body);
+  if (malformed) return apiResponse.badRequest(res, `${malformed} must be a valid UUID`);
+  const refuse = (r: Refusal) => (r.status === 400 ? apiResponse.badRequest(res, r.message) : apiResponse.forbidden(res, r.message));
 
-  // Both guards delegate to companyAccessService. They used to be inline copies
-  // that compared company_users.user_id (text) to a ::UUID cast, so every
-  // guarded action on this route 500'd — including adding the first member,
-  // which left a newly created group permanently orphaned.
+  // Guards delegate to companyAccessService / groupRouteGuards (inline copies once 500'd on a text = uuid cast).
   const verifyGroupAccess = (gId: string) => userBelongsToGroup(userId, gId);
-
-  // Verify the user is a member of a SPECIFIC company. Body-supplied companyIds
-  // (add-member / auto-generate-coa / set-mapping / auto-map) must be gated by this
-  // so a group member cannot pull an unrelated tenant's company into the group and
-  // read its COA/financials (pentest H1 — cross-tenant IDOR).
-  const verifyCompanyMembership = (cId: string) => userBelongsToCompany(userId, cId);
-  // Putting a company into a group (member or holding) exposes its ledger to the whole group:
+  // Body-supplied companyIds are never trusted (pentest H1, cross-tenant IDOR). Putting a company into a group (member or holding) exposes its ledger to the whole group:
   // that needs a WRITE role in the company itself, not just membership (D4 round 9).
   const COMPANY_WRITE_REFUSED = 'Adding a company to a group needs an owner, admin or manager role in that company.';
 
@@ -90,11 +87,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'mappings' && groupId) {
       if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       const companyId = req.query.company_id as string | undefined;
-      if (companyId) {
-        if (!(await verifyCompanyMembership(companyId))) {
-          return apiResponse.forbidden(res, 'Access denied to the specified company');
-        }
-      }
+      const refused = companyId ? await refuseGroupCompanyRead(userId, groupId, companyId) : null;
+      if (refused) return refuse(refused);
       const mappings = await getCoaMappings(groupId, companyId);
       return apiResponse.success(res, { items: mappings });
     }
@@ -102,9 +96,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'unmapped' && groupId) {
       const companyId = req.query.company_id as string;
       if (!companyId) return apiResponse.badRequest(res, 'company_id required');
-      if (!(await verifyCompanyMembership(companyId))) {
-        return apiResponse.forbidden(res, 'Access denied to the specified company');
-      }
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+      const refused = await refuseGroupCompanyRead(userId, groupId, companyId);
+      if (refused) return refuse(refused);
       const unmapped = await getUnmappedAccounts(groupId, companyId);
       return apiResponse.success(res, { items: unmapped });
     }
@@ -127,13 +121,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'add-member') {
       const { groupId, companyId, ownershipPct, consolidationMethod } = req.body;
       if (!groupId || !companyId) return apiResponse.badRequest(res, 'groupId and companyId required');
-      // A group created without a holding company has no members yet, so
-      // verifyGroupAccess cannot pass and the first member could never be added
-      // — the group stayed orphaned forever. The creator may bootstrap it.
-      // userCanWriteCompany below still prevents pulling in a foreign (or view-only) tenant.
-      // A group member needs a write role; the creator may still add members (bootstrap).
+      // A group member needs a write role. The creator may bootstrap a group with no members
+      // (it could never gain its first one otherwise) only while every member is a company they
+      // still belong to. userCanWriteCompany below still bars a foreign or view-only company.
       const mayAddMember =
-        (await userCanWriteGroup(userId, groupId)) || (await userCreatedGroup(userId, groupId));
+        (await userCanWriteGroup(userId, groupId)) || (await creatorMayBootstrapGroup(userId, groupId));
       if (!mayAddMember) {
         const member = await verifyGroupAccess(groupId);
         return apiResponse.forbidden(res, member ? 'Your role in this group does not allow this change.' : 'Access denied to this group');
@@ -164,7 +156,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!groupId || !sourceCompanyId) return apiResponse.badRequest(res, 'groupId and sourceCompanyId required');
       const refused = await refuseGroupWrite(groupId);
       if (refused) return apiResponse.forbidden(res, refused);
-      if (!(await verifyCompanyMembership(sourceCompanyId))) return apiResponse.forbidden(res, 'Access denied to the specified company');
+      const refusedCompany = await refuseGroupCompanyWrite(userId, groupId, sourceCompanyId);
+      if (refusedCompany) return refuse(refusedCompany);
       const count = await autoGenerateGroupCOA(groupId, sourceCompanyId);
       return apiResponse.success(res, { accountsCreated: count });
     }
@@ -176,7 +169,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
       const refused = await refuseGroupWrite(groupId);
       if (refused) return apiResponse.forbidden(res, refused);
-      if (!(await verifyCompanyMembership(companyId))) return apiResponse.forbidden(res, 'Access denied to the specified company');
+      const refusedCompany = await refuseGroupCompanyWrite(userId, groupId, companyId);
+      if (refusedCompany) return refuse(refusedCompany);
+      const owned = await mappingAccountsBelong(companyId, companyAccountId, groupId, groupAccountId);
+      if (!owned.company) return apiResponse.badRequest(res, 'companyAccountId is not an account of that company');
+      if (!owned.group) return apiResponse.badRequest(res, 'groupAccountId is not an account of this group');
       const mapping = await setCoaMapping(groupId, companyId, companyAccountId, groupAccountId);
       return apiResponse.success(res, mapping);
     }
@@ -186,7 +183,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!groupId || !companyId) return apiResponse.badRequest(res, 'groupId and companyId required');
       const refused = await refuseGroupWrite(groupId);
       if (refused) return apiResponse.forbidden(res, refused);
-      if (!(await verifyCompanyMembership(companyId))) return apiResponse.forbidden(res, 'Access denied to the specified company');
+      const refusedCompany = await refuseGroupCompanyWrite(userId, groupId, companyId);
+      if (refusedCompany) return refuse(refusedCompany);
       const count = await autoMapAccounts(groupId, companyId);
       return apiResponse.success(res, { mappedCount: count });
     }
