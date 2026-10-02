@@ -92,7 +92,7 @@ describeIfDb('W2-28 round 12', () => {
       expect({ aboutOneWait: ms >= 4500 && ms < 9000, ids: body.map((r) => r.id), first: text(1), ping: body.find((r) => r.id === 4)?.result,
         skipped: [...new Set([2, 3, 5, 6].map(text))], malformed: body.find((r) => r.id === 7)?.error?.message })
         .toEqual({ aboutOneWait: true, ids: [1, 2, 3, 4, 5, 6, 7], first: `true:${RETRY}`, ping: {}, malformed: 'tool name required',
-          skipped: [expect.stringMatching(/^true:Not run: an earlier call in this batch found the chart of accounts being changed by another request.*Nothing was written or charged.*retry/)] });
+          skipped: [expect.stringMatching(/^true:Not run: an earlier call in this batch found the chart of accounts being changed by another request.*Nothing was written and no Flows were debited.*rate limit.*retry/)] });
     } finally { await tx.rollback(); await release(); }
     expect((await fx.query('SELECT account_name FROM gl_accounts WHERE id = $1', [X])).rows[0].account_name).toBe('W228R12 1115');
     // Every call is on the audit trail: the one that waited as an error, the four that were not run as rejected —

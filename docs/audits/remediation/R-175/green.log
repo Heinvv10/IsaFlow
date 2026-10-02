@@ -1,0 +1,1655 @@
+### R-175 + K-103 integration (real Postgres fixture), final code of review round 6 (4536a8cf2)
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r175-rate-limiter
+ Test Files  6 passed (6)
+      Tests  59 passed (59)
+   Start at  22:10:04
+   Duration  11.00s (transform 659ms, setup 0ms, import 1.01s, tests 25.18s, environment 0ms)
+exit=0
+
+### Whole unit suite (./node_modules/.bin/vitest run)
+ Test Files  1125 passed (1125)
+      Tests  15039 passed | 6 skipped (15045)
+   Duration  43.39s (transform 221.40s, setup 0ms, import 488.10s, tests 123.32s, environment 84ms)
+exit=0
+
+Unchanged in this round and not re-run: the 23 other limiter-related integration files (round 5: the same 15 failures as origin/master).
+
+==================================================================
+### After merging origin/master 0bdd7da89 (merge commit f03a333cb)
+backlog.json: conflict resolved by keeping every entry from both sides (461 items: master's R-177..R-181, this branch's R-175 and K-103 edit).
+pages/api/mcp/index.ts auto-merged: the merged file equals master's (#593 role-lock batch skip kept) plus this branch's comment edit only.
+
+Limiter integration set (6 files):
+ Test Files  6 passed (6)
+      Tests  59 passed (59)
+Master's MCP and paystack integration tests (w2-28-system-role-mcp-rollback, r177-pay-now-standing-link, r178-r180-portal-link-rules, r167-standing-links-and-checkout):
+ Test Files  4 passed (4)
+      Tests  49 passed (49)
+Limiter unit set (17 files) + tests/unit/mcp/transport.test.ts: 18 files, 245 passed.
+Whole unit suite:
+ Test Files  1132 passed (1132)
+      Tests  15088 passed | 6 skipped (15094)
+exit=0
+tsc clean; eslint clean on pages/api/mcp/index.ts, both paystack routes and the limiter files.
+
+Census mutants on the merge head, including three new ones on pages/api/mcp/index.ts (MC1-MC3), all RED, baseline green before and after:
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  226 passed (226)
+
+MC1 | pages/api/mcp/index.ts | mcp: the company key collides with the per-IP key at another limit
+int: Tests  59 passed (59)
+unit: × no key pattern is held to two different limits 4ms
+unit: Tests  1 failed | 225 passed (226)
+
+MC2 | pages/api/mcp/index.ts | mcp: the limiter is passed as a value
+int: Tests  59 passed (59)
+unit: × no file reaches the limiter under another name 3ms
+unit: Tests  1 failed | 225 passed (226)
+
+MC3 | pages/api/mcp/index.ts | mcp: per-IP key written with an unreadable key
+int: Tests  59 passed (59)
+unit: × every call it cannot read is pinned, and every pin still matches a call 4ms
+unit: Tests  1 failed | 225 passed (226)
+
+P1 | pages/api/accounting/portal/auth.ts | AFS magic-link route shares portal-auth: again
+int: Tests  59 passed (59)
+unit: × finds the call sites, including the keys the wrappers build 6ms
+unit: × no key pattern is held to two different limits 1ms
+unit: Tests  2 failed | 224 passed (226)
+
+P2 | pages/api/accounting/invoice-email.ts | a route holds an attempts key at another limit
+int: Tests  59 passed (59)
+unit: × no key pattern is held to two different limits 3ms
+unit: × counts the attempt against the user, and a malformed request never reaches the company bucket 5ms
+unit: Tests  2 failed | 224 passed (226)
+
+P3 | pages/api/accounting/ar/dunning/send.ts | a limiter is passed as a value
+int: Tests  59 passed (59)
+unit: × no file reaches the limiter under another name 5ms
+unit: Tests  1 failed | 225 passed (226)
+
+U3 | src/lib/auth/bearerPipeline.ts | bearer pipeline keeps its own copy of the table again
+int: Tests  59 passed (59)
+unit: × is the only table: both wrappers call it and neither keeps a copy 12ms
+unit: Tests  1 failed | 225 passed (226)
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  226 passed (226)
+
+DONE BASELINE MC1 MC2 MC3 P1 P2 P3 U3 BASELINE
+
+==================================================================
+### send-for-signing: the rendered HTML must exist before the company charge (commit 82f60a2a7)
+Whole unit suite:
+ Test Files  1132 passed (1132)
+      Tests  15089 passed | 6 skipped (15095)
+Limiter integration set: 59 passed (baseline lines below). Mutants: HT1 (no existence check) is new; the signing mutants G1, G2, H6-H8 and census P3 re-run. All RED; baseline green before and after.
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  227 passed (227)
+
+HT1 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: no HTML existence check before the charge
+int: Tests  59 passed (59)
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 2ms
+unit: Tests  1 failed | 226 passed (227)
+
+G1 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: no per-user abuse limiter
+int: Tests  59 passed (59)
+unit: × a request refused because nothing matches "FROM afs_documents" leaves the company bucket untouched 2ms
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 0ms
+unit: × counts the attempt against the user, and a malformed request never reaches the company bucket 2ms
+unit: × refuses a user over the abuse limit before the company bucket 0ms
+unit: Tests  4 failed | 223 passed (227)
+
+G2 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged before validation
+int: Tests  59 passed (59)
+unit: × a request refused because nothing matches "FROM afs_documents" leaves the company bucket untouched 3ms
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 1ms
+unit: × charges the company bucket once every check has passed 1ms
+unit: × counts the attempt against the user, and a malformed request never reaches the company bucket 1ms
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 1ms
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 1ms
+unit: Tests  6 failed | 221 passed (227)
+
+H6 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged before the document and contact checks
+int: Tests  59 passed (59)
+unit: × a request refused because nothing matches "FROM afs_documents" leaves the company bucket untouched 3ms
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 1ms
+unit: × charges the company bucket once every check has passed 1ms
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 1ms
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 1ms
+unit: Tests  5 failed | 222 passed (227)
+
+Traceback (most recent call last):
+  File "/tmp/claude-1003/-home-hein-Workspace-IsaFlow/9882fc2d-64e0-4669-a7af-c7ad80a74560/scratchpad/r8-mut.py", line 177, in <module>
+    assert s.count(a)==1,(sys.argv[1],a[:50],s.count(a)); s=s.replace(a,b)
+           ^^^^^^^^^^^^^
+AssertionError: ('H7', '  // Charged once the document and every signer ar', 0)
+APPLY FAILED H7
+
+Traceback (most recent call last):
+  File "/tmp/claude-1003/-home-hein-Workspace-IsaFlow/9882fc2d-64e0-4669-a7af-c7ad80a74560/scratchpad/r8-mut.py", line 177, in <module>
+    assert s.count(a)==1,(sys.argv[1],a[:50],s.count(a)); s=s.replace(a,b)
+           ^^^^^^^^^^^^^
+AssertionError: ('H8', '  // Charged once the document and every signer ar', 0)
+APPLY FAILED H8
+
+P3 | pages/api/accounting/ar/dunning/send.ts | a limiter is passed as a value
+int: Tests  59 passed (59)
+unit: × no file reaches the limiter under another name 4ms
+unit: Tests  1 failed | 226 passed (227)
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  227 passed (227)
+
+DONE BASELINE HT1 G1 G2 H6 H7 H8 P3 BASELINE
+(H7 and H8 were redefined for the new comment text and re-run:)
+H7 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged before the signer check again (round-5 position)
+int: Tests  59 passed (59)
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 3ms
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 1ms
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 1ms
+unit: Tests  3 failed | 224 passed (227)
+
+H8 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged after the company query and file read again
+int: Tests  59 passed (59)
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 4ms
+unit: Tests  1 failed | 226 passed (227)
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  227 passed (227)
+
+DONE H7 H8 BASELINE
+
+==================================================================
+### Head 68a89b712: mcp comment corrected. Signing (HT1, G1, G2, H6-H8) and census (P1-P3, U3, MC1-MC3) mutants, limiter integration set as the baseline:
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  227 passed (227)
+
+HT1 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: no HTML existence check before the charge
+int: Tests  59 passed (59)
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 3ms
+unit: Tests  1 failed | 226 passed (227)
+
+G1 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: no per-user abuse limiter
+int: Tests  59 passed (59)
+unit: × a request refused because nothing matches "FROM afs_documents" leaves the company bucket untouched 2ms
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 0ms
+unit: × counts the attempt against the user, and a malformed request never reaches the company bucket 2ms
+unit: × refuses a user over the abuse limit before the company bucket 0ms
+unit: Tests  4 failed | 223 passed (227)
+
+G2 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged before validation
+int: Tests  59 passed (59)
+unit: × a request refused because nothing matches "FROM afs_documents" leaves the company bucket untouched 3ms
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 1ms
+unit: × charges the company bucket once every check has passed 1ms
+unit: × counts the attempt against the user, and a malformed request never reaches the company bucket 1ms
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 1ms
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 1ms
+unit: Tests  6 failed | 221 passed (227)
+
+H6 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged before the document and contact checks
+int: Tests  59 passed (59)
+unit: × a request refused because nothing matches "FROM afs_documents" leaves the company bucket untouched 3ms
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 1ms
+unit: × charges the company bucket once every check has passed 1ms
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 1ms
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 1ms
+unit: Tests  5 failed | 222 passed (227)
+
+H7 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged before the signer check again (round-5 position)
+int: Tests  59 passed (59)
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 3ms
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 1ms
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 1ms
+unit: Tests  3 failed | 224 passed (227)
+
+H8 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged after the company query and file read again
+int: Tests  59 passed (59)
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 3ms
+unit: Tests  1 failed | 226 passed (227)
+
+P1 | pages/api/accounting/portal/auth.ts | AFS magic-link route shares portal-auth: again
+int: Tests  59 passed (59)
+unit: × finds the call sites, including the keys the wrappers build 6ms
+unit: × no key pattern is held to two different limits 1ms
+unit: Tests  2 failed | 225 passed (227)
+
+P2 | pages/api/accounting/invoice-email.ts | a route holds an attempts key at another limit
+int: Tests  59 passed (59)
+unit: × no key pattern is held to two different limits 4ms
+unit: × counts the attempt against the user, and a malformed request never reaches the company bucket 4ms
+unit: Tests  2 failed | 225 passed (227)
+
+P3 | pages/api/accounting/ar/dunning/send.ts | a limiter is passed as a value
+int: Tests  59 passed (59)
+unit: × no file reaches the limiter under another name 3ms
+unit: Tests  1 failed | 226 passed (227)
+
+U3 | src/lib/auth/bearerPipeline.ts | bearer pipeline keeps its own copy of the table again
+int: Tests  59 passed (59)
+unit: × is the only table: both wrappers call it and neither keeps a copy 10ms
+unit: Tests  1 failed | 226 passed (227)
+
+MC1 | pages/api/mcp/index.ts | mcp: the company key collides with the per-IP key at another limit
+int: Tests  59 passed (59)
+unit: × no key pattern is held to two different limits 3ms
+unit: Tests  1 failed | 226 passed (227)
+
+MC2 | pages/api/mcp/index.ts | mcp: the limiter is passed as a value
+int: Tests  59 passed (59)
+unit: × no file reaches the limiter under another name 4ms
+unit: Tests  1 failed | 226 passed (227)
+
+MC3 | pages/api/mcp/index.ts | mcp: per-IP key written with an unreadable key
+int: Tests  59 passed (59)
+unit: × every call it cannot read is pinned, and every pin still matches a call 5ms
+unit: Tests  1 failed | 226 passed (227)
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  227 passed (227)
+
+DONE BASELINE HT1 G1 G2 H6 H7 H8 P1 P2 P3 U3 MC1 MC2 MC3 BASELINE
+
+==================================================================
+### MCP batch charged all at once or not at all (commit 4ec230fbf)
+pages/api/mcp/index.ts: one checkRateLimit charge of cost = batch size, skipped for an empty batch. The per-IP 300/min
+check is unchanged: it is a pre-auth abuse limit charged once per HTTP request (cost 1), so a batch does not drain it.
+Master's role-lock batch skip is untouched; the existing role-lock test now also asserts the batch was charged its full 5.
+Master's w2-28-system-role-mcp-rollback integration test:
+      Tests  4 passed (4)
+Mutants MB1-MB4 (new) and census MC1-MC3, P1-P3, U3, run against the limiter integration set and 18 unit files (incl. tests/unit/mcp/transport.test.ts):
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  248 passed (248)
+
+MB1 | pages/api/mcp/index.ts | mcp: batch charged one unit only
+int: Tests  59 passed (59)
+unit: × a batch charges the per-company limiter its call count, once (no batch bypass) 4ms
+unit: × a batch larger than what is left is refused whole: nothing charged, nothing run 1ms
+unit: × a batch stops running tool calls after the first role-lock refusal: the rest are answered at once as not run 1ms
+unit: Tests  3 failed | 245 passed (248)
+
+MB2 | pages/api/mcp/index.ts | mcp: batch charged one call at a time again, stopping at the first refusal
+int: Tests  59 passed (59)
+unit: × per-company rate limit 120/min → -32000 when exceeded 4ms
+unit: × a batch charges the per-company limiter its call count, once (no batch bypass) 1ms
+unit: × a batch larger than what is left is refused whole: nothing charged, nothing run 1ms
+unit: × a batch stops running tool calls after the first role-lock refusal: the rest are answered at once as not run 1ms
+unit: Tests  4 failed | 244 passed (248)
+
+MB3 | pages/api/mcp/index.ts | mcp: an empty batch is charged
+int: Tests  59 passed (59)
+unit: × an empty batch charges nothing 4ms
+unit: Tests  1 failed | 247 passed (248)
+
+MB4 | pages/api/mcp/index.ts | mcp: a refused batch still runs
+int: Tests  59 passed (59)
+unit: × per-company rate limit 120/min → -32000 when exceeded 2ms
+unit: × a batch larger than what is left is refused whole: nothing charged, nothing run 1ms
+unit: Tests  2 failed | 246 passed (248)
+
+MC1 | pages/api/mcp/index.ts | mcp: the company key collides with the per-IP key at another limit
+int: Tests  59 passed (59)
+unit: × no key pattern is held to two different limits 3ms
+unit: × per-company rate limit 120/min → -32000 when exceeded 6ms
+unit: × a batch charges the per-company limiter its call count, once (no batch bypass) 1ms
+unit: × a batch larger than what is left is refused whole: nothing charged, nothing run 1ms
+unit: × a batch stops running tool calls after the first role-lock refusal: the rest are answered at once as not run 1ms
+unit: Tests  5 failed | 243 passed (248)
+
+MC2 | pages/api/mcp/index.ts | mcp: the limiter is passed as a value
+int: Tests  59 passed (59)
+unit: × no file reaches the limiter under another name 4ms
+unit: Tests  1 failed | 247 passed (248)
+
+MC3 | pages/api/mcp/index.ts | mcp: per-IP key written with an unreadable key
+int: Tests  59 passed (59)
+unit: × every call it cannot read is pinned, and every pin still matches a call 4ms
+unit: Tests  1 failed | 247 passed (248)
+
+P1 | pages/api/accounting/portal/auth.ts | AFS magic-link route shares portal-auth: again
+int: Tests  59 passed (59)
+unit: × finds the call sites, including the keys the wrappers build 8ms
+unit: × no key pattern is held to two different limits 2ms
+unit: Tests  2 failed | 246 passed (248)
+
+P2 | pages/api/accounting/invoice-email.ts | a route holds an attempts key at another limit
+int: Tests  59 passed (59)
+unit: × no key pattern is held to two different limits 4ms
+unit: × counts the attempt against the user, and a malformed request never reaches the company bucket 5ms
+unit: Tests  2 failed | 246 passed (248)
+
+P3 | pages/api/accounting/ar/dunning/send.ts | a limiter is passed as a value
+int: Tests  59 passed (59)
+unit: × no file reaches the limiter under another name 4ms
+unit: Tests  1 failed | 247 passed (248)
+
+U3 | src/lib/auth/bearerPipeline.ts | bearer pipeline keeps its own copy of the table again
+int: Tests  59 passed (59)
+unit: × is the only table: both wrappers call it and neither keeps a copy 8ms
+unit: Tests  1 failed | 247 passed (248)
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  248 passed (248)
+
+DONE BASELINE MB1 MB2 MB3 MB4 MC1 MC2 MC3 P1 P2 P3 U3 BASELINE
+
+### MCP batch-charge cases moved to tests/unit/mcp/transportBatchCharge.test.ts (91e379abc); transport.test.ts back to 347 lines (its master length). MB mutants re-run:
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  249 passed (249)
+
+MB1 | pages/api/mcp/index.ts | mcp: batch charged one unit only
+int: Tests  59 passed (59)
+unit: × a batch larger than what is left is refused: nothing charged, nothing run 5ms
+unit: × the units left are still there for a batch that fits, which is charged its full count once 3ms
+unit: × a batch charges the per-company limiter its call count, once (R-175; more in transportBatchCharge) 4ms
+unit: Tests  3 failed | 246 passed (249)
+
+MB2 | pages/api/mcp/index.ts | mcp: batch charged one call at a time again, stopping at the first refusal
+int: Tests  59 passed (59)
+unit: × a batch larger than what is left is refused: nothing charged, nothing run 7ms
+unit: × the units left are still there for a batch that fits, which is charged its full count once 1ms
+unit: × per-company rate limit 120/min → -32000 when exceeded 5ms
+unit: × a batch charges the per-company limiter its call count, once (R-175; more in transportBatchCharge) 1ms
+unit: Tests  4 failed | 245 passed (249)
+
+MB3 | pages/api/mcp/index.ts | mcp: an empty batch is charged
+int: Tests  59 passed (59)
+unit: × an empty batch charges nothing 3ms
+unit: Tests  1 failed | 248 passed (249)
+
+MB4 | pages/api/mcp/index.ts | mcp: a refused batch still runs
+int: Tests  59 passed (59)
+unit: × a batch larger than what is left is refused: nothing charged, nothing run 5ms
+unit: × the units left are still there for a batch that fits, which is charged its full count once 3ms
+unit: × per-company rate limit 120/min → -32000 when exceeded 3ms
+unit: Tests  3 failed | 246 passed (249)
+
+BASELINE (git status of src and pages: '')
+int: Tests  59 passed (59)
+unit: Tests  249 passed (249)
+
+DONE BASELINE MB1 MB2 MB3 MB4 BASELINE
+
+==================================================================
+### 9e854fd6f: the role-lock test's batch-charge assertion had been swallowed by a comment (it asserted nothing);
+restored. The skipped-call message no longer says 'or charged': no Flows are debited, but the batch's rate-limit charge
+covers the call. Master's round-12 integration regex updated with it. MB1 and MB2 now turn the role-lock test itself red;
+SK1 (the old message) turns both the unit and the round-12 integration test red. Baseline green before and after:
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  249 passed (249)
+
+MB1 | pages/api/mcp/index.ts | mcp: batch charged one unit only
+int: Tests  75 passed (75)
+unit: × a batch larger than what is left is refused: nothing charged, nothing run 5ms
+unit: × the units left are still there for a batch that fits, which is charged its full count once 3ms
+unit: × a batch charges the per-company limiter its call count, once (R-175; more in transportBatchCharge) 4ms
+unit: × a batch stops running tool calls after the first role-lock refusal: the rest are answered at once as not run 1ms
+unit: Tests  4 failed | 245 passed (249)
+
+MB2 | pages/api/mcp/index.ts | mcp: batch charged one call at a time again, stopping at the first refusal
+int: Tests  75 passed (75)
+unit: × a batch larger than what is left is refused: nothing charged, nothing run 7ms
+unit: × the units left are still there for a batch that fits, which is charged its full count once 1ms
+unit: × per-company rate limit 120/min → -32000 when exceeded 4ms
+unit: × a batch charges the per-company limiter its call count, once (R-175; more in transportBatchCharge) 1ms
+unit: × a batch stops running tool calls after the first role-lock refusal: the rest are answered at once as not run 1ms
+unit: Tests  5 failed | 244 passed (249)
+
+SK1 | src/lib/mcp/batchSkip.ts | skipped-call message says nothing was charged again
+int: × item 2: a 5-call MCP batch under a held role lock answers in about ONE wait: the first call gets the retry refusal, the rest are skipped, audi
+int: Tests  1 failed | 74 passed (75)
+unit: × a batch stops running tool calls after the first role-lock refusal: the rest are answered at once as not run 5ms
+unit: Tests  1 failed | 248 passed (249)
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  249 passed (249)
+
+DONE BASELINE MB1 MB2 SK1 BASELINE
+
+==================================================================
+### /review round on PR #604 (head 7b253521f)
+Whole unit suite:
+ Test Files  1135 passed (1135)
+      Tests  15124 passed | 6 skipped (15130)
+exit=0
+Red on 064a895f1's sources: red.review.unit.log.
+
+Pool measurement (fixture, load average 3.5-6 on a 32-core host), every call admitted:
+pool 3:
+  one call at a time: p50 5.4 ms, p99 136.6 ms
+  50 one key: p50 127 ms, p99 253 ms | 50 many keys: p50 85 ms, p99 170 ms
+  200 one key: p50 521 ms, p99 1017 ms | 200 many keys: p50 335 ms, p99 673 ms
+  1000 one key: p50 2.6 s, p99 5.0 s, 30-56 calls failed with "timeout exceeded when trying to connect" | 1000 many keys: p50 0.6-1.7 s, p99 1.2-3.4 s
+pool 10:
+  one call at a time: p50 2.2 ms, p99 11.1 ms
+  50 one key: p50 48 ms, p99 97 ms | 50 many keys: p50 11 ms, p99 19 ms
+  200 one key: p50 190 ms, p99 378 ms | 200 many keys: p50 38 ms, p99 75 ms
+  1000 one key: p50 0.9-1.0 s, p99 1.8-1.9 s, no failures | 1000 many keys: p50 187 ms, p99 370-421 ms
+
+Mutants (new: SG1-SG3 Signum use, SM1-SM8 SMTP classifier, AC1 after-commit census; re-run: X1, X2, E1-E3, HT1, H6-H8, MB1, MB2). Baseline green before and after; 23 of 23 RED:
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  291 passed (291)
+
+SG1 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | signing: no use marked after Signum created the document
+int: Tests  75 passed (75)
+unit: × Signum created the document and every email failed: the unit stays spent 6ms
+unit: × accounting/afs/[documentId]/send-for-signing.ts asks for refundUnused and can reach where its use is recorded 4ms
+unit: × use is recorded only in the places listed above 62ms
+unit: × keeps its unit after the mail server accepted the email 4ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × leaves its unit unused when SMTP is not configured 1ms
+unit: Tests  6 failed | 285 passed (291)
+
+SG2 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | signing: a failed Signum call is never classified (a timeout uses nothing)
+int: Tests  75 passed (75)
+unit: × the Signum call timed out: it may have created the document, so the unit is spent 3ms
+unit: Tests  1 failed | 290 passed (291)
+
+SG3 | src/modules/accounting/services/afs/signumIntegrationService.ts | Signum refusal without its status (looks like a timeout)
+int: Tests  75 passed (75)
+unit: × a non-2xx carries its status, so the caller knows Signum did no work (R-175) 4ms
+unit: Tests  1 failed | 290 passed (291)
+
+SM1 | src/modules/accounting/services/core/emailService.ts | sendEmail: a failed send is never classified (nothing is ever used)
+int: Tests  75 passed (75)
+unit: × connection dropped after the message was sent, before any reply: used, the server may have it 48ms
+unit: Tests  1 failed | 290 passed (291)
+
+SM2 | src/lib/quotaUse.ts | classifier ignores the SMTP reply code
+int: Tests  75 passed (75)
+unit: × the classifier: a connection closed with a 421 reply (ECONNECTION) 3ms
+unit: Tests  1 failed | 290 passed (291)
+
+SM3 | src/lib/quotaUse.ts | classifier: every error is use
+int: Tests  75 passed (75)
+unit: × records nothing when the mail server refuses or is down 5ms
+unit: × leaves its unit unused when the mail server is down 4ms
+unit: × leaves its unit unused when the mail server is down 2ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × login refused (EAUTH 535): not used, the server said no 5ms
+unit: × sender refused (EENVELOPE 550 to MAIL): not used, the server said no 3ms
+unit: × recipient refused (EENVELOPE 550 to RCPT): not used, the server said no 4ms
+unit: × DATA refused (EENVELOPE 554 to DATA): not used, the server said no 3ms
+unit: × message refused at the end of DATA (EMESSAGE 554): not used, the server said no 45ms
+unit: × message deferred at the end of DATA (EMESSAGE 451): not used, the server said no 44ms
+unit: × connection refused (ESOCKET from connect): not used 2ms
+unit: × the classifier: DNS failure (EDNS) 0ms
+unit: × the classifier: a TLS set-up failure (ETLS) 0ms
+unit: × the classifier: no credentials (ENOAUTH) 0ms
+unit: × the classifier: an envelope nodemailer rejects itself (EENVELOPE, no reply) 0ms
+unit: × the classifier: an empty or oversize message (EMESSAGE, no reply) 0ms
+unit: × the classifier: missing credentials (EAUTH, no reply) 0ms
+unit: × the classifier: an OAuth2 token failure (EOAUTH2) 0ms
+unit: × the classifier: a bad configuration (ECONFIG) 0ms
+unit: × the classifier: REQUIRETLS refused (EREQUIRETLS) 0ms
+unit: × the classifier: a name lookup at connect (ESOCKET getaddrinfo) 0ms
+unit: × the classifier: a connection closed with a 421 reply (ECONNECTION) 0ms
+unit: Tests  22 failed | 269 passed (291)
+
+SM4 | src/lib/quotaUse.ts | classifier: a socket error while connecting is use
+int: Tests  75 passed (75)
+unit: × records nothing when the mail server refuses or is down 4ms
+unit: × leaves its unit unused when the mail server is down 5ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × connection refused (ESOCKET from connect): not used 6ms
+unit: × the classifier: a name lookup at connect (ESOCKET getaddrinfo) 0ms
+unit: Tests  6 failed | 285 passed (291)
+
+SM5 | src/lib/quotaUse.ts | classifier: nothing is ever use
+int: Tests  75 passed (75)
+unit: × connection dropped after the message was sent, before any reply: used, the server may have it 49ms
+unit: × the classifier: a timeout (nodemailer uses ETIMEDOUT/CONN for connect, greeting and an idle socket mid-message) 1ms
+unit: × the classifier: a socket reset after connecting 0ms
+unit: × the classifier: an unknown error 0ms
+unit: × the classifier: a non-error value 0ms
+unit: × the classifier: a 2xx reply on a failure (never a refusal) 0ms
+unit: Tests  6 failed | 285 passed (291)
+
+SM6 | src/lib/quotaUse.ts | classifier: a timeout is not use
+int: Tests  75 passed (75)
+unit: × the classifier: a timeout (nodemailer uses ETIMEDOUT/CONN for connect, greeting and an idle socket mid-message) 3ms
+unit: Tests  1 failed | 290 passed (291)
+
+SM7 | src/lib/quotaUse.ts | classifier: EENVELOPE missing from the not-sent codes
+int: Tests  75 passed (75)
+unit: × the classifier: an envelope nodemailer rejects itself (EENVELOPE, no reply) 3ms
+unit: Tests  1 failed | 290 passed (291)
+
+SM8 | src/lib/quotaUse.ts | classifier: any reply code counts as a refusal, even 2xx
+int: Tests  75 passed (75)
+unit: × the classifier: a 2xx reply on a failure (never a refusal) 3ms
+unit: Tests  1 failed | 290 passed (291)
+
+AC1 | pages/api/accounting/invoice-email.ts | a refundable route gains an after-commit hook
+int: Tests  75 passed (75)
+unit: × accounting/invoice-email.ts asks for refundUnused and can reach where its use is recorded 10ms
+unit: Tests  1 failed | 290 passed (291)
+
+DONE BASELINE SG1 SG2 SG3 SM1 SM2 SM3 SM4 SM5 SM6 SM7 SM8 AC1
+X1 | src/lib/afterCommit.ts | runAfterCommit does not forfeit the refund
+int: Tests  75 passed (75)
+unit: × work handed to runAfterCommit forfeits the refund: use recorded there would never be seen 26ms
+unit: × the context check goes red on exited-context code and stays green without it 5ms
+unit: Tests  2 failed | 289 passed (291)
+
+X2 | src/lib/quotaUse.ts | forfeitQuotaRefund keeps nothing
+int: Tests  75 passed (75)
+unit: × work handed to runAfterCommit forfeits the refund: use recorded there would never be seen 20ms
+unit: Tests  1 failed | 290 passed (291)
+
+E1 | src/modules/accounting/services/core/emailService.ts | sendEmail records no use
+int: Tests  75 passed (75)
+unit: × accounting/invoice-email.ts asks for refundUnused and can reach where its use is recorded 4ms
+unit: × accounting/statement-bulk-email.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × accounting/customer-statements-send.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × accounting/company-invitations.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × accounting/ar/dunning/send.ts asks for refundUnused and can reach where its use is recorded 0ms
+unit: × use is recorded only in the places listed above 63ms
+unit: × records one send per message the mail server accepts 6ms
+unit: × keeps its unit after the mail server accepted the email 15ms
+unit: × keeps its unit after the mail server accepted the email 1ms
+unit: × keeps its unit after the mail server accepted the email 1ms
+unit: × accepted: used 73ms
+unit: Tests  11 failed | 280 passed (291)
+
+E2 | src/modules/accounting/services/core/emailService.ts | sendEmail records use before the mail server answers
+int: Tests  75 passed (75)
+unit: × records nothing when the mail server refuses or is down 4ms
+unit: × leaves its unit unused when the mail server is down 4ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × login refused (EAUTH 535): not used, the server said no 6ms
+unit: × sender refused (EENVELOPE 550 to MAIL): not used, the server said no 3ms
+unit: × recipient refused (EENVELOPE 550 to RCPT): not used, the server said no 3ms
+unit: × DATA refused (EENVELOPE 554 to DATA): not used, the server said no 3ms
+unit: × message refused at the end of DATA (EMESSAGE 554): not used, the server said no 45ms
+unit: × message deferred at the end of DATA (EMESSAGE 451): not used, the server said no 45ms
+unit: × connection refused (ESOCKET from connect): not used 2ms
+unit: × connection dropped after the message was sent, before any reply: used, the server may have it 45ms
+unit: Tests  12 failed | 279 passed (291)
+
+E3 | src/modules/accounting/services/core/emailService.ts | sendEmail records AI use
+int: Tests  75 passed (75)
+unit: × accounting/invoice-email.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × accounting/statement-bulk-email.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × accounting/customer-statements-send.ts asks for refundUnused and can reach where its use is recorded 0ms
+unit: × accounting/company-invitations.ts asks for refundUnused and can reach where its use is recorded 0ms
+unit: × accounting/ar/dunning/send.ts asks for refundUnused and can reach where its use is recorded 0ms
+unit: × records one send per message the mail server accepts 5ms
+unit: × keeps its unit after the mail server accepted the email 16ms
+unit: × keeps its unit after the mail server accepted the email 1ms
+unit: × keeps its unit after the mail server accepted the email 1ms
+unit: × accepted: used 76ms
+unit: Tests  10 failed | 281 passed (291)
+
+HT1 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: no HTML existence check before the charge
+int: Tests  75 passed (75)
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 2ms
+unit: Tests  1 failed | 290 passed (291)
+
+H6 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged before the document and contact checks
+int: Tests  75 passed (75)
+unit: × a request refused because nothing matches "FROM afs_documents" leaves the company bucket untouched 3ms
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 1ms
+unit: × charges the company bucket once every check has passed 1ms
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 1ms
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 1ms
+unit: Tests  5 failed | 286 passed (291)
+
+H7 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged before the signer check again (round-5 position)
+int: Tests  75 passed (75)
+unit: × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 3ms
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 2ms
+unit: × send-for-signing: a document with no rendered HTML leaves the company bucket untouched (R-175) 1ms
+unit: Tests  3 failed | 288 passed (291)
+
+H8 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | afs-signing: company bucket charged after the company query and file read again
+int: Tests  75 passed (75)
+unit: × send-for-signing charges the company bucket after the document and signer checks, before the company query and the file read (R-175) 4ms
+unit: Tests  1 failed | 290 passed (291)
+
+MB1 | pages/api/mcp/index.ts | mcp: batch charged one unit only
+int: Tests  75 passed (75)
+unit: × a batch larger than what is left is refused: nothing charged, nothing run 5ms
+unit: × the units left are still there for a batch that fits, which is charged its full count once 3ms
+unit: × a batch charges the per-company limiter its call count, once (R-175; more in transportBatchCharge) 4ms
+unit: × a batch stops running tool calls after the first role-lock refusal: the rest are answered at once as not run 1ms
+unit: Tests  4 failed | 287 passed (291)
+
+MB2 | pages/api/mcp/index.ts | mcp: batch charged one call at a time again, stopping at the first refusal
+int: Tests  75 passed (75)
+unit: × a batch larger than what is left is refused: nothing charged, nothing run 7ms
+unit: × the units left are still there for a batch that fits, which is charged its full count once 1ms
+unit: × per-company rate limit 120/min → -32000 when exceeded 5ms
+unit: × a batch charges the per-company limiter its call count, once (R-175; more in transportBatchCharge) 1ms
+unit: × a batch stops running tool calls after the first role-lock refusal: the rest are answered at once as not run 1ms
+unit: Tests  5 failed | 286 passed (291)
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  291 passed (291)
+
+DONE X1 X2 E1 E2 E3 HT1 H6 H7 H8 MB1 MB2 BASELINE
+
+==================================================================
+### RATE_LIMIT_POOL_MAX (commit aaba840c4). Parsing mutants PM1-PM6 (new) and the pool's K5, K6, T1-T4, on the committed head:
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  306 passed (306)
+
+PM1 | src/lib/rateLimitPool.ts | default pool size 3, not 10
+int: Tests  75 passed (75)
+unit: × defaults to 10 when unset or empty 4ms
+unit: × falls back to 10, with a warning, for "abc" 1ms
+unit: × falls back to 10, with a warning, for "0" 1ms
+unit: × falls back to 10, with a warning, for "-2" 1ms
+unit: × falls back to 10, with a warning, for "2.5" 1ms
+unit: × falls back to 10, with a warning, for "101" 0ms
+unit: × falls back to 10, with a warning, for "1e9" 0ms
+unit: × falls back to 10, with a warning, for "NaN" 0ms
+unit: × falls back to 10, with a warning, for "Infinity" 0ms
+unit: Tests  9 failed | 297 passed (306)
+
+PM2 | src/lib/rateLimitPool.ts | no validation: the raw Number is used
+int: Tests  75 passed (75)
+unit: × falls back to 10, with a warning, for "abc" 4ms
+unit: × falls back to 10, with a warning, for "0" 1ms
+unit: × falls back to 10, with a warning, for "-2" 0ms
+unit: × falls back to 10, with a warning, for "2.5" 0ms
+unit: × falls back to 10, with a warning, for "101" 0ms
+unit: × falls back to 10, with a warning, for "1e9" 0ms
+unit: × falls back to 10, with a warning, for "NaN" 0ms
+unit: × falls back to 10, with a warning, for "Infinity" 1ms
+unit: Tests  8 failed | 298 passed (306)
+
+PM3 | src/lib/rateLimitPool.ts | no upper bound
+int: Tests  75 passed (75)
+unit: × falls back to 10, with a warning, for "101" 3ms
+unit: × falls back to 10, with a warning, for "1e9" 0ms
+unit: Tests  2 failed | 304 passed (306)
+
+PM4 | src/lib/rateLimitPool.ts | fractional values accepted
+int: Tests  75 passed (75)
+unit: × falls back to 10, with a warning, for "2.5" 3ms
+unit: Tests  1 failed | 305 passed (306)
+
+PM5 | src/lib/rateLimitPool.ts | the pool ignores the setting
+int: Tests  75 passed (75)
+unit: × the pool is built with the configured size 4ms
+unit: Tests  1 failed | 305 passed (306)
+
+PM6 | src/lib/rateLimitPool.ts | an invalid value is not reported
+int: Tests  75 passed (75)
+unit: × falls back to 10, with a warning, for "abc" 2ms
+unit: × falls back to 10, with a warning, for "0" 0ms
+unit: × falls back to 10, with a warning, for "-2" 0ms
+unit: × falls back to 10, with a warning, for "2.5" 0ms
+unit: × falls back to 10, with a warning, for "101" 0ms
+unit: × falls back to 10, with a warning, for "1e9" 0ms
+unit: × falls back to 10, with a warning, for "NaN" 0ms
+unit: × falls back to 10, with a warning, for "Infinity" 0ms
+unit: Tests  8 failed | 298 passed (306)
+
+K5 | src/lib/rateLimitPool.ts | connect timeout 5000 => 60000
+int: × fails, and does not admit, when the limiter cannot get a connection 25012ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 25005ms
+int: Tests  2 failed | 73 passed (75)
+unit: Tests  306 passed (306)
+
+K6 | src/lib/rateLimitPool.ts | pool built without the connect timeout
+int: × fails, and does not admit, when the limiter cannot get a connection 25013ms
+int: × gives up on a counter row another connection has locked, with an error and no admission 25019ms
+int: × bounds every statement on a limiter connection, server side first 25026ms
+int: Tests  3 failed | 72 passed (75)
+unit: Tests  306 passed (306)
+
+T1 | src/lib/rateLimitPool.ts | no lock_timeout on limiter connections
+int: × gives up on a counter row another connection has locked, with an error and no admission 3014ms
+int: × bounds every statement on a limiter connection, server side first 2ms
+int: Tests  2 failed | 73 passed (75)
+unit: Tests  306 passed (306)
+
+T2 | src/lib/rateLimitPool.ts | no statement_timeout on limiter connections
+int: × bounds every statement on a limiter connection, server side first 4ms
+int: Tests  1 failed | 74 passed (75)
+unit: Tests  306 passed (306)
+
+T3 | src/lib/rateLimitPool.ts | query_timeout shorter than statement_timeout
+int: × bounds every statement on a limiter connection, server side first 4ms
+int: Tests  1 failed | 74 passed (75)
+unit: Tests  306 passed (306)
+
+T4 | src/lib/rateLimitPool.ts | no query_timeout
+int: × bounds every statement on a limiter connection, server side first 3ms
+int: Tests  1 failed | 74 passed (75)
+unit: Tests  306 passed (306)
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  306 passed (306)
+
+DONE BASELINE PM1 PM2 PM3 PM4 PM5 PM6 K5 K6 T1 T2 T3 T4 BASELINE
+
+==================================================================
+### Provider status codes (commit 7f2098e6b): a 4xx refusal is no work; a 5xx or 408 counts as use.
+Whole unit suite:
+ Test Files  1136 passed (1136)
+      Tests  15171 passed | 6 skipped (15177)
+Red on 9754a9c05's sources: red.status.unit.log. Mutants ST1-ST8 (new) and Y1-Y9, V1-V2, N1-N2, R1-R2, F1-F2, A1-A2, SG1-SG3 (re-run; Y2 and N2 redefined for the new code). Baseline green before and after; 30 of 30 RED:
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  338 passed (338)
+
+ST1 | src/lib/quotaUse.ts | a 5xx is not use
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 500: the document may exist, the unit is spent 4ms
+unit: × Signum or a proxy answered 502: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 503: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 504: the document may exist, the unit is spent 1ms
+unit: × counts as use after a provider 529 answer (SDK): a 5xx may come after the work: the provider may have done the work 5ms
+unit: × counts as use after a 502 from a proxy in front of the provider: the provider may have done the work 1ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 529, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 529, and uses 1 unit 0ms
+unit: × after a provider 503 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 4ms
+unit: × after a provider 529 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 1ms
+unit: × after a provider 503 answer, records 1 AI use 4ms
+unit: × records one AI use on a 5xx answer: it may come after the work 1ms
+unit: Tests  16 failed | 322 passed (338)
+
+ST2 | src/lib/quotaUse.ts | a 408 is not use
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 408: the document may exist, the unit is spent 5ms
+unit: × counts as use after a 408 request timeout: the provider may have done the work 5ms
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 4ms
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 1ms
+unit: × after a provider 408 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 3ms
+unit: × after a provider 408 answer, records 1 AI use 4ms
+unit: Tests  6 failed | 332 passed (338)
+
+ST3 | src/lib/quotaUse.ts | a 4xx refusal is use
+int: Tests  75 passed (75)
+unit: × Signum refused the request (400): nothing was done, the unit comes back 4ms
+unit: × Signum refused the request (401): nothing was done, the unit comes back 1ms
+unit: × Signum refused the request (422): nothing was done, the unit comes back 1ms
+unit: × Signum refused the request (429): nothing was done, the unit comes back 1ms
+unit: × is not use after a provider 400 answer (SDK): no work was done 4ms
+unit: × is not use after a provider 401 answer (SDK): no work was done 1ms
+unit: × is not use after a provider 429 rate-limit answer (SDK): no work was done 0ms
+unit: × answers 200 with its fallback after a provider 400, and uses 0 unit 4ms
+unit: × answers 200 with its fallback after a provider 401, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 429, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 400, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 401, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 429, and uses 0 unit 0ms
+unit: × after a provider 400 answer, uses 0 unit (a 4xx refused it; a 5xx may follow the work) 4ms
+unit: × after a provider 429 answer, uses 0 unit (a 4xx refused it; a 5xx may follow the work) 1ms
+unit: × after a provider 400 answer, records 0 AI use 4ms
+unit: × after a provider 429 answer, records 0 AI use 1ms
+unit: × records nothing when the provider refuses the request (4xx) 1ms
+unit: Tests  18 failed | 320 passed (338)
+
+ST4 | src/lib/quotaUse.ts | any status on a thrown error is no work (the old rule)
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 500: the document may exist, the unit is spent 4ms
+unit: × Signum or a proxy answered 502: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 503: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 504: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 408: the document may exist, the unit is spent 1ms
+unit: × counts as use after a provider 529 answer (SDK): a 5xx may come after the work: the provider may have done the work 5ms
+unit: × counts as use after a 502 from a proxy in front of the provider: the provider may have done the work 1ms
+unit: × counts as use after a 408 request timeout: the provider may have done the work 0ms
+unit: × records one AI use on a 5xx answer: it may come after the work 4ms
+unit: Tests  9 failed | 329 passed (338)
+
+ST5 | src/modules/accounting/services/bank/vlmCore.ts | vlmCore: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × after a provider 408 answer, records 1 AI use 4ms
+unit: × after a provider 503 answer, records 1 AI use 1ms
+unit: Tests  2 failed | 336 passed (338)
+
+ST6 | pages/api/accounting/nl-query.ts | nl-query: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × after a provider 408 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 3ms
+unit: × after a provider 503 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 1ms
+unit: × after a provider 529 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 1ms
+unit: Tests  3 failed | 335 passed (338)
+
+ST7 | pages/api/accounting/ai-narrative.ts | ai-narrative: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 529, and uses 1 unit 0ms
+unit: Tests  4 failed | 334 passed (338)
+
+ST8 | pages/api/accounting/ai-forecast.ts | ai-forecast: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 529, and uses 1 unit 0ms
+unit: Tests  4 failed | 334 passed (338)
+
+Y1 | src/lib/quotaUse.ts | a provider call that threw never counts as use
+int: Tests  75 passed (75)
+unit: × the Signum call timed out: it may have created the document, so the unit is spent 5ms
+unit: × counts as use after a timeout: the provider may have done the work 5ms
+unit: × counts as use after an abort: the provider may have done the work 1ms
+unit: × counts as use after a reset after the request was sent: the provider may have done the work 1ms
+unit: × counts as use after a socket closed mid-response: the provider may have done the work 0ms
+unit: × counts as use after an SDK timeout (no status): the provider may have done the work 0ms
+unit: × counts as use after an unknown error: the provider may have done the work 0ms
+unit: × counts as use after a non-error value: the provider may have done the work 0ms
+unit: × answers 200 with its fallback but uses the unit when the provider call times out 3ms
+unit: × answers 200 with its fallback but uses the unit when the provider call times out 0ms
+unit: × uses the unit when the provider call times out or is aborted: the work may have been done 3ms
+unit: × records one AI use when the call times out or is aborted: the provider may have done the work 4ms
+unit: × records one AI use when the call times out 1ms
+unit: Tests  13 failed | 325 passed (338)
+
+Y2 | src/lib/quotaUse.ts | a provider error answer counts as use
+int: Tests  75 passed (75)
+unit: × Signum refused the request (400): nothing was done, the unit comes back 4ms
+unit: × Signum refused the request (401): nothing was done, the unit comes back 1ms
+unit: × Signum refused the request (422): nothing was done, the unit comes back 1ms
+unit: × Signum refused the request (429): nothing was done, the unit comes back 1ms
+unit: × is not use after a provider 400 answer (SDK): no work was done 4ms
+unit: × is not use after a provider 401 answer (SDK): no work was done 1ms
+unit: × is not use after a provider 429 rate-limit answer (SDK): no work was done 1ms
+unit: × records nothing when the provider refuses the request (4xx) 4ms
+unit: Tests  8 failed | 330 passed (338)
+
+Y3 | src/lib/quotaUse.ts | a refused connection counts as use
+int: Tests  75 passed (75)
+unit: × Signum could not be reached: the unit comes back 4ms
+unit: × is not use after a refused connection: no work was done 4ms
+unit: × is not use after a name that does not resolve: no work was done 1ms
+unit: × is not use after a DNS failure: no work was done 0ms
+unit: × is not use after a connect timeout: no work was done 0ms
+unit: × is not use after a code on the error itself: no work was done 0ms
+unit: × answers 200 with its fallback and uses nothing when the provider cannot be reached 3ms
+unit: × answers 200 with its fallback and uses nothing when the provider cannot be reached 0ms
+unit: × leaves the unit unused when the provider cannot be reached 4ms
+unit: × marks the unit used when the provider answered and the generated query then fails 11ms
+unit: × records nothing when the provider could not be reached at all 5ms
+unit: × records nothing when the provider could not be reached 1ms
+unit: Tests  12 failed | 326 passed (338)
+
+Y4 | src/lib/quotaUse.ts | only cause.code is read, not code on the error itself
+int: Tests  75 passed (75)
+unit: × is not use after a code on the error itself: no work was done 5ms
+unit: Tests  1 failed | 337 passed (338)
+
+Y5 | src/modules/accounting/services/bank/vlmCore.ts | callVlmChat: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × records one AI use when the call times out or is aborted: the provider may have done the work 5ms
+unit: Tests  1 failed | 337 passed (338)
+
+DONE BASELINE ST1 ST2 ST3 ST4 ST5 ST6 ST7 ST8 Y1 Y2 Y3 Y4 Y5
+Y6 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × records one AI use on a 5xx answer: it may come after the work 4ms
+unit: × records one AI use when the call times out 1ms
+unit: Tests  2 failed | 336 passed (338)
+
+Y7 | pages/api/accounting/nl-query.ts | nl-query: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × uses the unit when the provider call times out or is aborted: the work may have been done 4ms
+unit: Tests  1 failed | 337 passed (338)
+
+Y8 | pages/api/accounting/ai-narrative.ts | ai-narrative: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback but uses the unit when the provider call times out 3ms
+unit: Tests  1 failed | 337 passed (338)
+
+Y9 | pages/api/accounting/ai-forecast.ts | ai-forecast: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback but uses the unit when the provider call times out 4ms
+unit: Tests  1 failed | 337 passed (338)
+
+V1 | src/modules/accounting/services/bank/vlmCore.ts | callVlmChat records no use on an answer
+int: Tests  75 passed (75)
+unit: × accounting/vlm-extract.ts asks for refundUnused and can reach where its use is recorded 4ms
+unit: × onboarding/extract.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × onboarding/extract-id.ts asks for refundUnused and can reach where its use is recorded 1ms
+unit: × use is recorded only in the places listed above 59ms
+unit: × records one AI use when the provider answers 4ms
+unit: Tests  5 failed | 333 passed (338)
+
+V2 | src/modules/accounting/services/bank/vlmCore.ts | callVlmChat records use before checking the provider status
+int: Tests  75 passed (75)
+unit: × after a provider 400 answer, records 0 AI use 4ms
+unit: × after a provider 429 answer, records 0 AI use 1ms
+unit: × after a provider 408 answer, records 1 AI use 1ms
+unit: × after a provider 503 answer, records 1 AI use 1ms
+unit: Tests  4 failed | 334 passed (338)
+
+N1 | pages/api/accounting/nl-query.ts | nl-query records no use on an answer
+int: Tests  75 passed (75)
+unit: × accounting/nl-query.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 66ms
+unit: × marks the unit used when the provider answered, even if its answer could not be used 4ms
+unit: × marks the unit used when the provider answered and the generated query then fails 11ms
+unit: × marks the unit used once on success 4ms
+unit: Tests  5 failed | 333 passed (338)
+
+N2 | pages/api/accounting/nl-query.ts | nl-query records use before checking the provider status
+int: Tests  75 passed (75)
+unit: × after a provider 400 answer, uses 0 unit (a 4xx refused it; a 5xx may follow the work) 3ms
+unit: × after a provider 429 answer, uses 0 unit (a 4xx refused it; a 5xx may follow the work) 1ms
+unit: Tests  2 failed | 336 passed (338)
+
+R1 | pages/api/accounting/ai-narrative.ts | ai-narrative records no use on an answer
+int: Tests  75 passed (75)
+unit: × uses the unit when the provider answers 3ms
+unit: × accounting/ai-narrative.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 64ms
+unit: Tests  3 failed | 335 passed (338)
+
+R2 | pages/api/accounting/ai-narrative.ts | ai-narrative records use whatever the provider status
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 400, and uses 0 unit 3ms
+unit: × answers 200 with its fallback after a provider 401, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 429, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 529, and uses 1 unit 0ms
+unit: Tests  7 failed | 331 passed (338)
+
+F1 | pages/api/accounting/ai-forecast.ts | ai-forecast records no use on an answer
+int: Tests  75 passed (75)
+unit: × uses the unit when the provider answers 4ms
+unit: × accounting/ai-forecast.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 62ms
+unit: Tests  3 failed | 335 passed (338)
+
+F2 | pages/api/accounting/ai-forecast.ts | ai-forecast records use whatever the provider status
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 400, and uses 0 unit 3ms
+unit: × answers 200 with its fallback after a provider 401, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 429, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 529, and uses 1 unit 0ms
+unit: Tests  7 failed | 331 passed (338)
+
+A1 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative records no use on an answer
+int: Tests  75 passed (75)
+unit: × accounting/afs/[documentId]/sections/[sectionId]/ai-narrative.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 60ms
+unit: × records one AI use when the provider answers 5ms
+unit: Tests  3 failed | 335 passed (338)
+
+A2 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative records use before the provider call
+int: Tests  75 passed (75)
+unit: × records nothing when the provider refuses the request (4xx) 4ms
+unit: × records one AI use on a 5xx answer: it may come after the work 1ms
+unit: × records nothing when the provider could not be reached 1ms
+unit: × records one AI use when the call times out 1ms
+unit: Tests  4 failed | 334 passed (338)
+
+SG1 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | signing: no use marked after Signum created the document
+int: Tests  75 passed (75)
+unit: × Signum created the document and every email failed: the unit stays spent 7ms
+unit: × accounting/afs/[documentId]/send-for-signing.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 66ms
+unit: × keeps its unit after the mail server accepted the email 4ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × leaves its unit unused when SMTP is not configured 1ms
+unit: Tests  6 failed | 332 passed (338)
+
+SG2 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | signing: a failed Signum call is never classified (a timeout uses nothing)
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 500: the document may exist, the unit is spent 5ms
+unit: × Signum or a proxy answered 502: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 503: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 504: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 408: the document may exist, the unit is spent 1ms
+unit: × the Signum call timed out: it may have created the document, so the unit is spent 1ms
+unit: Tests  6 failed | 332 passed (338)
+
+SG3 | src/modules/accounting/services/afs/signumIntegrationService.ts | Signum refusal without its status (looks like a timeout)
+int: Tests  75 passed (75)
+unit: × a non-2xx carries its status, so the caller knows Signum did no work (R-175) 4ms
+unit: Tests  1 failed | 337 passed (338)
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  338 passed (338)
+
+DONE Y6 Y7 Y8 Y9 V1 V2 N1 N2 R1 R2 F1 F2 A1 A2 SG1 SG2 SG3 BASELINE
+
+==================================================================
+### Anthropic 529 as no work (commit 6aaacf7ec)
+Whole unit suite:
+ Test Files  1136 passed (1136)
+      Tests  15177 passed | 6 skipped (15183)
+Red on 8912699be's sources: red.529.unit.log. Mutants AN1-AN6 (new) and ST1-ST8, Y6-Y9, N2, A1-A2, SG1-SG3 (re-run; ST6-ST8, N2 and Y6 redefined for the Anthropic helpers). Baseline green before and after; 24 of 24 RED:
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  344 passed (344)
+
+AN1 | src/lib/quotaUse.ts | a 529 counts as use for Anthropic (status form)
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 529, and uses 0 unit 3ms
+unit: × answers 200 with its fallback after a provider 529, and uses 0 unit 1ms
+unit: × after an Anthropic 529 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 3ms
+unit: × the Anthropic rule differs from the general one only at 529 4ms
+unit: Tests  4 failed | 340 passed (344)
+
+AN2 | src/lib/quotaUse.ts | a 529 counts as use for Anthropic (thrown form)
+int: Tests  75 passed (75)
+unit: × records nothing on an Anthropic 529 (overloaded): the request was turned away 4ms
+unit: × the Anthropic rule differs from the general one only at 529 1ms
+unit: Tests  2 failed | 342 passed (344)
+
+AN3 | src/lib/quotaUse.ts | every Anthropic 5xx is no work
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 503, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 503, and uses 1 unit 0ms
+unit: × after an Anthropic 500 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 3ms
+unit: × after an Anthropic 503 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 1ms
+unit: × the Anthropic rule differs from the general one only at 529 4ms
+unit: Tests  9 failed | 335 passed (344)
+
+AN4 | src/lib/quotaUse.ts | 529 is no work for every provider
+int: Tests  75 passed (75)
+unit: × counts as use after a provider 529 answer (SDK): a 5xx may come after the work: the provider may have done the work 4ms
+unit: × after a provider 529 answer, records 1 AI use 4ms
+unit: Tests  2 failed | 342 passed (344)
+
+AN5 | src/modules/accounting/services/afs/noteAiService.ts | noteAiService uses the general rule (529 is use)
+int: Tests  75 passed (75)
+unit: × records nothing on an Anthropic 529 (overloaded): the request was turned away 4ms
+unit: Tests  1 failed | 343 passed (344)
+
+AN6 | pages/api/accounting/nl-query.ts | nl-query uses the general rule (529 is use)
+int: Tests  75 passed (75)
+unit: × after an Anthropic 529 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 3ms
+unit: Tests  1 failed | 343 passed (344)
+
+ST1 | src/lib/quotaUse.ts | a 5xx is not use
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 500: the document may exist, the unit is spent 4ms
+unit: × Signum or a proxy answered 502: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 503: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 504: the document may exist, the unit is spent 1ms
+unit: × counts as use after a provider 529 answer (SDK): a 5xx may come after the work: the provider may have done the work 5ms
+unit: × counts as use after a 502 from a proxy in front of the provider: the provider may have done the work 1ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 503, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 503, and uses 1 unit 0ms
+unit: × after an Anthropic 500 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 3ms
+unit: × after an Anthropic 503 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 1ms
+unit: × after a provider 503 answer, records 1 AI use 4ms
+unit: × after a provider 529 answer, records 1 AI use 1ms
+unit: × records one AI use on any other 5xx: it may come after the work 1ms
+unit: Tests  17 failed | 327 passed (344)
+
+ST2 | src/lib/quotaUse.ts | a 408 is not use
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 408: the document may exist, the unit is spent 4ms
+unit: × counts as use after a 408 request timeout: the provider may have done the work 4ms
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 0ms
+unit: × after an Anthropic 408 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 4ms
+unit: × after a provider 408 answer, records 1 AI use 4ms
+unit: Tests  6 failed | 338 passed (344)
+
+ST3 | src/lib/quotaUse.ts | a 4xx refusal is use
+int: Tests  75 passed (75)
+unit: × Signum refused the request (400): nothing was done, the unit comes back 4ms
+unit: × Signum refused the request (401): nothing was done, the unit comes back 1ms
+unit: × Signum refused the request (422): nothing was done, the unit comes back 1ms
+unit: × Signum refused the request (429): nothing was done, the unit comes back 1ms
+unit: × answers 200 with its fallback after a provider 400, and uses 0 unit 4ms
+unit: × answers 200 with its fallback after a provider 401, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 429, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 400, and uses 0 unit 1ms
+unit: × answers 200 with its fallback after a provider 401, and uses 0 unit 0ms
+unit: × answers 200 with its fallback after a provider 429, and uses 0 unit 0ms
+unit: × is not use after a provider 400 answer (SDK): no work was done 4ms
+unit: × is not use after a provider 401 answer (SDK): no work was done 1ms
+unit: × is not use after a provider 429 rate-limit answer (SDK): no work was done 1ms
+unit: × after an Anthropic 400 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 3ms
+unit: × after an Anthropic 429 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 1ms
+unit: × after a provider 400 answer, records 0 AI use 4ms
+unit: × after a provider 429 answer, records 0 AI use 1ms
+unit: × records nothing when the provider refuses the request (4xx) 1ms
+unit: Tests  18 failed | 326 passed (344)
+
+ST4 | src/lib/quotaUse.ts | any status on a thrown error is no work (the old rule)
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 500: the document may exist, the unit is spent 4ms
+unit: × Signum or a proxy answered 502: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 503: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 504: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 408: the document may exist, the unit is spent 1ms
+unit: × counts as use after a provider 529 answer (SDK): a 5xx may come after the work: the provider may have done the work 5ms
+unit: × counts as use after a 502 from a proxy in front of the provider: the provider may have done the work 1ms
+unit: × counts as use after a 408 request timeout: the provider may have done the work 0ms
+unit: × records one AI use on any other 5xx: it may come after the work 4ms
+unit: × the Anthropic rule differs from the general one only at 529 1ms
+unit: Tests  10 failed | 334 passed (344)
+
+ST5 | src/modules/accounting/services/bank/vlmCore.ts | vlmCore: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × after a provider 408 answer, records 1 AI use 5ms
+unit: × after a provider 503 answer, records 1 AI use 1ms
+unit: × after a provider 529 answer, records 1 AI use 1ms
+unit: Tests  3 failed | 341 passed (344)
+
+ST6 | pages/api/accounting/nl-query.ts | nl-query: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × after an Anthropic 408 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 4ms
+unit: × after an Anthropic 500 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 1ms
+unit: × after an Anthropic 503 answer, uses 1 unit (a 4xx or 529 refused it; a 5xx may follow the work) 1ms
+unit: Tests  3 failed | 341 passed (344)
+
+DONE BASELINE AN1 AN2 AN3 AN4 AN5 AN6 ST1 ST2 ST3 ST4 ST5 ST6
+ST7 | pages/api/accounting/ai-narrative.ts | ai-narrative: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 503, and uses 1 unit 1ms
+unit: Tests  4 failed | 340 passed (344)
+
+ST8 | pages/api/accounting/ai-forecast.ts | ai-forecast: a non-OK answer is never use
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback after a provider 408, and uses 1 unit 3ms
+unit: × answers 200 with its fallback after a provider 500, and uses 1 unit 1ms
+unit: × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+unit: × answers 200 with its fallback after a provider 503, and uses 1 unit 0ms
+unit: Tests  4 failed | 340 passed (344)
+
+Y6 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × records one AI use on any other 5xx: it may come after the work 4ms
+unit: × records one AI use when the call times out 1ms
+unit: Tests  2 failed | 342 passed (344)
+
+Y7 | pages/api/accounting/nl-query.ts | nl-query: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × uses the unit when the provider call times out or is aborted: the work may have been done 4ms
+unit: Tests  1 failed | 343 passed (344)
+
+Y8 | pages/api/accounting/ai-narrative.ts | ai-narrative: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback but uses the unit when the provider call times out 3ms
+unit: Tests  1 failed | 343 passed (344)
+
+Y9 | pages/api/accounting/ai-forecast.ts | ai-forecast: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × answers 200 with its fallback but uses the unit when the provider call times out 3ms
+unit: Tests  1 failed | 343 passed (344)
+
+N2 | pages/api/accounting/nl-query.ts | nl-query records use before checking the provider status
+int: Tests  75 passed (75)
+unit: × after an Anthropic 400 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 4ms
+unit: × after an Anthropic 429 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 1ms
+unit: × after an Anthropic 529 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 1ms
+unit: Tests  3 failed | 341 passed (344)
+
+A1 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative records no use on an answer
+int: Tests  75 passed (75)
+unit: × accounting/afs/[documentId]/sections/[sectionId]/ai-narrative.ts asks for refundUnused and can reach where its use is recorded 4ms
+unit: × use is recorded only in the places listed above 59ms
+unit: × records one AI use when the provider answers 4ms
+unit: Tests  3 failed | 341 passed (344)
+
+A2 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative records use before the provider call
+int: Tests  75 passed (75)
+unit: × records nothing when the provider refuses the request (4xx) 4ms
+unit: × records nothing on an Anthropic 529 (overloaded): the request was turned away 1ms
+unit: × records one AI use on any other 5xx: it may come after the work 1ms
+unit: × records nothing when the provider could not be reached 1ms
+unit: × records one AI use when the call times out 1ms
+unit: Tests  5 failed | 339 passed (344)
+
+SG1 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | signing: no use marked after Signum created the document
+int: Tests  75 passed (75)
+unit: × Signum created the document and every email failed: the unit stays spent 6ms
+unit: × accounting/afs/[documentId]/send-for-signing.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 57ms
+unit: × keeps its unit after the mail server accepted the email 4ms
+unit: × leaves its unit unused when the mail server is down 1ms
+unit: × leaves its unit unused when SMTP is not configured 1ms
+unit: Tests  6 failed | 338 passed (344)
+
+SG2 | pages/api/accounting/afs/[documentId]/send-for-signing.ts | signing: a failed Signum call is never classified (a timeout uses nothing)
+int: Tests  75 passed (75)
+unit: × Signum or a proxy answered 500: the document may exist, the unit is spent 4ms
+unit: × Signum or a proxy answered 502: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 503: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 504: the document may exist, the unit is spent 1ms
+unit: × Signum or a proxy answered 408: the document may exist, the unit is spent 1ms
+unit: × the Signum call timed out: it may have created the document, so the unit is spent 1ms
+unit: Tests  6 failed | 338 passed (344)
+
+SG3 | src/modules/accounting/services/afs/signumIntegrationService.ts | Signum refusal without its status (looks like a timeout)
+int: Tests  75 passed (75)
+unit: × a non-2xx carries its status, so the caller knows Signum did no work (R-175) 4ms
+unit: Tests  1 failed | 343 passed (344)
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  344 passed (344)
+
+DONE ST7 ST8 Y6 Y7 Y8 Y9 N2 A1 A2 SG1 SG2 SG3 BASELINE
+
+==================================================================
+### Note writer without SDK retries; module doc states the status rule (commit 94084f8b0)
+Whole unit suite:
+ Test Files  1137 passed (1137)
+      Tests  15180 passed | 6 skipped (15186)
+Red on 7ff2d029f's noteAiService.ts: red.noretry.unit.log. Mutants RT1-RT2 (new) and AN2, AN5, Y6, A1, A2 (re-run); baseline green before and after; 7 of 7 RED:
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  347 passed (347)
+
+RT1 | src/modules/accounting/services/afs/noteAiService.ts | the note writer's client retries again (SDK default)
+int: Tests  75 passed (75)
+unit: × a 529 is not retried: one request, no use 477ms
+unit: × a 500 is not retried either: one request, counted as use 396ms
+unit: Tests  2 failed | 345 passed (347)
+
+RT2 | src/modules/accounting/services/afs/noteAiService.ts | the note writer's client retries once
+int: Tests  75 passed (75)
+unit: × a 529 is not retried: one request, no use 461ms
+unit: × a 500 is not retried either: one request, counted as use 379ms
+unit: Tests  2 failed | 345 passed (347)
+
+AN2 | src/lib/quotaUse.ts | a 529 counts as use for Anthropic (thrown form)
+int: Tests  75 passed (75)
+unit: × a 529 is not retried: one request, no use 93ms
+unit: × records nothing on an Anthropic 529 (overloaded): the request was turned away 4ms
+unit: × the Anthropic rule differs from the general one only at 529 1ms
+unit: Tests  3 failed | 344 passed (347)
+
+AN5 | src/modules/accounting/services/afs/noteAiService.ts | noteAiService uses the general rule (529 is use)
+int: Tests  75 passed (75)
+unit: × a 529 is not retried: one request, no use 86ms
+unit: × records nothing on an Anthropic 529 (overloaded): the request was turned away 4ms
+unit: Tests  2 failed | 345 passed (347)
+
+Y6 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative: a thrown call records nothing
+int: Tests  75 passed (75)
+unit: × a 500 is not retried either: one request, counted as use 6ms
+unit: × records one AI use on any other 5xx: it may come after the work 4ms
+unit: × records one AI use when the call times out 1ms
+unit: Tests  3 failed | 344 passed (347)
+
+A1 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative records no use on an answer
+int: Tests  75 passed (75)
+unit: × a success is one request and one unit used 5ms
+unit: × accounting/afs/[documentId]/sections/[sectionId]/ai-narrative.ts asks for refundUnused and can reach where its use is recorded 3ms
+unit: × use is recorded only in the places listed above 62ms
+unit: × records one AI use when the provider answers 4ms
+unit: Tests  4 failed | 343 passed (347)
+
+A2 | src/modules/accounting/services/afs/noteAiService.ts | generateNoteNarrative records use before the provider call
+int: Tests  75 passed (75)
+unit: × a 529 is not retried: one request, no use 82ms
+unit: × a 500 is not retried either: one request, counted as use 3ms
+unit: × records nothing when the provider refuses the request (4xx) 4ms
+unit: × records nothing on an Anthropic 529 (overloaded): the request was turned away 1ms
+unit: × records one AI use on any other 5xx: it may come after the work 1ms
+unit: × records nothing when the provider could not be reached 1ms
+unit: × records one AI use when the call times out 1ms
+unit: Tests  7 failed | 340 passed (347)
+
+BASELINE (git status of src and pages: '')
+int: Tests  75 passed (75)
+unit: Tests  347 passed (347)
+
+DONE BASELINE RT1 RT2 AN2 AN5 Y6 A1 A2 BASELINE
+
+==================================================================
+### After merging origin/master f68bc0487 (R-176, #602/#603); merge commit 5d5eadcaf
+Conflicts resolved keeping both sides: withAuth.ts (owned + unusable declared together; the shared auto-limit check with rollbackFailed on its 429; release(unusable) then the quota settle in the finally), bearerPipeline.ts (the shared auto-limit check with rollbackFailed on its 429), backlog.json (462 items: R-176 and master's R-177..R-180 edits, this branch's R-175 and K-103 edit). accept.ts auto-merged: master's rollbackFailed, pool error listener, early opened and release(unusable) all present; this branch's chargeRateLimit, window-bound refund and removed als.exit all present.
+tsc clean; eslint clean on the three files and the limiter.
+R-176 suites (r176 x6, r159 x2, public-route-tx): 9 files, 144 passed, 2 skipped.
+Censuses (release, rollback, poolErrorListener, deferredEnd, rate-limit key, quota caller): 6 files, 159 passed.
+Limiter integration set:
+ Test Files  6 passed (6)
+      Tests  59 passed (59)
+Invite suites with GOTRUE_URL at the origin (as R-176 runs them; earlier rounds here used /auth/v1 and so never ran them): k-041 x3, k-042: 4 files, 24 passed. This is the first run of the route-level invite-accept limiter and refund tests (k-041 L4, L7) on this branch: they pass.
+Other limiter-related integration files: the same 15 failures as origin/master (no GoTrue at /auth/v1, a database-name guard, a function owner).
+Whole unit suite:
+ Test Files  1142 passed (1142)
+      Tests  15335 passed | 6 skipped (15341)
+
+Mutants on the merge head touching withAuth.ts, bearerPipeline.ts, accept.ts: R-176's (A1-A8, B1-B5, C1-C3, defined from the names in R-176/mutations.log), the merged 429 hunks (H1-H6), and this branch's (Q15-Q18, U1-U3, J1-J3). Run against 13 integration files, the 4 invite files and the unit dirs lib, auth, security plus the quota route tests. Baseline green before and after. 31 of 32 RED. J2 (re-wrap the invite-accept charge in als.exit) survives: it is an equivalent mutant, the wrapper is dead now that the limiter writes on its own pool (K-103 tests prove that).
+
+BASELINE (git status of src and pages: '')
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+DONE BASELINE
+A1 | src/lib/auth/withAuth.ts | A: release bare again
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1076ms
+int: × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1062ms
+int: × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 1056ms
+int: × an early return (403) whose ROLLBACK fails: still 403, and the connection is destroyed 1068ms
+int: × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 1059ms
+int: × a company cookie that is not a UUID (the membership lookup throws), ROLLBACK fails: still answered, connection destroyed 1049ms
+int: × the per-company rate limit, ROLLBACK fails: still answered, connection destroyed 1049ms
+int: × the wait is bounded: 500 is sent, the query in flight is cancelled, the connection is destroyed 4502ms
+int: × a real client-side query_timeout: COMMIT and ROLLBACK both time out in the queue; cancelled and destroyed 4775ms
+int: Tests  9 failed | 183 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × every bare release is one of the pinned ones 6ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+A2 | src/lib/auth/withAuth.ts | A: 5xx-path ROLLBACK failure not recorded
+int: × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 1057ms
+int: Tests  1 failed | 191 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+A3 | src/lib/auth/withAuth.ts | A: COMMIT-path ROLLBACK failure not recorded
+int: × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1115ms
+int: × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 1061ms
+int: × a real client-side query_timeout: COMMIT and ROLLBACK both time out in the queue; cancelled and destroyed 4798ms
+int: Tests  3 failed | 189 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+A4 | src/lib/auth/withAuth.ts | A: catch-path ROLLBACK failure not recorded
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1139ms
+int: × the wait is bounded: 500 is sent, the query in flight is cancelled, the connection is destroyed 4630ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+A5 | src/lib/auth/withAuth.ts | A: every release destroys
+int: × a COMMIT that fails after the headers were flushed is aborted as a COMMIT failure, not answered as a throw 1055ms
+int: × a throw whose ROLLBACK succeeds: the connection goes back to the pool and is reused 1081ms
+int: × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 1113ms
+int: × a 200: committed, and the connection is reused 1088ms
+int: Tests  4 failed | 188 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × nothing reaches .release indirectly, and every argument is a ROLLBACK outcome 6ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+A6 | src/lib/auth/withAuth.ts | A: connectionDestroyed always false
+int: × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 50ms
+int: Tests  1 failed | 191 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+A7 | src/lib/auth/withAuth.ts | A: rolledBack always true
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 40ms
+int: Tests  1 failed | 191 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+A8 | src/lib/auth/withAuth.ts | A: failed COMMIT not answered
+int: × a failed COMMIT still replaces the buffered 200 with 500 COMMIT_FAILED (unchanged) 7ms
+int: × a failed COMMIT after the headers were flushed aborts the response instead of completing it 7ms
+int: × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 33ms
+int: × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 52ms
+int: × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 11ms
+int: × a COMMIT that fails after the headers were flushed is aborted as a COMMIT failure, not answered as a throw 11ms
+int: × a real client-side query_timeout: COMMIT and ROLLBACK both time out in the queue; cancelled and destroyed 606ms
+int: Tests  7 failed | 185 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × turns a failed COMMIT after a 2xx into a 500 (no silent lie) 23ms
+unit: × settles when the COMMIT fails after a 2xx: the work was done, the use stands 10ms
+unit: Tests  2 failed | 1558 passed | 3 skipped (1563)
+
+B1 | src/lib/auth/bearerPipeline.ts | B: release bare again
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1064ms
+int: × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 1050ms
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1049ms
+int: × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 1052ms
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1082ms
+int: × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1062ms
+int: × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 1058ms
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1064ms
+int: × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1095ms
+int: × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 1078ms
+int: Tests  10 failed | 182 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × every bare release is one of the pinned ones 9ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+B2 | src/lib/auth/bearerPipeline.ts | B: 5xx-path ROLLBACK failure not recorded
+int: × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 1140ms
+int: × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 1150ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+B3 | src/lib/auth/bearerPipeline.ts | B: catch-path ROLLBACK failure not recorded
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1120ms
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1084ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+B4 | src/lib/auth/bearerPipeline.ts | B: every release destroys
+int: × a COMMIT that fails after the headers were flushed is aborted as a COMMIT failure, not answered as a throw 1079ms
+int: × a COMMIT that fails after the headers were flushed is aborted as a COMMIT failure, not answered as a throw 1084ms
+int: × a throw whose ROLLBACK succeeds: the connection goes back to the pool and is reused 1089ms
+int: × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 1117ms
+int: × a 200: committed, and the connection is reused 1134ms
+int: × a throw whose ROLLBACK succeeds: the connection goes back to the pool and is reused 1129ms
+int: × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 1157ms
+int: × a 200: committed, and the connection is reused 1390ms
+int: Tests  8 failed | 184 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × nothing reaches .release indirectly, and every argument is a ROLLBACK outcome 8ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+B5 | src/lib/auth/bearerPipeline.ts | B: rolledBack always true
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 114ms
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 39ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+C1 | pages/api/invitations/[token]/accept.ts | C invite accept: release bare again
+int: × EMAIL_IN_USE whose ROLLBACK fails: still 409, the connection is destroyed and the next invitee is served 1316ms
+int: × a COMMIT that fails, and then its ROLLBACK: the next accept cannot commit the failed membership 1207ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × every bare release is one of the pinned ones 7ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+C2 | pages/api/invitations/[token]/accept.ts | C invite accept: ROLLBACK failure not recorded
+int: × a COMMIT that fails, and then its ROLLBACK: the next accept cannot commit the failed membership 1186ms
+int: Tests  1 failed | 191 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+C3 | pages/api/invitations/[token]/accept.ts | C invite accept: every release destroys
+int: × EMAIL_IN_USE whose ROLLBACK succeeds: 409, and the connection is reused 1122ms
+int: × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 1094ms
+int: × an accepted invitation: committed, and the connection is reused 1106ms
+int: × a BEGIN that fails after it reached the server: rolled back, not pooled inside the open transaction 1068ms
+int: Tests  4 failed | 188 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × nothing reaches .release indirectly, and every argument is a ROLLBACK outcome 5ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+DONE A1 A2 A3 A4 A5 A6 A7 A8 B1 B2 B3 B4 B5 C1 C2 C3
+H1 | src/lib/auth/withAuth.ts | withAuth 429: ROLLBACK failure not recorded
+int: × the per-company rate limit, ROLLBACK fails: still answered, connection destroyed 1074ms
+int: Tests  1 failed | 191 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+H2 | src/lib/auth/withAuth.ts | withAuth 429: bare ROLLBACK again
+int: × the per-company rate limit, ROLLBACK fails: still answered, connection destroyed 14ms
+int: Tests  1 failed | 191 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × every bare ROLLBACK and unreadable query is a pinned one 2019ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+H3 | src/lib/auth/bearerPipeline.ts | bearer 429: ROLLBACK failure not recorded
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1178ms
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1163ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+H4 | src/lib/auth/bearerPipeline.ts | bearer 429: bare ROLLBACK again
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 63ms
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 39ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × every bare ROLLBACK and unreadable query is a pinned one 1360ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+H5 | src/lib/auth/withAuth.ts | withAuth 429: auto limit never applied
+int: × a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow 10ms
+int: × the per-company rate limit, ROLLBACK fails: still answered, connection destroyed 1062ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × is the only table: both wrappers call it and neither keeps a copy 24ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+H6 | src/lib/auth/bearerPipeline.ts | bearer 429: auto limit never applied
+int: × a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow 15ms
+int: × a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow 12ms
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1111ms
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1135ms
+int: Tests  4 failed | 188 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × reports-* route with exhausted bucket → 429 + ROLLBACK, handler never runs 13ms
+unit: × is the only table: both wrappers call it and neither keeps a copy 13ms
+unit: Tests  2 failed | 1558 passed | 3 skipped (1563)
+
+Q15 | src/lib/auth/withAuth.ts | withAuth settles only on a 5xx
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × settles the usage quota after a 200, with the use the request recorded 30ms
+unit: × settles the usage quota after a 400, with the use the request recorded 17ms
+unit: × settles the usage quota after a 429, with the use the request recorded 9ms
+unit: Tests  3 failed | 1557 passed | 3 skipped (1563)
+
+Q16 | src/lib/auth/withAuth.ts | withAuth settles only below 500
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × settles the usage quota after a 500, with the use the request recorded 14ms
+unit: × settles the usage quota after a 503, with the use the request recorded 9ms
+unit: × settles when the handler throws, keeping what was used before the throw 7ms
+unit: × settles when the COMMIT fails after a 2xx: the work was done, the use stands 9ms
+unit: Tests  4 failed | 1556 passed | 3 skipped (1563)
+
+Q17 | src/lib/auth/withAuth.ts | withAuth never hands its context to the settle
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × settles the usage quota after a 200, with the use the request recorded 19ms
+unit: × settles the usage quota after a 400, with the use the request recorded 7ms
+unit: × settles the usage quota after a 429, with the use the request recorded 7ms
+unit: × settles the usage quota after a 500, with the use the request recorded 8ms
+unit: × settles the usage quota after a 503, with the use the request recorded 9ms
+unit: × settles when the handler throws, keeping what was used before the throw 6ms
+unit: × settles when the COMMIT fails after a 2xx: the work was done, the use stands 6ms
+unit: Tests  7 failed | 1553 passed | 3 skipped (1563)
+
+Q18 | src/lib/auth/withAuth.ts | withAuth context keeps no quota list
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × settles the usage quota after a 200, with the use the request recorded 14ms
+unit: × settles the usage quota after a 400, with the use the request recorded 13ms
+unit: × settles the usage quota after a 429, with the use the request recorded 8ms
+unit: × settles the usage quota after a 500, with the use the request recorded 6ms
+unit: × settles the usage quota after a 503, with the use the request recorded 8ms
+unit: × settles when the handler throws, keeping what was used before the throw 10ms
+unit: × settles when the COMMIT fails after a 2xx: the work was done, the use stands 7ms
+unit: Tests  7 failed | 1553 passed | 3 skipped (1563)
+
+U1 | src/lib/auth/autoRateLimit.ts | wrapper bucket never applied
+int: × a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow 12ms
+int: × a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow 4ms
+int: × a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow 6ms
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1054ms
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1053ms
+int: × the per-company rate limit, ROLLBACK fails: still answered, connection destroyed 1041ms
+int: Tests  6 failed | 186 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × reports-* route with exhausted bucket → 429 + ROLLBACK, handler never runs 6ms
+unit: × charges the company bucket for a reports route, with or without a query string 7ms
+unit: × answers false when the bucket refuses 1ms
+unit: Tests  3 failed | 1557 passed | 3 skipped (1563)
+
+U2 | src/lib/auth/autoRateLimit.ts | wrapper bucket keyed without the company
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × charges the company bucket for a reports route, with or without a query string 11ms
+unit: × reports-* route with exhausted bucket → 429 + ROLLBACK, handler never runs 7ms
+unit: Tests  2 failed | 1558 passed | 3 skipped (1563)
+
+U3 | src/lib/auth/bearerPipeline.ts | bearer pipeline keeps its own copy of the table again
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × is the only table: both wrappers call it and neither keeps a copy 12ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+J1 | pages/api/invitations/[token]/accept.ts | invite-accept refunds without its window
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × every refund names the window it was charged in 5ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+J2 | pages/api/invitations/[token]/accept.ts | invite-accept charges under als.exit again (dead wrapper)
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+J3 | pages/api/invitations/[token]/accept.ts | invite-accept never refunds
+int: Tests  192 passed | 2 skipped (194)
+int(invite): × L3: an address already held by another users row is refused, not 500ed 47ms
+int(invite): × L7: a signed-in identity that does not match the invitation is refunded too 9ms
+int(invite): Tests  2 failed | 22 passed (24)
+unit: × every refund is on a key that some call site charges 4ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+BASELINE (git status of src and pages: '')
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+DONE H1 H2 H3 H4 H5 H6 Q15 Q16 Q17 Q18 U1 U2 U3 J1 J2 J3 BASELINE

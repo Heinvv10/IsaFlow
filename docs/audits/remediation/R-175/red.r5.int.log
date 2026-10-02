@@ -1,0 +1,14 @@
+### Round-5 integration tests run against 85b2cd6fd's sources
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts (13 tests | 2 failed) 1632ms
+     × AI: a call the daily bucket refuses takes nothing from the 15-minute company bucket 107ms
+     × a company whose daily bucket is known full costs no limiter statement at all 453ms
+ ❯ tests/integration/r175-refusal-cache.int.test.ts (10 tests | 1 failed) 9702ms
+     × a refund that commits while a refused charge waits for the row lock does not get the key cached as full 467ms
+AssertionError: expected false to be true // Object.is equality
+ ❯ tests/integration/r175-refusal-cache.int.test.ts:192:45
+AssertionError: expected { ip: 3, company: 1, day: 1 } to deeply equal { ip: 2, company: 1, day: 1 }
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts:205:38
+AssertionError: expected "query" to not be called at all, but actually been called 75 times
+ Test Files  2 failed (2)
+      Tests  3 failed | 20 passed (23)
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts:227:25

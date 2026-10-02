@@ -1,0 +1,153 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r175-rate-limiter
+
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts (11 tests | 7 failed) 2331ms
+     × admits exactly max of 100 sequential calls, in order, and counts every call 347ms
+     × writes a call far below the limit to the shared counter 7ms
+     × counts cost-1 calls against a later weighted call 14ms
+     × starts a fresh allowance of exactly max when the window rolls over 23ms
+     × keeps counting inside a window that has not ended 32ms
+     × a refund gives back exactly the refunded units 27ms
+     × two module instances sharing the database together admit exactly max 446ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r175-rate-limit-admits-over-max.int.test.ts > R-175 — checkRateLimit never admits more than max per window > admits exactly max of 100 sequential calls, in order, and counts every call
+AssertionError: expected 65 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 65
+
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:51:45
+     49|     for (let i = 0; i < 100; i++) verdicts.push(await checkRateLimit(k…
+     50|
+     51|     expect(verdicts.filter(Boolean).length).toBe(MAX);
+       |                                             ^
+     52|     // The first max calls are the admitted ones; nothing is admitted …
+     53|     expect(verdicts.slice(0, MAX).every(Boolean)).toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  tests/integration/r175-rate-limit-admits-over-max.int.test.ts > R-175 — checkRateLimit never admits more than max per window > writes a call far below the limit to the shared counter
+AssertionError: expected 1 to be 3 // Object.is equality
+
+- Expected
++ Received
+
+- 3
++ 1
+
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:70:36
+     68|     for (let i = 0; i < 3; i++) expect(await checkRateLimit(key, { max…
+     69|
+     70|     expect(await storedCount(key)).toBe(3);
+       |                                    ^
+     71|   });
+     72|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  tests/integration/r175-rate-limit-admits-over-max.int.test.ts > R-175 — checkRateLimit never admits more than max per window > counts cost-1 calls against a later weighted call
+AssertionError: expected 12 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 12
+
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:78:36
+     76|     // 9 + 11 = 20: the last units of the window.
+     77|     expect(await checkRateLimit(key, { ...opts, cost: 11 })).toBe(true…
+     78|     expect(await storedCount(key)).toBe(MAX);
+       |                                    ^
+     79|     expect(await checkRateLimit(key, opts)).toBe(false);
+     80|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  tests/integration/r175-rate-limit-admits-over-max.int.test.ts > R-175 — checkRateLimit never admits more than max per window > starts a fresh allowance of exactly max when the window rolls over
+AssertionError: expected 30 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 30
+
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:94:49
+     92|   it('starts a fresh allowance of exactly max when the window rolls ov…
+     93|     const key = newKey();
+     94|     expect(await admittedSequentially(key, 30)).toBe(MAX);
+       |                                                 ^
+     95|
+     96|     await pool.query(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  tests/integration/r175-rate-limit-admits-over-max.int.test.ts > R-175 — checkRateLimit never admits more than max per window > keeps counting inside a window that has not ended
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:110:45
+    108|       `UPDATE rate_limit_counters SET window_start = NOW() - INTERVAL …
+    109|
+    110|     expect(await checkRateLimit(key, opts)).toBe(false);
+       |                                             ^
+    111|     expect(await storedCount(key)).toBe(MAX + 1);
+    112|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  tests/integration/r175-rate-limit-admits-over-max.int.test.ts > R-175 — checkRateLimit never admits more than max per window > a refund gives back exactly the refunded units
+AssertionError: expected 1 to be 18 // Object.is equality
+
+- Expected
++ Received
+
+- 18
++ 1
+
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:119:36
+    117|
+    118|     await refundRateLimit(key, 2);
+    119|     expect(await storedCount(key)).toBe(MAX - 2);
+       |                                    ^
+    120|
+    121|     expect(await admittedSequentially(key, 10)).toBe(2);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  tests/integration/r175-rate-limit-admits-over-max.int.test.ts > R-175 — checkRateLimit never admits more than max per window > two module instances sharing the database together admit exactly max
+AssertionError: expected 65 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 65
+
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:154:22
+    152|     }
+    153|
+    154|     expect(admitted).toBe(MAX);
+       |                      ^
+    155|     expect(await storedCount(key)).toBe(100);
+    156|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  7 failed | 4 passed (11)
+   Start at  12:29:22
+   Duration  2.55s (transform 56ms, setup 0ms, import 104ms, tests 2.33s, environment 0ms)
+

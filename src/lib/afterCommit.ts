@@ -37,6 +37,7 @@
  * A callback that cannot scope itself does not belong here.
  */
 import { als, type RequestContext } from '@/lib/als';
+import { forfeitQuotaRefund } from '@/lib/quotaUse';
 import { log } from '@/lib/logger';
 
 /**
@@ -75,6 +76,9 @@ export function runAfterCommit(label: string, fn: () => Promise<unknown>): void 
         : "this transaction's owner does not run after-commit work"}`,
     );
   }
+  // Work that runs after the request has ended cannot record usage-quota use
+  // where the settle would see it, so the request keeps what it charged.
+  forfeitQuotaRefund();
   store.afterCommit.push({ label, fn });
 }
 
