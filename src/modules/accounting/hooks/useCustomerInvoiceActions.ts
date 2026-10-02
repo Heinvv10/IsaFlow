@@ -155,7 +155,7 @@ export function useCustomerInvoiceActions(opts: Options | null): {
   };
 
   const overflowActions: ActionMenuItem[] = [
-    ...(invoice.payment_url
+    ...(invoice.payment_url || invoice.has_standing_link
       ? [{
           label: 'Revoke payment link',
           icon: createElement(Link2Off, { className: 'h-4 w-4' }),
