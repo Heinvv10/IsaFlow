@@ -299,8 +299,20 @@ orchestrator. Every other R-181 evidence log (red, green, mutations, regression)
   statements use `bank_reference` and the portal uses fixed labels.
 - **Verify's `pending` can stay pending indefinitely.** When the settlement fails for a permanent
   cause, verify keeps answering `pending` (never `failed`, so the payer is not invited to pay
-  again). The webhook fails on the same cause loudly: it answers 500, keeps the event
-  `processed = false` with its `processing_error`, and Paystack redelivers.
+  again). The return page polls it at most 10 times (about 30s), and a 429 from verify's per-IP
+  limit ends the polling the same way: the payer lands on a neutral "Still confirming your
+  payment" state ("check back later, or contact <company>"), not on an error. It promises no
+  email, because the settlement sends none. The webhook fails on the same cause loudly: it answers
+  500, keeps the event `processed = false` with its `processing_error`, and Paystack redelivers.
+- **A one-cent excess over `fees` (10301 / 10000 / 300) is not trusted** (PR #618 final review
+  LOW-1). `amount` R103.01 is banked and flagged `requested_amount_exceeds_fee`; the fee leg makes
+  Bank R100.01 = `amount - fees`, so Bank is right, but a customer-paid fee becomes customer credit
+  plus expense. Accepted: a tolerance would leave Bank a cent off the settlement. **Unverified
+  against real Paystack pass-on payloads**: if Paystack's `amount - requested_amount` routinely
+  exceeds `fees` by a rounding cent, every pass-on charge takes this path. Pinned as current
+  behaviour in `tests/unit/services/ar/gatewaySettlementRules.test.ts`.
+- **`paystackClient.ts` is 432 lines** (over the 300-line limit; 425 before R-181): R-183, not
+  split here.
 - **The fee journal has no unique constraint (R-185, pre-existing).** `postGatewayFee` guards with a
   SELECT on (company, reference, posting agent) and then inserts; two dedupe-path settlements for
   one reference at the same moment (for example two different webhook bodies arriving together)
@@ -356,3 +368,27 @@ Tests: `tests/integration/r181-pr618.int.test.ts` (5 cases) and the round-2 case
 expecting the flag. Red 5 of 18 on a8aad8465 (`red.r7.int.log`); green 55/55 over the four R-181
 suites; mutants S1..S7 all killed (`mutations.log`); regression 246 of 247 (the one failure is the
 pre-existing k061 contention case above). All on `isaflow-fixture-r181`, 127.0.0.1:55563.
+
+## PR #618 final blind review (at 745d6e8d6: FIX, 1 MEDIUM + 4 LOWs)
+
+- **MEDIUM-1. CI ran no test of the money rules**: every R-181 test was an integration test, and
+  those are skipped on GitHub (empty `DATABASE_URL`). `tests/unit/services/ar/gatewaySettlementRules.test.ts`
+  is a table of every case in this file: `settledCharge` ({cents, reviews}), `merchantFee`
+  ({feeRand, reviews}, with Bank netting to `amount - fees` asserted wherever it can),
+  `composeReviewNote`, the description tag, `invoiceReview`, and the allocation arithmetic, now a
+  pure `allocationPlan` that `decideGatewayAllocation` calls. 53 cases; the 10 allocation cases
+  were red until `allocationPlan` existed (`red.r8.unit.log`). Under `env -u DATABASE_URL vitest
+  run`, `>` → `>=` in `requestedAmountDistrust` (line 58) turns 3 cases red and dropping the
+  receipt cap (line 111) turns 1 red (`mutations.log`).
+- **LOW-1.** The one-cent excess: accepted and pinned (residual above).
+- **LOW-2. The return page.** verify now answers `amountCents` with what was banked (the receipt's
+  `total_amount`; the request amount only before anything is banked) and `appliedToInvoice`
+  (whether the invoice took any of it). The page names the invoice only when it did, and stops
+  polling after 10 tries or a 429 on "Still confirming your payment". Tests: three verify cases in
+  `r181-pr618.int.test.ts` (red 3/8, `red.r8.int.log`) and `tests/unit/components/paystackPortalReturn.test.tsx`
+  (red 3/4, `red.r8.component.log`). Not changed, noted: the completed state's existing line "A
+  receipt has been emailed to you" is not backed by anything the settlement sends.
+- **LOW-3.** The "verify carries no fee" comments (`gatewayFeeService.ts`,
+  `gatewayInvoiceReceiptService.ts`, `paystackEventHandlers.ts`) corrected; `fees` added to
+  `billing/.claude.md`; mirrors regenerated.
+- **LOW-4.** `paystackClient.ts` stays R-183.

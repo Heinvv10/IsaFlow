@@ -118,10 +118,10 @@ export async function recordGatewayInvoiceReceipt(
   `;
   if (already[0]) {
     // The receipt is already banked — by the webhook, a redelivery, or the
-    // portal verify route. The FEE still may not be: verify carries no fee and
-    // exists to beat the webhook, so returning here used to lose the fee leg
-    // for every customer who reached the return page. Post it against the
-    // receipt that already exists, in that receipt's period.
+    // portal verify route. The FEE still may not be: verify's response may carry
+    // no `fees`, and returning here used to lose the fee leg for every customer
+    // who reached the return page. Post it (once; postGatewayFee is idempotent)
+    // against the receipt that already exists, in that receipt's period.
     log.info('Gateway receipt already recorded', { reference, invoiceId }, 'accounting');
     const bankedRand = Number(already[0].total_amount);
     // Two disagreements: the figure each would bank, and Paystack's own `amount` (PR #618 LOW-5).

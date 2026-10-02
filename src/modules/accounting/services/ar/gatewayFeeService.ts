@@ -8,8 +8,9 @@
  * third line, to leave the canonical AR posting untouched.
  *
  * Separate from the receipt's own idempotency on purpose: the portal verify
- * route banks the receipt but carries no fee, and it exists to beat the webhook,
- * so the fee arrives on a delivery that finds the receipt already there.
+ * route exists to beat the webhook, and its response may carry no `fees`, so the
+ * fee can arrive on a delivery that finds the receipt already there. Whichever of
+ * the two carries `fees` first posts the leg; this idempotency stops the other.
  *
  * Being a separate entry also means `cancelCustomerPayment` does not reverse it:
  * it reverses only the receipt's own `gl_journal_entry_id`. That is deliberate

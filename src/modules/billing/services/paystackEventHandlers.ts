@@ -127,10 +127,11 @@ async function handleChargeSuccess(
   if (!pr) {
     // The guarded UPDATE matched nothing because the request is ALREADY
     // completed — normally because the portal return page's verify route got
-    // there first. That route banks the receipt but carries no fee, and this
-    // delivery does, so the settlement still needs the fee leg. Re-read the row
-    // and let recordGatewayInvoiceReceipt decide: it is idempotent on the
-    // reference and will post only what is missing.
+    // there first. That route banks the receipt and posts the fee only when its
+    // response carried `fees`; this delivery does carry them, and its amount is
+    // compared with the first report's. Re-read the row and let
+    // recordGatewayInvoiceReceipt decide: it is idempotent on the reference and
+    // posts only what is missing.
     const settled = await sql<{
       id: string;
       company_id: string;
