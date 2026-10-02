@@ -58,7 +58,7 @@ import {
   unwindOnePayment,
 } from '../bank/bankAllocationUnwind';
 import { reverseReconciledTransaction } from '../bank/bankAllocationService';
-import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
+import { lockBankTransactionsInIdOrder } from '../bank/bankTxLock';
 import { findBankTransactions, findChainBankTransactions, peekPaymentJournal } from './paymentVoidReads';
 import { reconciliationLockOf, refuseLockedCash } from '../bank/reconciledCash';
 import { unmatchTransaction } from '../bank/bankTxStatusMutations';
@@ -184,14 +184,16 @@ async function voidPaymentDocumentInner(
     return { refusal: 'ambiguous_bank_lines', count: bankLines.length };
   }
   const bankTransactionId = bankLines[0] ?? null;
-  // A no-op re-lock for `reverseReconciledTransaction` below — one statement,
-  // and it fixes the order for the pair.
-  if (bankTransactionId) await lockBankTransactionForUpdate(companyId, bankTransactionId);
-  // Lines matched to another journal of the chain (the head R2, D8 round 10): locked here too, reconciled cash refused.
+  // Lines matched to another journal of the chain (the head R2, D8 round 10): locked too, reconciled cash refused.
   const chainLines = peekedJournalId ? await findChainBankTransactions(companyId, peekedJournalId) : [];
-  for (const id of chainLines) {
-    const line = await lockBankTransactionForUpdate(companyId, id);
-    if (line) refuseLockedCash(await reconciliationLockOf(companyId, line), "This payment's bank line");
+  // The root's line and the chain's in ONE id-ordered pass, as the HTTP void takes them (D8 round 11): two passes
+  // deadlocked against it when the head's line had the lower id. `reverseReconciledTransaction`'s re-lock is a no-op.
+  const locked = await lockBankTransactionsInIdOrder(
+    companyId, bankTransactionId ? [bankTransactionId, ...chainLines] : chainLines);
+  for (const line of locked) {
+    if (chainLines.includes(String(line.id))) {
+      refuseLockedCash(await reconciliationLockOf(companyId, line), "This payment's bank line");
+    }
   }
 
   const payment = await loadPayment(companyId, kind, paymentId);

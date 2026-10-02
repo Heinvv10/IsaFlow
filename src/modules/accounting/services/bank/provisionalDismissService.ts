@@ -15,7 +15,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reverseJournalEntry } from '../gl/journalEntryService';
 import { lockStandingChainHead } from '../shared/journalChainHead';
-import { lockBankTransactionForUpdate } from './bankTxLock';
+import { lockBankTransactionsInIdOrder } from './bankTxLock';
 import { underFlowLockBudget } from '../core/rowLockBudget';
 
 type Row = DbRow;
@@ -55,7 +55,7 @@ async function dismissInner(companyId: string, jeId: string, userId: string): Pr
     SELECT id FROM bank_transactions
     WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID ORDER BY id
   `) as Row[];
-  for (const l of lines) await lockBankTransactionForUpdate(companyId, String(l.id));
+  await lockBankTransactionsInIdOrder(companyId, lines.map((l) => String(l.id)));
   // Re-read under the bank-line locks (D8 round 10, brk-d8c O8): an automatic attach that committed while this
   // waited has evidenced the entry, and the read above is stale.
   const [still] = (await sql`

@@ -147,6 +147,21 @@ export async function lockBankTransactionForUpdate(
 }
 
 /**
+ * Lock several bank lines in ONE order — ascending id, the order `ORDER BY bt.id` gives — and return the rows found,
+ * in that order. Every flow that takes more than one line goes through here (D8 round 11, rev-d8-c553cc0f8 F2): the
+ * MCP void took the root journal's line and then the chain's in a second pass, the HTTP void took both in one id
+ * pass, and the pair deadlocked whenever the head's line had the lower id.
+ */
+export async function lockBankTransactionsInIdOrder(companyId: string, ids: readonly string[]): Promise<DbRow[]> {
+  const rows: DbRow[] = [];
+  for (const id of [...new Set(ids.map((i) => i.toLowerCase()))].sort()) {
+    const row = await lockBankTransactionForUpdate(companyId, id);
+    if (row) rows.push(row);
+  }
+  return rows;
+}
+
+/**
  * Run `fn` under the same 5s `lock_timeout`, for a WRITE whose own wait must be
  * bounded: `matchTransaction`'s UPDATE waits on `uq_bank_tx_matched_line`
  * behind a peer's uncommitted binding. It used to inherit the budget

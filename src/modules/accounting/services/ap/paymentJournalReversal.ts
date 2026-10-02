@@ -24,7 +24,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
+import { lockBankTransactionsInIdOrder } from '../bank/bankTxLock';
 import { unmatchTransaction } from '../bank/bankTxStatusMutations';
 import { ReconciledCashError, reconciliationLockOf, refuseLockedCash } from '../bank/reconciledCash';
 import { ReversalBeforeOriginalError, resolveReversalDate } from '../gl/journalEntryReversalDate';
@@ -143,9 +143,9 @@ async function lockMatchedLines(
   const ids = await matchedBankLines(companyId, journalIds);
   const toUnmatch: string[] = [];
   const allocated: string[] = [];
-  for (const id of ids) {
-    const row = await lockBankTransactionForUpdate(companyId, id);
-    if (!row) continue;
+  // The one id order every flow takes bank lines in (D8 round 11, `bank/bankTxLock`).
+  for (const row of await lockBankTransactionsInIdOrder(companyId, ids)) {
+    const id = String(row.id);
     await assertNotReconciled(companyId, row, label);
     // An ALLOCATED line posted this journal itself (a bank allocation): undoing
     // it is `reverseReconciledTransaction`'s job — unwind, contra, reset the line.
