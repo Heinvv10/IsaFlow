@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, act } from '@testing-library/react';
 
 vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -39,6 +39,19 @@ beforeEach(() => { fetchMock.mockReset(); fetchMock.mockImplementation(async (ur
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); company.role = 'viewer'; });
 
 const hrefs = () => Array.from(document.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+
+/**
+ * The page has loaded: every fetch it made has answered and none has been made for 60 ms. A count taken before
+ * this proves nothing (0 buttons before load is "hidden" for the wrong reason), so every count waits for it.
+ */
+async function settled(): Promise<void> {
+  await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(0));
+  let seen = -1;
+  while (seen !== fetchMock.mock.calls.length) {
+    seen = fetchMock.mock.calls.length;
+    await act(async () => { await new Promise((r) => setTimeout(r, 60)); });
+  }
+}
 const button = (re: RegExp) => screen.queryAllByRole('button', { name: re }).length;
 
 type Probe = [string, () => React.ReactElement, () => number];
@@ -65,15 +78,17 @@ const probes: Probe[] = [
 
 describe('write-only actions', () => {
   it.each(probes)('%s: hidden from a viewer, shown to a manager', async (_n, element, count) => {
-    render(element());
-    await screen.findAllByRole('heading');
-    const forViewer = count();
-    cleanup();
+    // Manager first: proves the page really renders the control once loaded, so the viewer's 0 is not vacuous.
     company.role = 'manager';
     render(element());
-    await screen.findAllByRole('heading');
-    expect(count(), 'manager sees it').toBeGreaterThan(0);
-    expect(forViewer, 'viewer sees it').toBe(0);
+    await settled();
+    await waitFor(() => expect(count(), 'manager sees it').toBeGreaterThan(0));
+    cleanup();
+    fetchMock.mockClear();
+    company.role = 'viewer';
+    render(element());
+    await settled();
+    expect(count(), 'viewer sees it').toBe(0);
   });
 
   it('employee list: a viewer has no Start column and no New Employee; a manager has both', async () => {
@@ -95,13 +110,15 @@ describe('write-only actions', () => {
 describe('pay package inputs', () => {
   it('are display-only for a viewer and editable for a manager', async () => {
     const editable = () => Array.from(document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('select, input[type="number"], input[type="checkbox"]')).filter((e) => !e.disabled).length;
-    render(<PayPackagePage />);
-    await screen.findByText('Executive');
-    expect(editable()).toBe(0);
-    cleanup();
     company.role = 'manager';
     render(<PayPackagePage />);
     await screen.findByText('Executive');
-    expect(editable()).toBeGreaterThan(0);
+    await waitFor(() => expect(editable()).toBeGreaterThan(0));
+    cleanup();
+    company.role = 'viewer';
+    render(<PayPackagePage />);
+    await screen.findByText('Executive');
+    await settled();
+    expect(editable()).toBe(0);
   });
 });
