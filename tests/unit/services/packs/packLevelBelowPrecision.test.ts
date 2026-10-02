@@ -10,6 +10,8 @@
 import { describe, expect, it } from 'vitest';
 import { pctLevelWithWord } from '@/lib/format/pctLevelWithWord';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { positionCaption } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
+import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { demoInput, demoSet, figures } from './fixtures/boardPackInputs';
 
 describe('a percentage level in a sentence', () => {
@@ -36,3 +38,24 @@ describe('page 6 on a margin of 0.043%', () => {
     expect(title).toMatch(/^Gross margin is a positive <0\.1% on revenue of 2.311\.$/);
   });
 });
+
+describe('the other level sentences', () => {
+  const textOf = (input: Parameters<typeof buildBoardPackPages>[0], nav: string): string => {
+    const page = buildBoardPackPages(input).pages.find((p) => p.navLabel === nav)!;
+    return `${page.title}\n${JSON.stringify(page.blocks)}`;
+  };
+
+  it('page 3 states an operating margin below one decimal as a bound', () => {
+    const current = figures({ operatingProfit: 1_000, netProfit: 1_000 - 15_000 - 42_000 - 181_000 });
+    expect(textOf({ ...demoInput, set: { ...demoSet, current } }, 'Highlights'))
+      .toContain('Operating margin is a positive <0.1%.');
+  });
+
+  it('page 7\'s caption states a current-asset cover below one decimal as a bound', () => {
+    // 400 over 940 000 is 0.043%: below one decimal.
+    const current = figures({ currentAssets: 400 });
+    expect(positionCaption({ ...demoSet, current }, PACK_SCALE))
+      .toMatch(/^Current assets cover current liabilities at <0\.1% — a current ratio of <0\.01×/);
+  });
+});
+

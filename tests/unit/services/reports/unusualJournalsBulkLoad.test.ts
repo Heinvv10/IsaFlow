@@ -154,6 +154,20 @@ describe('what a bulk load does not excuse', () => {
     expect(result.bulkLoaded).toMatchObject({ journals: 10, oldestEntryDate: '2026-03-31' });
   });
 
+  it('dates the load by its OWN journals, not by an older late journal recorded on an ordinary day', async () => {
+    const rows = [
+      journal('loaded', '2026-05-01', '2026-09-05T07:00:00.000Z'),
+      // Late, older, and alone on its recording day: a matter of its own.
+      journal('alone', '2026-01-15', '2026-02-20T07:00:00.000Z'),
+    ];
+    const result = await run(rows, [
+      ...recorded(20, '2026-05-01', '2026-09-05T07:00:00.000Z'),
+      ...recorded(1, '2026-01-15', '2026-02-20T07:00:00.000Z'),
+    ]);
+    expect(result.bulkLoaded).toMatchObject({ journals: 1, oldestEntryDate: '2026-05-01' });
+    expect(result.flags.map((f) => [f.entryId, f.reason])).toEqual([['alone', 'backdated']]);
+  });
+
   it('a round number recorded in a bulk load is still a round number, and is not counted as skipped', async () => {
     const round = journal('r', '2026-03-01', '2026-09-05T07:00:00.000Z', 6_000_000);
     const plain = journal('p', '2026-03-02', '2026-09-05T07:00:00.000Z');

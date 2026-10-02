@@ -21,6 +21,7 @@ import { BOARD_DECISIONS } from '@/modules/accounting/services/packs/pages/packM
 import { checkMattersCrossReference } from '@/modules/accounting/services/packs/figures/packMattersIntegrity';
 import { boardActionItems, narrativeTitle } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import { groupedCount } from '@/modules/accounting/services/packs/pages/packMatterWords';
+import { bulkLoadedMatter } from '@/modules/accounting/services/packs/pages/packBulkLoadedJournals';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import type { PackPage, PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
@@ -113,6 +114,17 @@ describe('the counts no whole pack reaches', () => {
     const none: PackMatter = { ...finding(0), kind: 'checkFailed', issue: 'aged debtors could not be assessed' };
     expect(narrativeTitle([none], [none, finding(1), finding(2)], PACK_SCALE))
       .toMatch(/^0 of 2 matters requiring a board decision are put to the board on this page/);
+  });
+});
+
+describe('a load recorded on one day', () => {
+  it('names the day, and says "that day" rather than "each of those days"', () => {
+    const matter = bulkLoadedMatter({
+      journals: 1, days: 1, firstRecorded: '2026-09-05', lastRecorded: '2026-09-05', oldestEntryDate: '2026-03-31',
+    }, 'Not tracked.');
+    expect(matter.issue).toBe('1 journal dated as far back as 31 March 2026 was recorded in bulk on 5 September 2026: '
+      + '10 or more journals dated over 5 days earlier were recorded on that day, so none is listed here one by one '
+      + 'for late recording.');
   });
 });
 
