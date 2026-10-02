@@ -1,27 +1,61 @@
-# `src/lib/rateLimit.ts`
+# `src/lib/rateLimit.ts` (with `rateLimitCore.ts`, `rateLimitPool.ts`, `rateLimitQuota.ts`, `quotaUse.ts`)
 
 ## Purpose
-Postgres-backed (DB-persisted) rate limiter with a 5-second LRU short-circuit — shares counters across all pods via the `rate_limit_counters` table (migration 331). There is no Redis dependency; all persistence is through Postgres.
+Postgres-backed (DB-persisted) rate limiter with a refuse-only in-process cache — shares counters across all pods via the `rate_limit_counters` table (migration 331). There is no Redis dependency; all persistence is through Postgres.
 
 ## Key exports
 
-- `checkRateLimit(key, opts) → Promise<boolean>` — returns `true` if the request is allowed; key is any string (typically IP or `companyId:endpoint`). Atomically UPSERTs the counter in Postgres by `opts.cost` (default 1); LRU short-circuits the DB call only when the key is under 50% of the limit AND `cached.count + cost` would stay under `max` — a call whose cost alone could exceed the limit always falls through to the DB.
+- `checkRateLimit(key, opts) → Promise<boolean>` — returns `true` if the request is allowed; key is any string (typically IP or `companyId:endpoint`). One atomic statement charges `opts.cost` (default 1) **only if it fits** under `max`, and returns whether it did. A refused call changes nothing, so the count never passes `max` and a refused 100-unit call does not use up room a 1-unit call could still have. Every call that can be admitted reaches the database; a key the database has just reported **full** is refused from memory for up to `REFUSAL_TTL_MS` (R-175). `max` is floored if fractional; NaN, Infinity, a negative or a value above 1 000 000 000 throws a `RangeError` (it is bound as a SQL integer).
+- `chargeRateLimit(key, opts) → Promise<{ admitted, windowStart }>` — the same, also naming the window that was charged. `checkRateLimit` is its `admitted`.
 - `getClientIp(req) → string` — extracts the real client IP from `X-Forwarded-For` (last value = nginx-appended, spoofing-resistant). Never use `req.socket.remoteAddress` directly.
 - `checkAiRateLimit(req, companyId, name, opts?) → Promise<boolean>` — per-IP + per-company + daily quota for AI/LLM endpoints. Key prefix: `ai:`. Defaults: ipMax=20, companyMax=40, dailyMax=300 per 15-min / 24-hr window.
 - `checkSendRateLimit(req, companyId, name, opts?) → Promise<boolean>` — per-IP + per-company + daily quota for email-send endpoints (M13 / WS-2b). Key prefix: `send:`. Defaults: ipMax=30, companyMax=60, dailyMax=500 per 15-min / 24-hr window. `opts.count` (default 1) weights the cost by batch size — e.g. a bulk-send of N recipients should pass `count: N` so it charges N units instead of 1 (ratelimit-cost-weighting fix).
-- `withRateLimit(handler, opts) → NextApiHandler` — middleware wrapper that applies `checkRateLimit(ip, opts)` and returns 429 on breach.
-- `clearRateLimitCache()` — clears the LRU; **test use only**.
+- `withRateLimit(handler, opts, scope) → NextApiHandler` — middleware wrapper that applies `checkRateLimit(`${scope}:ip:${ip}`, opts)` and returns 429 on breach. `scope` is required and namespaces the key per route.
+- `refundRateLimit(key, units, windowStart?) → Promise<void>` — gives units back; floors at zero, never moves `window_start`. Same pool as the charge. With `windowStart` (from `chargeRateLimit`) it is a no-op once the window has rolled over: a refund must only reduce the window it was charged in.
+- `clearRateLimitCache()` — forgets every remembered refusal. Tests call it between cases; it can only cause a database call.
+- `REFUSAL_TTL_MS` (5000) — the longest a refusal is remembered.
+- `src/lib/rateLimitCore.ts` holds `checkRateLimit`, `refundRateLimit`, `clampCost`, the cache and `REFUSAL_TTL_MS`; this file re-exports them. Always import from `@/lib/rateLimit`.
+- `checkAiRateLimit` / `checkSendRateLimit` take `refundUnused?: boolean` — see "Abuse limit or usage quota" below.
 - `RateLimitOptions` — `{ max: number; windowSecs: number; cost?: number }`.
 
 ## Dependencies
-- `lru-cache` — in-process LRU short-circuit (10 000 key cap, 5 s TTL)
-- `@/lib/neon` — `sql` for the atomic UPSERT
+- `@/lib/rateLimitPool` — the limiter's own `pg.Pool` for the atomic UPSERT and the refund
+- `lru-cache` — the refuse-only cache (10 000 keys)
+- `@/lib/quotaUse` — notes daily usage-quota charges on the request context
 - `@/lib/logger` — warns on 429
 
 ## Critical notes
 - **Replaced the legacy `rateLimiter.ts`** (BL-21 / S-005); that file has been deleted. Always use `checkRateLimit` from this module for any rate-limiting need.
 - **IP extraction gotcha** (BL-20): the FIRST entry in `X-Forwarded-For` is client-supplied and spoofable. This file correctly uses the LAST entry. Do not change this logic.
 - **`rate_limit_counters` table** must exist (migration 331) — the `INSERT … ON CONFLICT` will throw without it.
+- **Windows of any length**: the time left in a window is read as `float8` (an `int` overflowed above ~24.8 days).
 - **Window reset**: uses Postgres `make_interval(secs => N)` — the window resets per key, not globally. Each key is independent.
-- **LRU short-circuit only fires below 50% of the limit** — above that threshold every request hits the DB to ensure accurate enforcement near the limit.
+- **No admitting cache (R-175)** — the old LRU short-circuit admitted calls it never wrote to the table, so a limit of 20 admitted ~65 per window on one process. Nothing in memory may admit a call.
+- **Refuse-only cache** — when the DB refuses a call and the key is full (`count >= max`), that count is remembered for `min(REFUSAL_TTL_MS, time left in the window)`. A later call on the key with `max` at or below the remembered count returns `false` with no DB call. A refusal that leaves room (a 100-unit call at 9,950 of 10,000) is not remembered, so nothing the DB would admit is refused from memory. The refused row comes from the statement's snapshot, which can read full after a refund committed during the lock wait, so the count is re-read in its own statement before it is remembered. So a flood on one full key cannot occupy the limiter pool. `refundRateLimit` drops the entry. The cap is 5 s on purpose: a refund from another process, the nightly cleanup, or an operator deleting a counter row is not seen here and must take effect within seconds. A test that changes a row behind the limiter's back must call `clearRateLimitCache()`.
+- **The counter never joins the caller's transaction (K-103)** — charge and refund run on the limiter's own pool (`src/lib/rateLimitPool.ts`, `RATE_LIMIT_POOL_MAX` connections per process (default 10)), so the charge commits at once, survives a request that rolls back, and holds no row lock past its own statement. Do not route them through `sql`: inside a request that joins the request transaction. Do not use the main pool either: a request already holds one of its connections, and a second from the same pool deadlocks under load until the connect timeout.
+- **Pool size: `RATE_LIMIT_POOL_MAX`** (default 10, a whole number from 1 to 100; anything else falls back to 10 with a warning). Read when the pool is created, so a change takes effect on the next process start. Measured on the fixture, p99 latency with every call admitted:
+
+  | Concurrent calls | Pool 3 | Pool 10 |
+  |---|---|---|
+  | 50 (one key / many keys) | 253 / 170 ms | 97 / 19 ms |
+  | 200 (one key / many keys) | 1017 / 673 ms | 378 / 75 ms |
+  | 1000, one key | 5.0 s, 30-56 calls hit the connect timeout | 1.9 s, none |
+
+  Lower it only if the database's connection budget needs it.
+- **Every wait on the limiter pool is bounded** — connect 5 s, `lock_timeout` 2 s < `statement_timeout` 3 s < `query_timeout` 4 s. Keep that order: the client-side timer must fire last.
+- **The lock and statement timeouts are connection start-up parameters.** Production's `DATABASE_URL` targets port 7772, the `isaflow-supabase-db` container's Postgres directly (checked by the lead, 2026-10-01); the Supavisor pooler on 7773/7774 is not used. A transaction pooler may reject start-up parameters, so change this pool BEFORE moving the app behind one. Post-deploy check: `POST /api/auth/login` with a wrong password answers 401, not 500.
+- **A limiter DB error throws** — the request fails (500). One caller catches it, `shareResolver.ts`, and refuses. Nothing may catch it and admit.
+- **Abuse limit or usage quota** — an abuse limit counts an attempt even when it fails (login, tokens, public routes). A usage quota bounds work done. The daily AI and send buckets are usage quotas. With `refundUnused: true` the limiter notes the daily charge on the request context; the place that does the work calls `markQuotaUsed('ai' | 'send')` (`src/lib/quotaUse.ts`); `withAuth` settles at the end of every request, whatever its status, and gives back `charged - used` into the window that was charged (`src/lib/rateLimitQuota.ts`). So with `refundUnused` the daily bucket ends up holding AI calls a provider answered (or may have answered: a timeout counts) and emails a mail server accepted. The 15-minute buckets are never given back.
+- **Where use is recorded** — `emailService.sendEmail` (a mail server accepted the message), `vlmCore.callVlmChat` and `noteAiService.generateNoteNarrative` (a provider answered), the three routes that call a provider themselves: `nl-query`, `ai-narrative`, `ai-forecast`; and `send-for-signing`, which records use itself once Signum has created the document. Record use at a shared client, not in each route.
+- **A provider answer that is not a success** — `markQuotaUsedForStatus(kind, status)`: a 4xx (including 429) refused the request, no work; a 5xx or a 408 counts as use, because a 502/503/504 can come from a proxy after the provider did the work. For the callers of api.anthropic.com use `markAnthropicUsedForStatus(status)`: the same, except that Anthropic's 529 is no work. Anthropic's error page (https://platform.claude.com/docs/en/api/errors) says only "529 - overloaded_error: The API is temporarily overloaded"; it is treated as no work because it is Anthropic's own code for turning a request away under load, which no proxy produces. The VLM client and Signum use the general rule.
+- **A provider call that throws** — call `markQuotaUsedUnlessNoWork(kind, err)` in the catch (`markAnthropicUsedUnlessNoWork(err)` for the Anthropic SDK). It counts as use unless the error proves no work was done: connection refused, name not resolved, connect timeout, or a status that the rule above calls no work. A timeout, an abort or an unknown error counts as use. A client that retries hides earlier attempts behind the last error, so the Anthropic SDK client in `noteAiService` runs with `maxRetries: 0`.
+- **An email send that throws** — `markSendUsedUnlessNotSent(err)` in `emailService.sendEmail`, from nodemailer 8's codes: a 4xx/5xx SMTP reply, EDNS, ETLS, EREQUIRETLS, EAUTH, ENOAUTH, EOAUTH2, EENVELOPE, EMESSAGE, ECONFIG, or ESOCKET from `connect`/`getaddrinfo` is not sent; ETIMEDOUT, any other socket error, a dropped connection or anything unknown counts as sent.
+- **Work after the request** — `runAfterCommit` forfeits the request's refund (`forfeitQuotaRefund`): use recorded after the request has ended cannot be seen by the settle. Never do refundable work under `als.exit`; the caller census refuses it. A promise that is started and not awaited is not detected.
+- **Abuse limit before a shared bucket** — the send routes count each attempt per company and user (`<name>:attempts:<company>:<user>`, 30 per 15 minutes, and `<name>:user-attempts:<user>`, 90 per 15 minutes across all the user's companies) and charge the company's shared bucket only after the body is validated AND the records it names are found to be the company's, so one user's malformed or foreign-id requests cannot stall colleagues.
+- **Known full costs nothing** — `checkAiRateLimit` / `checkSendRateLimit` consult `isKnownFull` on the daily key first: a company whose daily bucket was just reported full is refused with no limiter statement at all.
+- **Both usage buckets or neither** — in `checkAiRateLimit` / `checkSendRateLimit`, if the daily bucket refuses, what the call took from the 15-minute company bucket is given back into its window. The per-IP bucket is an abuse limit and is never given back.
+- **Every refund names its window** — pass the `windowStart` from `chargeRateLimit`; the key census fails on a refund without one.
+- **Wrapper-applied buckets** — `src/lib/auth/autoRateLimit.ts` holds the one table `withAuth` and the bearer pipeline both use. Do not copy it.
+- **Fail safe** — pass `refundUnused` ONLY if the route's work reaches a `markQuotaUsed` call inside the request. A route that passes it without one gets its unit back every time and its daily quota is dead. `ai-invoice-pipeline`, `multi-doc-match`, `verify-payslip`, `document-validation` (no provider call) and `smart-categorize` (LLM runs after COMMIT) do not pass it and keep their charge. `tests/unit/security/quotaCallerCensus.test.ts` lists every caller and fails on an unclassified one.
+- **One key, one set of options** — a key is one row with one window; two call sites with the same key and different windows reset each other. `tests/unit/security/rateLimitKeyCensus.test.ts` fails on it.
 - **Security**: keys should never embed user-supplied strings without sanitisation; use composite keys like `ip:endpoint` rather than raw query params.

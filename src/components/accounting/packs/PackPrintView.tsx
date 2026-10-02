@@ -21,10 +21,15 @@ export function PackPrintView({ document }: { document: PackDocument | null }) {
   return (
     <div
       data-print-ready={ready ? 'true' : 'false'}
-      className="mx-auto max-w-[190mm] bg-white p-0 text-[var(--ff-text-primary)]"
+      className="mx-auto max-w-[174mm] bg-white p-0 text-[var(--ff-text-primary)]"
+      {...(document?.draft ? { 'data-pack-draft': '' } : {})}
     >
       {document && (
         <>
+          {/* One fixed element repeats on every printed sheet, which is how the
+              board pack's per-page mark is reached here without per-page
+              markup: this view's pages are wherever the content breaks. */}
+          {document.draft && <div data-pack-watermark aria-hidden="true"><span>DRAFT</span></div>}
           <PackCover document={document} />
           <PackToc document={document} />
           {document.sections.map((section) => (

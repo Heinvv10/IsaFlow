@@ -1,0 +1,177 @@
+/* styles/packPrintChartsAndGovernance.css — the last of packPrint.css's four
+ * partials: charts and small multiples, the landscape disclosure columns, the
+ * commentary source line, the definitions, the matters table and the DRAFT
+ * watermark.
+ *
+ * A CONTIGUOUS SLICE of what packPrint.css was, in its original order — see
+ * packPrintPage.css for why the partials are not regrouped by topic.
+ */
+
+/* Charts. The height comes from the model (spec §5.6's 48/72/110mm grid
+ * multiples) as an inline style, so only the inner SVG's fit is set here. */
+/* EVERY CHART'S PLOT BOX IS A GIVEN HEIGHT, AND THE CAPTION IS WHAT GROWS.
+ *
+ * `.pack-chart` was a fixed-height flex column and `.pack-chart-svg` took
+ * `flex: 1` of whatever the caption left. On page 10 that quietly broke the
+ * one claim the page makes about itself: the four money panels share a
+ * y-domain in the SVG's user space, but net profit's caption wraps to two
+ * lines where the others take one, so its plot box was 123.3px against their
+ * 142.0px and the SAME rand amount was painted 13.2% shorter than on the
+ * panels beside it. Measured on the printed page, not inferred: 0.74275 page
+ * pixels per user unit against 0.85523. A shared scale that does not survive
+ * to paper is a caption a reader can check and find false.
+ *
+ * The FULL-WIDTH charts had the same wound in a second place. An SVG whose
+ * viewBox does not match its box is letterboxed — `preserveAspectRatio`
+ * defaults to `xMidYMid meet`, which scales it down and centres it — so a
+ * chart lost width in proportion to how tall its title was, and the same
+ * bridge drew 722px on one company and 714px on the other. Both are one
+ * rule now: `--pack-chart-plot-mm` is the height `renderChartSvg` was given,
+ * the box and the render are one number, and the figure takes what its
+ * caption needs. `packPageMetrics` charges the block for the caption;
+ * `packSheetCount` holds that model to Chromium's own layout, and
+ * `packSharedScale.test.ts` measures the painted scale itself. */
+.pack-chart { margin: 0; display: flex; flex-direction: column; height: auto; }
+.pack-chart-title { font-size: 10pt; line-height: 14pt; font-weight: 500; margin-bottom: 1.5mm; }
+.pack-chart-svg { flex: none; height: var(--pack-chart-plot-mm); min-height: 0; }
+.pack-chart-svg svg { display: block; width: 100%; height: 100%; }
+
+/* A PANEL CAPTION IS SET SMALLER THAN A FULL-WIDTH CHART'S.
+ *
+ * 10pt over an 83mm measure gave the trends page's captions three lines each,
+ * and three rows of them cost 44mm — on the one page that has to carry six
+ * plots AND the two notes that make its own scale claims checkable. The page
+ * paid for the type size by dropping those notes and printing "Not printed on
+ * this page: 2 explanatory notes" instead, which is the renderer telling a
+ * board about its own overflow. 8.5pt on a 12pt line is the pack's glossary
+ * size, holds a fifth more words to the line, and gives the page back what
+ * the notes cost. */
+.pack-small-multiples .pack-chart-title { font-size: 8.5pt; line-height: 12pt; }
+/* Spec §4.A page 10: six panels on a PORTRAIT sheet, two across and three
+ * down. Three across was what the landscape sheet needed; two gives each
+ * panel 83mm — a millimetre off the old measure — and lets the row height go
+ * from 36mm to 48mm, which is what three of the six panels needed to show
+ * any movement at all. */
+.pack-small-multiples {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--pack-gutter);
+}
+
+/* A LANDSCAPE sheet's box is 168mm tall and 261mm wide, and the trends
+ * page's two disclosures cost 43mm of that box stacked one note per row.
+ * Set in two columns they cost half that, and a 261mm-wide measure was too
+ * long to read comfortably anyway — 130mm is about 90 characters at 9.5pt.
+ * The heading spans both columns so the block still reads as one note.
+ * Landscape only; every portrait page keeps the single measure. */
+.pack-page[data-print-landscape] .pack-disclosure {
+  display: block;
+  column-count: 2;
+  column-gap: var(--pack-gutter);
+}
+.pack-page[data-print-landscape] .pack-disclosure-heading {
+  column-span: all;
+  margin-bottom: 1.5mm;
+}
+.pack-page[data-print-landscape] .pack-disclosure-body + .pack-disclosure-body {
+  margin-top: 1.5mm;
+}
+
+/* The commentary source line — R7's visible difference between a human
+ * sign-off and a derived caption. A label, so it reads as one: small, caps,
+ * on its own line above the prose. */
+.pack-narrative-source {
+  display: block;
+  font-size: 7.5pt; line-height: 11pt; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--pack-grey-mid);
+}
+.pack-narrative-columns.is-derived .pack-narrative-body {
+  border-left: 1pt solid var(--pack-rule);
+  padding-left: 3mm;
+}
+
+/* A disclosure note's own lead-in — the heading of the note, inline with its
+ * body so a five-note block does not become five headed sections. */
+.pack-disclosure-note-heading { font-weight: 600; }
+
+/* Page 12's definitions, each with its optional reconciliation bridge.
+ *
+ * TWO COLUMNS, because it is a glossary. Sixteen terms set across the full
+ * 174mm measure came to 312mm on a 255mm sheet — the page refused to compose
+ * — and a one-line definition set across ninety characters is a bad measure
+ * anyway. `break-inside: avoid` keeps a term with its own definition, and
+ * keeps EBITDA's reconciliation table whole; without it Chromium will split a
+ * three-row bridge across the column break. */
+.pack-definitions {
+  /* 8.5pt over 12, a step below body prose: this is reference matter a reader
+   * consults rather than reads through, and sixteen terms at body size do not
+   * fit the sheet the pack is contracted to. */
+  margin: 0; font-size: 8.5pt; line-height: 12pt;
+  column-count: 2; column-gap: var(--pack-gutter);
+}
+.pack-definition { break-inside: avoid; }
+.pack-definition + .pack-definition { margin-top: 2mm; }
+.pack-definition-term { font-weight: 600; }
+.pack-definition-body { margin: 0 0 0 4mm; }
+.pack-definition-bridge { margin-top: 0.4mm; width: auto; min-width: 60mm; }
+/* The comparative column's heading row. `.pack-table th`'s 1.5mm padding is
+ * set for a statement's own header band across a 174mm measure; inside a
+ * glossary entry it is a rule of white above three short lines, and page 12
+ * has millimetres to spare. 0.4mm keeps the row legible at 8pt and costs
+ * `DEFINITION_BRIDGE_HEAD_MM` rather than `TABLE_HEAD_MM`. */
+.pack-definition-bridge th { padding: 0.2mm 2mm; }
+/* And its cells. `.pack-table td`'s 1.2mm is set for a statement across the
+ * full measure; three lines inside a glossary entry read tighter, and the
+ * comparative column has to be paid for from somewhere on a page that fits
+ * with millimetres to spare. See `DEFINITION_BRIDGE_ROW_MM`. */
+.pack-definition-bridge td { padding: 0.6mm 2mm; }
+/* Why the three lines above do not add as printed — see
+ * `bridgeRoundingNote`. 7.5pt grey, the size the pack sets every fact ABOUT a
+ * figure in, so it reads as a qualification of the bridge and not as a fourth
+ * line of it. */
+.pack-definition-bridge-note {
+  font-size: 7.5pt; line-height: 11pt;
+  color: var(--pack-grey-strong);
+  margin: 1mm 0 0;
+}
+
+/* Page 11's matters table. Four of its five columns are prose, so they are
+ * left-aligned and proportional — the default `.pack-table td` rule right-
+ * aligns and sets its figures tabular, which is correct for a figure column and unreadable for
+ * a sentence. Quantum keeps it. */
+/* Four of five columns are prose, so they WRAP — `.pack-table td`'s
+ * `white-space: nowrap` is right for a statement's figure columns and would
+ * run a sentence clean off the right edge of the paper here. */
+/* FIXED, so the height model and the browser size the columns the same way.
+ * Under `auto` the widths follow the content, and the model that has to
+ * budget this page before it is printed cannot know them without laying the
+ * table out — it charged the live demo company 78mm for a 95mm table and
+ * withheld twenty-three board matters to pay for it. The widths themselves
+ * are in `packMattersColumns.ts`, which the `<colgroup>` prints from. */
+.pack-matters { table-layout: fixed; }
+.pack-matters td { text-align: left; font-family: var(--pack-font-sans); vertical-align: top; white-space: normal; }
+.pack-matters th { text-align: left; }
+.pack-matters td:nth-child(2), .pack-matters th:nth-child(2) {
+  text-align: right; font-family: var(--pack-font-figure); white-space: nowrap;
+}
+.pack-matters-row td { border-bottom: 0.5pt solid var(--pack-rule); }
+/* The count of matters the sheet had no room for. Set like the table's own
+ * repeated-column note rather than like body prose: it is a statement ABOUT
+ * the table, and a reader must not mistake it for a matter. */
+.pack-matters-omitted {
+  margin: 1.5mm 0 0; font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid);
+}
+
+[data-pack-draft] .pack-page::before {
+  content: 'DRAFT';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  font-size: 96pt;
+  font-weight: 600;
+  color: var(--pack-ink);
+  opacity: 0.06;
+  pointer-events: none;
+  white-space: nowrap;
+}

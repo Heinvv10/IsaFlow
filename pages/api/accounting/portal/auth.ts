@@ -20,9 +20,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  // Rate limit by IP — 5 requests per 60 seconds (Neon-backed, multi-pod safe)
+  // Rate limit by IP — 5 requests per 60 seconds (Neon-backed, multi-pod safe).
+  // Its own key: it used to share `portal-auth:` with the AR portal's password
+  // login (pages/api/portal/auth.ts, 5 per 15 minutes). One row, two windows:
+  // this route's 60-second window kept resetting that login's count (R-175).
   const ip = getClientIp(req);
-  const allowed = await checkRateLimit(`portal-auth:${ip}`, { max: 5, windowSecs: 60 });
+  const allowed = await checkRateLimit(`afs-portal-magic-link:${ip}`, { max: 5, windowSecs: 60 });
   if (!allowed) {
     log.warn('Portal auth rate limit exceeded', { ip }, 'portal-auth-api');
     return apiResponse.tooManyRequests(res, 'Too many login attempts. Please try again in a minute.');

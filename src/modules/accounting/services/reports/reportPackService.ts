@@ -5,9 +5,15 @@
  */
 
 import { calculateExtendedRatios, type FinancialData } from './reportingEngineService';
-import { buildKPIScorecard, type KPITargetConfig } from './kpiScorecardService';
+import { buildKPIScorecard, type KPITargetConfig, type ScorableRatios } from './kpiScorecardService';
 import { buildProfitWaterfall } from './waterfallDataService';
+import { formatMoney, inProse, pctWithWord } from '@/lib/format/money';
 import { marginPct, marginPct2dp } from './marginPct';
+import type { PackSection, PackType, ReportPack, ReportPackInput } from './reportPackTypes';
+import { getPackTemplate } from './reportPackTemplates';
+
+export type { PackSection, PackSectionConfig, PackType, ReportPack, ReportPackInput } from './reportPackTypes';
+export { getPackTemplate } from './reportPackTemplates';
 
 /**
  * What the commentary says instead of a percentage when turnover is not
@@ -18,93 +24,40 @@ import { marginPct, marginPct2dp } from './marginPct';
 export const NO_MARGIN_SENTENCE =
   'There is no meaningful net profit margin on non-positive turnover.';
 
-export interface ReportPackInput {
-  companyName: string;
-  period: string;
-  revenue: number;
-  costOfSales: number;
-  operatingExpenses: number;
-  netProfit: number;
-  totalAssets: number;
-  totalLiabilities: number;
-  totalEquity: number;
-  currentAssets: number;
-  currentLiabilities: number;
-  cash: number;
-  accountsReceivable: number;
-  accountsPayable: number;
-  inventory: number;
-  operatingCashFlow?: number;
-  capitalExpenditure?: number;
-  otherIncome?: number;
-  otherExpenses?: number;
-  /** From the classifier. Falls back to the derived line when absent. */
-  operatingProfit?: number;
-  financingCashFlow?: number;
-}
-
-export type PackType = 'board' | 'management' | 'monthly';
-
-export interface PackSectionConfig {
-  type: string;
-  title: string;
-}
-
-export interface PackSection {
-  type: string;
-  title: string;
-  data: Record<string, unknown>;
-}
-
-export interface ReportPack {
-  type: PackType;
-  companyName: string;
-  period: string;
-  generatedAt: string;
-  sections: PackSection[];
-}
-
-const BOARD_SECTIONS: PackSectionConfig[] = [
-  { type: 'income_statement', title: 'Income Statement' },
-  { type: 'balance_sheet', title: 'Balance Sheet' },
-  { type: 'ratios', title: 'Financial Ratios' },
-  { type: 'kpis', title: 'KPI Scorecard' },
-  { type: 'commentary', title: 'Commentary' },
-];
-
-const MANAGEMENT_SECTIONS: PackSectionConfig[] = [
-  { type: 'income_statement', title: 'Income Statement' },
-  { type: 'balance_sheet', title: 'Balance Sheet' },
-  { type: 'cash_flow', title: 'Cash Flow' },
-  { type: 'ratios', title: 'Financial Ratios' },
-  { type: 'kpis', title: 'KPI Scorecard' },
-  { type: 'waterfall', title: 'Profit Waterfall' },
-  { type: 'trends', title: 'Trend Analysis' },
-  { type: 'commentary', title: 'Commentary' },
-];
-
-const MONTHLY_SECTIONS: PackSectionConfig[] = [
-  { type: 'income_statement', title: 'Income Statement' },
-  { type: 'balance_sheet', title: 'Balance Sheet' },
-  { type: 'cash_flow', title: 'Cash Flow' },
-  { type: 'ratios', title: 'Financial Ratios' },
-];
-
-export function getPackTemplate(type: PackType): PackSectionConfig[] {
-  switch (type) {
-    case 'board': return BOARD_SECTIONS;
-    case 'management': return MANAGEMENT_SECTIONS;
-    case 'monthly': return MONTHLY_SECTIONS;
-  }
-}
-
-const DEFAULT_KPI_TARGETS: KPITargetConfig[] = [
+/**
+ * Exported (R-P33) so the board pack's curated scorecard (`packs/pages/packScorecard.ts`)
+ * reads the SAME five targets rather than holding its own copy — a second copy
+ * of these numbers is how a target silently diverges between the pack and this
+ * KPI screen.
+ */
+export const DEFAULT_KPI_TARGETS: KPITargetConfig[] = [
   { ratioKey: 'grossProfitMargin', target: 35, warningThreshold: 25, criticalThreshold: 15, lowerIsBetter: false },
   { ratioKey: 'netProfitMargin', target: 15, warningThreshold: 10, criticalThreshold: 5, lowerIsBetter: false },
   { ratioKey: 'currentRatio', target: 1.5, warningThreshold: 1.2, criticalThreshold: 1.0, lowerIsBetter: false },
   { ratioKey: 'debtToEquity', target: 0.5, warningThreshold: 1.0, criticalThreshold: 2.0, lowerIsBetter: true },
   { ratioKey: 'debtorDays', target: 30, warningThreshold: 45, criticalThreshold: 60, lowerIsBetter: true },
 ];
+
+const NO_CASH_FLOW_READ = (activity: string): string =>
+  `No ${activity} cash flow figure was read for this period.`;
+const DEPENDS_ON_UNREAD_CASH_FLOW =
+  'Not stated: it depends on a cash flow figure that was not read for this period.';
+
+// The two reasons the pack's ratios used to add for itself. The engine states
+// them now, for every caller; re-exported because tests and callers name them
+// from here.
+export { NO_FREE_CASH_FLOW, NO_OPERATING_CASH_FLOW_RATIO } from './ratioBasis';
+
+/**
+ * The pack's ratios. Free cash flow with no capital expenditure, and the
+ * operating cash flow ratio with no operating cash flow, used to be marked
+ * not meaningful HERE, over an engine that read both absences as zero. The
+ * engine does it itself now (`ratioCalculations.ts`), for the screens as well
+ * as the pack, so this is the engine's result and nothing else.
+ */
+export function packRatios(financialData: FinancialData): ScorableRatios {
+  return calculateExtendedRatios(financialData);
+}
 
 function buildSectionData(
   type: string,
@@ -157,31 +110,55 @@ function buildSectionData(
       };
 
     case 'cash_flow': {
+      // A FIGURE NOBODY READ IS NOT A FIGURE. Where no operating cash flow was
+      // carried this section took it to BE net profit, took investing and
+      // financing to be nil, and derived a net movement and an opening
+      // balance from the three — a cash flow statement the ledger never
+      // produced. The numbers are still emitted, because every reader of
+      // this blob requires six of them; `unavailable` names the ones that
+      // are stand-ins, and the printed pack prints the reason instead.
+      const unavailable: Record<string, string> = {};
+      if (input.operatingCashFlow === undefined) unavailable.operatingCashFlow = NO_CASH_FLOW_READ('operating');
+      if (input.investingCashFlow === undefined && input.capitalExpenditure === undefined) {
+        unavailable.investingCashFlow = NO_CASH_FLOW_READ('investing');
+      }
+      if (input.financingCashFlow === undefined) unavailable.financingCashFlow = NO_CASH_FLOW_READ('financing');
+      if (Object.keys(unavailable).length > 0) {
+        unavailable.netCashFlow = DEPENDS_ON_UNREAD_CASH_FLOW;
+        unavailable.openingCash = DEPENDS_ON_UNREAD_CASH_FLOW;
+      }
       const opCF = input.operatingCashFlow ?? input.netProfit;
-      const capex = input.capitalExpenditure ?? 0;
+      // THE NET INVESTING FLOW WHERE ONE IS CARRIED, capex negated only where
+      // it is not. With real operating and financing figures and investing
+      // taken from an absent capex, this printed investing as nil and an
+      // opening cash wrong by the whole investing flow.
+      const invCF = input.investingCashFlow ?? -(input.capitalExpenditure ?? 0);
       const finCF = input.financingCashFlow ?? 0;
-      const netCF = opCF - capex + finCF;
+      const netCF = opCF + invCF + finCF;
       return {
         operatingCashFlow: opCF,
-        investingCashFlow: -capex,
+        investingCashFlow: invCF,
         financingCashFlow: finCF,
         netCashFlow: netCF,
         openingCash: input.cash - netCF,
         closingCash: input.cash,
+        unavailable,
       };
     }
 
-    case 'ratios':
-      return calculateExtendedRatios(financialData) as unknown as Record<string, unknown>;
+    case 'ratios': {
+      // Unstated ratios arrive nulled and explained — see `packRatios`.
+      return { ...packRatios(financialData) };
+    }
 
     case 'kpis': {
-      const ratios = calculateExtendedRatios(financialData);
+      const ratios = packRatios(financialData);
       const scorecard = buildKPIScorecard(ratios, DEFAULT_KPI_TARGETS);
       return { scorecard };
     }
 
     case 'waterfall': {
-      const steps = buildProfitWaterfall({
+      const { steps } = buildProfitWaterfall({
         revenue: input.revenue,
         costOfSales: input.costOfSales,
         grossProfit,
@@ -220,14 +197,21 @@ function buildSectionData(
       // read "with a net profit margin of 0%" whenever turnover was zero or
       // negative — a claim of break-even on a page showing a loss, in prose a
       // director quotes verbatim.
+      //
+      // AND IN THE PACK'S NOTATION. It printed "R -5 535 000" and "-1523%":
+      // a hyphen in a pack with no minus sign, no cents beside tables that
+      // carry them, a whole percent beside "(1 522.9%)". Money is bracketed
+      // as in the tables; a percentage in a sentence carries its sign in a
+      // word, as the board pack's prose does.
       const margin = marginPct(input.netProfit, input.revenue);
-      const revenue = `R ${input.revenue.toLocaleString('en-ZA')}`;
+      const revenue = inProse(formatMoney(input.revenue, { cents: true, symbol: true, pack: true }));
       return {
         period: input.period,
         companyName: input.companyName,
         summary: margin === null
           ? `${input.companyName} reported revenue of ${revenue}. ${NO_MARGIN_SENTENCE}`
-          : `${input.companyName} reported revenue of ${revenue} with a net profit margin of ${Math.round(margin)}%.`,
+          : `${input.companyName} reported revenue of ${revenue}. `
+            + `Net profit margin is ${pctWithWord(margin, 'a positive', 'a negative', 'nil')}.`,
       };
     }
 
@@ -259,11 +243,25 @@ export function buildReportPack(
     currentAssets: data.currentAssets,
     currentLiabilities: data.currentLiabilities,
     inventory: data.inventory,
+    // Nil stock on a chart with no inventory account is not nil stock.
+    inventoryClassified: data.inventoryClassified,
     accountsReceivable: data.accountsReceivable,
     accountsPayable: data.accountsPayable,
     cash: data.cash,
     operatingCashFlow: data.operatingCashFlow,
     capitalExpenditure: data.capitalExpenditure,
+    // The add-back that makes EBITDA a measure rather than a second name for
+    // operating profit. The board pack has always passed it.
+    depreciation: data.depreciation,
+    // Off the ledger, as on Financial Analysis. Absent where the read failed,
+    // and then the engine gives that as the reason.
+    interestExpense: data.interestExpense,
+    interestIncome: data.interestIncome,
+    employeeCosts: data.employeeCosts,
+    employeeCount: data.employeeCount,
+    taxExpense: data.taxExpense,
+    directMaterialCosts: data.directMaterialCosts,
+    ledgerInputsNotRead: data.ratioInputsUnavailable,
   };
 
   const sections: PackSection[] = template.map(config => ({

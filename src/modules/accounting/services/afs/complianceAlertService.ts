@@ -7,22 +7,9 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { AfsComplianceAlert, AfsAlertType } from './afsTypes';
+import { afsFilingDeadline, FilingDeadlineUnknownError, wholeDaysBetween } from './afsFilingDeadline';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
-
-function computeFiscalYearEnd(fiscalYear: number, financialYearStartMonth: number): Date {
-  let endMonth: number;
-  let endYear: number;
-  if (financialYearStartMonth === 1) {
-    endMonth = 12;
-    endYear = fiscalYear;
-  } else {
-    endMonth = financialYearStartMonth - 1;
-    endYear = fiscalYear;
-  }
-  const lastDay = new Date(endYear, endMonth, 0).getDate();
-  return new Date(endYear, endMonth - 1, lastDay);
-}
 
 async function fireAlert(
   companyId: string,
@@ -142,6 +129,48 @@ async function detectPisThresholdAlerts(companyId: string): Promise<void> {
 
 // ── Detector: Filing deadline approaching ────────────────────────────────────
 
+const DEADLINE_UNKNOWN_MESSAGE = 'AFS filing deadline cannot be assessed: the financial year start is not set';
+const DEADLINE_UNKNOWN_DETAIL =
+  'Set the financial year start in Company Settings. Until then no filing deadline reminder can be raised.';
+
+const DEADLINE_UNKNOWN: AfsAlertType = 'afs_filing_deadline_unknown';
+
+/**
+ * Raise the alert — unless somebody has dismissed it. A dismissed row is
+ * outside the partial unique index, so the plain `fireAlert` raised it again
+ * on the next run: dismissing it did nothing while the year start stayed
+ * unset. A row the SYSTEM withdrew (`dismissed_by` null) does not count: if
+ * the year start is cleared again the alert returns.
+ */
+async function fireDeadlineUnknown(companyId: string): Promise<void> {
+  await (sql`
+    INSERT INTO compliance_alerts (company_id, alert_type, message, detail)
+    SELECT ${companyId}::UUID, ${DEADLINE_UNKNOWN}::TEXT, ${DEADLINE_UNKNOWN_MESSAGE}::TEXT, ${DEADLINE_UNKNOWN_DETAIL}::TEXT
+    WHERE NOT EXISTS (
+      SELECT 1 FROM compliance_alerts
+      WHERE company_id = ${companyId}::UUID AND alert_type = ${DEADLINE_UNKNOWN}::TEXT
+        AND dismissed_by IS NOT NULL
+    )
+    ON CONFLICT (company_id, alert_type) WHERE dismissed_at IS NULL
+    DO NOTHING
+  ` as Promise<unknown>);
+}
+
+/**
+ * Withdraw it once it is no longer true: the year start is usable, or no
+ * statement is left open to assess. It stayed up for good, beside the
+ * deadline reminder it said could not be raised. `dismissed_by` stays null —
+ * nobody dismissed it.
+ */
+async function withdrawDeadlineUnknown(companyId: string): Promise<void> {
+  await (sql`
+    UPDATE compliance_alerts
+    SET dismissed_at = now()
+    WHERE company_id = ${companyId}::UUID AND alert_type = ${DEADLINE_UNKNOWN}::TEXT
+      AND dismissed_at IS NULL
+  ` as Promise<unknown>);
+}
+
 async function detectFilingDeadlineAlerts(companyId: string): Promise<void> {
   const rows = (await sql`
     SELECT d.id, d.fiscal_year, c.financial_year_start
@@ -150,43 +179,62 @@ async function detectFilingDeadlineAlerts(companyId: string): Promise<void> {
     WHERE d.company_id = ${companyId}::UUID
       AND d.status NOT IN ('signed_off', 'filed')
       AND d.document_type = 'afs'
+      AND d.fiscal_year IS NOT NULL
   `) as Record<string, unknown>[];
 
-  const now = Date.now();
+  // TODAY AS A CALENDAR DAY IN SOUTH AFRICA, because the deadline is one.
+  // It was `Date.now()` against a local-midnight Date, rounded up, so the
+  // count moved with the hour the detector happened to run at.
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg' }).format(new Date());
+
+  // The year start is the company's, so one alert covers every open statement.
+  let unknownRaised = false;
 
   for (const row of rows) {
-    const fiscalYear = row.fiscal_year as number;
-    const fyStartMonth = (row.financial_year_start as number) || 3;
+    const fiscalYear = Number(row.fiscal_year);
+    // ONE DEADLINE RULE, shared with the board pack's overdue-filings matter
+    // (`afsFilingDeadline.ts`). This detector had its own: `setMonth(+6)` on
+    // a month-end, which overflows (31 March gave 1 October), and `|| 3`,
+    // which dated a company with no financial year start as a February year
+    // end. A company whose year start is unusable gets no alert about a
+    // date nobody can stand behind — it gets one saying the deadline cannot
+    // be assessed, because an empty alert list reads as "nothing is due".
+    let deadline: string;
+    try {
+      deadline = afsFilingDeadline(fiscalYear, row.financial_year_start, companyId);
+    } catch (err) {
+      if (!(err instanceof FilingDeadlineUnknownError)) throw err;
+      if (!unknownRaised) {
+        unknownRaised = true;
+        log.warn(
+          'complianceAlertService: AFS filing deadline cannot be assessed — the company has no usable financial_year_start',
+          { companyId, fiscalYear },
+        );
+        await fireDeadlineUnknown(companyId);
+      }
+      continue;
+    }
 
-    const yearEnd = computeFiscalYearEnd(fiscalYear, fyStartMonth);
-    const deadline = new Date(yearEnd);
-    deadline.setMonth(deadline.getMonth() + 6);
+    const daysUntil = wholeDaysBetween(today, deadline);
+    const detail = `Deadline: ${deadline}`;
 
-    const daysUntil = Math.ceil((deadline.getTime() - now) / (1000 * 60 * 60 * 24));
-
-    if (daysUntil <= 7) {
-      await fireAlert(
-        companyId,
-        'afs_filing_deadline_7',
-        `AFS filing deadline is in ${daysUntil} day(s)`,
-        `Deadline: ${deadline.toISOString().split('T')[0]}`
-      );
+    if (daysUntil < 0) {
+      await fireAlert(companyId, 'afs_filing_deadline_7', `AFS filing deadline passed ${-daysUntil} day(s) ago`, detail);
+    } else if (daysUntil <= 7) {
+      await fireAlert(companyId, 'afs_filing_deadline_7', `AFS filing deadline is in ${daysUntil} day(s)`, detail);
     } else if (daysUntil <= 14) {
-      await fireAlert(
-        companyId,
-        'afs_filing_deadline_14',
-        `AFS filing deadline is in ${daysUntil} day(s)`,
-        `Deadline: ${deadline.toISOString().split('T')[0]}`
-      );
+      await fireAlert(companyId, 'afs_filing_deadline_14', `AFS filing deadline is in ${daysUntil} day(s)`, detail);
     } else if (daysUntil <= 30) {
       await fireAlert(
         companyId,
         'afs_filing_deadline_30',
         `AFS filing deadline is approaching — ${daysUntil} day(s) remaining`,
-        `Deadline: ${deadline.toISOString().split('T')[0]}`
+        detail,
       );
     }
   }
+
+  if (!unknownRaised) await withdrawDeadlineUnknown(companyId);
 }
 
 // ── Detector stubs ────────────────────────────────────────────────────────────

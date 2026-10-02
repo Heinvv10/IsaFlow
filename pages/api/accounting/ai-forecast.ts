@@ -8,6 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { markAnthropicUsedForStatus, markQuotaUsed, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
 import { checkAiRateLimit } from '@/lib/rateLimit';
 import {
   buildForecastScenario, calculateWeeklyForecast,
@@ -19,7 +20,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const companyId = (req as unknown as { companyId: string }).companyId;
   // Anthropic-backed: per-IP + per-company + per-company-daily budget cap (pentest H8).
-  if (!(await checkAiRateLimit(req, companyId, 'ai-forecast', { ipMax: 30, companyMax: 60, dailyMax: 300 }))) {
+  if (!(await checkAiRateLimit(req, companyId, 'ai-forecast', { ipMax: 30, companyMax: 60, dailyMax: 300, refundUnused: true }))) {
     return apiResponse.tooManyRequests(res, 'AI request limit reached. Please try again later.');
   }
 
@@ -58,10 +59,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 512, messages: [{ role: 'user', content: prompt }] }),
       });
       if (response.ok) {
+        markQuotaUsed('ai'); // the provider answered: the daily unit is spent (R-175)
         const data = await response.json() as { content?: { text?: string }[] };
         narrative = parseForecastNarrative(data.content?.[0]?.text || '');
+      } else {
+        markAnthropicUsedForStatus(response.status); // a 5xx may follow the work; a 4xx or 529 did none (R-175)
       }
-    } catch (err) { log.error('Forecast narrative failed', { error: err }, 'ai'); }
+    } catch (err) { markQuotaUsedUnlessNoWork('ai', err); log.error('Forecast narrative failed', { error: err }, 'ai'); }
   }
 
   const allAlerts = [...scenarios.optimistic.alerts, ...scenarios.base.alerts, ...scenarios.pessimistic.alerts];

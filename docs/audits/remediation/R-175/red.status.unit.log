@@ -1,0 +1,25 @@
+### Status-code rule tests run against 9754a9c05's sources (5 files swapped back)
+     × answers 200 with its fallback after a provider 408, and uses 1 unit 3ms
+     × answers 200 with its fallback after a provider 500, and uses 1 unit 1ms
+     × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+     × answers 200 with its fallback after a provider 529, and uses 1 unit 0ms
+     × answers 200 with its fallback after a provider 408, and uses 1 unit 0ms
+     × answers 200 with its fallback after a provider 500, and uses 1 unit 0ms
+     × answers 200 with its fallback after a provider 502, and uses 1 unit 0ms
+     × answers 200 with its fallback after a provider 529, and uses 1 unit 0ms
+       × counts as use after a provider 529 answer (SDK): a 5xx may come after the work: the provider may have done the work 4ms
+       × counts as use after a 502 from a proxy in front of the provider: the provider may have done the work 1ms
+       × counts as use after a 408 request timeout: the provider may have done the work 0ms
+     × Signum or a proxy answered 500: the document may exist, the unit is spent 3ms
+     × Signum or a proxy answered 502: the document may exist, the unit is spent 1ms
+     × Signum or a proxy answered 503: the document may exist, the unit is spent 1ms
+     × Signum or a proxy answered 504: the document may exist, the unit is spent 1ms
+     × Signum or a proxy answered 408: the document may exist, the unit is spent 1ms
+     × after a provider 408 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 3ms
+     × after a provider 503 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 1ms
+     × after a provider 529 answer, uses 1 unit (a 4xx refused it; a 5xx may follow the work) 0ms
+       × after a provider 408 answer, records 1 AI use 4ms
+       × after a provider 503 answer, records 1 AI use 1ms
+       × records one AI use on a 5xx answer: it may come after the work 1ms
+ Test Files  5 failed (5)
+      Tests  22 failed | 82 passed (104)

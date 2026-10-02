@@ -1,0 +1,812 @@
+/**
+ * THE PACK IS TWELVE SHEETS OF PAPER, not twelve entries in an array.
+ *
+ * The whole suite asserted `doc.pages.length === 12`, and the first document
+ * anyone actually printed was NINETEEN sheets: six of the twelve logical
+ * pages overflowed their box and spilled onto a second sheet, and one of
+ * those extra sheets carried a single italic line. 302 unit tests and 432
+ * component tests were green throughout, because a page's HEIGHT is not a
+ * property of the model — `pages.length` is what the pack INTENDS and the
+ * sheet count is what a director receives.
+ *
+ * So this test prints the pack, in Chromium, at A4 with the transports' own
+ * margins and the real IBM Plex faces, and counts the pages of the resulting
+ * PDF. Nothing about it can be satisfied by a model that says twelve.
+ *
+ * THREE FIXTURES, AND THE THIRD IS THE ONE THAT MATTERS. `demoInput` and
+ * `brightsphereInput` are both sparse: one healthy company, one shell. The
+ * document that failed was DENSE — a prior period with no positive base, so
+ * every change cell held a three-line sentence instead of a percentage, and
+ * fifteen matters rows. `denseInput` carries the rejected pack's own figures,
+ * so a fix is proved against the document that failed rather than against a
+ * fixture that happens to lay out well.
+ */
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { chromium, type Browser } from 'playwright';
+import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { isContentPage } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { contentsListMm } from '@/modules/accounting/services/packs/pages/packFrontMatter';
+import { PAGE_WIDTH_MM } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import {
+  brightsphereInput,
+  brightsphereLiveInput,
+  demoInput,
+  denseInput,
+  noRatioPanelsInput,
+  ratioInputsUnreadInput,
+  withRatioInputs,
+} from '../services/packs/fixtures/boardPackInputs';
+import {
+  liveDemoBridgeInput,
+  liveDemoInput,
+  manyLongNullQuantumMattersInput,
+  manyShortNullQuantumMattersInput,
+  millionsCashInput,
+} from '../services/packs/fixtures/liveDemoBoardPack';
+import { buildFooterHtml, PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
+import { printBoardPack, type PrintedPack } from './renderPackPdf';
+import { buildMattersBlock, mattersBudgetMm } from '@/modules/accounting/services/packs/pages/packMattersPage';
+import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
+import { selectPrintedMatters } from '@/modules/accounting/services/packs/pages/packMattersPrinted';
+import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
+import { fitPageToBox, fitPageReport, OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
+import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
+
+const FIXTURES = {
+  demo: demoInput,
+  brightsphere: brightsphereInput,
+  dense: denseInput,
+  'no ratio panels': noRatioPanelsInput,
+  // The one fixture shaped like the company a director actually receives a
+  // pack for. Every other entry here was chosen from a rendered proof that
+  // had ALREADY been laid out; this one is the live demo company as the
+  // second proof printed it, at fourteen sheets, and it is the reason the
+  // three above could all be green while the document was wrong.
+  live: liveDemoInput,
+  // THE TWO SHAPES THE MATTERS CAP DID NOT CAP. `MATTERS_PRINTED_MAX` kept
+  // every null-quantum matter before it looked at the count, so these printed
+  // fourteen and thirteen sheets at the commit that claimed twelve. They are
+  // full fixtures rather than a unit test on the selector because the thing
+  // that was wrong was the number of SHEETS, and only paper can say that.
+  'many long null-quantum matters': manyLongNullQuantumMattersInput,
+  'many short null-quantum matters': manyShortNullQuantumMattersInput,
+  // THE ONE THE RULER READ SHORT ON. Every other fixture keeps cash in the
+  // hundreds of thousands, so no cash sentence here ever quoted a figure with
+  // a thousands separator in it, and the never-under-estimates assertion below
+  // — the whole basis of the twelve-sheet guarantee — had never been asked
+  // about a company with millions in the bank. Brightsphere is such a company
+  // and its sheet 8 measured 195.6mm against 198.8mm of paper — 234.7 against
+  // 238.0 by the time task 36 closed it. The named exclusion this fixture used
+  // to carry is GONE: at `WIDTH_SAFETY` 1.12 the estimate covers the paper,
+  // and the assertion below now runs on this page like every other.
+  'cash in the millions': millionsCashInput,
+  // THE ONE THAT COULD NOT BE COMPOSED AT ALL. Every fixture above reaches
+  // paper; this one refused, at `fitPageToBox: "Income statement" needs
+  // 260.5mm and its sheet gives 255mm`, on the live route and on nothing in
+  // this suite. Its income statement is the only one in the set carrying the
+  // negative-revenue disclosure, a required sign-flip footnote AND a prior
+  // period of zeroes — which is what turns the caption under the chart into
+  // three lines. The bridge on it prints at the bottom rung, so this is also
+  // the only fixture that holds the 48mm profit bridge to Chromium's layout.
+  'Brightsphere as the live route composed it': brightsphereLiveInput,
+  // THE SHEET THAT LOST FOUR PROVENANCE FACTS TO TWO MILLIMETRES OF MARGIN
+  // THAT NEVER PRINT. The only fixture whose EBITDA bridge does not add as
+  // printed, so the only one carrying `bridgeRoundingNote` — 7.4mm of
+  // glossary that took page 12 to 255.7mm of estimate against 249.3mm of
+  // paper. It is here because the model's own error, not the page, is what
+  // dropped the facts, and this is the shape that shows it.
+  'the live demo company whose EBITDA bridge rounds': liveDemoBridgeInput,
+  // Page 9's longest note: the interest, tax and employee figures could not
+  // be read, said under the scorecard for both columns.
+  'the demo company with its ratio inputs unread': ratioInputsUnreadInput,
+  // The same longest note on the two tightest page 9s: the dense pack, and
+  // Brightsphere's long window with a reason in both columns already.
+  'the dense pack with its ratio inputs unread': withRatioInputs(denseInput, 'unread'),
+  'Brightsphere, live, with its ratio inputs unread': withRatioInputs(brightsphereLiveInput, 'unread'),
+  // And the fourth interest-cover reason, a net credit, on the same two.
+  'the dense pack with interest a net credit': withRatioInputs(denseInput, 'netCredit'),
+  'Brightsphere, live, with interest a net credit': withRatioInputs(brightsphereLiveInput, 'netCredit'),
+} as const;
+
+let browser: Browser;
+beforeAll(async () => { browser = await chromium.launch(); }, 120_000);
+afterAll(async () => { await browser?.close(); });
+
+describe('the printed board pack', () => {
+  for (const [name, input] of Object.entries(FIXTURES)) {
+    it(`prints ${name} on exactly one sheet per model page`, async () => {
+      const document = buildBoardPackPages(input);
+      const printed = await printBoardPack(document, browser);
+
+      expect(printed.sheets, sheetReport(printed.sheetText, printed.heights))
+        .toBe(document.pages.length);
+
+      // A pack can be made to fit twelve sheets by pushing content off the
+      // RIGHT edge instead of the bottom, and nothing about the sheet count
+      // would notice. Clipped content is worse than a nineteen-sheet pack: it
+      // is gone, with nothing on the page to say it was ever there.
+      expect(printed.overflow, `${name} runs past the right edge of the paper: ${JSON.stringify(printed.overflow)}`).toEqual([]);
+
+      // And the other direction: the 19-sheet render's tell was sheets 7, 9
+      // and 18 carrying nothing but the tail of the previous page's
+      // footnotes, and sheet 4 carrying one italic line. A sheet with almost
+      // nothing on it is never intended. Checked on EVERY fixture, because
+      // page 4's fill depends on whether commentary is approved and on how
+      // many matters there are, and those differ per fixture.
+      expect(thinSheets(printed.sheetText), `${name}: sheets carrying almost nothing`).toEqual([]);
+    }, 120_000);
+  }
+
+
+  /**
+   * NO PAGE RUNS PAST ITS BOX. On the paper, on every fixture.
+   *
+   * The sheet count alone cannot say this, and that is not a theoretical gap:
+   * the render that shipped thirteen sheets had a page 19mm past a 168mm
+   * landscape box, and the harness reported twelve because it measured that
+   * page at the PORTRAIT width. A page 0.5mm over is one Chromium rounding
+   * away from a second sheet on a different machine, so the assertion is
+   * against the box rather than against the count that follows from it.
+   */
+  it('lays every page inside the box its sheet gives it', async () => {
+    for (const [name, input] of Object.entries(FIXTURES)) {
+      const document = buildBoardPackPages(input);
+      const printed = await printBoardPack(document, browser);
+      // 0.2mm, not zero: `min-height: 255mm` reads back as 255.1 through the
+      // pixel conversion on every page that fits.
+      const over = printed.heights.filter((h) => h.overMm > 0.2);
+      expect(over.map((h) => `${h.id}: ${h.mm}mm in a ${h.boxMm}mm box`), `${name}: pages past their box`)
+        .toEqual([]);
+    }
+  }, 300_000);
+
+  /**
+   * THE COMPOSER'S OWN RULER IS NEVER SHORT.
+   *
+   * `packPageMetrics` is what makes overflow impossible by construction: the
+   * composer measures a page before it is printed and trims it to fit. That
+   * is only worth anything while the measurement is CONSERVATIVE — a model
+   * that under-reads a block by 5mm passes a page that then takes a
+   * thirteenth sheet, which is exactly the failure the model replaced.
+   *
+   * So the contract is asserted in the direction that matters, page by page,
+   * against Chromium's own layout: the estimate may be generous and may never
+   * be short.
+   *
+   * AND IT IS CHECKED IN THE OTHER DIRECTION TOO, because a model answering
+   * 10 000mm to everything would satisfy the first half and trim every page
+   * to nothing. Two bounds, and neither is a page count:
+   *
+   *   - the over-estimate on a page whose prose the budget can take is under
+   *     20mm, about four notes. Beyond that the trimmer is paying for the
+   *     model's own slack out of the reader's document. The matters page is
+   *     exempt and stated so: its budget is spent BEFORE the page is built,
+   *     so looseness there costs table rows, and the page prints how many and
+   *     what they come to.
+   *   - no fixture abridges a disclosure the pack is REQUIRED to make. That
+   *     lever exists and is reachable; a fixture that reaches it means the
+   *     model's slack is being paid for out of a statutory disclosure, which
+   *     is a design failure and not a tight page.
+   */
+  it('never estimates a page shorter than the browser lays it out', async () => {
+    const slack: number[] = [];
+    for (const [name, input] of Object.entries(FIXTURES)) {
+      const document = buildBoardPackPages(input);
+      const printed = await printBoardPack(document, browser);
+      for (const [index, page] of document.pages.entries()) {
+        // Page 1 is the cover: `PackCoverV2` sizes it itself off no block
+        // list at all, and nothing on it grows with data.
+        //
+        // PAGE 2 IS IN. It used to be excluded with the cover, and it is the
+        // one page with a SECOND height authority: `PackContents` draws the
+        // index off the page list rather than out of a block, so `pageMm`
+        // reads this sheet at a fraction of its height and `contentsListMm`
+        // is what the composer reserves for the rest. That reserve was a
+        // count times a row — one line per entry, never seeing the label
+        // strings — and a wrapped label makes it UNDER-read, which is the
+        // direction that spills a sheet. It is measured through
+        // `wrappedLines` now, and it is held to Chromium here like every
+        // other page rather than taken on trust.
+        if (page.number === 1) continue;
+        const measured = printed.heights[index]!;
+        const estimate = pageMm(page) + (page.number === 2
+          ? contentsListMm(document.pages.map((p2) => p2.navLabel))
+          : 0);
+        const matters = page.blocks.some((b) => b.kind === 'matters');
+        expect(
+          Math.round(estimate * 10) / 10,
+          `${name} page ${page.number}: the composer budgeted ${estimate.toFixed(1)}mm and the `
+            + `browser laid out ${measured.contentMm}mm. An estimate below the paper is what puts `
+            + 'a page on a second sheet.',
+        ).toBeGreaterThanOrEqual(measured.contentMm);
+        if (!matters) slack.push(estimate - measured.contentMm);
+      }
+    }
+    expect(slack.length, 'no page was measured').toBeGreaterThan(60);
+    const worst = Math.max(...slack);
+    // 25mm, AND IT WAS 20 UNTIL THE RULER WAS CORRECTED. `WIDTH_SAFETY` went
+    // from 1.08 — inside the em table's own error — to 1.12, above the worst
+    // string the ten fixtures print. A blanket factor set above the WORST
+    // string over-charges the AVERAGE one by about seven per cent, which tips
+    // roughly one line in fifteen, and a page with four prose blocks collects
+    // one line per block: the demo pack's page 5 is budgeted 254.1mm and laid
+    // out at 231.7mm, and every millimetre of the 22.4 is a line the model
+    // rounded up (the table's not-meaningful notes at 7.5pt, the EBITDA
+    // memorandum, the caption).
+    //
+    // The way to bring this back down is an accurate em table, not a smaller
+    // factor: the table charges a lowercase letter 0.47em against a measured
+    // 0.53, so the error it hides is systematic and the factor is covering it.
+    // Task 36's fix report carries the per-character measurements.
+    expect(worst, `the model over-estimates a page by ${worst.toFixed(1)}mm`).toBeLessThan(25);
+
+    // NO PAGE ABRIDGES A REQUIRED DISCLOSURE, AND THERE IS NO LONGER A NAMED
+    // EXCEPTION TO THIS.
+    //
+    // There was one. With `WIDTH_SAFETY` corrected to 1.12 page 5 came out
+    // over its sheet by 1.2mm on the live demo company and 6.5mm on
+    // Brightsphere, with no cheaper lever — the monthly table, two REQUIRED
+    // disclosures and the caption, and no chart to step down a rung — so the
+    // trimmer took the rounding footnote and then the second note of "Reading
+    // this table", the window note that says what period the table covers and
+    // which month of it is a stub. `ABRIDGED = 'Monthly results'` was named
+    // here, and asserted to still be happening, so the exception could not
+    // outlive the decision that was pending on it.
+    //
+    // The decision was taken in task 37: shorten the prose, keep every
+    // disclosure. "The columns" stopped naming the three expense bands twice
+    // and "The window" stopped restating what the sheet's own footer says;
+    // both notes are three lines instead of four, page 5 fits on every
+    // fixture, and the exception is deleted with the comment that explained
+    // it. This is back to what it was before the ruler was corrected: no page
+    // of any fixture may pay for its budget out of a disclosure the pack is
+    // required to make.
+    for (const [name, input] of Object.entries(FIXTURES)) {
+      for (const page of buildBoardPackPages(input).pages) {
+        const said = page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK));
+        if (said === undefined) continue;
+        expect(
+          said.text,
+          `${name} page ${page.number} paid for the budget out of a required disclosure`,
+        ).not.toContain('required to make');
+      }
+    }
+  }, 300_000);
+
+  /**
+   * AND THE ASSERTION ABOVE GOES RED WHEN A BLOCK IS LET OVERFLOW.
+   *
+   * A guard that has never failed is a guard nobody has checked. This puts
+   * ten notes of real prose on the scorecard page WITHOUT the composer's fit
+   * — the same shape as the debtor-days footnote that took sheet 10 — prints
+   * it, and requires the paper to say so. Then it runs the fit over the same
+   * page and requires one sheet and a disclosure.
+   */
+  it('spills onto a second sheet when a growable block is not budgeted', async () => {
+    const document = buildBoardPackPages(liveDemoInput);
+    const index = document.pages.findIndex((p) => p.navLabel === 'Scorecard');
+    expect(index).toBeGreaterThan(-1);
+    const scorecard = document.pages[index]!;
+
+    const flood: PackPage = {
+      ...scorecard,
+      blocks: [...scorecard.blocks, {
+        kind: 'disclosure',
+        disclosure: {
+          heading: 'Reconciliation of the measures on this page',
+          notes: Array.from({ length: 10 }, (unused, i) => ({
+            heading: `Measure ${i + 1}`,
+            body: 'This figure is the whole reporting period, measured on the period totals; the '
+              + 'trends page plots the same measure one month at a time. Different windows: the two '
+              + 'need not agree, and neither is derived from the other.',
+          })),
+        },
+      }],
+    };
+
+    const unbudgeted = { ...document, pages: document.pages.map((p, i) => (i === index ? flood : p)) };
+    const spilled = await printBoardPack(unbudgeted, browser);
+    expect(spilled.sheets, 'the flooded page did not spill — the probe proves nothing')
+      .toBeGreaterThan(unbudgeted.pages.length);
+    expect(spilled.heights[index]!.overMm).toBeGreaterThan(0.2);
+
+    // The same page, through the composer's fit.
+    const fitted = fitPageToBox(flood);
+    expect(pageMm(fitted)).toBeLessThanOrEqual(pageBoxMm(fitted));
+    const budgeted = { ...document, pages: document.pages.map((p, i) => (i === index ? fitted : p)) };
+    const printed = await printBoardPack(budgeted, browser);
+    expect(printed.sheets, sheetReport(printed.sheetText, printed.heights)).toBe(budgeted.pages.length);
+    expect(printed.heights.filter((h) => h.overMm > 0.2)).toEqual([]);
+    // And it SAYS what it dropped, on the sheet.
+    expect(printed.sheetText[index]!.replace(/\s+/g, ' ')).toContain(OMISSION_MARK);
+  }, 300_000);
+
+  /**
+   * A REQUIRED DISCLOSURE THE PAGE CANNOT FIT IS REFUSED, AND THE THING IT IS
+   * REFUSING IS A THIRTEENTH SHEET.
+   *
+   * `PackDisclosure.required` keeps §3.5's consequence and every "why this
+   * chart is not here" explanation on the page — the trimmer may abridge one
+   * but never take its first note. That protection is also the one hole in
+   * the page count: a page whose only prose is a required note taller than
+   * the sheet has no lever left, and the first version of `fitPageToBox`
+   * handed it back unchanged, reporting nothing dropped, with no footnote and
+   * no error. A sheet then appears that the Contents does not list.
+   *
+   * No fixture reaches it — every `mustDisclose` caller passes one sentence —
+   * so this builds the shape on purpose, and proves BOTH halves on paper: the
+   * page really does take a second sheet if it is printed unfitted, and the
+   * composer really does refuse rather than compose it. Without the first
+   * half the refusal would be a guard against nothing.
+   */
+  it('refuses a page whose required disclosure will not fit, rather than spilling', async () => {
+    const document = buildBoardPackPages(liveDemoInput);
+    const index = document.pages.findIndex((p) => p.navLabel === 'Trends');
+    expect(index).toBeGreaterThan(-1);
+    const trends = document.pages[index]!;
+
+    // The shape Brightsphere gets naturally, taken past the sheet: an
+    // absence explanation the pack must make, on a page with nothing optional
+    // left beside it.
+    const unfittable: PackPage = {
+      ...trends,
+      blocks: [{
+        kind: 'disclosure',
+        disclosure: {
+          heading: 'Panels not drawn',
+          notes: [{
+            heading: 'Why',
+            body: 'A panel is omitted when its figure is not meaningful in every period of the '
+              + 'window, and neither gross margin nor debtor days is meaningful without positive '
+              // Long enough to be unambiguous: the landscape page sets its
+              // notes in two balanced columns, so a note has to be twice the
+              // sheet before the block is.
+              + 'revenue. '.repeat(900),
+          }],
+          required: true,
+        },
+      }],
+    };
+
+    // It genuinely does not fit — printed as it stands, the pack is thirteen.
+    const spilled = await printBoardPack(
+      { ...document, pages: document.pages.map((p, i) => (i === index ? unfittable : p)) },
+      browser,
+    );
+    expect(spilled.sheets, 'the probe does not overflow, so the refusal guards nothing')
+      .toBeGreaterThan(document.pages.length);
+
+    // And the composer will not produce it.
+    expect(() => fitPageToBox(unfittable)).toThrow(/Trends/);
+    expect(() => fitPageToBox(unfittable)).toThrow(/nothing left on it that may be dropped/);
+  }, 300_000);
+
+  /**
+   * PAGE 11'S TABLE IS BUDGETED IN THE PAPER THE PAGE HAS LEFT.
+   *
+   * The budget used to be a constant fitted by sweeping it against this
+   * harness until a fixture spilled; it is now `remainingPageMm` of the page
+   * itself. This is the same measurement in the other direction: at the
+   * budget the composer computes, every matters-heavy fixture prints one
+   * sheet per page — and 20mm past it, one of them does not. Without the
+   * second half, "the budget fits" would be satisfied by a budget of zero.
+   */
+  const MATTERS_HEAVY: Array<[string, BoardPackInput]> = [
+    ['live', liveDemoInput],
+    ['many long null-quantum matters', manyLongNullQuantumMattersInput],
+    ['many short null-quantum matters', manyShortNullQuantumMattersInput],
+  ];
+
+  function packAtBudget(input: BoardPackInput, extraMm: number) {
+    const document = buildBoardPackPages(input);
+    const index = document.pages.findIndex((p) => p.blocks.some((b) => b.kind === 'matters'));
+    const page = document.pages[index]!;
+    // THE COMPOSER'S OWN BUDGET, not a second formula. This subtracted an
+    // empty matters block from the box and stopped there, which is what
+    // `mattersBudgetMm` did when the test was written and is no longer: the
+    // budget also RESERVES the "N further matters" note and the lettered
+    // reasons under the QUANTUM column, neither of which an empty probe can
+    // see. Computing the budget a second way here meant this test filled the
+    // page past what the composer would ever put on it, and then reported the
+    // spill as a defect in the page rather than in its own arithmetic.
+    const support = page.blocks.filter((b) => b.kind !== 'matters');
+    const budget = mattersBudgetMm(support, page.title, input.matters) + extraMm;
+    const block = buildMattersBlock(selectPrintedMatters(input.matters, budget), new PackFigureProvenance());
+    document.pages[index] = { ...page, blocks: page.blocks.map((b) => (b.kind === 'matters' ? block : b)) };
+    return document;
+  }
+
+  it("spends the matters page's own remaining paper, and no more", async () => {
+    for (const [name, input] of MATTERS_HEAVY) {
+      const document = packAtBudget(input, 0);
+      const printed = await printBoardPack(document, browser);
+      expect(printed.sheets, `${name} at its budget: ${sheetReport(printed.sheetText, printed.heights)}`)
+        .toBe(document.pages.length);
+    }
+
+    const over = await Promise.all(MATTERS_HEAVY.map(async ([name, input]) => {
+      const document = packAtBudget(input, 40);
+      const printed = await printBoardPack(document, browser);
+      return { name, spilled: printed.sheets > document.pages.length };
+    }));
+    expect(
+      over.filter((o) => o.spilled).map((o) => o.name).length,
+      'no fixture spills 40mm past its budget, so the budget is looser than the paper',
+    ).toBeGreaterThan(0);
+  }, 300_000);
+
+  /**
+   * EVERY CONTENT SHEET IDENTIFIES ITSELF AS THE PAGE THE CONTENTS NAMES.
+   *
+   * The previous round proved a title prints somewhere, using `page.title` —
+   * which is a CONCLUSION by rule, "Gross margin is a negative 1348.0%,
+   * carrying operating expenses of 226." Six of the ten content sheets
+   * happened to open with their own name; sheets 3, 4, 6 and 10 did not, so a
+   * director turning to sheet 6 from a Contents page promising "Income
+   * statement" found nothing on the page saying so.
+   *
+   * `navLabel` is the string the Contents itself prints, so this compares the
+   * page against its own index entry rather than against a second spelling.
+   * Both are asserted: the page must be findable AND must still state its
+   * conclusion.
+   */
+  it("prints every content page's NAME and its conclusion on its own sheet", async () => {
+    // The pack is BUILT on message titles — `assertPageTitleIsAMessage`, the
+    // rubric's first criterion ("every content page title states a conclusion
+    // about this period"), and a whole task spent making the titles say
+    // something. On paper not one of them appeared: `styles/print.css` hid
+    // `header` to strip AppLayout's chrome, and `PackPageFrame` carries the
+    // title in a `<header>`. Sheets 3 to 14 opened straight into a table or a
+    // chart, and a director reading one out of order could not name it.
+    //
+    // Every title test in the suite read the MODEL, where the titles were
+    // present and correct throughout. So this one reads the SHEET, on the
+    // fixture shaped like the live company, and compares the letters only:
+    // PDF text extraction breaks words apart ("ACTU AL") and no probe
+    // survives it otherwise.
+    const document = buildBoardPackPages(liveDemoInput);
+    const printed = await printBoardPack(document, browser);
+    const letters = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // One sheet per page is asserted above, so the sheet at a page's index IS
+    // that page's sheet — no searching, which would pass on a title printed
+    // on the wrong sheet.
+    expect(printed.sheets).toBe(document.pages.length);
+    for (const [index, page] of document.pages.entries()) {
+      if (!isContentPage(page.number)) continue;
+      expect(
+        letters(printed.sheetText[index] ?? ''),
+        `sheet ${index + 1} does not carry page ${page.number}'s title: "${page.title}"`,
+      ).toContain(letters(page.title));
+
+      // THE NAME IS ASSERTED IN THE TITLE'S POSITION, and against the whole
+      // of what that position emits.
+      //
+      // The previous round searched the whole sheet for the label's letters.
+      // Hiding the heading failed it on sheets 3, 4, 6 and 10 — the four that
+      // were broken — and PASSED on 5, 7, 9 and 12, whose conclusion
+      // sentences happen to contain their own nav label's letters. The fix
+      // was real on all ten sheets and the guard held four of them: a test
+      // that passes because its search string is a substring of unrelated
+      // prose is not asserting what its name says.
+      //
+      // Equality, not containment, so the title slot is an ALLOW-LIST: the
+      // heading emits the Contents page's own string and nothing else.
+      expect(
+        printed.pageNames[index],
+        `sheet ${index + 1} prints nothing in its title position, or prints something other `
+          + `than "${page.navLabel}" — which is what the Contents page promises at number ${page.number}`,
+      ).toBe(page.navLabel);
+
+      // And it reached the PAPER. The line above reads the laid-out DOM,
+      // which cannot see a heading painted in white or printed off the edge.
+      expect(
+        letters(printed.sheetText[index] ?? ''),
+        `sheet ${index + 1}'s title position holds "${page.navLabel}" but the sheet does not print it`,
+      ).toContain(letters(page.navLabel));
+
+      // AND THE CONCLUSION OUTRANKS THE LABEL, on the paper.
+      //
+      // Both strings printed in the right positions in the right order for
+      // several rounds while the CATEGORY NOUN was the largest, darkest thing
+      // on every content sheet and the conclusion sat beneath it at 12pt
+      // against 16pt. Nothing above could see that: the name is where the
+      // Contents promises it, the title is on the sheet, and the sheet fits.
+      // The rank is the assertion the spec's "the title states a conclusion"
+      // actually rests on.
+      const rank = printed.headingRanks[index];
+      expect(rank, `sheet ${index + 1} prints no header conclusion or no page name`).not.toBeNull();
+      expect(
+        rank!.titlePt,
+        `sheet ${index + 1} sets its page name at ${rank!.namePt}pt and its conclusion at `
+          + `${rank!.titlePt}pt — the category label outranks the message`,
+      ).toBeGreaterThan(rank!.namePt);
+    }
+  }, 120_000);
+
+  /**
+   * ONE NEGATIVE CONVENTION, READ OFF THE PAPER, AND ON THE CHARACTER.
+   *
+   * The rendered pack printed `(1 546)`, `−1348.0%` and `-0.14` within a few
+   * rows of each other on sheet 9 — an accounting bracket, a U+2212 and an
+   * ASCII hyphen for one idea. Spec §7.1 criterion 8 is one number convention
+   * per pack, and asserting "there is a sign" would have passed on all three.
+   *
+   * POSITIONAL, like every other guard in this codebase that learnt the
+   * lesson: a `-` after a digit or a letter is an ISO date (`2026-09-07`), a
+   * range or a hyphenated word, and matching one anywhere in a document
+   * matches it in data. What is refused is a minus opening a number — the one
+   * position where it is a sign — ADJACENT to the digit, because a hyphen
+   * with a space after it is a dash in prose, and the matters page carries
+   * "Bank Charges - 2026/01" straight out of a journal reference. The live
+   * fixture is the one that carries
+   * negative money, negative percentages and negative ratios at once.
+   */
+  it('prints negatives in brackets, with no minus sign of either kind', async () => {
+    const printed = await printBoardPack(buildBoardPackPages(liveDemoInput), browser);
+    for (const [index, text] of printed.sheetText.entries()) {
+      const offenders = [...text.matchAll(/(?<![0-9A-Za-z])[-\u2212]\d/g)].map((m) => m[0]);
+      expect(offenders, `sheet ${index + 1} prints a signed negative, not a bracket`).toEqual([]);
+    }
+    // And the convention is actually exercised on this pack rather than
+    // vacuously satisfied by a document with no negatives in it.
+    expect(printed.sheetText.some((t) => /\(\d/.test(t.replace(/\s+/g, ' ')))).toBe(true);
+  }, 120_000);
+
+  it('prints the brand band on the cover of a DRAFT pack', async () => {
+    // The rendered cover measured 1 972 pixels of rgb(241,243,245) where a
+    // 12mm band of brand colour belonged — white paper, to a reader, and
+    // reported as zero coloured pixels. The band and the DRAFT watermark were
+    // the same pseudo-element: `PackCoverV2` puts `pack-page` and
+    // `pack-cover` on one element, and `[data-pack-draft] .pack-page::before`
+    // outranks `.pack-cover::before`, so the band was drawn at the
+    // watermark's 6% opacity, rotated, in the middle of the sheet.
+    //
+    // On the DRAFT fixture specifically: on a final pack the band was fine,
+    // which is why it survived a review.
+    const printed = await printBoardPack(buildBoardPackPages(liveDemoInput), browser);
+    expect(liveDemoInput.draftReasons.length, 'this only fails on a draft pack').toBeGreaterThan(0);
+    expect(printed.coverBand).not.toBeNull();
+    // AND IT SAYS SOMETHING. The band printed as a bare navy rectangle — no
+    // logo, no name, no mark — at the top of the first page of a document a
+    // director forwards to their bank.
+    // The resolved `content`, not the attribute that feeds it: dropping the
+    // `content: attr(...)` rule leaves the attribute in the markup and the
+    // band empty on the paper.
+    expect(printed.coverBand!.text).toBe(liveDemoInput.companyLegalName);
+    expect(printed.coverBand!.content).toContain(liveDemoInput.companyLegalName);
+    expect(printed.coverBand!.background).toBe('rgb(31, 78, 121)'); // the fixture's brand
+    expect(printed.coverBand!.opacity).toBe(1);
+    expect(printed.coverBand!.top).toBe('0px');
+    expect(printed.coverBand!.heightPx).toBeGreaterThan(30); // 12mm at 96dpi
+    // And it must actually be printed rather than dropped by Chromium's
+    // ink-saving default, which is what washes a band out on paper.
+    expect(printed.coverBand!.colorAdjust).toBe('exact');
+  }, 120_000);
+
+  it('runs the company, the pack, the period and the confidentiality mark along every sheet', async () => {
+    // `buildFooterHtml` and `buildPdfMetadata` were written, reviewed and
+    // merged with NO CALLER: `pdf.ts` asked for a render and never passed
+    // them, so every pack printed Chromium's bare `n / m` and `pdfinfo`
+    // reported no metadata at all. A document a director forwards to their
+    // bank had no company name, no period and no confidentiality mark on any
+    // page of it, and nothing in the suite could tell — the footer is drawn
+    // by the browser into the page MARGIN, so it is not in the DOM and only
+    // a printed document has it.
+    const furniture = {
+      companyName: 'ISAFlow Demo (Pty) Ltd',
+      packLabel: 'Board Pack',
+      period: '1 March 2026 to 31 August 2026',
+      confidentiality: PACK_CONFIDENTIALITY,
+      // The SAME flag the pack body's watermark reads. The route derives both
+      // from one period status, and a footer saying DRAFT over a body saying
+      // FINAL on the same sheet is the contradiction that pairing prevents —
+      // so the harness must not fabricate its own answer either.
+      draft: demoInput.draft,
+    };
+    const printed = await printBoardPack(
+      buildBoardPackPages(demoInput),
+      browser,
+      buildFooterHtml(furniture),
+    );
+
+    for (const [index, text] of printed.sheetText.entries()) {
+      const flat = text.replace(/\s+/g, ' ');
+      const needles = [furniture.companyName, furniture.packLabel, furniture.period, furniture.confidentiality];
+      for (const needle of needles) {
+        expect(flat, `sheet ${index + 1} footer is missing "${needle}"`).toContain(needle);
+      }
+    }
+  }, 120_000);
+
+  it('says something about total assets below zero, as it does about equity', async () => {
+    // The rendered pack printed total assets of (733) with no comment while
+    // negative equity, on the same sheet, from the same balance sheet, got a
+    // callout. An asset side below zero is not a state a business can be in,
+    // and a page that explains the lesser anomaly and stays silent on the
+    // greater one reads as though the greater one is normal.
+    expect(liveDemoInput.set.current.totalAssets, 'this fixture is the negative-assets case').toBeLessThan(0);
+
+    const printed = await printBoardPack(buildBoardPackPages(liveDemoInput), browser);
+    const sheet = printed.sheetText
+      .map((t) => t.replace(/\s+/g, ' '))
+      .find((t) => t.includes('Balances below zero'));
+
+    expect(sheet, 'no sheet carries the impossible-balances disclosure').toBeDefined();
+    expect(sheet).toContain('accounts classified as assets carry credit balances');
+    // AND IT NAMES EVERY LINE, NOT ONLY THE TOTAL. The check ran on the total
+    // alone, which is how Brightsphere printed `Current assets (3 372)` with
+    // no comment while a negative liability three rows below got a block.
+    expect(sheet).toContain('Current assets');
+    expect(sheet).toContain('total assets');
+    // Beside the equity callout, not instead of it.
+    expect(sheet).toContain('Negative equity');
+  }, 120_000);
+
+  it("prints page 4's action panel on the sheet, filled, commentary or not", async () => {
+    // R-P57. Page 4 was built as commentary-ONLY, so with nothing approved it
+    // printed one italic line at 1.0% fill on a sheet of its own — and the
+    // first remedy, merging it away, made the pack eleven pages for one
+    // company and twelve for another. §4.A specifies a second column and it
+    // was never populated. Asserted on the PRINTED sheet, and on the fixture
+    // whose commentary is pending, because that is the case the panel exists
+    // to carry.
+    const printed = await printBoardPack(buildBoardPackPages(brightsphereInput), browser);
+    const sheet = printed.sheetText
+      .map((t) => t.replace(/\s+/g, ' '))
+      .find((t) => t.includes('Commentary pending approval'));
+
+    expect(sheet, 'no sheet carries the pending placeholder').toBeDefined();
+    // The panel, its heading, and an item in it — not merely the heading.
+    expect(sheet).toContain('For the board');
+    expect(sheet).toMatch(/No matters require board attention/);
+    // And the placeholder is still there beside it: filling the panel must
+    // not become a way to stop saying commentary is owed.
+    expect(sheet).toContain('Commentary pending approval');
+  }, 120_000);
+
+  it('stacks the action panel under the placeholder when commentary is pending', async () => {
+    // R-P57's other half, TWICE CORRECTED. Page 4's commentary column ran at
+    // 2fr and held one italic line — "Commentary pending approval." — over
+    // 98.2% white, while the derived action panel beside it was squeezed
+    // into a third of the measure and ran the depth of the sheet. The first
+    // fix sized the placeholder to `max-content` and gave the rest to the
+    // panel, which fixed the PROPORTION and not the READ: a one-line column
+    // beside a five-paragraph one still looks like a column whose contents
+    // failed to load, which is what the ninth visual gate called it.
+    //
+    // So the two stack, and that is what this measures — off the laid-out
+    // boxes, not off the class list. `thinSheets` cannot see any of this: it
+    // counts characters per SHEET, and a sheet full down one side and empty
+    // down the other passes it.
+    //
+    // The mutations this goes red on: restoring either grid (`2fr 1fr` or
+    // `max-content 1fr`) puts the panel level with the placeholder rather
+    // than under it, and dropping the panel's `max-width` gives it the whole
+    // 174mm measure — about a hundred characters to the line at 9.5pt.
+    const printed = await printBoardPack(buildBoardPackPages(brightsphereInput), browser);
+    expect(brightsphereInput.commentary, 'this only means anything on a pending pack').toBeNull();
+
+    expect(printed.pendingNarrative, 'page 4 does not carry a pending narrative').not.toBeNull();
+    const { placeholderMm, panelMm, stacked } = printed.pendingNarrative!;
+    expect(stacked, 'the panel sits beside the placeholder rather than under it').toBe(true);
+    // One column, so the placeholder's box is the whole measure rather than
+    // the width of its own sentence.
+    expect(placeholderMm, 'the placeholder is still sized to a column')
+      .toBeGreaterThan(150);
+    // AND THE PANEL RUNS THE FULL MEASURE, which is the opposite of what this
+    // asserted. It pinned `max-width: 120mm` on the argument that 9.5pt across
+    // 174mm is too long a line — an argument that condemns
+    // `.pack-disclosure-body`, the same 9.5pt over the same 14pt leading,
+    // which runs the full measure on every disclosure in the pack including
+    // the three directly beneath this panel. The panel was the one 9.5pt
+    // block in twelve sheets set to a different measure, and the 54mm it left
+    // beside it carried under 1% ink: the unfilled second column of a layout
+    // that has only one column, on the first thing a chair reads.
+    //
+    // The bound is now the measure itself, so a reinstated cap goes red.
+    expect(panelMm, `the panel is set across ${panelMm}mm`).toBeGreaterThan(150);
+    expect(panelMm, `the panel runs past the paper at ${panelMm}mm`)
+      .toBeLessThanOrEqual(PAGE_WIDTH_MM.portrait + 1);
+    // And it is not merely wide: nothing sits beside it, so there is no band.
+    expect(placeholderMm - panelMm, 'a column of white remains beside the panel')
+      .toBeLessThan(10);
+  }, 120_000);
+
+  it('carries no class inside a page box whose CSS this harness does not load', async () => {
+    // THE LAST LEG OF THE NO-MARGIN ARGUMENT, AND IT WAS A PROMISE.
+    //
+    // `fitPageToBox` targets the sheet with no safety margin, and the reason
+    // that is sound is that this harness lays a page out the way the
+    // application does — proved by both agreeing to 0.1mm on every page of
+    // two live companies. It loads everything `_app.tsx` loads EXCEPT
+    // Tailwind's compiled utilities, which would mean running the compiler
+    // inside a unit test. That exception is safe only while no utility
+    // reaches inside a page box, and until now that was a sentence in a
+    // docblock: true when written, checked by nobody.
+    //
+    // `max-w-[210mm]` is the reason it is not an academic point. It sat on
+    // the wrapper, one level OUTSIDE every `.pack-page`, and it still capped
+    // the landscape sheet at portrait width and cost a company a thirteenth
+    // sheet. A utility one level further in would do worse and this harness
+    // would not see it at all.
+    //
+    // Read off the rendered page rather than grepped out of the components:
+    // a class assembled at runtime, or arriving with a chart's markup, is
+    // invisible to a grep and present on the paper.
+    for (const [name, input] of Object.entries(FIXTURES)) {
+      const printed = await printBoardPack(buildBoardPackPages(input), browser);
+      expect(
+        printed.foreignClassNames,
+        `${name} carries classes inside a page box that this harness does not style, so every `
+          + 'height it reports for those pages is a height no sheet has',
+      ).toEqual([]);
+    }
+  }, 300_000);
+
+  /**
+   * THE PACK IS TWELVE PORTRAIT SHEETS.
+   *
+   * Page 10 was the one landscape sheet, because six panels three across
+   * needed the width. Printed and bound it was the sheet a director had to
+   * turn, and a 168mm content box left it the tightest page in the pack —
+   * 0.9mm of slack on Brightsphere, which is why its disclosures were the
+   * first prose the fitter took. Two panels across at 83mm fit the portrait
+   * measure and the 255mm box gives each panel 48mm instead of 36.
+   *
+   * The landscape PATH is still live — `PackPage.orientation`, the print
+   * CSS's `[data-print-landscape]` rules, this harness's own landscape
+   * measurement, and `html.print-mode .pack-pages { max-width: none }`, which
+   * is what stopped a 261mm sheet being laid out at 210. No page asks for it
+   * today; `packPagesView.test.tsx` holds the attribute end of it.
+   */
+  it('turns no sheet sideways, and prints the trends page on one of them', async () => {
+    const document = buildBoardPackPages(demoInput);
+    expect(document.pages.filter((p) => p.orientation === 'landscape')).toHaveLength(0);
+
+    const printed = await printBoardPack(document, browser);
+    expect(printed.landscapeWidthMm, 'a page was laid out landscape').toBeNull();
+    // Probed by a phrase only that page carries, not by its title: PDF text
+    // extraction breaks words apart ("ACTU AL"), so no long probe survives —
+    // and the contents page lists short nav labels, which a short probe would
+    // match a second time.
+    const sheets = printed.sheetText.filter((t) => t.replace(/\s+/g, ' ').includes('Reading these panels'));
+    expect(sheets.length, 'the trends page spans more than one sheet').toBe(1);
+  }, 120_000);
+});
+
+/**
+ * Sheets carrying almost nothing.
+ *
+ * The cover is the one deliberately sparse sheet in the pack — a company
+ * name, a period and a confidentiality mark — so it is exempt. Everything
+ * else on a board pack is content.
+ */
+function thinSheets(sheetText: string[]): Array<{ sheet: number; chars: number }> {
+  return sheetText
+    .map((text, i) => ({ sheet: i + 1, chars: text.replace(/\s+/g, ' ').trim().length }))
+    .filter((s) => s.sheet !== 1 && s.chars < 250);
+}
+
+/**
+ * What is on each sheet, for the failure message.
+ *
+ * A bare "expected 14 to be 12" sends the next reader to open a PDF by hand.
+ * The opening words of each sheet are enough to see WHERE the extra sheets
+ * came from — matching page TITLES instead does not work, because PDF text
+ * extraction breaks words apart ("ACTU AL") and no probe survives it.
+ */
+function sheetReport(sheetText: string[], heights: PrintedPack['heights']): string {
+  const lines = sheetText.map((text, i) =>
+    `  sheet ${i + 1}: ${text.replace(/\s+/g, ' ').trim().slice(0, 70)}`);
+  // And WHICH page box is too tall, by how much. A sheet count alone says a
+  // page spilled and never says which one or by how far.
+  const over = heights
+    .filter((h) => h.overMm > 0.2)
+    .map((h) => [
+      `  ${h.id}: ${h.mm}mm in a ${h.boxMm}mm box (+${h.overMm}mm)`,
+      ...h.blocks.map((b) => `      ${b.mm}mm ${b.what}`),
+    ].join('\n'));
+  return `${sheetText.length} sheets:\n${lines.join('\n')}\npages past their box:\n${over.join('\n') || '  none'}`;
+}

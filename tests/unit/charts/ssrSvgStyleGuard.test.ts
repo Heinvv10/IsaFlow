@@ -160,7 +160,6 @@ describe('every chart this repo draws still renders', () => {
 
   const CHARTS: Array<[string, unknown]> = [
     ['waterfall', buildWaterfallOption(STEPS, DEFAULT_PALETTE)],
-    ['budget bullets', buildBudgetBulletOption(LINES, DEFAULT_PALETTE)],
     ['cash flow sankey', buildCashFlowSankeyOption(REPORT, DEFAULT_PALETTE)],
     ['cash position', buildCashPositionOption(
       [{ name: 'Cash', value: 480_000 }, { name: 'AP', value: -690_000 }], DEFAULT_PALETTE)],
@@ -190,4 +189,15 @@ describe('every chart this repo draws still renders', () => {
       }
     });
   }
+
+  // The budget bullet colours its actual bar's label with a CALLBACK, which
+  // ECharts runs in a browser. Under SSR zrender writes the function's SOURCE
+  // into `fill="…"`, newlines and all — garbage a browser reads as no fill.
+  // The pack draws no bullets; the grammar refuses the output rather than
+  // letting the garbage through, and a bullet drawn server-side must resolve
+  // its callback first.
+  it('budget bullets are refused under SSR while their label colour is a callback', () => {
+    expect(() => renderChartSvg(buildBudgetBulletOption(LINES, DEFAULT_PALETTE), { widthMm: 170, heightMm: CHART_HEIGHT_MM.half }))
+      .toThrow(/tab, CR or LF in the value of "fill"/);
+  });
 });
