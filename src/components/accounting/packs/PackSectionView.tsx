@@ -137,7 +137,54 @@ function Block({ block }: { block: PackBlock }) {
   }
 }
 
+type KvBlock = Extract<PackBlock, { kind: 'kv' }>;
+
+/**
+ * A SECTION THAT IS ONE LONG KEY/VALUE GRID, AS A TABLE, so that it can repeat
+ * its heading. The ratios grid is long enough to cross a sheet, and the sheet
+ * it continues onto had no heading at all. The heading lives in the table's
+ * `<thead>`, which Chromium's print layout repeats at the top of every sheet
+ * the table spans — the one repeating construct it supports reliably (a CSS
+ * grid cannot, and `position: running()` is not implemented). It repeats
+ * verbatim: print CSS cannot tell the first copy from a repeat, so the
+ * continuation reads "<Section>" and not "<Section> (continued)".
+ */
+function KvSection({ section, block }: { section: PackDocumentSection; block: KvBlock }) {
+  const rows: KvBlock['items'][] = [];
+  for (let i = 0; i < block.items.length; i += 3) rows.push(block.items.slice(i, i + 3));
+  return (
+    <section
+      id={`pack-section-${section.type}`}
+      className="pack-legacy-kv-section"
+    >
+      <table className="pack-legacy-kv-table w-full border-collapse">
+        <thead>
+          <tr>
+            <th colSpan={3} className="pack-legacy-heading text-left">
+              <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">{section.title}</h2>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row[0]!.label}>
+              {row.map((item) => (
+                <td key={item.label} className="align-top">
+                  <div className="text-xs text-[var(--ff-text-tertiary)]">{item.label}</div>
+                  <div className="text-sm font-medium text-[var(--ff-text-primary)] tabular-nums">{formatPackKv(item)}</div>
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
 export function PackSectionView({ section }: { section: PackDocumentSection }) {
+  const only = section.blocks.length === 1 ? section.blocks[0] : undefined;
+  if (only?.kind === 'kv' && section.blocks.length === 1) return <KvSection section={section} block={only} />;
   return (
     <section
       {...(section.landscape ? { 'data-print-landscape': '' } : {})}

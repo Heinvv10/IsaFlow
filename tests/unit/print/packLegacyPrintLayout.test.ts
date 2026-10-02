@@ -97,6 +97,21 @@ describe('the legacy print view flows', () => {
     }
   });
 
+  it('repeats the ratios heading on every sheet the grid crosses onto, at every offset', () => {
+    const labels = ratioLines(buildReportPack('management', DEMO, '2026-01-01', '2026-08-31')
+      .sections.find((s) => s.type === 'ratios')!.data).map((l) => l.label);
+    let crossed = 0;
+    for (const { mmv, printed } of swept) {
+      const pagesWithRatios = printed.raw.flatMap((page, p) => (page.some((l) => labels.includes(l)) ? [p] : []));
+      if (pagesWithRatios.length > 1) crossed++;
+      for (const p of pagesWithRatios) {
+        expect(printed.raw[p], `page ${p + 1} continues the ratios with no heading (offset ${mmv}mm)`).toContain('Financial Ratios');
+      }
+    }
+    // Anti-vacuity: the sweep must actually make the grid cross a sheet.
+    expect(crossed, 'no offset made the ratios cross a page').toBeGreaterThan(2);
+  });
+
   it('uses fewer sheets than one section per page', () => {
     expect(flowed.pages.length).toBeLessThan(forced.pages.length);
   });

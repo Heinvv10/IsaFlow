@@ -184,3 +184,11 @@ html.print-mode .pack-legacy-toc { margin-bottom: calc(var(--pack-baseline) * 2)
  * the board pack's block spacing (`--pack-baseline`), so its heading plainly
  * belongs to its own block rather than to the one above. */
 html.print-mode section[id^="pack-section-"] + section[id^="pack-section-"] { margin-top: calc(var(--pack-baseline) * 2); }
+
+/* The key/value sections as a table: a uniform rhythm (one rule and one padding
+ * above every cell, so the gap between rows does not follow how many lines the
+ * tallest cell happens to wrap to), and the header repeated on every sheet. */
+html.print-mode .pack-legacy-kv-table thead { display: table-header-group; }
+html.print-mode .pack-legacy-kv-table th { padding: 0 0 3mm; font-weight: inherit; }
+html.print-mode .pack-legacy-kv-table td { width: 33.33%; padding: 2.2mm 3mm 2.2mm 0; border-top: 0.5pt solid var(--pack-rule); }
+html.print-mode .pack-legacy-kv-table tr { break-inside: avoid; }
