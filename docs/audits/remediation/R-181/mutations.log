@@ -1,33 +1,58 @@
-BASELINE: 19 passed (19)
-M1 bank the request amount always [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 7 failed | 12 passed (19) -> KILLED
-M2 no amount_mismatch flag [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 9 failed | 10 passed (19) -> KILLED
-M3 no currency check [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 18 passed (19) -> KILLED
-M4 accept amount 0 [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 18 passed (19) -> KILLED
-M5 accept fractional cents [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 18 passed (19) -> KILLED
-M6 deleted invoice not blocked [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 18 passed (19) -> KILLED
-M7 population rule dropped [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 5 failed | 14 passed (19) -> KILLED
-M8 flag write scope dropped (company_id) [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 19 passed (19) -> SURVIVED
-M9 review logged at info, not error [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 7 failed | 12 passed (19) -> KILLED
-M10 blocked invoice still allocated [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 5 failed | 14 passed (19) -> KILLED
-M11 flag never written [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 16 failed | 3 passed (19) -> KILLED
-M12 invoice review not added to reasons [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 6 failed | 13 passed (19) -> KILLED
-M13 webhook main branch passes no reported amount [src/modules/billing/services/paystackEventHandlers.ts]: 14 failed | 5 passed (19) -> KILLED
-M14 verify passes no reported amount [pages/api/portal/payments/paystack/verify.ts]: 3 failed | 16 passed (19) -> KILLED
-M16 already-completed branch passes no reported amount [src/modules/billing/services/paystackEventHandlers.ts]: 1 failed | 18 passed (19) -> KILLED
-M17 note write outside a savepoint [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 18 passed (19) -> KILLED
-M18 note failure rethrown [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 18 passed (19) -> KILLED
-M19 prior reason overwritten [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 18 passed (19) -> KILLED
-M20 prior reason not logged [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 18 passed (19) -> KILLED
-M21 a prior review note treated as a reason to keep [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 18 passed (19) -> KILLED
-M15 invoice status not read [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 5 failed | 14 passed (19) -> KILLED
-AFTER: 19 passed (19)
+BASELINE (integration): 31 passed (31)
+BASELINE (unit paystackClient): 17 passed (17)
+M1 bank the request amount always [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 11 failed | 20 passed (31) -> KILLED
+M2 no amount_mismatch flag [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 13 failed | 18 passed (31) -> KILLED
+M3 no currency check [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 2 failed | 29 passed (31) -> KILLED
+M4 accept amount 0 [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 30 passed (31) -> KILLED
+M5 accept fractional cents [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 30 passed (31) -> KILLED
+M6 deleted invoice not blocked [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 30 passed (31) -> KILLED
+M7 population rule dropped [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 5 failed | 26 passed (31) -> KILLED
+M8 flag write scope dropped (company_id) [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 31 passed (31) -> SURVIVED
+M9 review logged at info, not error [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 8 failed | 23 passed (31) -> KILLED
+M17 note write outside a savepoint [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 30 passed (31) -> KILLED
+M18 note failure rethrown [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 30 passed (31) -> KILLED
+M19 prior reason overwritten [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 30 passed (31) -> KILLED
+M20 prior reason not logged [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 30 passed (31) -> KILLED
+M21 earlier review note replaced, not merged [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 3 failed | 28 passed (31) -> KILLED
+M21b merged note drops the prior reason [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 30 passed (31) -> KILLED
+M22 requested_amount ignored [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 3 failed | 28 passed (31) -> KILLED
+M23 requested_amount trusted above amount [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 30 passed (31) -> KILLED
+M24 below-requested not flagged [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 30 passed (31) -> KILLED
+M25 customer-paid fee expensed [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 3 failed | 28 passed (31) -> KILLED
+M26 non-ZAR fee posted as rand [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 30 passed (31) -> KILLED
+M27 non-ZAR fee dropped unflagged [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 30 passed (31) -> KILLED
+M28 customer-paid fee when amount < requested_amount [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 30 passed (31) -> KILLED
+M10 blocked invoice still allocated [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 5 failed | 26 passed (31) -> KILLED
+M15 invoice status not read under the lock [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 5 failed | 26 passed (31) -> KILLED
+M36 invoice row not locked [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 2 failed | 29 passed (31) -> KILLED
+M37 lock without the bounded wait [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 1 failed | 30 passed (31) -> KILLED
+M38 balance read ignores amount_paid [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 2 failed | 29 passed (31) -> KILLED
+M39 blocked invoice also flagged overpaid [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 6 failed | 25 passed (31) -> KILLED
+M11 flag never written (first report) [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 22 failed | 9 passed (31) -> KILLED
+M12 invoice block not a reason [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 6 failed | 25 passed (31) -> KILLED
+M29 overpaid not flagged [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 2 failed | 29 passed (31) -> KILLED
+M35 fee reasons dropped (first report) [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 30 passed (31) -> KILLED
+M30 second report not compared [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 2 failed | 29 passed (31) -> KILLED
+M31 second-report flag never written [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 2 failed | 29 passed (31) -> KILLED
+M32 fee leg posts the gross fee (first report) [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 3 failed | 28 passed (31) -> KILLED
+M33 fee leg posts the gross fee (second report) [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 30 passed (31) -> KILLED
+M34 non-ZAR receipt not tagged [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 30 passed (31) -> KILLED
+M13 webhook passes no reported amount [src/modules/billing/services/paystackEventHandlers.ts]: 22 failed | 9 passed (31) -> KILLED
+M40 webhook passes no requested_amount [src/modules/billing/services/paystackEventHandlers.ts]: 4 failed | 27 passed (31) -> KILLED
+M16 already-completed branch passes no report [src/modules/billing/services/paystackEventHandlers.ts]: 3 failed | 28 passed (31) -> KILLED
+M14 verify passes no reported amount [pages/api/portal/payments/paystack/verify.ts]: 5 failed | 26 passed (31) -> KILLED
+M41 verify passes no requested_amount [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 30 passed (31) -> KILLED
+M42 client drops requested_amount [src/modules/billing/services/paystackClient.ts]: 1 failed | 16 passed (17) -> KILLED
+AFTER: 31 passed (31)
 
-NOTES (round 2, final code f7ef79b60 + the review-note replacement test)
+NOTES (review round 1; code at ce90064fd, tests at a684f6f64)
+- Integration mutants run both R-181 suites (r181-settlement-amount, r181-review-round1); M42 runs
+  tests/unit/services/billing/paystackClient.test.ts, because the integration suites stub the client.
 - M8 SURVIVED, equivalent: paystack_payment_requests_paystack_reference_key is UNIQUE over the whole
   table, so `paystack_reference = $ref` names one row in one company with or without the company_id
-  predicate; no test can tell the two apart. The predicates stay as tenant scoping (CLAUDE.md rule).
-- Round 1 (16 mutants on 5d312dc1e) is superseded by this batch, which re-runs all of them.
-  Its M9 first replaced `log.error(` with `void (`, which failed every test, including those that
-  never flag (module load error), so it said nothing about the guard; the info-level mutant replaced it.
-- Mutants are applied one at a time to the committed file and restored after each run; AFTER is
-  the post-batch rerun on the restored tree.
+  predicate on the UPDATE; no test can tell the two apart. It stays as tenant scoping. Recorded in
+  fix.md (Review round 1, item 7).
+- M36 (no FOR UPDATE) is killed by the race test, whose hook holds the first locked read open and
+  asserts it fired; M37 (no 5s lock_timeout) by the lock-timeout test (the webhook waits forever).
+- Earlier batches (round 1 on 5d312dc1e, round 2 on f7ef79b60) are superseded: this batch re-runs
+  every guard still in the code, with the patterns rewritten for the restructured functions.
