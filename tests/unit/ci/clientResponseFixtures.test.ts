@@ -40,7 +40,7 @@ describe('negatives: the correct shape stays quiet', () => {
     ['narrowed ApiRequestError message', `import { ApiRequestError } from '@/lib/apiFetch';\nexport function g(e: unknown) { if (e instanceof ApiRequestError) setError(e.message); }`],
     ['awaited write checked', wrap(`const res = await apiFetch('/x', ${W}); await assertOk(res, 'Could not save - try again');`)],
     ['write checked in a then', wrap(`apiFetch('/x', ${W}).then((r) => assertOk(r, 'Could not save - try again')).catch((e) => setError(apiErrorMessage(e, 'Could not save - try again')));`)],
-    ['Promise.all writes each checked', wrap(`const rs = await Promise.all([apiFetch('/a', ${W}), apiFetch('/b', ${W})]); rs.forEach((r) => { if (!r.ok) setError('Could not save - try again'); });`)],
+    ['Promise.all writes each checked', wrap(`const rs = await Promise.all([apiFetch('/a', ${W}), apiFetch('/b', ${W})]); await Promise.all(rs.map((r) => assertOk(r, 'Could not save - try again')));`)],
     ['returned write whose caller checks it', wrap(`const save = () => apiFetch('/x', ${W}); const res = await save(); await assertOk(res, 'Could not save - try again');`)],
     ['GET with typed method', wrap(`const m: 'GET' = 'GET'; const res = await apiFetch('/x', { method: m }); await assertOk(res, 'Could not load x - try again');`)],
     ['a sentence, a typed state value, a comparison', wrap(`declare const setSt: (s: 'idle' | 'error') => void; setError('Could not save - try again'); setSt('error'); if (s === 'Failed') return;`)],

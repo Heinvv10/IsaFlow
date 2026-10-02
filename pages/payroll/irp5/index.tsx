@@ -133,7 +133,7 @@ export default function Irp5Page() {
       }
       saveBlob(await res.blob(), `IRP5_${taxYear - 1}_${taxYear}.irp5`);
     } catch (err) {
-      setEasyFileError(apiErrorMessage(err, 'Could not export the e@syfile file - try again'));
+      setEasyFileError(apiErrorMessage(err, 'Could not export the EasyFile file - try again'));
     }
   };
 

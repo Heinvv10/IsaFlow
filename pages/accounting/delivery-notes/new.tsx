@@ -7,6 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { Truck, Loader2, ArrowLeft } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import {
   DeliveryNoteLineEditor,
   emptyLine,
@@ -111,7 +112,7 @@ export default function NewDeliveryNotePage() {
           return;
         }
       }
-      await router.push('/accounting/delivery-notes');
+      try { await router.push('/accounting/delivery-notes'); } catch (e) { log.warn('navigation failed', { error: e }, 'delivery-notes-new'); }
     } catch (err: unknown) {
       setError(apiErrorMessage(err, 'Could not save the delivery note - try again'));
     } finally { setSaving(false); }

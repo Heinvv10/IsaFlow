@@ -1,6 +1,7 @@
 // pages/accept-invite.tsx
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import { log } from '@/lib/logger';
 
 export default function AcceptInvitePage() {
   const router = useRouter();
@@ -66,14 +67,16 @@ export default function AcceptInvitePage() {
         setError(body.error?.message ?? 'Could not accept the invitation - try again'); return;
       }
       accepted = true;
-      // Not awaited: a router abort would land in the catch below and show
-      // "could not submit" for an accept that already succeeded server-side.
-      await router.push('/accounting/dashboard');
     } catch {
-      setError('Network error — could not submit. Check your connection and try again.');
+      setError('Could not accept the invitation - try again');
     } finally {
       if (!accepted) setSubmitting(false);
     }
+    if (!accepted) return;
+    // The invite is accepted server-side. The navigation runs outside the try above so a
+    // router abort is never reported as a failed accept; awaited, then the button is freed.
+    try { await router.push('/accounting/dashboard'); } catch (e) { log.warn('navigation failed', { error: e }, 'AcceptInvitePage'); }
+    setSubmitting(false);
   }
 
   if (loading) return <div className="p-8">Loading invitation…</div>;

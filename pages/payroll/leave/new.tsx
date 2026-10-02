@@ -8,6 +8,7 @@ import { CalendarOff, Loader2, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 interface EmployeeOption { id: string; firstName: string; lastName: string; employeeNumber: string }
 interface LeaveTypeOption { id: string; name: string; isPaid: boolean }
@@ -78,6 +79,7 @@ export default function NewLeaveRequestPage() {
     }
     setIsSaving(true);
     setError('');
+    let saved = false;
     try {
       const res = await apiFetch('/api/payroll/leave', {
         method: 'POST',
@@ -85,12 +87,16 @@ export default function NewLeaveRequestPage() {
         body: JSON.stringify({ employeeId, leaveTypeId, startDate, endDate, days, reason: reason || undefined }),
       });
       await assertOk(res, 'Could not save the leave request - try again');
-      await router.push('/payroll/leave');
+      saved = true;
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not save the leave request - try again'));
     } finally {
-      setIsSaving(false);
+      if (!saved) setIsSaving(false);
     }
+    if (!saved) return;
+    // The request is saved; a failed navigation is not a failed save.
+    try { await router.push('/payroll/leave'); } catch (e) { log.warn('navigation failed', { error: e }, 'NewLeaveRequestPage'); }
+    setIsSaving(false);
   };
 
   return (

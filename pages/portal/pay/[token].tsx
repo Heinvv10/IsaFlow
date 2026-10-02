@@ -6,9 +6,12 @@
 import { useCallback, useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import { assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
+import { assertOk, apiErrorMessage, ApiEnvelopeError, ApiRequestError } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+
+const LOAD_FALLBACK = 'Could not load the payment details - try again';
+const NOT_FOUND_MESSAGE = 'This payment link was not found or has expired.';
 
 interface PaymentLinkData {
   invoiceId: string;
@@ -36,16 +39,17 @@ export default function PortalPayPage() {
   const fetchPaymentLink = useCallback(async () => {
     try {
       const res = await fetch(`/api/portal/payment-link?token=${token}`);
-      await assertOk(res, 'Could not load the payment details - try again');
+      await assertOk(res, LOAD_FALLBACK);
       const json = await res.json();
       if (!json.data) {
-        setError('Payment link not found or expired');
+        setError(NOT_FOUND_MESSAGE);
         return;
       }
       setData(json.data);
     } catch (err) {
       setData(null);
-      setError(apiErrorMessage(err, 'Could not load the payment details - try again'));
+      const gone = err instanceof ApiRequestError && (err.status === 404 || err.status === 410);
+      setError(gone && err.message === LOAD_FALLBACK ? NOT_FOUND_MESSAGE : apiErrorMessage(err, LOAD_FALLBACK));
     } finally {
       setLoading(false);
     }

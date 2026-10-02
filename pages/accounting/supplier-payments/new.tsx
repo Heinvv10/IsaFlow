@@ -12,6 +12,7 @@ import { useVendorSupplierMatch } from '@/components/accounting/supplier-invoice
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 
 interface OutstandingInvoice { id: string; invoiceNumber: string; totalAmount: number; balance: number }
@@ -91,7 +92,7 @@ export default function NewSupplierPaymentPage() {
       await assertOk(res, 'Could not create the payment - try again');
       const json = await res.json();
       const payment = json.data || json;
-      await router.push(`/accounting/supplier-payments/${payment.id}`);
+      try { await router.push(`/accounting/supplier-payments/${payment.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'supplier-payments-new'); }
     } catch (err) { setError(apiErrorMessage(err, 'Could not create the payment - try again')); }
     finally { setIsSubmitting(false); }
   };

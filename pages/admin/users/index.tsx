@@ -127,11 +127,11 @@ export default function AdminUsersPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
-      await assertOk(res, 'Could not delete user - try again');
+      await assertOk(res, 'Could not delete the user - try again');
       setConfirmDeleteId(null);
       void load(search, company, role, status, page);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not delete user - try again'));
+      setError(apiErrorMessage(err, 'Could not delete the user - try again'));
     } finally {
       setDeleting(null);
     }

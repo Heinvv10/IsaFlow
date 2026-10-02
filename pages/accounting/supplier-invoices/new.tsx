@@ -13,6 +13,7 @@ import { SupplierSelect } from '@/components/accounting/supplier-invoices/Suppli
 import { useVendorSupplierMatch } from '@/components/accounting/supplier-invoices/matchVendorSupplier';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { PoGrnSelector } from '@/components/accounting/suppliers/PoGrnSelector';
 import type { PoLineItem } from '@/components/accounting/suppliers/PoGrnSelector';
 import { BillLineItemsTable } from '@/components/accounting/suppliers/BillLineItemsTable';
@@ -167,7 +168,7 @@ export default function NewSupplierInvoicePage() {
       await assertOk(res, 'Could not create the invoice - try again');
       const json = await res.json() as { data?: { id: string }; id?: string };
       const invoice = json.data ?? json;
-      await router.push(`/accounting/supplier-invoices/${(invoice as { id: string }).id}`);
+      try { await router.push(`/accounting/supplier-invoices/${(invoice as { id: string }).id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'supplier-invoices-new'); }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the invoice - try again'));
     } finally {

@@ -159,7 +159,7 @@ export default function NewBankTransactionPage() {
       if (json.success === false) { notify.error(json.error?.message ?? json.message ?? 'Could not record the transaction - try again'); return; }
       notify.success('Transaction recorded successfully');
       notifyLateClaims(json); // VAT claimed in a later period (s16(3))
-      await router.push('/accounting/bank-transactions');
+      try { await router.push('/accounting/bank-transactions'); } catch (e) { log.warn('navigation failed', { error: e }, 'bank-transactions-new'); }
     } catch (error) {
       notify.error(apiErrorMessage(error, 'Could not record the transaction - try again'));
     } finally {

@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, User, MapPin, Users, Activity, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { formatCurrency } from '@/utils/formatters';
 import { DeliveryAddressesTab } from '@/components/accounting/customers/DeliveryAddressesTab';
 import { ContactsTab } from '@/components/accounting/customers/ContactsTab';
@@ -129,12 +130,10 @@ export default function CustomerDetailPage() {
       await assertOk(res, 'Could not delete the customer - try again');
       const json = await res.json() as { success?: boolean; error?: { message?: string } };
       if (json.success === false) { alert(json.error?.message ?? 'Could not delete the customer - try again'); return; }
-      await router.push('/accounting/customers');
+      try { await router.push('/accounting/customers'); } catch (e) { log.warn('navigation failed', { error: e }, 'customers-customerId'); }
     } catch (err) {
       alert(apiErrorMessage(err, 'Could not delete the customer - try again'));
-    } finally {
-      setDeleting(false);
-    }
+    } finally { setDeleting(false); }
   };
 
   const loadCustomer = async () => {

@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Plus, Trash2, Loader2, AlertCircle, Receipt, SlidersHorizontal } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 
 interface Client { id: string; name: string }
@@ -140,7 +141,7 @@ export default function EditCustomerInvoicePage() {
         }),
       });
       await assertOk(res, 'Could not save the invoice - try again');
-      await router.push(`/accounting/customer-invoices/${String(invoiceId)}`);
+      try { await router.push(`/accounting/customer-invoices/${String(invoiceId)}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-edit-invoiceId'); }
     } catch (e) { setError(apiErrorMessage(e, 'Could not save the invoice - try again')); }
     finally { setSubmitting(false); }
   };

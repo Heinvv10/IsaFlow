@@ -10,6 +10,7 @@ import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 
 interface Client { id: string; name: string }
@@ -133,7 +134,7 @@ export default function NewCustomerPaymentPage() {
         }),
       });
       await assertOk(res, 'Could not record the payment - try again');
-      await router.push('/accounting/customer-payments');
+      try { await router.push('/accounting/customer-payments'); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-payments-new'); }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not record the payment - try again'));
     } finally { setIsSubmitting(false); }

@@ -7,6 +7,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ClipboardList, ArrowLeft, CheckCircle, FileText, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { formatDate } from '@/utils/formatters';
 
 interface SalesOrderItem {
@@ -92,16 +93,15 @@ export default function SalesOrderDetailPage() {
       await assertOk(res, `Could not ${action} the sales order - try again`);
       const json = await res.json();
       if (action === 'invoice') {
-        const invoiceId = json.data?.invoiceId || json.invoiceId;
-        await router.push(`/accounting/customer-invoices/${invoiceId}`);
+        try { await router.push(`/accounting/customer-invoices/${json.data?.invoiceId || json.invoiceId}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-sales-orders-id'); }
         return;
       }
       setSuccessMsg(action === 'confirm' ? 'Order confirmed successfully.' : 'Done.');
-      // Reload the order
-      const refreshRes = await apiFetch(`/api/accounting/customer-sales-orders?id=${order.id}`);
-      await assertOk(refreshRes, 'Could not reload the order - refresh the page');
-      const refreshJson = await refreshRes.json();
-      setOrder(refreshJson.data || refreshJson);
+      try { // the action is done: a failed reload must not read as a failed action
+        const refreshRes = await apiFetch(`/api/accounting/customer-sales-orders?id=${order.id}`);
+        await assertOk(refreshRes, 'The order was confirmed but could not be reloaded - refresh the page');
+        const refreshJson = await refreshRes.json(); setOrder(refreshJson.data || refreshJson);
+      } catch (reloadErr) { log.warn('order reload failed', { error: reloadErr }, 'customer-sales-orders-id'); setOrder((o) => (o ? { ...o, status: 'confirmed' } : o)); setError('The order was confirmed but could not be reloaded - refresh the page'); }
     } catch (err) {
       setError(apiErrorMessage(err, `Could not ${action} the sales order - try again`));
     } finally {

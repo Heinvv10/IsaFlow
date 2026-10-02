@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Camera, Upload, X, FileText, Wifi, WifiOff, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import {
   QUEUE_STORAGE_KEY,
   type QueuedItem,
@@ -97,7 +98,7 @@ export default function CapturePage() {
         if (result.documentIds.length > 0) {
           setAttachDocIds(result.documentIds);
         } else {
-          await router.push('/accounting/capture/inbox');
+          try { await router.push('/accounting/capture/inbox'); } catch (e) { log.warn('navigation failed', { error: e }, 'capture-index'); }
         }
       }
     } catch (err) {

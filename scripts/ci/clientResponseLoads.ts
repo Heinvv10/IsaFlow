@@ -99,7 +99,19 @@ export function analyzeLoads(sf: ts.SourceFile, add: Add): void {
   const quiet = (st: ts.Statement) => ts.isExpressionStatement(st) && ts.isCallExpression(st.expression) && ts.isIdentifier(st.expression.expression)
     && /^set[A-Z]/.test(st.expression.expression.text) && !/(Error|Msg|Message|Toast|Notice|Flash|Banner)/.test(st.expression.expression.text)
     && st.expression.arguments.every((a) => emptyValue(a as ts.Expression) || a.kind === ts.SyntaxKind.FalseKeyword);
+  /** `if (!res.ok) notify.error('fixed sentence')`: the server's 4xx message (403 "only an admin", 400 refusal) is dropped. */
+  const SAYS = /^(set\w*(error|err|msg|message|toast|notice|banner|flash|warning|alert)\w*|notify(\.\w+)?|toast(\.\w+)?|showToast|alert)$/i;
+  const fixedMessage = (n: ts.IfStatement) => {
+    const c = n.expression;
+    if (!(ts.isPrefixUnaryExpression(c) && c.operator === ts.SyntaxKind.ExclamationToken && isOkRead(c.operand as ts.Expression))) return false;
+    const stmts = ts.isBlock(n.thenStatement) ? n.thenStatement.statements : [n.thenStatement];
+    const text = n.thenStatement.getText(sf);
+    if (/\.(json|text)\(|assertOk|apiErrorMessage|\.status\b|statusText|throw\b/.test(text)) return false;   // reads the body, or hands the status on
+    return stmts.some((st) => ts.isExpressionStatement(st) && ts.isCallExpression(st.expression) && SAYS.test(st.expression.expression.getText(sf))
+      && st.expression.arguments.some((a) => ts.isStringLiteralLike(a) && a.text.trim().length > 0));
+  };
   const visitS = (n: ts.Node) => {
+    if (ts.isIfStatement(n) && !n.elseStatement && fixedMessage(n)) add(n, 'g', 'a refused response shows a fixed sentence: the server\'s own 4xx message is dropped (assertOk(res, sentence) and show apiErrorMessage)');
     if (ts.isIfStatement(n) && !n.elseStatement) {
       const c = n.expression;
       const pos = isOkRead(c);

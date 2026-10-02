@@ -8,6 +8,7 @@ import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight,
   ExternalLink, ClipboardList, Trash2, Download } from 'lucide-react';
 import { StatusPill, PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 
 interface Quote { id: string; quoteNumber: string; customerName: string; quoteDate: string; expiryDate: string | null; status: string; total: number; invoiceId?: string }
@@ -189,7 +190,8 @@ export default function CustomerQuotesPage() {
       const json = await res.json().catch(() => ({})) as { data?: { salesOrderId?: string }; salesOrderId?: string; error?: { message?: string; details?: { salesOrderId?: string | null } } };
       // A 409 with an order id is a double-click: the order exists, so open it.
       const orderId = res.ok ? json.data?.salesOrderId || json.salesOrderId : json.error?.details?.salesOrderId;
-      if (orderId) await router.push(`/accounting/customer-sales-orders/${orderId}`); else window.alert(res.ok ? 'The quote was converted but the order could not be opened - find it under Sales Orders' : json.error?.message || 'Could not convert the quote - try again');
+      if (orderId) { try { await router.push(`/accounting/customer-sales-orders/${orderId}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-quotes'); } }
+      else window.alert(res.ok ? 'The quote was converted but the order could not be opened - find it under Sales Orders' : json.error?.message || 'Could not convert the quote - try again');
     } catch (err) { window.alert(apiErrorMessage(err, 'Could not convert the quote - try again')); }
     finally { setConvertingToSO(null); }
   };

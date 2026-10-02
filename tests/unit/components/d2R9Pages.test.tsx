@@ -251,7 +251,7 @@ describe('forgot password', () => {
     const { container } = render(<ForgotPasswordPage />);
     fireEvent.change(container.querySelector('input[type="email"]')!, { target: { value: 'd2@example.test' } });
     fireEvent.submit(container.querySelector('form')!);
-    expect(await screen.findByText('Could not send the reset link - check your connection and try again.')).toBeDefined();
+    expect(await screen.findByText('Could not send the reset link - try again')).toBeDefined();
     expect(document.body.textContent).not.toContain('Network error');
   });
 });

@@ -8,6 +8,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { ChevronLeft, Loader2 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -47,7 +48,7 @@ export default function NewExpenseClaim() {
       await assertOk(res, 'Could not create the claim - try again');
       const json = await res.json() as { data?: { claim?: { id: string } } };
       if (!json.data?.claim) { setError('Could not create the claim - try again'); return; }
-      await router.push(`/accounting/expenses/${json.data.claim.id}`);
+      try { await router.push(`/accounting/expenses/${json.data.claim.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'expenses-new'); }
     } catch (err) { setError(apiErrorMessage(err, 'Could not create the claim - try again')); }
     finally { setSaving(false); }
   }

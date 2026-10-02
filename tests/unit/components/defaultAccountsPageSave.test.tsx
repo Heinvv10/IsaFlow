@@ -9,7 +9,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import DefaultAccountsPage from '@/../pages/accounting/default-accounts';
 import { apiFetch } from '@/lib/apiFetch';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => ({ ...(await vi.importActual<typeof import('@/lib/apiFetch')>('@/lib/apiFetch')), apiFetch: vi.fn() }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 
 // The fields the chart API returns and the page's per-role options read (defaultAccountRoles.roleCandidates).

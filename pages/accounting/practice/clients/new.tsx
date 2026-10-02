@@ -10,6 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, Loader2, ArrowLeft, Save, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 type BillingModel = 'hourly' | 'fixed' | 'retainer';
 type ClientStatus = 'prospect' | 'onboarding' | 'active' | 'inactive';
@@ -79,9 +80,9 @@ export default function NewPracticeClientPage() {
       const json = await res.json().catch(() => ({})) as { data?: { id?: string } };
       const newId = json.data?.id;
       if (newId) {
-        await router.push(`/accounting/practice/clients/${newId}?welcome=1`);
+        try { await router.push(`/accounting/practice/clients/${newId}?welcome=1`); } catch (e) { log.warn('navigation failed', { error: e }, 'practice-clients-new'); }
       } else {
-        await router.push('/accounting/practice/clients');
+        try { await router.push('/accounting/practice/clients'); } catch (e) { log.warn('navigation failed', { error: e }, 'practice-clients-new'); }
       }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the client - try again'));

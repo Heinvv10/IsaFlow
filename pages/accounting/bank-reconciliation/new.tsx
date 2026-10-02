@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Landmark, Loader2 } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { BankAccountSelector } from '@/components/accounting/bank/BankAccountSelector';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -43,7 +44,7 @@ export default function NewReconciliationPage() {
       await assertOk(res, 'Could not start reconciliation - try again');
       const json = await res.json();
       const data = json.data || json;
-      await router.push(`/accounting/bank-reconciliation/${data.id}`);
+      try { await router.push(`/accounting/bank-reconciliation/${data.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'bank-reconciliation-new'); }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not start reconciliation - try again'));
     } finally {

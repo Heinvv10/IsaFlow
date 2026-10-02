@@ -97,7 +97,7 @@ describe('(g) a failed response dropped without a word', () => {
     expect(kinds(wrap(`const res = await apiFetch('/x'); if (res.ok) { setRows(await res.json()); }`))).toEqual(['g']);
   });
   it('is quiet when the failure is handled, or handled after the success branch', () => {
-    expect(kinds(wrap(`const res = await apiFetch('/x'); if (!res.ok) { setError('Could not load x - try again'); return; } setRows(await res.json());`))).toEqual([]);
+    expect(kinds(wrap(`const res = await apiFetch('/x'); if (!res.ok) { const j = await res.json(); setError(j.error.message); return; } setRows(await res.json());`))).toEqual([]);
     expect(kinds(wrap(`const res = await apiFetch('/x'); if (res.ok) { setRows(await res.json()); return; } setError('Could not load x - try again');`))).toEqual([]);
   });
 });

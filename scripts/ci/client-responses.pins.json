@@ -76,5 +76,11 @@
     "kind": "b",
     "line": "<AlertCircle className=\"w-3 h-3\" /> Failed",
     "reason": "A status badge for a failed email in the log, not a message about a failed request; the badge is a label next to an icon."
+  },
+  {
+    "file": "pages/forgot-password.tsx",
+    "kind": "g",
+    "line": "if (!res.ok) {",
+    "reason": "Public unauthenticated reset form: every non-2xx (the route's 400 is just 'email required', the 5xx and proxy pages carry nothing a person can use) deliberately gets one fixed sentence, and the 2xx screen is identical whether or not the account exists."
   }
 ]

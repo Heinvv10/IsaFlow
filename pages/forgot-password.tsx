@@ -31,10 +31,15 @@ export default function ForgotPasswordPage() {
         return;
       }
 
-      // Always show success (server returns 200 even for unknown emails)
+      if (!res.ok) {
+        setError('Could not send the reset link - try again');
+        return;
+      }
+
+      // Same screen whether or not the account exists (server returns 200 for both)
       setSent(true);
     } catch {
-      setError('Could not send the reset link - check your connection and try again.');
+      setError('Could not send the reset link - try again');
     } finally {
       setSubmitting(false);
     }

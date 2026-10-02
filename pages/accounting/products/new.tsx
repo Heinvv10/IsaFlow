@@ -8,6 +8,7 @@ import { Box, Save, ArrowLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 interface Category { id: string; name: string; code: string; }
 
@@ -38,7 +39,7 @@ export default function NewProductPage() {
         body: JSON.stringify({ ...form, costPrice: Number(form.costPrice), sellingPrice: Number(form.sellingPrice), reorderLevel: Number(form.reorderLevel), reorderQuantity: Number(form.reorderQuantity), taxRate: Number(form.taxRate) }),
       });
       await assertOk(res, 'Could not create the product - try again');
-      await router.push('/accounting/products');
+      try { await router.push('/accounting/products'); } catch (e) { log.warn('navigation failed', { error: e }, 'products-new'); }
     } catch (err) { setError(apiErrorMessage(err, 'Could not create the product - try again')); }
     finally { setSaving(false); }
   };

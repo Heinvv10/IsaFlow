@@ -37,13 +37,14 @@ export default function CashFlowPage() {
   const [endDate, setEndDate] = useState(localISODate());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [refError, setRefError] = useState('');
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres', { credentials: 'include' })
       .then(async r => { await assertOk(r, 'Could not load the cost centres - try again'); return r.json(); }).then(res => {
       const list = res.data?.items || [];
       setCostCentres(list.map((c: Record<string, unknown>) => ({ id: String(c.id), code: String(c.code), name: String(c.name) })));
-    }).catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'cash-flow'); });
+    }).catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'cash-flow'); setRefError(apiErrorMessage(err, 'Could not load the cost centres - try again')); });
   }, []);
 
   const loadReport = useCallback(async () => {
@@ -128,6 +129,7 @@ export default function CashFlowPage() {
             )}
           </div>
 
+          {refError && <p role="alert" className="text-xs text-amber-500">{refError}</p>}
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-green-500" />

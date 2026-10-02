@@ -70,13 +70,14 @@ describe('sales order detail: confirm action and reload', () => {
     expect(await screen.findByText(/Could not confirm the sales order - try again/)).toBeTruthy();
     expectNoRawJsonError();
   });
-  it('reload 400 after a successful action: shows the server message', async () => {
+  it('reload 400 after a successful action: says the order was confirmed, never that the action failed', async () => {
     await mount(() => ok({}), bad);
-    expect(await screen.findByText(MSG)).toBeTruthy();
+    expect(await screen.findByText('The order was confirmed but could not be reloaded - refresh the page')).toBeTruthy();
+    expect(screen.queryByText(/Could not confirm the sales order/)).toBeNull();
   });
   it('reload 500 with an empty body: shows a plain sentence, not the JSON parse error', async () => {
     await mount(() => ok({}), boom);
-    expect(await screen.findByText(/Could not reload the order/)).toBeTruthy();
+    expect(await screen.findByText('The order was confirmed but could not be reloaded - refresh the page')).toBeTruthy();
     expectNoRawJsonError();
   });
   it('200: the reloaded order replaces the page', async () => {

@@ -10,6 +10,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { countClosable } from '@/lib/closeAgentView';
 import type {
   PortfolioWorkbench,
@@ -117,7 +118,8 @@ export default function PortfolioWorkbenchPage() {
         body: JSON.stringify({ companyId }),
       });
       await assertOk(res, 'Could not switch to this client - try again');
-      await router.push(`/accounting/month-end-workbench?period=${encodeURIComponent(period)}`);
+      try { await router.push(`/accounting/month-end-workbench?period=${encodeURIComponent(period)}`); } catch (e) { log.warn('navigation failed', { error: e }, 'portfolio-workbench'); }
+      setSwitching(null);
     } catch (e) {
       setError(apiErrorMessage(e, 'Could not switch to this client - try again'));
       setSwitching(null);

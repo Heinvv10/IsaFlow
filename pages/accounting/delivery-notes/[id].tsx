@@ -7,6 +7,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Truck, Loader2, ArrowLeft, Send, CheckCircle, XCircle } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 interface DeliveryNoteLine {
   id: string;
@@ -109,7 +110,7 @@ export default function DeliveryNoteDetailPage() {
         body: JSON.stringify({ id: note.id }),
       });
       await assertOk(res, 'Could not cancel the delivery note - try again');
-      await router.push('/accounting/delivery-notes');
+      try { await router.push('/accounting/delivery-notes'); } catch (e) { log.warn('navigation failed', { error: e }, 'delivery-notes-id'); }
     } catch (err: unknown) {
       setError(apiErrorMessage(err, 'Could not cancel the delivery note - try again'));
     } finally {

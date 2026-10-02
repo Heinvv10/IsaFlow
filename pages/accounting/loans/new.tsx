@@ -8,6 +8,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { Landmark, ArrowLeft, Loader2 } from 'lucide-react';
 import { RateCurve } from '@/components/loans/types';
 
@@ -101,7 +102,7 @@ export default function NewLoanPage() {
       });
       await assertOk(res, 'Could not create the loan - try again');
       const json = await res.json();
-      await router.push(`/accounting/loans/${json.data.id}`);
+      try { await router.push(`/accounting/loans/${json.data.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'loans-new'); }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create loan - try again'));
     } finally {

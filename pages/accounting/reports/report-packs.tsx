@@ -154,6 +154,8 @@ function ReportPacksScreen() {
         // every other report, so a reader who exported a few packs hits it
         // without doing anything unusual.
         if (res.status === 429) {
+          setPack(null);
+          setUnclassified(null);
           setRateLimited({ seconds: retryAfterSeconds(res.headers) });
           return;
         }

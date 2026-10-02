@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, PackageCheck, Loader2, Receipt } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 
 interface PurchaseOrder {
@@ -101,7 +102,7 @@ export default function NewGRNPage() {
         body: JSON.stringify({ purchaseOrderId: selectedPO, receivedDate, receivedBy: deliveryNote || null, notes: notes || null, items }),
       });
       await assertOk(res, 'Could not create the goods received note - try again');
-      await router.push('/accounting/goods-received');
+      try { await router.push('/accounting/goods-received'); } catch (e) { log.warn('navigation failed', { error: e }, 'goods-received-new'); }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the goods received note - try again'));
     } finally {
