@@ -30,7 +30,7 @@ interface BusinessUnit { id: string; code: string; name: string }
 
 export default function BalanceSheetPage() {
   const { asAtDate, setAsAtDate, costCentreId, setCostCentreId,
-    businessUnitId, setBusinessUnitId, queryKey, periodResolved } = useBalanceSheetFilters();
+    businessUnitId, setBusinessUnitId, queryKey, periodResolved, periodError } = useBalanceSheetFilters();
   const restoredColumns = useRef('');
   const [columnsReadyKey, setColumnsReadyKey] = useState('');
   const reportRequestRef = useRef(0);
@@ -203,9 +203,9 @@ export default function BalanceSheetPage() {
           <ComparatorNotices budgetState={budgetState} trendFailed={trendFailed}
             companyWideUnavailable={companyWideUnavailable} />
 
-          {error && (
+          {(error || periodError) && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
-              <AlertCircle className="h-4 w-4" /> {error}
+              <AlertCircle className="h-4 w-4" /> {error || periodError}
             </div>
           )}
 

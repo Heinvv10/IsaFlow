@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import { Percent, Calendar } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { apiJson } from '@/lib/apiFetch';
+import { ApiRequestError, apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface VatData {
@@ -62,7 +62,8 @@ export function VatSummaryWidget() {
         });
       } catch (err) {
         log.error('VatSummaryWidget fetch failed', { error: err }, 'dashboard-widget');
-        setError('Unable to load VAT data');
+        // the server's own sentence on a refusal (4xx); a plain one for an outage or a dropped connection
+        setError(err instanceof ApiRequestError && err.status >= 400 && err.status < 500 ? err.message : 'Could not load the VAT summary - try again');
       } finally {
         setLoading(false);
       }
