@@ -10,7 +10,7 @@
  * refusing would strand every such company's year end behind its VAT filing.
  * A P&L account carrying the vat_input subtype IS a tax leg, and is refused.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { sql } from '@/lib/neon';
 import { closeFiscalYear } from '@/modules/accounting/services/gl/yearEndCloseService';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
@@ -28,7 +28,9 @@ let misfiledVat = '';
 let je = '';
 
 describeIfDb('year-end close into a locked VAT period', () => {
-  beforeAll(async () => {
+  // Per test, not per file: a successful close commits (journal + locked periods) and is idempotent,
+  // so a shared company made the second test see the first one's close and get no refusal at all.
+  beforeEach(async () => {
     assertNotProductionDb('This test closes a fiscal year.');
     fx = await seedFixture('VLY', DATABASE_URL!);
     const c = fx.companyId;
@@ -62,7 +64,7 @@ describeIfDb('year-end close into a locked VAT period', () => {
     clearSystemAccountCache(c);
   }, 120000);
 
-  afterAll(async () => {
+  afterEach(async () => {
     clearSystemAccountCache(fx.companyId);
     await sql`DELETE FROM vat_period_locks WHERE company_id = ${fx.companyId}::UUID`;
     await dropFixture(fx);
