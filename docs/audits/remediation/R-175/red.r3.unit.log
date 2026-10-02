@@ -1,0 +1,145 @@
+### Round-3 unit tests run against d89110477's sources (19 changed src/pages files swapped back; the new autoRateLimit.ts left in place)
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts (7 tests | 5 failed) 11ms
+     × answers 400, before any query, for an id that is a plain word 6ms
+     × answers 400, before any query, for an id that is a uuid with trailing SQL 1ms
+     × answers 400, before any query, for an id that is an empty string 1ms
+     × an empty body costs the company bucket nothing 0ms
+     × refuses a user over the abuse limit before anything else 1ms
+ ❯ tests/unit/lib/checkReportRateLimit.test.ts (5 tests | 2 failed) 8ms
+     × denies once the default max (25) is exceeded 4ms
+     × forwards explicit max/windowSecs overrides to the underlying limiter 1ms
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts (11 tests | 9 failed) 13ms
+     × takes its verdict from the statement, not from the count 4ms
+     × sends the clamped cost and the limit, and returns the window that was charged 1ms
+     × a cost above the whole allowance is refused without asking 1ms
+     × remembers a refusal, and only a refusal: memory never admits 1ms
+     × a remembered refusal turns away only a call that still would not fit 1ms
+     × does not remember a refusal whose window has already ended 1ms
+     × remembers a refusal no longer than the window has left 1ms
+     × clearRateLimitCache and refundRateLimit each forget a remembered refusal 1ms
+     × refundRateLimit sends the clamped units, and the window when it is given one 2ms
+ ❯ tests/unit/security/rateLimitKeyCensus.test.ts (8 tests | 2 failed) 29ms
+     × the wrapper-applied buckets are read from their one table 5ms
+     × every call it cannot read is pinned, and every pin still matches a call 1ms
+ ❯ tests/unit/api/aiRoutesQuotaUse.test.ts (12 tests | 2 failed) 22ms
+     × answers 200 with its fallback but uses the unit when the provider call times out 3ms
+     × answers 200 with its fallback but uses the unit when the provider call times out 1ms
+ ❯ tests/unit/lib/rateLimitQuota.test.ts (31 tests | 19 failed) 42ms
+     × notes the daily bucket only, and only when the caller asks for refundUnused 4ms
+     × AI: no provider answer, then a 200 with a fallback, gives the unit back 3ms
+     × send: 59 of 100 accepted, then a throw, gives back 41 1ms
+     × send: nothing accepted (SMTP down), answered 200, gives every unit back 1ms
+     × a zero or NaN count records no use, and does not poison the record 1ms
+     × never gives back more than was charged, whatever the record holds 1ms
+     × use of one kind does not spend the other kind 1ms
+     × settles once: a second settle gives nothing back 1ms
+     × outside a request that keeps the list (bearer, cron, platform admin) nothing is noted, marked or given back 1ms
+     × a refund that fails is logged, does not throw, and does not stop the next one 2ms
+     × work handed to runAfterCommit forfeits the refund: use recorded there would never be seen 17ms
+     × the same request without deferred work gets its units back 1ms
+       × is not use after a refused connection: no work was done 1ms
+       × is not use after a name that does not resolve: no work was done 1ms
+       × is not use after a DNS failure: no work was done 1ms
+       × is not use after a connect timeout: no work was done 1ms
+       × is not use after a code on the error itself: no work was done 1ms
+       × is not use after a provider 529 answer (SDK): no work was done 0ms
+       × is not use after a provider 400 answer (SDK): no work was done 1ms
+ ❯ tests/unit/security/quotaCallerCensus.test.ts (22 tests | 1 failed) 138ms
+     × the context check goes red on exited-context code and stays green without it 7ms
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts (11 tests | 1 failed) 28ms
+     × uses the unit when the provider call times out or is aborted: the work may have been done 4ms
+ ❯ tests/unit/lib/quotaUseChokepoints.test.ts (12 tests | 2 failed) 14ms
+       × records one AI use when the call times out or is aborted: the provider may have done the work 5ms
+       × records one AI use when the call times out 1ms
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts (15 tests | 6 failed) 83ms
+     × counts the attempt against the user, and a malformed request never reaches the company bucket 6ms
+     × refuses a user over the abuse limit before the company bucket 2ms
+     × counts the attempt against the user, and a malformed request never reaches the company bucket 1ms
+     × refuses a user over the abuse limit before the company bucket 1ms
+     × counts the attempt against the user, and a malformed request never reaches the company bucket 1ms
+     × refuses a user over the abuse limit before the company bucket 52ms
+AssertionError: expected +0 to be 1 // Object.is equality
+ ❯ tests/unit/api/aiRoutesQuotaUse.test.ts:84:36
+AssertionError: expected +0 to be 1 // Object.is equality
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts:106:58
+AssertionError: expected [] to deeply equal [ [ 'dunning:attempts:u1', …(1) ] ]
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:162:38
+AssertionError: expected "bound tooManyRequests" to be called 1 times, but got 0 times
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:172:21
+AssertionError: expected [] to deeply equal [ [ 'afs-signing:attempts:u1', …(1) ] ]
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:162:38
+AssertionError: expected [] to deeply equal [ [ …(2) ] ]
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:162:38
+AssertionError: expected "bound tooManyRequests" to be called 1 times, but got 0 times
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:172:21
+AssertionError: expected true to be false // Object.is equality
+ ❯ tests/unit/lib/checkReportRateLimit.test.ts:50:21
+AssertionError: expected true to be false // Object.is equality
+ ❯ tests/unit/lib/checkReportRateLimit.test.ts:60:34
+AssertionError: expected { ai: +0, send: +0 } to deeply equal { ai: 1, send: +0 }
+ ❯ tests/unit/lib/quotaUseChokepoints.test.ts:106:11
+AssertionError: expected { ai: +0, send: +0 } to deeply equal { ai: 1, send: +0 }
+ ❯ tests/unit/lib/quotaUseChokepoints.test.ts:137:64
+AssertionError: expected true to be false // Object.is equality
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:60:46
+TypeError: chargeRateLimit is not a function
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:68:26
+TypeError: chargeRateLimit is not a function
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:76:18
+AssertionError: expected true to be false // Object.is equality
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:82:46
+AssertionError: expected true to be false // Object.is equality
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:97:63
+AssertionError: expected true to be false // Object.is equality
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:112:46
+AssertionError: expected true to be false // Object.is equality
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:121:46
+AssertionError: expected true to be false // Object.is equality
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:132:46
+AssertionError: expected [ [ 'k', 2 ], [ 'k', 1 ] ] to deeply equal [ [ 'k', 2, null ], [ 'k', 1, …(1) ] ]
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:150:55
+TypeError: Cannot destructure property 'count' of 'rows[0]' as it is undefined.
+ ❯ checkRateLimit src/lib/rateLimitCore.ts:116:11
+ ❯ Module.checkAiRateLimit src/lib/rateLimit.ts:59:6
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:58:14
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:57:5
+AssertionError: expected [] to deeply equal [ [ …(3) ] ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:73:23
+AssertionError: expected [] to deeply equal [ [ …(3) ] ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:102:23
+AssertionError: expected [] to deeply equal [ [ …(3) ] ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:108:23
+AssertionError: expected [] to deeply equal [ [ …(3) ] ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:130:23
+AssertionError: expected [ [ 'send:bulk:co:company-1:day', 2 ] ] to deeply equal [ [ …(3) ] ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:143:23
+AssertionError: expected [] to deeply equal [ [ …(3) ] ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:154:23
+AssertionError: expected [] to deeply equal [ [ …(3) ] ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:182:23
+TypeError: Cannot destructure property 'count' of 'rows[0]' as it is undefined.
+ ❯ checkRateLimit src/lib/rateLimitCore.ts:116:11
+ ❯ Module.checkAiRateLimit src/lib/rateLimit.ts:59:6
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:188:12
+AssertionError: expected [ [ 'a', 1 ], [ 'b', 2 ] ] to deeply equal [ [ 'a', 1, …(1) ], [ 'b', 2, null ] ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:209:23
+AssertionError: expected [] to have a length of 1 but got +0
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:224:29
+AssertionError: expected [] to deeply equal [ [ …(3) ] ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:233:23
+AssertionError: expected [] to deeply equal [ [ …(3) ] ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:267:37
+AssertionError: expected [] to deeply equal [ [ …(2) ] ]
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts:62:38
+AssertionError: expected "vi.fn()" to be called 1 times, but got 0 times
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts:70:27
+AssertionError: expected "vi.fn()" to be called 1 times, but got 0 times
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts:78:41
+AssertionError: expected '\nimport { als, type RequestContext }…' to contain 'forfeitQuotaRefund()'
+ ❯ tests/unit/security/quotaCallerCensus.test.ts:155:44
+AssertionError: expected [] to deeply equal [ { …(3) } ]
+ ❯ tests/unit/security/rateLimitKeyCensus.test.ts:260:72
+AssertionError: expected [ …(9) ] to deeply equal [ …(7) ]
+ ❯ tests/unit/security/rateLimitKeyCensus.test.ts:272:51
+ Test Files  10 failed | 4 passed (14)
+      Tests  49 failed | 137 passed (186)

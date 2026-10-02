@@ -1,0 +1,70 @@
+### Round-4 unit tests run against 84bcca1b8's sources (9 changed src/pages files swapped back)
+ ❯ tests/unit/security/statementBulkEmailRateLimit.test.ts (9 tests | 1 failed) 15ms
+     × counts every attempt against the user before the ownership query, and refuses when over 6ms
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts (8 tests | 5 failed) 15ms
+     × answers 400, before any query, for an id that is a plain word 8ms
+     × answers 400, before any query, for an id that is a uuid with trailing SQL 1ms
+     × answers 400, before any query, for an id that is an empty string 1ms
+     × logs a count and a sample of the ids it refuses, not every id 2ms
+     × charges the company bucket after the ownership query, asks for refundUnused, and sends when all checks pass 1ms
+ ❯ tests/unit/security/rateLimitKeyCensus.test.ts (9 tests | 2 failed) 46ms
+     × finds the call sites, including the keys the wrappers build 9ms
+     × every refund names the window it was charged in 1ms
+ ❯ tests/unit/lib/rateLimitQuota.test.ts (33 tests | 1 failed) 45ms
+     × when the daily bucket refuses, the 15-minute company charge goes back into its window; the per-IP one never does 7ms
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts (23 tests | 8 failed) 34ms
+     × a request refused because nothing matches "FROM customer_invoices ci" leaves the company bucket untouched 5ms
+     × a request refused because nothing matches "dunning_templates" leaves the company bucket untouched 1ms
+     × counts the attempt against the user, and a malformed request never reaches the company bucket 3ms
+     × a request refused because nothing matches "FROM afs_documents" leaves the company bucket untouched 1ms
+     × a request refused because nothing matches "FROM portal_contacts" leaves the company bucket untouched 1ms
+     × counts the attempt against the user, and a malformed request never reaches the company bucket 1ms
+     × a request refused because nothing matches "FROM customer_invoices" leaves the company bucket untouched 1ms
+     × counts the attempt against the user, and a malformed request never reaches the company bucket 1ms
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts (20 tests | 8 failed) 1225ms
+     × remembers only a key that is full: a refused large call does not turn a small one away 5ms
+     × floors a fractional max: 2.5 admits what 2 admits 1ms
+     × refuses a max of NaN as a programming error, before any statement 2ms
+     × refuses a max of Infinity as a programming error, before any statement 1ms
+     × refuses a max of -Infinity as a programming error, before any statement 1ms
+     × refuses a max of -1 as a programming error, before any statement 1ms
+     × refuses a max of 2147483648 as a programming error, before any statement 1ms
+     × refuses a max of 1000000001 as a programming error, before any statement 1ms
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:179:27
+AssertionError: expected [ [ 'dunning:attempts:u1', …(1) ] ] to deeply equal [ [ …(2) ] ]
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:195:38
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:179:27
+AssertionError: expected [ [ 'afs-signing:attempts:u1', …(1) ] ] to deeply equal [ [ …(2) ] ]
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:195:38
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:179:27
+AssertionError: expected [ [ …(2) ] ] to deeply equal [ [ …(2) ] ]
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:195:38
+AssertionError: expected false to be true // Object.is equality
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:102:62
+AssertionError: expected false to be true // Object.is equality
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:124:66
+AssertionError: expected error to be instance of RangeError
+TypeError {
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:129:65
+AssertionError: promise resolved "false" instead of rejecting
+Error {
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:129:65
+AssertionError: expected [] to deeply equal [ …(2) ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:225:23
+AssertionError: expected [ [ …(2) ] ] to deeply equal [ [ …(2) ] ]
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts:62:38
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts:94:27
+AssertionError: expected 18 to be less than 17
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts:102:50
+AssertionError: expected [ …(121) ] to deeply equal ArrayContaining{…}
+ ❯ tests/unit/security/rateLimitKeyCensus.test.ts:64:49
+AssertionError: expected [ Array(1) ] to deeply equal []
+ ❯ tests/unit/security/rateLimitKeyCensus.test.ts:91:40
+AssertionError: expected [ [ …(2) ] ] to deeply equal [ [ …(2) ] ]
+ ❯ tests/unit/security/statementBulkEmailRateLimit.test.ts:153:43
+ Test Files  6 failed | 10 passed (16)
+      Tests  25 failed | 188 passed (213)

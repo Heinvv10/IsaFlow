@@ -28,7 +28,10 @@ vi.mock('@/lib/auth', () => ({
 }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
-vi.mock('@/lib/rateLimit', () => ({ checkSendRateLimit: vi.fn().mockResolvedValue(true) }));
+vi.mock('@/lib/rateLimit', () => ({
+  checkSendRateLimit: vi.fn().mockResolvedValue(true),
+  checkRateLimit: vi.fn().mockResolvedValue(true),
+}));
 vi.mock('@/lib/apiResponse', () => ({
   apiResponse: {
     success: vi.fn(),
@@ -61,6 +64,9 @@ const sendDunning = vi.fn();
 const renderTemplate = vi.fn();
 vi.mock('@/modules/accounting/services/ar/dunningService', () => ({
   sendDunning: (...a: unknown[]) => sendDunning(...a),
+  // The route's ownership checks before it charges (R-175): both records exist.
+  loadInvoiceCtx: async () => ({ invoice_id: 'x' }),
+  getTemplateById: async () => ({ id: 'x' }),
   renderTemplate: (...a: unknown[]) => renderTemplate(...a),
 }));
 
