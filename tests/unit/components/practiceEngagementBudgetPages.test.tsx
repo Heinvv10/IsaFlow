@@ -51,7 +51,7 @@ describe('JobBudgetPanel', () => {
   it('is amber from 80% used', async () => {
     const box = await show(row({ consumedAmount: 850, balance: 150, percentUsed: 85, state: 'warning' }));
     expect(box.getAttribute('data-state')).toBe('warning');
-    expect(within(box).getByText(/150\.00/).className).toContain('text-amber-700 dark:text-amber-400');
+    expect(within(box).getByText(/150\.00/).className).toContain('text-amber-800 dark:text-amber-400');
   });
 
   it('is red over budget, with the sign before the rand', async () => {
