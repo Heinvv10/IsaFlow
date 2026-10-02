@@ -13,12 +13,12 @@ interface FormState {
   practiceClientId: string; title: string; description: string; jobCategoryId: string;
   partnerId: string; preparerId: string; dueDate: string; priority: PracticeJob['priority'];
   financialYear: string; billingType: '' | 'hourly' | 'fixed' | 'retainer';
-  budgetedHours: string; fixedFeeAmount: string;
+  budgetedHours: string; fixedFeeAmount: string; budgetAmount: string;
 }
 const INITIAL: FormState = {
   practiceClientId: '', title: '', description: '', jobCategoryId: '',
   partnerId: '', preparerId: '', dueDate: '', priority: 'normal',
-  financialYear: '', billingType: '', budgetedHours: '', fixedFeeAmount: '',
+  financialYear: '', billingType: '', budgetedHours: '', fixedFeeAmount: '', budgetAmount: '',
 };
 const IC = 'w-full py-2 px-3 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500';
 const SC = 'w-full py-2 px-3 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500';
@@ -98,6 +98,7 @@ export default function NewPracticeJobPage() {
         financialYear: form.financialYear.trim() || undefined, billingType: form.billingType || undefined,
         budgetedHours: form.budgetedHours ? Number(form.budgetedHours) : undefined,
         fixedFeeAmount: form.fixedFeeAmount ? Number(form.fixedFeeAmount) : undefined,
+        budgetAmount: form.budgetAmount ? Number(form.budgetAmount) : undefined,
       };
       const res = await apiFetch('/api/accounting/practice/jobs', { method: 'POST', body: JSON.stringify(body) });
       if (!res.ok) { const j = await res.json().catch(() => ({})) as { error?: string }; throw new Error(j.error ?? `HTTP ${res.status}`); }
@@ -219,6 +220,11 @@ export default function NewPracticeJobPage() {
                 <label className={LC}>Fixed Fee (R)</label>
                 <input type="number" min="0" step="0.01" value={form.fixedFeeAmount} onChange={(e) => set('fixedFeeAmount', e.target.value)} placeholder="0.00" className={IC} />
               </div>
+            </div>
+            <div>
+              <label className={LC}>Engagement Budget (R)</label>
+              <input type="number" min="0" step="0.01" value={form.budgetAmount} onChange={(e) => set('budgetAmount', e.target.value)} placeholder="No budget" className={IC} />
+              <p className="mt-1 text-xs text-[var(--ff-text-tertiary)]">Approved value of time on this job. All time captured against it, at the staff rate, is measured against this amount.</p>
             </div>
             <div className="flex items-center gap-3 pt-2">
               <button type="submit" disabled={isSubmitting}
