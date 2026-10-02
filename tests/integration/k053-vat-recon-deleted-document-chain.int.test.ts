@@ -5,13 +5,18 @@
  * The reconciliation ties a GL leg (revenue, output and input VAT by journal
  * month) to an INVOICE leg that is deliberately undated: it keeps a deleted
  * invoice in the month it was raised, as the document-based VAT201 did when
- * that month was filed. So the GL leg must carry the document's ORIGINAL
+ * that month was filed. So the REVENUE arm must carry the document's ORIGINAL
  * journal O and nothing past it. It used to drop only the reversal R recorded
  * in `soft_delete_journal_reversals`; once R was reversed by hand (R2) — or a
  * journal was reversed by hand before the delete (M) — that link landed in its
- * own month as revenue and VAT the invoice leg never had: a variance no
- * operator can reconcile away. The chain is the one the AR/AP reconciliation
- * excludes (shared/softDeleteLedgerPresence `deletedDocumentReversalChainIds`).
+ * own month as revenue the invoice leg never had: a variance no operator can
+ * reconcile away. The chain is the one the AR/AP reconciliation excludes
+ * (shared/softDeleteLedgerPresence `deletedDocumentChainLinkFragment`).
+ *
+ * The VAT arms are compared with returns filed from the LEDGER, so they carry
+ * the ledger as it stands, chain and all (round 3 — see
+ * k053-vat-recon-vs-filed-return), and so does the multi-year summary, which is
+ * compared with no document at all.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -122,20 +127,41 @@ async function reverseHeadByHand(role: 'ar' | 'ap'): Promise<void> {
   head[role] = (await inTx(() => reverseJournalEntry(COMPANY, head[role], USER, { reversalDate: LATER }))).id;
 }
 
-/** The GL leg carries the original journals and nothing past them, in every month. */
-async function assertGlLegIsTheOriginals(sub: number, vat: number): Promise<void> {
-  const recon = await getVatReconciliation(COMPANY, RANGE_FROM, RANGE_TO);
-  const docMonth = DOC_DATE.slice(0, 7);
-  const byMonth = recon.months.map((m) => `${m.month} rev ${m.glRevenue} out ${m.glOutputVat} in ${m.glInputVat} var ${m.revenueVariance}`);
-  expect(byMonth).toEqual([`${docMonth} rev ${sub} out ${vat} in ${vat} var 0`]);
-  expect(recon.totals.invoiceRevenue).toBeCloseTo(sub, 2);
-  expect(recon.issues.filter((i) => i.message.includes('variance'))).toEqual([]);
-
-  const year = (await getVatMultiYearSummary(COMPANY, 2)).find((y) => y.year === Number(DOC_DATE.slice(0, 4)));
-  expect([year?.totalRevenue, year?.totalOutputVat, year?.totalInputVat]).toEqual([sub, vat, vat]);
+/** The ledger's own revenue and VAT by month, straight from the lines. */
+async function ledger(): Promise<Map<string, [number, number, number]>> {
+  const rows = (await sql`
+    SELECT TO_CHAR(e.entry_date, 'YYYY-MM') AS month,
+      SUM(CASE WHEN a.account_type = 'revenue' THEN l.credit - l.debit ELSE 0 END)::float8 AS rev,
+      SUM(CASE WHEN a.account_subtype = 'vat_output' THEN l.credit - l.debit ELSE 0 END)::float8 AS out,
+      SUM(CASE WHEN a.account_subtype = 'vat_input' THEN l.debit - l.credit ELSE 0 END)::float8 AS inp
+    FROM gl_journal_lines l JOIN gl_journal_entries e ON e.id = l.journal_entry_id
+    JOIN gl_accounts a ON a.id = l.gl_account_id
+    WHERE l.company_id = ${COMPANY}::UUID AND e.status = 'posted'
+    GROUP BY 1`) as { month: string; rev: number; out: number; inp: number }[];
+  return new Map(rows.map((r) => [r.month, [r.rev, r.out, r.inp]]));
 }
 
-describeIfDb('D7 the VAT reconciliation excludes a deleted document\'s whole reversal chain', () => {
+/**
+ * Revenue carries the original journals and nothing past them, in every month;
+ * the VAT arms and the multi-year summary carry the ledger as it stands.
+ */
+async function assertArms(sub: number): Promise<void> {
+  const recon = await getVatReconciliation(COMPANY, RANGE_FROM, RANGE_TO);
+  const book = await ledger();
+  const docMonth = DOC_DATE.slice(0, 7);
+  expect(recon.months.map((m) => `${m.month} rev ${m.glRevenue} var ${m.revenueVariance}`))
+    .toEqual(recon.months.map((m) => `${m.month} rev ${m.month === docMonth ? sub : 0} var 0`));
+  expect(recon.months.map((m) => [m.month, m.glOutputVat, m.glInputVat]))
+    .toEqual(recon.months.map((m) => [m.month, book.get(m.month)?.[1] ?? 0, book.get(m.month)?.[2] ?? 0]));
+  expect(recon.totals.invoiceRevenue).toBeCloseTo(sub, 2);
+  expect(recon.issues.filter((i) => i.message.includes('Revenue variance'))).toEqual([]);
+
+  const year = (await getVatMultiYearSummary(COMPANY, 2)).find((y) => y.year === Number(DOC_DATE.slice(0, 4)));
+  const sum = (k: 0 | 1 | 2) => [...book.values()].reduce((a, v) => a + v[k], 0);
+  expect([year?.totalRevenue, year?.totalOutputVat, year?.totalInputVat]).toEqual([sum(0), sum(1), sum(2)]);
+}
+
+describeIfDb('D7 the VAT reconciliation\'s revenue arm excludes a deleted document\'s whole reversal chain', () => {
   beforeAll(async () => {
     assertDisposable();
     // The hand reversals and the delete must not straddle a year boundary, or
@@ -181,20 +207,20 @@ describeIfDb('D7 the VAT reconciliation excludes a deleted document\'s whole rev
     await sql`DELETE FROM companies WHERE id = ${COMPANY}::UUID`;
   }, 120000);
 
-  it('the premise: the delete alone leaves only the originals on the GL leg', async () => {
-    await assertGlLegIsTheOriginals(SUB, VAT);
+  it('the premise: the delete alone leaves only the originals on the revenue arm', async () => {
+    await assertArms(SUB);
   });
 
-  it('the delete reversal reversed by hand a month later: no revenue, output or input VAT in that month', async () => {
+  it('the delete reversal reversed by hand a month later: no revenue in that month, the ledger\'s VAT', async () => {
     await reverseHeadByHand('ar');
     await reverseHeadByHand('ap');
-    await assertGlLegIsTheOriginals(SUB, VAT);
+    await assertArms(SUB);
   });
 
   it('and that hand reversal reversed again: still only the originals', async () => {
     await reverseHeadByHand('ar');
     await reverseHeadByHand('ap');
-    await assertGlLegIsTheOriginals(SUB, VAT);
+    await assertArms(SUB);
   });
 
   it('a journal reversed by hand BEFORE the delete is left out once the document is deleted', async () => {
@@ -205,7 +231,7 @@ describeIfDb('D7 the VAT reconciliation excludes a deleted document\'s whole rev
     await inTx(() => reverseJournalEntry(COMPANY, apJournal, USER, { reversalDate: LATER }));
     await inTx(() => softDelete(COMPANY, 'customer_invoice', ar, USER));
     await inTx(() => softDelete(COMPANY, 'supplier_invoice', ap, USER));
-    await assertGlLegIsTheOriginals(SUB + SUB_M, VAT + VAT_M);
+    await assertArms(SUB + SUB_M);
   });
 
   it('the mirror: a LIVE invoice\'s hand reversal still shows as a variance in its month', async () => {
@@ -217,7 +243,6 @@ describeIfDb('D7 the VAT reconciliation excludes a deleted document\'s whole rev
 
     const recon = await getVatReconciliation(COMPANY, RANGE_FROM, RANGE_TO);
     const later = recon.months.find((m) => m.month === LATER.slice(0, 7));
-    expect([later?.glRevenue, later?.glOutputVat, later?.glInputVat, later?.revenueVariance])
-      .toEqual([-SUB_M, -VAT_M, -VAT_M, -SUB_M]);
+    expect([later?.glRevenue, later?.revenueVariance]).toEqual([-SUB_M, -SUB_M]);
   });
 });
