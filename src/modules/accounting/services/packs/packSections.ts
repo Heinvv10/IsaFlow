@@ -35,7 +35,7 @@ const IFRS_TITLES = {
   ratios: 'Financial Ratios',
   kpis: 'KPI Scorecard',
   waterfall: 'Profit Bridge',
-  trends: 'Twelve-Month Trend',
+  trends: 'Revenue by Month',
   commentary: 'Commentary',
 } as const satisfies Record<string, string>;
 

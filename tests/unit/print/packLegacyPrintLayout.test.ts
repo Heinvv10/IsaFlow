@@ -145,7 +145,7 @@ describe('no sheet is landscape', () => {
     expect(sizes.length).toBeGreaterThan(3);
     for (const [w, h] of sizes) expect(w!, 'a landscape sheet').toBeLessThan(h!);
     const text = (await run('pdftotext', [file, '-'])).stdout;
-    for (const heading of ['Profit Bridge', 'Twelve-Month Trend', 'Commentary']) expect(text).toContain(heading);
+    for (const heading of ['Profit Bridge', 'Revenue by Month', 'Commentary']) expect(text).toContain(heading);
   }, 60_000);
 });
 

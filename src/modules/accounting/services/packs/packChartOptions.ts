@@ -158,7 +158,7 @@ export function waterfallOption(
  * The step is coarsened until every tick is a figure of its own; an axis
  * with nothing on it prints its zero alone.
  */
-function distinctTicksAxis(values: number[], palette: ChartPalette, scale: MoneyScale) {
+export function distinctTicksAxis(values: number[], palette: ChartPalette, scale: MoneyScale) {
   const zeroAlone = () => {
     const axis = moneyValueAxis(palette, scale, { min: 0, max: 1, splitNumber: 1, interval: 1 });
     return { ...axis, axisLabel: { ...axis.axisLabel, showMaxLabel: false } };

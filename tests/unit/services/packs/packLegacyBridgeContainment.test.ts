@@ -127,7 +127,7 @@ describe('the management pack\'s charts are set in the pack\'s print face', () =
 
   it('the twelve-month trend: every text', () => {
     const points = Array.from({ length: 12 }, (_, i) => ({ label: `M${i + 1} 2026`, revenue: 100_000 + i * 12_500 }));
-    const svg = renderLegacyOption(legacyTrendOption(points), 718, 320);
+    const svg = renderLegacyOption(legacyTrendOption(points), 657, 320);
     expect((svg.match(/<text\b/g) ?? []).length, 'no text was drawn, so no face is under test').toBeGreaterThan(12);
     expect(fontFamilies(svg)).toEqual([PRINT_FACE]);
   });
@@ -138,7 +138,7 @@ describe('the management pack\'s charts are set in the pack\'s print face', () =
     ['revenue of a few rand', [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8]],
   ])('the twelve-month trend prints no figure on two ticks: %s', (_name, revenue) => {
     const points = revenue.map((r, i) => ({ label: `M${i + 1} 2026`, revenue: r }));
-    const svg = renderLegacyOption(legacyTrendOption(points), 718, 320);
+    const svg = renderLegacyOption(legacyTrendOption(points), 657, 320);
     const ticks = [...svg.matchAll(/text-anchor="end"[^>]*transform="translate\([^>]*>([^<]*)<\/text>/g)].map((m) => m[1]!);
     expect(ticks.length, 'no value ticks were read').toBeGreaterThan(0);
     expect(ticks, ticks.join(' | ')).toEqual([...new Set(ticks)]);
@@ -153,7 +153,7 @@ describe('the management pack\'s charts are set in the pack\'s print face', () =
     ['three tenths of a cent', [0.003], ['–']],
   ])('the twelve-month trend under a rand prints its ends once each: %s', (_name, revenue, expected) => {
     const points = (revenue as number[]).map((r, i) => ({ label: `M${i + 1} 2026`, revenue: r }));
-    const svg = renderLegacyOption(legacyTrendOption(points), 718, 320);
+    const svg = renderLegacyOption(legacyTrendOption(points), 657, 320);
     const ticks = [...svg.matchAll(/text-anchor="end"[^>]*transform="translate\([^>]*>([^<]*)<\/text>/g)].map((m) => m[1]!.replace(/&lt;/g, '<'));
     expect(ticks).toEqual(expected);
   });
