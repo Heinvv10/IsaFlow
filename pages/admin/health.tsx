@@ -121,8 +121,8 @@ export default function SystemHealthPage() {
                 <Stat label="Status"     value={<StatusBadge level={dbStatus} label={data.db.status === 'ok' ? 'Connected' : 'Unreachable'} />} />
                 <Stat label="Query (ms)" value={data.db.latency_ms} />
                 <Stat label="DB Size"    value={`${data.db.size_mb} MB`} />
-                {data.db.error && (
-                  <p className="col-span-2 text-xs text-red-400 mt-1 truncate">{data.db.error}</p>
+                {data.db.status !== 'ok' && (
+                  <p className="col-span-2 text-xs text-red-400 mt-1">The database did not answer the health check query - check the database service and the server logs.</p>
                 )}
               </div>
             </MetricCard>

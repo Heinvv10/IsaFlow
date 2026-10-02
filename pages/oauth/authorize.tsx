@@ -80,6 +80,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSubmitting(true);
+    let navigating = false;
     setError(null);
     try {
       // Submit the full requested set + the explicitly-ticked opt-in scopes.
@@ -105,11 +106,12 @@ export default function AuthorizePage(props: Props | ErrorProps) {
       const json = (await res.json()) as { data?: { redirectTo: string } };
       if (!json.data?.redirectTo) { setError('Could not authorise this app - try again'); return; }
       // Hard navigation to the partner — leaves the ISAFlow domain.
+      navigating = true;
       window.location.href = json.data.redirectTo;
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not authorise this app - try again'));
     } finally {
-      setSubmitting(false);
+      if (!navigating) setSubmitting(false);   // the page is leaving: the button stays disabled until it has
     }
   };
 

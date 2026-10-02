@@ -45,12 +45,12 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
         method: 'POST',
         body: JSON.stringify(body),
       });
-      await assertOk(res, 'Failed to add event');
+      await assertOk(res, 'Could not add the loan event - try again');
       setForm(EMPTY_FORM);
       setShowForm(false);
       onRefresh();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not add event - try again'));
+      setError(apiErrorMessage(err, 'Could not add the loan event - try again'));
     } finally {
       setBusy(false);
     }

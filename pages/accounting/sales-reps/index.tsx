@@ -51,12 +51,12 @@ export default function SalesRepsPage() {
     setError(null);
     try {
       const res = await apiFetch('/api/accounting/sales-reps');
-      await assertOk(res, 'Failed to load sales reps');
+      await assertOk(res, 'Could not load the sales reps - try again');
       const json = await res.json() as { data?: SalesRep[] };
       setReps(json.data ?? []);
     } catch (err) {
       log.error('Failed to load sales reps', { err });
-      setError(apiErrorMessage(err, 'Network error — could not load sales reps'));
+      setError(apiErrorMessage(err, 'Could not load the sales reps - try again'));
       setReps([]);
     } finally { setLoading(false); }
   }, []);
@@ -121,12 +121,12 @@ export default function SalesRepsPage() {
         });
       }
 
-      await assertOk(res, 'Save failed');
+      await assertOk(res, 'Could not save the sales rep - try again');
       closeModal();
       await loadReps();
     } catch (err) {
       log.error('Failed to save sales rep', { err });
-      setFormError(apiErrorMessage(err, 'Network error — save failed'));
+      setFormError(apiErrorMessage(err, 'Could not save the sales rep - try again'));
     } finally { setSaving(false); }
   };
 
@@ -137,11 +137,11 @@ export default function SalesRepsPage() {
         method: 'PUT',
         body: JSON.stringify({ id: rep.id, is_active: !rep.is_active }),
       });
-      await assertOk(res, 'Update failed');
+      await assertOk(res, 'Could not update the sales rep - try again');
       await loadReps();
     } catch (err) {
       log.error('Failed to update sales rep', { err });
-      setError(apiErrorMessage(err, 'Network error — update failed'));
+      setError(apiErrorMessage(err, 'Could not update the sales rep - try again'));
     }
   };
 

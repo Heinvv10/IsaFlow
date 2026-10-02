@@ -29,7 +29,7 @@ export default function AuditPortalPage() {
           setError('The audit pack is unavailable right now - please try again shortly');
         }
       } catch {
-        setError('Network error — try again.');
+        setError('Could not check the audit pack link - check your connection and try again.');
       }
     })();
   }, [sessionId, token]);

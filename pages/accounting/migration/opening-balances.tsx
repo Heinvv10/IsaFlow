@@ -3,6 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch, apiJson, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 interface BalanceRow {
   accountCode: string;
@@ -45,7 +46,10 @@ export default function OpeningBalancesPage() {
         }));
         setRows(parsed);
       },
-      error: err => setError(`CSV parse error: ${err.message}`),
+      error: err => {
+        log.warn('CSV parse error', { error: err }, 'migration');
+        setError('Could not read the CSV file - check it is a valid CSV and try again');
+      },
     });
   };
 

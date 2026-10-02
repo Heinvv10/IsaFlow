@@ -53,6 +53,8 @@ export default function ParallelRunPage() {
       setImports(json.data?.imports ?? []);
     } catch (err) {
       setImports([]);
+      setSelectedId(null);
+      setReport(null);
       setError(apiErrorMessage(err, 'Could not load the imports - try again'));
     } finally {
       setIsLoading(false);

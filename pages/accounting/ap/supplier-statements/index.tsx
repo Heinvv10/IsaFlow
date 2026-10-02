@@ -117,7 +117,7 @@ export default function SupplierStatementsIndexPage() {
       await assertOk(res, 'Could not upload the statement - try again');
       const json = await res.json() as { data?: SupplierStatementReconciliation };
       setModalOpen(false); setModalFile(null); setModalSupplier('');
-      if (json.data?.id) void router.push(`/accounting/ap/supplier-statements/${json.data.id}`);
+      if (json.data?.id) await router.push(`/accounting/ap/supplier-statements/${json.data.id}`);
     } catch (err) { showToast(apiErrorMessage(err, 'Could not upload the statement - try again'), 'err'); }
     finally { setUploading(false); }
   }, [modalFile, modalSupplier, router, showToast]);

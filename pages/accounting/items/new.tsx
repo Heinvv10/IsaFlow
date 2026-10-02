@@ -149,7 +149,7 @@ export default function NewItemPage() {
         body: JSON.stringify(payload),
       });
       await assertOk(res, 'Could not create the item - try again');
-      void router.push('/accounting/items');
+      await router.push('/accounting/items');
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the item - try again'));
     } finally { setSaving(false); }

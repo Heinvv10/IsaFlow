@@ -323,6 +323,7 @@ export default function LoginPage() {
     setTotpError(null);
     setSubmitting(true);
 
+    let navigating = false;   // the page is leaving: the button stays disabled until it has
     try {
       const fingerprint = getDeviceFingerprint();
       const res = await fetch('/api/auth/login', {
@@ -363,11 +364,12 @@ export default function LoginPage() {
       // alive until the async user-companies refetch returned — long enough
       // for the dashboard header to flash the wrong tenant's name.
       const target = await postLoginRedirect();
+      navigating = true;
       window.location.assign(target);
     } catch (err) {
       setTotpError(apiErrorMessage(err, 'Could not reach the server - check your connection and try again'));
     } finally {
-      setSubmitting(false);
+      if (!navigating) setSubmitting(false);
     }
   };
 
@@ -376,6 +378,7 @@ export default function LoginPage() {
     if (!pendingFactor) return;
     setTotpError(null);
     setSubmitting(true);
+    let navigating = false;   // the page is leaving: the button stays disabled until it has
     try {
       const res = await fetch('/api/auth/2fa-challenge', {
         method: 'POST',
@@ -403,11 +406,12 @@ export default function LoginPage() {
       // Full-page reload to drop any provider state from the /login render —
       // see the no-MFA path for the rationale.
       const target = await postLoginRedirect();
+      navigating = true;
       window.location.assign(target);
     } catch (err) {
-      setTotpError(apiErrorMessage(err, 'Network error. Please try again.'));
+      setTotpError(apiErrorMessage(err, 'Could not verify the code - check your connection and try again'));
     } finally {
-      setSubmitting(false);
+      if (!navigating) setSubmitting(false);
     }
   };
 

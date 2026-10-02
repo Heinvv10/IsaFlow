@@ -120,11 +120,11 @@ describe('FeatureGate', () => {
     expect(screen.queryByText('UPGRADE-PROMPT')).toBeNull();
   });
   it('a real "not enabled" still shows the prompt; enabled shows the feature', async () => {
-    vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify({ enabled: false }), { status: 200 }));
+    vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify({ success: true, data: { code: 'x', enabled: false } }), { status: 200 }));
     render(<FeatureGate feature="x"><div>FEATURE</div></FeatureGate>);
     expect(await screen.findByText('UPGRADE-PROMPT')).toBeTruthy();
     cleanup();
-    vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify({ enabled: true }), { status: 200 }));
+    vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify({ success: true, data: { code: 'x', enabled: true } }), { status: 200 }));
     render(<FeatureGate feature="x"><div>FEATURE</div></FeatureGate>);
     expect(await screen.findByText('FEATURE')).toBeTruthy();
   });

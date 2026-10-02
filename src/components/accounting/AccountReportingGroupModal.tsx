@@ -107,7 +107,7 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name.trim(), report_type: reportType, display_order: displayOrder }),
         });
-        await assertOk(res, 'Failed to create group');
+        await assertOk(res, 'Could not create the group - try again');
         const json = await res.json();
         groupId = json.data?.id;
       } else {
@@ -116,7 +116,7 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name.trim(), report_type: reportType, display_order: displayOrder }),
         });
-        await assertOk(res, 'Failed to update group');
+        await assertOk(res, 'Could not update the group - try again');
       }
 
       // Save members
@@ -128,11 +128,11 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
           body: JSON.stringify({ gl_account_ids: Array.from(memberIds) }),
         }
       );
-      await assertOk(membersRes, 'Failed to save members');
+      await assertOk(membersRes, 'Could not save the group members - try again');
 
       onSaved();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to save group'));
+      setError(apiErrorMessage(err, 'Could not save the group - try again'));
     } finally {
       setSaving(false);
     }

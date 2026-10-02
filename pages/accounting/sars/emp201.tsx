@@ -83,11 +83,11 @@ export default function EMP201Page() {
         `/api/accounting/sars/sars-emp201?from=${from}&to=${to}`,
         { credentials: 'include' }
       );
-      await assertOk(res, 'Something went wrong - try again');
+      await assertOk(res, 'Could not generate the EMP201 - try again');
       const json = await res.json();
       setData(json.data);
     } catch (err) {
-      setData(null); setError(apiErrorMessage(err, 'Could not generate EMP201 - try again'));
+      setData(null); setError(apiErrorMessage(err, 'Could not generate the EMP201 - try again'));
     } finally {
       setLoading(false);
     }
@@ -104,12 +104,12 @@ export default function EMP201Page() {
         credentials: 'include',
         body: JSON.stringify({ periodStart: from, periodEnd: to }),
       });
-      await assertOk(res, 'Something went wrong - try again');
+      await assertOk(res, 'Could not save the EMP201 draft - try again');
       const json = await res.json();
       setSavedId(json.data?.id || '');
       setSuccess('EMP201 draft saved successfully');
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not save draft - try again'));
+      setError(apiErrorMessage(err, 'Could not save the EMP201 draft - try again'));
     } finally {
       setSaving(false);
     }
@@ -126,12 +126,12 @@ export default function EMP201Page() {
         credentials: 'include',
         body: JSON.stringify({ id: savedId, action: 'mark_submitted', reference: sarsRef.trim() }),
       });
-      await assertOk(res, 'Something went wrong - try again');
+      await assertOk(res, 'Could not mark the EMP201 as submitted - try again');
       setSuccess('EMP201 marked as submitted to SARS');
       setShowSubmitModal(false);
       setSarsRef('');
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not mark as submitted - try again'));
+      setError(apiErrorMessage(err, 'Could not mark the EMP201 as submitted - try again'));
     } finally {
       setSubmitting(false);
     }

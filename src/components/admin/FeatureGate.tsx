@@ -24,8 +24,8 @@ export function FeatureGate({ feature, children, fallback }: FeatureGateProps) {
 
     apiFetch(`/api/features/check?code=${encodeURIComponent(feature)}`)
       .then(async (r) => { await assertOk(r, 'Could not check this feature'); return r.json(); })
-      .then((d: { enabled?: boolean }) => {
-        if (!cancelled) setAllowed(d.enabled ?? false);
+      .then((d: { data?: { enabled?: boolean } }) => {
+        if (!cancelled) setAllowed(d.data?.enabled ?? false);
       })
       .catch(() => {
         if (!cancelled) { setAllowed(false); setCheckFailed(true); }

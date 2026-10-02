@@ -141,11 +141,11 @@ export default function ApprovalsPage() {
       const res = await apiFetch('/api/accounting/practice/time-entries/write-off', {
         method: 'POST', body: JSON.stringify({ ids: Array.from(selected), reason: writeOffReason }),
       });
-      await assertOk(res, 'Write-off failed');
+      await assertOk(res, 'Could not write off the time entries - try again');
       const n = selected.size;
       setToast(`Wrote off ${n} entr${n === 1 ? 'y' : 'ies'}`); setWriteOffOpen(false);
       await loadEntries(filters);
-    } catch (err) { setWriteOffError(apiErrorMessage(err, 'Write-off failed')); }
+    } catch (err) { setWriteOffError(apiErrorMessage(err, 'Could not write off the time entries - try again')); }
     finally { setWritingOff(false); }
   }
 
@@ -154,11 +154,11 @@ export default function ApprovalsPage() {
     setApproving(true); setApproveError(null);
     try {
       const res = await apiFetch('/api/accounting/practice/time-entries/approve', { method: 'POST', body: JSON.stringify({ ids: Array.from(selected) }) });
-      await assertOk(res, 'Approval failed');
+      await assertOk(res, 'Could not approve the time entries - try again');
       const n = selected.size;
       setToast(`Approved ${n} entr${n === 1 ? 'y' : 'ies'}`);
       await loadEntries(filters);
-    } catch (err) { setApproveError(apiErrorMessage(err, 'Approval failed')); }
+    } catch (err) { setApproveError(apiErrorMessage(err, 'Could not approve the time entries - try again')); }
     finally { setApproving(false); }
   }
 

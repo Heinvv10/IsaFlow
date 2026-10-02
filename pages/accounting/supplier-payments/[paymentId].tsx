@@ -99,10 +99,10 @@ export default function SupplierPaymentDetailPage() {
       });
       // The body's `error` is an object ({ code, message }); rendering it
       // crashed the page. `assertOk` pulls out the refusal's own message.
-      await assertOk(res, `Failed to ${action} payment`);
+      await assertOk(res, `Could not ${action} the payment - try again`);
       void load();
     } catch (err) {
-      setError(apiErrorMessage(err, `Failed to ${action} payment`));
+      setError(apiErrorMessage(err, `Could not ${action} the payment - try again`));
     } finally {
       setActionBusy('');
     }

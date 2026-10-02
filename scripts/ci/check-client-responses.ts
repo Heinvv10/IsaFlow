@@ -8,33 +8,18 @@
  *   - an empty file list, a file the parser cannot read, or a file outside the program fails;
  *   - a hit not covered by a pin fails; a pin matching MORE hits than its count fails; a stale pin fails;
  *   - a pin needs a real reason (3+ words, 20+ characters).
- * Client files are chosen by CONTENT, not by four hard-coded roots: any tracked source file (.ts/.tsx/.js/.jsx/
- * .mts/.cts/.mjs/.cjs) outside pages/api, tests, scripts and build output that calls apiFetch/apiJson/assertOk,
- * or calls fetch / axios / XMLHttpRequest / sendBeacon and is browser code (a client root, or it touches the
- * browser: window, document, localStorage, navigator, React hooks), and is not server code (NextApi*, @/lib/neon, pg).
+ * Client files are chosen by CONTENT (./clientResponseSelect.ts): imports and identifiers, not words in comments.
  * Run: bun scripts/ci/check-client-responses.ts
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { analyzePaths, type Hit } from './clientResponseRule';
+import { selectClientFiles } from './clientResponseSelect';
 
 const git = (args: string[]) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 27 }).split('\n').filter(Boolean);
 const tracked = [...new Set([...git(['ls-files']), ...git(['ls-files', '-o', '--exclude-standard'])])]
   .filter((f) => /\.(m|c)?[jt]sx?$/.test(f) && !/\.d\.ts$/.test(f));
-const EXCLUDED = /^(pages\/api\/|tests\/|scripts\/|node_modules\/|\.next\/|\.claude\/|docs\/|e2e\/|playwright|.*\.(config|test|spec|typeproof)\.[mc]?[jt]sx?$)/;
-const CLIENT_ROOT = /^(pages\/|src\/components\/|src\/hooks\/|src\/contexts\/|src\/modules\/[^/]+\/(hooks|utils|documents|components)\/|public\/|chrome-extension\/)/;
-const API_HELPERS = /\b(apiFetch|apiJson|assertOk)\b/;
-const RAW_TRANSPORT = /\bfetch\s*\(|\baxios\b|\bXMLHttpRequest\b|\bsendBeacon\b/;
-const BROWSER = /from ['"]react['"]|['"]use client['"]|\bwindow\.(location|addEventListener|open|history)\b|\bdocument\.(cookie|addEventListener|getElementById|createElement|querySelector)\b|\b(localStorage|sessionStorage)\.|\bnavigator\.(sendBeacon|clipboard)/;
-const SERVER = /\b(NextApiRequest|NextApiResponse|getServerSideProps|server-only)\b|from ['"](@\/lib\/neon|pg)['"]/;
-
-const files = tracked.filter((f) => {
-  if (EXCLUDED.test(f)) return false;
-  const text = readFileSync(f, 'utf8');
-  if (SERVER.test(text) && !API_HELPERS.test(text)) return false;
-  if (CLIENT_ROOT.test(f) || API_HELPERS.test(text)) return true;   // a client root is scanned whether or not it names apiFetch (it may call an imported helper)
-  return RAW_TRANSPORT.test(text) && BROWSER.test(text);
-});
+const files = selectClientFiles(tracked, (f) => readFileSync(f, 'utf8'));
 
 interface Pin { file: string; kind: string; line: string; count?: number; reason: string }
 const pins: Pin[] = JSON.parse(readFileSync('scripts/ci/client-responses.pins.json', 'utf8'));

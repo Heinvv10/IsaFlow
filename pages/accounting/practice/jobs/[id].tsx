@@ -31,6 +31,15 @@ const fmt = (s: string | null | undefined) => s ?? '—';
 const inp = 'w-full rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-primary)] px-3 py-2 text-sm';
 const TH = ({ h }: { h: string }) => <th className="text-left py-2 px-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">{h}</th>;
 
+function TabError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div role="alert" className="flex items-center justify-between gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+      <span>{message}</span>
+      <button onClick={onRetry} className="px-3 py-1 rounded-md border border-red-500/30 hover:bg-red-500/10">Retry</button>
+    </div>
+  );
+}
+
 export default function JobDetailPage() {
   const router = useRouter();
   const jobId = typeof router.query.id === 'string' ? router.query.id : null;
@@ -43,10 +52,12 @@ export default function JobDetailPage() {
   const [form, setForm] = useState<Partial<PracticeJob>>({});
   const [tasks, setTasks] = useState<PracticeTask[]>([]);
   const [tasksLoaded, setTasksLoaded] = useState(false);
+  const [tasksError, setTasksError] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
   const [adding, setAdding] = useState(false);
   const [entries, setEntries] = useState<PracticeTimeEntry[]>([]);
   const [timeLoaded, setTimeLoaded] = useState(false);
+  const [timeError, setTimeError] = useState('');
   const [users, setUsers] = useState<CompanyUserSummary[]>([]);
 
   const loadJob = useCallback(async () => {
@@ -74,24 +85,24 @@ export default function JobDetailPage() {
   useEffect(() => { void loadJob(); }, [loadJob]);
 
   useEffect(() => {
-    if (tab !== 'tasks' || tasksLoaded || !jobId) return;
+    if (tab !== 'tasks' || tasksLoaded || tasksError || !jobId) return;
     void apiFetch(`/api/accounting/practice/tasks?jobId=${jobId}`)
       .then(async r => { await assertOk(r, 'Could not load the tasks - try again'); return r.json(); })
       .then((j: { data?: { tasks: PracticeTask[] }; tasks?: PracticeTask[] }) => {
         const p = j.data ?? j; setTasks((p as { tasks: PracticeTask[] }).tasks ?? []);
+        setTasksLoaded(true);
       })
-      .catch(e => setBanner(apiErrorMessage(e, 'Could not load the tasks - try again')))
-      .finally(() => setTasksLoaded(true));
-  }, [tab, tasksLoaded, jobId]);
+      // Not marked loaded: a failed tab shows its error with a Retry, never an empty list.
+      .catch(e => setTasksError(apiErrorMessage(e, 'Could not load the tasks - try again')));
+  }, [tab, tasksLoaded, tasksError, jobId]);
 
   useEffect(() => {
-    if (tab !== 'time' || timeLoaded || !jobId) return;
+    if (tab !== 'time' || timeLoaded || timeError || !jobId) return;
     void apiFetch(`/api/accounting/practice/time-entries?jobId=${jobId}`)
       .then(async r => { await assertOk(r, 'Could not load the time entries - try again'); return r.json(); })
-      .then((j: { data?: { entries: PracticeTimeEntry[] } }) => setEntries(j.data?.entries ?? []))
-      .catch(e => setBanner(apiErrorMessage(e, 'Could not load the time entries - try again')))
-      .finally(() => setTimeLoaded(true));
-  }, [tab, timeLoaded, jobId]);
+      .then((j: { data?: { entries: PracticeTimeEntry[] } }) => { setEntries(j.data?.entries ?? []); setTimeLoaded(true); })
+      .catch(e => setTimeError(apiErrorMessage(e, 'Could not load the time entries - try again')));
+  }, [tab, timeLoaded, timeError, jobId]);
 
   async function save() {
     if (!job) return;
@@ -246,7 +257,8 @@ export default function JobDetailPage() {
 
           {tab === 'tasks' && (
             <div className="space-y-4">
-              {!tasksLoaded ? <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-500" /></div>
+              {tasksError ? <TabError message={tasksError} onRetry={() => setTasksError('')} />
+                : !tasksLoaded ? <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-500" /></div>
                 : tasks.length === 0 ? <div className="text-center py-12 text-[var(--ff-text-secondary)]">No tasks yet</div>
                 : <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-bg-secondary)]">
                     <table className="w-full text-sm"><thead><tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)]">{['Title', 'Assignee', 'Due', 'Priority', 'Status'].map(h => <TH key={h} h={h} />)}</tr></thead>
@@ -263,7 +275,7 @@ export default function JobDetailPage() {
 
           {tab === 'time' && (
             <div className="space-y-4">
-              {!timeLoaded ? <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-500" /></div> : (
+              {timeError ? <TabError message={timeError} onRetry={() => setTimeError('')} /> : !timeLoaded ? <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-500" /></div> : (
                 <>
                   <div className="grid grid-cols-3 gap-4">
                     {[['Total Hours', totalH.toFixed(1)], ['Billable Hours', billH.toFixed(1)], ['Total Value', `R${totalV.toFixed(2)}`]].map(([l, v]) => (

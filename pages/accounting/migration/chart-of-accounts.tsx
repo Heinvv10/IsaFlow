@@ -3,6 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { CoaImportResult, type CoaImportSummary } from '@/components/accounting/migration/CoaImportResult';
 
 const COA_FIELDS = ['account_code', 'account_name', 'account_type', 'account_subtype', 'normal_balance', 'parent_code', 'description'] as const;
@@ -99,7 +100,10 @@ export default function ChartOfAccountsPage() {
         setRows(parsed);
         applyAutoDetect(parsed, autoMapping);
       },
-      error: err => setError(`CSV parse error: ${err.message}`),
+      error: err => {
+        log.warn('CSV parse error', { error: err }, 'migration');
+        setError('Could not read the CSV file - check it is a valid CSV and try again');
+      },
     });
   };
 

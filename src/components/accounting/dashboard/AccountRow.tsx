@@ -38,7 +38,7 @@ export function AccountRow({
     vatInputDenied: boolean;
     accountSubtype?: string | null;
     parentAccountId?: string | null;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
   onDelete: (id: string) => Promise<void>;
   onCodeChanged?: () => Promise<void> | void;
 }) {
@@ -75,15 +75,17 @@ export function AccountRow({
     // rule, orphaned bank transactions) that should not fire on a rename.
     const currentSubtype = account.accountSubtype || '';
     const currentParent = account.parentAccountId || '';
+    let saved = false;
     try {
-      await onUpdate(account.id, {
+      saved = await onUpdate(account.id, {
         accountName: editName, description: editDesc,
         defaultVatCode: editVatCode, vatInputDenied: editVatDenied,
         ...(editSubtype !== currentSubtype ? { accountSubtype: editSubtype || null } : {}),
         ...(editParentId !== currentParent ? { parentAccountId: editParentId || null } : {}),
       });
     } finally { setIsSaving(false); }
-    setIsEditing(false);
+    // A failed save keeps the editor open so the typed edits are not lost.
+    if (saved) setIsEditing(false);
   };
 
   const handleCancel = () => {

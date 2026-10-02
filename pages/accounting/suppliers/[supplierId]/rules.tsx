@@ -11,7 +11,7 @@ import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { ArrowLeft, Loader2, AlertCircle, Check, X } from 'lucide-react';
 
 interface Supplier { id: string; name: string; company_name: string | null }
-interface GlAccount { id: string; account_code: string; account_name: string }
+interface GlAccount { id: string; accountCode: string; accountName: string }
 interface CostCentre { id: string; code: string; name: string }
 
 interface SupplierRule {
@@ -114,9 +114,9 @@ export default function SupplierRulesPage() {
 
       await assertOk(glRes, 'Could not load the accounts - try again');
       await assertOk(ccRes, 'Could not load the cost centres - try again');
-      const [glJson, ccJson] = await Promise.all([glRes.json() as Promise<{ data?: GlAccount[] }>, ccRes.json() as Promise<{ data?: CostCentre[] }>]);
+      const [glJson, ccJson] = await Promise.all([glRes.json() as Promise<{ data?: GlAccount[] }>, ccRes.json() as Promise<{ data?: { items?: CostCentre[] } }>]);
       setGlAccounts(glJson.data ?? []);
-      setCostCentres(ccJson.data ?? []);
+      setCostCentres(ccJson.data?.items ?? []);
     } catch (err) {
       setSupplier(null); setRule(null); setError(apiErrorMessage(err, 'Could not load the coding rule - try again'));
     } finally {
@@ -167,7 +167,7 @@ export default function SupplierRulesPage() {
     try {
       const res = await apiFetch(`/api/accounting/supplier-rules/${sid}`, { method: 'DELETE' });
       await assertOk(res, 'Could not delete the coding rule - try again');
-      void router.push(`/accounting/suppliers/${sid}`);
+      await router.push(`/accounting/suppliers/${sid}`);
     } catch (err) {
       showToast(apiErrorMessage(err, 'Could not delete the coding rule - try again'), false);
     } finally {
@@ -177,8 +177,8 @@ export default function SupplierRulesPage() {
 
   const filteredGl = glAccounts.filter(a =>
     !glSearch ||
-    a.account_name.toLowerCase().includes(glSearch.toLowerCase()) ||
-    a.account_code.toLowerCase().includes(glSearch.toLowerCase()),
+    a.accountName.toLowerCase().includes(glSearch.toLowerCase()) ||
+    a.accountCode.toLowerCase().includes(glSearch.toLowerCase()),
   );
 
   const promoted = rule?.autoPublish && (rule?.learnedSampleCount ?? 0) >= 5;
@@ -243,7 +243,7 @@ export default function SupplierRulesPage() {
                 className="w-full px-3 py-2 rounded bg-white/5 border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-blue-500">
                 <option value="">— None —</option>
                 {filteredGl.map(a => (
-                  <option key={a.id} value={a.id}>{a.account_code} {a.account_name}</option>
+                  <option key={a.id} value={a.id}>{a.accountCode} {a.accountName}</option>
                 ))}
               </select>
             </div>

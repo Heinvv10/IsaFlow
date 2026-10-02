@@ -36,7 +36,7 @@ export default function PortalPayPage() {
   const fetchPaymentLink = useCallback(async () => {
     try {
       const res = await fetch(`/api/portal/payment-link?token=${token}`);
-      await assertOk(res, 'Payment link not found or expired');
+      await assertOk(res, 'Could not load the payment details - try again');
       const json = await res.json();
       if (!json.data) {
         setError('Payment link not found or expired');
@@ -75,7 +75,6 @@ export default function PortalPayPage() {
       window.location.href = json.data.checkoutUrl as string;
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not start the payment - try again'));
-    } finally {
       setSubmitting(false);
     }
   };

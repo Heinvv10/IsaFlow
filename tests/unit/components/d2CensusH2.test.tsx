@@ -79,11 +79,11 @@ const CASES: Case[] = [
   { name: 'recurring invoice: the invoice', page: () => <EditRecurringInvoicePage />, fails: u => u.endsWith('/recurring-invoices'),
     good: { items: [REC] }, shows: () => screen.findByDisplayValue('D2 Template'), plain: /Could not load the recurring invoice - try again/ },
   { name: 'statements: balances', page: () => <StatementsPage />, fails: u => u.includes('customer-statements?'),
-    good: STMT, shows: text(/D2 Debtor Co/), plain: /Failed to load customer data/ },
+    good: STMT, shows: text(/D2 Debtor Co/), plain: /Could not load the customer data - try again/ },
   { name: 'statements: customer list', page: () => <StatementsPage />, fails: u => u.includes('/customers?limit'),
-    good: [], rest: u => (u.includes('customer-statements?') ? STMT : []), shows: text(/D2 Debtor Co/), plain: /Failed to load customer data/ },
+    good: [], rest: u => (u.includes('customer-statements?') ? STMT : []), shows: text(/D2 Debtor Co/), plain: /Could not load the customer data - try again/ },
   { name: 'statements: aging', page: () => <StatementsPage />, fails: u => u.includes('ar-aging'),
-    good: [], rest: u => (u.includes('customer-statements?') ? STMT : []), shows: text(/D2 Debtor Co/), plain: /Failed to load customer data/ },
+    good: [], rest: u => (u.includes('customer-statements?') ? STMT : []), shows: text(/D2 Debtor Co/), plain: /Could not load the customer data - try again/ },
 ];
 
 function script(c: Case, answer: () => Response) {

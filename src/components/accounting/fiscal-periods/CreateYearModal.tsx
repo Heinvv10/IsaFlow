@@ -19,10 +19,10 @@ export function CreateYearModal({ onClose, onCreated }: { onClose: () => void; o
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ year }),
       });
-      await assertOk(res, 'Could not create fiscal year - try again');
+      await assertOk(res, 'Could not create the fiscal year - try again');
       onCreated(); onClose();
     } catch (e) {
-      setError(apiErrorMessage(e, 'Something went wrong - try again'));
+      setError(apiErrorMessage(e, 'Could not create the fiscal year - try again'));
     } finally { setSaving(false); }
   };
 

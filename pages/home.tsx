@@ -42,12 +42,12 @@ export default function HomePage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch('/api/home');
-      await assertOk(res, 'Failed to load');
+      await assertOk(res, 'Could not load the home page - try again');
       const json = await res.json() as { data?: HomeData; message?: string };
       setData(json.data ?? null);
     } catch (err) {
       setData(null);
-      setError(apiErrorMessage(err, 'Could not load - try again'));
+      setError(apiErrorMessage(err, 'Could not load the home page - try again'));
     } finally {
       setLoading(false);
     }

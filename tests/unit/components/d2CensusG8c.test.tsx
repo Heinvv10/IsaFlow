@@ -44,7 +44,7 @@ const validate = async () => { await upload(); fireEvent.click(await screen.find
 runSiteCases([
   { name: 'gl import: validate', ui: () => <GlImportPage />,
     hit: (u) => u.includes('gl-import-validate'), okData: SUMMARY, act: validate,
-    plain: /Validation failed/, okCheck: () => screen.findByRole('button', { name: /Continue \(1 valid rows\)/ }) },
+    plain: /Could not validate the import file - try again/, okCheck: () => screen.findByRole('button', { name: /Continue \(1 valid rows\)/ }) },
   { name: 'gl import: import', ui: () => <GlImportPage />,
     hit: (u) => u.endsWith('/api/accounting/gl-import'), okData: { entriesCreated: 3, linesCreated: 6, totalValue: 5 }, other: () => SUMMARY,
     act: async () => {
@@ -52,7 +52,7 @@ runSiteCases([
       fireEvent.click(await screen.findByRole('button', { name: /Continue \(1 valid rows\)/ }));
       fireEvent.click(await screen.findByRole('button', { name: /Import 1 rows/ }));
     },
-    plain: /Import failed/, okCheck: () => screen.findByText('Import Successful') },
+    plain: /Could not import the journal entries - try again/, okCheck: () => screen.findByText('Import Successful') },
   { name: 'time tracking: entries', ui: () => <TimeTrackingPage />,
     hit: (u) => u.includes('time-entries?'), okData: { entries: [{ id: 'e1', taskDescription: 'D2 task marker' }], total: 1 },
     plain: /Could not load time entries/, okCheck: () => screen.findByText('D2 task marker') },

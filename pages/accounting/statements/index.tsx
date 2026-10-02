@@ -58,9 +58,9 @@ export default function StatementsPage() {
         // Overdue as at the same date as the balance beside it (R-116).
         apiFetch(`/api/accounting/ar-aging?as_at_date=${asAtDate}`),
       ]);
-      await assertOk(stmtRes, 'Failed to load customer data');
-      await assertOk(custRes, 'Failed to load customer data');
-      await assertOk(agingRes, 'Failed to load customer data');
+      await assertOk(stmtRes, 'Could not load the customer data - try again');
+      await assertOk(custRes, 'Could not load the customer data - try again');
+      await assertOk(agingRes, 'Could not load the customer data - try again');
       const [stmtJson, custJson, agingJson] = await Promise.all([
         stmtRes.json() as Promise<Record<string, unknown>>,
         custRes.json() as Promise<Record<string, unknown>>,
@@ -105,7 +105,7 @@ export default function StatementsPage() {
       setSelected(new Set(rows.filter(r => r.balance > 0 && r.email).map(r => r.client_id)));
     } catch (err) {
       setCustomers([]);
-      setError(apiErrorMessage(err, 'Failed to load customer data'));
+      setError(apiErrorMessage(err, 'Could not load the customer data - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -151,7 +151,7 @@ export default function StatementsPage() {
       const result = (json.data ?? json) as SendResult;
       setSendResult(result);
     } catch (err) {
-      setSendResult({ sent: 0, failed: selected.size, errors: [apiErrorMessage(err, 'Network error — please try again')] });
+      setSendResult({ sent: 0, failed: selected.size, errors: [apiErrorMessage(err, 'Could not send the statements - try again')] });
     } finally {
       setIsSending(false);
       setShowModal(false);

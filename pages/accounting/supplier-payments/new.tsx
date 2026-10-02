@@ -91,7 +91,7 @@ export default function NewSupplierPaymentPage() {
       await assertOk(res, 'Could not create the payment - try again');
       const json = await res.json();
       const payment = json.data || json;
-      void router.push(`/accounting/supplier-payments/${payment.id}`);
+      await router.push(`/accounting/supplier-payments/${payment.id}`);
     } catch (err) { setError(apiErrorMessage(err, 'Could not create the payment - try again')); }
     finally { setIsSubmitting(false); }
   };

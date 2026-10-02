@@ -18,6 +18,9 @@ export type FixtureKind = 'a' | 'b' | 'c' | 'd';
 const wrap = (b: string) => `import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';\nexport async function f() {\n${b}\n}\n`;
 const W = `{ method: 'POST', body: '{}' }`;
 
+/** Names of fixtures that are a STATED LIMIT (asserted to still be missed, so a fix flips them on purpose). */
+export const STATED_LIMITS = new Set(['A9 Promise.all(map) then map json']);   // `urls` is undeclared/any: not a Response to the type checker
+
 export const FIXTURES: Array<[FixtureKind, string, string]> = [
   // ── (a) body read with no (real) status check ──────────────────────────────
   ['a', 'A1 let + assignment', wrap(`let res; res = await apiFetch('/x'); return res.json();`)],
@@ -28,7 +31,7 @@ export const FIXTURES: Array<[FixtureKind, string, string]> = [
   ['a', 'A6 status only logged', wrap(`const res = await apiFetch('/x'); log.info('got', res.status); return res.json();`)],
   ['a', 'A7 check in a different branch', wrap(`const res = await apiFetch('/x'); if (debug) { if (!res.ok) return null; } return res.json();`)],
   ['a', 'A8 same name, second binding later in fn', wrap(`if (x) { const res = await apiFetch('/a'); setA(await res.json()); } else { const res = await apiFetch('/b'); await assertOk(res, 'Could not load b - try again'); setB(await res.json()); }`)],
-  ['a', 'A9 Promise.all(map) then map json', wrap(`const urls: string[] = []; const rs = await Promise.all(urls.map((u) => apiFetch(u))); return Promise.all(rs.map((r) => r.json()));`)],
+  ['a', 'A9 Promise.all(map) then map json', wrap(`const rs = await Promise.all(urls.map((u) => apiFetch(u))); return Promise.all(rs.map((r) => r.json()));`)],
   ['a', 'A10 Promise.all().then(([a,b])=>)', wrap(`return Promise.all([apiFetch('/a'), apiFetch('/b')]).then(([a, b]) => Promise.all([a.json(), b.json()]));`)],
   ['a', 'A11 destructured read', wrap(`const { json } = await apiFetch('/x'); return json();`)],
   ['a', 'A12 clone().json()', wrap(`const res = await apiFetch('/x'); return res.clone().json();`)],

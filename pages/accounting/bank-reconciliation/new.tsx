@@ -43,7 +43,7 @@ export default function NewReconciliationPage() {
       await assertOk(res, 'Could not start reconciliation - try again');
       const json = await res.json();
       const data = json.data || json;
-      void router.push(`/accounting/bank-reconciliation/${data.id}`);
+      await router.push(`/accounting/bank-reconciliation/${data.id}`);
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not start reconciliation - try again'));
     } finally {

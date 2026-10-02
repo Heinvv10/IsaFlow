@@ -72,7 +72,7 @@ export default function ConsolidationPage() {
       await assertOk(res, 'Could not load the report - try again');
       const json = await res.json();
       if (!json.success) {
-        setReportError(json.error?.message ?? 'Failed to load report');
+        setReportError(json.error?.message ?? 'Could not load the report - try again');
         return;
       }
       setReport(json.data as ConsolidatedTrialBalance);

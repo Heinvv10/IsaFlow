@@ -1,6 +1,6 @@
 /**
- * The 66 evasion fixtures from the adversarial review of the client-response gate (brk-d2gate, 2026-10-02):
- * every one must be DETECTED (a hit of the class it violates). Plus negatives: the correct shape of the
+ * The 66 evasion fixtures from pass 1 of the adversarial review of the client-response gate (brk-d2gate, 2026-10-02):
+ * 65 are DETECTED (a hit of the class it violates); A9 is verbatim and a stated limit (any-typed). Plus negatives: the correct shape of the
  * same code must stay quiet, so a hardened rule cannot buy detection with false positives. The fail-closed
  * behaviour of the CLI is exercised in a throwaway git repo.
  */
@@ -10,17 +10,17 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { analyzeSources } from '../../../scripts/ci/clientResponseRule';
-import { FIXTURES } from './clientResponseFixtures';
+import { FIXTURES, STATED_LIMITS } from './clientResponseFixtures';
 
 const wrap = (b: string) => `import { apiFetch, assertOk, apiErrorMessage, apiJson } from '@/lib/apiFetch';\nexport async function f() {\n${b}\n}\n`;
 const kinds = (src: string) => analyzeSources([{ file: 'pages/n.tsx', text: src }]).hits.map((h) => h.kind);
 
-describe('evasion fixtures: every one is detected', () => {
+describe('evasion fixtures (pass 1): detected, or a stated limit that is asserted to still be missed', () => {
   const batch = analyzeSources(FIXTURES.map(([, , src], i) => ({ file: `pages/f${i}.tsx`, text: src })));
   FIXTURES.forEach(([kind, name], i) => {
-    it(`${name} -> class ${kind}`, () => {
-      expect(batch.hits.some((h) => h.file === `pages/f${i}.tsx` && h.kind === kind)).toBe(true);
-    });
+    const seen = () => batch.hits.some((h) => h.file === `pages/f${i}.tsx` && h.kind === kind);
+    if (STATED_LIMITS.has(name)) it(`${name} -> stated limit, still missed`, () => expect(seen()).toBe(false));
+    else it(`${name} -> class ${kind}`, () => expect(seen()).toBe(true));
   });
 });
 

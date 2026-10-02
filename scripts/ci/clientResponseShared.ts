@@ -35,7 +35,29 @@ export interface Ctx {
   /** Identifier nodes in this file that resolve to `sym`. */
   refs: (sym: ts.Symbol) => ts.Identifier[];
   sym: (n: ts.Node) => ts.Symbol | undefined;
+  /** Source text of an expression with an import alias of an apiFetch helper put back (`apiFetch as request` -> apiFetch). */
+  canon: (n: ts.Node) => string;
 }
+
+/** `import { apiFetch as request } from '@/lib/apiFetch'`: local name -> the helper's own name. */
+export function makeCanon(sf: ts.SourceFile): (n: ts.Node) => string {
+  const alias = new Map<string, string>();
+  for (const st of sf.statements) {
+    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || !/apiFetch$/.test(st.moduleSpecifier.text)) continue;
+    const nb = st.importClause?.namedBindings;
+    if (nb && ts.isNamedImports(nb)) for (const e of nb.elements) if (e.propertyName) alias.set(e.name.text, e.propertyName.text);
+  }
+  return (n) => (ts.isIdentifier(n) && alias.has(n.text) ? alias.get(n.text)! : n.getText(sf));
+}
+
+/** Code that runs on the server only (its fetches are not a client's): a hit inside it is not reported. */
+export const inServerOnlyFn = (n: ts.Node): boolean => {
+  for (let p: ts.Node | undefined = n.parent; p; p = p.parent) {
+    if (ts.isFunctionDeclaration(p) && p.name && /^(getServerSideProps|getStaticProps|getStaticPaths)$/.test(p.name.text)) return true;
+    if (ts.isVariableDeclaration(p) && ts.isIdentifier(p.name) && /^(getServerSideProps|getStaticProps|getStaticPaths)$/.test(p.name.text)) return true;
+  }
+  return false;
+};
 export const contains = (a: ts.Node, b: ts.Node) => a.pos <= b.pos && b.end <= a.end;
 /** log.* / console.* / logger.* calls: text there never reaches a person. */
 export const inLog = (n: ts.Node, sf: ts.SourceFile): boolean => {

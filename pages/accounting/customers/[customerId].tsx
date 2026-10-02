@@ -129,7 +129,7 @@ export default function CustomerDetailPage() {
       await assertOk(res, 'Could not delete the customer - try again');
       const json = await res.json() as { success?: boolean; error?: { message?: string } };
       if (json.success === false) { alert(json.error?.message ?? 'Could not delete the customer - try again'); return; }
-      void router.push('/accounting/customers');
+      await router.push('/accounting/customers');
     } catch (err) {
       alert(apiErrorMessage(err, 'Could not delete the customer - try again'));
     } finally {
@@ -139,6 +139,7 @@ export default function CustomerDetailPage() {
 
   const loadCustomer = async () => {
     setLoading(true);
+    setError('');
     try {
       const res = await apiFetch(`/api/accounting/customers?id=${customerId as string}`); await assertOk(res, 'Could not load customer - try again');
       const json = await res.json() as { data?: Customer | Customer[] } | Customer | Customer[];
@@ -151,6 +152,7 @@ export default function CustomerDetailPage() {
         setCustomer(data as Customer);
       }
     } catch (err) {
+      setCustomer(null);
       setError(apiErrorMessage(err, 'Could not load customer - try again'));
     } finally {
       setLoading(false);

@@ -58,7 +58,7 @@ export default function YearEndPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ yearLabel, action: 'close' }),
       });
-      await assertOk(res, 'Year-end processing failed');
+      await assertOk(res, 'Could not run year-end processing - try again');
       const json = await res.json();
       // The SERVICE's sentence, not a hardcoded one. A 200 no longer means a
       // closing journal was written: a dormant year closes with no journal at
@@ -76,7 +76,7 @@ export default function YearEndPage() {
       });
       void loadYears();
     } catch (err) {
-      setMessage({ type: 'error', text: apiErrorMessage(err, 'Year-end request failed') });
+      setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not run year-end processing - try again') });
     } finally {
       setIsProcessing(false);
     }

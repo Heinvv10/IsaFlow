@@ -39,7 +39,7 @@ export default function JournalEntryDetailPage() {
     try {
       const res = await apiFetch(`/api/accounting/journal-entries-detail?id=${entryId}`);
       if (!res.ok) {
-        await assertOk(res, 'Failed to load entry');
+        await assertOk(res, 'Could not load the journal entry - try again');
       }
       const data = await res.json();
       setEntry(data.data || data);

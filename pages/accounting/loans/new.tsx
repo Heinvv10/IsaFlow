@@ -99,7 +99,7 @@ export default function NewLoanPage() {
         method: 'POST',
         body: JSON.stringify(body),
       });
-      await assertOk(res, 'Failed to create loan');
+      await assertOk(res, 'Could not create the loan - try again');
       const json = await res.json();
       await router.push(`/accounting/loans/${json.data.id}`);
     } catch (err) {

@@ -1,40 +1,51 @@
 /**
- * clientResponseRule — the census gate for how client code reads an API response.
+ * clientResponseRule — a REGRESSION GUARD for how client code reads an API response. It is not a proof of
+ * completeness: it catches the common shapes of the defects that kept coming back, and says which it does not.
  *
- * `apiFetch` RESOLVES on 4xx/5xx, so every consumer must look at the status before it trusts the body, say
- * what failed in a plain sentence, never show raw error text, and check every write. Defect classes that kept
- * coming back one review round at a time (D2, 2026-10), found here by the TYPE CHECKER and SYMBOLS rather than
- * by text, so a natural variation of a shape cannot slip past:
+ * `apiFetch` RESOLVES on 4xx/5xx, so every consumer must look at the HTTP status before it trusts the body, say
+ * what failed in a plain sentence, never show raw error text, and check every write. Matched with the TYPE
+ * CHECKER and symbols where a type decides it (a Response-typed value, an import alias of an apiFetch helper),
+ * and by syntax where only syntax can (messages, busy flags):
  *
- *   a  a body read on a value typed Response with no dominating status check          (clientResponseFlow.ts)
- *   b  a bare / status-code message reaching a person; apiJson with no sentence        (clientResponseMessages.ts)
- *   c  raw error text from a catch / .catch / .then(_, h) / onError handler            (clientResponseMessages.ts)
+ *   a  a body read on a Response-typed value with no dominating status check          (clientResponseFlow.ts)
+ *   b  a bare / status-code message reaching a person ("Failed", "Something went wrong - try again", `HTTP ${s}`,
+ *      the same words as a JSX message attribute); the assertOk / apiJson / apiErrorMessage fallback ARGUMENT
+ *      (it is what a 502 or an empty 500 shows) must say what failed; apiJson with no sentence (clientResponseMessages.ts)
+ *   c  raw error text (err.message, String(err), a template, a destructured message) from a catch, .catch,
+ *      .then(_, h), onError, a named / useCallback handler, a local function the error is passed to, or a
+ *      useState setter given to .catch, when it reaches a person                   (clientResponseMessages.ts)
  *   d  a write (method not provably GET) whose result is never checked; other transports (clientResponseFlow.ts)
- *   e  a busy flag set true with no `finally` that clears it                           (clientResponseLoads.ts)
+ *   e  a busy flag set true with no `finally` (or catch, when the page navigates away) that clears it; and the
+ *      converse: `finally { setBusy(false) }` after a navigation that is not awaited   (clientResponseLoads.ts)
  *   f  a failed load that shows an error but keeps the rows it failed to refresh       (clientResponseLoads.ts)
- *   g  `if (!res.ok) return;` / `if (res.ok) {...}` last: a failure dropped in silence (clientResponseLoads.ts)
+ *   g  `if (!res.ok) return;` / `|| !res.ok` / `status !== 200` / `return []`, or `if (res.ok) {...}` last: a failure
+ *      dropped in silence                                                           (clientResponseLoads.ts)
  *
- * STATED LIMITS (each is a place a determined author can still hide, so review stays necessary):
- *   - a value typed `any` / `unknown` is not a Response to the checker (an `as any` cast, an untyped JS import);
- *   - a response handed to a helper declared in ANOTHER file is not followed (the helper's own file is scanned,
- *     and a callee parameter that reads a body unchecked is a hit there); a local helper's first parameter is
- *     followed one level for checks;
- *   - a status check counts when it DOMINATES the read by position (an enclosing block, or an if/?:/&& scope),
- *     it is not proved to exit early: `if (!res.ok) { log(); }` followed by a read counts as a check;
- *   - class d follows a returned write through LOCAL named functions and .map callbacks only, and a wrapper that
- *     returns the write from another module is not followed;
- *   - class b/c judge text by shape: a message built from several parts, or fetched from a table, is not seen;
- *   - e/f/g are syntactic (a flag cleared by a caller or .finally(); one-shot loads that the gate cannot tell
- *     from rows) and f asks for the reset everywhere on purpose.
- * The CLI (check-client-responses.ts) selects client files by CONTENT, applies pins, and fails closed.
- * tests/unit/ci/clientResponseRule*.test.ts hold the mutation fixtures.
+ * STATED LIMITS, one line per group (the fixture named is the example; every one is in
+ * tests/unit/ci/clientResponseFixtures*.ts and asserted to still be missed, so a fix flips it on purpose):
+ *   - a value typed any/unknown is not a Response (`as any`, an undeclared name, a value derived from a body)   [A9, a03]
+ *   - ONE status code tested for equality (404, 204, 401) counts as the status check                  [a01, a04, a09, d07, d08]
+ *   - a status copied to a const and judged after the read                                                   [a02]
+ *   - a message built from several parts, a lookup table, an assignment or in another module                 [b05, b07-b09]
+ *   - a caught error stored in a reducer / class state / a settled `reason` / an array, or turned into text
+ *     by a helper in another file                                                                    [c02-c06, c10]
+ *   - a write whose result is returned from a hook or a wrapper in another module, reduced to a boolean the
+ *     caller ignores, or checked on one branch only                                              [d02-d05, d09]
+ *   - busy flags outside an async function with a setX(true) call (.then chains, class state, a try after the
+ *     await); loads through apiJson, a destructured body or .then(setRows)                      [e02-e05, f01-f03]
+ *   - a `return res.ok` hands the status to the caller and counts as a check; a helper in ANOTHER file that
+ *     reads a body is scanned only when a client imports it and it touches a Response or the network
+ *   - tests, scripts, pages/api and code in a function named getServerSideProps / getStaticProps are not client
+ *     code; a pin (client-responses.pins.json) is the only accepted exception and carries a reason.
+ * The CLI (check-client-responses.ts) selects client files by imports (clientResponseSelect.ts), applies pins,
+ * and fails closed (no files, a parse error, a stale or reasonless pin).
  */
 import ts from 'typescript';
 import { readFileSync } from 'node:fs';
 import { analyzeFlow } from './clientResponseFlow';
 import { analyzeLoads } from './clientResponseLoads';
 import { analyzeMessages } from './clientResponseMessages';
-import type { Add, Ctx, Hit } from './clientResponseShared';
+import { type Add, type Ctx, type Hit, inServerOnlyFn, makeCanon } from './clientResponseShared';
 
 export type { Hit, HitKind } from './clientResponseShared';
 export interface Analysis { hits: Hit[]; parseErrors: string[] }
@@ -58,6 +69,7 @@ function runChecks(program: ts.Program, files: string[], display: (f: string) =>
     if (program.getSyntacticDiagnostics(sf).length) parseErrors.push(`${display(file)}: syntax errors (the gate would judge a degenerate tree)`);
     const lines = sf.text.split('\n');
     const add: Add = (n, kind, reason) => {
+      if (inServerOnlyFn(n)) return;   // getServerSideProps and friends run on the server; the rest of the page is client code
       const line = sf.getLineAndCharacterOfPosition(n.getStart()).line;
       hits.push({ file: display(file), line: line + 1, kind, reason, lineText: (lines[line] ?? '').trim() });
     };
@@ -70,7 +82,7 @@ function runChecks(program: ts.Program, files: string[], display: (f: string) =>
       return byText;
     };
     const cx: Ctx = {
-      checker, sf, add,
+      checker, sf, add, canon: makeCanon(sf),
       sym: (n) => checker.getSymbolAtLocation(n),
       refs: (s) => (idsByText().get(s.name) ?? []).filter((id) => checker.getSymbolAtLocation(id) === s),
     };
@@ -105,7 +117,17 @@ export function analyzeSources(sources: Array<{ file: string; text: string }>): 
       const sf = base.getSourceFile(f, lv, onErr); if (sf) libCache.set(f, sf);
       return sf;
     },
-    resolveModuleNames: (names) => names.map((n) => (n === '@/lib/apiFetch' ? { resolvedFileName: SHIM, extension: ts.Extension.Dts } : undefined)),
+    resolveModuleNames: (names, containing) => names.map((n) => {
+      if (n === '@/lib/apiFetch') return { resolvedFileName: SHIM, extension: ts.Extension.Dts };
+      // another source of the same fixture: `@/lib/x` or `./x`
+      const dir = containing.replace(/\/[^/]*$/, '');
+      const target = n.startsWith('@/') ? `/virtual/src/${n.slice(2)}` : n.startsWith('.') ? `${dir}/${n}`.replace(/\/\.\//g, '/') : undefined;
+      const hit = target && ['.ts', '.tsx', '.js', '.jsx'].map((e) => target + e).find((c) => mem.has(c));
+      if (hit) return { resolvedFileName: hit, extension: hit.endsWith('x') ? ts.Extension.Tsx : ts.Extension.Ts };
+      // a package the fixtures import (react, react-hot-toast): the repo's own typings, so the types are the real ones
+      if (!n.startsWith('.') && !n.startsWith('@/')) return ts.resolveModuleName(n, `${process.cwd()}/zz.tsx`, options, base).resolvedModule;
+      return undefined;
+    }),
   };
   const roots = sources.map((s) => `/virtual/${s.file}`);
   const program = ts.createProgram([...roots, SHIM], options, host);

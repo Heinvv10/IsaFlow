@@ -63,12 +63,12 @@ export default function BankTransfersPage() {
           transferDate,
         }),
       });
-      await assertOk(res, 'Transfer failed');
+      await assertOk(res, 'Could not record the transfer - try again');
       setMessage({ type: 'success', text: 'Transfer completed — journal entry created' });
       setAmount('');
       setReference('');
     } catch (err) {
-      setMessage({ type: 'error', text: apiErrorMessage(err, 'Transfer request failed') });
+      setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not record the transfer - try again') });
     } finally {
       setIsSubmitting(false);
     }

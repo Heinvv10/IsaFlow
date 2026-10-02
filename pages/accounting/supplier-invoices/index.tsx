@@ -75,7 +75,7 @@ export default function SupplierInvoicesPage() {
       const res = await apiFetch(`/api/accounting/supplier-invoices?${listQuery}`);
       // A 400 (e.g. a malformed date in a hand-edited URL) must say so, not
       // render as an empty list.
-      await assertOk(res, 'Failed to load supplier invoices');
+      await assertOk(res, 'Could not load the supplier invoices - try again');
       const json = await res.json();
       const payload = (json.data || json) as ListResult;
       setInvoices(payload.invoices || []);
@@ -85,7 +85,7 @@ export default function SupplierInvoicesPage() {
       log.warn('Failed to load supplier invoices', { error: err }, 'supplier-invoices');
       setInvoices([]);
       setTotal(0);
-      setError(apiErrorMessage(err, 'Failed to load supplier invoices'));
+      setError(apiErrorMessage(err, 'Could not load the supplier invoices - try again'));
     } finally {
       setIsLoading(false);
     }

@@ -77,10 +77,10 @@ export default function NewBatchPaymentPage() {
       });
       // The refusal's text is at `error.message`; `json.message` is absent on
       // a 4xx, so this used to show a bare "Failed".
-      await assertOk(res, 'Failed to create batch');
-      void router.push('/accounting/batch-payments');
+      await assertOk(res, 'Could not create the batch - try again');
+      await router.push('/accounting/batch-payments');
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to create batch'));
+      setError(apiErrorMessage(err, 'Could not create the batch - try again'));
     } finally {
       setBusy(false);
     }

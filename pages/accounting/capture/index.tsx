@@ -97,7 +97,7 @@ export default function CapturePage() {
         if (result.documentIds.length > 0) {
           setAttachDocIds(result.documentIds);
         } else {
-          void router.push('/accounting/capture/inbox');
+          await router.push('/accounting/capture/inbox');
         }
       }
     } catch (err) {

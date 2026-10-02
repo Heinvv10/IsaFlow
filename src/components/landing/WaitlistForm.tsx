@@ -56,13 +56,13 @@ export function WaitlistForm() {
         }),
       });
 
-      await assertOk(res, 'Something went wrong. Please try again.');
+      await assertOk(res, 'Could not join the waitlist - try again');
       const json = (await res.json()) as ApiEnvelope;
-      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? json.message ?? 'Something went wrong. Please try again.');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? json.message ?? 'Could not join the waitlist - try again');
 
       setDone(true);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Something went wrong. Please try again.'));
+      setError(apiErrorMessage(err, 'Could not join the waitlist - try again'));
     } finally {
       setSubmitting(false);
     }

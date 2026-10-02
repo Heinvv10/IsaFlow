@@ -79,7 +79,7 @@ export default function CustomerDedupPage() {
         : '';
       showToast(`"${pending.mergeName}" merged into "${pending.keepName}".${paused}`, 'success');
     } catch (err: unknown) {
-      showToast(`Merge failed: ${apiErrorMessage(err, 'please try again')}`, 'error');
+      showToast(apiErrorMessage(err, 'Could not merge the customers - try again'), 'error');
     } finally {
       setIsMerging(false);
       setPending(null);

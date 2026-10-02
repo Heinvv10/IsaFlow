@@ -58,13 +58,13 @@ export default function BillingOverviewPage() {
         apiFetch('/api/admin/billing/overview'),
         apiFetch('/api/admin/billing/subscriptions?limit=10'),
       ]);
-      await assertOk(ovRes, 'Failed to load billing overview');
-      await assertOk(subRes, 'Failed to load subscriptions');
+      await assertOk(ovRes, 'Could not load billing data - try again');
+      await assertOk(subRes, 'Could not load billing data - try again');
       const [ovJson, subJson] = await Promise.all([ovRes.json(), subRes.json()]);
       setOverview(ovJson.data as BillingOverview);
       setRecent((subJson.data?.items ?? subJson.data ?? []) as RecentSubscription[]);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to load billing data'));
+      setError(apiErrorMessage(err, 'Could not load billing data - try again'));
     } finally {
       setLoading(false);
     }

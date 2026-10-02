@@ -37,12 +37,13 @@ export default function ProjectProfitabilityPage() {
     try {
       const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
       const res = await apiFetch(`/api/accounting/reports-project-profitability?${params}`);
-      await assertOk(res, 'Failed to load');
+      await assertOk(res, 'Could not load the project profitability report - try again');
       const json = await res.json();
       const data = json.data || json;
       setReports(Array.isArray(data) ? data : []);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not load profitability - try again'));
+      setReports([]);
+      setError(apiErrorMessage(err, 'Could not load the project profitability report - try again'));
     } finally {
       setIsLoading(false);
     }

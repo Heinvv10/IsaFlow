@@ -95,13 +95,13 @@ export default function AdminUsersPage() {
       if (r)  params.set('role', r);
       if (st) params.set('status', st);
       const res  = await apiFetch(`/api/admin/users?${params}`);
-      await assertOk(res, 'Failed to load users');
+      await assertOk(res, 'Could not load the users - try again');
       const json = await res.json() as { data?: PagedResponse; message?: string };
       const d = json.data as PagedResponse;
       setRows(d.items);
       setTotal(d.total);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Something went wrong - try again'));
+      setError(apiErrorMessage(err, 'Could not load the users - try again'));
     } finally {
       setLoading(false);
     }
@@ -127,9 +127,7 @@ export default function AdminUsersPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
-      if (!res.ok) {
-        await assertOk(res, 'Delete failed');
-      }
+      await assertOk(res, 'Could not delete user - try again');
       setConfirmDeleteId(null);
       void load(search, company, role, status, page);
     } catch (err) {

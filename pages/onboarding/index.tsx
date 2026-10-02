@@ -278,8 +278,9 @@ export default function OnboardingWizard() {
       // Navigate — full reload so the middleware picks up the new ff_onboarding_done cookie
       window.location.href = '/accounting';
     } catch (err) {
-      setError(apiErrorMessage(err, 'Something went wrong - try again'));
-    } finally { setSubmitting(false); }
+      setError(apiErrorMessage(err, 'Could not finish setting up your company - try again'));
+      setSubmitting(false);
+    }
   };
 
   if (!authChecked) {

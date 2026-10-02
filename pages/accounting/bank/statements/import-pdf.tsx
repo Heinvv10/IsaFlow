@@ -107,7 +107,7 @@ export default function ImportPdfPage() {
       const res = await fetch('/api/accounting/bank-statements', { method: 'POST', body: form, headers, credentials: 'include' });
       await assertOk(res, 'Could not upload the statement - try again');
       const json = await res.json() as { data?: BankStatementImport };
-      if (json.data?.id) void router.push(`/accounting/bank/statements/import-pdf?id=${json.data.id}`);
+      if (json.data?.id) await router.push(`/accounting/bank/statements/import-pdf?id=${json.data.id}`);
     } catch (err) { showToast(apiErrorMessage(err, 'Could not upload the statement - try again'), 'err'); }
     finally { setUploading(false); }
   }, [file, selectedAccount, router, showToast]);

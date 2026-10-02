@@ -45,15 +45,15 @@ export default function SupplierStatementDetailPage() {
       setError('');
       try {
         const res = await apiFetch(`/api/accounting/supplier-statement-detail?supplier_id=${supplierId}&as_at_date=${encodeURIComponent(asAtDate)}`);
-        await assertOk(res, 'Failed to load supplier statement');
+        await assertOk(res, 'Could not load the supplier statement - try again');
         const json = await res.json();
         const data = json.data || json;
         if (!active) return;
         setSupplier(data.supplier || null);
         setTransactions(data.transactions || []);
         setSummary(data.summary || null);
-      } catch {
-        if (active) setError('Failed to load supplier statement');
+      } catch (err) {
+        if (active) setError(apiErrorMessage(err, 'Could not load the supplier statement - try again'));
       } finally {
         if (active) setIsLoading(false);
       }

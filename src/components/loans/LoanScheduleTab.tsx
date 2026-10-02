@@ -50,11 +50,11 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
         method: 'POST',
         body: JSON.stringify({ events: evPayload }),
       });
-      await assertOk(res, 'Preview failed');
+      await assertOk(res, 'Could not preview the schedule - try again');
       const json = await res.json();
       setPreviewRows(json.data?.rows ?? []);
     } catch (err) {
-      setPreviewError(apiErrorMessage(err, 'Could not complete: preview - try again'));
+      setPreviewError(apiErrorMessage(err, 'Could not preview the schedule - try again'));
     } finally {
       setPreviewLoading(false);
     }

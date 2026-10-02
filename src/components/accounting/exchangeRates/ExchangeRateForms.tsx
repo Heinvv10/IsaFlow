@@ -55,14 +55,14 @@ export function AddRateForm({ currencies, onAdded }: AddRateFormProps) {
         method: 'POST',
         body: JSON.stringify({ fromCurrency: from, toCurrency: to, rate: rateVal, effectiveDate: date }),
       });
-      await assertOk(res, 'Failed to add rate');
+      await assertOk(res, 'Could not add the exchange rate - try again');
       const json = await res.json();
-      if (json.success === false) { notify.error(json.error?.message || 'Failed to add rate'); return; }
+      if (json.success === false) { notify.error(json.error?.message || 'Could not add the exchange rate - try again'); return; }
       notify.success(`Rate ${from}/${to} added`);
       setRate('');
       onAdded();
     } catch (err) {
-      notify.error(apiErrorMessage(err, 'Failed to add exchange rate'));
+      notify.error(apiErrorMessage(err, 'Could not add the exchange rate - try again'));
     } finally {
       setSaving(false);
     }
@@ -150,15 +150,15 @@ export function ConverterWidget({ currencies }: ConverterWidgetProps) {
         method: 'POST',
         body: JSON.stringify({ amount: amt, fromCurrency: from, toCurrency: to, date }),
       });
-      await assertOk(res, 'No rate available for this pair');
+      await assertOk(res, 'Could not convert the amount - try again');
       const json = await res.json();
       if (json.success === false) {
-        notify.error(json.error?.message || 'No rate available for this pair');
+        notify.error(json.error?.message || 'Could not convert the amount - try again');
         return;
       }
       setResult(json.data as ConvertResult);
     } catch (err) {
-      notify.error(apiErrorMessage(err, 'Conversion failed'));
+      notify.error(apiErrorMessage(err, 'Could not convert the amount - try again'));
     } finally {
       setConverting(false);
     }

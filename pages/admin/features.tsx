@@ -98,7 +98,7 @@ export default function AdminFeaturesPage() {
       // before it would wipe the very failure this block exists to report.
       // load() never throws — it owns its try/catch — so this order is safe.
       await load();
-      setError(`Some flags may not have been updated (${apiErrorMessage(err, 'try again')})`);
+      setError(`Some flags may not have been updated (${apiErrorMessage(err, 'Could not update a feature flag - try again')})`);
     } finally {
       setBulkWorking(false);
     }

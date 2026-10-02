@@ -1,6 +1,6 @@
 // D2 round 4: fallback wording. An empty-body 500 (or a dropped connection) on these admin / journal pages shows the
 // plain sentence, never a bare "Failed", a status code or a JSON parse error; a 4xx shows the server message.
-import { cleanup, configure, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -66,7 +66,7 @@ describe('admin billing', () => {
     script((p) => p.endsWith('/send'), empty500, (p) => (p === '/api/admin/billing/invoices' ? { items: [INVOICE], total: 1, page: 1, limit: 25 } : {}));
     render(<InvoicesPage />);
     fireEvent.click(await screen.findByTitle('Send'));
-    expect(await screen.findByText('Could not complete the invoice action - try again')).toBeTruthy(); noRaw();
+    expect(await screen.findByText('Could not send the invoice - try again')).toBeTruthy(); noRaw();
   });
   it('invoice create over a dropped connection: a plain sentence', async () => {
     script((p, m) => p === '/api/admin/billing/invoices' && m === 'POST', dropped, (p) => (p === '/api/admin/billing/invoices' ? { items: [], total: 0, page: 1, limit: 25 } : {}));
@@ -122,6 +122,30 @@ describe('admin company detail', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^delete$/i }));
     fireEvent.click(screen.getByRole('button', { name: /delete permanently/i }));
     expect(await screen.findByText('Could not delete the company - try again')).toBeTruthy(); noRaw();
+  });
+  it('delete success: the Delete button stays disabled while the page navigates away (no second delete)', async () => {
+    script((p, m) => p === '/api/admin/companies/x-1' && m === 'DELETE', () => ok({}), get('active'));
+    render(<CompanyDetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /delete permanently/i }));
+    await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([u, i]) => String(u) === '/api/admin/companies/x-1' && i?.method === 'DELETE')).toBe(true));
+    await new Promise(r => setTimeout(r, 50));
+    expect((screen.getByRole('button', { name: /^delete$/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+  it('edit save empty 500: the same sentence as the dropped connection, not "Could not complete: save"', async () => {
+    script((p, m) => p === '/api/admin/companies/x-1' && m === 'PATCH', empty500, get('active'));
+    render(<CompanyDetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /^edit$/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /save changes/i }));
+    expect(await screen.findByText('Could not save the company - try again')).toBeTruthy(); noRaw();
+  });
+  it('edit save over a dropped connection: the plain sentence', async () => {
+    script((p, m) => p === '/api/admin/companies/x-1' && m === 'PATCH', dropped, get('active'));
+    render(<CompanyDetailPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /^edit$/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /save changes/i }));
+    expect(await screen.findByText('Could not save the company - try again')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('Could not complete:');
   });
 });
 

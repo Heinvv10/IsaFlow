@@ -76,7 +76,7 @@ export default function RecurringJournalsPage() {
     // no fiscal period, closed period, a deactivated account named by its code,
     // an unbalanced template, and the 409 for a contended generate. The list
     // reloaded unchanged and the button looked dead.
-    const fallback = `Could not ${action} this recurring journal`;
+    const fallback = `Could not ${action} this recurring journal - try again`;
     try {
       const res = await apiFetch('/api/accounting/recurring-journals-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },

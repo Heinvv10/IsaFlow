@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Download, Loader2, Presentation } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import {
   DataQualityNotice,
@@ -33,6 +33,8 @@ const PACK_CONFIGS: Array<{ type: PackType; label: string; description: string; 
   { type: 'management', label: 'Management Pack', description: 'Full board pack + Cash Flow, Trends & Waterfall', sections: '8 sections' },
   { type: 'monthly', label: 'Monthly Pack', description: 'P&L, Balance Sheet, Cash Flow & Ratios', sections: '4 sections' },
 ];
+
+const PACK_LOAD_FAILED = 'Could not load the report pack - try again';
 
 /** What `?print=1` means with no `pack` named. Bookmarks predating the
  *  parameter rely on it, and the download route always names one. */
@@ -113,6 +115,7 @@ function ReportPacksScreen() {
    *  is null when the server sent no Retry-After, which it currently never
    *  does — the notice then says to wait a moment rather than name a number. */
   const [rateLimited, setRateLimited] = useState<{ seconds: number | null } | null>(null);
+  const [loadError, setLoadError] = useState('');
   // `localISODate`, never `toISOString()`: in SAST the ISO form of midnight
   // on 1 January is 31 December of the previous year, so the screen opened on
   // a window a day wider than the year it names.
@@ -149,6 +152,7 @@ function ReportPacksScreen() {
   useEffect(() => {
     let stale = false;
     setLoading(true);
+    setLoadError('');
 
     void (async () => {
       try {
@@ -166,6 +170,8 @@ function ReportPacksScreen() {
           return;
         }
         setRateLimited(null);
+        // Any other refusal (403, a 500 envelope, a proxy's 502 page) used to reach .json() and leave the screen blank.
+        await assertOk(res, PACK_LOAD_FAILED);
 
         const body = await res.json();
         if (stale) return;
@@ -174,6 +180,9 @@ function ReportPacksScreen() {
       } catch (err) {
         if (stale) return;
         log.error('Failed to load report pack', { error: err instanceof Error ? err.message : String(err) });
+        setPack(null);
+        setUnclassified(null);
+        setLoadError(apiErrorMessage(err, PACK_LOAD_FAILED));
       } finally {
         if (!stale) setLoading(false);
       }
@@ -231,6 +240,14 @@ function ReportPacksScreen() {
                   more than one place. */}
               <p className="font-medium">This pack could not be downloaded.</p>
               <p className="mt-1 whitespace-pre-line">{downloadError}</p>
+            </div>
+          )}
+          {loadError && (
+            <div
+              role="alert"
+              className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+            >
+              {loadError}
             </div>
           )}
           {rateLimited && (

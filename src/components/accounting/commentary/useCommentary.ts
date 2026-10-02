@@ -64,7 +64,7 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
       setRows(r.commentary);
     } catch (err) {
       if (requestId.current !== id) return;
-      setError(apiErrorMessage(err, 'Could not load commentary.'));
+      setError(apiErrorMessage(err, 'Could not load the commentary - try again'));
     } finally {
       if (requestId.current === id) setLoading(false);
     }
@@ -86,7 +86,7 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
       }, 'Could not save the commentary - try again');
       await refresh();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not generate commentary.'));
+      setError(apiErrorMessage(err, 'Could not save the commentary - try again'));
     }
   }, [type, from, to, refresh]);
 
@@ -96,7 +96,7 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
       await apiJson(`/api/accounting/commentary/${id}/approve`, { method: 'POST' }, 'Could not approve the commentary - try again');
       await refresh();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not approve that commentary.'));
+      setError(apiErrorMessage(err, 'Could not approve the commentary - try again'));
     }
   }, [refresh]);
 
@@ -106,7 +106,7 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
       await apiJson(`/api/accounting/commentary/${id}/reject`, { method: 'POST' }, 'Could not reject the commentary - try again');
       await refresh();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not reject that commentary.'));
+      setError(apiErrorMessage(err, 'Could not reject the commentary - try again'));
     }
   }, [refresh]);
 

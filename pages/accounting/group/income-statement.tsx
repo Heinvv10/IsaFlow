@@ -101,12 +101,12 @@ export default function ConsolidatedIncomeStatementPage() {
         period_end: periodEnd,
       });
       const res = await apiFetch(`/api/accounting/consolidated-reports?${params}`);
-      if (!res.ok) throw new Error('Failed to load consolidated income statement');
+      await assertOk(res, 'Could not load the consolidated income statement - try again');
       const json = await res.json();
       const payload: ConsolidatedISResponse = json.data || json;
       setData(payload);
-    } catch {
-      setError('Failed to load consolidated income statement');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the consolidated income statement - try again'));
       setData(null);
     } finally {
       setLoading(false);

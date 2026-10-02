@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -71,7 +72,9 @@ export default function FarReportPage() {
       if (json.success && json.data) {
         setReport(json.data);
       } else {
-        setError(json.error ?? 'Failed to load report');
+        log.warn('FAR report returned no data', { error: json.error }, 'far-report');
+        setReport(null);
+        setError('Could not load the report - try again');
       }
     } finally {
       setLoading(false);

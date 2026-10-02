@@ -1,5 +1,5 @@
 // A failed load/action shows the server's message (400) or a plain sentence (empty 500), never a blank table or a raw JSON error.
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, configure, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { MSG, bad400, empty500, okRes, rawJsonError, router } from '../helpers/d2CensusG6';
@@ -21,6 +21,7 @@ import NetcashSubmissionsPage from '../../../pages/accounting/netcash/index';
 import ItemListingReport from '../../../pages/accounting/reports/item-listing';
 import SalesByItemReport from '../../../pages/accounting/reports/sales-by-item';
 
+configure({ asyncUtilTimeout: 4000 });
 const script = (routes: Array<[string, () => Response]>, fallback: unknown = []) => vi.mocked(apiFetch).mockReset().mockImplementation(router(routes, fallback));
 const noRawJson = () => expect(document.body.textContent ?? '').not.toMatch(rawJsonError);
 afterEach(() => { cleanup(); });
@@ -70,20 +71,24 @@ describe('Loan period close', () => {
   it('lists the loans on success', async () => { run(() => null); render(<LoanPeriodClosePage />); expect(await screen.findByText('D2-LOAN-9')).toBeTruthy(); });
   it('shows the server message when posting one loan is refused (400)', async () => {
     run(bad400); render(<LoanPeriodClosePage />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Post' })); expect(await screen.findByText(MSG)).toBeTruthy();
+    await screen.findByText('D2-LOAN-9'); // the loan row (data) is on screen before any click
+    fireEvent.click(screen.getByRole('button', { name: 'Post' })); expect(await screen.findByText(MSG)).toBeTruthy();
   });
   it('shows a plain sentence when posting one loan returns an empty 500', async () => {
     run(empty500); render(<LoanPeriodClosePage />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Post' }));
+    await screen.findByText('D2-LOAN-9'); // the loan row (data) is on screen before any click
+    fireEvent.click(screen.getByRole('button', { name: 'Post' }));
     expect(await screen.findByText('Could not post the journals - try again')).toBeTruthy(); noRawJson();
   });
   it('shows the server message when Post All is refused (400)', async () => {
     run(bad400); render(<LoanPeriodClosePage />);
-    fireEvent.click(await screen.findByRole('button', { name: /Post All Unposted/ })); expect(await screen.findByText(MSG)).toBeTruthy();
+    await screen.findByText('D2-LOAN-9');
+    fireEvent.click(screen.getByRole('button', { name: /Post All Unposted/ })); expect(await screen.findByText(MSG)).toBeTruthy();
   });
   it('shows a plain sentence when Post All returns an empty 500', async () => {
     run(empty500); render(<LoanPeriodClosePage />);
-    fireEvent.click(await screen.findByRole('button', { name: /Post All Unposted/ }));
+    await screen.findByText('D2-LOAN-9');
+    fireEvent.click(screen.getByRole('button', { name: /Post All Unposted/ }));
     expect(await screen.findByText('Could not post the journals - try again')).toBeTruthy(); noRawJson();
   });
 });

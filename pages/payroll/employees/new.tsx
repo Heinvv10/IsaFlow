@@ -71,7 +71,7 @@ export default function NewEmployeePage() {
       await assertOk(res, 'Could not create the employee - try again');
       const json = await res.json();
       const created = json.data ?? json;
-      void router.push(`/payroll/employees/${created.id}`);
+      await router.push(`/payroll/employees/${created.id}`);
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the employee - try again'));
     } finally {

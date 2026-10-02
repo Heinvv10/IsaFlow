@@ -4,12 +4,15 @@
 import React, { useState } from 'react';
 import { log } from '@/lib/logger';
 import { apiErrorMessage } from '@/lib/apiFetch';
+import { downloadFile } from '@/components/accounting/packs/usePackDownload';
 import { Download, FileText, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 
 interface Props {
   documentId: string;
   fiscalYear: number;
 }
+
+const DOWNLOAD_FAILED = 'Could not generate the export - try again';
 
 type ExportState = 'idle' | 'loading' | 'done' | 'error';
 
@@ -44,7 +47,7 @@ function ExportButton({
       // Reset after 3s so it can be triggered again
       setTimeout(() => setState('idle'), 3000);
     } catch (err) {
-      const msg = apiErrorMessage(err, 'Could not start the download - try again');
+      const msg = apiErrorMessage(err, DOWNLOAD_FAILED);
       log.error('AFS export failed', { error: err, title }, 'AfsExportTab');
       setErrorMsg(msg);
       setState('error');
@@ -91,13 +94,10 @@ function ExportButton({
   );
 }
 
-function triggerDownload(url: string) {
-  const a = document.createElement('a');
-  a.href = url;
-  a.rel = 'noopener noreferrer';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+// Fetched, not navigated to: a refused export (unresolved blocker checks) must say so
+// instead of handing the browser the error body as a file.
+function triggerDownload(url: string, fallbackName: string) {
+  return downloadFile(url, fallbackName, DOWNLOAD_FAILED);
 }
 
 export function AfsExportTab({ documentId, fiscalYear }: Props) {
@@ -108,7 +108,7 @@ export function AfsExportTab({ documentId, fiscalYear }: Props) {
       description: 'Full Annual Financial Statements rendered via WeasyPrint with cover page, notes, and statements.',
       icon: <FileText className="w-5 h-5 text-red-500" />,
       action() {
-        triggerDownload(`/api/accounting/afs/${documentId}/export?format=pdf`);
+        return triggerDownload(`/api/accounting/afs/${documentId}/export?format=pdf`, `afs-${fiscalYear}.pdf`);
       },
     },
     {
@@ -117,7 +117,7 @@ export function AfsExportTab({ documentId, fiscalYear }: Props) {
       description: 'Editable Microsoft Word document — useful for final formatting before client delivery.',
       icon: <FileText className="w-5 h-5 text-blue-500" />,
       action() {
-        triggerDownload(`/api/accounting/afs/${documentId}/export?format=docx`);
+        return triggerDownload(`/api/accounting/afs/${documentId}/export?format=docx`, `afs-${fiscalYear}.docx`);
       },
     },
     {
@@ -126,7 +126,7 @@ export function AfsExportTab({ documentId, fiscalYear }: Props) {
       description: 'Structured Caseware-compatible export of all AFS sections and financial data.',
       icon: <FileText className="w-5 h-5 text-purple-500" />,
       action() {
-        triggerDownload(`/api/accounting/afs/${documentId}/export?format=caseware`);
+        return triggerDownload(`/api/accounting/afs/${documentId}/export?format=caseware`, `afs-${fiscalYear}-caseware.json`);
       },
     },
     {
@@ -135,7 +135,7 @@ export function AfsExportTab({ documentId, fiscalYear }: Props) {
       description: 'Plain-text export of all IFRS disclosure notes for the fiscal year — useful for audit workpapers.',
       icon: <FileText className="w-5 h-5 text-slate-500" />,
       action() {
-        triggerDownload(`/api/accounting/disclosure-notes?year=${fiscalYear}&export=true`);
+        return triggerDownload(`/api/accounting/disclosure-notes?year=${fiscalYear}&export=true`, `disclosure-notes-${fiscalYear}.txt`);
       },
     },
   ];

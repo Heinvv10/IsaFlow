@@ -59,16 +59,19 @@ export function VAT201SarsSubmit({ submissionId, exceptionsReady, exceptionsClea
   const call = async (action: 'submit' | 'poll') => {
     if (!submissionId) return;
     setBusy(true); setError('');
+    const failure = action === 'submit'
+      ? 'Could not submit the VAT201 to SARS - try again'
+      : 'Could not check the SARS submission - try again';
     try {
       const res = await apiFetch('/api/accounting/sars/efiling-submit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ submissionId, action }),
       });
-      await assertOk(res, 'Something went wrong - try again');
+      await assertOk(res, failure);
       const json = await res.json();
       setResult(json.data as SubmitResult);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not complete: sars efiling - try again'));
+      setError(apiErrorMessage(err, failure));
     } finally {
       setBusy(false);
     }

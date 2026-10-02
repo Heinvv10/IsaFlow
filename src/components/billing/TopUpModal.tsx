@@ -43,6 +43,7 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
   async function buy(bundleId: string) {
     setPurchasing(bundleId);
     setError('');
+    let redirecting = false;
     try {
       const res = await apiFetch('/api/billing/flows/purchase', {
         method: 'POST',
@@ -57,6 +58,7 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
       // the return page confirms.
       const data = json?.data as { mode?: 'paystack_transaction' | 'admin_recorded'; checkoutUrl?: string } | undefined;
       if (data?.mode === 'paystack_transaction' && data.checkoutUrl) {
+        redirecting = true; // purchasing stays set while the browser navigates away
         window.location.href = data.checkoutUrl;
         return;
       }
@@ -67,7 +69,7 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not start the purchase - try again'));
     } finally {
-      setPurchasing(null);
+      if (!redirecting) setPurchasing(null);
     }
   }
 

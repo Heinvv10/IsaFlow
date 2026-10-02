@@ -68,7 +68,7 @@ export default function AcceptInvitePage() {
       accepted = true;
       // Not awaited: a router abort would land in the catch below and show
       // "could not submit" for an accept that already succeeded server-side.
-      void router.push('/accounting/dashboard');
+      await router.push('/accounting/dashboard');
     } catch {
       setError('Network error — could not submit. Check your connection and try again.');
     } finally {

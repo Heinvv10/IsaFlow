@@ -40,7 +40,7 @@ export default function ValidatePage() {
       return session.id;
     } catch (err) {
       log.error('Failed to load migration session', { error: err }, 'accounting-ui');
-      setError(apiErrorMessage(err, 'Failed to load session'));
+      setError(apiErrorMessage(err, 'Could not load the migration session - try again'));
     }
     return null;
   }, []);
@@ -49,12 +49,12 @@ export default function ValidatePage() {
     setIsLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/migration/validate?sessionId=${sid}`);
-      await assertOk(res, 'Validation failed');
+      await assertOk(res, 'Could not validate the migration data - try again');
       const json = await res.json();
       setValidation(json.data);
     } catch (err) {
       setValidation(null);
-      setError(apiErrorMessage(err, 'Could not complete: validation - try again'));
+      setError(apiErrorMessage(err, 'Could not validate the migration data - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -64,10 +64,11 @@ export default function ValidatePage() {
     loadSession().then(sid => {
       if (sid) void runValidation(sid);
       else setIsLoading(false);
-    }).catch(() => {
+    }).catch((err) => {
       // loadSession/runValidation self-handle today; this is the defensive
       // backstop so a future edit can never leave the spinner stuck.
-      setError('Failed to load session');
+      log.error('Migration validation backstop', { error: err }, 'accounting-ui');
+      setError('Could not load the migration session - try again');
       setIsLoading(false);
     });
   }, [loadSession, runValidation]);
@@ -82,10 +83,10 @@ export default function ValidatePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, action: 'complete' }),
       });
-      await assertOk(res, 'Failed to complete migration');
+      await assertOk(res, 'Could not complete the migration - try again');
       setCompleted(true);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not complete migration - try again'));
+      setError(apiErrorMessage(err, 'Could not complete the migration - try again'));
     } finally {
       setIsCompleting(false);
     }

@@ -44,7 +44,7 @@ export default function DocumentCapturePage() {
       const res = await apiFetch(`/api/accounting/document-capture?${params}`);
       await assertOk(res, 'Could not load documents - try again');
       const json = await res.json();
-      if (!json.success) throw new Error(json.error?.message || 'Failed to load');
+      if (!json.success) throw new Error(json.error?.message || 'Could not load documents - try again');
       setDocuments(json.data || []);
       setTotal(json.pagination?.total || 0);
     } catch (err) {

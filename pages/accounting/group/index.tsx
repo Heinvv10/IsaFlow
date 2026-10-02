@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { GroupDashboardStats } from '@/modules/accounting/services/reports/consolidatedReportingService';
 import type { CompanyGroup as ServiceCompanyGroup } from '@/modules/accounting/services/reports/groupCrudService';
@@ -63,7 +63,7 @@ export default function GroupDashboardPage() {
     setLoadingGroups(true); setError(null);
     try {
       const res = await apiFetch('/api/accounting/company-groups');
-      if (!res.ok) throw new Error('Failed to load company groups');
+      await assertOk(res, 'Could not load the company groups - try again');
       const json = await res.json();
       const list: CompanyGroup[] = json.data?.items ?? json.data ?? [];
       setGroups(list);
@@ -71,7 +71,8 @@ export default function GroupDashboardPage() {
       if (firstGroup) setSelectedGroupId(prev => prev ?? firstGroup.id);
     } catch (err) {
       log.error('Failed to load company groups', { error: err }, 'group-dashboard');
-      setError('Could not load company groups.');
+      setGroups([]);
+      setError(apiErrorMessage(err, 'Could not load the company groups - try again'));
     } finally { setLoadingGroups(false); }
   }, []);
 
@@ -81,13 +82,13 @@ export default function GroupDashboardPage() {
     setLoadingDash(true); setError(null);
     try {
       const res = await apiFetch(`/api/accounting/consolidated-reports?group_id=${encodeURIComponent(groupId)}&action=dashboard`);
-      if (!res.ok) throw new Error('Failed to load dashboard data');
+      await assertOk(res, 'Could not load the consolidated dashboard - try again');
       const json = await res.json();
       setDashData(json.data ?? json);
     } catch (err) {
       log.error('Failed to load group dashboard', { error: err }, 'group-dashboard');
       setDashData(null);
-      setError('Could not load consolidated dashboard.');
+      setError(apiErrorMessage(err, 'Could not load the consolidated dashboard - try again'));
     } finally { setLoadingDash(false); }
   }, []);
 

@@ -87,7 +87,7 @@ export default function NewLeaveRequestPage() {
       await assertOk(res, 'Could not save the leave request - try again');
       await router.push('/payroll/leave');
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not save - try again'));
+      setError(apiErrorMessage(err, 'Could not save the leave request - try again'));
     } finally {
       setIsSaving(false);
     }
