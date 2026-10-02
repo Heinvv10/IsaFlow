@@ -229,8 +229,8 @@ export default function AdminCompanyDetailPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify(body),
       });
+      await assertOk(res, 'Could not save the company - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Save failed');
       setCompany(json.data as CompanyDetail);
       setEditMode(false);
       setEditForm(null);

@@ -10,7 +10,7 @@ import { MrrTrendChart } from '@/components/admin/charts/MrrTrendChart';
 import { EngagementTrendChart } from '@/components/admin/charts/EngagementTrendChart';
 import { SignupTrendChart } from '@/components/admin/charts/SignupTrendChart';
 import { RevenueIntelligenceSection } from '@/components/admin/RevenueIntelligenceSection';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { AnalyticsTrends } from '@/modules/admin/types/admin.types';
 
@@ -56,11 +56,11 @@ export default function AdminAnalytics() {
     setError('');
     try {
       const res  = await apiFetch('/api/admin/analytics/usage');
+      await assertOk(res, 'Could not load the analytics - try again');
       const json = await res.json() as { data: UsageAnalytics };
-      if (!res.ok) throw new Error((json as unknown as { message?: string }).message ?? 'Failed to load analytics');
       setData(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load analytics');
+      setError(apiErrorMessage(err, 'Could not load the analytics - try again'));
     } finally {
       setLoading(false);
     }
@@ -71,11 +71,11 @@ export default function AdminAnalytics() {
     setTrendsError('');
     try {
       const res  = await apiFetch('/api/admin/analytics/trends');
+      await assertOk(res, 'Could not load the trends - try again');
       const json = await res.json() as { data: AnalyticsTrends };
-      if (!res.ok) throw new Error((json as unknown as { message?: string }).message ?? 'Failed to load trends');
       setTrends(json.data);
     } catch (err) {
-      setTrendsError(err instanceof Error ? err.message : 'Failed to load trends');
+      setTrendsError(apiErrorMessage(err, 'Could not load the trends - try again'));
     } finally {
       setTrendsLoading(false);
     }
