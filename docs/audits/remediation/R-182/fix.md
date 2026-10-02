@@ -21,7 +21,7 @@ Anything else is refused with one warning per (name, value) and gives
 `2.5` gives 3 (pg-pool opened ceil(max)), `1e1` gives 10, `20.0`, `+20` and `2e1` give the default 20,
 and `50.0` gives the default 20 while `50` gives 50 (never above the default, and warned); NaN and 0 give 10 as pg-pool did; negative and Infinity (broken before) give
 `min(default, 10)`. No spelling the old `Number()` accepted gives more connections than
-pg-pool allowed for it. The warning logs the name, the value's length and a digits-only flag,
+pg-pool allowed for it, except where the floor of 2 raises a pool of 1 (AUTH_POOL_MAX, PG_POOL_MAX). The warning logs the name, the value's length and a digits-only flag,
 never the text (a pool variable can hold a pasted DSN). The old rate-limit reader accepted
 `1e1`, `10.0` and `+5` as given; they now go through this rule. The rate-limit warning stays under its `rateLimit` category.
 `authPoolMax()` is now validated and every pool reads through it or the reader:
@@ -78,22 +78,26 @@ app) alone are 80 (one variable).
   reaches the log (name, length and digits-only flag only; there is no truncation); category;
   the floor and its clamp; `authPoolMax`.
 - `tests/unit/lib/poolSizesBuilt.test.ts`: pg.Pool mocked; each of 7 sites is built with the
-  validated size (valid, unset, 9 bad spellings under the `ceil(n)` rule, and 3 spellings below
-  the floor of 2 for the AUTH_POOL_MAX and PG_POOL_MAX sites).
+  validated size (valid, unset, 13 bad spellings under the `min(default, ceil(n))` rule, and 3
+  spellings below the floor of 2 for the AUTH_POOL_MAX and PG_POOL_MAX sites).
 - `tests/unit/lib/pgPoolMaxPremise.test.ts`: the REAL pg-pool: NaN/0 give 10, negative never
   opens a connection, Infinity is kept, a fractional 2.5 allows three connections (ceil).
 - `tests/unit/lib/rateLimitPoolMax.test.ts` (R-175, header reworded, `rateLimit` category asserted).
 - `tests/unit/lib/pdf/renderSemaphore.test.ts`: invalid AUTH_POOL_MAX gives ceiling 2; a pool of 1
   (`1`, `1.0`, `0.5`) is raised to 2, ceiling 1.
-- `tests/unit/lib/neonPoolNestedSql.test.ts`: real pg-pool, fake client: a size-1 pool times out on a
-  nested `sql` inside `withTransaction`; PG_POOL_MAX `1`, `1.0`, `0.5` is raised to 2 and the nested
+- `tests/unit/lib/neonPoolNestedSql.test.ts`: real pg-pool, fake client. A pg-pool premise test: with
+  its one connection held, a size-1 pool times out on a second acquire (it does not call
+  `withTransaction`). Then, through `neon.ts`: PG_POOL_MAX `1`, `1.0`, `0.5` is raised to 2 and the nested
   `sql` completes using two connections.
 - Evidence by round: round 0 red `red.unit.log` (68 failed of 105 across 3 files, before the fix)
   and `green.log` (116 passed, 4 files). Green logs with the exact commands: `green.round1.log`
   (127), `green.round2.log` (149), `green.round3.log` (178), `green.round4.log` (184 passed in the
-  6 files above; the final file set). Mutants, each with its clean baseline read first, are in
-  `mutations.log`: 13 in round 0, 7 in round 1, 7 in round 2, 4 in round 3, 4 in round 4; all red.
-  Round 5 changed docs and test names only; round 6 changed the rule (see its section); the shuffle check is in Review round 5.
+  6 files above), `green.round6.log` (215 passed; with `tests/unit/lib`, 1186 passed, and shuffle seeds 3, 58, 777),
+  `green.round7.log` (the final run: 224 passed in the six files, shuffle seeds 11, 202, 3033). Mutants, each with its clean baseline read first, are in
+  `mutations.log`: 13 in round 0, 7 in round 1, 7 in round 2, 4 in round 3, 4 in round 4, 6 in
+  round 6 (S1-S6) and 1 in round 7 (`Math.round`); all red. Round 5 changed docs and test names
+  only; round 6 changed the rule (see its section); the shuffle checks are in Review round 5 and
+  `green.round6.log`.
 
 ## Review round 1
 1. Rationale corrected everywhere (see Defect); premise pinned by a real-library test.
@@ -177,3 +181,12 @@ Evidence: `green.round4.log` (184 passed in 6 files), `mutations.log` round 4.
 3. backlog `correctedTrigger` and `pr: 617` set. 4. Dated Recent-changes lines in the auth, neon and
    pdf `.claude.md` (PDF: an invalid AUTH_POOL_MAX now gives ceiling 2, was 3). 5. The poolLimits
    header no longer says the numbers are restated nowhere.
+
+## Review round 7 (third blind review of PR #617)
+1. `Math.ceil` -> `Math.round` survived all 215 tests. Added `2.2` (gives 3) and `0.2` (gives 1) to
+   `poolSizeFromEnv.test.ts` and `2.2` to the `poolSizesBuilt.test.ts` spellings; the mutant is
+   now red (`mutations.log`, round 7).
+2. "Never more than pg-pool allowed" now carries the exception for the floor of 2 raising a pool of 1.
+3. The Tests section is brought to the final file set and evidence.
+4. The first `neonPoolNestedSql.test.ts` test is renamed as the pg-pool premise test it is.
+Evidence: `green.round7.log` (224 passed in the six files; shuffle seeds 11, 202, 3033).

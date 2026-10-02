@@ -62,3 +62,7 @@ S3-unusable-uncapped | src/lib/limits/poolLimits.ts | 'const unusable = Math.min
 S4-floor-dropped | src/lib/limits/poolLimits.ts | 'Math.max(floor, Number.isFinite' -> 'Math.max(0, Number.isFinite' | Tests  24 failed | 191 passed (215)
 S5-ceil-to-floor | src/lib/limits/poolLimits.ts | 'Math.ceil(asNumber)' -> 'Math.floor(asNumber)' | Tests  10 failed | 205 passed (215)
 S6-ratelimit-category | src/lib/rateLimitPool.ts | 'DEFAULT_RATE_LIMIT_POOL_MAX, 'rateLimit')' -> 'DEFAULT_RATE_LIMIT_POOL_MAX)' | Tests  12 failed | 203 passed (215)
+
+## Round 7 (files: tests/unit/lib/poolSizeFromEnv.test.ts tests/unit/lib/poolSizesBuilt.test.ts tests/unit/lib/pgPoolMaxPremise.test.ts tests/unit/lib/rateLimitPoolMax.test.ts tests/unit/lib/pdf/renderSemaphore.test.ts tests/unit/lib/neonPoolNestedSql.test.ts)
+baseline (unmutated, new cases added): Tests  224 passed (224)
+T1-ceil-to-round | src/lib/limits/poolLimits.ts | 'Math.ceil(asNumber)' -> 'Math.round(asNumber)' | Tests  8 failed | 216 passed (224)
