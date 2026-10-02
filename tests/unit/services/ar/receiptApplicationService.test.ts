@@ -161,7 +161,9 @@ describe('the invoice read locks what it is about to decide from', () => {
     await expect(
       planReceiptApplication(COMPANY, PAYMENT, [{ invoiceId: INV_A, amount: 100 }]),
     ).rejects.toThrow(/retry in a moment/i);
-    expect(mockTx.queries).not.toContain("SELECT set_config('lock_timeout', $1, true)");
+    // D8 round 11: the restore is always attempted; on a real aborted transaction its 25P02 is swallowed
+    // (core/rowLockBudget.restoreLockTimeout) and the refusal above stands.
+    expect(mockTx.queries).toContain("SELECT set_config('lock_timeout', $1, true)");
   });
 
   it('turns a DEADLOCK into the same retryable refusal', async () => {
@@ -175,7 +177,9 @@ describe('the invoice read locks what it is about to decide from', () => {
     await expect(
       planReceiptApplication(COMPANY, PAYMENT, [{ invoiceId: INV_A, amount: 100 }]),
     ).rejects.toThrow(/retry in a moment/i);
-    expect(mockTx.queries).not.toContain("SELECT set_config('lock_timeout', $1, true)");
+    // D8 round 11: the restore is always attempted; on a real aborted transaction its 25P02 is swallowed
+    // (core/rowLockBudget.restoreLockTimeout) and the refusal above stands.
+    expect(mockTx.queries).toContain("SELECT set_config('lock_timeout', $1, true)");
   });
 
   it('refuses to run at all outside a request transaction', async () => {
