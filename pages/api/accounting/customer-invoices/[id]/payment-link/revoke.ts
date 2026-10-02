@@ -14,6 +14,7 @@ import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
 import { revokeStandingLink } from '@/modules/accounting/services/ar/standingPaymentLink';
 import { CustomerInvoiceLockTimeoutError } from '@/modules/accounting/services/ar/customerInvoiceLock';
@@ -23,7 +24,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
   const invoiceId = req.query.id;
   if (!invoiceId) return apiResponse.badRequest(res, 'invoice id required');
   if (!isUuidParam(invoiceId)) return apiResponse.badRequest(res, 'invoice id must be a UUID');
@@ -40,6 +41,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       ? apiResponse.notFound(res, 'Invoice')
       : apiResponse.error(res, ErrorCode.NOT_FOUND, 'No active payment link');
   }
+  log.info('Standing payment link revoked', { companyId, invoiceId, userId: user.id, cancelled: result.cancelled }, 'PaymentLink');
   return apiResponse.success(res, { revoked: true, cancelled: result.cancelled });
 }
 

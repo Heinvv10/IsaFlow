@@ -119,15 +119,21 @@ export async function revokeStandingLink(
   invoiceId: string,
 ): Promise<{ ok: true; cancelled: number } | { ok: false; reason: 'invoice_not_found' | 'no_active_link' }> {
   const locked = await withCustomerInvoiceLock('revokeStandingLink', 'This invoice', async () => (await sql`
-    SELECT ci.payment_url,
-           EXISTS (SELECT 1 FROM portal_payment_links l
-                   WHERE l.invoice_id = ci.id AND l.status = 'active' AND l.charges_balance) AS has_link
+    SELECT ci.payment_url
     FROM customer_invoices ci
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID AND ci.deleted_at IS NULL
     FOR NO KEY UPDATE OF ci
-  `) as { payment_url: string | null; has_link: boolean }[]);
+  `) as { payment_url: string | null }[]);
   if (!locked[0]) return { ok: false, reason: 'invoice_not_found' };
-  if (!locked[0].has_link && !locked[0].payment_url) return { ok: false, reason: 'no_active_link' };
+
+  // A statement of its own, after the lock: a call that waited on the lock must see what the other
+  // revoke committed, and a subquery of the locking statement would still read its old snapshot.
+  const live = (await sql`
+    SELECT 1 FROM portal_payment_links
+    WHERE invoice_id = ${invoiceId}::UUID AND status = 'active' AND charges_balance
+    LIMIT 1
+  `) as unknown[];
+  if (live.length === 0 && !locked[0].payment_url) return { ok: false, reason: 'no_active_link' };
 
   // One statement, scoped to this invoice (and its company through the invoice); the invoice is
   // cleared only after it has run, in the same transaction.
