@@ -13,11 +13,11 @@
 import { formatMoney, inProse, inScale, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { creditMonthClause, dominantPoint, moneyPanelScales, type ScaleDominator } from './packTrendScale';
-import { monthLabel } from './packPartialMonth';
+import { monthLabel, partialMonthOf, wholeMonthsOf } from './packPartialMonth';
 import type { PackChartSpec } from './packPageModel';
 import { MONEY_PANELS, RATIO_PANELS } from './packTrendPanelSet';
 import { printedRange, printedSharePct, printedShrinkPct, printedSpan } from './packTrendPrintedFigures';
-import { moneyPanel, ratioPanel, ratioTerminal } from './packTrendPanelCharts';
+import { moneyPanel, ratioPanel } from './packTrendPanelCharts';
 
 export { TRENDS_PANELS_SPECIFIED } from './packTrendPanelSet';
 export { buildCashTrendChart, shorterCashTrendChart } from './packCashTrendChart';
@@ -41,24 +41,12 @@ export interface TrendPanels {
   /** Panels in a unit of their own — a percentage, a day count. */
   ownUnits: string[];
   /**
-   * Ratio panels whose LAST plotted month is the part month, by name.
-   *
-   * A tag says WHICH month a figure belongs to; it does not say that a RATIO
-   * taken over seven of thirty days is an artefact of the window rather than
-   * a movement in the business. Page 10 quoted "Gross margin fell from
-   * 5323.5% to 100.0% in Sep 2026 (part)" — seven days of revenue against no
-   * cost of sales yet posted — and "Debtor days rose from 19 days to 60 days
-   * in Sep 2026 (part)", a seven-day ratio annualised over a whole month.
-   * Both carried the marker and a director still reads 100.0% as a
-   * turnaround. The money panels do not have this problem: a part month's
-   * REVENUE is a smaller true figure, while a part month's MARGIN is a
-   * different measurement.
-   *
-   * Named rather than counted, and read off the months each panel actually
-   * PLOTTED — a ratio panel drops the months it cannot measure, so the point
-   * it ends on is not always the end of the window.
+   * The part month the series ended on, LEFT OUT of every panel — see
+   * `wholeMonthsOf`. Null where the series ends on a whole month. Page 10's
+   * Period note names it, so a reader looking for October is told why it is
+   * not there.
    */
-  ratiosEndingOnPartMonth: string[];
+  partMonthLeftOut: PackTrendPoint | null;
   /**
    * Drawn panels that plot FEWER months than the window, by name.
    *
@@ -100,11 +88,14 @@ export interface TrendPanels {
   sharedRange: string | null;
 }
 
-export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): TrendPanels {
+export function buildTrendPanels(series12: PackTrendPoint[], scale: MoneyScale): TrendPanels {
+  // WHOLE MONTHS ONLY — every panel title is a first-to-last comparison.
+  const partMonthLeftOut = partialMonthOf(series12);
+  const trend = wholeMonthsOf(series12);
   if (trend.length === 0) {
     return {
       panels: [], sharedScale: [], ownScale: [], ownUnits: [],
-      ratiosEndingOnPartMonth: [], shortenedPanels: [], sharedRange: null,
+      partMonthLeftOut, shortenedPanels: [], sharedRange: null,
     };
   }
 
@@ -165,10 +156,7 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Tr
       .filter((p) => !p.shared)
       .map(({ name, sharePct }) => ({ name, sharePct })),
     ownUnits: RATIO_PANELS.filter((p) => panels.some((drawn) => drawn.id === p.id)).map((p) => p.name),
-    ratiosEndingOnPartMonth: RATIO_PANELS
-      .filter((p) => panels.some((drawn) => drawn.id === p.id))
-      .filter((p) => ratioTerminal(p, trend)?.partial === true)
-      .map((p) => p.name),
+    partMonthLeftOut,
     // Only the ratio panels can shorten: a money panel plots every month of
     // the window by construction, because a month with nothing posted is a
     // true nil rather than an unmeasurable one. Counted off the same `pick`

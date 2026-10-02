@@ -77,7 +77,9 @@ describe('a panel drawn over part of the window says why', () => {
     expect(body, 'the pack shortens two panels and never says so').not.toBeNull();
     expect(body).toContain('Gross margin');
     expect(body).toContain('Debtor days');
-    expect(body).toMatch(/12 months/);
+    // ELEVEN: the window's whole months, which is what page 10 draws over —
+    // the twelfth is the part month it leaves out (`wholeMonthsOf`).
+    expect(body).toMatch(/11 months/);
     expect(body).toMatch(/not measured in a month whose base is nil/);
     // And it states the OTHER half of the same rule, which is the half
     // Brightsphere prints on page 10 — so a reader meeting either behaviour
@@ -120,7 +122,7 @@ describe('a panel drawn over part of the window says why', () => {
   it('speaks in the singular where exactly one panel is shortened', () => {
     const body = shortenedPanelsNote(['Gross margin'], liveDemoShortPanelsInput.trend)!;
     const note = body.kind === 'disclosure' ? body.disclosure.notes[0]!.body : '';
-    expect(note).toContain('Gross margin is drawn over fewer than the 12 months');
+    expect(note).toContain('Gross margin is drawn over fewer than the 11 months');
     expect(note).toContain('so that panel starts at the first month it can be measured');
     expect(note).toContain("its own title states how many periods it covers");
     // And none of the plural forms survives anywhere in the sentence.

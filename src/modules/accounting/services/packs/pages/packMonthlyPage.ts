@@ -20,7 +20,7 @@ import {
   monthlyResultsTitle,
   trendWindowLabel,
 } from './packMonthlyResults';
-import { partialMonthClauseFor } from './packPartialMonth';
+import { partialMonthOf, partialMonthUndrawnClause } from './packPartialMonth';
 import type { MoneyScale } from '@/lib/format/money';
 import type { PackPageBlock, PackTable } from './packPageModel';
 
@@ -144,10 +144,14 @@ const monthlySeriesBlocks: PackPageBlock[] = trend.length === 0
       // layout. The RULE that makes the shortening legible is a different
       // sentence and could not be bought here at any price; see
       // `shortenedPanelsNote`.
+      // AND WHERE THE LAST ROW IS A STUB, THAT PAGE 10 DOES NOT DRAW IT —
+      // the panels draw whole months only (`wholeMonthsOf`). Said in the
+      // part-month clause's own place and SHORTER than the clause it
+      // replaces: this note has no characters to spare on the live demo.
       note('The window', `This table covers ${trendWindowLabel(trend)}, the window page 10 `
         + 'draws from. The income statement overleaf carries the reporting period\'s own '
         + 'totals against the comparative.'
-        + (partialMonthClauseFor(trend) === null ? '' : ` ${partialMonthClauseFor(trend)}`)),
+        + (partialMonthOf(trend) === null ? '' : ` ${partialMonthUndrawnClause(partialMonthOf(trend)!)}`)),
     ]),
   ];
 const monthlyBlocks: PackPageBlock[] = [

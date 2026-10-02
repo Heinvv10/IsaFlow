@@ -217,8 +217,13 @@ export function buildHighlightsBlocks(
     // its layout instead.
     footnotes: [{
       number: SPARKLINE_FOOTNOTE,
-      text: "Each tile's figure covers the WHOLE reporting period; the sparkline beside it runs over the monthly "
-        + `trend series, a different window. ${sparklineCount} of ${highlightTiles.length} tiles carry one; the rest `
+      // "THE TREND'S WHOLE MONTHS": the sparklines draw whole months only
+      // (`wholeMonthsOf`), so a pack run to 2 October ends them in September
+      // while every tile's figure runs to the 2nd. The same length as the
+      // "monthly trend series" it replaces — this sheet fits within a line
+      // on the live demo, and the Part month note above names the stub.
+      text: "Each tile's figure covers the WHOLE reporting period; the sparkline beside it runs over the trend's "
+        + `whole months, a different window. ${sparklineCount} of ${highlightTiles.length} tiles carry one; the rest `
         + `have no monthly series behind them.${shortWindowClause(highlightTiles)}`
         + sharedScaleClause(highlightTiles, scale),
     }],

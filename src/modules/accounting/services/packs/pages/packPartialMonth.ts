@@ -39,6 +39,25 @@ export function partialMonthOf(trend: PackTrendPoint[]): PackTrendPoint | null {
 }
 
 /**
+ * THE SERIES A START-TO-END COMPARISON IS TAKEN OVER: whole months only.
+ *
+ * Velocity Fibre's pack ran to 2 October 2026 and page 10 headlined "Revenue
+ * is down 100.0% from the first month of the 12-month series to the last" —
+ * November's whole month against two days of October with no revenue posted
+ * in them yet. Four panel titles ended on that stub and page 3's sparklines
+ * dropped to nil at their right edge. A part month is a true ROW (page 5
+ * prints it, marked) and a false END POINT, so every reading that compares a
+ * first month with a last one — page 10's panels and headline, page 3's
+ * sparklines — takes the series through here and says what it left out.
+ *
+ * Chosen over defaulting the to-date to the last month-end, which would fix
+ * the default and leave a director who picks 2 October with the same page.
+ */
+export function wholeMonthsOf(trend: readonly PackTrendPoint[]): PackTrendPoint[] {
+  return trend.filter((point) => !point.partial);
+}
+
+/**
  * A MONTH AS A LABEL, marked where it is a stub.
  *
  * Short deliberately: it is a table row label, an 83mm panel's axis tick and
@@ -62,6 +81,16 @@ export function monthLabel(point: PackTrendPoint): string {
 export function partialMonthClause(point: PackTrendPoint): string {
   return `${point.label} is a part month: it covers ${point.daysCovered} of its `
     + `${point.daysInMonth} days, so its figure is not comparable with the months before it.`;
+}
+
+/**
+ * The clause for page 5, the one sheet that prints the stub as a row while
+ * page 10 leaves it out (`wholeMonthsOf`): it says both, in fewer characters
+ * than `partialMonthClause`, because page 5's note has none to spare.
+ */
+export function partialMonthUndrawnClause(point: PackTrendPoint): string {
+  return `${point.label} is a part month: it covers ${point.daysCovered} of its `
+    + `${point.daysInMonth} days, so it is not comparable and page 10 does not draw it.`;
 }
 
 /** The same clause, or nothing, for a caller holding a whole series. */
