@@ -136,6 +136,18 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
     expect(await status(old.token)).toBe('cancelled');
   });
 
+  it('an expired active standing link with no payment_url is still cancelled (200, cancelled 1); a second revoke is 404', async () => {
+    const id = await invoice();
+    const old = await addLink(id, 115, true);
+    await pool.query("UPDATE portal_payment_links SET expires_at = NOW() - interval '1 day' WHERE id = $1", [old.linkId]);
+    expect((await row(id)).payment_url).toBeNull();
+    const r = await revoke(id);
+    expect(r.statusCode).toBe(200);
+    expect(r.body.data).toEqual({ revoked: true, cancelled: 1 });
+    expect(await status(old.token)).toBe('cancelled');
+    expect((await revoke(id)).statusCode).toBe(404);
+  });
+
   it('only an explicit-amount link and no payment_url: nothing to do, 404, link untouched', async () => {
     const id = await invoice();
     const explicit = await addLink(id, 10, false);
