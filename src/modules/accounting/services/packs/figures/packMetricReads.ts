@@ -22,6 +22,9 @@ import type { ReportPackFigures } from '@/modules/accounting/services/reports/re
 export interface PackMetricRead {
   value: number | null;
   unavailable?: string;
+  /** Missing for want of an INPUT — none recorded, captured or classified —
+   *  rather than for an undefined base. Page 9 says "not stated" for it. */
+  notRecorded?: true;
   basis?: { numerator: number; denominator: number };
 }
 
@@ -112,7 +115,12 @@ const INTEREST_COVER_NOT_STATED = 'Interest cover could not be stated on these f
  */
 export function readInterestCover(ratios: ExtendedRatioResult, raw: ReportPackFigures): PackMetricRead {
   if (ratios.interestCoverage === null || raw.interestExpense === undefined) {
-    return { value: null, unavailable: ratios.notMeaningful.interestCoverage ?? INTEREST_COVER_NOT_STATED };
+    const unavailable = ratios.notMeaningful.interestCoverage ?? INTEREST_COVER_NOT_STATED;
+    // None recorded, or none read, is a missing input; a net credit is a
+    // base that is not positive, and stays not meaningful.
+    return raw.interestExpense === undefined || raw.interestExpense === 0
+      ? { value: null, unavailable, notRecorded: true }
+      : { value: null, unavailable };
   }
   return { value: ratios.interestCoverage, basis: { numerator: operatingProfitOf(raw), denominator: raw.interestExpense } };
 }

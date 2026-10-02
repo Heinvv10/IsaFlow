@@ -159,19 +159,19 @@ describe('buildScorecardGroups', () => {
   // given the ledger's — must not print the engine's old artefact zero, which
   // reads as "cannot service its debt from earnings". The stated and
   // none-recorded cases are `packInterestCover.test.ts`.
-  it('marks interest cover notMeaningful where the figure set carries no interest expense', () => {
+  it('marks interest cover notStated where the figure set carries no interest expense', () => {
     const groups = buildScorecardGroups(healthySet, new PackFigureProvenance());
     const interestCover = groups.flatMap((g) => g.rows).find((r) => r.metric.match(/interest cover/i));
-    expect(interestCover?.status).toBe('notMeaningful');
+    expect(interestCover?.status).toBe('notStated');
     expect(interestCover?.actual.value).toBeNull();
     expect(interestCover?.actual.unavailable).toBeTruthy();
   });
 
   // R-P45.
-  it('marks cash conversion cycle notMeaningful when no inventory could be identified in the chart of accounts', () => {
+  it('marks cash conversion cycle notStated when no inventory could be identified in the chart of accounts', () => {
     const groups = buildScorecardGroups(unclassifiedInventorySet, new PackFigureProvenance());
     const ccc = groups.flatMap((g) => g.rows).find((r) => r.metric.match(/cash conversion cycle/i));
-    expect(ccc?.status).toBe('notMeaningful');
+    expect(ccc?.status).toBe('notStated');
     expect(ccc?.actual.value).toBeNull();
     expect(ccc?.actual.unavailable).toBeTruthy();
   });

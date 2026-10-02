@@ -87,8 +87,11 @@ function targetFor(spec: MetricSpec): number | null {
   return TARGETS.get(spec.targetKey) ?? null;
 }
 
-function statusFor(value: number | null, target: number | null, lowerIsBetter: boolean): PackScorecardStatus {
-  if (value === null) return 'notMeaningful';
+function statusFor(read: MetricRead, target: number | null, lowerIsBetter: boolean): PackScorecardStatus {
+  const { value } = read;
+  // Missing for want of an input is NOT STATED — interest cover where no
+  // interest is recorded; NOT MEANINGFUL is for an undefined base.
+  if (value === null) return read.notRecorded ? 'notStated' : 'notMeaningful';
   if (target === null) return 'unscored';
   const met = lowerIsBetter ? value <= target : value >= target;
   return met ? 'met' : 'missed';
@@ -158,7 +161,8 @@ function buildRow(
   p: PackFigureProvenance,
   actualReasons: ReadonlySet<string>,
 ): PackScorecardRow {
-  const actual = recordFigure(p, spec.source, spec.read(ratios, raw), spec.format);
+  const actualRead = spec.read(ratios, raw);
+  const actual = recordFigure(p, spec.source, actualRead, spec.format);
 
   // R-P42: null only when there is no PRIOR PERIOD at all — a prior period
   // whose own ratio isn't meaningful still gets a `PackFigure` with its own
@@ -181,7 +185,7 @@ function buildRow(
     actual,
     target,
     prior,
-    status: statusFor(actual.value, target, spec.lowerIsBetter),
+    status: statusFor(actualRead, target, spec.lowerIsBetter),
     // R-P43: no per-metric monthly series reaches this function (only
     // `buildHighlightTiles` gets one), so null is honest, not guessed.
     trend: null,

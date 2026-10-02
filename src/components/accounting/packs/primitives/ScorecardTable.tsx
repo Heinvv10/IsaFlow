@@ -36,6 +36,7 @@ const STATUS_LABEL: Record<PackScorecardStatus, string> = {
   met: 'Met',
   missed: 'Missed',
   notMeaningful: 'Not meaningful',
+  notStated: 'Not stated',
   unscored: 'Unscored',
 };
 

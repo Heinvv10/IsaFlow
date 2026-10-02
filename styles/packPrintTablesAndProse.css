@@ -56,6 +56,7 @@
 .pack-scorecard-status.is-met { color: var(--pack-favourable, #1a7a4a); }
 .pack-scorecard-status.is-missed { color: var(--pack-unfavourable, #b3261e); }
 .pack-scorecard-status.is-notMeaningful,
+.pack-scorecard-status.is-notStated,
 .pack-scorecard-status.is-unscored { color: var(--pack-grey-mid); }
 
 /* Task 14 — narrative columns: prose beside the action panel. */

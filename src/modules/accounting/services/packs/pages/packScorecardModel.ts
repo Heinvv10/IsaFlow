@@ -6,7 +6,7 @@
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { TrustedChartSvg } from '@/lib/charts/ssrSvg';
 
-export type PackScorecardStatus = 'met' | 'missed' | 'notMeaningful' | 'unscored';
+export type PackScorecardStatus = 'met' | 'missed' | 'notMeaningful' | 'notStated' | 'unscored';
 
 /** Spec §4.A page 9's own Trend column — distinct from Status and from
  *  `bulletSvg` (an actual-vs-target gauge, a different visual). Read from

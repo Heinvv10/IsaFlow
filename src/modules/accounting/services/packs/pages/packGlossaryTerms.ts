@@ -247,6 +247,6 @@ export const TERMS: PackDefinition[] = [
     // of how a target is scored belongs with the other definitions, on the
     // page that has room for it.
     term: 'Scored, unscored and not meaningful',
-    definition: 'Scored against the platform\'s default target. A metric with no target is unscored rather than assumed met, and its TARGET cell prints a dash rather than a nil target; one the figures cannot support is not meaningful. Neither counts as a pass or a miss.',
+    definition: 'Scored against the platform\'s default target. With no target a metric is unscored, not assumed met, and its TARGET cell prints a dash rather than a nil target; lacking a recorded input it is not stated; unsupported by the figures, not meaningful. None is a pass or a miss.',
   },
 ];

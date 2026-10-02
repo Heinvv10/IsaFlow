@@ -71,7 +71,8 @@ describe('the scorecard\'s interest cover', () => {
     const current = figures({ ...NO_LEDGER_RATIO_INPUTS });
     const cover = row({ ...demoSet, current });
     expect(cover.actual.value).toBeNull();
-    expect(cover.status).toBe('notMeaningful');
+    // Not stated for want of an input; a net credit (below) is not meaningful.
+    expect(cover.status).toBe('notStated');
     expect(cover.actual.unavailable).toBe(NONE_RECORDED);
     expect(NONE_RECORDED).toMatch(/^No interest expense .*recorded in the period/);
     expect(cover.actual.unavailable).toBe(calculateExtendedRatios(packFiguresToFinancialData(current)).notMeaningful.interestCoverage);

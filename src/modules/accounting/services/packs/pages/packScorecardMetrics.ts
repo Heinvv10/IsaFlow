@@ -193,11 +193,11 @@ export const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: Metr
         // through `packMetricReads`.
         read: (_r, raw) =>
           raw.operatingCashFlow === undefined
-            ? { value: null, unavailable: absentOperatingCashFlow(raw) }
+            ? { value: null, unavailable: absentOperatingCashFlow(raw), notRecorded: true }
             : { value: raw.operatingCashFlow },
         readPrior: (raw, current) =>
           raw.operatingCashFlow === undefined
-            ? { value: null, unavailable: absentComparativeCashFlow(raw, current) }
+            ? { value: null, unavailable: absentComparativeCashFlow(raw, current), notRecorded: true }
             : { value: raw.operatingCashFlow },
       },
       {
@@ -214,6 +214,7 @@ export const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: Metr
             ? {
                 value: null,
                 unavailable: NO_INVENTORY_CLASSIFIED,
+                notRecorded: true,
               }
             : r.cashConversionCycle === null ? cycleNotStated(r, raw) : { value: r.cashConversionCycle },
       },
