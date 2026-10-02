@@ -31,14 +31,17 @@
  * row in every unit suite that stubs `@/lib/neon`. INTERPOLATION ONLY — the
  * return is a thenable, and awaiting it sends the bare fragment as a statement.
  *
- * @param journalIdColumn a column reference written in code (`lc.id`), never
- *   input: it is spliced into the SQL text.
+ * @param journalIdColumn a column reference spliced into the SQL text, so it is
+ *   a closed set of literals (D8 round 4): no caller can pass a value through.
  */
 import { sql } from '@/lib/neon';
 import { MAX_CHAIN_DEPTH } from './journalChainHead';
 
+/** The journal-id columns the fragments may correlate on. Add an alias here, never widen to string. */
+export type JournalIdColumn = 'je.id' | 'lc.id' | 'pje.id' | 'rje.id';
+
 /** As at `asAtStr` ('YYYY-MM-DD'): only reversals dated on or before it count. For a dated report. */
-export function journalInForceAsAtFragment(journalIdColumn: string, asAtStr: string, companyId: string) {
+export function journalInForceAsAtFragment(journalIdColumn: JournalIdColumn, asAtStr: string, companyId: string) {
   return chainParity(journalIdColumn, companyId, asAtStr);
 }
 
@@ -47,11 +50,11 @@ export function journalInForceAsAtFragment(journalIdColumn: string, asAtStr: str
  * the reading `reversed_at` gives a single reversal, so a write guard swapping
  * `reversed_at IS NULL` for this changes nothing but the re-reversed chain.
  */
-export function journalStandsFragment(journalIdColumn: string, companyId: string) {
+export function journalStandsFragment(journalIdColumn: JournalIdColumn, companyId: string) {
   return chainParity(journalIdColumn, companyId, null);
 }
 
-function chainParity(journalIdColumn: string, companyId: string, asAtStr: string | null) {
+function chainParity(journalIdColumn: JournalIdColumn, companyId: string, asAtStr: string | null) {
   return sql.unsafe(
     `(WITH RECURSIVE reversals AS (
         SELECT r.id, r.entry_date, ARRAY[r.reversal_of_id, r.id] AS path

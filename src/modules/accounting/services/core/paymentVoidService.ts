@@ -243,12 +243,14 @@ export async function voidPaymentDocument(
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
       // The chain HEAD while the journal's chain stands (D8): after O <- R <- R2
       // the GL carries the payment again through R2 and O is stamped reversed.
-      // Out of the ledger, O itself — which refuses "already reversed", as before.
+      // A chain already OUT reverses nothing and the document is still voided,
+      // as the HTTP void does (D8 round 4) — refusing left the payment
+      // 'processed' and its bills paid against a ledger that holds no payment.
       const head = await lockStandingChainHead(companyId, payment.journalEntryId);
-      // No catch: a closed period or an already-reversed entry must reach the
-      // savepoint above — and through it the caller's. Flattening it into a
-      // returned error would RELEASE both and commit the unwind.
-      vatLockRoll = (await reverseJournalEntry(companyId, head ?? payment.journalEntryId, userId, opts)).vatLockRoll ?? null;
+      // No catch: a closed period or a broken chain must reach the savepoint
+      // above — and through it the caller's. Flattening it into a returned
+      // error would RELEASE both and commit the unwind.
+      if (head) vatLockRoll = (await reverseJournalEntry(companyId, head, userId, opts)).vatLockRoll ?? null;
     }
     return result;
   });

@@ -8,7 +8,8 @@
  *
  * Both refusals are `SupplierPaymentRefusal` (routes answer 400, MCP surfaces
  * the message, the auto-post undo counts the line as failed and keeps the run
- * open), raised before any write.
+ * open), raised before any write — `refuseReversingSettlementJournal` right
+ * after `reverseJournalEntry`'s reversal claim (D8 round 4), which it releases.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -21,7 +22,7 @@ export const UNAPPLY_REMEDY = 'Unapply on the payment page (or the unapply_suppl
 /** Only these sources can be either half; anything else is decided without a query. */
 const SETTLEMENT_SOURCES = new Set(['auto_bank_recon', 'auto_supplier_payment']);
 
-/** Called by `reverseJournalEntry` for every entry it is about to reverse. */
+/** Called by `reverseJournalEntry` for every entry it reverses, once its claim holds the row. */
 export async function refuseReversingSettlementJournal(
   companyId: string,
   entry: { id: string; entryNumber: string; source?: string | null },

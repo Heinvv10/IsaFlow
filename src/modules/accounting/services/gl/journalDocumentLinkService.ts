@@ -63,12 +63,15 @@ function mapLink(r: DbRow): JournalDocumentLink {
   };
 }
 
-/** The company's own journal, posted and unreversed — else `null` (no existence oracle). */
+/**
+ * The company's own journal, posted and standing by its reversal chain (D8: one
+ * reversed and re-reversed is back in the ledger) — else `null` (no existence oracle).
+ */
 async function loadLinkableJournal(companyId: string, journalEntryId: string): Promise<{ id: string } | null> {
   const rows = (await sql`
-    SELECT id FROM gl_journal_entries
-    WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID
-      AND status = 'posted' AND reversed_at IS NULL
+    SELECT je.id FROM gl_journal_entries je
+    WHERE je.id = ${journalEntryId}::UUID AND je.company_id = ${companyId}::UUID
+      AND je.status = 'posted' AND ${journalStandsFragment('je.id', companyId)}
   `) as DbRow[];
   return rows[0] ? { id: String(rows[0].id) } : null;
 }

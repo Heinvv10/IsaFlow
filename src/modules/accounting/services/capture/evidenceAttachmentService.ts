@@ -10,6 +10,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertDocumentNotAlreadyPosted } from '@/modules/accounting/services/gl/documentJournalClaimGuard';
+import { journalStandsFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
 
 type Row = DbRow;
 
@@ -126,17 +127,19 @@ export async function attachEvidenceToProvisional(
       // Flip the JE to evidenced — only if it still needs evidence. The match above read it
       // unlocked; a manual attach that committed while this waited on the bank line has
       // evidenced it already, and must not be overwritten. Throwing rolls the bank UPDATE back.
+      // Standing by its reversal chain, not its stamp (D8): a provisional reversed and
+      // re-reversed books the bank line again and still needs its evidence.
       const flipped = (await sql`
-        UPDATE gl_journal_entries
+        UPDATE gl_journal_entries je
         SET source_document_id   = ${capturedDocumentId}::UUID,
             source_document_hash = ${docHash},
             posting_agent        = 'ai-evidenced:v1',
             needs_evidence       = false,
             evidenced_at         = NOW(),
             extraction_confidence = COALESCE(${docConfidence}, extraction_confidence)
-        WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
-          AND needs_evidence = true AND reversed_at IS NULL
-        RETURNING id
+        WHERE je.id = ${jeId}::UUID AND je.company_id = ${companyId}::UUID
+          AND je.needs_evidence = true AND ${journalStandsFragment('je.id', companyId)}
+        RETURNING je.id
       `) as Row[];
       if (flipped.length === 0) throw new Error(`Provisional journal ${jeId} was evidenced by another request`);
 
