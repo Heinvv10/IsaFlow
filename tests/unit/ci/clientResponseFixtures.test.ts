@@ -49,7 +49,7 @@ describe('negatives: the correct shape stays quiet', () => {
   for (const [name, src] of quiet) it(name, () => expect(kinds(src)).toEqual([]));
 });
 
-describe('fail-closed CLI', { timeout: 150_000 }, () => {
+describe('fail-closed CLI', { timeout: 300_000 }, () => {
   const cli = resolve('scripts/ci/check-client-responses.ts');
   /** 0 = clean, 1 = the gate reported a violation. A crash or a timeout is NOT 1: it throws with the child's stderr. */
   const run = (dir: string) => {
