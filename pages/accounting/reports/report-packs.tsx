@@ -7,7 +7,8 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Download, Loader2, Presentation } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 import {
   DataQualityNotice,
   type UnclassifiedWarning,
@@ -15,12 +16,13 @@ import {
 import { log } from '@/lib/logger';
 import { useRouter } from 'next/router';
 import { isPrintRender } from '@/lib/pdf/printRenderQuery';
+import { usePackDownload } from '@/components/accounting/packs/usePackDownload';
 import { isPackType } from '@/modules/accounting/services/packs/packSections';
 import { PackPrintPage } from '@/components/accounting/packs/PackPrintPage';
+import { PackPagesPrintPage } from '@/components/accounting/packs/PackPagesPrintPage';
 import { SectionCard, type PackSection } from '@/components/accounting/packs/PackSectionCard';
 import { PackShareButton, PackCommentary } from '@/components/accounting/packs/PackOwnerTools';
 import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
-import { localISODate } from '@/lib/dateUtils';
 
 type PackType = 'board' | 'management' | 'monthly';
 
@@ -85,13 +87,18 @@ export default function ReportPacksPage() {
         </p>
       );
     }
-    return (
-      <PackPrintPage
-        packType={requested}
-        from={String(router.query.from ?? '')}
-        to={String(router.query.to ?? '')}
-      />
-    );
+    const from = String(router.query.from ?? '');
+    const to = String(router.query.to ?? '');
+    // BOARD ONLY. The board pack is the one pack composed as the twelve-page
+    // fixed model (`PackPagesView`, off a single server-composed document);
+    // management and monthly still render the legacy section-list pack, and
+    // routing them here would print a board pack under another pack's name.
+    // The branch sits below the pack-type guard so an unknown type is still
+    // refused rather than falling into either renderer.
+    if (requested === 'board') {
+      return <PackPagesPrintPage packType={requested} from={from} to={to} />;
+    }
+    return <PackPrintPage packType={requested} from={from} to={to} />;
   }
 
   return <ReportPacksScreen />;
@@ -101,18 +108,28 @@ function ReportPacksScreen() {
   const [selectedType, setSelectedType] = useState<PackType>('board');
   const [pack, setPack] = useState<ReportPack | null>(null);
   const [loading, setLoading] = useState(false);
-  const [downloading, setDownloading] = useState<'pdf' | 'pptx' | null>(null);
   const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
   /** Set when the last pack request was refused for rate limiting. `seconds`
    *  is null when the server sent no Retry-After, which it currently never
    *  does — the notice then says to wait a moment rather than name a number. */
   const [rateLimited, setRateLimited] = useState<{ seconds: number | null } | null>(null);
+  // `localISODate`, never `toISOString()`: in SAST the ISO form of midnight
+  // on 1 January is 31 December of the previous year, so the screen opened on
+  // a window a day wider than the year it names.
   const [from, setFrom] = useState(() => localISODate(new Date(new Date().getFullYear(), 0, 1)));
   const [to, setTo] = useState(() => localISODate());
   // The pack the person is LOOKING AT. A share link and its commentary are
   // both filed under (type, from, to), so a link minted here and the sentences
   // approved below are about the same document as the figures on screen.
   const packParams = { type: selectedType, from, to };
+  // The download half of this screen — which format is in flight and why the
+  // last one was refused. See `usePackDownload`: that refusal used to reach
+  // the console and nothing else.
+  const { downloading, error: downloadError, download } = usePackDownload({
+    packType: selectedType,
+    from,
+    to,
+  });
 
   /**
    * The pack fetch, with the LATEST request winning.
@@ -165,38 +182,6 @@ function ReportPacksScreen() {
     return () => { stale = true; };
   }, [selectedType, from, to]);
 
-  /**
-   * Fetch a generated document and hand it to the browser. The server names
-   * the file (Content-Disposition); `fallbackName` is only reached when the
-   * blob arrives without one, since an `<a download>` needs some name.
-   */
-  const downloadFile = async (url: string, fallbackName: string, failure: string) => {
-    const res = await apiFetch(url);
-    await assertOk(res, failure);
-    const blob = await res.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = objectUrl;
-    a.download = fallbackName;
-    a.click();
-    URL.revokeObjectURL(objectUrl);
-  };
-
-  const download = async (format: 'pdf' | 'pptx') => {
-    setDownloading(format);
-    try {
-      await downloadFile(
-        `/api/accounting/packs/${selectedType}/${format}?from=${from}&to=${to}`,
-        `report-pack-${selectedType}-${from}-to-${to}.${format}`,
-        `${format.toUpperCase()} generation failed`,
-      );
-    } catch (err) {
-      log.error('Failed to download report pack', { format, error: err instanceof Error ? err.message : String(err) });
-    } finally {
-      setDownloading(null);
-    }
-  };
-
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
@@ -234,6 +219,20 @@ function ReportPacksScreen() {
 
         <div className="p-6 space-y-6 max-w-7xl">
           <DataQualityNotice unclassifiedAccounts={unclassified} />
+          {downloadError && (
+            <div
+              role="alert"
+              className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+            >
+              {/* `whitespace-pre-line`: the integrity gate reports every
+                  problem it found, one per line. Collapsed onto one line a
+                  three-problem refusal is unreadable, and the reader needs
+                  all three — a pack that has drifted has usually drifted in
+                  more than one place. */}
+              <p className="font-medium">This pack could not be downloaded.</p>
+              <p className="mt-1 whitespace-pre-line">{downloadError}</p>
+            </div>
+          )}
           {rateLimited && (
             <div
               role="status"

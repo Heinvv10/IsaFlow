@@ -180,12 +180,11 @@ export function toFinancialData(figures: PeriodFigures): FinancialData {
  */
 export function unclassifiedWarning(
   figures: ClassifiedFigures
-): {
+): ({
   accounts: number;
   amount: number;
-  message: string;
   byType: Array<{ type: AccountType; accounts: number; amount: number; defaultedTo: string }>;
-} | null {
+} & FigureCaveat) | null {
   if (figures.unclassifiedCount === 0) return null;
   const byType = (Object.keys(DEFAULT_DESTINATION) as AccountType[])
     .map((type) => ({
@@ -195,12 +194,22 @@ export function unclassifiedWarning(
       defaultedTo: DEFAULT_DESTINATION[type],
     }))
     .filter((t) => t.accounts > 0);
+  const n = figures.unclassifiedCount;
   return {
-    accounts: figures.unclassifiedCount,
+    accounts: n,
     amount: figures.unclassifiedTotal,
     message:
-      `${figures.unclassifiedCount} account(s) have no recognised subtype, so a default ` +
+      `${n} account(s) have no recognised subtype, so a default ` +
       `was applied. Set account_subtype on them for accurate figures.`,
+    // The same fact for a reader who cannot act on it and should not be asked
+    // to. No column name, no `(s)`, and it says what the consequence is for
+    // the figures rather than what somebody ought to type.
+    board:
+      `${n} ${n === 1 ? 'account' : 'accounts'} in the chart of accounts `
+      + `${n === 1 ? 'carries' : 'carry'} no recognised classification, so each was reported in `
+      + 'its default position — assets and liabilities as current, revenue as revenue rather '
+      + 'than other income, and expenses as operating rather than cost of sales. The totals are '
+      + 'complete; where a figure sits within them may not be.',
     byType,
   };
 }
@@ -215,6 +224,29 @@ const DEFAULT_DESTINATION: Record<AccountType, string> = {
 };
 
 /**
+ * TWO AUDIENCES READ THESE WARNINGS, AND THEY ARE NOT THE SAME SENTENCE.
+ *
+ * `message` is for the operator screens — it names the field to change,
+ * because the person reading it is the person who can change it. `board` is
+ * for a document a director receives, where a database column name and an
+ * instruction addressed to a system administrator are not information: they
+ * are the reader learning that a machine wrote the page and nobody read it.
+ *
+ * The board pack printed "Set `account_subtype` to 'inventory' on the stock
+ * control account" as caveat 1 on its basis of preparation page. Both
+ * sentences state the same FACT, computed once; only the audience differs, and
+ * making that a required field is what stops the next caveat being written for
+ * whichever screen its author happened to be looking at.
+ */
+export interface FigureCaveat {
+  /** For an operator. May name a field, a subtype, an admin action. */
+  message: string;
+  /** For a board pack or a statutory statement. No schema identifier, no
+   *  instruction to an administrator, no developer's `(s)` plural. */
+  board: string;
+}
+
+/**
  * Warning payload for any report publishing a quick (acid-test) ratio.
  *
  * Non-null when the company classifies no account as inventory, in which case
@@ -225,7 +257,7 @@ const DEFAULT_DESTINATION: Record<AccountType, string> = {
  */
 export function inventoryWarning(
   figures: PeriodFigures
-): { resolved: false; message: string } | null {
+): ({ resolved: false } & FigureCaveat) | null {
   if (figures.inventoryClassified) return null;
   return {
     resolved: false,
@@ -234,5 +266,11 @@ export function inventoryWarning(
       'identified and the quick ratio does not exclude it — it equals the ' +
       'current ratio. Set account_subtype to \'inventory\' on the stock ' +
       'control account for a meaningful acid-test ratio.',
+    board:
+      'No account in the chart of accounts is classified as inventory, so ' +
+      'inventory could not be identified and the quick ratio does not exclude ' +
+      'it: on these figures the quick ratio and the current ratio are the same ' +
+      'number. Read it as a current ratio until the stock control account is ' +
+      'classified.',
   };
 }

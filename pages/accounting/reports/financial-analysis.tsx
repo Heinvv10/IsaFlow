@@ -16,6 +16,8 @@ import {
 } from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
+import { ratioLabel, ratioLine } from '@/modules/accounting/services/reports/ratioPresentation';
+import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
@@ -37,30 +39,39 @@ interface ScorecardItem {
 
 interface TrendItem {
   ratioName: string;
-  values: Array<{ period: string; value: number }>;
-  trend: 'improving' | 'declining' | 'stable';
-  changePercent: number;
+  /** A point is null where the ratio could not be stated in that period. */
+  values: Array<{ period: string; value: number | null }>;
+  trend: 'improving' | 'declining' | 'stable' | 'not_meaningful';
+  changePercent: number | null;
 }
 
 const statusColors = { green: 'text-teal-400 bg-teal-500/10 border-teal-500/30', amber: 'text-amber-400 bg-amber-500/10 border-amber-500/30', red: 'text-red-400 bg-red-500/10 border-red-500/30', not_meaningful: 'text-[var(--ff-text-secondary)] bg-[var(--ff-bg-secondary)] border-[var(--ff-border-light)]' };
 const statusDots = { green: 'bg-teal-400', amber: 'bg-amber-400', red: 'bg-red-400', not_meaningful: 'bg-[var(--ff-text-secondary)]' };
-const trendIcons = { improving: TrendingUp, declining: TrendingDown, stable: Minus };
-const trendColors = { improving: 'text-teal-400', declining: 'text-red-400', stable: 'text-gray-400' };
+const trendIcons = { improving: TrendingUp, declining: TrendingDown, stable: Minus, not_meaningful: Minus };
+const trendColors = { improving: 'text-teal-400', declining: 'text-red-400', stable: 'text-gray-400', not_meaningful: 'text-gray-400' };
 
 const RATIO_GROUPS: Record<string, string[]> = {
   Profitability: ['grossProfitMargin', 'netProfitMargin', 'ebitdaMargin', 'returnOnEquity', 'returnOnAssets', 'roce'],
   Liquidity: ['currentRatio', 'quickRatio', 'cashRatio', 'operatingCashFlowRatio'],
   Efficiency: ['debtorDays', 'creditorDays', 'assetTurnover', 'cashConversionCycle', 'inventoryTurnover'],
   Leverage: ['debtToEquity', 'debtRatio', 'interestCoverage', 'equityMultiplier'],
+  'Cash Flow': ['freeCashFlow'],
 };
 
-const fmt = (v: number) => v >= 1000 ? `R ${(v / 1000).toFixed(0)}K` : v >= 100 ? v.toFixed(0) : v.toFixed(2);
+/** A scored tile's figures; only called on the scored branch. */
+const scored = (item: ScorecardItem): { value: string; target: string } => {
+  const figure = scorecardFigure(item);
+  return figure.scored ? figure : { value: figure.reason, target: figure.target };
+};
 
 export default function FinancialAnalysisPage() {
   const [scorecard, setScorecard] = useState<ScorecardItem[]>([]);
   const [trends, setTrends] = useState<TrendItem[]>([]);
   const [summary, setSummary] = useState<{ green: number; amber: number; red: number; total: number } | null>(null);
-  const [ratios, setRatios] = useState<Record<string, number>>({});
+  // A ratio is null where the engine could not state it; its reason is in
+  // the result's own `notMeaningful` map, under the same key.
+  const [ratios, setRatios] = useState<Record<string, number | null>>({});
+  const [ratioReasons, setRatioReasons] = useState<Record<string, string>>({});
   const [inventoryWarning, setInventoryWarning] = useState<InventoryWarning | null>(null);
   const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
   const [loading, setLoading] = useState(true);
@@ -88,7 +99,11 @@ export default function FinancialAnalysisPage() {
         setTrends(trRes.data.trends || []);
       }
       const ratioRes = await apiFetch(`/api/accounting/reports-extended-ratios?from=${from}&to=${to}`).then(r => r.json());
-      if (ratioRes.data?.ratios) setRatios(ratioRes.data.ratios);
+      if (ratioRes.data?.ratios) {
+        const { notMeaningful, ...values } = ratioRes.data.ratios;
+        setRatios(values);
+        setRatioReasons(notMeaningful ?? {});
+      }
       if (ratioRes.data) setUnclassified(ratioRes.data.unclassifiedAccounts ?? null);
     } catch (err) { log.error('Failed to load financial analysis data', { error: err }, 'FinancialAnalysisPage'); }
     finally { setLoading(false); }
@@ -149,7 +164,7 @@ export default function FinancialAnalysisPage() {
                 <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">KPI Scorecard</h2>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                   {scorecard.map(item => (
-                    <div key={item.ratioKey} className={`rounded-lg border p-3 ${statusColors[item.status]}`}>
+                    <div key={item.ratioKey} data-kpi={item.ratioKey} className={`rounded-lg border p-3 ${statusColors[item.status]}`}>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-medium opacity-70">{item.name}</span>
                         <span className={`w-2.5 h-2.5 rounded-full ${statusDots[item.status]}`} />
@@ -163,9 +178,12 @@ export default function FinancialAnalysisPage() {
                         </>
                       ) : (
                         <>
-                          <p className="text-xl font-bold">{fmt(item.value ?? 0)}</p>
+                          {/* Value and target in the ratio's own unit — the tile's
+                              decision, shared with every pack surface. It printed
+                              "Target: 35" under a gross margin. */}
+                          <p className="text-xl font-bold">{scored(item).value}</p>
                           <div className="flex items-center justify-between mt-1">
-                            <span className="text-xs opacity-60">Target: {fmt(item.target)}</span>
+                            <span className="text-xs opacity-60">Target: {scored(item).target}</span>
                             <span className="text-xs font-medium">{item.percentOfTarget.toFixed(0)}%</span>
                           </div>
                         </>
@@ -186,18 +204,27 @@ export default function FinancialAnalysisPage() {
                         {keys.map(key => {
                           const value = ratios[key];
                           if (value === undefined) return null;
+                          // Its name, and its figure in its unit — or, where
+                          // the engine could not state it, the reason. Never
+                          // a 0 standing in, and never `null.toFixed()`.
+                          const line = ratioLine(key, value, ratioReasons);
                           const trend = trends.find(t => t.ratioName === key);
                           const TrendIcon = trend ? trendIcons[trend.trend] : Minus;
                           const trendColor = trend ? trendColors[trend.trend] : 'text-gray-400';
                           return (
-                            <div key={key} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-[var(--ff-bg-tertiary)]">
-                              <span className="text-sm text-[var(--ff-text-secondary)]">
-                                {key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}
-                              </span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-mono font-medium text-[var(--ff-text-primary)]">{fmt(value)}</span>
-                                {trend && <TrendIcon className={`h-3.5 w-3.5 ${trendColor}`} />}
+                            <div key={key} data-ratio={key} className="py-1.5 px-2 rounded hover:bg-[var(--ff-bg-tertiary)]">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm text-[var(--ff-text-secondary)]">{line.label}</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-mono font-medium text-[var(--ff-text-primary)]">
+                                    {line.stated ? line.text : 'n/m'}
+                                  </span>
+                                  {trend && line.stated && <TrendIcon className={`h-3.5 w-3.5 ${trendColor}`} />}
+                                </div>
                               </div>
+                              {!line.stated && (
+                                <p className="mt-0.5 text-xs text-[var(--ff-text-tertiary)]">{line.text}</p>
+                              )}
                             </div>
                           );
                         })}
@@ -224,11 +251,11 @@ export default function FinancialAnalysisPage() {
                     return (
                       <div key={key}>
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium text-[var(--ff-text-secondary)]">
-                            {key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}
-                          </span>
+                          <span className="text-sm font-medium text-[var(--ff-text-secondary)]">{ratioLabel(key)}</span>
                           <span className={`text-xs font-medium ${trendColors[trend.trend]}`}>
-                            {trend.changePercent > 0 ? '+' : ''}{trend.changePercent.toFixed(1)}%
+                            {trend.changePercent === null
+                              ? 'n/m'
+                              : `${trend.changePercent > 0 ? '+' : ''}${trend.changePercent.toFixed(1)}%`}
                           </span>
                         </div>
                         <ResponsiveContainer width="100%" height={120}>

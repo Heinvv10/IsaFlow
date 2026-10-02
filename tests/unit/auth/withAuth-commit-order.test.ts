@@ -37,6 +37,14 @@ vi.mock('pg', () => {
 // checkRateLimit is only invoked for reports- prefix routes (not our test
 // routes), but mock it so importing the module never touches a real backend.
 vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
+// Usage-quota settlement (R-175): record what withAuth hands over, and when.
+type Charge = { kind: 'ai' | 'send'; key: string; charged: number; used: number };
+const settled: Charge[][] = [];
+vi.mock('@/lib/rateLimitQuota', () => ({
+  settleQuotaCharges: vi.fn(async (ctx: { quotaCharges?: Charge[] } | null) => {
+    settled.push((ctx?.quotaCharges ?? []).map((c) => ({ ...c })));
+  }),
+}));
 
 // ── Mock client builder ──────────────────────────────────────────────────────
 function makeClient(opts: {
@@ -120,6 +128,7 @@ describe('withAuth — commit-before-respond ordering', () => {
     process.env.DATABASE_URL = 'postgresql://dummy:dummy@dummy/test';
     process.env.SENTRY_ENABLED = 'false';
     poolFactory.connect.mockClear();
+    settled.length = 0;
   });
 
   it('COMMITs before flushing the response body on a 2xx', async () => {
@@ -224,5 +233,46 @@ describe('withAuth — commit-before-respond ordering', () => {
     expect(events).toContain('COMMIT');
     expect(events).not.toContain('ROLLBACK');
     expect(res.statusCode).toBe(404);
+  });
+
+  // ── R-175: every exit settles the request's usage quota ────────────────────
+  // The handler notes a charge the way checkSendRateLimit does and records use
+  // the way the email client does, on the request context.
+  async function runCharged(used: number, respond: (r: NextApiResponse) => void, clientOpts: { commitThrows?: boolean } = {}) {
+    const events: string[] = [];
+    currentClient = makeClient({ events, ...clientOpts });
+    const { res } = makeRes(events);
+    const { withAuth } = await import('@/lib/auth/withAuth');
+    const { als } = await import('@/lib/als');
+    await withAuth(async (_req: never, r: NextApiResponse) => {
+      const charge: Charge = { kind: 'send', key: 'send:x:co:c:day', charged: 100, used: 0 };
+      als.getStore()!.quotaCharges!.push(charge);
+      charge.used = used;
+      respond(r);
+    })(mkReq(await makeToken('user-1'), COMPANY_ID), res);
+    return { events, res };
+  }
+  const handedOver = (used: number) => [[{ kind: 'send', key: 'send:x:co:c:day', charged: 100, used }]];
+
+  it.each([
+    ['a 200', 200], ['a 400', 400], ['a 429', 429], ['a 500', 500], ['a 503', 503],
+  ])('settles the usage quota after %s, with the use the request recorded', async (_label, status) => {
+    await runCharged(59, (r) => { r.status(status).json({}); });
+
+    expect(settled).toEqual(handedOver(59));
+    expect(currentClient.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles when the handler throws, keeping what was used before the throw', async () => {
+    await runCharged(59, () => { throw new Error('recipient 60 blew up'); });
+
+    expect(settled).toEqual(handedOver(59));
+  });
+
+  it('settles when the COMMIT fails after a 2xx: the work was done, the use stands', async () => {
+    const { res } = await runCharged(100, (r) => { r.status(200).json({ ok: true }); }, { commitThrows: true });
+
+    expect(res.statusCode).toBe(500);
+    expect(settled).toEqual(handedOver(100));
   });
 });
