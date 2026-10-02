@@ -8,6 +8,7 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import type { PlatformAdminRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { adminListUserFactors, adminUnenrollFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
+import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import { log } from '@/lib/logger';
 
 async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise<void> {
@@ -25,6 +26,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
   try {
     factors = await adminListUserFactors(targetUserId);
   } catch (err) {
+    if (respondIfAuthUnavailable(res, err, 'admin reset-2fa')) return;
     if (err instanceof GotrueMfaError && err.status === 404) {
       res.status(404).json({ success: false, error: { code: 'USER_NOT_FOUND', message: 'User not found in GoTrue' } });
       return;
@@ -38,6 +40,8 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
       await adminUnenrollFactor(targetUserId, f.id);
       removed++;
     } catch (err) {
+      // D9: an outage must not report success; a retry is safe (a removed factor 404s, which is skipped).
+      if (respondIfAuthUnavailable(res, err, 'admin reset-2fa')) return;
       if (err instanceof GotrueMfaError && err.status === 404) continue; // already gone
       log.warn(
         'admin reset-2fa: factor unenroll failed',

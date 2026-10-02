@@ -74,6 +74,8 @@ const OUTAGES: Array<[string, () => ReturnType<typeof vi.fn>]> = [
   ['GoTrue 500', () => vi.fn(async () => new Response('{"code":500}', { status: 500 }))],
   ['GoTrue 502', () => vi.fn(async () => new Response('', { status: 502 }))],
   ['GoTrue 503', () => vi.fn(async () => new Response('', { status: 503 }))],
+  ['GoTrue 408 (request timeout)', () => vi.fn(async () => new Response('', { status: 408 }))],
+  ['GoTrue 429 (throttled)', () => vi.fn(async () => new Response('{"msg":"rate limit"}', { status: 429 }))],
   ['a network error', () => vi.fn(async () => { throw new TypeError('fetch failed'); })],
   ['a timeout', hangingFetch],
 ];

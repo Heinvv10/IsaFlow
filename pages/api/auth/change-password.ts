@@ -3,6 +3,7 @@ import type { NextApiHandler } from 'next';
 import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { signIn, adminUpdateUser } from '@/lib/auth/gotrue';
+import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import { rotateSessionRevokingOthers } from '@/lib/auth/sessionRevocation';
 import { setAuthCookies, parseCookies, REMEMBER_ME_COOKIE } from '@/lib/auth/cookies';
 import { withRateLimit } from '@/lib/rateLimit';
@@ -36,7 +37,9 @@ const handler: NextApiHandler = async (req, res) => {
   try {
     // Re-auth by signing in with the current password — GoTrue will reject if wrong.
     await signIn(email, currentPassword);
-  } catch {
+  } catch (err) {
+    // D9: GoTrue could not answer, so the password was never judged. Never say it is wrong.
+    if (respondIfAuthUnavailable(res, err, 'change-password')) return;
     return res.status(400).json({ success: false, error: { code: 'WRONG_PASSWORD', message: 'Current password is incorrect' } });
   }
   await adminUpdateUser(user.id, { password: newPassword });

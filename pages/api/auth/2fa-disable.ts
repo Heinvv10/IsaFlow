@@ -3,6 +3,7 @@
 import type { NextApiHandler } from 'next';
 import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
 import { challengeFactor, verifyFactor, unenrollFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
+import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import { log } from '@/lib/logger';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
@@ -33,6 +34,7 @@ const handler: NextApiHandler = async (req, res) => {
     await unenrollFactor(factor_id, token);
     return res.status(200).json({ success: true });
   } catch (err) {
+    if (respondIfAuthUnavailable(res, err, '2fa-disable')) return;
     if (err instanceof GotrueMfaError) {
       log.info('2fa-disable failed', { status: err.status }, 'Auth');
       return res.status(err.status === 422 ? 400 : err.status).json({

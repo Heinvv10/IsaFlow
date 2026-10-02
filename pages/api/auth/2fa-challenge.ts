@@ -13,6 +13,7 @@ import {
   PENDING_REMEMBER_COOKIE,
 } from '@/lib/auth/cookies';
 import { challengeFactor, verifyFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
+import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import { verifyTokenSignature } from '@/lib/auth/gotrue';
 import { checkLockout, recordFailure, clearLockout } from '@/lib/auth/accountLockout';
 import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
@@ -115,6 +116,8 @@ const handler: NextApiHandler = async (req, res) => {
       },
     });
   } catch (err) {
+    // D9: GoTrue could not answer, so the code was never judged: 503, no lockout charge.
+    if (respondIfAuthUnavailable(res, err, '2fa-challenge')) return;
     if (err instanceof GotrueMfaError) {
       // TOTP brute-force attempt counts as a failed auth. Only record when
       // it's a credential-class failure (422 invalid code / 401 unauthorized);

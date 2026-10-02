@@ -169,6 +169,14 @@ describe('Onboarding gate', () => {
       expect(replace).not.toHaveBeenCalled();
     });
 
+  // The .catch branch: apiFetch rejecting (above) and a 200 whose body is not JSON both land there.
+  it('a 200 from /api/auth/me whose body cannot be read shows the escape link, not /login', async () => {
+    vi.stubGlobal('fetch', routeFetch({ '/api/auth/me': [new Response('<html>proxy</html>', { status: 200 })] }));
+    render(<OnboardingWizard />);
+    await screen.findByText(/We could not load onboarding setup/);
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it('/api/auth/me answered 403 still redirects to /login', async () => {
     vi.stubGlobal('fetch', routeFetch({ '/api/auth/me': [json(403)] }));
     render(<OnboardingWizard />);
