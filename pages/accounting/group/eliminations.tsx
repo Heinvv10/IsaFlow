@@ -210,7 +210,8 @@ export default function EliminationsPage() {
               <AlertCircle className="h-4 w-4 shrink-0" /> {error}
             </div>
           )}
-          <EliminationsTable items={items} loading={loading} actionLoading={actionLoading} onPost={handlePost} onReverse={handleReverse} />
+          {/* a failed load must not also say "none found" */}
+          {!(error && items.length === 0 && !loading) && <EliminationsTable items={items} loading={loading} actionLoading={actionLoading} onPost={handlePost} onReverse={handleReverse} />}
         </div>
 
         {showCreateModal && (
