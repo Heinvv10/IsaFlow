@@ -49,3 +49,14 @@ describe('the balance-sheet split: one definition for the function and the SQL l
     expect([...HOLDER_NO_CHILDREN_TYPES].sort()).toEqual(['asset', 'equity', 'liability']);
   });
 });
+
+describe('an empty-string subtype', () => {
+  it('is no subtype, as the Chart of Accounts screen shows it: same answer as NULL, for every caller', () => {
+    const target = { code: '1195', type: 'asset', isActive: true, hasChildren: false };
+    for (const caller of ['save', 'import', 'reactivate'] as const) {
+      expect({ caller, empty: roleTargetRefusal('bank', 'primary_bank', { ...target, subtype: '' }, caller) })
+        .toEqual({ caller, empty: roleTargetRefusal('bank', 'primary_bank', { ...target, subtype: null }, caller) });
+    }
+    expect(roleTargetRefusal('bank', 'primary_bank', { ...target, subtype: '' })).toBeNull();
+  });
+});
