@@ -139,7 +139,25 @@ const ROUTES: Array<[string, unknown, () => Promise<string>, number, number]> = 
   ['2fa-disable (5 per factor / 15 min)', disable, async () => `${ACCESS_COOKIE}=${await token()}`, 5, 400],
 ];
 
+/**
+ * allowed-1 wrong answers, then five outages, then one more wrong answer (still admitted: it is only the
+ * allowed-th genuine attempt), then a refusal. An outage refund that returned more than its own units
+ * (a double refund, or one that ate an earlier genuine charge) would admit the last call too.
+ */
+async function wrongThenOutagesThenWrong(attempt: () => Promise<number | null>, allowed: number, wrongStatus: number) {
+  mode = 'wrong';
+  for (let i = 0; i < allowed - 1; i++) expect(await attempt()).toBe(wrongStatus);
+  mode = 'outage';
+  for (let i = 0; i < 5; i++) expect(await attempt()).toBe(503);
+  mode = 'wrong';
+  expect(await attempt()).toBe(wrongStatus);
+  expect(await attempt()).toBe(429);
+}
+
 describe.each(ROUTES)('%s', (_name, route, cookie, allowed, wrongStatus) => {
+  it('an outage refund returns only its own units: wrong codes around outages still reach the limit', async () => {
+    await wrongThenOutagesThenWrong(async () => call(route, await cookie(), CODE), allowed, wrongStatus);
+  });
   it(`${allowed} outage retries leave the user able to verify`, async () => {
     mode = 'outage';
     for (let i = 0; i < allowed; i++) expect(await call(route, await cookie(), CODE)).toBe(503);
@@ -161,6 +179,9 @@ describe('POST /api/auth/login (10 per email / 15 min)', () => {
     mode = 'ok';
     expect(await call(login, '', body)).toBe(200);
   });
+  it('an outage refund returns only its own units: wrong passwords around outages still reach the limit', async () => {
+    await wrongThenOutagesThenWrong(() => call(login, '', body), 10, 401);
+  });
   it('10 wrong passwords are still counted: the next attempt is refused', async () => {
     mode = 'wrong';
     for (let i = 0; i < 10; i++) expect(await call(login, '', body)).toBe(401);
@@ -176,6 +197,9 @@ describe('POST /api/invitations/[token]/accept (10 attempts / hour)', () => {
     for (let i = 0; i < 10; i++) expect(await accept()).toBe(503);
     mode = 'ok';
     expect(await accept()).toBe(200);
+  });
+  it('an outage refund returns only its own units: wrong passwords around outages still reach the limit', async () => {
+    await wrongThenOutagesThenWrong(accept, 10, 401);
   });
   it('10 wrong passwords for an established account are still counted', async () => {
     mode = 'wrong';
