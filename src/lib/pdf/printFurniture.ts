@@ -11,8 +11,46 @@
 // Everything interpolated here is escaped: a company name is user-controlled
 // text and this string is parsed as HTML by the renderer.
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import {
+  PACK_FOOTER_FACE_FILE, PACK_FOOTER_FONT_FAMILY, packFooterFaceCss,
+} from '@/lib/charts/packFont';
+import { PT_MM, textWidthEms, WIDTH_SAFETY } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { escapeHtml } from '@/modules/accounting/services/packs/escapeHtml';
-import type { PdfMetadata } from './pdfTransport';
+import { PDF_MARGIN_MM, type PdfMetadata } from './pdfTransport';
+
+/**
+ * The footer's face, inlined.
+ *
+ * `packFooterFaceCss` documents the whole mechanism — the short version is
+ * that Chromium renders this template in a document that inherits nothing and
+ * may fetch nothing, and the ONLY face it will paint with is a data URI the
+ * main document has already loaded. `usePrintMode.ts` loads exactly this
+ * string's resource before the page says it is print-ready.
+ *
+ * Read once, from `public/` — the same file the print page's own stylesheet
+ * serves. A missing file is a broken deploy rather than a tenant condition,
+ * and the alternative to throwing is the silent fallback this exists to
+ * remove.
+ */
+let footerFace: string | null = null;
+
+function footerStyleBlock(): string {
+  footerFace ??= packFooterFaceCss(
+    readFileSync(join(process.cwd(), 'public', 'fonts', PACK_FOOTER_FACE_FILE)).toString('base64'),
+  );
+  return `<style>${footerFace}</style>`;
+}
+
+/**
+ * The confidentiality mark every pack footer carries, and the same words the
+ * cover's own disclosure uses (`packFrontMatter.ts`). One constant, because a
+ * cover that says one thing and a running footer that says another is a
+ * document arguing with itself about who may read it.
+ */
+export const PACK_CONFIDENTIALITY = 'Confidential — for board use';
 
 export interface PackFurniture {
   companyName: string;
@@ -24,17 +62,94 @@ export interface PackFurniture {
 
 export type { PdfMetadata };
 
+export const FOOTER_PT = 7.5;
+/** Gap between the title and the right block. */
+export const FOOTER_GAP_MM = 6;
+/** Wide enough for "NN / NN" at the footer's size, with tabular figures. */
+export const FOOTER_PAGE_BOX_MM = 14;
+
+export function footerRightText(f: PackFurniture): string {
+  return f.draft ? `${f.confidentiality} · DRAFT` : f.confidentiality;
+}
+
+const MONTH_SHORT: Record<string, string> = {
+  January: 'Jan', February: 'Feb', March: 'Mar', April: 'Apr', June: 'Jun', July: 'Jul',
+  August: 'Aug', September: 'Sep', October: 'Oct', November: 'Nov', December: 'Dec',
+};
+
+/** "1 January 2026 to 7 September 2026" -> "1 Jan 2026 – 7 Sep 2026": the same
+ *  day, month and year, in less room. A period not in that form is returned
+ *  unchanged. */
+export function shortPeriod(period: string): string {
+  return period
+    .replace(/\b(January|February|March|April|June|July|August|September|October|November|December)\b/g, (m) => MONTH_SHORT[m] ?? m)
+    .replace(' to ', ' – ');
+}
+
+/** Millimetres the ruler says `text` needs at the footer's size — an upper bound. */
+const footerMm = (text: string): number => textWidthEms(text) * WIDTH_SAFETY * FOOTER_PT * PT_MM;
+
+/**
+ * THE LONG PERIOD, UNLESS IT CRUSHES THE TITLE. "Management Pack · 1 January
+ * 2026 to 7 September 2026" beside a long company name used to cut the COMPANY
+ * ("Brightsphere Technologies (Pt…"). The same dates in short form are tried
+ * first; the company name is cut (CSS ellipsis) only if that fails too.
+ */
+export function footerPeriod(f: PackFurniture): string {
+  const rightMm = footerMm(footerRightText(f)) + FOOTER_GAP_MM / 3 + FOOTER_PAGE_BOX_MM;
+  const availableMm = 210 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right - rightMm - FOOTER_GAP_MM;
+  const title = (period: string) => footerMm([f.companyName, f.packLabel, period].filter(Boolean).join(' · '));
+  return title(f.period) <= availableMm ? f.period : shortPeriod(f.period);
+}
+
 export function buildFooterHtml(f: PackFurniture): string {
-  const left = [f.companyName, f.packLabel, f.period].map(escapeHtml).join(' · ');
-  const centre = escapeHtml(f.draft ? `${f.confidentiality} · DRAFT` : f.confidentiality);
+  const company = escapeHtml(f.companyName);
+  // No company name, no company span and no separator before the pack label:
+  // an empty name used to leave an orphan leading "· ".
+  const named = f.companyName.trim() !== '';
+  const rest = escapeHtml(`${named ? ' · ' : ''}${f.packLabel} · ${footerPeriod(f)}`);
+  const right = escapeHtml(footerRightText(f));
+  // TWO COLUMNS, AND ONLY THE COMPANY NAME MAY GIVE WAY.
+  //
+  // Left: [company — shrinks, ellipsis][" · pack · period" — never shrinks].
+  // Right: the confidentiality line and a page-number box of FIXED width and
+  // tabular figures, sized for "NN / NN", both `flex:none`: they are never
+  // clipped or pushed, and nothing moves between page 9 and page 10.
+  //
+  // THE OUTER ROW NEEDS `box-sizing:border-box` AND `min-width:0`. Without the
+  // first, its `width:100%` plus the side padding is wider than the sheet; the
+  // padding is the transport's own margins (`PDF_MARGIN_MM`), not a literal.
+  // Without the second a long company name made the row as wide as its text,
+  // pushing the page number to x = 595pt on a 595pt sheet, and a longer one
+  // clipped the right block to "us" — measured in Chromium, which is what
+  // `tests/unit/print/packFooterLayout.test.ts` now does.
   return (
-    '<div style="font-family:sans-serif;font-size:7.5pt;color:#8a8a8a;width:100%;' +
-    'padding:0 18mm;border-top:0.5pt solid #d8d8d8;display:flex;justify-content:space-between">' +
-    `<span>${left}</span><span>${centre}</span>` +
-    '<span><span class="pageNumber"></span> / <span class="totalPages"></span></span>' +
+    footerStyleBlock() +
+    `<div style="box-sizing:border-box;min-width:0;font-family:'${PACK_FOOTER_FONT_FAMILY}';font-size:${FOOTER_PT}pt;color:#8a8a8a;width:100%;` +
+    `padding:0 ${PDF_MARGIN_MM.right}mm 0 ${PDF_MARGIN_MM.left}mm;border-top:0.5pt solid #d8d8d8;` +
+    `display:flex;align-items:baseline;gap:${FOOTER_GAP_MM}mm">` +
+    '<span style="flex:1 1 auto;min-width:0;display:flex;white-space:nowrap">' +
+    (named ? `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${company}</span>` : '') +
+    `<span style="flex:none;white-space:pre">${rest}</span></span>` +
+    `<span style="flex:none;white-space:nowrap;display:flex;gap:${FOOTER_GAP_MM / 3}mm">` +
+    `<span>${right}</span>` +
+    `<span style="display:inline-block;width:${FOOTER_PAGE_BOX_MM}mm;text-align:right;font-variant-numeric:tabular-nums">` +
+    '<span class="pageNumber"></span> / <span class="totalPages"></span></span></span>' +
     '</div>'
   );
 }
+
+/**
+ * The prefix every non-standard Info key carries.
+ *
+ * Namespaced because the Info dictionary is a flat namespace shared with
+ * whatever the renderer wrote: a bare `/Period` is one upstream change away
+ * from meaning something else. `pdfinfo` prints these under `Custom
+ * Metadata`, which is the line that still read `no` after Title, Subject,
+ * Author and Creator all started arriving — the standard keys do not count
+ * as custom however many of them are set.
+ */
+const CUSTOM_PREFIX = 'IsaFlow';
 
 export function buildPdfMetadata(f: PackFurniture): PdfMetadata {
   return {
@@ -42,5 +157,15 @@ export function buildPdfMetadata(f: PackFurniture): PdfMetadata {
     author: f.companyName,
     subject: f.draft ? `${f.packLabel} (draft) for ${f.period}` : `${f.packLabel} for ${f.period}`,
     creator: 'IsaFlow',
+    // Each of these answers a question the title string cannot be parsed for
+    // by a document management system indexing a forwarded pack: which
+    // document type, over what period, final or not, and who may read it.
+    custom: {
+      [`${CUSTOM_PREFIX}Pack`]: f.packLabel,
+      [`${CUSTOM_PREFIX}Company`]: f.companyName,
+      [`${CUSTOM_PREFIX}Period`]: f.period,
+      [`${CUSTOM_PREFIX}Status`]: f.draft ? 'DRAFT' : 'FINAL',
+      [`${CUSTOM_PREFIX}Confidentiality`]: f.confidentiality,
+    },
   };
 }

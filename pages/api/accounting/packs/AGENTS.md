@@ -4,9 +4,10 @@
 # api/accounting/packs/
 
 ## Purpose
-The three pack endpoints: a twelve-month trend series, a PDF, and a PowerPoint deck. All `GET`, all read-only, all wrapped `withAuth(withErrorHandler(handler))`.
+The four pack endpoints: a composed board-pack document, a twelve-month trend series, a PDF, and a PowerPoint deck. All `GET`, all read-only, all wrapped `withAuth(withErrorHandler(handler))`.
 
 ## Caller contract
+- `GET /api/accounting/packs/[id]/pages?from=&to=` — `id` must be `board`; returns the SERIALISED twelve-page `PackPagesDocument`
 - `GET /api/accounting/packs/[id]/trend?to=YYYY-MM-DD&months=1..12` — `id` ∈ `board | management | monthly`
 - `GET /api/accounting/packs/[id]/pdf?from=&to=` → `application/pdf`
 - `GET /api/accounting/packs/[id]/pptx?from=&to=` → `…presentationml.presentation`
@@ -16,6 +17,8 @@ The three pack endpoints: a twelve-month trend series, a PDF, and a PowerPoint d
 ## Business rules
 - **The PDF is not re-assembled here.** `renderPagePdf` loads the same React page the user saw (`?print=1`) and photographs it, so its figures are COPIED from the screen, never derived a second time. The PPTX route does assemble in-process, but through the SAME `buildReportPack` → `buildPackDocument` pipeline the page uses, so the two downloads cannot disagree on a figure.
 - The PDF route mints nothing itself: the print token is minted inside `renderPagePdf` and never leaves the process. It 503s early when `PRINT_TOKEN_SECRET` is absent or under 32 characters, so a misconfiguration reads as a service state rather than a 500 from deep inside the renderer.
+- **`/pages` is `board` only, and that is a correctness gate rather than a TODO.** It composes `buildBoardPackPages`; answering for `management` would return a BOARD pack under another pack's name. The other two still print through `reports-pack` + `trend`.
+- **`/pages` is composed SERVER-side because it cannot be composed anywhere else.** Its charts come from `renderChartSvg`, which imports `node:crypto` and ECharts; the client webpack fallback sets `crypto: false`, so that function cannot run in a browser. The cost is a JSON boundary that erases the `TrustedChartSvg` brand — paid back by `adoptPackPagesDocument` (`services/packs/pages/packDocumentWire.ts`), which re-runs both chart guards on the far side. The route's own response goes through `serialisePackPagesDocument`: `PackFigureProvenance` is a class holding a `Map` and would otherwise serialise to `{}`.
 - **PDF renders take a process-wide slot** (`src/lib/pdf/renderSemaphore.ts`, default 3). Past the wait bound the route answers 503 with a retry message — the render never started. The PPTX route is deliberately NOT gated: no browser, no inbound API call, so it holds one connection for the length of two queries.
 - Every route calls `checkReportRateLimit(companyId, …)` BEFORE doing any work, and all three are enumerated in `tests/unit/security/reportExportRateLimit.test.ts` — a removed gate fails there.
 - Multi-tenant: `companyId` comes from `withAuth`, never from the query string, and every SQL read is scoped by it.
@@ -33,4 +36,5 @@ While they exist they must keep agreeing with the packs on the figures they shar
 
 ## Recent changes
 - 2026-09-06: render semaphore on the PDF route; both export routes added to the rate-limit case table.
+- 2026-09-07: `pages.ts` added (task 18b) — the board pack's server-side composition route, and the only path `packPrintApiPaths('board')` authorises.
 - 2026-09-06 (PR review): the render slot moved OUTSIDE `withAuth` (see `src/lib/pdf/.claude.md`); `months` bounded to 1..12; the two legacy report routes recorded above as caller-less.

@@ -1,6 +1,7 @@
 // src/modules/accounting/services/afs/noteAiService.ts
 import Anthropic from '@anthropic-ai/sdk';
 import { log } from '@/lib/logger';
+import { markAnthropicUsedUnlessNoWork, markQuotaUsed } from '@/lib/quotaUse';
 import type { NoteContent, SectionType, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
 
 export interface CompanyContext {
@@ -9,7 +10,12 @@ export interface CompanyContext {
   fiscalYear: number;
 }
 
-const client = new Anthropic();
+// No SDK retries (its default is 2, on 408/409/429/5xx/529). An attempt that did
+// the work followed by a final 529 would otherwise be judged by the 529 alone
+// and the daily AI unit given back (R-175), and the SDK's errors do not say
+// whether a retry happened. The one caller (the AFS section ai-narrative route)
+// reports the failure and the user can try again.
+const client = new Anthropic({ maxRetries: 0 });
 
 export async function generateNoteNarrative(
   sectionType: SectionType,
@@ -30,9 +36,12 @@ export async function generateNoteNarrative(
       max_tokens: 1024,
       messages: [{ role: 'user', content: prompt }],
     });
+    // The provider answered: the request's daily AI unit is spent (R-175).
+    markQuotaUsed('ai');
 
     return response.content[0]?.type === 'text' ? response.content[0].text : '';
   } catch (err) {
+    markAnthropicUsedUnlessNoWork(err);
     const message = err instanceof Error ? err.message : String(err);
     log.error('AI narrative generation failed', { sectionType, companyName: companyContext.name, error: message }, 'noteAiService');
     throw new Error(`AI narrative generation failed: ${message}`);

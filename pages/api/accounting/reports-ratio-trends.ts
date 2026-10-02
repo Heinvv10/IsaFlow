@@ -7,11 +7,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
-import {
-  getFinancialFigures,
-  toFinancialData,
-  unclassifiedWarning,
-} from '@/modules/accounting/services/gl/financialFiguresService';
+import { getFinancialFigures, unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
+import { readExtendedRatioInputs, readHeadCounts } from '@/modules/accounting/services/reports/extendedRatioInputs';
 import { calculateRatioTrends } from '@/modules/accounting/services/reports/ratioTrendService';
 import type { FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
 
@@ -35,9 +32,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return { from, to, label };
   });
 
-  const results = await Promise.all(
-    monthSlots.map(({ from, to }) => buildMonthData(companyId, from, to))
-  );
+  // One month after another: each is three queries on the request's one
+  // connection, through the same read the scorecard and ratio list use.
+  // Each month's head count is its own, as at its month end, read for every
+  // month in one query rather than one per month.
+  const headCounts = await readHeadCounts(companyId, monthSlots.map((m) => m.to));
+  const results: FinancialData[] = [];
+  for (const [i, { from, to }] of monthSlots.entries()) {
+    results.push((await readExtendedRatioInputs(companyId, from, to, headCounts[i])).data);
+  }
 
   // Warn off the widest window in the series: an account unclassified in the
   // latest month is unclassified in every earlier one, and one banner per month
@@ -59,12 +62,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   });
 }
 
-async function buildMonthData(companyId: string, from: string, to: string): Promise<FinancialData> {
-  // Equity passes through unclamped: negative equity is a real, reportable
-  // state and the ratio engine marks the ratios that divide by it as not
-  // meaningful rather than inventing a denominator.
-  return toFinancialData(await getFinancialFigures(companyId, from, to));
-}
-
- 
 export default withAuth(withErrorHandler(withWriteAccess(handler)));
