@@ -97,7 +97,7 @@ export const logTimeEntryTool: McpTool = {
       task_description: { type: 'string', description: 'What was actually done. Max 500 characters.' },
       notes: { type: 'string' },
       billable: { type: 'boolean', description: 'Defaults to true.' },
-      job_id: { type: ['string', 'null'], description: 'Optional job (engagement) to book the time against: an open job of practice_client_id. Its Engagement Budget is spent by this entry.' },
+      job_id: { type: ['string', 'null'], description: 'Optional job (engagement) to book the time against: an open job of practice_client_id, refused if the job is complete, cancelled or billed. Take it from list_time_entries (job_id on an earlier entry) or the job\'s id in the app. Its Engagement Budget is spent by this entry.' },
       allow_backdating: {
         type: 'boolean',
         description: 'Required to book into any month before the previous calendar month. Such a period has usually been invoiced and reported on; the entry would restate those reports, and it carries the rate effective on that date rather than today\'s.',
