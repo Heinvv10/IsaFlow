@@ -11,7 +11,8 @@
  *  2. cancel with amount_paid > 0 → rejected, nothing mutated
  *  3. cancel with a live payment allocation → rejected, nothing mutated
  *  4. cancel draft / no-GL invoice → no reversal attempted, status flipped
- *  5. already-reversed journal → no second reversal
+ *  5. journal whose reversal chain is out → no second reversal; a re-reversed
+ *     one → its chain HEAD is reversed (D8)
  *  6. unknown invoice → InvoiceNotFoundError, nothing mutated
  *  7. already-cancelled invoice → idempotent no-op (no reversal, no update)
  */
@@ -31,9 +32,16 @@ vi.mock('@/lib/neon', () => {
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   reverseJournalEntry: vi.fn(),
 }));
+// D8: which entry to reverse is the shared chain-head helper's answer, proven
+// against a real ledger in tests/integration/d8-r2-chain-head-cancel-void.
+// Here: "the journal itself stands" unless a case says otherwise.
+vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({
+  lockStandingChainHead: vi.fn(async (_companyId: string, id: string) => id),
+}));
 
 import { sql } from '@/lib/neon';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { lockStandingChainHead } from '@/modules/accounting/services/shared/journalChainHead';
 import {
   cancelCustomerInvoice,
   InvoiceNotFoundError,
@@ -79,7 +87,7 @@ describe('cancelCustomerInvoice', () => {
     mockSql
       .mockResolvedValueOnce([invoiceRow()]) // 1. invoice lookup
       .mockResolvedValueOnce([{ allocated: '0' }]) // 2. live-allocation guard
-      .mockResolvedValueOnce([{ status: 'posted', reversed_at: null }]) // 3. JE status lookup
+      .mockResolvedValueOnce([{ id: JE_ID }]) // 3. JE row lock
       .mockResolvedValueOnce([]); // 4. UPDATE customer_invoices
     mockReverse.mockResolvedValue({ id: REVERSAL_ID } as never);
 
@@ -110,7 +118,7 @@ describe('cancelCustomerInvoice', () => {
     mockSql
       .mockResolvedValueOnce([invoiceRow()])
       .mockResolvedValueOnce([{ allocated: '0' }])
-      .mockResolvedValueOnce([{ status: 'posted', reversed_at: null }]);
+      .mockResolvedValueOnce([{ id: JE_ID }]);
     mockReverse.mockRejectedValue(new Error('Cannot post to closed fiscal period') as never);
 
     await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID)).rejects.toThrow(
@@ -160,20 +168,36 @@ describe('cancelCustomerInvoice', () => {
     expect(sqlText(updates[0]!)).not.toMatch(/\bbalance\b/i);
   });
 
-  it('does not reverse a journal that is already reversed (posted + reversed_at set)', async () => {
-    // Post-fix: a reversed entry keeps status='posted' with reversed_at set, so
-    // idempotency hinges on reversed_at, not status.
+  it('does not reverse a journal whose reversal chain is already out of the ledger', async () => {
+    // A reversed entry keeps status='posted', and its reversed_at is not the
+    // answer either (D8): the chain's head is, and here there is none to reverse.
     mockSql
       .mockResolvedValueOnce([invoiceRow()])
       .mockResolvedValueOnce([{ allocated: '0' }])
-      .mockResolvedValueOnce([{ status: 'posted', reversed_at: '2026-07-01T00:00:00Z' }])
+      .mockResolvedValueOnce([{ id: JE_ID }])
       .mockResolvedValueOnce([]);
+    vi.mocked(lockStandingChainHead).mockResolvedValueOnce(null);
 
     const result = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
 
     expect(mockReverse).not.toHaveBeenCalled();
     expect(result.reversedJournalEntryId).toBeNull();
     expect(updateInvoiceCalls()).toHaveLength(1);
+  });
+
+  it('reverses the chain HEAD the helper names, not the linked journal (D8)', async () => {
+    mockSql
+      .mockResolvedValueOnce([invoiceRow()])
+      .mockResolvedValueOnce([{ allocated: '0' }])
+      .mockResolvedValueOnce([{ id: JE_ID }])
+      .mockResolvedValueOnce([]);
+    vi.mocked(lockStandingChainHead).mockResolvedValueOnce('head-r2');
+    mockReverse.mockResolvedValue({ id: REVERSAL_ID } as never);
+
+    await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
+
+    expect(lockStandingChainHead).toHaveBeenCalledWith(COMPANY_ID, JE_ID);
+    expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, 'head-r2', USER_ID);
   });
 
   it('throws InvoiceNotFoundError for an unknown invoice and mutates nothing', async () => {

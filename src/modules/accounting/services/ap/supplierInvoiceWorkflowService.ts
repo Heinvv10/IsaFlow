@@ -18,13 +18,15 @@ import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { buildExpenseLines } from './supplierInvoiceExpenseLines';
 import { assertSupplierInvoiceLinesPostable } from './billLineAccountGuard';
-import { planSupplierInvoiceCancel } from './supplierInvoiceCancelPlan';
+import { planSupplierInvoiceCancel, SupplierInvoiceCancelRefusal } from './supplierInvoiceCancelPlan';
+import { lockStandingChainHead } from '../shared/journalChainHead';
 import { documentInPopulation } from '../shared/documentPopulation';
 import type { LateClaimInfo, PostJournalOpts } from '../gl/vatLateClaimPlan';
 import { claimEvidencedProvisional, settleClaimedProvisional } from './provisionalInvoiceSettlement';
 import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
+import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
 
 type Row = DbRow;
 
@@ -286,12 +288,10 @@ export async function cancelSupplierInvoice(
   // must stamp its reversal as the agent's, or list_agent_postings cannot see it.
   opts?: PostingActorOpts,
 ): Promise<SupplierInvoice> {
-  // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx —
-  // a failure after the reversal's draft INSERTs must roll them back
-  // instead of orphan-committing (see customerInvoiceCancelService).
-  return withSavepoint('cancel_supplier_invoice', () =>
-    cancelSupplierInvoiceInner(companyId, id, userId, opts),
-  );
+  // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx — a failure after the reversal's draft
+  // INSERTs must roll them back (see customerInvoiceCancelService). One lock budget for the flow (D8 round 10).
+  return withSavepoint('cancel_supplier_invoice', () => underFlowLockBudget(`Supplier invoice ${id}`, () =>
+    cancelSupplierInvoiceInner(companyId, id, userId, opts)));
 }
 
 async function cancelSupplierInvoiceInner(
@@ -301,16 +301,15 @@ async function cancelSupplierInvoiceInner(
   opts?: PostingActorOpts,
 ): Promise<SupplierInvoice> {
   try {
-    // FOR UPDATE: serialise concurrent cancels — both passing the guards
-    // would double-reverse the same approval journal.
+    // FOR UPDATE: serialise concurrent cancels (both passing the guards would double-reverse the journal).
     // K-053: a soft-deleted bill is not cancellable — same reasoning as
     // customerInvoiceCancelService, where it is spelled out.
-    const lockRows = (await sql`
+    const lockRows = await withRowLockBudget(async () => (await sql`
       SELECT id, status, gl_journal_entry_id FROM supplier_invoices
       WHERE id = ${id} AND company_id = ${companyId}::UUID
         AND deleted_at IS NULL
       FOR UPDATE
-    `) as Row[];
+    `) as Row[], () => new RowLockTimeoutError(`Supplier invoice ${id}`)); // bounded (D8 round 9)
     if (lockRows.length === 0) throw new Error(`Supplier invoice ${id} not found`);
     const locked = lockRows[0]!;
     const status = String(locked.status);
@@ -326,21 +325,13 @@ async function cancelSupplierInvoiceInner(
 
     // P1.1 (audit C1, systemic): approve posts GL — cancel must reverse it.
     // Reverse BEFORE the flip so a blocked reversal (locked period) aborts
-    // the cancel. Post-#197 semantics: the original keeps status='posted';
-    // "already reversed" is signalled by reversed_at, so guard on that.
+    // the cancel. The approval journal's chain HEAD while the chain stands (D8),
+    // decided under the head LOCK, not from the plan's unlocked walk (round 6):
+    // a reversal landing between the two would otherwise be acted on stale.
     if (locked.gl_journal_entry_id) {
-      const jeRows = (await sql`
-        SELECT status, reversed_at FROM gl_journal_entries
-        WHERE id = ${String(locked.gl_journal_entry_id)}::UUID AND company_id = ${companyId}::UUID
-        FOR UPDATE
-      `) as Row[];
-      if (
-        jeRows.length > 0 &&
-        String(jeRows[0]!.status) === 'posted' &&
-        jeRows[0]!.reversed_at == null
-      ) {
-        await reverseJournalEntry(companyId, String(locked.gl_journal_entry_id), userId, opts);
-      }
+      const head = await lockStandingChainHead(companyId, String(locked.gl_journal_entry_id),
+        (m) => new SupplierInvoiceCancelRefusal(m));
+      if (head) await reverseJournalEntry(companyId, head, userId, opts);
     }
 
     // Null the journal link (mirrors customerInvoiceCancelService): a future

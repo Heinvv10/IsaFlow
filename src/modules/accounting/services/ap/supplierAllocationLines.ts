@@ -24,6 +24,7 @@ import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { sql } from '@/lib/neon';
 import { requireRequestTransaction } from '../core/requestTransaction';
 import { isLockContention } from '../core/lockContention';
+import { currentLockTimeout, restoreLockTimeout } from '../core/rowLockBudget';
 import type { DbRow } from '@/lib/neon';
 
 /** A cent. Kept for the payment-side totals that still compare at this tolerance. */
@@ -151,10 +152,14 @@ export async function fetchBillCandidates(
   invoiceIds: readonly string[],
 ): Promise<Map<string, BillCandidate>> {
   const client = requireRequestTransaction('fetchBillCandidates');
+  // Put back the value in force, not DEFAULT (D8 round 16): DEFAULT unbounded batch reversal's contra posting.
+  const previous = await currentLockTimeout(client);
   await client.query("SET LOCAL lock_timeout = '5s'");
+  let failure: unknown = null;
   try {
-    return await lockBillCandidates(companyId, paymentId, invoiceIds, client);
+    return await lockBillCandidates(companyId, paymentId, invoiceIds);
   } catch (err) {
+    failure = err;
     if (isLockContention(err)) {
       // `retryable`: the ONE refusal on this path that is not the caller's
       // fault. Without the flag the confirm arm cannot tell it from "this bill
@@ -165,6 +170,8 @@ export async function fetchBillCandidates(
       );
     }
     throw err;
+  } finally {
+    await restoreLockTimeout(client, previous, failure);
   }
 }
 
@@ -172,7 +179,6 @@ async function lockBillCandidates(
   companyId: string,
   paymentId: string | null,
   invoiceIds: readonly string[],
-  client: { query: (t: string) => Promise<unknown> },
 ): Promise<Map<string, BillCandidate>> {
   const rows = (await sql`
     SELECT si.id,
@@ -195,12 +201,6 @@ async function lockBillCandidates(
     ORDER BY si.id
     FOR UPDATE OF si
   `) as BillCandidate[];
-  // Restore the default on the SUCCESS path only. `SET LOCAL` lasts to the end
-  // of the TRANSACTION, so without this the 5s budget silently governs every
-  // lock taken afterwards in the same request. Deliberately NOT in a `finally`:
-  // after a timeout the transaction is aborted and this statement would itself
-  // throw 25P02, replacing the typed refusal with an opaque error.
-  await client.query('SET LOCAL lock_timeout = DEFAULT');
   return new Map(rows.map((r) => [String(r.id), r]));
 }
 

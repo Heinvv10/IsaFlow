@@ -27,7 +27,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   try {
     const result = await dismissProvisionalEntry(companyId, jeId, userId);
-    return apiResponse.success(res, result, 'Provisional entry reversed');
+    // Nothing was reversed when the journal's reversal chain was already out
+    // of the ledger (D8): say that, rather than claim a reversal.
+    return apiResponse.success(res, result, result.reversalJournalEntryId
+      ? 'Provisional entry reversed'
+      : 'Provisional entry dismissed; its journal was already out of the ledger');
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Failed to dismiss provisional entry';
     if (/not found/i.test(msg)) return apiResponse.notFound(res, 'Journal entry', jeId);

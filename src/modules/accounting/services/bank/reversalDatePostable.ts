@@ -9,6 +9,8 @@ import { fmtDate } from '@/lib/fmtDate';
 import { resolveReversalDate } from '../gl/journalEntryService';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { loadJournalVatLines } from '../gl/journalVatLockGuard';
+import { findJournalChainHead, lockChainHead } from '../shared/journalChainHead';
+import { BankAllocationRefusal } from './bankAllocationRefusal';
 
 type Row = DbRow;
 
@@ -54,4 +56,50 @@ export async function assertReversalDatePostable(
     `Cannot reverse: the fiscal period covering ${reversalDate} is not open (closed or locked). `
     + 'Re-open it before reversing.',
   );
+}
+
+/**
+ * D8: the entry a reversal of `journalEntryId` must post against, or null for
+ * none. Its reversal chain's HEAD (locked) while that chain stands — after
+ * O <- R <- R2 the GL carries O again through R2 while O is stamped reversed,
+ * and reversing O throws "already reversed". NULL when the chain is already
+ * OUT (a real posted contra stands against it): the allocation is freed and
+ * nothing is reversed, as every other D8 flow does (round 4). A broken chain —
+ * stamped reversed with no posted contra, the shape k021 forges — returns the
+ * journal itself, and reverseJournalEntry refuses it inside the caller's
+ * savepoint exactly as before.
+ */
+export async function reversalTargetOf(companyId: string, journalEntryId: string): Promise<string | null> {
+  const chain = await findJournalChainHead(companyId, journalEntryId);
+  if (chain?.kind !== 'head') return journalEntryId;
+  const head = await lockChainHead(companyId, journalEntryId);
+  return head?.standing ? head.id : null;
+}
+
+/** `reversalTargetOf` from the unlocked walk alone: the pre-write answer, before any row of the caller is locked. */
+export async function peekReversalTarget(companyId: string, journalEntryId: string): Promise<string | null> {
+  const chain = await findJournalChainHead(companyId, journalEntryId);
+  if (chain?.kind !== 'head') return journalEntryId;
+  return chain.standing ? chain.id : null;
+}
+
+/**
+ * The target again, its head LOCKED — called after the caller has locked its documents, so the journal is
+ * locked last, as every flow locks it (document, then head: D8 round 6, brk-d8b F2 — the head locked before
+ * the unwind deadlocked against a receipt cancel). Refuses when it moved since `peekReversalTarget`.
+ */
+export async function lockPeekedReversalTarget(
+  companyId: string, journalEntryId: string, peeked: string | null,
+): Promise<void> {
+  if (await reversalTargetOf(companyId, journalEntryId) !== peeked) {
+    throw new BankAllocationRefusal(
+      "This bank line's journal was reversed by another request while this was in progress — retry in a moment.");
+  }
+}
+
+/** A journal's entry_date, as pg returns it (Date or string). */
+export async function entryDateOf(companyId: string, journalEntryId: string): Promise<unknown> {
+  const [row] = (await sql`SELECT entry_date FROM gl_journal_entries
+    WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
+  return row?.entry_date ?? null;
 }

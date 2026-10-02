@@ -14,7 +14,10 @@
  * original (`reversed_at` set) never blocks either: `reverseJournalEntry`
  * leaves the original `status = 'posted'` (standard-accounting reversal, see
  * journalEntryPostingService.ts) but stamps `reversed_at`, and that is what
- * frees the document for reuse — not a status flip.
+ * frees the document for reuse — not a status flip. Read by the chain, not
+ * the stamp (D8, shared/journalInForceAsAt): once the REVERSAL is itself
+ * reversed the original is back in the ledger through that second contra,
+ * which carries no `source_document_id`, so it blocks again.
  *
  * VAT-gaps batch item 1 (migration 706): a document may ALSO back a posted
  * journal through `gl_journal_document_links` — the after-the-fact link a
@@ -46,6 +49,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { journalStandsFragment } from '../shared/journalInForceAsAt';
 
 const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
@@ -90,12 +94,12 @@ export async function assertDocumentNotAlreadyPosted(
 ): Promise<void> {
   const exclude = excludeJournalId ?? NIL_UUID;
   const rows = (await sql`
-    SELECT id FROM gl_journal_entries
-    WHERE company_id = ${companyId}::UUID
-      AND source_document_id = ${sourceDocumentId}::UUID
-      AND status = 'posted'
-      AND reversed_at IS NULL
-      AND id <> ${exclude}::UUID
+    SELECT je.id FROM gl_journal_entries je
+    WHERE je.company_id = ${companyId}::UUID
+      AND je.source_document_id = ${sourceDocumentId}::UUID
+      AND je.status = 'posted'
+      AND ${journalStandsFragment('je.id', companyId)}
+      AND je.id <> ${exclude}::UUID
     LIMIT 1
   `) as DbRow[];
   if (rows.length > 0) {

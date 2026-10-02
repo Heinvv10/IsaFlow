@@ -17,12 +17,17 @@
  * "retry in a moment" wording was written for — got the generic fallback.
  *
  * The suffix test is safe against the case it is guarding: SQLSTATE codes are
- * five characters and cannot end in `_LOCK_TIMEOUT`.
+ * five characters and cannot end in `_LOCK_TIMEOUT`. `WIP_ENTRIES_LOCKED`
+ * (`practice/wipEntryLock`) is the one lock refusal named otherwise.
+ *
+ * The ONE predicate (D8 round 11): `respondIfLockTimeout` (`@/lib/apiDocumentLock`)
+ * answers exactly these 503, so the route answer and the caller-safe filter
+ * cannot disagree about an error.
  */
 export function isLockTimeoutError(err: unknown): err is Error & { code: string } {
   if (!(err instanceof Error)) return false;
   const code = (err as { code?: unknown }).code;
-  return typeof code === 'string' && code.endsWith('_LOCK_TIMEOUT');
+  return typeof code === 'string' && (code.endsWith('_LOCK_TIMEOUT') || code === 'WIP_ENTRIES_LOCKED');
 }
 
 /**

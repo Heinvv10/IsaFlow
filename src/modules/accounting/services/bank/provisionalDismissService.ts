@@ -14,19 +14,28 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reverseJournalEntry } from '../gl/journalEntryService';
+import { lockStandingChainHead } from '../shared/journalChainHead';
+import { lockBankTransactionsInIdOrder } from './bankTxLock';
+import { underFlowLockBudget } from '../core/rowLockBudget';
 
 type Row = DbRow;
 
 export interface DismissResult {
-  reversalJournalEntryId: string;
+  /** The contra posted, or null when the provisional's reversal chain was already out (D8). */
+  reversalJournalEntryId: string | null;
   bankTransactionsReset: number;
 }
 
+/** Every lock of the dismiss under ONE budget, plain UPDATEs included (D8 round 10, core/rowLockBudget). */
 export async function dismissProvisionalEntry(
   companyId: string,
   jeId: string,
   userId: string,
 ): Promise<DismissResult> {
+  return underFlowLockBudget(`Provisional entry ${jeId}`, () => dismissInner(companyId, jeId, userId));
+}
+
+async function dismissInner(companyId: string, jeId: string, userId: string): Promise<DismissResult> {
   const jeRows = (await sql`
     SELECT id, needs_evidence, status FROM gl_journal_entries
     WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
@@ -37,7 +46,26 @@ export async function dismissProvisionalEntry(
     throw new Error('Journal entry is not provisional — dismiss only applies to provisional entries');
   }
 
-  const reversal = await reverseJournalEntry(companyId, jeId, userId);
+  // At its reversal-chain HEAD (D8): a provisional reversed and re-reversed is
+  // back in the ledger through the second contra and stamped reversed; one
+  // whose chain is already out reverses nothing and only frees its bank line.
+  // (1) THE BANK LINE FIRST, then the head: the canonical order (`bank/.claude.md`) both evidence attaches take
+  // — head first deadlocked against the automatic attach (D8 round 6, brk-d8b).
+  const lines = (await sql`
+    SELECT id FROM bank_transactions
+    WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID ORDER BY id
+  `) as Row[];
+  await lockBankTransactionsInIdOrder(companyId, lines.map((l) => String(l.id)));
+  // Re-read under the bank-line locks (D8 round 10, brk-d8c O8): an automatic attach that committed while this
+  // waited has evidenced the entry, and the read above is stale.
+  const [still] = (await sql`
+    SELECT needs_evidence FROM gl_journal_entries WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
+  `) as Row[];
+  if (!still?.needs_evidence) {
+    throw new Error('Journal entry is not provisional — dismiss only applies to provisional entries');
+  }
+  const head = await lockStandingChainHead(companyId, jeId);
+  const reversal = head ? await reverseJournalEntry(companyId, head, userId) : null;
 
   const resetRows = (await sql`
     UPDATE bank_transactions
@@ -48,12 +76,12 @@ export async function dismissProvisionalEntry(
 
   log.info(
     'Provisional entry dismissed (reversed)',
-    { companyId, jeId, reversalId: reversal.id, bankTransactionsReset: resetRows.length },
+    { companyId, jeId, reversalId: reversal?.id ?? null, bankTransactionsReset: resetRows.length },
     'provisional-dismiss',
   );
 
   return {
-    reversalJournalEntryId: String(reversal.id),
+    reversalJournalEntryId: reversal ? String(reversal.id) : null,
     bankTransactionsReset: resetRows.length,
   };
 }
