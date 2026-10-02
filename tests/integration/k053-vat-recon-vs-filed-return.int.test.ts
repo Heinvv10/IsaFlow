@@ -21,8 +21,7 @@ import { getVatReconciliation, type VatReconMonth } from '@/modules/accounting/s
 import { submitVATReturn } from '@/modules/accounting/services/reports/vatSubmissionService';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import { softDelete } from '@/modules/accounting/services/core/softDeleteService';
-import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { type Co, makeCompany, cleanup, inTx, arInvoice, apBill, journalOf, reverseTip } from './k053-chain.helpers';
+import { type Co, makeCompany, cleanupAll, assertChainFixtureDb, inTx, arInvoice, apBill, journalOf, reverseTip } from './k053-chain.helpers';
 
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 const MONTH_END: Record<string, string> = { '06': '2026-06-30', '07': '2026-07-31', '08': '2026-08-31' };
@@ -38,8 +37,8 @@ function row(m: VatReconMonth): string {
 
 describeIfDb('D7 VAT recon: each GL arm against its own source', () => {
   const cos: Co[] = [];
-  beforeAll(() => { assertDisposable(); });
-  afterAll(async () => { for (const c of cos) await cleanup(c); }, 120000);
+  beforeAll(() => { assertChainFixtureDb(); });
+  afterAll(() => cleanupAll(cos), 120000);
 
   it('V1: a live document hand-reversed in July, both months filed, then deleted', async () => {
     const co = await makeCompany('D7V1'); cos.push(co);
