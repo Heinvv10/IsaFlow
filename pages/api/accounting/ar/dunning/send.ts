@@ -17,8 +17,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
-import { checkSendRateLimit } from '@/lib/rateLimit';
-import { sendDunning } from '@/modules/accounting/services/ar/dunningService';
+import { checkRateLimit, checkSendRateLimit } from '@/lib/rateLimit';
+import { getTemplateById, loadInvoiceCtx, sendDunning } from '@/modules/accounting/services/ar/dunningService';
 import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
 import { log } from '@/lib/logger';
 
@@ -34,8 +34,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   }
   const { companyId, user } = req as CompanyAuthedRequest;
 
-  const sendAllowed = await checkSendRateLimit(req, companyId, 'dunning');
-  if (!sendAllowed) {
+  // Abuse limit: every attempt counts, per user and company (30), and per user
+  // across all their companies (90), and is never given back. The company's
+  // send bucket below is shared by every colleague, so it is charged only once
+  // the request is well formed and names records the company owns (R-175).
+  if (!(await checkRateLimit(`dunning:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))
+    || !(await checkRateLimit(`dunning:user-attempts:${user.id}`, { max: 90, windowSecs: 900 }))) {
     apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
     return;
   }
@@ -46,6 +50,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     return;
   }
   const { invoiceId, templateId } = parsed.data;
+
+  // An invoice or template the company does not own sends nothing, so it must
+  // not spend the company's shared allowance either: answer before the charge.
+  if (!(await loadInvoiceCtx(companyId, invoiceId))) {
+    apiResponse.notFound(res, 'Invoice', invoiceId);
+    return;
+  }
+  if (!(await getTemplateById(companyId, templateId))) {
+    apiResponse.notFound(res, 'Template', templateId);
+    return;
+  }
+
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'dunning', { refundUnused: true });
+  if (!sendAllowed) {
+    apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
+    return;
+  }
 
   try {
     const portalBaseUrl = process.env.PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_APP_URL;

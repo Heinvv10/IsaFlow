@@ -25,12 +25,16 @@ vi.mock('@/lib/api-error-handler', () => ({
   withErrorHandler: (h: (req: NextApiRequest, res: NextApiResponse) => unknown) => h,
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+// The handler's first query is the ownership guard, its second the company
+// name. `owned` is what the guard finds; null means "every id named".
+const { sqlMock, checkSendRateLimitMock, checkRateLimitMock } = vi.hoisted(() => ({
+  sqlMock: vi.fn(), checkSendRateLimitMock: vi.fn(), checkRateLimitMock: vi.fn(),
+}));
+vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 
-const { checkSendRateLimitMock } = vi.hoisted(() => ({ checkSendRateLimitMock: vi.fn() }));
 vi.mock('@/lib/rateLimit', () => ({
   checkSendRateLimit: checkSendRateLimitMock,
-  checkRateLimit: vi.fn().mockResolvedValue(true),
+  checkRateLimit: checkRateLimitMock,
   getClientIp: vi.fn().mockReturnValue('1.2.3.4'),
 }));
 
@@ -54,6 +58,8 @@ import statementBulkEmail from '../../../pages/api/accounting/statement-bulk-ema
 type Handler = (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
 
 const COMPANY = '11111111-1111-4111-9111-111111111111';
+const id = (n: number) => `22222222-2222-4222-9222-${String(n).padStart(12, '0')}`;
+const [C1, C2, C3] = [id(1), id(2), id(3)];
 function makeRes(): NextApiResponse {
   const res = { status: vi.fn(), json: vi.fn() } as unknown as NextApiResponse;
   (res.status as ReturnType<typeof vi.fn>).mockReturnValue(res);
@@ -61,7 +67,17 @@ function makeRes(): NextApiResponse {
 }
 
 describe('statement-bulk-email — checkSendRateLimit gate', () => {
-  beforeEach(() => vi.clearAllMocks());
+  let owned: string[] | null = null;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    checkRateLimitMock.mockResolvedValue(true);
+    owned = null;
+    sqlMock.mockImplementation(async (strings: TemplateStringsArray, ids: string[]) =>
+      (strings.join('').includes('FROM customers') ? (owned ?? ids).map((id) => ({ id })) : [{ name: 'Co' }]));
+  });
+  const request = (customerIds: string[]) => ({
+    method: 'POST', query: {}, body: { customerIds, asAtDate: '2026-08-14' }, companyId: COMPANY, user: { id: 'u1' },
+  }) as unknown as NextApiRequest;
 
   it('returns 429 and does not send when over the limit', async () => {
     checkSendRateLimitMock.mockResolvedValue(false);
@@ -69,7 +85,7 @@ describe('statement-bulk-email — checkSendRateLimit gate', () => {
       method: 'POST',
       query: {},
       body: {
-        customerIds: ['c1', 'c2'],
+        customerIds: [C1, C2],
         asAtDate: '2026-08-14',
       },
       companyId: COMPANY,
@@ -83,6 +99,7 @@ describe('statement-bulk-email — checkSendRateLimit gate', () => {
       companyMax: 2_000,
       dailyMax: 10_000,
       count: 2,
+      refundUnused: true,
     });
     expect(apiResponse.tooManyRequests).toHaveBeenCalledTimes(1);
     expect(sendStatementEmail).not.toHaveBeenCalled();
@@ -94,7 +111,7 @@ describe('statement-bulk-email — checkSendRateLimit gate', () => {
       method: 'POST',
       query: {},
       body: {
-        customerIds: Array.from({ length: 47 }, (_, i) => `c${i}`),
+        customerIds: Array.from({ length: 47 }, (_, i) => id(i)),
         asAtDate: '2026-08-14',
       },
       companyId: COMPANY,
@@ -108,6 +125,70 @@ describe('statement-bulk-email — checkSendRateLimit gate', () => {
       companyMax: 2_000,
       dailyMax: 10_000,
       count: 47,
+      refundUnused: true,
     });
+  });
+
+  // ── R-175: the volume quota bounds emails sent; an abuse limit guards the rest ──
+  it('charges no volume when the ownership guard refuses, and logs a count and a sample, not every id', async () => {
+    const foreign = Array.from({ length: 40 }, (_, i) => id(100 + i));
+    owned = [C1];
+    checkSendRateLimitMock.mockResolvedValue(true);
+
+    await (statementBulkEmail as Handler)(request([C1, ...foreign]), makeRes());
+
+    expect(apiResponse.forbidden).toHaveBeenCalledTimes(1);
+    expect(checkSendRateLimitMock).not.toHaveBeenCalled();
+    expect(sendStatementEmail).not.toHaveBeenCalled();
+    const { log } = await import('@/lib/logger');
+    expect(vi.mocked(log.warn).mock.calls[0]![1]).toEqual({ companyId: COMPANY, count: 40, sample: foreign.slice(0, 3) });
+  });
+
+  it('counts every attempt against the user before the ownership query, and refuses when over', async () => {
+    checkRateLimitMock.mockResolvedValue(false);
+
+    await (statementBulkEmail as Handler)(request([C1, C2]), makeRes());
+
+    // Keyed by company and user: a bureau user has one allowance per client.
+    // Refused by the per-company key: the cross-company one is not reached.
+    expect(checkRateLimitMock.mock.calls).toEqual([[`statement-bulk-email:attempts:${COMPANY}:u1`, { max: 30, windowSecs: 900 }]]);
+    expect(apiResponse.tooManyRequests).toHaveBeenCalledTimes(1);
+    expect(sqlMock).not.toHaveBeenCalled();
+    expect(checkSendRateLimitMock).not.toHaveBeenCalled();
+  });
+
+  it('counts the attempt even for a request it then rejects as malformed', async () => {
+    await (statementBulkEmail as Handler)(request([]), makeRes());
+
+    // Per company (30) and across the user's companies (90).
+    expect(checkRateLimitMock.mock.calls).toEqual([
+      [`statement-bulk-email:attempts:${COMPANY}:u1`, { max: 30, windowSecs: 900 }],
+      [`statement-bulk-email:user-attempts:u1`, { max: 90, windowSecs: 900 }],
+    ]);
+    expect(apiResponse.badRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['a plain word', 'not-a-uuid'],
+    ['a uuid with trailing SQL', `${C1}'::text`],
+    ['an empty string', ''],
+  ])('answers 400, before any query, for an id that is %s', async (_label, bad) => {
+    checkSendRateLimitMock.mockResolvedValue(true);
+
+    await (statementBulkEmail as Handler)(request([C1, bad]), makeRes());
+
+    expect(apiResponse.badRequest).toHaveBeenCalledWith(expect.anything(), 'all customerIds must be UUIDs');
+    expect(sqlMock).not.toHaveBeenCalled();
+    expect(checkSendRateLimitMock).not.toHaveBeenCalled();
+  });
+
+  it('sends to every recipient when all checks pass', async () => {
+    checkSendRateLimitMock.mockResolvedValue(true);
+    vi.mocked(sendStatementEmail).mockResolvedValue({ success: true });
+
+    await (statementBulkEmail as Handler)(request([C1, C2, C3]), makeRes());
+
+    expect(sendStatementEmail).toHaveBeenCalledTimes(3);
+    expect(apiResponse.success).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ sent: 3, failed: 0 }));
   });
 });

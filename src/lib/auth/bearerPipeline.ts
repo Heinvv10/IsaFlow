@@ -16,22 +16,16 @@ import '@/lib/pgTypes';
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
+import { rollbackError, rollbackFailed } from '@/lib/rollbackFailed';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { getClientIp } from '@/lib/rateLimit';
+import { checkAutoRateLimit } from './autoRateLimit';
 import { validatePat } from './personalAccessTokens';
 import { validateOauthAccessToken, type OauthAccessContext } from './oauth';
 import type { CompanyAuthedRequest } from './withAuth';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
-import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } from './deferredEnd';
+import { deferEnd, answerThrow, replayEnd, answerCommitFailed, reportFinalizeFailure, type DeferredEnd } from './deferredEnd';
 
-/**
- * Auto rate-limit table — must stay in sync with the equivalent table in
- * withAuth.ts. Bearer-authed requests skip withAuth entirely, so without this
- * mirror they'd silently bypass per-company rate limits on heavy report routes.
- */
-const AUTO_RATE_LIMIT: Array<{ prefix: string; key: string; max: number; windowSecs: number }> = [
-  { prefix: '/api/accounting/reports-', key: 'reports', max: 60, windowSecs: 60 },
-];
 
 /** Postgres SQLSTATE for invalid_text_representation — i.e. UUID cast errors. */
 const PG_INVALID_TEXT_REPRESENTATION = '22P02';
@@ -132,6 +126,7 @@ export async function runBearerRequest(
   const startedAt = Date.now();
   const client = await getAuthPool().connect();
   let deferred: DeferredEnd | null = null;
+  let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
   try {
     await client.query('BEGIN');
     await client.query('SET LOCAL ROLE app_user');
@@ -155,7 +150,7 @@ export async function runBearerRequest(
       // must propagate so they surface as 500, not a misleading FORBIDDEN.
       const code = (err as { code?: string } | null)?.code;
       if (code === PG_INVALID_TEXT_REPRESENTATION) {
-        await client.query('ROLLBACK');
+        unusable = await rollbackFailed(client, 'bearerPipeline');
         res
           .status(403)
           .json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
@@ -165,7 +160,7 @@ export async function runBearerRequest(
     }
 
     if (membership.rows.length === 0) {
-      await client.query('ROLLBACK');
+      unusable = await rollbackFailed(client, 'bearerPipeline');
       res
         .status(403)
         .json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
@@ -176,7 +171,7 @@ export async function runBearerRequest(
     // suspension, and must not be reported as one.
     const account = membership.rows[0]!;
     if (account.account_user_id === null) {
-      await client.query('ROLLBACK');
+      unusable = await rollbackFailed(client, 'bearerPipeline');
       log.warn('bearerPipeline: membership has no users profile', {
         userId: ctx.userId, companyId: ctx.companyId, authMethod: ctx.method, url: req.url,
       }, 'Auth');
@@ -184,7 +179,7 @@ export async function runBearerRequest(
       return;
     }
     if (!isActiveUserAccount(account)) {
-      await client.query('ROLLBACK');
+      unusable = await rollbackFailed(client, 'bearerPipeline');
       log.warn('bearerPipeline: account not in good standing', {
         userId: ctx.userId, companyId: ctx.companyId, authMethod: ctx.method, url: req.url,
       }, 'Auth');
@@ -205,23 +200,16 @@ export async function runBearerRequest(
       authedReq.oauthAppId = ctx.oauthAppId;
     }
 
-    // Mirror withAuth's per-company rate limit so Bearer-authed reports calls
-    // don't bypass the limiter that protects the pool from full-GL aggregations.
-    const path = req.url?.split('?')[0] ?? '';
-    const bucket = AUTO_RATE_LIMIT.find((b) => path.startsWith(b.prefix));
-    if (bucket) {
-      const allowed = await checkRateLimit(
-        `${bucket.key}:${ctx.companyId}`,
-        { max: bucket.max, windowSecs: bucket.windowSecs },
-      );
-      if (!allowed) {
-        await client.query('ROLLBACK');
-        res.status(429).json({
-          success: false,
-          error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again shortly.' },
-        });
-        return;
-      }
+    // The same per-company rate limit as withAuth, from the same table, so
+    // Bearer-authed reports calls don't bypass the limiter that protects the
+    // pool from full-GL aggregations.
+    if (!(await checkAutoRateLimit(req.url, ctx.companyId))) {
+      unusable = await rollbackFailed(client, 'bearerPipeline');
+      res.status(429).json({
+        success: false,
+        error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again shortly.' },
+      });
+      return;
     }
 
     // ── Defer the response flush until AFTER the transaction is finalised ──
@@ -253,32 +241,24 @@ export async function runBearerRequest(
     // A 5xx means the request failed (withErrorHandler sits inside and may have
     // caught+responded 500) — never COMMIT its partial writes.
     const handlerFailed = res.statusCode >= 500;
-    try {
-      await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
-    } catch (finalizeErr) {
-      try { await client.query('ROLLBACK'); } catch { /* secondary */ }
-      log.error('bearerPipeline: transaction finalize failed after handler responded', {
-        url: req.url,
-        status: res.statusCode,
-        handlerFailed,
-        message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
-      }, 'Auth');
-      if (process.env.SENTRY_ENABLED === 'true' && finalizeErr instanceof Error) {
-        Sentry.captureException(finalizeErr);
+    const finalizeCtx = { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId };
+    if (handlerFailed) {
+      // Nothing is meant to commit, so the handler's own answer stands even if this ROLLBACK
+      // fails: the connection is then destroyed and the server discards the transaction (R-176).
+      const rollbackErr = await rollbackError(client, 'bearerPipeline');
+      unusable = rollbackErr !== null;
+      if (rollbackErr) reportFinalizeFailure(req, res, rollbackErr, { ...finalizeCtx, handlerFailed, connectionDestroyed: true });
+    } else {
+      try {
+        await client.query('COMMIT');
+      } catch (finalizeErr) {
+        // The COMMIT failed after the handler "responded": the write did not land, or its
+        // outcome is unknown. Roll back, then replace the buffered 2xx with an honest 500.
+        unusable = await rollbackFailed(client, 'bearerPipeline');
+        reportFinalizeFailure(req, res, finalizeErr, { ...finalizeCtx, handlerFailed, connectionDestroyed: unusable });
+        answerCommitFailed(res, flush);
+        return; // finally still runs (release + slow-request log)
       }
-      if (res.headersSent) {
-        abortResponse(res); // the status is on the wire; a clean close would read as success
-      } else {
-        // Replace the buffered 2xx with an honest 500 — the write did NOT land.
-        const body = JSON.stringify({
-          success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED',
-        });
-        res.statusCode = 500;
-        res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.setHeader('Content-Length', Buffer.byteLength(body));
-        flush.realEnd(body);
-      }
-      return; // finally still runs (release + slow-request log)
     }
 
     // Transaction durable — replay the buffered flush, then start after-commit work (R-075).
@@ -287,11 +267,11 @@ export async function runBearerRequest(
     if (!handlerFailed) drainAfterCommit(txCtx);
   } catch (err) {
     // R-159: answer the throw here; see withAuth.
-    let rolledBack = true;
-    try { await client.query('ROLLBACK'); } catch { rolledBack = false; }
-    answerThrow(req, res, deferred, err, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId, rolledBack });
+    const failed = await rollbackFailed(client, 'bearerPipeline');
+    unusable = unusable || failed; // an earlier failed ROLLBACK still condemns the connection
+    answerThrow(req, res, deferred, err, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId, rolledBack: !failed });
   } finally {
-    client.release();
+    client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
     const ms = Date.now() - startedAt;
     if (ms > 100) log.info('bearerPipeline slow request', { ms, url: req.url }, 'Auth');
   }

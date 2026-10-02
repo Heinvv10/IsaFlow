@@ -7,12 +7,12 @@ import pg from 'pg';
 import '@/lib/pgTypes';
 import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteToken';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { als } from '@/lib/als';
 import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/gotrue';
 import { sql } from '@/lib/neon';
-import { checkRateLimit, refundRateLimit } from '@/lib/rateLimit';
+import { chargeRateLimit, refundRateLimit } from '@/lib/rateLimit';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 
 // Memoised, like every other pool in the repo (src/lib/neon.ts,
 // src/lib/auth/withInviteToken.ts). Building one per request cost a TCP + TLS
@@ -33,6 +33,8 @@ function adminPool(): pg.Pool {
           ? false
           : { rejectUnauthorized: false },
   });
+  // pg-pool re-emits a pooled or removed client's 'error' on the pool; unlistened, that is an uncaught exception.
+  _adminPool.on('error', (err) => log.warn('invite accept pool error', { message: err.message }, 'Auth'));
   return _adminPool;
 }
 
@@ -101,11 +103,11 @@ const handler: NextApiHandler = async (req, res) => {
   // owner — but the invitation is a single acceptance, and nothing legitimate
   // needs more than a handful of tries. Keyed on the digest, never the raw
   // token, so the rate-limit table holds no usable invitation secret.
-  // Charged above 1 deliberately: checkRateLimit short-circuits on its
-  // in-process LRU while a key sits below half its limit, which under-counts
-  // precisely the burst a guesser produces, and a cost above 1 is documented to
-  // always fall through to the authoritative shared counter. Ten attempts an
-  // hour, counted exactly and across pods.
+  // Charged above 1 for a reason that no longer applies: until R-175
+  // checkRateLimit admitted cost-1 calls from an in-process LRU without
+  // counting them. Every call now reaches the shared counter, so cost 2 of a
+  // max of 20 is simply ten attempts an hour, counted exactly and across pods.
+  // Left at 2 so the live counters keep their meaning.
   //
   // Placed AFTER the 410, not before it: the key is derived from a caller-chosen
   // URL segment, so charging it ahead of the lookup let an unauthenticated
@@ -113,24 +115,23 @@ const handler: NextApiHandler = async (req, res) => {
   // what proves the key names a real invitation, and this still precedes every
   // GoTrue call, which is what the cap exists to bound.
   //
-  // als.exit: checkRateLimit goes through `sql`, which routes onto the
-  // invite-token transaction whenever one is in flight. Any thrown path below
-  // (a GoTrue outage) ROLLBACKs that transaction and would discard the attempt
-  // with it, and the counter would also hold this key's row lock across two
-  // GoTrue round-trips. Run it on the module pool so the count survives.
+  // The limiter writes on its own pool (K-103), never on the invite-token
+  // transaction: a thrown path below (a GoTrue outage) ROLLBACKs that
+  // transaction and the attempt is still counted, and the counter's row lock is
+  // not held across the two GoTrue round-trips.
   const ATTEMPT_COST = 2;
   const ATTEMPTS_PER_HOUR = 10;
-  const admitted = await als.exit(() => checkRateLimit(`invite-accept:${tokenHash}`, {
+  const charge = await chargeRateLimit(`invite-accept:${tokenHash}`, {
     max: ATTEMPTS_PER_HOUR * ATTEMPT_COST, windowSecs: 3600, cost: ATTEMPT_COST,
-  }));
-  if (!admitted) {
+  });
+  if (!charge.admitted) {
     return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts for this invitation. Try again later.' } });
   }
   // Hand the units back on the two verdicts below that are reachable ONLY
   // after signIn has already succeeded, so no unauthenticated caller can spend
-  // the counter down. als.exit for the same reason the charge uses it: keep it
-  // off the invite-token transaction, which is rolled back on any throw.
-  const refund = () => als.exit(() => refundRateLimit(`invite-accept:${tokenHash}`, ATTEMPT_COST));
+  // the counter down. Into the window that was charged: after a rollover the
+  // units belong to a count that is gone, and the refund is a no-op.
+  const refund = () => refundRateLimit(`invite-accept:${tokenHash}`, ATTEMPT_COST, charge.windowStart);
 
 
   // 2-4 run on the BYPASSRLS admin role: RLS would refuse the company_users
@@ -140,6 +141,7 @@ const handler: NextApiHandler = async (req, res) => {
   const client = await adminPool().connect();
   let tok: GoTrueTokenResponse;
   let opened = false;
+  let unusable = false;
   try {
     // 2. Does this address already hold an established IsaFlow login? A `users`
     //    row is written only by tenant provisioning (after email verification)
@@ -205,8 +207,8 @@ const handler: NextApiHandler = async (req, res) => {
     }
 
     // 4. Attach the membership + profile row.
+    opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed here is rolled back too
     await client.query('BEGIN');
-    opened = true;
     await client.query(
       // DO UPDATE, not DO NOTHING: POST /api/invitations rewrites `role` on the
       // invitation row when the same address is re-invited, so an existing
@@ -244,7 +246,7 @@ const handler: NextApiHandler = async (req, res) => {
       if (pgErr.code !== '23505' || pgErr.constraint !== 'users_email_key') throw err;
       // 23505 aborts the transaction, so nothing may run on this client until
       // it is rolled back. The membership INSERT above goes with it.
-      await client.query('ROLLBACK');
+      unusable = await rollbackFailed(client, 'invite accept');
       opened = false;
       log.error('invite accept blocked: email already held by another user row', {
         inviteId: inv.id,
@@ -263,16 +265,10 @@ const handler: NextApiHandler = async (req, res) => {
     // The GoTrue calls above run before BEGIN. Rolling back a client with no
     // open transaction only logs `WARNING: there is no transaction in progress`
     // on every GoTrue failure, so ask first.
-    if (opened) await client.query('ROLLBACK').catch((rollbackErr: unknown) =>
-      log.error(
-        'ROLLBACK failed after transaction error',
-        { error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr) },
-        'auth',
-      ),
-    );
+    if (opened) unusable = await rollbackFailed(client, 'invite accept');
     throw err;
   } finally {
-    client.release();
+    client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
   }
 
   // 5. Set cookies

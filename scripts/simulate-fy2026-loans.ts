@@ -9,6 +9,7 @@
 
 import pg from 'pg';
 import { als } from '@/lib/als';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 
 import { closeLoanPeriod, isPeriodLocked } from '../src/modules/accounting/services/loans/loanPeriodCloseService';
 import { recordLoanPayment } from '../src/modules/accounting/services/loans/loanPaymentService';
@@ -24,21 +25,23 @@ const alsPool = new pg.Pool({
   connectionString: DATABASE_URL,
   ssl: DATABASE_URL.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
 });
+alsPool.on('error', (err) => console.error('[loans pool]', err.message)); // unlistened, a client error is an uncaught exception
 
 export const closeLoansPool = (): Promise<void> => alsPool.end();
 
 async function inRequestTransaction<T>(userId: string, fn: () => Promise<T>): Promise<T> {
   const client = await alsPool.connect();
+  let unusable = false;
   try {
     await client.query('BEGIN');
     const result = await als.run({ client, userId, claims: {} }, fn);
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => undefined);
+    unusable = await rollbackFailed(client, 'simulate-fy2026-loans');
     throw err;
   } finally {
-    client.release();
+    client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
   }
 }
 

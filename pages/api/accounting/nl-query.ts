@@ -10,6 +10,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkAiRateLimit } from '@/lib/rateLimit';
+import { markAnthropicUsedForStatus, markQuotaUsed, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import {
   buildTextToSQLPrompt, parseSQLResponse, validateGeneratedSQL,
@@ -40,7 +41,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const companyId = (req as CompanyAuthedRequest).companyId;
   // Anthropic-backed: per-IP + per-company + per-company-daily budget cap (pentest H8).
-  if (!(await checkAiRateLimit(req, companyId, 'nl-query', { ipMax: 30, companyMax: 60, dailyMax: 300 }))) {
+  if (!(await checkAiRateLimit(req, companyId, 'nl-query', { ipMax: 30, companyMax: 60, dailyMax: 300, refundUnused: true }))) {
     return apiResponse.tooManyRequests(res, 'AI request limit reached. Please try again later.');
   }
 
@@ -89,8 +90,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     if (!response.ok) {
+      // A 5xx may come after the provider did the work; a 4xx or a 529 did none (R-175).
+      markAnthropicUsedForStatus(response.status);
       return apiResponse.success(res, { intent, message: 'AI service unavailable', rows: [], columns: [], summary: 'Service error' });
     }
+    // The provider answered: the daily unit is spent. Every exit before this
+    // line leaves it unused, and withAuth gives it back (R-175).
+    markQuotaUsed('ai');
 
     const data = await response.json() as { content?: { text?: string }[] };
     const text = data.content?.[0]?.text || '';
@@ -160,6 +166,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.error('NL query failed', { error: errMsg, question }, 'ai');
+    // A provider call that timed out or was aborted may still have been done.
+    markQuotaUsedUnlessNoWork('ai', err);
     return apiResponse.success(res, { intent, message: `Query execution failed: ${errMsg}`, rows: [], columns: [], summary: 'Error' });
   }
 }

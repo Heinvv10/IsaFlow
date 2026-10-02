@@ -58,7 +58,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Sends a real invite email to an arbitrary address — bound it so an admin can't loop
     // it into invite spam (pentest H9; the active UI route had no send cap).
-    if (!(await checkSendRateLimit(req, companyId, 'company-invitations', { companyMax: 20, dailyMax: 100 }))) {
+    if (!(await checkSendRateLimit(req, companyId, 'company-invitations', { companyMax: 20, dailyMax: 100, refundUnused: true }))) {
       return apiResponse.tooManyRequests(res, 'Invitation send limit reached. Please try again later.');
     }
 

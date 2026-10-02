@@ -1,0 +1,48 @@
+### /review round tests run against 064a895f1's sources (4 changed src/pages files swapped back)
+ ❯ tests/unit/services/afs/signumIntegrationService.test.ts (11 tests | 1 failed) 17ms
+       × a non-2xx carries its status, so the caller knows Signum did no work (R-175) 4ms
+ ❯ tests/unit/api/sendForSigningQuotaUse.test.ts (4 tests | 2 failed) 9ms
+     × Signum created the document and every email failed: the unit stays spent 6ms
+     × the Signum call timed out: it may have created the document, so the unit is spent 1ms
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts (27 tests | 3 failed) 26ms
+     × keeps its unit after the mail server accepted the email 4ms
+     × leaves its unit unused when the mail server is down 1ms
+     × leaves its unit unused when SMTP is not configured 1ms
+ ❯ tests/unit/security/quotaCallerCensus.test.ts (24 tests | 2 failed) 134ms
+     × accounting/afs/[documentId]/send-for-signing.ts asks for refundUnused and can reach where its use is recorded 3ms
+     × use is recorded only in the places listed above 55ms
+ ❯ tests/unit/lib/sendEmailErrorClasses.test.ts (18 tests | 10 failed) 222ms
+     × connection dropped after the message was sent, before any reply: used, the server may have it 48ms
+     × the classifier: a timeout (nodemailer uses ETIMEDOUT/CONN for connect, greeting and an idle socket mid-message) 1ms
+     × the classifier: a socket reset after connecting 0ms
+     × the classifier: an unknown error 0ms
+     × the classifier: a non-error value 0ms
+     × the classifier: DNS failure (EDNS) 0ms
+     × the classifier: a TLS set-up failure (ETLS) 0ms
+     × the classifier: no credentials (ENOAUTH) 0ms
+     × the classifier: a name lookup at connect (ESOCKET getaddrinfo) 0ms
+     × the classifier: a connection closed with a 421 reply (ECONNECTION) 0ms
+AssertionError: expected { used: +0, threw: false } to deeply equal { used: 1, threw: false }
+ ❯ tests/unit/api/sendForSigningQuotaUse.test.ts:63:25
+AssertionError: expected { used: +0, threw: true } to deeply equal { used: 1, threw: true }
+ ❯ tests/unit/api/sendForSigningQuotaUse.test.ts:81:25
+AssertionError: expected 1 to be 2 // Object.is equality
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:132:42
+AssertionError: expected +0 to be 1 // Object.is equality
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:142:42
+AssertionError: expected +0 to be 1 // Object.is equality
+ ❯ tests/unit/api/sendRoutesQuotaUse.test.ts:149:42
+AssertionError: expected +0 to be 1 // Object.is equality
+ ❯ tests/unit/lib/sendEmailErrorClasses.test.ts:110:80
+TypeError: markSendUsedUnlessNotSent is not a function
+ ❯ tests/unit/lib/sendEmailErrorClasses.test.ts:125:35
+ ❯ used tests/unit/lib/sendEmailErrorClasses.test.ts:62:13
+ ❯ tests/unit/lib/sendEmailErrorClasses.test.ts:125:18
+AssertionError: expected false to be true // Object.is equality
+ ❯ tests/unit/security/quotaCallerCensus.test.ts:134:34
+AssertionError: expected [ …(6) ] to deeply equal [ …(7) ]
+ ❯ tests/unit/security/quotaCallerCensus.test.ts:167:28
+AssertionError: expected Error: Signum create failed: 503 busy to match object { status: 503 }
+ ❯ tests/unit/services/afs/signumIntegrationService.test.ts:157:82
+ Test Files  5 failed | 1 passed (6)
+      Tests  18 failed | 78 passed (96)

@@ -50,6 +50,10 @@ describe('withPublicRouteTransaction', () => {
     await expect(
       withPublicRouteTransaction('dead-connection', async () => {
         const pidRows = await sql<{ pid: number }>`SELECT pg_backend_pid() AS pid`;
+        // The server's FATAL can reach this checked-out client before its ROLLBACK is sent. With
+        // no query active, node-postgres emits it as an 'error' event, and with no listener that
+        // is an uncaught exception that fails the run (seen under load, R-176). Listen for it.
+        als.getStore()!.client.on('error', () => undefined);
         // Kill the very backend this transaction is running on, so the
         // ROLLBACK in the catch cannot succeed.
         await killer.query('SELECT pg_terminate_backend($1)', [pidRows[0]!.pid]);
