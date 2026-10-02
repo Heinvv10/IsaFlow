@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { CalendarRange, Plus, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
-import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import type { FiscalPeriod } from '@/modules/accounting/types/gl.types';
 import { groupPeriodsIntoYears } from '@/components/accounting/financialYears/types';
@@ -127,17 +127,13 @@ export default function FinancialYearsPage() {
   // ── Add year ──────────────────────────────────────────────────────────────
 
   const handleAddYear = useCallback(async (year: number) => {
-    try {
-      const res = await apiFetch('/api/accounting/fiscal-periods', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year }),
-      });
-      await assertOk(res, 'Could not create the year - try again');
-    } catch (err) {
-      // The modal shows err.message: give it a person-readable sentence, never a transport error
-      throw new ApiEnvelopeError(apiErrorMessage(err, 'Could not create the year - try again'));
-    }
+    const res = await apiFetch('/api/accounting/fiscal-periods', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ year }),
+    });
+    // AddYearModal turns the thrown ApiRequestError into its message (apiErrorMessage).
+    await assertOk(res, 'Could not create the financial year - try again');
     await fetchPeriods();
   }, [fetchPeriods]);
 

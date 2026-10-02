@@ -7,6 +7,7 @@ import { FileText, Loader2, AlertCircle, Download, AlertTriangle, Info } from 'l
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
+import { saveBlob } from '@/lib/saveBlob';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 type Severity = 'error' | 'warning' | 'info';
@@ -114,13 +115,7 @@ export default function Irp5Page() {
   const handleExport = () => {
     if (!summary) return;
     const csv = buildCsv(summary.employees);
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `IRP5_${taxYear}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    saveBlob(new Blob([csv], { type: 'text/csv' }), `IRP5_${taxYear}.csv`);
   };
 
   const [easyFileError, setEasyFileError] = useState<string | null>(null);
@@ -136,13 +131,7 @@ export default function Irp5Page() {
         setEasyFileError([msg, missing ? `Missing: ${missing.join(', ')}` : '', fix ? `Fix here: ${fix}` : ''].filter(Boolean).join(' · '));
         return;
       }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `IRP5_${taxYear - 1}_${taxYear}.irp5`;
-      a.click();
-      URL.revokeObjectURL(url);
+      saveBlob(await res.blob(), `IRP5_${taxYear - 1}_${taxYear}.irp5`);
     } catch (err) {
       setEasyFileError(apiErrorMessage(err, 'Could not export the e@syfile file - try again'));
     }

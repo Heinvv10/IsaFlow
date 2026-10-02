@@ -6,6 +6,7 @@ import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 
 import { apiFetch, apiJson, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { fetchAllSuppliers, truncatedSuppliersNotice } from '@/lib/fetchAllSuppliers';
 import { log } from '@/lib/logger';
+import { downloadTemplate as saveTemplate } from '@/components/accounting/migration/downloadTemplate';
 
 const AP_FIELDS = [
   'invoice_number', 'supplier_name', 'invoice_date', 'due_date',
@@ -157,14 +158,7 @@ export default function ApInvoicesPage() {
 
   const downloadTemplate = async () => {
     try {
-      const res = await apiFetch('/api/accounting/migration/templates?step=ap-invoices');
-      await assertOk(res, 'Could not download the template - try again');
-      const url = URL.createObjectURL(await res.blob());
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'ap-invoices-template.csv';
-      a.click();
-      URL.revokeObjectURL(url);
+      await saveTemplate('/api/accounting/migration/templates?step=ap-invoices', 'ap-invoices-template.csv');
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not download the template - try again'));
     }

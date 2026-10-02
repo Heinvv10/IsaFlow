@@ -37,7 +37,7 @@ export function AddYearModal({ existingYears, onConfirm, onClose }: Props) {
       await onConfirm(year);
       onClose();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not create the year - try again'));
+      setError(apiErrorMessage(err, 'Could not create the financial year - try again'));
     } finally {
       setSaving(false);
     }

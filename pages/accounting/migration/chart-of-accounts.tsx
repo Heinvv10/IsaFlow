@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { downloadTemplate as saveTemplate } from '@/components/accounting/migration/downloadTemplate';
 import { CoaImportResult, type CoaImportSummary } from '@/components/accounting/migration/CoaImportResult';
 
 const COA_FIELDS = ['account_code', 'account_name', 'account_type', 'account_subtype', 'normal_balance', 'parent_code', 'description'] as const;
@@ -151,15 +152,7 @@ export default function ChartOfAccountsPage() {
   const downloadTemplate = async () => {
     setError('');
     try {
-      const res = await apiFetch(`/api/accounting/migration/templates?sourceSystem=${sourceSystem}&step=chart-of-accounts`);
-      await assertOk(res, 'Could not download the template - try again');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `coa-template-${sourceSystem}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await saveTemplate(`/api/accounting/migration/templates?sourceSystem=${sourceSystem}&step=chart-of-accounts`, `coa-template-${sourceSystem}.csv`);
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not download the template - try again'));
     }
