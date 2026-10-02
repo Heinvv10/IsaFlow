@@ -329,6 +329,12 @@ orchestrator. Every other R-181 evidence log (red, green, mutations, regression)
   one reference at the same moment (for example two different webhook bodies arriving together)
   can both pass the SELECT and post the fee twice. Registered as R-185 (fix: a partial unique
   index, or an advisory lock on the reference); not introduced by R-181 and not fixed here.
+- **A cancelled gateway receipt does not stop a re-bank (R-187, pre-existing).** The receipt dedupe
+  and `ux_customer_payments_card_reference` both exclude cancelled receipts, so if a person cancels
+  a Paystack receipt and a `charge.success` for that reference is processed again in a different
+  body, a new receipt is banked. Registered as R-187 with a census query and two fix options
+  (dedupe on any receipt including cancelled, or record the settlement on the request); found in
+  the D8 lock-timeout review of this PR, not introduced by R-181 and not fixed here.
 
 ## Review round 3 (both reviewers: SHIP; residual LOWs)
 
