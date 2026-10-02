@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Loader2 } from 'lucide-react';
-import { apiJson } from '@/lib/apiFetch';
+import { apiJson, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { PresentDeck } from '@/components/accounting/present/PresentDeck';
 import { buildSlides, type ReportPack, type Slide } from '@/components/accounting/present/presentSlides';
@@ -104,7 +104,7 @@ export default function PresentPackPage() {
         }
         setIncomeLoading(false);
       } catch (err) {
-        if (live) setError(err instanceof Error ? err.message : String(err));
+        if (live) setError(apiErrorMessage(err, 'Try again in a moment.'));
         log.error('Presentation pack failed to load', { error: err }, 'present');
         // The pack fetch threw, so the three comparator fetches were never
         // started. Leaving them "loading" would spin those slides forever

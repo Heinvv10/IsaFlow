@@ -92,6 +92,8 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [form, setForm] = useState<BankRuleFormState>(BLANK_FORM);
 
+  const fail = (err: unknown, fb: string) => { const msg = apiErrorMessage(err, fb); setError(msg); notify.error(msg); };
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -102,6 +104,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
       setRules((json.data?.items as BankRule[]) || []);
       setSelected(new Set());
     } catch (err) {
+      setRules([]); setSelected(new Set());   // never an empty-but-valid list or bulk actions on stale rows
       setError(apiErrorMessage(err, 'Could not load the rules - try again'));
     } finally {
       setLoading(false);
@@ -196,7 +199,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
           credentials: 'include',
           body: JSON.stringify({ action: 'update', id: editingRule.id, ...payload }),
         });
-        await assertOk(res, 'Failed to update rule');
+        await assertOk(res, 'Could not update the rule - try again');
         notify.success(`Rule "${payload.ruleName}" updated`);
       } else {
         const res = await apiFetch('/api/accounting/bank-rules', {
@@ -207,7 +210,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
             ...(selectedBankId ? { bankAccountId: selectedBankId } : {}),
           }),
         });
-        await assertOk(res, 'Failed to create rule');
+        await assertOk(res, 'Could not create the rule - try again');
         const json = await res.json();
         const parts = {
           applied: Number(json.data?.applied ?? 0),
@@ -233,9 +236,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
       resetForm();
       await load();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed';
-      setError(msg);
-      notify.error(msg);
+      fail(err, editingRule ? 'Could not update the rule - try again' : 'Could not create the rule - try again');
     } finally {
       setBusy('');
     }
@@ -246,12 +247,13 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
     setError('');
     // Clear stale apply banner before non-apply actions.
     if (action !== 'apply') setApplyResult(null);
+    const failure = `Could not ${action === 'toggle' ? 'change' : action === 'delete' ? 'delete' : action === 'apply' ? 'apply' : 'update'} the ${action === 'apply' ? 'rules' : 'rule'} - try again`;
     try {
       const res = await apiFetch('/api/accounting/bank-rules-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action, id, ...extra }),
       });
-      await assertOk(res, `${action} failed`);
+      await assertOk(res, failure);
       const json = await res.json();
       if (action === 'apply') {
         const data = json.data;
@@ -269,9 +271,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
       }
       await load();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : `${action} failed`;
-      setError(msg);
-      notify.error(msg);
+      fail(err, failure);
     } finally {
       setBusy('');
     }
@@ -287,13 +287,11 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action: 'deleteMany', ids: [...selected] }),
       });
-      await assertOk(res, 'Bulk delete failed');
+      await assertOk(res, 'Could not delete the selected rules - try again');
       notify.success(`${count} rule${count !== 1 ? 's' : ''} deleted`);
       await load();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Bulk delete failed';
-      setError(msg);
-      notify.error(msg);
+      fail(err, 'Could not delete the selected rules - try again');
     } finally {
       setBulkDeleting(false);
     }

@@ -71,7 +71,8 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
       onApproved(result, !preview.posted);
     } catch (err) {
       if (err instanceof ApiRequestError && err.status < 500) {
-        setApproveError(err.status === 409 ? `${err.message}. The preview has been refreshed — review it again.` : err.message);
+        const msg = apiErrorMessage(err, 'Could not approve the run - try again');
+        setApproveError(err.status === 409 ? `${msg}. The preview has been refreshed — review it again.` : msg);
         setReloadKey((k) => k + 1);
       } else {
         setApproveError(UNCERTAIN);

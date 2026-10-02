@@ -10,7 +10,7 @@
 import { useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users2, Loader2, AlertCircle, Search, Info, CheckCircle2 } from 'lucide-react';
-import { apiErrorMessage, apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 import type { DuplicatePair } from '@/types/customer-duplicates';
 import {
   ConfirmModal,
@@ -44,12 +44,14 @@ export default function CustomerDedupPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/customer-duplicates');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not scan for duplicates - try again');
       const json = await res.json() as { data: DuplicatePair[] };
       setPairs(json.data ?? []);
       setScanned(true);
-    } catch {
-      setError('Failed to scan for duplicates. Please try again.');
+    } catch (err) {
+      setPairs([]);
+      setScanned(false);
+      setError(apiErrorMessage(err, 'Could not scan for duplicates - try again'));
     } finally {
       setIsLoading(false);
     }

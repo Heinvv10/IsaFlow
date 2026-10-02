@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Search, UserPlus, ExternalLink, X, Check } from 'lucide-react';
 
@@ -80,7 +80,7 @@ export default function AdminWaitlistPage() {
       setRows(data.items);
       setTotal(data.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Something went wrong - try again'));
     } finally {
       setLoading(false);
     }
@@ -135,7 +135,7 @@ export default function AdminWaitlistPage() {
       }
       void load(status, search, page);
     } catch (err) {
-      setPromoteError(err instanceof Error ? err.message : 'Promotion failed');
+      setPromoteError(apiErrorMessage(err, 'Could not complete: promotion - try again'));
     } finally {
       setPromoting(false);
     }

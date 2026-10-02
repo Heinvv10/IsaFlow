@@ -70,14 +70,15 @@ export default function SupplierDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ entityType: 'supplier', entityId: supplierId as string }),
       });
-      const json = await res.json() as { success?: boolean; error?: { message?: string } };
-      if (!res.ok || json.success === false) {
-        alert(json.error?.message ?? 'Failed to delete supplier');
+      await assertOk(res, 'Could not delete the supplier - try again');
+      const json = await res.json().catch(() => ({})) as { success?: boolean; error?: { message?: string } };
+      if (json.success === false) {
+        alert(json.error?.message ?? 'Could not delete the supplier - try again');
         return;
       }
       void router.push('/accounting/suppliers');
-    } catch {
-      alert('Failed to delete supplier');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Could not delete the supplier - try again'));
     } finally {
       setDeleting(false);
     }

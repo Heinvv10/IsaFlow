@@ -6,6 +6,7 @@
 import { useCallback, useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
+import { assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -35,14 +36,15 @@ export default function PortalPayPage() {
   const fetchPaymentLink = useCallback(async () => {
     try {
       const res = await fetch(`/api/portal/payment-link?token=${token}`);
+      await assertOk(res, 'Payment link not found or expired');
       const json = await res.json();
-      if (!res.ok || !json.data) {
-        setError(json.error?.message || json.message || 'Payment link not found or expired');
+      if (!json.data) {
+        setError('Payment link not found or expired');
         return;
       }
       setData(json.data);
-    } catch {
-      setError('Failed to load payment details');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the payment details - try again'));
     } finally {
       setLoading(false);
     }
@@ -66,13 +68,12 @@ export default function PortalPayPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),
       });
+      await assertOk(res, 'Could not start the payment - try again');
       const json = await res.json();
-      if (!res.ok || !json.data?.checkoutUrl) {
-        throw new Error(json.error?.message ?? json.message ?? 'Failed to start payment');
-      }
+      if (!json.data?.checkoutUrl) throw new ApiEnvelopeError('Could not start the payment - try again');
       window.location.href = json.data.checkoutUrl as string;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start payment');
+      setError(apiErrorMessage(err, 'Could not start the payment - try again'));
       setSubmitting(false);
     }
   };

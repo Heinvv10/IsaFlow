@@ -59,7 +59,7 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
       }
       onConverted();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Conversion failed');
+      setError(apiErrorMessage(err, 'Could not complete: conversion - try again'));
     } finally {
       setWorking(false);
     }

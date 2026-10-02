@@ -15,7 +15,7 @@ import {
   BarChart3, Loader2, AlertCircle, CheckCircle2,
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   StepCard, MigrationStep, MigrationHistory, type MigrationStatus,
 } from '@/components/accounting/sageMigration/sageMigrationParts';
@@ -43,7 +43,7 @@ export default function SageMigrationPage() {
       const json = await res.json();
       setStatus(json.data || json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load migration status');
+      setError(apiErrorMessage(err, 'Could not load migration status - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -79,7 +79,7 @@ export default function SageMigrationPage() {
 
       await loadStatus();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+      setError(apiErrorMessage(err, 'Could not complete: action - try again'));
     } finally {
       setActionLoading('');
     }

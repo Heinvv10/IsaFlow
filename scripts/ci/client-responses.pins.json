@@ -1,0 +1,8 @@
+[
+  {
+    "file": "src/hooks/useTrackPageVisit.ts",
+    "kind": "d",
+    "line": "apiFetch('/api/accounting/page-visits', {",
+    "reason": "Pure page-visit telemetry: a missed write changes nothing the user sees; the .catch logs at debug."
+  }
+]

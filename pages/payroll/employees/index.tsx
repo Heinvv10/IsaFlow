@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { Users, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 interface EmployeeListItem {
   id: string;
@@ -43,12 +43,13 @@ export default function EmployeesListPage() {
     setError('');
     try {
       const res = await apiFetch('/api/payroll/employees');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load employees - try again');
       const json = await res.json();
       const data = (json.data ?? json) as EmployeeListItem[];
       setEmployees(data);
-    } catch {
-      setError('Failed to load employees');
+    } catch (err) {
+      setEmployees([]);
+      setError(apiErrorMessage(err, 'Could not load employees - try again'));
     } finally {
       setIsLoading(false);
     }

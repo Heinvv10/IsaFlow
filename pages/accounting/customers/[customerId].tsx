@@ -126,14 +126,12 @@ export default function CustomerDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ entityType: 'customer', entityId: customerId as string }),
       });
+      await assertOk(res, 'Could not delete the customer - try again');
       const json = await res.json() as { success?: boolean; error?: { message?: string } };
-      if (!res.ok || json.success === false) {
-        alert(json.error?.message ?? 'Failed to delete customer');
-        return;
-      }
+      if (json.success === false) { alert(json.error?.message ?? 'Could not delete the customer - try again'); return; }
       void router.push('/accounting/customers');
-    } catch {
-      alert('Failed to delete customer');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Could not delete the customer - try again'));
     } finally {
       setDeleting(false);
     }

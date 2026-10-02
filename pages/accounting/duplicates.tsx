@@ -142,14 +142,14 @@ export default function DuplicatesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ entityType: mergeDialog.pair.entityType, primaryId, duplicateId }),
       });
-      const json = await res.json() as {
-        data?: { reassignedTransactions: number; pausedRecurring?: number };
-        error?: { message?: string };
-      };
       // apiFetch resolves on a 4xx: a refused merge (e.g. differing DRC VAT
       // flags) must show its reason, not fall into a TypeError below.
-      if (!res.ok || !json.data) {
-        setError(json.error?.message ?? `Merge failed (HTTP ${res.status}).`);
+      await assertOk(res, 'Could not merge these records - try again');
+      const json = await res.json() as {
+        data?: { reassignedTransactions: number; pausedRecurring?: number };
+      };
+      if (!json.data) {
+        setError('Could not merge these records - try again');
         setMergeDialog(null);
         return;
       }
@@ -169,7 +169,8 @@ export default function DuplicatesPage() {
       setMergeDialog(null);
     } catch (err) {
       log.error('Merge failed', { error: err }, 'duplicates-page');
-      setMergeDialog(prev => prev ? { ...prev, loading: false } : null);
+      setError(apiErrorMessage(err, 'Could not merge these records - try again'));
+      setMergeDialog(null);
     }
   }, [mergeDialog, pairKey]);
 

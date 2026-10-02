@@ -62,6 +62,7 @@ export function ChartOfAccountsTab() {
         if (addForm.accountSubtype) qs.set('accountSubtype', addForm.accountSubtype);
         if (addForm.parentAccountId) qs.set('parentAccountId', addForm.parentAccountId);
         const res = await apiFetch(`/api/accounting/chart-of-accounts-next-code?${qs}`);
+        await assertOk(res, 'Could not suggest an account code'); // convenience only: the catch logs it
         const json = await res.json();
         const code = json?.data?.code ?? json?.code;
         if (!cancelled && code) {
@@ -69,7 +70,6 @@ export function ChartOfAccountsTab() {
           setSuggestedCode(String(code));
         }
       } catch (err) {
-        // Suggestion is a convenience — log only, never blocks the form.
         log.error('Failed to load suggested account code', { error: err }, 'accounting-ui');
       }
     })();

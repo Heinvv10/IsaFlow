@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { queryText, reportHref } from './reportReturnState';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -23,7 +23,7 @@ export function useBalanceSheetFilters() {
     setBusinessUnitId(queryText(query, 'business_unit_id'));
     if (date) { setAsAtDate(date); setResolvedKey(queryKey); return; }
     apiFetch('/api/accounting/fiscal-periods?open_period=true', { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the open period - try again'); return r.json(); })
       .then(json => {
         if (cancelled) return;
         const end = json.data?.endDate as string | undefined;

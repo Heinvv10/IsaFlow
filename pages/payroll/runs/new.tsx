@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Plus, ArrowLeft, Loader2 } from 'lucide-react';
 
 const MONTHS = [
@@ -33,17 +33,12 @@ export default function NewPayrollRunPage() {
         method: 'POST',
         body: JSON.stringify({ month, year }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({} as Record<string, unknown>));
-        const errObj = (j as { error?: { message?: string } | string }).error;
-        const msg = typeof errObj === 'string' ? errObj : errObj?.message;
-        throw new Error(msg || `Server error (HTTP ${res.status})`);
-      }
+      await assertOk(res, 'Could not create the payroll run - try again');
       const json = await res.json();
       const created = json.data ?? json;
       void router.push(`/payroll/runs/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Create failed');
+      setError(apiErrorMessage(err, 'Could not create the payroll run - try again'));
     } finally {
       setSubmitting(false);
     }

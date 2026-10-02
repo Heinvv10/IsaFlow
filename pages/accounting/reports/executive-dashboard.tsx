@@ -10,7 +10,7 @@ import {
   ArrowLeft, LayoutDashboard, TrendingUp, TrendingDown, Minus,
   AlertTriangle, AlertCircle, CheckCircle, Loader2,
 } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   DataQualityNotice,
   type UnclassifiedWarning,
@@ -92,7 +92,7 @@ export default function ExecutiveDashboardPage() {
       if (scRes.data?.scorecard) setScorecard(scRes.data.scorecard);
       if (scRes.data) setInventory(scRes.data.inventory ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load the executive dashboard');
+      setError(apiErrorMessage(err, 'Could not load the executive dashboard - try again'));
       log.error('Failed to load executive summary', { error: err instanceof Error ? err.message : String(err) });
     } finally { setLoading(false); }
   }, [from, to]);

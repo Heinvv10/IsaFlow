@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
 import { BalanceSheetBody } from '@/components/accounting/BalanceSheetBody';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
 import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
@@ -69,7 +69,7 @@ export default function BalanceSheetPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load cost centres'); return r.json(); })
       .then(json => setCostCentres(json.data?.items || json.data || []))
       .catch(() => { /* reference data load failure — non-critical */ });
     apiFetch('/api/accounting/business-units?active=true', { credentials: 'include' })
@@ -94,12 +94,12 @@ export default function BalanceSheetPage() {
         params.set('compare_date', shiftYearISO(asAtDate, -1));
       }
       const res = await apiFetch(`/api/accounting/reports-balance-sheet?${params}`);
-      await assertOk(res, 'Failed to load');
+      await assertOk(res, 'Could not load the balance sheet - try again');
       const json = await res.json();
       if (requestId === reportRequestRef.current) setReport(json.data || json);
     } catch (err) {
       if (requestId === reportRequestRef.current)
-        setError(err instanceof Error ? err.message : 'Failed to load balance sheet');
+        setError(apiErrorMessage(err, 'Could not load balance sheet - try again'));
     } finally {
       if (requestId === reportRequestRef.current) setIsLoading(false);
     }

@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Landmark, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { BankAccountSelector } from '@/components/accounting/bank/BankAccountSelector';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -40,12 +40,12 @@ export default function NewReconciliationPage() {
         }),
       });
 
+      await assertOk(res, 'Could not start reconciliation - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed to start reconciliation');
       const data = json.data || json;
       void router.push(`/accounting/bank-reconciliation/${data.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start reconciliation');
+      setError(apiErrorMessage(err, 'Could not start reconciliation - try again'));
     } finally {
       setIsSubmitting(false);
     }

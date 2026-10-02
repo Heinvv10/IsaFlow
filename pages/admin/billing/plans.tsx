@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { AlertCircle, Loader2, Plus, Pencil, Archive, X, Check } from 'lucide-react';
 
@@ -60,7 +60,7 @@ export default function PlansPage() {
       const json = await res.json();
       setPlans((json.data ?? []) as Plan[]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load plans');
+      setError(apiErrorMessage(err, 'Could not load plans - try again'));
     } finally {
       setLoading(false);
     }
@@ -126,7 +126,7 @@ export default function PlansPage() {
       setShowForm(false);
       void load();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Save failed');
+      setFormError(apiErrorMessage(err, 'Could not complete: save - try again'));
     } finally {
       setSaving(false);
     }
@@ -139,7 +139,7 @@ export default function PlansPage() {
       await assertOk(res, 'Archive failed');
       void load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Archive failed');
+      setError(apiErrorMessage(err, 'Could not complete: archive - try again'));
     }
   }
 

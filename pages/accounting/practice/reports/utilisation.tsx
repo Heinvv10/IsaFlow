@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, BarChart2, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import type { UtilisationRow } from '@/modules/accounting/services/practice/practiceReportsService';
@@ -65,11 +65,12 @@ export default function UtilisationPage() {
     if (userId.trim()) qs.set('userId', userId.trim());
     apiFetch(`/api/accounting/practice/reports/utilisation?${qs.toString()}`)
       .then(async (res) => {
+        await assertOk(res, 'Could not load the utilisation report - try again');
         const json = (await res.json()) as { data?: UtilisationRow[] } | UtilisationRow[];
         const data = (json && typeof json === 'object' && 'data' in json ? (json as { data: UtilisationRow[] }).data : json) as UtilisationRow[];
         setRows(data ?? []);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
+      .catch((e: unknown) => { setRows([]); setError(apiErrorMessage(e, 'Could not load the utilisation report - try again')); })
       .finally(() => setLoading(false));
   }, [period.dateFrom, period.dateTo, userId]);
 

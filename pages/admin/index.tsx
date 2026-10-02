@@ -90,8 +90,8 @@ export default function AdminDashboard() {
       await assertOk(statsRes, 'Could not load the dashboard - try again');
       const statsJson = await statsRes.json();
       setStats(statsJson.data as DashboardStats);
-      setHealth(healthRes.ok ? ((await healthRes.json()).data as PlatformHealth) : null);
-      setTrials(trialsRes.ok ? (((await trialsRes.json()).data ?? []) as TrialRow[]) : []);
+      setHealth(healthRes.ok ? (((await healthRes.json().catch(() => null))?.data ?? null) as PlatformHealth | null) : null);
+      setTrials(trialsRes.ok ? (((await trialsRes.json().catch(() => null))?.data ?? []) as TrialRow[]) : []);
     } catch (err) {
       setStats(null); setHealth(null); setTrials([]);
       setError(apiErrorMessage(err, 'Could not load the dashboard - try again'));

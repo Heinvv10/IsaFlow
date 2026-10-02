@@ -8,6 +8,7 @@ import { Sparkles, X } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
 
 import { notify } from '@/utils/toast';
+import { apiErrorMessage } from '@/lib/apiFetch';
 const DISMISSED_KEY = 'isaflow_demo_cta_dismissed';
 
 interface DemoCompanyCTAProps {
@@ -42,7 +43,7 @@ export function DemoCompanyCTA({ message }: DemoCompanyCTAProps) {
     try {
       if (demoCompanyId) await switchCompany(demoCompanyId);
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : 'Could not switch company - try again');
+      notify.error(apiErrorMessage(e, 'Could not switch company - try again'));
       return;   // still on the old company: keep the offer
     }
     handleDismiss();

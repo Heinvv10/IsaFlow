@@ -23,7 +23,7 @@ vi.mock('@/contexts/CompanyContext', () => ({
   }),
 }));
 
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, ApiEnvelopeError } from '@/lib/apiFetch';
 import { CompanySwitcher } from '@/components/layout/CompanySwitcher';
 import { DemoCompanyCTA } from '@/components/onboarding/DemoCompanyCTA';
 import BureauDashboardPage from '../../../pages/bureau/index';
@@ -31,7 +31,7 @@ import BureauDashboardPage from '../../../pages/bureau/index';
 useApiJsonOverMock();
 configure({ asyncUtilTimeout: 4000 });
 const MSG = 'D2 server says no: you no longer have access to that company';
-beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); h.switchCompany.mockRejectedValue(new Error(MSG)); });
+beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); h.switchCompany.mockRejectedValue(new ApiEnvelopeError(MSG)); });
 afterEach(() => { cleanup(); vi.mocked(apiFetch).mockReset(); });
 
 describe('a refused company switch', () => {

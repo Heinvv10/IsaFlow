@@ -7,7 +7,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import {
   ArrowLeft, Loader2, AlertCircle, GitCompare, AlertTriangle,
@@ -133,11 +133,12 @@ export default function PayrollRunVariancePage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch(`/api/payroll/runs/${runId}/variance`);
-      const json = await res.json() as { data?: PayrollVariance; message?: string; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message || json.message || `HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the variance report - try again');
+      const json = await res.json() as { data?: PayrollVariance };
       setData(json.data ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      setData(null);
+      setError(apiErrorMessage(err, 'Could not load the variance report - try again'));
     } finally {
       setLoading(false);
     }

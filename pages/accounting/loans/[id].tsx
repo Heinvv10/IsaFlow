@@ -52,11 +52,12 @@ export default function LoanDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/loans/${id}`);
-      await assertOk(res, 'Failed to load loan');
+      await assertOk(res, 'Could not load the loan - try again');
       const json = await res.json();
       setLoan(json.data);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to load loan'));
+      setLoan(null);
+      setError(apiErrorMessage(err, 'Could not load the loan - try again'));
     }
     setLoadingLoan(false);
   }, [id]);
@@ -71,6 +72,7 @@ export default function LoanDetailPage() {
       const json = await res.json();
       setScheduleRows(json.data?.rows ?? []);
     } catch (err) {
+      setScheduleRows([]);
       setTabError(apiErrorMessage(err, 'Could not load the repayment schedule - try again'));
     } finally {
       setLoadingSchedule(false);
@@ -86,6 +88,7 @@ export default function LoanDetailPage() {
       const json = await res.json();
       setEvents(json.data ?? []);
     } catch (err) {
+      setEvents([]);
       setTabError(apiErrorMessage(err, 'Could not load the loan events - try again'));
     }
   }, [id]);
@@ -116,7 +119,7 @@ export default function LoanDetailPage() {
   useEffect(() => {
     loadLoan().catch((err) => {
       setLoadingLoan(false);
-      setError(err instanceof Error ? err.message : 'Failed to load loan');
+      setError(apiErrorMessage(err, 'Could not load loan - try again'));
     });
   }, [loadLoan]);
 
@@ -140,7 +143,7 @@ export default function LoanDetailPage() {
           setLoadingCurve(false);
           log.error('Failed to load rate curve', { error: err }, 'loan-detail-page');
         });
-      } else { setCurve(null); setCurvePoints([]); }
+      } else { setCurve(null); setCurvePoints([]); setTabError(''); }
     }
   }, [tab, loan, scheduleRows.length, loadSchedule, loadEvents, loadCurve]);
 

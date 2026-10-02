@@ -92,7 +92,7 @@ export default function AdminCompaniesPage() {
       setRows(d.items);
       setTotal(d.total);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not load companies - try again'));
+      setRows([]); setTotal(0); setSelectedIds(new Set()); setError(apiErrorMessage(err, 'Could not load companies - try again'));
     } finally {
       setLoading(false);
     }
@@ -218,7 +218,7 @@ export default function AdminCompaniesPage() {
       setSelectedIds(new Set());
       void load(search, status, page, sortBy, sortDir);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Bulk suspend failed');
+      setError(apiErrorMessage(err, 'Could not suspend the companies - try again'));
     } finally {
       setBulkLoading(false);
     }
@@ -236,7 +236,7 @@ export default function AdminCompaniesPage() {
       setSelectedIds(new Set());
       void load(search, status, page, sortBy, sortDir);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Extend trial failed');
+      setError(apiErrorMessage(err, 'Could not extend the trial - try again'));
     } finally {
       setBulkLoading(false);
     }

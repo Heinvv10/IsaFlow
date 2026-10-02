@@ -7,7 +7,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Briefcase, Loader2, AlertCircle, ArrowLeft, Clock } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { JobStatusBadge } from '@/components/practice/JobStatusBadge';
 import type { PracticeJob } from '@/modules/accounting/services/practice/practiceJobService';
 import type { PracticeTask } from '@/modules/accounting/services/practice/practiceTaskService';
@@ -58,7 +58,7 @@ export default function JobDetailPage() {
         apiFetch('/api/accounting/practice/users'),
       ]);
       if (jobRes.status === 404) { setError('Job not found'); return; }
-      if (!jobRes.ok) throw new Error(`HTTP ${jobRes.status}`);
+      await assertOk(jobRes, 'Could not load the job - try again');
       const j = await jobRes.json() as { data?: PracticeJob } | PracticeJob;
       const job = ('data' in j ? j.data : j) as PracticeJob;
       setJob(job); setForm(job);
@@ -66,7 +66,7 @@ export default function JobDetailPage() {
         const uj = await usersRes.json() as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
         setUsers(Array.isArray(uj) ? uj : ((uj as { data?: CompanyUserSummary[] }).data ?? []));
       }
-    } catch { setError('Failed to load job'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load the job - try again')); }
     finally { setLoading(false); }
   }, [jobId]);
 
@@ -75,20 +75,20 @@ export default function JobDetailPage() {
   useEffect(() => {
     if (tab !== 'tasks' || tasksLoaded || !jobId) return;
     void apiFetch(`/api/accounting/practice/tasks?jobId=${jobId}`)
-      .then(r => r.ok ? r.json() : null)
-      .then((j: { data?: { tasks: PracticeTask[] }; tasks?: PracticeTask[] } | null) => {
-        if (j) { const p = j.data ?? j; setTasks((p as { tasks: PracticeTask[] }).tasks ?? []); }
+      .then(async r => { await assertOk(r, 'Could not load the tasks - try again'); return r.json(); })
+      .then((j: { data?: { tasks: PracticeTask[] }; tasks?: PracticeTask[] }) => {
+        const p = j.data ?? j; setTasks((p as { tasks: PracticeTask[] }).tasks ?? []);
       })
+      .catch(e => setBanner(apiErrorMessage(e, 'Could not load the tasks - try again')))
       .finally(() => setTasksLoaded(true));
   }, [tab, tasksLoaded, jobId]);
 
   useEffect(() => {
     if (tab !== 'time' || timeLoaded || !jobId) return;
     void apiFetch(`/api/accounting/practice/time-entries?jobId=${jobId}`)
-      .then(r => r.ok ? r.json() : null)
-      .then((j: { data?: { entries: PracticeTimeEntry[] } } | null) => {
-        if (j) setEntries(j.data?.entries ?? []);
-      })
+      .then(async r => { await assertOk(r, 'Could not load the time entries - try again'); return r.json(); })
+      .then((j: { data?: { entries: PracticeTimeEntry[] } }) => setEntries(j.data?.entries ?? []))
+      .catch(e => setBanner(apiErrorMessage(e, 'Could not load the time entries - try again')))
       .finally(() => setTimeLoaded(true));
   }, [tab, timeLoaded, jobId]);
 
@@ -97,9 +97,9 @@ export default function JobDetailPage() {
     setSaving(true); setBanner('');
     try {
       const r = await apiFetch(`/api/accounting/practice/jobs/${job.id}`, { method: 'PUT', body: JSON.stringify(form) });
-      if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? `HTTP ${r.status}`); }
+      await assertOk(r, 'Could not save the job - try again');
       await loadJob();
-    } catch (e) { setBanner(e instanceof Error ? e.message : 'Save failed'); }
+    } catch (e) { setBanner(apiErrorMessage(e, 'Could not save the job - try again')); }
     finally { setSaving(false); }
   }
 
@@ -107,18 +107,18 @@ export default function JobDetailPage() {
     if (!job) return; setBanner('');
     try {
       const r = await apiFetch('/api/accounting/practice/jobs/transition', { method: 'POST', body: JSON.stringify({ id: job.id, newStatus: s }) });
-      if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? `HTTP ${r.status}`); }
+      await assertOk(r, 'Could not change the job status - try again');
       await loadJob();
-    } catch (e) { setBanner(e instanceof Error ? e.message : 'Transition failed'); }
+    } catch (e) { setBanner(apiErrorMessage(e, 'Could not change the job status - try again')); }
   }
 
   async function del() {
     if (!job || !confirm('Delete this job?')) return; setBanner('');
     try {
       const r = await apiFetch(`/api/accounting/practice/jobs/${job.id}`, { method: 'DELETE' });
-      if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? `HTTP ${r.status}`); }
+      await assertOk(r, 'Could not delete the job - try again');
       void router.push('/accounting/practice/jobs');
-    } catch (e) { setBanner(e instanceof Error ? e.message : 'Delete failed'); }
+    } catch (e) { setBanner(apiErrorMessage(e, 'Could not delete the job - try again')); }
   }
 
   async function addTask() {
@@ -126,8 +126,9 @@ export default function JobDetailPage() {
     setAdding(true);
     try {
       const r = await apiFetch('/api/accounting/practice/tasks', { method: 'POST', body: JSON.stringify({ jobId: job.id, title: taskTitle.trim() }) });
-      if (r.ok) { const j = await r.json() as { data?: PracticeTask } | PracticeTask; setTasks(p => [...p, ('data' in j ? j.data : j) as PracticeTask]); setTaskTitle(''); }
-    } catch { /* non-critical */ }
+      await assertOk(r, 'Could not add the task - try again');
+      const j = await r.json() as { data?: PracticeTask } | PracticeTask; setTasks(p => [...p, ('data' in j ? j.data : j) as PracticeTask]); setTaskTitle('');
+    } catch (e) { setBanner(apiErrorMessage(e, 'Could not add the task - try again')); }
     finally { setAdding(false); }
   }
 

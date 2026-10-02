@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage } from '@/lib/apiFetch';
 import { Building2, Loader2, AlertCircle, Plus, X } from 'lucide-react';
 
 interface CostCentre {
@@ -53,7 +53,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
         if (list.length > 0) setMode('split');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load cost centres');
+      setError(apiErrorMessage(err, 'Could not load cost centres - try again'));
     } finally {
       setLoading(false);
     }

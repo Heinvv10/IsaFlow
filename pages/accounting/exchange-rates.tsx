@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingUp, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { ExchangeRatesPanel } from '@/components/accounting/currencies/ExchangeRatesPanel';
 import type { Currency, ExchangeRate } from '@/modules/accounting/services/core/currencyService';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 export default function ExchangeRatesPage() {
   const [currencies, setCurrencies] = useState<Currency[]>([]);
@@ -24,12 +24,15 @@ export default function ExchangeRatesPage() {
         apiFetch('/api/accounting/currencies', { credentials: 'include' }),
         apiFetch('/api/accounting/exchange-rates?limit=50', { credentials: 'include' }),
       ]);
+      await assertOk(currRes, 'Could not load the exchange rate data - try again');
+      await assertOk(ratesRes, 'Could not load the exchange rate data - try again');
       const currJson = await currRes.json();
       const ratesJson = await ratesRes.json();
       setCurrencies(Array.isArray(currJson.data) ? currJson.data : []);
       setExchangeRates(Array.isArray(ratesJson.data) ? ratesJson.data : []);
-    } catch {
-      setError('Failed to load exchange rate data');
+    } catch (err) {
+      setCurrencies([]); setExchangeRates([]);
+      setError(apiErrorMessage(err, 'Could not load the exchange rate data - try again'));
     } finally {
       setIsLoading(false);
     }

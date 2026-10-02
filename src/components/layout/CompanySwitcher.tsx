@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Building2, ChevronDown, Check, Plus } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
 import { notify } from '@/utils/toast';
+import { apiErrorMessage } from '@/lib/apiFetch';
 export function CompanySwitcher() {
   const { activeCompany, companies, switchCompany, loading } = useCompany();
   const [open, setOpen] = useState(false);
@@ -70,7 +71,7 @@ export function CompanySwitcher() {
                   key={c.companyId}
                   onClick={() => {
                     if (!isActive) {
-                      switchCompany(c.companyId).catch((e) => notify.error(e instanceof Error ? e.message : 'Could not switch company - try again'));
+                      switchCompany(c.companyId).catch((e) => notify.error(apiErrorMessage(e, 'Could not switch company - try again')));
                     }
                     setOpen(false);
                   }}

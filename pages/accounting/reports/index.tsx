@@ -21,7 +21,7 @@ import { FavouriteButton } from '@/components/accounting/reports/FavouriteButton
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { isVatSurfaceHref } from '@/components/accounting/navSections/vatNav';
 import { useReportFavourites } from '@/hooks/useReportFavourites';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { cn } from '@/utils/cn';
 
@@ -162,7 +162,7 @@ function useShowDescriptions() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ preferences: { [SHOW_DESC_PREF]: String(next) } }),
-      }).catch(err => log.error('Failed to save show-descriptions pref', { err }, 'ReportsHub'));
+      }).then(res => assertOk(res, 'Could not save the display preference')).catch(err => log.error('Failed to save show-descriptions pref', { err }, 'ReportsHub'));
       return next;
     });
   }, []);

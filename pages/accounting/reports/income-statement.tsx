@@ -11,7 +11,7 @@ import { ArrowLeft, BarChart3, Loader2, AlertCircle, Download, FileSpreadsheet }
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import { IncomeStatementSections } from '@/components/accounting/IncomeStatementSections';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
 import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
@@ -75,7 +75,7 @@ export default function IncomeStatementPage() {
 
     let cancelled = false;
     apiFetch('/api/accounting/fiscal-periods?open_period=true', { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the open period - try again'); return r.json(); })
       .then(json => {
         if (cancelled) return;
         if (!qStart && !qEnd) {
@@ -114,7 +114,7 @@ export default function IncomeStatementPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the cost centres - try again'); return r.json(); })
       .then(json => setCostCentres(json.data?.items || json.data || []))
       .catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
     apiFetch('/api/accounting/business-units?active=true', { credentials: 'include' })
@@ -168,7 +168,7 @@ export default function IncomeStatementPage() {
       if (requestId === reportRequestRef.current) setReport(json.data || json);
     } catch (err) {
       if (requestId === reportRequestRef.current)
-        setError(err instanceof Error ? err.message : 'Failed to load income statement');
+        setError(apiErrorMessage(err, 'Could not load income statement - try again'));
     } finally {
       if (requestId === reportRequestRef.current) setIsLoading(false);
     }

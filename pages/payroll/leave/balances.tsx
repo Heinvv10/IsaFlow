@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { BarChart3, Loader2, AlertCircle, ArrowLeft, Play, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 interface BalanceRow {
   employeeId: string;
@@ -56,7 +56,7 @@ export default function LeaveBalancesPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/leave/balances?year=${year}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the leave balances - try again');
       const json = await res.json() as { data?: BalanceRow[] };
       const rows = (json.data ?? []) as BalanceRow[];
 
@@ -81,8 +81,9 @@ export default function LeaveBalancesPage() {
         };
       });
       setEmployees(Array.from(empMap.values()));
-    } catch {
-      setError('Failed to load balances');
+    } catch (err) {
+      setEmployees([]); setLeaveTypes([]);
+      setError(apiErrorMessage(err, 'Could not load the leave balances - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -101,16 +102,13 @@ export default function LeaveBalancesPage() {
       const now = new Date();
       const monthForYear = year === now.getFullYear() ? now.getMonth() + 1 : 12;
       const res = await apiFetch(`/api/payroll/leave/accrue?year=${year}&month=${monthForYear}`, { method: 'POST' });
-      const json = await res.json() as { data?: { updated: number; skipped: number }; error?: { message?: string } };
-      if (!res.ok) {
-        setActionError(json.error?.message ?? `HTTP ${res.status}`);
-        return;
-      }
+      await assertOk(res, 'Could not run the leave accrual - try again');
+      const json = await res.json() as { data?: { updated: number; skipped: number } };
       const r = json.data ?? { updated: 0, skipped: 0 };
       setActionResult(`Accrual to end of ${monthForYear}/${year}: ${r.updated} updated, ${r.skipped} skipped`);
       await load();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Accrual failed');
+      setActionError(apiErrorMessage(err, 'Could not run the leave accrual - try again'));
     } finally {
       setActionBusy(null);
     }
@@ -125,16 +123,13 @@ export default function LeaveBalancesPage() {
     setActionBusy('rollover');
     try {
       const res = await apiFetch(`/api/payroll/leave/rollover?fromYear=${fromYear}&toYear=${toYear}`, { method: 'POST' });
-      const json = await res.json() as { data?: { updated: number; skipped: number }; error?: { message?: string } };
-      if (!res.ok) {
-        setActionError(json.error?.message ?? `HTTP ${res.status}`);
-        return;
-      }
+      await assertOk(res, 'Could not roll over the leave balances - try again');
+      const json = await res.json() as { data?: { updated: number; skipped: number } };
       const r = json.data ?? { updated: 0, skipped: 0 };
       setActionResult(`Rolled ${fromYear} → ${toYear}: ${r.updated} updated, ${r.skipped} skipped (already had activity)`);
       await load();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Rollover failed');
+      setActionError(apiErrorMessage(err, 'Could not roll over the leave balances - try again'));
     } finally {
       setActionBusy(null);
     }

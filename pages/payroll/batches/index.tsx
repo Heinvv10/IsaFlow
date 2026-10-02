@@ -5,7 +5,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Layers, Loader2, AlertCircle, Plus } from 'lucide-react';
 
@@ -54,11 +54,12 @@ export default function PayrollBatchesListPage() {
     try {
       const qs = statusFilter ? `?status=${statusFilter}` : '';
       const res = await apiFetch(`/api/payroll/batches${qs}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the batches - try again');
       const json = await res.json();
       setBatches((json.data ?? json) as BatchRow[]);
-    } catch {
-      setError('Failed to load batches');
+    } catch (err) {
+      setBatches([]);
+      setError(apiErrorMessage(err, 'Could not load the batches - try again'));
     } finally {
       setIsLoading(false);
     }

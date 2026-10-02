@@ -9,7 +9,7 @@ import Link from 'next/link';
 import {
   ArrowLeft, FileText, Loader2, AlertCircle, Download, Plus, Save,
 } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { NoteCard } from '@/components/accounting/NoteCard';
 
 interface DisclosureNote {
@@ -46,7 +46,7 @@ export default function DisclosureNotesPage() {
       const json = await res.json();
       setNotes(json.data?.notes ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load notes');
+      setError(apiErrorMessage(err, 'Could not load notes - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -71,7 +71,7 @@ export default function DisclosureNotesPage() {
       setManualTitle(''); setManualContent(''); setManualNumber(20); setShowAddForm(false);
       await loadNotes();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to save');
+      setSaveError(apiErrorMessage(err, 'Could not save - try again'));
     } finally { setIsSaving(false); }
   }
 

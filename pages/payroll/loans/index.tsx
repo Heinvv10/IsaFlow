@@ -4,7 +4,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Banknote, Loader2, AlertCircle, Plus } from 'lucide-react';
 
@@ -50,7 +50,7 @@ export default function LoansListPage() {
         apiFetch(`/api/payroll/loans${qs}`),
         apiFetch('/api/payroll/components'),
       ]);
-      if (!loansRes.ok) throw new Error(`HTTP ${loansRes.status}`);
+      await assertOk(loansRes, 'Could not load the loans - try again');
       const json = await loansRes.json();
       setLoans((json.data ?? json) as LoanRow[]);
       if (compRes.ok) {
@@ -59,8 +59,9 @@ export default function LoansListPage() {
         const codes = new Set(components.map(c => c.sarsSourceCode));
         setComponentsMissing(!codes.has('LOAN') || !codes.has('3801'));
       }
-    } catch {
-      setError('Failed to load loans');
+    } catch (err) {
+      setLoans([]);
+      setError(apiErrorMessage(err, 'Could not load the loans - try again'));
     } finally {
       setLoading(false);
     }
@@ -70,7 +71,10 @@ export default function LoansListPage() {
     setSeeding(true);
     try {
       const res = await apiFetch('/api/payroll/loans/setup-components', { method: 'POST' });
-      if (res.ok) await load();
+      await assertOk(res, 'Could not set up the loan components - try again');
+      await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not set up the loan components - try again'));
     } finally {
       setSeeding(false);
     }

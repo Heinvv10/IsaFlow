@@ -17,7 +17,7 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co-1' }, switchCompany: h.switchCompany }) }));
 const router = vi.hoisted(() => ({ query: { companyId: 'co-9' }, isReady: true, push: vi.fn(), replace: vi.fn() }));
 
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, ApiEnvelopeError } from '@/lib/apiFetch';
 import ClientHomePage from '../../../pages/bureau/clients/[companyId]';
 
 useApiJsonOverMock();
@@ -33,7 +33,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); });
 
 it('a refused switch shows the message and does not navigate; a good switch navigates', async () => {
-  h.switchCompany.mockRejectedValue(new Error(MSG));
+  h.switchCompany.mockRejectedValue(new ApiEnvelopeError(MSG));
   render(<ClientHomePage />);
   fireEvent.click(await screen.findByText('Chase D2 debtors'));
   await waitFor(() => expect(h.notify.error).toHaveBeenCalledWith(MSG));

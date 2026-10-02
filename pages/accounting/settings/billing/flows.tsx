@@ -6,7 +6,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { TopUpModal } from '@/components/billing/TopUpModal';
 import { UpgradeNudgeBanner, type NudgeLevel } from '@/components/billing/UpgradeNudgeBanner';
 import { Zap, Plus, AlertCircle, Loader2 } from 'lucide-react';
@@ -61,13 +61,16 @@ export default function FlowsSettingsPage() {
         return;
       }
 
+      await assertOk(wRes, 'Could not load your Flow wallet - try again');
+      await assertOk(bRes, 'Could not load the Flow bundles - try again');
+      await assertOk(lRes, 'Could not load your Flow ledger - try again');
       const [wJson, bJson, lJson] = await Promise.all([wRes.json(), bRes.json(), lRes.json()]);
-      if (!wRes.ok) throw new Error(wJson?.error?.message ?? 'Failed to load wallet');
       setWallet(wJson.data as Wallet);
       setBundles(bJson.data as Bundle[]);
       setLedger(lJson.data.entries as LedgerEntry[]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      setWallet(null); setBundles([]); setLedger([]);
+      setError(apiErrorMessage(err, 'Could not load your Flow wallet - try again'));
     } finally {
       setLoading(false);
     }

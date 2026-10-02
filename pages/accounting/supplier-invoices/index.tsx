@@ -102,6 +102,7 @@ export default function SupplierInvoicesPage() {
   const loadCounts = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/supplier-invoices?status_counts=1');
+      await assertOk(res, 'Could not load the invoice counts');
       const json = await res.json();
       const data = (json.data || json) as { counts: Record<string, number> };
       setCounts(data.counts || {});

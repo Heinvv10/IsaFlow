@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Plug, ShieldCheck, Loader2, ShieldOff, X } from 'lucide-react';
 
 interface ConnectedApp {
@@ -53,14 +53,12 @@ export default function ConnectedAppsPage() {
     setLoading(true);
     try {
       const res = await apiFetch('/api/oauth/connected-apps');
-      const json = (await res.json()) as { data?: ConnectedApp[]; error?: { message?: string } };
-      if (!res.ok) {
-        showToast(json.error?.message ?? 'Failed to load connected apps', false);
-        return;
-      }
+      await assertOk(res, 'Could not load your connected apps - try again');
+      const json = (await res.json()) as { data?: ConnectedApp[] };
       setApps(json.data ?? []);
-    } catch {
-      showToast('Network error', false);
+    } catch (err) {
+      setApps([]);
+      showToast(apiErrorMessage(err, 'Could not load your connected apps - try again'), false);
     } finally {
       setLoading(false);
     }
@@ -73,12 +71,11 @@ export default function ConnectedAppsPage() {
     setRevoking(authorisationId);
     try {
       const res = await apiFetch(`/api/oauth/authorisations/${authorisationId}`, { method: 'DELETE' });
-      const json = (await res.json()) as { error?: { message?: string } };
-      if (!res.ok) { showToast(json.error?.message ?? 'Failed to revoke', false); return; }
+      await assertOk(res, 'Could not revoke access - try again');
       showToast('Access revoked', true);
       void load();
-    } catch {
-      showToast('Network error', false);
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not revoke access - try again'), false);
     } finally {
       setRevoking(null);
     }

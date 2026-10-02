@@ -53,7 +53,7 @@ export default function ValidatePage() {
       const json = await res.json();
       setValidation(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Validation failed');
+      setError(apiErrorMessage(err, 'Could not complete: validation - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -84,7 +84,7 @@ export default function ValidatePage() {
       await assertOk(res, 'Failed to complete migration');
       setCompleted(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to complete migration');
+      setError(apiErrorMessage(err, 'Could not complete migration - try again'));
     } finally {
       setIsCompleting(false);
     }

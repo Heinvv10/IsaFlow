@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { HandOffsetNotice, type HandOffset } from './HandOffsetNotice';
 
 interface AutoPostRun {
@@ -85,19 +85,16 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
         body: JSON.stringify({ action: 'undo', runId }),
       });
       if (res.status === 409) {
-        throw new Error('Another request is working on this run\'s lines — try again in a moment.');
+        throw new ApiEnvelopeError('Another request is working on this run\'s lines — try again in a moment.');
       }
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({})) as { error?: { message?: string } };
-        throw new Error(errJson.error?.message ?? `Undo failed (${res.status})`);
-      }
+      await assertOk(res, 'Could not undo this run - try again');
       const result = ((await res.json()) as { data?: UndoResult }).data;
       if (result?.undone === false) setUndoNotice(partialUndoMessage(result));
       if (result?.handOffsets?.length) setHandOffsets({ runId, offsets: result.handOffsets });
       load();
       onUndone?.();
     } catch (err) {
-      setUndoError(err instanceof Error ? err.message : 'Undo failed — please try again');
+      setUndoError(apiErrorMessage(err, 'Could not undo this run - try again'));
     } finally {
       setBusy(null);
     }

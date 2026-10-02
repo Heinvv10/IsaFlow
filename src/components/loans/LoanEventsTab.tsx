@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { Plus, Loader2 } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { LoanEvent, fmtDate, fmt } from './types';
 
 interface Props {
@@ -50,7 +50,7 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
       setShowForm(false);
       onRefresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add event');
+      setError(apiErrorMessage(err, 'Could not add event - try again'));
     } finally {
       setBusy(false);
     }

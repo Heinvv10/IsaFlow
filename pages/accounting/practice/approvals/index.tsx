@@ -71,12 +71,12 @@ export default function ApprovalsPage() {
       if (f.dateFrom) params.set('dateFrom', f.dateFrom);
       if (f.dateTo) params.set('dateTo', f.dateTo);
       const res = await apiFetch(`/api/accounting/practice/time-entries?${params.toString()}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load time entries - try again');
       type ListJson = { data?: { entries: PracticeTimeEntry[]; total: number } } | { entries: PracticeTimeEntry[]; total: number };
       const json = (await res.json()) as ListJson;
       const data = 'data' in json && json.data ? json.data : (json as { entries: PracticeTimeEntry[]; total: number });
       setEntries(data.entries ?? []); setTotal(data.total ?? 0); setSelected(new Set());
-    } catch (err) { setLoadError(err instanceof Error ? err.message : 'Failed to load entries'); }
+    } catch (err) { setEntries([]); setTotal(0); setSelected(new Set()); setLoadError(apiErrorMessage(err, 'Could not load time entries - try again')); }
     finally { setLoading(false); }
   }, []);
 

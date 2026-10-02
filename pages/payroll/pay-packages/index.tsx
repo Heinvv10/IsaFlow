@@ -5,7 +5,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage } from '@/lib/apiFetch';
 import { Package, Loader2, AlertCircle, Plus, ChevronRight } from 'lucide-react';
 
 interface PayPackage {
@@ -37,7 +37,7 @@ export default function PayPackagesPage() {
   }, []);
   useEffect(() => {
     load().catch((err) => {
-      setError(err instanceof Error ? err.message : 'Failed to load packages');
+      setError(apiErrorMessage(err, 'Could not load packages - try again'));
     });
   }, [load]);
 

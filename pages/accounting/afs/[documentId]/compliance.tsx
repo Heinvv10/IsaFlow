@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { AlertTriangle, XCircle, FileCheck, ShieldCheck, ChevronRight } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { useRouter } from 'next/router';
 import type { PisScore, ComplianceResult, CipcFilingGuide, AfsComplianceAlert } from '@/modules/accounting/services/afs/afsTypes';
@@ -34,24 +34,26 @@ export default function CompliancePage() {
         apiFetch(`/api/accounting/afs/${documentId}/cipc-filing-guide`, { credentials: 'include' }),
         apiFetch('/api/accounting/compliance-alerts', { credentials: 'include' }),
       ]);
-      const [pisJson, guideJson, alertsJson] = await Promise.all([
-        pisRes.json() as Promise<{ data?: PisScore; error?: { message?: string } }>,
-        guideRes.json() as Promise<{ data?: CipcFilingGuide; error?: { message?: string } }>,
-        alertsRes.json() as Promise<{ data?: { alerts?: AfsComplianceAlert[] }; error?: { message?: string } }>,
+      await assertOk(pisRes, 'Could not load the PIS score - try again');
+      await assertOk(guideRes, 'Could not load the CIPC filing guide - try again');
+      const [pisJson, guideJson] = await Promise.all([
+        pisRes.json() as Promise<{ data?: PisScore }>,
+        guideRes.json() as Promise<{ data?: CipcFilingGuide }>,
       ]);
-      if (!pisRes.ok) throw new Error(pisJson.error?.message ?? 'Failed to load PIS score');
-      if (!guideRes.ok) throw new Error(guideJson.error?.message ?? 'Failed to load CIPC guide');
-      if (pisJson.data) setPisScore(pisJson.data);
-      if (guideJson.data) setCipcGuide(guideJson.data);
-      if (alertsRes.ok && alertsJson.data?.alerts) {
-        setAlerts(
-          (alertsJson.data.alerts as AfsComplianceAlert[]).filter(
-            a => a.alertType?.startsWith('pis_') || a.alertType?.startsWith('afs_')
-          )
-        );
-      }
+      setPisScore(pisJson.data ?? null);
+      setCipcGuide(guideJson.data ?? null);
+      // The alerts are an extra: a failed alerts call leaves the page usable without them.
+      const alertsJson = alertsRes.ok
+        ? await alertsRes.json().catch(() => null) as { data?: { alerts?: AfsComplianceAlert[] } } | null
+        : null;
+      setAlerts(
+        (alertsJson?.data?.alerts ?? []).filter(
+          a => a.alertType?.startsWith('pis_') || a.alertType?.startsWith('afs_')
+        )
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load compliance data');
+      setPisScore(null); setCipcGuide(null); setAlerts([]);
+      setError(apiErrorMessage(err, 'Could not load the compliance data - try again'));
     } finally {
       setLoading(false);
     }
@@ -66,11 +68,11 @@ export default function CompliancePage() {
       const res = await apiFetch(`/api/accounting/afs/${documentId}/compliance-check`, {
         method: 'POST', credentials: 'include',
       });
-      const json = await res.json() as { data?: ComplianceResult; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Compliance check failed');
+      await assertOk(res, 'Could not run the compliance check - try again');
+      const json = await res.json() as { data?: ComplianceResult };
       if (json.data) setComplianceResult(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Compliance check failed');
+      setError(apiErrorMessage(err, 'Could not run the compliance check - try again'));
     } finally {
       setRunningCheck(false);
     }
@@ -84,11 +86,11 @@ export default function CompliancePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ submitted }),
       });
-      if (!res.ok) throw new Error(`Update failed: ${res.status}`);
+      await assertOk(res, 'Could not update the CIPC annual return status - try again');
       await loadData();
     } catch (err) {
       log.warn('CIPC submission toggle failed', { error: err }, 'compliance-page');
-      setError(err instanceof Error ? err.message : 'Failed to update CIPC annual return status');
+      setError(apiErrorMessage(err, 'Could not update the CIPC annual return status - try again'));
     } finally {
       setTogglingCipc(false);
     }
@@ -103,10 +105,11 @@ export default function CompliancePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ alertId }),
       });
-      if (!res.ok) throw new Error(`Dismiss failed: ${res.status}`);
+      await assertOk(res, 'Could not dismiss the alert - try again');
     } catch (err) {
       log.warn('Dismiss failed, rolling back UI', { error: err }, 'compliance-page');
       setAlerts(prevAlerts);
+      setError(apiErrorMessage(err, 'Could not dismiss the alert - try again'));
     }
   }
 

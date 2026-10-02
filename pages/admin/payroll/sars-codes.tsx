@@ -103,7 +103,7 @@ export default function AdminSarsCodesPage() {
       setCodes(json.data?.codes ?? []);
       setTaxYear(json.data?.taxYear ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      setError(apiErrorMessage(err, 'Could not load - try again'));
     } finally {
       setLoading(false);
     }
@@ -409,7 +409,7 @@ function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete
       setStep(dryRun ? 'preview' : 'done');
       if (!dryRun) setTimeout(onComplete, 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Something went wrong - try again'));
     } finally {
       setWorking(false);
     }

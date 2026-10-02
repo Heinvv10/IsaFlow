@@ -7,7 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -77,11 +77,10 @@ export default function NewSupplierCreditNotePage() {
           submitAction,
         }),
       });
-      const json = await res.json() as { error?: { message?: string }; data?: { id?: string } };
-      if (!res.ok) throw new Error(json?.error?.message ?? 'Failed to create credit note');
+      await assertOk(res, 'Could not create the credit note - try again');
       await router.push('/accounting/supplier-credit-notes');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create credit note');
+      setError(apiErrorMessage(err, 'Could not create the credit note - try again'));
     } finally {
       setIsSubmitting(false);
     }

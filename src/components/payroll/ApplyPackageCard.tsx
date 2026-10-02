@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage } from '@/lib/apiFetch';
 import { Package, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -32,7 +32,7 @@ export function ApplyPackageCard({ employeeId }: Props) {
         setPackages(((json.data ?? json) as Pkg[]) ?? []);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load packages');
+      setError(apiErrorMessage(err, 'Could not load packages - try again'));
     } finally {
       setLoading(false);
     }

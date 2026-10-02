@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Banknote, Loader2, AlertCircle, Download } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { localISODate, prevMonthRange } from '@/lib/dateUtils';
 
 interface CashFlowSection {
@@ -38,7 +38,8 @@ export default function CashFlowPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    apiFetch('/api/accounting/cost-centres', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/cost-centres', { credentials: 'include' })
+      .then(async r => { await assertOk(r, 'Could not load cost centres'); return r.json(); }).then(res => {
       const list = res.data?.items || [];
       setCostCentres(list.map((c: Record<string, unknown>) => ({ id: String(c.id), code: String(c.code), name: String(c.name) })));
     }).catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
@@ -51,15 +52,13 @@ export default function CashFlowPage() {
       const params = new URLSearchParams({ start_date: startDate || '', end_date: endDate || '' });
       if (costCentreFilter) params.set('cost_centre', costCentreFilter);
       const res = await apiFetch(`/api/accounting/reports-cash-flow?${params}`);
+      await assertOk(res, 'Could not load the cash flow statement - try again');
       const json = await res.json();
-      if (!res.ok) {
-        setError(json?.error?.message || 'Failed to load cash flow statement');
-        return;
-      }
       const data = json.data || json;
       setReport(data.report || data);
-    } catch {
-      setError('Failed to load cash flow statement');
+    } catch (err) {
+      setReport(null);
+      setError(apiErrorMessage(err, 'Could not load the cash flow statement - try again'));
     } finally {
       setIsLoading(false);
     }

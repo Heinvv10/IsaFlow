@@ -10,7 +10,7 @@ import {
   AlertTriangle, ExternalLink,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 
 interface YearEndStatus {
@@ -57,11 +57,12 @@ export default function YearEndPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/year-end/status?taxYear=${taxYear}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the year-end status - try again');
       const json = await res.json() as { data?: YearEndStatus };
       setStatus(json.data ?? null);
-    } catch {
-      setError('Failed to load year-end status');
+    } catch (err) {
+      setStatus(null);
+      setError(apiErrorMessage(err, 'Could not load the year-end status - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -73,11 +74,7 @@ export default function YearEndPage() {
     setDownloadError(null);
     try {
       const res = await apiFetch(`/api/payroll/irp5/easyfile-export?taxYear=${taxYear}`);
-      if (!res.ok) {
-        const json = await res.json().catch(() => null) as { error?: { message?: string } } | null;
-        setDownloadError(json?.error?.message ?? `HTTP ${res.status}`);
-        return;
-      }
+      await assertOk(res, 'Could not download the EasyFile export - try again');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -86,7 +83,7 @@ export default function YearEndPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setDownloadError(err instanceof Error ? err.message : 'Download failed');
+      setDownloadError(apiErrorMessage(err, 'Could not download the EasyFile export - try again'));
     }
   };
 

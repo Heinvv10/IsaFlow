@@ -7,7 +7,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Search, BookmarkPlus, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import type { BankTx, SelectOption } from './BankTxTable';
 import type { RuleMatchType, RuleVatCode } from '@/modules/accounting/types/bank.types';
 
@@ -186,7 +186,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
     const timer = setTimeout(async () => {
       try {
         const params = new URLSearchParams({ pattern, matchType, bankAccountId });
-        const res = await apiFetch(`/api/accounting/bank-rules-preview?${params}`);
+        const res = await apiFetch(`/api/accounting/bank-rules-preview?${params}`); await assertOk(res, 'Could not preview the matches');
         const json = await res.json();
         setMatchCount(json.data?.matchCount ?? 0);
       } catch {
@@ -246,9 +246,9 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      await assertOk(res, 'Failed to create rule');
+      await assertOk(res, 'Could not create the rule - try again');
       const json = await res.json();
-      if (json.success === false) throw new Error(json.error?.message || 'Failed to create rule');
+      if (json.success === false) throw new ApiEnvelopeError(json.error?.message || 'Could not create the rule - try again');
       const rawApplied = (json as { data?: { applied?: unknown } }).data?.applied;
       const applied = typeof rawApplied === 'number' && Number.isFinite(rawApplied) ? rawApplied : 0;
       const verb = autoCreateEntry ? 'allocated' : 'matched';
@@ -257,7 +257,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
         : 'Rule created');
       onCreated();
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : 'Failed to create rule');
+      notify.error(apiErrorMessage(e, 'Could not create the rule - try again'));
     } finally {
       setSaving(false);
     }

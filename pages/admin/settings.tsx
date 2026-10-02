@@ -140,7 +140,7 @@ export default function AdminSettings() {
       await assertOk(res, 'Failed to save settings');
       setSuccess('Settings saved successfully.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save settings');
+      setError(apiErrorMessage(err, 'Could not save settings - try again'));
     } finally {
       setSaving(false);
     }
@@ -155,7 +155,7 @@ export default function AdminSettings() {
       await assertOk(res, 'Failed to save alert settings');
       setAlertSuccess('Alert settings saved.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save alert settings');
+      setError(apiErrorMessage(err, 'Could not save alert settings - try again'));
     } finally {
       setSavingAlerts(false);
     }

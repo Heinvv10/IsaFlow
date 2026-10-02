@@ -14,10 +14,29 @@ import Image from 'next/image';
 import { Eye, EyeOff, Building2, ShieldCheck, Lock, Mail } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
+import { ApiEnvelopeError, apiErrorMessage } from '@/lib/apiFetch';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LoginBrandPanel } from '@/components/auth/LoginBrandPanel';
 
 type LoginStep = 'credentials' | 'totp';
+
+const AUTH_UNAVAILABLE = 'Sign-in is temporarily unavailable - please try again shortly';
+
+interface AuthReply {
+  success?: boolean;
+  data?: { requires_2fa?: boolean; factor_id?: string };
+  error?: { message?: string };
+  message?: string;
+}
+
+/** Status first: a 5xx (auth outage, possibly an empty body) is "unavailable", never a wrong-password message. */
+async function readAuthReply(res: Response, fallback: string): Promise<AuthReply> {
+  if (res.status >= 500) throw new ApiEnvelopeError(AUTH_UNAVAILABLE);
+  const json = await res.text().then((t) => JSON.parse(t) as AuthReply).catch(() => null);
+  if (!res.ok) throw new ApiEnvelopeError(json?.error?.message ?? json?.message ?? fallback);
+  if (!json?.success) throw new ApiEnvelopeError(json?.error?.message ?? json?.message ?? AUTH_UNAVAILABLE);
+  return json;
+}
 
 interface InviteData {
   companyName: string;
@@ -324,21 +343,7 @@ export default function LoginPage() {
       // from a prior attempt that may have been against a different account.
       setLockoutExpiresAt(null);
 
-      const json = await res.json() as {
-        success: boolean;
-        data?: {
-          requires_2fa?: boolean;
-          factor_id?: string;
-          user?: unknown;
-        };
-        error?: { message: string };
-        message?: string;
-      };
-
-      if (!res.ok || !json.success) {
-        // Surface error — setError is not exposed from AuthContext, so throw to catch block
-        throw new Error(json.error?.message ?? json.message ?? 'Login failed');
-      }
+      const json = await readAuthReply(res, 'Could not sign in - check your email and password and try again');
 
       // GoTrue 2FA gate — show TOTP step.
       // pending_token is now held in an HttpOnly cookie set by /api/auth/login;
@@ -362,7 +367,7 @@ export default function LoginPage() {
       const target = await postLoginRedirect();
       window.location.assign(target);
     } catch (err) {
-      setTotpError(err instanceof Error ? err.message : 'Login failed');
+      setTotpError(apiErrorMessage(err, 'Could not reach the server - check your connection and try again'));
     } finally {
       setSubmitting(false);
     }
@@ -396,21 +401,13 @@ export default function LoginPage() {
       }
       setLockoutExpiresAt(null);
 
-      const json = await res.json() as {
-        success: boolean;
-        data?: { user?: { id: string }; activeCompanyId?: string | null };
-        error?: { message: string };
-      };
-      if (!json.success) {
-        setTotpError(json.error?.message ?? 'Invalid code');
-        return;
-      }
+      await readAuthReply(res, 'That code was not accepted - try again');
       // Full-page reload to drop any provider state from the /login render —
       // see the no-MFA path for the rationale.
       const target = await postLoginRedirect();
       window.location.assign(target);
-    } catch {
-      setTotpError('Network error. Please try again.');
+    } catch (err) {
+      setTotpError(apiErrorMessage(err, 'Network error. Please try again.'));
     } finally {
       setSubmitting(false);
     }

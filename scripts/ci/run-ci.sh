@@ -52,6 +52,10 @@ run_step "oauth-trust-flags"      bun scripts/ci/check-oauth-trust-flags.ts
 # GitHub's CI job must call this script, not a hand-kept copy of its list
 # (R-052: GitHub ran 5 of these gates while a PR showed green).
 run_step "workflow-runs-ci"       bun scripts/ci/check-workflow-runs-ci.ts
+# Client code must read the HTTP status before a response body, say what failed
+# in a plain sentence, show errors through apiErrorMessage, and check its writes
+# (D2: four defect classes found one review round at a time; this finds them all).
+run_step "client-responses"       bun scripts/ci/check-client-responses.ts
 run_step "unit-tests"        bun run test:unit
 run_step "component-tests"   bun run test:components
 run_step "migration-naming"  bun scripts/audit-migration-naming.ts

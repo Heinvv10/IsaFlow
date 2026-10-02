@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { UserPlus, Loader2, ArrowLeft } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -68,15 +68,12 @@ export default function NewEmployeePage() {
           medicalAidDependantsCount: Number(form.medicalAidDependantsCount) || 0,
         }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not create the employee - try again');
       const json = await res.json();
       const created = json.data ?? json;
       void router.push(`/payroll/employees/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Create failed');
+      setError(apiErrorMessage(err, 'Could not create the employee - try again'));
     } finally {
       setSubmitting(false);
     }

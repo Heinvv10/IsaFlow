@@ -9,7 +9,7 @@ import { ReportBuilderSidebar } from '@/components/accounting/reports/ReportBuil
 import { ReportBuilderFilters, type FilterRow } from '@/components/accounting/reports/ReportBuilderFilters';
 import { ReportBuilderPreview } from '@/components/accounting/reports/ReportBuilderPreview';
 import { Play, Save, Download, ChevronLeft, BookOpen } from 'lucide-react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { localISODate } from '@/lib/dateUtils';
@@ -39,6 +39,7 @@ interface RunResult {
   rowCount: number;
 }
 
+const EMPTY_RESULT: RunResult = { columns: [], rows: [], totals: {}, rowCount: 0 };
 export default function ReportBuilderPage() {
   const router = useRouter();
   const [dataSource, setDataSource] = useState('');
@@ -46,7 +47,7 @@ export default function ReportBuilderPage() {
   const [columns, setColumns] = useState<Column[]>([]);
   const [filters, setFilters] = useState<FilterRow[]>([]);
   const [sort, setSort] = useState<SortState[]>([]);
-  const [result, setResult] = useState<RunResult>({ columns: [], rows: [], totals: {}, rowCount: 0 });
+  const [result, setResult] = useState<RunResult>(EMPTY_RESULT);
   const [isRunning, setIsRunning] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [reportName, setReportName] = useState('Untitled Report');
@@ -63,7 +64,7 @@ export default function ReportBuilderPage() {
     setColumns([]);
     setFilters([]);
     setSort([]);
-    setResult({ columns: [], rows: [], totals: {}, rowCount: 0 });
+    setResult(EMPTY_RESULT);
     if (source) {
       apiFetch(`/api/accounting/custom-reports-fields?source=${source}`, { credentials: 'include' })
         .then(async r => { await assertOk(r, 'Could not load report fields - try again'); return r.json(); })
@@ -118,8 +119,10 @@ export default function ReportBuilderPage() {
       });
       await assertOk(res, 'Could not run the report - try again');
       const json = await res.json();
+      if (!json.data) throw new ApiEnvelopeError('Could not run the report - try again');
       setResult(json.data);
     } catch (err) {
+      setResult(EMPTY_RESULT);
       showToast(apiErrorMessage(err, 'Could not run the report - try again'));
     } finally {
       setIsRunning(false);

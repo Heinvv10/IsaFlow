@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Link2, Unlink } from 'lucide-react';
-import { apiFetch, ApiRequestError, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { InlineReasonForm } from '@/components/shared/InlineReasonForm';
 
@@ -41,13 +41,18 @@ export function LinkTaxInvoiceButton({ journalEntryId, onChanged }: Props) {
   const [confirmingUnlinkId, setConfirmingUnlinkId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await apiFetch(`/api/accounting/journal-document-links?journal_entry_id=${journalEntryId}`);
-    if (!res.ok) return;
-    const body = await res.json();
-    const data = body.data ?? body;
-    setLinks(data.links ?? []);
-    setCandidates(data.candidates ?? []);
-    setSelectedId((data.candidates ?? [])[0]?.id ?? '');
+    try {
+      const res = await apiFetch(`/api/accounting/journal-document-links?journal_entry_id=${journalEntryId}`);
+      await assertOk(res, 'Could not load the linked documents - try again');
+      const body = await res.json();
+      const data = body.data ?? body;
+      setLinks(data.links ?? []);
+      setCandidates(data.candidates ?? []);
+      setSelectedId((data.candidates ?? [])[0]?.id ?? '');
+    } catch (err) {
+      setLinks([]); setCandidates([]); setSelectedId('');
+      setError(apiErrorMessage(err, 'Could not load the linked documents - try again'));
+    }
   }, [journalEntryId]);
 
   useEffect(() => {
@@ -71,7 +76,7 @@ export function LinkTaxInvoiceButton({ journalEntryId, onChanged }: Props) {
       onChanged?.();
     } catch (err) {
       log.warn('LinkTaxInvoiceButton: link failed', { error: err }, 'LinkTaxInvoiceButton');
-      setError(err instanceof ApiRequestError ? err.message : 'Could not link this document');
+      setError(apiErrorMessage(err, 'Could not link this document'));
     } finally {
       setBusy(false);
     }
@@ -93,7 +98,7 @@ export function LinkTaxInvoiceButton({ journalEntryId, onChanged }: Props) {
       onChanged?.();
     } catch (err) {
       log.warn('LinkTaxInvoiceButton: unlink failed', { error: err }, 'LinkTaxInvoiceButton');
-      setError(err instanceof ApiRequestError ? err.message : 'Could not unlink this document');
+      setError(apiErrorMessage(err, 'Could not unlink this document'));
     } finally {
       setBusy(false);
     }

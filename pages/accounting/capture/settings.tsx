@@ -6,7 +6,7 @@ import { WhatsAppVerificationSection } from '@/components/accounting/capture/Wha
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, apiJson, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, apiJson, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import {
   Mail, Smartphone, Server,
   Copy, Check, RefreshCw, AlertCircle, Loader2, X, Zap,
@@ -63,10 +63,13 @@ export default function CaptureSettingsPage() {
   const loadChaseSettings = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/chase-settings');
-      if (!res.ok) return;
+      await assertOk(res, 'Could not load the chase settings - try again');
       const json = await res.json() as { data?: ChaseSettings };
-      if (json.data) setChaseSettings(json.data);
-    } catch { /* non-fatal */ }
+      setChaseSettings(json.data ?? null);
+    } catch (err) {
+      setChaseSettings(null);
+      showToast(apiErrorMessage(err, 'Could not load the chase settings - try again'), false);
+    }
   }, []);
 
   useEffect(() => { void Promise.all([loadAddress(), loadChaseSettings()]); },
@@ -88,7 +91,7 @@ export default function CaptureSettingsPage() {
       setInboxAddr(inbox);
       showToast('Inbox address regenerated', true);
     } catch (err) {
-      showToast(apiErrorMessage(err, 'Regenerate failed'), false);
+      showToast(apiErrorMessage(err, 'Could not regenerate the inbox address - try again'), false);
     } finally {
       setRegenerating(false);
     }
@@ -102,12 +105,12 @@ export default function CaptureSettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       });
-      const json = await res.json() as { data?: ChaseSettings; error?: string };
-      if (!res.ok) { showToast(json.error ?? 'Failed to save settings', false); return; }
+      await assertOk(res, 'Could not save the chase settings - try again');
+      const json = await res.json() as { data?: ChaseSettings };
       if (json.data) setChaseSettings(json.data);
       showToast('Chase settings saved', true);
-    } catch {
-      showToast('Network error', false);
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not save the chase settings - try again'), false);
     } finally {
       setChaseSaving(false);
     }

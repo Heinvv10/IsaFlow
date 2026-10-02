@@ -7,7 +7,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { CheckSquare, Loader2, AlertCircle, Plus } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import type { PracticeTask, PracticeTaskInput } from '@/modules/accounting/services/practice/practiceTaskService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
@@ -75,10 +75,10 @@ export default function PracticeTasksPage() {
     setLoading(true); setError('');
     try {
       const r = await apiFetch('/api/accounting/practice/tasks');
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await assertOk(r, 'Could not load the tasks - try again');
       const j = await r.json() as { data?: { tasks: PracticeTask[] }; tasks?: PracticeTask[] };
       setTasks(((j.data ?? j) as { tasks: PracticeTask[] }).tasks ?? []);
-    } catch { setError('Failed to load tasks'); }
+    } catch (e) { setTasks([]); setError(apiErrorMessage(e, 'Could not load the tasks - try again')); }
     finally { setLoading(false); }
   }, []);
 
@@ -108,9 +108,9 @@ export default function PracticeTasksPage() {
     setPopover(null);
     try {
       const r = await apiFetch('/api/accounting/practice/tasks/transition', { method: 'POST', body: JSON.stringify({ id, newStatus: ns }) });
-      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; throw new Error(j.error ?? `HTTP ${r.status}`); }
+      await assertOk(r, 'Could not update the task status - try again');
       flash('Status updated'); await loadTasks();
-    } catch (e) { setError(e instanceof Error ? e.message : 'Transition failed'); }
+    } catch (e) { setError(apiErrorMessage(e, 'Could not update the task status - try again')); }
   }
 
   async function doAdd(e: React.FormEvent) {
@@ -120,10 +120,10 @@ export default function PracticeTasksPage() {
     try {
       const body: PracticeTaskInput = { title: qaTitle.trim(), assignedTo: qaAssigned.trim() || null, dueDate: qaDue || null, priority: qaPriority, jobId: qaJob || null };
       const r = await apiFetch('/api/accounting/practice/tasks', { method: 'POST', body: JSON.stringify(body) });
-      if (!r.ok) { const j = await r.json().catch(() => ({})) as { error?: string }; throw new Error(j.error ?? `HTTP ${r.status}`); }
+      await assertOk(r, 'Could not add the task - try again');
       setQaTitle(''); setQaAssigned(''); setQaDue(''); setQaPriority('normal'); setQaJob('');
       flash('Task added'); await loadTasks();
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to add task'); }
+    } catch (e) { setError(apiErrorMessage(e, 'Could not add the task - try again')); }
     finally { setQaAdding(false); }
   }
 

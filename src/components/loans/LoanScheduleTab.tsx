@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { SlidersHorizontal, X, Loader2 } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ScheduleRow, LoanEvent } from './types';
 import { LoanScheduleTable } from './LoanScheduleTable';
 
@@ -54,7 +54,7 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
       const json = await res.json();
       setPreviewRows(json.data?.rows ?? []);
     } catch (err) {
-      setPreviewError(err instanceof Error ? err.message : 'Preview failed');
+      setPreviewError(apiErrorMessage(err, 'Could not complete: preview - try again'));
     } finally {
       setPreviewLoading(false);
     }

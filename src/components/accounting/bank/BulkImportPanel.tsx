@@ -337,7 +337,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           }
         } catch (err) {
           failed++;
-          const msg = err instanceof Error ? err.message : 'Commit failed';
+          const msg = apiErrorMessage(err, 'Could not complete: commit - try again');
           setRows(prev => prev.map(r => r.id === row.id ? {
             ...r, phase: 'failed', errorMessage: msg,
           } : r));

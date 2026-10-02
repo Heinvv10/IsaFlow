@@ -8,7 +8,7 @@ import dynamic from 'next/dynamic';
 import { BarChart3 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -105,7 +105,7 @@ async function fetchSalesHistory(): Promise<{ bars: MonthBar[]; total: number } 
   inFlight = apiFetch(
     `/api/accounting/customer-invoices-list?status=paid&limit=500`
   )
-    .then(r => r.json() as Promise<ApiResponse>)
+    .then(async r => { await assertOk(r, 'Could not load the sales history'); return r.json() as Promise<ApiResponse>; })
     .then(json => {
       let rows: InvoiceRow[] = [];
       if (Array.isArray(json?.data)) {
@@ -186,8 +186,8 @@ export function SalesHistoryWidget() {
         if (result) { setBars(result.bars); setTotal(result.total); }
         setLoading(false);
       })
-      .catch(() => {
-        if (mounted.current) { setError('Unable to load sales history'); setLoading(false); }
+      .catch(err => {
+        if (mounted.current) { setBars([]); setTotal(0); setError(apiErrorMessage(err, 'Could not load the sales history - try again')); setLoading(false); }
       });
     return () => { mounted.current = false; };
   }, []);

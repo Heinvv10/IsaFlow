@@ -34,17 +34,21 @@ export default function WriteOffsPage() {
   const [error, setError] = useState('');
   const [form, setForm] = useState({ clientId: '', invoiceId: '', amount: '', reason: '' });
 
-  const load = useCallback(async () => {
-    const res = await apiFetch('/api/accounting/write-offs', { credentials: 'include' });
-    await assertOk(res, 'Could not load write-offs - try again');
-    const json = await res.json();
-    setItems(json.data?.items || []);
-    setLoading(false);
+  // Resolves to a load error message ('' when fine): a failed load clears the rows, never throws into a write's flow.
+  const load = useCallback(async (): Promise<string> => {
+    try {
+      const res = await apiFetch('/api/accounting/write-offs', { credentials: 'include' });
+      await assertOk(res, 'Could not load write-offs - try again');
+      const json = await res.json();
+      setItems(json.data?.items || []);
+      return '';
+    } catch (err) {
+      setItems([]);
+      return apiErrorMessage(err, 'Could not load write-offs - try again');
+    } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => {
-    load().catch(err => { setLoading(false); setError(apiErrorMessage(err, 'Could not load write-offs - try again')); });
-  }, [load]);
+  useEffect(() => { void load().then(msg => { if (msg) setError(msg); }); }, [load]);
   useEffect(() => {
     apiFetch('/api/accounting/customers', { credentials: 'include' })
       .then(async r => { await assertOk(r, 'Could not load clients - try again'); return r.json(); }).then(res => {
@@ -78,7 +82,7 @@ export default function WriteOffsPage() {
       await assertOk(res, 'Could not save the write-off - try again');
       setShowForm(false);
       setForm({ clientId: '', invoiceId: '', amount: '', reason: '' });
-      await load();
+      if (await load()) setError('The write-off was saved, but the list could not be refreshed - reload the page');
     } catch (err) { setError(apiErrorMessage(err, 'Could not save the write-off - try again')); }
     finally { setBusy(''); }
   };
@@ -91,7 +95,7 @@ export default function WriteOffsPage() {
         credentials: 'include', body: JSON.stringify({ action: 'approve', id }),
       });
       await assertOk(res, 'Could not approve the write-off - try again');
-      await load();
+      if (await load()) setError('The write-off was approved, but the list could not be refreshed - reload the page');
     } catch (err) { setError(apiErrorMessage(err, 'Could not approve the write-off - try again')); }
     finally { setBusy(''); }
   };

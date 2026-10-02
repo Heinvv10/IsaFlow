@@ -39,6 +39,7 @@ export function AssetLocationSelect({ value, onChange, required, className }: Pr
       const json = await res.json() as { data?: Location[] };
       setLocations(json.data ?? []);
     } catch (err) {
+      setLocations([]);
       setAddError(apiErrorMessage(err, 'Could not load locations - try again'));
     } finally {
       setLoading(false);
@@ -63,14 +64,14 @@ export function AssetLocationSelect({ value, onChange, required, className }: Pr
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: trimmed }),
       });
-      const json = await res.json() as { data?: Location; error?: { message: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to add location');
+      await assertOk(res, 'Could not add the location - try again');
+      const json = await res.json() as { data?: Location };
       await loadLocations();
       if (json.data) onChange(json.data.name);
       setNewName('');
       setShowAdd(false);
     } catch (err) {
-      setAddError(err instanceof Error ? err.message : 'Failed');
+      setAddError(apiErrorMessage(err, 'Could not add the location - try again'));
     } finally {
       setSaving(false);
     }

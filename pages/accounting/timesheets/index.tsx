@@ -131,10 +131,10 @@ export default function TimesheetsPage() {
       const res = await apiFetch('/api/accounting/time-entries', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not save the time entry - try again');
       showToast('Entry added', true);
       setShowForm(false); setForm({ ...BLANK_FORM }); void loadEntries();
-    } catch (err) { showToast(err instanceof Error ? err.message : 'Save failed', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not save the time entry - try again'), false); }
     setFormBusy(false);
   };
 
@@ -149,11 +149,11 @@ export default function TimesheetsPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ timeEntryIds: ids, customerId: first.customerId, invoiceDate: fmtISO(new Date()) }),
       });
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not create the invoice - try again');
       const j = await res.json() as { data?: { invoiceNumber?: string }; message?: string };
       showToast(`Invoice ${j.data?.invoiceNumber ?? ''} created`, true);
       setSelected(new Set()); void loadEntries();
-    } catch (err) { showToast(err instanceof Error ? err.message : 'Invoice failed', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not create the invoice - try again'), false); }
     setInvoiceBusy(false);
   };
 

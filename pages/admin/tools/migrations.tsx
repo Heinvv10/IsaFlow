@@ -66,6 +66,7 @@ export default function AdminMigrationsPage() {
   const [executing, setExecuting]   = useState(false);
   const [result, setResult]         = useState<ExecResult | null>(null);
   const [execErr, setExecErr]       = useState('');
+  const [coErr, setCoErr]           = useState('');
 
   const refs = {
     accounts:  useRef<HTMLInputElement>(null),
@@ -77,10 +78,10 @@ export default function AdminMigrationsPage() {
     setZones(prev => ({ ...prev, [t]: { ...prev[t], ...p } }));
 
   const loadCompanies = useCallback(async () => {
-    setLoadingCo(true);
+    setLoadingCo(true); setCoErr('');
     try {
       const res  = await apiFetch('/api/admin/companies?limit=200&sort_by=name&sort_dir=asc');
-      await assertOk(res, 'Could not load companies - try again');
+      await assertOk(res, 'Could not load the companies - try again');
       const json = await res.json();
       const items: Company[] = (json.data?.items ?? []).map((c: Company) =>
         ({ id: c.id, name: c.name, trading_name: c.trading_name }));
@@ -88,6 +89,8 @@ export default function AdminMigrationsPage() {
       if (items.length > 0 && items[0]) setCompanyId(items[0].id);
     } catch (err) {
       log.error('Failed to load companies for migration tool', { error: err }, 'admin-ui');
+      setCompanies([]); setCompanyId('');
+      setCoErr(apiErrorMessage(err, 'Could not load the companies - try again'));
     } finally { setLoadingCo(false); }
   }, []);
 
@@ -114,11 +117,11 @@ export default function AdminMigrationsPage() {
         headers: { 'X-Company-Id': companyId },
         body: fd,
       });
-      await assertOk(res, 'Parse failed');
+      await assertOk(res, 'Could not read the file - check it and try again');
       const json = await res.json();
       patch(type, { status: 'parsed', count: json.data?.count ?? 0, parsed: json.data?.parsed ?? [] });
     } catch (err) {
-      patch(type, { status: 'error', error: err instanceof Error ? err.message : 'Upload failed' });
+      patch(type, { status: 'error', error: apiErrorMessage(err, 'Could not read the file - check it and try again') });
     }
   };
 
@@ -132,11 +135,11 @@ export default function AdminMigrationsPage() {
         headers: { 'Content-Type': 'application/json', 'X-Company-Id': companyId },
         body: JSON.stringify({ source, accounts: zones.accounts.parsed, customers: zones.customers.parsed, suppliers: zones.suppliers.parsed }),
       });
-      await assertOk(res, 'Migration failed');
+      await assertOk(res, 'Could not run the migration - try again');
       const { data } = await res.json() as { data: ExecResult };
       setResult({ ...data, customersSkipped: data.customersSkipped ?? 0, suppliersSkipped: data.suppliersSkipped ?? 0, customersFailed: data.customersFailed ?? 0, suppliersFailed: data.suppliersFailed ?? 0, errors: Array.isArray(data.errors) ? data.errors : [] });
     } catch (err) {
-      setExecErr(apiErrorMessage(err, 'Migration failed'));
+      setExecErr(apiErrorMessage(err, 'Could not run the migration - try again'));
     } finally { setExecuting(false); }
   };
 
@@ -177,6 +180,7 @@ export default function AdminMigrationsPage() {
                   {companies.map(c => <option key={c.id} value={c.id}>{c.trading_name ?? c.name}</option>)}
                 </select>
               )}
+              {coErr && <p role="alert" className="mt-1 text-xs text-red-500">{coErr}</p>}
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Source System</label>

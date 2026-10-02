@@ -11,12 +11,12 @@ import { VatPeriodLocksTable } from './VatPeriodLocksTable';
 import type { VatPeriodLock } from './vatPeriodLockTypes';
 
 /** The exact fallback chain other accounting pages use for a 4xx/5xx body. */
-async function errorMessage(res: Response): Promise<string> {
+async function errorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const json = await res.json();
-    return json.error?.message || json.message || 'Failed';
+    return json.error?.message || json.message || fallback;
   } catch {
-    return 'Failed';
+    return fallback;
   }
 }
 
@@ -29,11 +29,12 @@ export function VatPeriodLocksPanel() {
     setLoading(true); setLoadError('');
     try {
       const res = await apiFetch('/api/accounting/vat-period-locks', { credentials: 'include' });
-      if (!res.ok) { setLoadError(await errorMessage(res)); return; }
+      if (!res.ok) { setLocks([]); setLoadError(await errorMessage(res, 'Could not load the VAT period locks - try again')); return; }
       const json = await res.json();
       setLocks(json.data?.locks ?? []);
     } catch {
-      setLoadError('Could not load VAT period locks');
+      setLocks([]);
+      setLoadError('Could not load the VAT period locks - try again');
     } finally {
       setLoading(false);
     }
@@ -53,7 +54,7 @@ export function VatPeriodLocksPanel() {
       }),
     });
     if (!res.ok) {
-      const msg = await errorMessage(res);
+      const msg = await errorMessage(res, 'Could not lock the VAT period - try again');
       return res.status === 403 ? 'Only an owner or admin can override blocking VAT exceptions.' : msg;
     }
     await load();
@@ -66,7 +67,7 @@ export function VatPeriodLocksPanel() {
       body: JSON.stringify({ action: 'unlock', lockId, reason }),
     });
     if (!res.ok) {
-      const msg = await errorMessage(res);
+      const msg = await errorMessage(res, 'Could not unlock the VAT period - try again');
       return res.status === 403 ? 'Only an owner or admin can unlock a VAT period.' : msg;
     }
     await load();

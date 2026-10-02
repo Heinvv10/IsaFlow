@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { ArrowLeft, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
 import type { ProjectProfitabilityReport } from '@/modules/accounting/types/gl.types';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 function getDefaultDates() {
@@ -42,7 +42,7 @@ export default function ProjectProfitabilityPage() {
       const data = json.data || json;
       setReports(Array.isArray(data) ? data : []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load profitability');
+      setError(apiErrorMessage(err, 'Could not load profitability - try again'));
     } finally {
       setIsLoading(false);
     }

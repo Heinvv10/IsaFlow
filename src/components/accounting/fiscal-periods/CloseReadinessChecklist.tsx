@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CheckCircle2, XCircle, AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type {
   CloseReadiness,
@@ -121,14 +121,12 @@ export function CloseReadinessChecklist({ periodId, periodName }: Props) {
       const res = await apiFetch(
         `/api/accounting/fiscal-periods/${encodeURIComponent(periodId)}/close-readiness`,
       );
+      await assertOk(res, 'Could not load the close-readiness checklist - try again');
       const json = (await res.json()) as ApiShape;
-      if (!res.ok) {
-        throw new Error(json.error?.message ?? 'Failed to load checklist');
-      }
       setReadiness(json.data ?? null);
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : 'Failed to load close-readiness checklist';
+      const msg = apiErrorMessage(err, 'Could not load the close-readiness checklist - try again');
+      setReadiness(null);
       log.error('Close readiness load failed', { error: err, periodId }, 'accounting-ui');
       setError(msg);
     } finally {

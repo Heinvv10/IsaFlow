@@ -18,7 +18,9 @@ export function TwoFactorSection() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const refresh = useCallback(async () => {
+  // `quiet`: right after a confirmed enable/disable the view is already correct, so a failed
+  // refresh is only logged — it must not paint a load error over the success view.
+  const refresh = useCallback(async (quiet = false) => {
     try {
       const res = await apiFetch('/api/auth/2fa-status');
       await assertOk(res, 'Could not load your two-factor status - try again');
@@ -31,6 +33,7 @@ export function TwoFactorSection() {
       }
     } catch (e) {
       log.warn('2fa-status load failed', { error: e }, 'auth');
+      if (quiet) return;
       setError(apiErrorMessage(e, 'Could not load your two-factor status - try again'));
       // Keep a known view; never fall to 'disabled' (the Enable panel) when the status is unknown.
       setView(v => (v === 'loading' ? 'unknown' : v));
@@ -45,7 +48,7 @@ export function TwoFactorSection() {
       const res = await apiFetch('/api/auth/2fa-enroll', { method: 'POST' });
       await assertOk(res, 'Could not start two-factor setup - try again');
       const json = await res.json() as { success: boolean; data?: EnrollData; error?: { message: string } };
-      if (!json.success || !json.data) throw new ApiEnvelopeError(json.error?.message ?? 'Enroll failed');
+      if (!json.success || !json.data) throw new ApiEnvelopeError(json.error?.message ?? 'Could not start two-factor setup - try again');
       setEnroll(json.data);
       setView('enrolling');
     } catch (e) {
@@ -65,11 +68,11 @@ export function TwoFactorSection() {
       });
       await assertOk(res, 'Could not verify the code - try again');
       const json = await res.json() as { success: boolean; error?: { message: string } };
-      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Invalid code');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'That code was not accepted - check it and try again');
       // 2FA is on now; if the status refresh fails the user must not be shown the Enable panel.
       setFactorId(enroll.factor_id); setView('enabled');
       setEnroll(null); setCode('');
-      await refresh();
+      await refresh(true);
     } catch (e) {
       setError(apiErrorMessage(e, 'Could not verify the code - try again'));
     } finally {
@@ -87,10 +90,10 @@ export function TwoFactorSection() {
       });
       await assertOk(res, 'Could not disable two-factor - try again');
       const json = await res.json() as { success: boolean; error?: { message: string } };
-      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Invalid code');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'That code was not accepted - check it and try again');
       setFactorId(null); setView('disabled');
       setCode('');
-      await refresh();
+      await refresh(true);
     } catch (e) {
       setError(apiErrorMessage(e, 'Could not disable two-factor - try again'));
     } finally {

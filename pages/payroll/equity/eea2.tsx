@@ -5,7 +5,7 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -40,20 +40,19 @@ export default function EEA2Page() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/equity/eea2?asOf=${asOf}`);
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? `HTTP ${res.status}`);
-        return;
-      }
+      await assertOk(res, 'Could not load EEA2 report - try again');
       const json = await res.json();
       setReport((json.data ?? json) as Report);
+    } catch (err) {
+      setReport(null);
+      setError(apiErrorMessage(err, 'Could not load EEA2 report - try again'));
     } finally {
       setLoading(false);
     }
   }, [asOf]);
   useEffect(() => {
     load().catch((err) => {
-      setError(err instanceof Error ? err.message : 'Failed to load EEA2 report');
+      setError(apiErrorMessage(err, 'Could not load EEA2 report - try again'));
     });
   }, [load]);
 

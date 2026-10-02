@@ -25,7 +25,7 @@ export function ScanAndFillButton({ onExtracted, className = '', label = 'Scan &
 
   useEffect(() => {
     apiFetch('/api/accounting/vlm-status')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not check the scanner'); return r.json(); })
       .then(json => setVlmAvailable(json.data?.available ?? false))
       .catch(() => setVlmAvailable(false));
   }, []);
@@ -58,7 +58,7 @@ export function ScanAndFillButton({ onExtracted, className = '', label = 'Scan &
 
       await assertOk(res, 'Could not scan the document - try again');
       const json = await res.json();
-      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Extraction failed');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Could not read this document - try again');
 
       const extracted = json.data.extracted as ExtractedDocument;
       setLastResult({

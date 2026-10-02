@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { FileText, Loader2, Save, Send, Download, ChevronLeft, ShieldCheck } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { ApiRequestError, apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { VAT201PeriodSelector } from '@/components/accounting/sars/VAT201PeriodSelector';
 import { TransactionTable } from '@/components/accounting/sars/VAT201FormSections';
 import { VAT201SummaryForm } from '@/components/accounting/sars/VAT201SummaryForm';
@@ -79,8 +79,9 @@ export default function VAT201Page() {
     void (async () => {
       try {
         const res = await apiFetch(`/api/accounting/companies?id=${activeCompany.id}`, { credentials: 'include' });
+        await assertOk(res, 'Could not load company VAT settings');
         const json = await res.json();
-        if (cancelled || !res.ok || !json.data) return;
+        if (cancelled || !json.data) return;
         const c = json.data as Record<string, unknown>;
         const a = normalizeVatAlignment((c.vatPeriodAlignment ?? c.vat_period_alignment) as string | undefined);
         const setting = normalizeVatSetting(
@@ -107,11 +108,11 @@ export default function VAT201Page() {
     setLoading(true); setError(''); setSuccess(''); setData(null); setSavedId(''); setExceptionsReport(null);
     try {
       const res = await apiFetch(`/api/accounting/sars/sars-vat201?from=${from}&to=${to}`, { credentials: 'include' });
+      await assertOk(res, 'Could not generate VAT201 - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       setData(json.data);
       setExceptionsKey(k => k + 1);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to generate VAT201'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not generate VAT201 - try again')); }
     finally { setLoading(false); }
   }, [from, to]);
 
@@ -123,11 +124,11 @@ export default function VAT201Page() {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ periodStart: from, periodEnd: to }),
       });
+      await assertOk(res, 'Could not save draft - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       setSavedId(json.data?.id || '');
       setSuccess('VAT201 draft saved successfully');
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to save draft'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not save draft - try again')); }
     finally { setSaving(false); }
   };
 
@@ -142,18 +143,18 @@ export default function VAT201Page() {
           ...(overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}),
         }),
       });
-      const json = await res.json();
       if (!res.ok) {
+        const json = await res.json().catch(() => null);
         // The gate refusal carries getVatExceptions' blocking counts
         // (error.details.counts) — show the blocking list, and (owner/admin
         // only) the override box, instead of only a generic error banner.
-        const counts = json.error?.details?.counts as VatGateCounts | undefined;
+        const counts = json?.error?.details?.counts as VatGateCounts | undefined;
         if (counts) setSubmitBlockedCounts(counts);
-        throw new Error(json.error?.message || json.message || 'Failed');
+        throw new ApiRequestError(json?.error?.message || json?.message || 'Could not mark the VAT201 as submitted - try again', res.status);
       }
       setSuccess('VAT201 marked as submitted to SARS');
       setShowSubmitModal(false); setSarsRef(''); setSubmitBlockedCounts(null); setOverrideReason('');
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to mark as submitted'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not mark the VAT201 as submitted - try again')); }
     finally { setSubmitting(false); }
   };
 

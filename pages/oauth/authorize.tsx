@@ -20,7 +20,7 @@ import { ConsentCompanyPicker } from '@/components/oauth/ConsentCompanyPicker';
 import { ConsentRejected } from '@/components/oauth/ConsentRejected';
 import { ConsentRedirectTarget } from '@/components/oauth/ConsentRedirectTarget';
 import { partitionRequestedScopes } from '@/lib/auth/consentScopes';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { parseCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from '@/lib/auth/cookies';
 import { resolveConsentCompany, type ConsentCompany } from '@/lib/auth/consentCompany';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
@@ -100,15 +100,13 @@ export default function AuthorizePage(props: Props | ErrorProps) {
           companyId,
         }),
       });
-      const json = (await res.json()) as { data?: { redirectTo: string }; error?: { message: string } };
-      if (!res.ok || !json.data?.redirectTo) {
-        setError(json.error?.message ?? 'Authorisation failed');
-        return;
-      }
+      await assertOk(res, 'Could not authorise this app - try again');
+      const json = (await res.json()) as { data?: { redirectTo: string } };
+      if (!json.data?.redirectTo) { setError('Could not authorise this app - try again'); return; }
       // Hard navigation to the partner — leaves the ISAFlow domain.
       window.location.href = json.data.redirectTo;
-    } catch {
-      setError('Network error. Please try again.');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not authorise this app - try again'));
     } finally {
       setSubmitting(false);
     }

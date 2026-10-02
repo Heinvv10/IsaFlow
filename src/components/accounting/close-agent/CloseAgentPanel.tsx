@@ -12,7 +12,7 @@ import Link from 'next/link';
 import {
   Loader2, ShieldCheck, CheckCircle2, XCircle, EyeOff, ChevronDown, ChevronRight, Sparkles, Info,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import {
   resolvePeriodId, groupProposals, formatAcceptance, type SlimPeriod,
 } from '@/lib/closeAgentView';
@@ -125,9 +125,10 @@ export function CloseAgentPanel({ period }: { period: string }) {
     try {
       const year = p.slice(0, 4);
       const perRes = await apiFetch(`/api/accounting/fiscal-periods?year=${year}`);
+      await assertOk(perRes, 'Could not load the fiscal periods - try again');
       const perJson = await perRes.json() as Envelope<SlimPeriod[]>;
       if (stale()) return;
-      if (!perRes.ok || !perJson.success) throw new Error(perJson.error?.message ?? 'Could not load fiscal periods');
+      if (!perJson.success) throw new ApiEnvelopeError(perJson.error?.message ?? 'Could not load the fiscal periods - try again');
       const resolved = resolvePeriodId(perJson.data ?? [], p);
       setPeriodInfo(resolved);
       if (resolved) {
@@ -146,7 +147,7 @@ export function CloseAgentPanel({ period }: { period: string }) {
         }
       }
     } catch (e) {
-      if (!stale()) setError(e instanceof Error ? e.message : 'Failed to load the close agent');
+      if (!stale()) setError(apiErrorMessage(e, 'Could not load the close agent - try again'));
     } finally {
       if (!stale()) setLoading(false);
     }
@@ -173,12 +174,18 @@ export function CloseAgentPanel({ period }: { period: string }) {
     setBusy(true); setError(null);
     try {
       const res = await apiFetch(url, { method: 'POST', body: JSON.stringify(body) });
+      await assertOk(res, 'Could not complete that action - try again');
       const json = await res.json() as Envelope<unknown>;
-      if (!res.ok || !json.success) throw new Error(json.error?.message ?? 'Action failed');
-      await onOk(reqId);
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Could not complete that action - try again');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Action failed');
-    } finally { setBusy(false); }
+      setError(apiErrorMessage(e, 'Could not complete that action - try again'));
+      setBusy(false);
+      return;
+    }
+    try { await onOk(reqId); } catch (e) {
+      setError(apiErrorMessage(e, 'The change was saved but the page could not refresh - reload it'));
+    }
+    setBusy(false);
   }, []);
 
   const start = useCallback(() => {

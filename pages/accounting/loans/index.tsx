@@ -9,7 +9,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { KpiStrip } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Landmark, Plus, Search, TrendingUp, Calendar, Percent, Loader2 } from 'lucide-react';
 import { Loan, PortfolioSummary, fmt, fmtDate, PRODUCT_LABELS } from '@/components/loans/types';
 import { LoanStatusBadge } from '@/components/loans/LoanStatusBadge';
@@ -39,25 +39,31 @@ export default function LoansIndexPage() {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [productFilter, setProductFilter] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     const [loansRes, summaryRes] = await Promise.all([
       apiFetch('/api/accounting/loans'),
       apiFetch('/api/accounting/loans/portfolio/summary'),
     ]);
+    await assertOk(loansRes, 'Could not load the loan portfolio - try again');
+    await assertOk(summaryRes, 'Could not load the loan portfolio - try again');
     const [loansJson, summaryJson] = await Promise.all([loansRes.json(), summaryRes.json()]);
     setLoans(loansJson.data ?? []);
     setSummary(summaryJson.data ?? null);
     setLoading(false);
   }, []);
 
-
   useEffect(() => {
     load().catch((err) => {
+      setLoans([]);
+      setSummary(null);
+      setError(apiErrorMessage(err, 'Could not load the loan portfolio - try again'));
       setLoading(false);
       log.error('Failed to load loan portfolio', { error: err }, 'loans-index-page');
     });
@@ -102,6 +108,7 @@ export default function LoansIndexPage() {
         </div>
 
         <div className="p-6 space-y-6">
+          {error && <div role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</div>}
           <KpiStrip items={[
             { label: 'Total Outstanding', value: summary ? fmt(summary.totalOutstanding) : '—', icon: Landmark, tone: 'neutral' },
             { label: 'Weighted Avg Rate', value: summary ? `${Number(summary.weightedAvgRate).toFixed(2)}%` : '—', icon: Percent, tone: 'info' },
@@ -164,7 +171,7 @@ export default function LoansIndexPage() {
                     </td>
                   </tr>
                 )}
-                {!loading && filtered.length === 0 && (
+                {!loading && !error && filtered.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
                       No loans found.{' '}

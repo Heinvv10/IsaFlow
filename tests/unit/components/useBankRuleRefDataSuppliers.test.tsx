@@ -3,7 +3,7 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })) }));
+vi.mock('@/lib/apiFetch', async (orig) => ({ ...await orig<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })) }));
 vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/fetchAllSuppliers', async (original) => ({ ...await original<typeof import('@/lib/fetchAllSuppliers')>(), fetchAllSuppliers: vi.fn() }));
 

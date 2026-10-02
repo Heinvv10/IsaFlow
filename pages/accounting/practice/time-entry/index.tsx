@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Clock, Loader2, AlertCircle, ChevronLeft, ChevronRight, Trash2, Send, CalendarRange } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { TimeEntryForm, type Client, type Category } from '@/components/practice/TimeEntryForm';
 import { fetchActiveClients, fetchJobCategories } from '@/components/practice/practiceApi';
@@ -72,7 +72,7 @@ export default function TimeEntryPage() {
         setClients(clientList);
         setCategories(categoryList);
       } catch (err) {
-        setInitError(`Failed to load clients or categories: ${err instanceof Error ? err.message : 'unknown error'}`);
+        setInitError(`Failed to load clients or categories: ${apiErrorMessage(err, 'unknown error')}`);
       }
       finally { setInitLoading(false); }
     })();
@@ -85,7 +85,7 @@ export default function TimeEntryPage() {
       const res = await apiFetch(
         `/api/accounting/practice/time-entries?userId=${user.id}&dateFrom=${selectedDate}&dateTo=${selectedDate}`,
       );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load entries for this day - try again');
       const json = (await res.json()) as { data?: { entries?: PracticeTimeEntry[] }; entries?: PracticeTimeEntry[] } | PracticeTimeEntry[];
       let list: PracticeTimeEntry[];
       if (Array.isArray(json)) list = json;
@@ -93,7 +93,7 @@ export default function TimeEntryPage() {
       else if ('entries' in json) list = (json as { entries?: PracticeTimeEntry[] }).entries ?? [];
       else list = [];
       setEntries(list);
-    } catch { setEntriesError('Failed to load entries for this day.'); }
+    } catch (err) { setEntries([]); setEntriesError(apiErrorMessage(err, 'Could not load entries for this day - try again')); }
     finally { setEntriesLoading(false); }
   }, [user?.id, selectedDate]);
 
@@ -101,10 +101,7 @@ export default function TimeEntryPage() {
 
   async function handleCreate(input: PracticeTimeEntryInput): Promise<void> {
     const res = await apiFetch('/api/accounting/practice/time-entries', { method: 'POST', body: JSON.stringify(input) });
-    if (!res.ok) {
-      const e = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(e.error ?? `HTTP ${res.status}`);
-    }
+    await assertOk(res, 'Could not save the time entry - try again');
     await reloadEntries();
   }
 
@@ -112,9 +109,9 @@ export default function TimeEntryPage() {
     setDeletingId(id); setActionError('');
     try {
       const res = await apiFetch(`/api/accounting/practice/time-entries/${id}`, { method: 'DELETE' });
-      if (!res.ok) { const e = (await res.json().catch(() => ({}))) as { error?: string }; throw new Error(e.error ?? `HTTP ${res.status}`); }
+      await assertOk(res, 'Could not delete the time entry - try again');
       await reloadEntries();
-    } catch (err) { setActionError(err instanceof Error ? err.message : 'Delete failed'); }
+    } catch (err) { setActionError(apiErrorMessage(err, 'Could not delete the time entry - try again')); }
     finally { setDeletingId(null); }
   }
 
@@ -124,9 +121,9 @@ export default function TimeEntryPage() {
     setSubmitting(true); setActionError('');
     try {
       const res = await apiFetch('/api/accounting/practice/time-entries/submit', { method: 'POST', body: JSON.stringify({ ids: draftIds }) });
-      if (!res.ok) { const e = (await res.json().catch(() => ({}))) as { error?: string }; throw new Error(e.error ?? `HTTP ${res.status}`); }
+      await assertOk(res, 'Could not submit the day - try again');
       await reloadEntries();
-    } catch (err) { setActionError(err instanceof Error ? err.message : 'Submit failed'); }
+    } catch (err) { setActionError(apiErrorMessage(err, 'Could not submit the day - try again')); }
     finally { setSubmitting(false); }
   }
 

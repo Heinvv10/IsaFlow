@@ -43,7 +43,7 @@ export default function ContactPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const json = await res.json().catch(() => null);
+      const json = res.status >= 500 ? null : await res.json().catch(() => null);
       if (res.ok && json?.success) {
         setStatus('sent');
         form.reset();

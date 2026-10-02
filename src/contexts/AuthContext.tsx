@@ -10,7 +10,7 @@ import {
 import type { AuthRole } from '@/lib/auth/types';
 import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
 import { log } from '@/lib/logger';
-import { ApiRequestError, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 /**
  * Authenticated user shape returned from /api/auth/me
@@ -180,7 +180,10 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
         credentials: 'include',
       });
 
-      await assertOk(res, 'Could not sign in - try again');
+      // A 503 is an auth outage, not a wrong password: say so unless the server gave its own sentence
+      await assertOk(res, res.status === 503
+        ? 'Sign-in is temporarily unavailable - please try again shortly'
+        : 'Could not sign in - try again');
       const data = await res.json();
 
       // 2FA required — signal caller to show TOTP step
@@ -192,12 +195,7 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
       setUser(raw ? mapApiUser(raw) : null);
       return false;
     } catch (err) {
-      // A 503 is an auth outage, not a wrong password: say so unless the server gave its own sentence
-      const fallback = err instanceof ApiRequestError && err.status === 503
-        ? 'Sign-in is temporarily unavailable - please try again shortly'
-        : 'Could not sign in - try again';
-      const message = err instanceof ApiRequestError && err.status === 503 && err.message === 'Could not sign in - try again'
-        ? fallback : apiErrorMessage(err, fallback);
+      const message = apiErrorMessage(err, 'Could not sign in - try again');
       setError(message);
       throw new Error(message);
     } finally {
@@ -220,11 +218,12 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
         ? document.cookie.split('; ').find((c) => c.startsWith('isaflow_csrf='))
         : undefined;
       if (csrfMatch) headers['X-CSRF-Token'] = csrfMatch.slice('isaflow_csrf='.length);
-      await fetch('/api/auth/logout', {
+      const res = await fetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include',
         headers,
       });
+      if (!res.ok) log.warn('Logout: the server did not clear the session cookie', { status: res.status }, 'AuthContext');
     } finally {
       setUser(null);
       clearTenantClientState();

@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, Layers, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import type { PipelineSummary } from '@/modules/accounting/services/practice/practiceReportsService';
@@ -54,11 +54,12 @@ export default function RevenuePipelinePage() {
     setError(null);
     apiFetch(`/api/accounting/practice/reports/revenue-pipeline?asOfDate=${asOfDate}`)
       .then(async (res) => {
+        await assertOk(res, 'Could not load the revenue pipeline - try again');
         const json = (await res.json()) as { data?: PipelineSummary } | PipelineSummary;
         const data = (json && typeof json === 'object' && 'data' in json ? (json as { data: PipelineSummary }).data : json) as PipelineSummary;
         setSummary(data);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
+      .catch((e: unknown) => { setSummary(null); setError(apiErrorMessage(e, 'Could not load the revenue pipeline - try again')); })
       .finally(() => setLoading(false));
   }, [asOfDate]);
 

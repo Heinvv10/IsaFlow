@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 const SUPPLIER_FIELDS = [
   'name', 'email', 'phone', 'vat_number', 'registration_number',
@@ -80,8 +80,8 @@ export default function SuppliersImportPage() {
       const sessionRes = await apiFetch('/api/accounting/migration/session');
       await assertOk(sessionRes, 'Could not load the migration session - try again');
       const sessionJson = await sessionRes.json();
-      const sessionId = sessionJson.data?.id;
-      if (!sessionId) throw new Error('No active migration session');
+      const sessionId = (sessionJson.data?.session ?? sessionJson.data)?.id;
+      if (!sessionId) { setError('No active migration session - start one from the migration hub'); return; }
 
       const suppliers = rows.map(r => ({
         name: r.mapped.name ?? '',
@@ -105,26 +105,30 @@ export default function SuppliersImportPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, suppliers, duplicateStrategy }),
       });
-      await assertOk(res, 'Import failed');
+      await assertOk(res, 'Could not import the suppliers - try again');
       const json = await res.json();
       setImportResult(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import failed');
+      setError(apiErrorMessage(err, 'Could not import the suppliers - try again'));
     } finally {
       setIsImporting(false);
     }
   };
 
   const downloadTemplate = async () => {
-    const res = await apiFetch('/api/accounting/migration/templates?step=suppliers');
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'suppliers-template.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const res = await apiFetch('/api/accounting/migration/templates?step=suppliers');
+      await assertOk(res, 'Could not download the template - try again');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'suppliers-template.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not download the template - try again'));
+    }
   };
 
   const visibleFields = SUPPLIER_FIELDS.filter(f => fieldMapping[f]);
@@ -160,7 +164,7 @@ export default function SuppliersImportPage() {
 
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">2. Upload Your CSV</h2>
-            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]).catch(err => setError(err instanceof Error ? err.message : 'Failed to parse CSV file')); }} />
+            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]).catch(err => setError(apiErrorMessage(err, 'Could not read the CSV file - check it and try again'))); }} />
             <button
               onClick={() => fileRef.current?.click()}
               className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-secondary)] hover:border-blue-500 hover:text-blue-500 text-sm transition-colors"

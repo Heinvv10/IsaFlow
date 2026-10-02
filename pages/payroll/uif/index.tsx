@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Loader2, AlertCircle, Plus, CheckCircle2, Clock } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 const ZAR = new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' });
 const MONTHS = [
@@ -65,13 +65,10 @@ function GenerateModal({ yearOptions, onClose, onGenerated }: GenerateModalProps
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ year: genYear, month: genMonth }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error((j as { error?: { message?: string } }).error?.message ?? `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not generate the UIF declaration - try again');
       onGenerated();
     } catch (e) {
-      setGenerateError(e instanceof Error ? e.message : 'Failed to generate');
+      setGenerateError(apiErrorMessage(e, 'Could not generate the UIF declaration - try again'));
     } finally {
       setIsGenerating(false);
     }
@@ -120,6 +117,7 @@ export default function UifDeclarationPage() {
   const [declarations, setDeclarations] = useState<UifDeclaration[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [yearFilter, setYearFilter] = useState<number>(currentYear());
   const [showGenerate, setShowGenerate] = useState(false);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
@@ -131,12 +129,13 @@ export default function UifDeclarationPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/uif?year=${yearFilter}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the UIF declarations - try again');
       const json = await res.json();
       const payload = json.data ?? json;
       setDeclarations((payload ?? []) as UifDeclaration[]);
-    } catch {
-      setError('Failed to load UIF declarations');
+    } catch (err) {
+      setDeclarations([]);
+      setError(apiErrorMessage(err, 'Could not load the UIF declarations - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -145,12 +144,14 @@ export default function UifDeclarationPage() {
   useEffect(() => { void loadDeclarations(); }, [loadDeclarations]);
 
   async function handleMarkSubmitted(id: string) {
-    setSubmittingId(id);
+    setSubmittingId(id); setActionError('');
     try {
       const res = await apiFetch(`/api/payroll/uif/${id}`, { method: 'PATCH' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not mark the declaration as submitted - try again');
       await loadDeclarations();
-    } catch { /* user sees status unchanged */ } finally {
+    } catch (err) {
+      setActionError(apiErrorMessage(err, 'Could not mark the declaration as submitted - try again'));
+    } finally {
       setSubmittingId(null);
     }
   }
@@ -197,6 +198,7 @@ export default function UifDeclarationPage() {
             )}
           </div>
 
+          {actionError && <p className="text-sm text-red-400 mb-3">{actionError}</p>}
           {isLoading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-teal-500" />

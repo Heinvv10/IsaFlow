@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { Plus, X, AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { GroupCompany } from '@/modules/accounting/services/reports/consolidationTypes';
 
 interface Props {
@@ -35,7 +35,7 @@ export function AddSubsidiaryModal({ onClose, onSaved }: Props) {
       });
       await assertOk(res, 'Could not add the subsidiary - try again');
       const json = await res.json();
-      if (!json.success) { setError(json.error?.message ?? 'Failed'); return; }
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Could not add the subsidiary - try again');
       onSaved((json.data?.items ?? []) as GroupCompany[]);
       onClose();
     } catch (err) {

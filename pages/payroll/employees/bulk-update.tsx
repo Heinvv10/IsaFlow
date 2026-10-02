@@ -7,7 +7,7 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage } from '@/lib/apiFetch';
 import { Users, Loader2, AlertCircle, CheckCircle2, ChevronRight } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -78,7 +78,7 @@ export default function BulkUpdatePage() {
   }, []);
   useEffect(() => {
     loadCentres().catch((err) => {
-      setError(err instanceof Error ? err.message : 'Failed to load cost centres');
+      setError(apiErrorMessage(err, 'Could not load cost centres - try again'));
     });
   }, [loadCentres]);
 

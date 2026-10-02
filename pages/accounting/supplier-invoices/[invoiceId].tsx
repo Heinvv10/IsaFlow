@@ -56,6 +56,7 @@ export default function SupplierInvoiceDetailPage() {
 
   const loadInvoice = useCallback(async () => {
     setIsLoading(true);
+    setError('');
     try {
       const res = await apiFetch(`/api/accounting/supplier-invoices-detail?id=${invoiceId}`);
       await assertOk(res, 'Could not load the invoice - try again');
@@ -77,6 +78,7 @@ export default function SupplierInvoiceDetailPage() {
   const handleAction = useCallback(async (action: string) => {
     if (!invoiceId) return;
     setActionLoading(action);
+    setError('');
     try {
       const res = await apiFetch('/api/accounting/supplier-invoices-action', {
         method: 'POST',
@@ -101,6 +103,7 @@ export default function SupplierInvoiceDetailPage() {
 
   const handleSaveEdit = async () => {
     setActionLoading('save');
+    setError('');
     try {
       const res = await apiFetch('/api/accounting/supplier-invoices-detail', {
         method: 'PUT',

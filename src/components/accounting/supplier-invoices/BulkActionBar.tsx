@@ -5,7 +5,7 @@
  */
 
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { log } from '@/lib/logger';
 
@@ -33,6 +33,12 @@ const VERB: Record<BulkAction, string> = {
   post_gl: 'Post to GL',
   cancel: 'Cancel',
 };
+const COULD_NOT: Record<BulkAction, string> = {
+  approve: 'Could not approve the invoices - try again',
+  post_gl: 'Could not post the invoices to the GL - try again',
+  cancel: 'Could not cancel the invoices - try again',
+};
+const PLURAL: Record<BulkAction, string> = { approve: 'approves', post_gl: 'GL postings', cancel: 'cancels' };
 
 export function BulkActionBar({
   selected, busy, onBusyChange, onError, onComplete, onClear,
@@ -48,11 +54,8 @@ export function BulkActionBar({
         method: 'POST',
         body: JSON.stringify({ action, invoiceIds: Array.from(selected) }),
       });
+      await assertOk(res, COULD_NOT[action]);
       const json = await res.json();
-      if (!res.ok) {
-        onError(json?.error?.message || json?.message || `${action} failed`);
-        return;
-      }
       const data = (json.data || json) as BulkActionResult;
       let failure = '';
       if (data.failed > 0) {
@@ -69,7 +72,7 @@ export function BulkActionBar({
         const detail = Array.from(byReason.entries())
           .map(([reason, count]) => (byReason.size > 1 ? `${count}× ${reason}` : reason))
           .join('; ');
-        failure = `${data.failed} of ${data.total} ${action}s failed${detail ? `: ${detail}` : ''}`;
+        failure = `${data.failed} of ${data.total} ${PLURAL[action]} failed${detail ? `: ${detail}` : ''}`;
       }
       // Reload first: the page's reload clears its error, so a failure set
       // before it would vanish as soon as it appeared. Join rather than
@@ -79,7 +82,7 @@ export function BulkActionBar({
       if (failure) onError((prev) => (prev ? `${prev} — ${failure}` : failure));
     } catch (err) {
       log.warn('Bulk action failed', { action, error: err }, 'supplier-invoices');
-      onError(`${action} failed: ${err instanceof Error ? err.message : 'unknown error'}`);
+      onError(apiErrorMessage(err, COULD_NOT[action]));
     } finally {
       onBusyChange(null);
     }
