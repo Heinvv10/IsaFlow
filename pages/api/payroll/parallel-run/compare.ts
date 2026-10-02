@@ -17,6 +17,7 @@ import {
   type CompanyAuthedRequest,
 } from '@/lib/auth';
 import { getParallelRunReport } from '@/modules/accounting/services/payroll/payrollParallelRunReportService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -36,4 +37,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

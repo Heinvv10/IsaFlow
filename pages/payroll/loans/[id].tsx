@@ -6,9 +6,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Banknote, Loader2, AlertCircle, ArrowLeft, CheckCircle2, XCircle } from 'lucide-react';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface ScheduleRow {
   id: string;
@@ -70,6 +71,7 @@ export default function LoanDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/loans/${id}`);
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load the loan - try again'));
       await assertOk(res, 'Could not load the loan - try again');
       const json = await res.json();
       const payload = (json.data ?? json) as { loan: Loan; schedule: ScheduleRow[]; payments: PaymentRow[] };

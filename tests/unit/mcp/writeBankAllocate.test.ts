@@ -441,6 +441,37 @@ describe('reverse_bank_allocation', () => {
     expect(res.isError).toBeFalsy();
   });
 
+  // ── date_moved: a closed period moving the contra must be visible ──────────
+  // 2026-10-02: nine April-2025 contras landed on 2026-10-02 (April closed)
+  // while reversal_date_roll — which only knows locked VAT periods — read null.
+  it('reports the original and actual dates and date_moved when the contra moved', async () => {
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue({
+      invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0,
+      vatLockRoll: null, originalEntryDate: '2025-04-30', reversalEntryDate: '2026-10-02',
+    });
+    const res = await reverseBankAllocationTool.handler(
+      { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', idempotency_key: 'k-moved' }, ctx,
+    );
+    const body = JSON.parse(res.content[0]!.text);
+    expect(body).toMatchObject({
+      reversal_date_roll: null,
+      original_entry_date: '2025-04-30',
+      reversal_entry_date: '2026-10-02',
+      date_moved: true,
+    });
+  });
+
+  it('date_moved is false when the contra keeps the original date', async () => {
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue({
+      invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0,
+      originalEntryDate: '2025-05-23', reversalEntryDate: '2025-05-23',
+    });
+    const res = await reverseBankAllocationTool.handler(
+      { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', idempotency_key: 'k-same' }, ctx,
+    );
+    expect(JSON.parse(res.content[0]!.text).date_moved).toBe(false);
+  });
+
   // ── Finding 1: the correction must not escape attribution ─────────────────
   // The reversal posts a REAL contra journal. Left unstamped it lands as
   // human:<userId> and disappears from list_agent_postings — the corrective

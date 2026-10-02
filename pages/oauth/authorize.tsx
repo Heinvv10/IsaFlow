@@ -25,6 +25,7 @@ import { parseCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from '@/lib/auth/c
 import { resolveConsentCompany, type ConsentCompany } from '@/lib/auth/consentCompany';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
 import { verifyToken } from '@/lib/auth/gotrue';
+import { AuthUpstreamUnavailableError } from '@/lib/auth/authUpstream';
 import { consentAppView } from '@/lib/auth/consentAppView';
 import { rejectionForUnknownScope } from '@/lib/auth/consentRejection';
 import { log } from '@/lib/logger';
@@ -232,9 +233,8 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
   let userId = '';
   if (accessToken) {
     try {
-      const claims = await verifyToken(accessToken, cookies[IMPERSONATION_PROOF_COOKIE]);
-      userId = claims.sub;
-    } catch { /* fall through to login redirect */ }
+      userId = (await verifyToken(accessToken, cookies[IMPERSONATION_PROOF_COOKIE])).sub;
+    } catch (err) { if (err instanceof AuthUpstreamUnavailableError) throw err; /* else: login redirect */ }
   }
   if (!userId) {
     const url = ctx.resolvedUrl ?? '/oauth/authorize';

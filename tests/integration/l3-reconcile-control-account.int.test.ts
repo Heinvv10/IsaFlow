@@ -328,12 +328,11 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
       UPDATE supplier_payments SET gl_journal_entry_id = ${refundJe}::UUID
       WHERE id = ${refundPayment}::UUID AND company_id = ${COMPANY}::UUID`;
 
-    // ONE CENT THE DECOMPOSITION CANNOT EXPLAIN. `soft_delete_journal_reversals`
-    // (mig 653) records the reversal a document soft-delete posts, and the
-    // orphan scan skips those rows — the pair already nets to zero and the
-    // sub-ledger dropped the document with it. A row whose document is gone
-    // from the subledger table entirely leaves the exclusion standing over
-    // movement nothing accounts for, which is exactly what a residual is for.
+    // ONE CENT THE DECOMPOSITION CANNOT EXPLAIN. The orphan scan treats a
+    // non-cancelled credit note as CLAIMING its journal; relief and unapplied
+    // credit both ignore a DRAFT note, so a draft pointing at a posted journal
+    // leaves movement nothing accounts for — what a residual is for. (D7: the
+    // forged soft_delete_journal_reversals row this used now excludes nothing.)
     //
     // It is ONE CENT on purpose. Every other fixture here is built from round
     // amounts, so a clamp of the residual to zero below some threshold would
@@ -350,9 +349,10 @@ describeIfDb('L3 — control account by subtype, and one definition of unapplied
       VALUES (${COMPANY}::UUID, ${strayJe}::UUID, ${payable}::UUID, 0, 0.01),
              (${COMPANY}::UUID, ${strayJe}::UUID, ${expense}::UUID, 0.01, 0)`;
     await sql`
-      INSERT INTO soft_delete_journal_reversals (company_id, entity_type, entity_id,
-        reversal_journal_entry_id)
-      VALUES (${COMPANY}::UUID, 'supplier_invoice', ${randomUUID()}::UUID, ${strayJe}::UUID)`;
+      INSERT INTO credit_notes (company_id, type, supplier_id, credit_note_number, credit_date,
+        subtotal, tax_amount, total_amount, status, applied_amount, created_by, gl_journal_entry_id)
+      VALUES (${COMPANY}::UUID, 'supplier', ${supplier}::UUID, ${TAG + '-STRAYCN'}, ${SETTLE_DATE}::date,
+        0.01, 0, 0.01, 'draft', 0, ${USER}::UUID, ${strayJe}::UUID)`;
 
     // AR: an invoice and a receipt with a one-cent remainder, plus one wholly
     // unapplied, so the AR twin of the payment agreement can be asserted.

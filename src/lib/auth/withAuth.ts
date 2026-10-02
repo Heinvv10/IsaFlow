@@ -4,6 +4,7 @@ import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import { verifyToken } from './gotrue';
+import { respondIfAuthUnavailable } from './authUpstream';
 import { authenticatePrintToken } from './withAuthPrint';
 import { getAuthPool } from './authPool';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
@@ -12,23 +13,14 @@ import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { rollbackError, rollbackFailed } from '@/lib/rollbackFailed';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { checkAutoRateLimit } from './autoRateLimit';
+import { settleQuotaCharges } from '@/lib/rateLimitQuota';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
 import { deferEnd, answerThrow, replayEnd, answerCommitFailed, reportFinalizeFailure, type DeferredEnd } from './deferredEnd';
 
 // Re-exported so every existing `import { withRole } from '@/lib/auth/withAuth'`
 // keeps working; the implementation moved to withRole.ts (300-line ceiling).
 export { withRole } from './withRole';
-
-/**
- * Route categories that get per-company rate limiting applied inside withAuth
- * without each handler having to opt in. Pentest M23.
- * The table is intentionally small — add a pattern here, not a one-off in
- * each handler.
- */
-const AUTO_RATE_LIMIT: Array<{ prefix: string; key: string; max: number; windowSecs: number }> = [
-  { prefix: '/api/accounting/reports-', key: 'reports', max: 60, windowSecs: 60 },
-];
 
 export interface CompanyAuthedRequest extends NextApiRequest {
   user: { id: string; email?: string; claims: Record<string, unknown> };
@@ -64,6 +56,8 @@ export function withAuth(handler: Handler): NextApiHandler {
     try {
       claims = await verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]);
     } catch (err) {
+      // D9: GoTrue could not answer. Not a verdict on the token: 503, cookies kept.
+      if (respondIfAuthUnavailable(res, err, 'withAuth')) return;
       // Print-pipeline fallback (src/lib/pdf/renderPagePdf.ts): a headless
       // Chromium request carries a short-lived print token instead of a
       // GoTrue session in the SAME cookie. The whole decision lives in
@@ -100,6 +94,7 @@ export function withAuth(handler: Handler): NextApiHandler {
     const startedAt = Date.now();
     const client = await getAuthPool().connect();
     let deferred: DeferredEnd | null = null;
+    let owned: RequestContext | null = null;
     let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
     try {
       await client.query('BEGIN');
@@ -171,20 +166,12 @@ export function withAuth(handler: Handler): NextApiHandler {
       // Pentest M23: per-company rate limit for well-known heavy route
       // categories. Keeps a single tenant from saturating the pool with
       // full-GL aggregations.
-      const path = req.url?.split('?')[0] ?? '';
-      const bucket = AUTO_RATE_LIMIT.find((b) => path.startsWith(b.prefix));
-      if (bucket) {
-        const allowed = await checkRateLimit(
-          `${bucket.key}:${activeCompanyId}`,
-          { max: bucket.max, windowSecs: bucket.windowSecs },
-        );
-        if (!allowed) {
-          unusable = await rollbackFailed(client, 'withAuth');
-          return res.status(429).json({
-            success: false,
-            error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again shortly.' },
-          });
-        }
+      if (!(await checkAutoRateLimit(req.url, activeCompanyId))) {
+        unusable = await rollbackFailed(client, 'withAuth');
+        return res.status(429).json({
+          success: false,
+          error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again shortly.' },
+        });
       }
 
       // ── Defer the response flush until AFTER the transaction is finalised ──
@@ -200,7 +187,9 @@ export function withAuth(handler: Handler): NextApiHandler {
 
       const ctx: RequestContext = {
         client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown>, afterCommit: [],
+        quotaCharges: [],
       };
+      owned = ctx;
       const runHandler = async () => runOwnedContext(ctx, async () => { await handler(req, res); });
 
       if (process.env.SENTRY_ENABLED === 'true') {
@@ -254,6 +243,9 @@ export function withAuth(handler: Handler): NextApiHandler {
       answerThrow(req, res, deferred, err, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub, rolledBack: !failed });
     } finally {
       client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
+      // However the request ended: give back the daily AI / send units it
+      // charged and did not use (never the short abuse buckets). Never throws.
+      await settleQuotaCharges(owned);
       const ms = Date.now() - startedAt;
       if (ms > 100) log.info('withAuth slow request', { ms, url: req.url }, 'Auth');
       if (process.env.SENTRY_ENABLED === 'true') {

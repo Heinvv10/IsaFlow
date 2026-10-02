@@ -22,18 +22,10 @@ import { log } from '@/lib/logger';
 import { DensityToggle } from '@/components/accounting/reportControls/DensityToggle';
 import { useDensity } from '@/components/accounting/reportControls/useDensity';
 import { localISODate } from '@/lib/dateUtils';
-
-interface ExecutiveKPIs {
-  revenue: number;
-  netProfit: number;
-  grossProfitMargin: number;
-  netProfitMargin: number;
-  revenueGrowth: number;
-  profitGrowth: number;
-  currentRatio: number;
-  debtToEquity: number;
-  cashBalance: number;
-}
+// The service's own type, so a field it makes nullable is a compile error here.
+import type { ExecutiveKPIs } from '@/modules/accounting/services/reports/executiveSummaryService';
+import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
+import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 
 interface CashPosition {
   cashBalance: number;
@@ -55,9 +47,24 @@ const alertColor = { info: 'border-teal-500/30 bg-teal-500/10 text-teal-400', wa
 const favourableGrowth = (growth: number): boolean | undefined =>
   Number.isFinite(growth) ? growth >= 0 : undefined;
 
+/** A margin tile: the figure, or "n/m" with the engine's reason where there
+ *  is no margin (non-positive revenue) — never 0.0%. The tile's `value` is
+ *  not read when `unavailable` is set; NaN so it could never print as one. */
+function marginTile(label: string, value: number | null, reason: string | undefined) {
+  return value === null
+    ? <KpiTile label={label} value={Number.NaN} kind="pct" unavailable="n/m" note={reason ?? 'Not meaningful'} />
+    : <KpiTile label={label} value={value} kind="pct" />;
+}
+
+/** A scored KPI's value, in its unit. */
+function scoredValue(item: KPIScorecardItem): string {
+  const figure = scorecardFigure(item);
+  return figure.scored ? figure.value : figure.reason;
+}
+
 export default function ExecutiveDashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [scorecard, setScorecard] = useState<Array<{ ratioKey: string; name: string; value: number | null; target: number; status: 'green' | 'amber' | 'red' | 'not_meaningful'; reason?: string }>>([]);
+  const [scorecard, setScorecard] = useState<KPIScorecardItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
@@ -179,8 +186,8 @@ export default function ExecutiveDashboardPage() {
                 <KpiTile label="NWC" value={summary.cashPosition.netWorkingCapital} kind="money" />
                 {density === 'accountant' && (
                   <>
-                    <KpiTile label="Gross margin" value={summary.kpis.grossProfitMargin} kind="pct" />
-                    <KpiTile label="Net margin" value={summary.kpis.netProfitMargin} kind="pct" />
+                    {marginTile('Gross margin', summary.kpis.grossProfitMargin, summary.kpis.notMeaningful.grossProfitMargin)}
+                    {marginTile('Net margin', summary.kpis.netProfitMargin, summary.kpis.notMeaningful.netProfitMargin)}
                     <KpiTile label="Current ratio" value={summary.kpis.currentRatio} kind="ratio" unavailable={notMeaningful.get('currentRatio') ? 'Not meaningful' : undefined} />
                     <KpiTile label="Debt/equity" value={summary.kpis.debtToEquity} kind="ratio" unavailable={notMeaningful.get('debtToEquity') ? 'Not meaningful' : undefined} />
                   </>
@@ -211,7 +218,7 @@ export default function ExecutiveDashboardPage() {
                   <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">KPI Scorecard</h2>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {scorecard.slice(0, 8).map(item => (
-                      <div key={item.ratioKey} className={`rounded-lg border p-3 ${item.status === 'green' ? 'border-teal-500/30 bg-teal-500/10' : item.status === 'amber' ? 'border-amber-500/30 bg-amber-500/10' : item.status === 'not_meaningful' ? 'border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]' : 'border-red-500/30 bg-red-500/10'}`}>
+                      <div key={item.ratioKey} data-kpi={item.ratioKey} className={`rounded-lg border p-3 ${item.status === 'green' ? 'border-teal-500/30 bg-teal-500/10' : item.status === 'amber' ? 'border-amber-500/30 bg-amber-500/10' : item.status === 'not_meaningful' ? 'border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]' : 'border-red-500/30 bg-red-500/10'}`}>
                         <div className="flex justify-between mb-1">
                           <span className="text-xs opacity-70">{item.name}</span>
                           <span className={`w-2 h-2 rounded-full ${item.status === 'green' ? 'bg-teal-400' : item.status === 'amber' ? 'bg-amber-400' : item.status === 'not_meaningful' ? 'bg-[var(--ff-text-secondary)]' : 'bg-red-400'}`} />
@@ -225,8 +232,10 @@ export default function ExecutiveDashboardPage() {
                           </>
                         ) : (
                           <>
-                            <p className={`text-lg font-bold ${item.status === 'green' ? 'text-teal-400' : item.status === 'amber' ? 'text-amber-400' : 'text-red-400'}`}>{item.value.toFixed(2)}</p>
-                            <p className="text-xs opacity-60">Target: {item.target}</p>
+                            {/* Value and target in the ratio's own unit, as every pack
+                                surface prints them (`scorecardFigure`). */}
+                            <p className={`text-lg font-bold ${item.status === 'green' ? 'text-teal-400' : item.status === 'amber' ? 'text-amber-400' : 'text-red-400'}`}>{scoredValue(item)}</p>
+                            <p className="text-xs opacity-60">Target: {scorecardFigure(item).target}</p>
                           </>
                         )}
                       </div>

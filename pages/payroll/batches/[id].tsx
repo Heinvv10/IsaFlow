@@ -6,9 +6,10 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Layers, Loader2, AlertCircle, CheckCircle2, Send, Plus, Trash2, ArrowLeft } from 'lucide-react';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface Employee {
   id: string;
@@ -92,6 +93,7 @@ export default function BatchGridPage() {
         apiFetch(`/api/payroll/batches/${id}`),
         apiFetch('/api/payroll/employees'),
       ]);
+      if (batchRes.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load the batch - try again'));
       await assertOk(batchRes, 'Could not load the batch - try again');
       const batchJson = await batchRes.json();
       const payload = (batchJson.data ?? batchJson) as { batch: Batch; lines: BatchLine[] };

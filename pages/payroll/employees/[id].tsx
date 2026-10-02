@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { User, ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
 import { EmployeeProfileCard, type Employee } from '@/components/payroll/EmployeeProfileCard';
 import {
@@ -21,11 +21,16 @@ import { PayScaleCard } from '@/components/payroll/PayScaleCard';
 import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
 import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCard';
 import { localISODate } from '@/lib/dateUtils';
+import { payrollLoadMessage, NO_PAYROLL_DETAIL_ACCESS } from '@/lib/payrollDetailAccess';
+import { useCompany } from '@/contexts/CompanyContext';
+import { canWrite } from '@/lib/auth/writeRoles';
 
 export default function EmployeeDetailPage() {
   const router = useRouter();
   const { id } = router.query;
   const employeeId = typeof id === 'string' ? id : '';
+  const { companyRole } = useCompany();
+  const mayWrite = canWrite(companyRole); // the API sends a viewer names only; the cards below are all personal or pay detail
 
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [components, setComponents] = useState<Component[]>([]);
@@ -50,10 +55,13 @@ export default function EmployeeDetailPage() {
         apiFetch('/api/payroll/components'),
         apiFetch(`/api/payroll/employees/${employeeId}/components`),
       ]);
+      if (eRes.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load this employee - try again'));
       await assertOk(eRes, 'Could not load this employee - try again');
-      await assertOk(cRes, 'Could not load the payroll components - try again');
-      await assertOk(aRes, 'Could not load the employee components - try again');
-      const [eJson, cJson, aJson] = await Promise.all([eRes.json(), cRes.json(), aRes.json()]);
+      const eJson = await eRes.json();
+      if (!cRes.ok) setError(payrollLoadMessage(cRes.status, 'Could not load the payroll components - try again'));
+      const cJson = cRes.ok ? await cRes.json() : { data: [] };
+      if (!aRes.ok) setError(payrollLoadMessage(aRes.status, 'Could not load the employee components - try again'));
+      const aJson = aRes.ok ? await aRes.json() : { data: [] };
       setEmployee((eJson.data ?? eJson) as Employee);
       setComponents((cJson.data ?? cJson) as Component[]);
       setAssignments((aJson.data ?? aJson) as Assignment[]);
@@ -180,64 +188,72 @@ export default function EmployeeDetailPage() {
         </div>
 
         <div className="p-6 max-w-5xl space-y-6">
-          {error && (
+          {error && (mayWrite || error !== NO_PAYROLL_DETAIL_ACCESS) && (
             <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
               {error}
             </div>
           )}
 
-          <EmployeeProfileCard
-            employee={employee}
-            onChange={setEmployee}
-            onSave={saveProfile}
-            saving={savingProfile}
-          />
-
-          <EmployeeComponentsCard
-            components={components}
-            assignments={assignments}
-            newComponentId={newComponentId}
-            newAmount={newAmount}
-            newFrom={newFrom}
-            newIsRecurring={newIsRecurring}
-            onNewComponentId={setNewComponentId}
-            onNewAmount={setNewAmount}
-            onNewFrom={setNewFrom}
-            onNewIsRecurring={setNewIsRecurring}
-            onAssign={assignComponent}
-            onEnd={endAssignment}
-            adding={addingAssignment}
-          />
-
-          {employeeId && (
-            <CostCentreAssignmentCard
-              employeeId={employeeId}
-              currentCostCentreId={employee.costCentreId ?? null}
-              onChange={(id) => setEmployee({ ...employee, costCentreId: id })}
+          {!mayWrite ? (
+            <div className="px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm">
+              {NO_PAYROLL_DETAIL_ACCESS}
+            </div>
+          ) : (
+            <>
+            <EmployeeProfileCard
+              employee={employee}
+              onChange={setEmployee}
+              onSave={saveProfile}
+              saving={savingProfile}
             />
-          )}
 
-          {employeeId && (
-            <PayScaleCard
-              employeeId={employeeId}
-              currentPayScaleId={employee.payScaleId ?? null}
-              onChange={(id) => setEmployee({ ...employee, payScaleId: id })}
+            <EmployeeComponentsCard
+              components={components}
+              assignments={assignments}
+              newComponentId={newComponentId}
+              newAmount={newAmount}
+              newFrom={newFrom}
+              newIsRecurring={newIsRecurring}
+              onNewComponentId={setNewComponentId}
+              onNewAmount={setNewAmount}
+              onNewFrom={setNewFrom}
+              onNewIsRecurring={setNewIsRecurring}
+              onAssign={assignComponent}
+              onEnd={endAssignment}
+              adding={addingAssignment}
             />
+
+            {employeeId && (
+              <CostCentreAssignmentCard
+                employeeId={employeeId}
+                currentCostCentreId={employee.costCentreId ?? null}
+                onChange={(id) => setEmployee({ ...employee, costCentreId: id })}
+              />
+            )}
+
+            {employeeId && (
+              <PayScaleCard
+                employeeId={employeeId}
+                currentPayScaleId={employee.payScaleId ?? null}
+                onChange={(id) => setEmployee({ ...employee, payScaleId: id })}
+              />
+            )}
+
+            {employeeId && <ApplyPackageCard employeeId={employeeId} />}
+
+            {employeeId && (
+              <OccupationalLevelCard
+                employeeId={employeeId}
+                currentLevelId={employee.occupationalLevelId ?? null}
+                onChange={(id) => setEmployee({ ...employee, occupationalLevelId: id })}
+              />
+            )}
+
+            {employeeId && <EmployeeTerminationCard employeeId={employeeId} endDate={employee.endDate ?? null} />}
+
+            {employeeId && <EmployeeHistoryCard employeeId={employeeId} />}
+            </>
           )}
-
-          {employeeId && <ApplyPackageCard employeeId={employeeId} />}
-
-          {employeeId && (
-            <OccupationalLevelCard
-              employeeId={employeeId}
-              currentLevelId={employee.occupationalLevelId ?? null}
-              onChange={(id) => setEmployee({ ...employee, occupationalLevelId: id })}
-            />
-          )}
-
-          {employeeId && <EmployeeTerminationCard employeeId={employeeId} endDate={employee.endDate ?? null} />}
-
-          {employeeId && <EmployeeHistoryCard employeeId={employeeId} />}
         </div>
       </div>
     </AppLayout>

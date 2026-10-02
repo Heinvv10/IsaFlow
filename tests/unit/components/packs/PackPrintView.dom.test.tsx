@@ -38,7 +38,7 @@ describe('PackPrintView', () => {
     render(<PackPrintView document={doc} />);
     expect(screen.getByText('ISAFlow Demo')).toBeTruthy();
     expect(screen.getByText('Management Pack')).toBeTruthy();
-    expect(screen.getByText('2026-01-01 to 2026-09-05')).toBeTruthy();
+    expect(screen.getByText('1 January 2026 to 5 September 2026')).toBeTruthy();
   });
 
   it('lists every section in the table of contents, numbered and in order', () => {

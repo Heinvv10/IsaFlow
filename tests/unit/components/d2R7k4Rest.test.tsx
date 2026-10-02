@@ -4,6 +4,7 @@
  * apiErrorMessage over a scripted apiFetch.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', companyId: 'c1' }) }));
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { MSG, empty500, expectNoRawError, ok, refuse, script } from '../helpers/d2R3a5';

@@ -33,7 +33,14 @@ import {
   toFinancialData,
   inventoryWarning,
   unclassifiedWarning,
+  type PeriodFigures,
 } from '@/modules/accounting/services/gl/financialFiguresService';
+import { log } from '@/lib/logger';
+import { withSavepoint } from '@/lib/neon';
+import { failedReadLabel, isFailedRead } from '@/modules/accounting/services/packs/packFailedRead';
+import { getCashFlowDirect } from '@/modules/accounting/services/afs/cashFlowDirectService';
+import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
+import { readLedgerRatioInputs, type LedgerRatioInputs } from './extendedRatioInputs';
 import type { ReportPackInput } from './reportPackService';
 
 export interface ReportPackFigures extends ReportPackInput {
@@ -50,21 +57,150 @@ export interface ReportPackFigures extends ReportPackInput {
    * partly a default rather than a statement of fact.
    */
   classificationCaveat: string | null;
+  /**
+   * The period's depreciation and amortisation charge, from the classifier's
+   * `depreciation_expense` band (which `accountSubtypes` maps both words onto).
+   *
+   * Carried so EBITDA is a MEASURE rather than a label. `calculateExtendedRatios`
+   * computes `ebitda = ebit + depreciation + amortisation`, and this field was
+   * never supplied — so the board pack printed a row headed EBITDA whose value
+   * was the operating line to the rand, undefined and unreconciled, on a page
+   * where an audit committee chair asks about it first. Required, not optional:
+   * a defaulted zero is indistinguishable from a company that genuinely charges
+   * none, and page 12's reconciliation prints the add-back either way.
+   */
+  depreciation: number;
+  /**
+   * Set when the cash flow statement could not be read, so the three cash flow
+   * figures are absent because the read failed rather than because there is
+   * nothing to state. A sentence for the reader, like the two caveats above;
+   * null when the statement was read.
+   */
+  cashFlowUnavailable: string | null;
 }
 
+type PackCashFlows = Pick<
+  ReportPackFigures,
+  'operatingCashFlow' | 'investingCashFlow' | 'financingCashFlow' | 'cashFlowUnavailable'
+>;
+
+/** What a reader is told where the statement could not be read. */
+export const CASH_FLOW_NOT_READ = 'The cash flow statement could not be read for this period.';
+
+/**
+ * THE WINDOW'S CASH FLOWS, FROM THE ONE SERVICE THAT COMPUTES THEM OFF THE
+ * LEDGER.
+ *
+ * Nothing populated these, so page 8 of the board pack printed three "n/m"
+ * rows on every tenant. `getCashFlowDirect` distributes every posted cash leg
+ * in the window once across its contra accounts, over the same cash accounts
+ * `figures.cumulative.cash` sums — so opening cash plus these three is closing
+ * cash.
+ *
+ * A STATEMENT THE DATABASE REFUSES IS CARRIED AS ABSENT, the way an unreadable
+ * comparative is (`packFigureSet.fetchPrior`): the three fields stay unset,
+ * page 8 prints "n/m" with its reason, and the sheets that do not depend on
+ * them still print. In its own savepoint, because a caught failure otherwise
+ * leaves the request's transaction aborted; and only a failed READ is absent
+ * — a defect in the statement is re-thrown. See `packFailedRead`.
+ */
+async function readCashFlows(companyId: string, from: string, to: string): Promise<PackCashFlows> {
+  let cashFlow: Awaited<ReturnType<typeof getCashFlowDirect>>;
+  try {
+    cashFlow = await withSavepoint('pack_cash_flows', () => getCashFlowDirect(companyId, from, to));
+  } catch (error) {
+    if (!isFailedRead(error)) throw error;
+    log.warn(
+      'getReportPackInput: the cash flow statement could not be read, cash flow figures omitted',
+      { companyId, from, to, error: error instanceof Error ? error.name : typeof error },
+      'packs',
+    );
+    return { cashFlowUnavailable: CASH_FLOW_NOT_READ };
+  }
+  // TO THE CENT, AND STILL FOOTING. The service apportions by division, so
+  // its totals carry float dust, and three figures rounded apart can miss
+  // their own rounded sum by a cent — which page 8 would have to print as a
+  // movement nobody explained. Investing and financing are rounded; operating
+  // takes what is left of the rounded movement, at most a cent from its own
+  // rounding.
+  const investingCashFlow = round2(cashFlow.investingTotal);
+  const financingCashFlow = round2(cashFlow.financingTotal);
+  const operatingCashFlow = round2(round2(cashFlow.netChange) - investingCashFlow - financingCashFlow);
+  return { operatingCashFlow, investingCashFlow, financingCashFlow, cashFlowUnavailable: null };
+}
+
+/** What a reader is told of each ratio whose inputs could not be read. */
+export const RATIO_INPUTS_NOT_READ =
+  'Not stated: the interest, tax and employee figures could not be read for this period.';
+
+/**
+ * INTEREST, TAX, EMPLOYEE COST AND HEAD COUNT, FROM THE READ FINANCIAL
+ * ANALYSIS USES. The pack carried none of them, so its interest cover, tax
+ * rate and per-employee rows said "not captured in this report" beside a
+ * screen that printed each as a figure for the same company and period.
+ *
+ * Degrades like the cash flows above and for the same reasons: its own
+ * savepoint, only a failed read is an absence, and then all five are absent —
+ * the reason is one sentence, and half a set of inputs would state a tax rate
+ * on a profit before tax that never had its interest taken off.
+ */
+async function readRatioInputs(
+  companyId: string, from: string, to: string,
+): Promise<LedgerRatioInputs | { ratioInputsUnavailable: string }> {
+  try {
+    return await withSavepoint('pack_ratio_inputs', () => readLedgerRatioInputs(companyId, from, to));
+  } catch (error) {
+    if (!isFailedRead(error)) throw error;
+    log.warn(
+      'getReportPackInput: interest, tax and employee figures could not be read, those ratios omitted',
+      { companyId, from, to, error: failedReadLabel(error) },
+      'packs',
+    );
+    return { ratioInputsUnavailable: RATIO_INPUTS_NOT_READ };
+  }
+}
+
+/**
+ * The pack input, for a caller that needs nothing else from the ledger read.
+ * See `readReportPackInput`, which every caller goes through.
+ */
 export async function getReportPackInput(
   companyId: string,
   companyName: string,
   from: string,
   to: string,
 ): Promise<ReportPackFigures> {
+  return (await readReportPackInput(companyId, companyName, from, to)).input;
+}
+
+/**
+ * THE ONE PRODUCER OF A REPORT PACK'S INPUT, with the figures it was built
+ * from.
+ *
+ * The interactive screen, the HTML export and the shared link each built this
+ * input by hand from `getFinancialFigures`, beside this function, and none of
+ * them carried the cash flows: the PDF printed the ledger's cash flow
+ * statement and the screen for the same period printed reasons. They built it
+ * by hand because they also need the figures — the classification caveat they
+ * return is an object, not this input's sentence — so the figures are handed
+ * back here rather than read from the ledger a second time.
+ */
+export async function readReportPackInput(
+  companyId: string,
+  companyName: string,
+  from: string,
+  to: string,
+): Promise<{ input: ReportPackFigures; figures: PeriodFigures }> {
   const figures = await getFinancialFigures(companyId, from, to);
   const data = toFinancialData(figures);
+
+  const cashFlows = await readCashFlows(companyId, from, to);
+  const ratioInputs = await readRatioInputs(companyId, from, to);
 
   const inventory = inventoryWarning(figures);
   const unclassified = unclassifiedWarning(figures.cumulative);
 
-  return {
+  const input: ReportPackFigures = {
     companyName,
     period: `${from} to ${to}`,
     revenue: data.revenue,
@@ -94,7 +230,15 @@ export async function getReportPackInput(
     accountsReceivable: data.accountsReceivable,
     accountsPayable: data.accountsPayable,
     inventory: data.inventory,
-    inventoryCaveat: inventory === null ? null : inventory.message,
-    classificationCaveat: unclassified === null ? null : unclassified.message,
+    ...cashFlows,
+    ...ratioInputs,
+    // `.board`, NOT `.message`: these two strings reach a board pack's basis
+    // page, and the operator wording names a database column and tells the
+    // reader to go and set it. See `FigureCaveat`.
+    depreciation: figures.period.depreciation,
+    inventoryCaveat: inventory === null ? null : inventory.board,
+    inventoryClassified: figures.inventoryClassified,
+    classificationCaveat: unclassified === null ? null : unclassified.board,
   };
+  return { input, figures };
 }

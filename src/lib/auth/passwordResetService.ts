@@ -116,6 +116,29 @@ export async function consumePasswordResetToken(
   return { userId: String(row.user_id) };
 }
 
+/**
+ * Hand a consumed token back after the reset it authorised hit a GoTrue OUTAGE
+ * (D9), so the same link can finish the job: the retry re-applies the password
+ * and completes the session revocation. Only an unexpired token is released,
+ * and never one a newer link has superseded since (a later token for the same
+ * user exists): that link is the live one.
+ */
+export async function releasePasswordResetToken(rawToken: string): Promise<void> {
+  const tokenHash = hashToken(rawToken);
+  await sql`
+    UPDATE auth_password_reset_tokens t
+    SET consumed_at = NULL
+    WHERE t.token_hash = ${tokenHash}
+      AND t.consumed_at IS NOT NULL
+      AND t.expires_at > now()
+      AND NOT EXISTS (
+        SELECT 1 FROM auth_password_reset_tokens n
+        WHERE n.user_id = t.user_id AND (n.created_at, n.id) > (t.created_at, t.id)
+      )
+  `;
+  log.info('Password reset token released after an auth outage', {}, 'passwordResetService');
+}
+
 /** Housekeeping: drop tokens that expired more than 7 days ago. */
 export async function cleanupExpiredResetTokens(): Promise<void> {
   await sql`

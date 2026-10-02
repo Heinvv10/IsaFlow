@@ -10,6 +10,7 @@
 import { withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { McpTool, McpToolContext, McpToolResult } from './types';
+import { roleFenceRefusal } from './roleFence';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 import { debitForTool, refundForTool } from './flowMetering';
 import { BulkAllocationLineError, bulkAllocationLineErrorText } from './bulkAllocationLineError';
@@ -109,6 +110,9 @@ export class McpRegistry {
     if (tool.requiresScope && !ctx.scopes.includes(tool.requiresScope)) {
       return reject(insufficientScopeMessage(tool.requiresScope), null);
     }
+
+    const roleRefusal = roleFenceRefusal(tool, ctx);
+    if (roleRefusal) return reject(roleRefusal, null);
 
     // A NUL byte reaches Postgres as 22021 and aborts the request transaction (reads have no
     // savepoint), so the registry/audit writes after it fail. Refuse before any handler.

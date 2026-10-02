@@ -6,8 +6,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { Banknote, ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface DenomCount { denomination: number; count: number }
 interface Row {
@@ -48,6 +49,7 @@ export default function CashRegisterPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/runs/${runId}/cash-register`);
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load the cash register - try again'));
       await assertOk(res, 'Could not load the cash register - try again');
       const json = await res.json();
       setReg((json.data ?? json) as Register);

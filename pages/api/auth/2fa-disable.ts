@@ -3,9 +3,10 @@
 import type { NextApiHandler } from 'next';
 import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
 import { challengeFactor, verifyFactor, unenrollFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
+import { respondToAuthOutage } from '@/lib/auth/authUpstream';
 import { log } from '@/lib/logger';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { chargeRateLimit, refundRateLimit, getClientIp } from '@/lib/rateLimit';
 import { refuseImpersonatedSession } from '@/lib/auth/impersonationGuard';
 
 const handler: NextApiHandler = async (req, res) => {
@@ -23,7 +24,8 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'factor_id and code required' } });
   }
   // Bound TOTP brute-force per factor before allowing a 2FA-disable (pentest H7).
-  if (!(await checkRateLimit(`2fa:disable:${factor_id}`, { max: 5, windowSecs: 900 }))) {
+  const factorCharge = await chargeRateLimit(`2fa:disable:${factor_id}`, { max: 5, windowSecs: 900 });
+  if (!factorCharge.admitted) {
     log.warn('2fa-disable rate limit (factor)', { factor_id, ip: getClientIp(req) }, 'Auth');
     return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' } });
   }
@@ -33,6 +35,8 @@ const handler: NextApiHandler = async (req, res) => {
     await unenrollFactor(factor_id, token);
     return res.status(200).json({ success: true });
   } catch (err) {
+    // D9: no code was judged, so the attempt is handed back.
+    if (await respondToAuthOutage(res, err, '2fa-disable', () => refundRateLimit(`2fa:disable:${factor_id}`, 1, factorCharge.windowStart))) return;
     if (err instanceof GotrueMfaError) {
       log.info('2fa-disable failed', { status: err.status }, 'Auth');
       return res.status(err.status === 422 ? 400 : err.status).json({

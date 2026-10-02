@@ -7,17 +7,29 @@
 import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { NUL_MAX_DEPTH, NUL_MAX_NODES } from '@/lib/validation';
 import type { McpToolContext, McpToolResult } from './types';
 
 type Row = Record<string, unknown>;
 
-/** Recursively key-sorted JSON — same args always hash identically. */
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
+/** Thrown by canonicalize when the args are deeper or larger than `hasNul` will vouch for. */
+class OverBound extends Error {}
+
+/**
+ * Hash recorded for arguments past the `hasNul` bound. Those are refused by the registry before
+ * any idempotency lookup, so this value is only ever an audit marker and never a comparison key.
+ */
+const OVER_BOUND_HASH = createHash('sha256').update('mcp:args-over-bound').digest('hex');
+
+/** Recursively key-sorted JSON — same args always hash identically. Bounded like `hasNul`. */
+function canonicalize(value: unknown, depth: number, budget: { seen: number }): unknown {
+  budget.seen += 1;
+  if (budget.seen > NUL_MAX_NODES || depth > NUL_MAX_DEPTH) throw new OverBound();
+  if (Array.isArray(value)) return value.map((v) => canonicalize(v, depth + 1, budget));
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-      out[key] = canonicalize((value as Record<string, unknown>)[key]);
+      out[key] = canonicalize((value as Record<string, unknown>)[key], depth + 1, budget);
     }
     return out;
   }
@@ -25,7 +37,12 @@ function canonicalize(value: unknown): unknown {
 }
 
 export function hashArgs(args: Record<string, unknown>): string {
-  return createHash('sha256').update(JSON.stringify(canonicalize(args))).digest('hex');
+  try {
+    return createHash('sha256').update(JSON.stringify(canonicalize(args, 0, { seen: 0 }))).digest('hex');
+  } catch (err) {
+    if (err instanceof OverBound) return OVER_BOUND_HASH;
+    throw err;
+  }
 }
 
 /**

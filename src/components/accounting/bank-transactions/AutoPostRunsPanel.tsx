@@ -39,7 +39,7 @@ function partialUndoMessage({ reversed, skippedBy }: UndoResult): string {
   const reasons = [
     // No reopen exists yet (R-111), so do not send the user to one.
     skippedBy.reconciled > 0
-      ? `${skippedBy.reconciled} on a reconciliation — remove them from an open session first; a completed one can't be reopened yet, so correct those with a journal`
+      ? `${skippedBy.reconciled} on a reconciliation — remove them from an open session first; a completed one must be reopened first (newest first)`
       : null,
     skippedBy.contended > 0 ? `${skippedBy.contended} in use by another request — try again in a moment` : null,
     skippedBy.failed > 0

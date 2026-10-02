@@ -48,7 +48,6 @@
  * are equal and the reconciler and the listing tools agree exactly.
  */
 
-import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
@@ -56,6 +55,7 @@ import type { SubledgerRole } from '../gl/controlAccountService';
 import { getUnappliedPaymentCash } from './unappliedPaymentCash';
 import { round2 } from './reconciliationMath';
 import { dropCancelledReversalPairs } from './orphanReversalPairs';
+import { readOrphanControlPostings } from './orphanControlPostings';
 import type { OffControlCash, UnappliedCashItem } from './unappliedCashTypes';
 
 export type { OffControlCash, UnappliedCashItem } from './unappliedCashTypes';
@@ -173,102 +173,9 @@ export async function getUnappliedControlCash(
     const payments = await getUnappliedPaymentCash(companyId, isAr ? 'ar' : 'ap', asAtDate, ids);
 
     // ── Mechanism 2: control movement no subledger document references ──────
-    //
-    // Taken SIGNED, in the control account's own direction, and negated so it
-    // reads as "what has to be added to the control balance to reach the
-    // subledger". The two partitions — documents that claim a journal, journals
-    // no document claims — must cover the control account exactly once each, or
-    // the decomposition double-counts and the residual never reaches zero.
-    //
-    // The reversal a SOFT-DELETE posts is the one control movement no document
-    // will ever claim and that is not a reconciling item. The invoice keeps
-    // pointing at the ORIGINAL entry so the undo can find it, so the reversal
-    // passes every `NOT EXISTS` below and would land here as an orphan for the
-    // full gross value of the document — on the AR reconciler and the AP
-    // reconciler, permanently, for every deleted invoice. The pair already
-    // contributes zero to the decomposition: `unpostedDocumentService` still
-    // counts the deleted document AND its original journal (its GL half reads
-    // only `jl.journal_entry_id = ci.gl_journal_entry_id`, never the reversal),
-    // so it nets to nothing, and the control balance has moved by exactly the
-    // same amount the sub-ledger dropped. Counting the reversal here re-opens
-    // a gap both sides had closed. `soft_delete_journal_reversals` (migration
-    // 653) records exactly which entries those are, and `idx_sdjr_reversal_entry`
-    // indexes this direction.
-    const orphanRows = (await (isAr
-      ? sql`
-        SELECT je.id, je.reversal_of_id, je.entry_number AS document_number,
-               NULL::text AS entity_name,
-               je.entry_date AS document_date, je.created_at,
-               COALESCE(SUM(jl.credit - jl.debit), 0) AS control_credit
-        FROM gl_journal_entries je
-        JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
-                                AND jl.company_id = ${companyId}::UUID
-                                AND jl.gl_account_id = ANY(${ids}::uuid[])
-        WHERE je.company_id = ${companyId}::UUID
-          AND je.status = 'posted'
-          AND je.entry_date <= ${asAtDate}::DATE
-          AND NOT EXISTS (SELECT 1 FROM customer_invoices d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
-          -- A CANCELLED document does not claim its journal. Cancelling posts
-          -- a reversal and undoes the application, so the original and the
-          -- reversal net to zero on the control account and neither relates to
-          -- anything open. While the cancelled document still counted as a
-          -- claimant, only the REVERSAL reached this list -- an unbalanced item
-          -- on a pair that moved the control account by nothing. Letting the
-          -- original through instead lets dropCancelledReversalPairs see both
-          -- legs and drop them together, by the outcome rule it already
-          -- applies. A cancelled document whose journal was never reversed
-          -- still surfaces here, which is right: that cash is on the control
-          -- account and no live document claims it.
-          AND NOT EXISTS (SELECT 1 FROM customer_payments d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
-                            AND COALESCE(d.status, '') <> 'cancelled')
-          AND NOT EXISTS (SELECT 1 FROM credit_notes d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
-                            AND COALESCE(d.status, '') <> 'cancelled')
-          -- A write-off's journal IS claimed — by the write-off, and through it
-          -- by the invoice (unpostedDocumentService counts it there). Leaving it
-          -- out of this list reported it as a posting with no document.
-          AND NOT EXISTS (SELECT 1 FROM customer_write_offs d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
-                            AND COALESCE(d.status, '') <> 'cancelled')
-          AND NOT EXISTS (SELECT 1 FROM soft_delete_journal_reversals r
-                          WHERE r.company_id = ${companyId}::UUID
-                            AND r.reversal_journal_entry_id = je.id)
-        GROUP BY je.id, je.reversal_of_id, je.entry_number, je.entry_date, je.created_at
-        HAVING COALESCE(SUM(jl.credit - jl.debit), 0) <> 0
-        ORDER BY je.entry_date, je.id
-      `
-      : sql`
-        SELECT je.id, je.reversal_of_id, je.entry_number AS document_number,
-               NULL::text AS entity_name,
-               je.entry_date AS document_date, je.created_at,
-               COALESCE(SUM(jl.debit - jl.credit), 0) AS control_credit
-        FROM gl_journal_entries je
-        JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
-                                AND jl.company_id = ${companyId}::UUID
-                                AND jl.gl_account_id = ANY(${ids}::uuid[])
-        WHERE je.company_id = ${companyId}::UUID
-          AND je.status = 'posted'
-          AND je.entry_date <= ${asAtDate}::DATE
-          AND NOT EXISTS (SELECT 1 FROM supplier_invoices d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id)
-          -- See the note on the AR query above: a CANCELLED document does not
-          -- claim its journal, so the original joins its reversal here and the
-          -- pair is dropped together.
-          AND NOT EXISTS (SELECT 1 FROM supplier_payments d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
-                            AND COALESCE(d.status, '') <> 'cancelled')
-          AND NOT EXISTS (SELECT 1 FROM credit_notes d
-                          WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
-                            AND COALESCE(d.status, '') <> 'cancelled')
-          AND NOT EXISTS (SELECT 1 FROM soft_delete_journal_reversals r
-                          WHERE r.company_id = ${companyId}::UUID
-                            AND r.reversal_journal_entry_id = je.id)
-        GROUP BY je.id, je.reversal_of_id, je.entry_number, je.entry_date, je.created_at
-        HAVING COALESCE(SUM(jl.debit - jl.credit), 0) <> 0
-        ORDER BY je.entry_date, je.id
-      `)) as DbRow[];
+    // The query, and every movement it deliberately does NOT report, are in
+    // orphanControlPostings.ts.
+    const orphanRows = await readOrphanControlPostings(companyId, isAr, asAtDate, ids);
 
     const { withPaymentRecord, appliedRecords, offControl } = payments;
 

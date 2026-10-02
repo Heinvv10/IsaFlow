@@ -4,8 +4,9 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { GraduationCap, Loader2, AlertCircle } from 'lucide-react';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface CategoryRow {
   category: string;
@@ -45,6 +46,7 @@ export default function WspAtrPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/training-events/wsp-atr?year=${year}`);
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load the WSP/ATR report - try again'));
       await assertOk(res, 'Could not load the WSP/ATR report - try again');
       const json = await res.json();
       setReport((json.data ?? json) as Report);

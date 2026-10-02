@@ -193,7 +193,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyAuthedRequest;
 
-  if (!(await checkAiRateLimit(req, companyId, 'onboarding-extract', { companyMax: 30, dailyMax: 300 }))) {
+  if (!(await checkAiRateLimit(req, companyId, 'onboarding-extract', { companyMax: 30, dailyMax: 300, refundUnused: true }))) {
     return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
   }
 

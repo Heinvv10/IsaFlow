@@ -9,10 +9,11 @@
  * 'matched' on a reconciliation. The `reconciliation_id` stamp alone never
  * locks — start stamps every line it claims and allocation does not clear it.
  *
- * Nothing in the app reopens or cancels a completed reconciliation yet
- * (`cancelReconciliation` refuses anything not in_progress) — R-111. So the
- * message says the true thing, names the reconciliation, and points at no path
- * that does not exist. Hein, 2026-09-21: lock now, reopen later.
+ * A completed reconciliation is reopened with `reopenReconciliation`
+ * (bankReconciliationReopenService.ts, R-111, newest first); cancel still
+ * refuses anything not in_progress. So the message names the reconciliation and
+ * points at the reopen. Hein, 2026-09-21: lock now, reopen later; 2026-10-02:
+ * "be able to reopen".
  */
 
 import { sql } from '@/lib/neon';
@@ -76,12 +77,13 @@ export async function reconciliationLockOf(companyId: string, row: DbRow): Promi
   return { kind: 'session' };
 }
 
-const TAIL = "can't be reopened yet, so this can't be reversed in the app. Correct it with a journal, or contact support.";
+const TAIL = "must be reopened before this can be reversed — reopen it (newest first) from the reconciliation, "
+  + "then reverse, then complete it again.";
 
 /**
  * Refuse a line whose cash a reconciliation holds. `subject` reads "This
  * payment's bank line" or "This bank line". The same for every caller: a
- * completed or Sage reconciliation is locked (no reopen yet, R-111); a line in
+ * completed reconciliation is locked until it is reopened (R-111), a Sage one for good; a line in
  * an IN-PROGRESS session is refused too, because reversing or unmatching it
  * detaches it and leaves the session's stored difference stale — the remedy
  * exists there (the reconciliation screen's Unmatch, or cancel the session).

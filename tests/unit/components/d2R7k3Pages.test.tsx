@@ -1,6 +1,7 @@
 // D2 round 7 (k3): a refused write / failed load on these pages is SAID, never dropped (gate class g).
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', companyId: 'c1' }) }));
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { MSG, empty500, expectNoRawError, ok, refuse, script } from '../helpers/d2R3a5';

@@ -1,0 +1,218 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r175-rate-limiter
+
+ ❯ tests/integration/r175-refusal-cache.int.test.ts (7 tests | 4 failed) 1513ms
+     × answers a flood on an over-limit key without writing to the database 970ms
+     × never admits from memory: a deleted row is not noticed until the cache is cleared 101ms
+     × re-admits when the window rolls over, without the cache being cleared 15ms
+     × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 99ms
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts (11 tests | 4 failed) 2003ms
+     × admits exactly max of 100 sequential calls, in order 452ms
+     × admits weighted calls only while their running total stays within max 42ms
+     × starts a fresh allowance of exactly max when the window rolls over 267ms
+     × two module instances sharing the database together admit exactly max 252ms
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts (9 tests | 2 failed) 40317ms
+     × gives up on a counter row another connection has locked, with an error and no admission 25003ms
+     × bounds every statement on a limiter connection, server side first 3ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts [ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts ]
+Error: Hook timed out in 10000ms.
+If this is a long-running hook, pass a timeout value as the last argument or configure it globally with "hookTimeout".
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts:57:1
+     55| }
+     56|
+     57| afterAll(async () => {
+       | ^
+     58|   await pool.query('DELETE FROM rate_limit_counters WHERE key LIKE $1'…
+     59|   await pool.end();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts > K-103 rate-limit counter survives the request that spent it > gives up on a counter row another connection has locked, with an error and no admission
+Error: Test timed out in 25000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts:192:3
+    190|   }, 25_000);
+    191|
+    192|   it('gives up on a counter row another connection has locked, with an…
+       |   ^
+    193|     const key = newKey();
+    194|     expect(await checkRateLimit(key, opts)).toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts > K-103 rate-limit counter survives the request that spent it > bounds every statement on a limiter connection, server side first
+AssertionError: expected 0 to be greater than 0
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts:230:20
+    228|     const statementMs = await show('statement_timeout');
+    229|
+    230|     expect(lockMs).toBeGreaterThan(0);
+       |                    ^
+    231|     expect(statementMs).toBeGreaterThanOrEqual(lockMs);
+    232|     // The client-side timer must fire AFTER the server's: when it fir…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  tests/integration/r175-rate-limit-admits-over-max.int.test.ts > R-175 — checkRateLimit never admits more than max per window > admits exactly max of 100 sequential calls, in order
+AssertionError: expected 100 to be 21 // Object.is equality
+
+- Expected
++ Received
+
+- 21
++ 100
+
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:59:36
+     57|     // Every admitted call is stored, and the first refusal. The rest …
+     58|     // refusals are answered from memory (r175-refusal-cache.int.test.…
+     59|     expect(await storedCount(key)).toBe(MAX + 1);
+       |                                    ^
+     60|   });
+     61|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  tests/integration/r175-rate-limit-admits-over-max.int.test.ts > R-175 — checkRateLimit never admits more than max per window > admits weighted calls only while their running total stays within max
+AssertionError: expected 24 to be 21 // Object.is equality
+
+- Expected
++ Received
+
+- 21
++ 24
+
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:93:36
+     91|     // 6 x 3 = 18 admitted; the 7th would make 21.
+     92|     expect(verdicts).toEqual([true, true, true, true, true, true, fals…
+     93|     expect(await storedCount(key)).toBe(21);
+       |                                    ^
+     94|   });
+     95|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  tests/integration/r175-rate-limit-admits-over-max.int.test.ts > R-175 — checkRateLimit never admits more than max per window > starts a fresh allowance of exactly max when the window rolls over
+AssertionError: expected 30 to be 21 // Object.is equality
+
+- Expected
++ Received
+
+- 21
++ 30
+
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:107:36
+    105|
+    106|     expect(await admittedSequentially(key, 30)).toBe(MAX);
+    107|     expect(await storedCount(key)).toBe(MAX + 1);
+       |                                    ^
+    108|   });
+    109|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  tests/integration/r175-rate-limit-admits-over-max.int.test.ts > R-175 — checkRateLimit never admits more than max per window > two module instances sharing the database together admit exactly max
+AssertionError: expected 100 to be 22 // Object.is equality
+
+- Expected
++ Received
+
+- 22
++ 100
+
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:163:36
+    161|     expect(admitted).toBe(MAX);
+    162|     // 20 admitted, then one stored refusal per instance; each remembe…
+    163|     expect(await storedCount(key)).toBe(MAX + 2);
+       |                                    ^
+    164|   });
+    165|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  tests/integration/r175-refusal-cache.int.test.ts > R-175 — an over-limit key is refused from memory > answers a flood on an over-limit key without writing to the database
+AssertionError: expected 221 to be 21 // Object.is equality
+
+- Expected
++ Received
+
+- 21
++ 221
+
+ ❯ tests/integration/r175-refusal-cache.int.test.ts:57:36
+     55|
+     56|     expect(verdicts.some(Boolean)).toBe(false);
+     57|     expect(await storedCount(key)).toBe(MAX + 1);
+       |                                    ^
+     58|   });
+     59|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  tests/integration/r175-refusal-cache.int.test.ts > R-175 — an over-limit key is refused from memory > never admits from memory: a deleted row is not noticed until the cache is cleared
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/integration/r175-refusal-cache.int.test.ts:66:45
+     64|
+     65|     // Still refused, and still no row: the answer came from memory.
+     66|     expect(await checkRateLimit(key, opts)).toBe(false);
+       |                                             ^
+     67|     expect(await storedCount(key)).toBeUndefined();
+     68|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+ FAIL  tests/integration/r175-refusal-cache.int.test.ts > R-175 — an over-limit key is refused from memory > re-admits when the window rolls over, without the cache being cleared
+AssertionError: expected 4 to be 3 // Object.is equality
+
+- Expected
++ Received
+
+- 3
++ 4
+
+ ❯ tests/integration/r175-refusal-cache.int.test.ts:93:36
+     91|     expect(await checkRateLimit(key, short)).toBe(false);
+     92|     expect(await checkRateLimit(key, short)).toBe(false);
+     93|     expect(await storedCount(key)).toBe(3);
+       |                                    ^
+     94|
+     95|     await sleep(2300);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/11]⎯
+
+ FAIL  tests/integration/r175-refusal-cache.int.test.ts > R-175 — an over-limit key is refused from memory > forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/integration/r175-refusal-cache.int.test.ts:109:45
+    107|     await pool.query('UPDATE rate_limit_counters SET count = 0 WHERE k…
+    108|
+    109|     expect(await checkRateLimit(key, opts)).toBe(false);
+       |                                             ^
+    110|     expect(await storedCount(key)).toBe(0);
+    111|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/11]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  10 failed | 17 passed (27)
+   Start at  13:20:10
+   Duration  40.56s (transform 150ms, setup 0ms, import 282ms, tests 43.83s, environment 0ms)
+

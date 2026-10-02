@@ -2,7 +2,8 @@
 import type { NextApiHandler } from 'next';
 import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { signIn, adminUpdateUser } from '@/lib/auth/gotrue';
+import { signIn, adminUpdateUser, GoTrueSignInError } from '@/lib/auth/gotrue';
+import { AuthUpstreamUnavailableError, respondIfAuthUnavailable, AUTH_RETRY_AFTER_SECS } from '@/lib/auth/authUpstream';
 import { rotateSessionRevokingOthers } from '@/lib/auth/sessionRevocation';
 import { setAuthCookies, parseCookies, REMEMBER_ME_COOKIE } from '@/lib/auth/cookies';
 import { withRateLimit } from '@/lib/rateLimit';
@@ -36,10 +37,30 @@ const handler: NextApiHandler = async (req, res) => {
   try {
     // Re-auth by signing in with the current password — GoTrue will reject if wrong.
     await signIn(email, currentPassword);
-  } catch {
+  } catch (err) {
+    // D9: GoTrue could not answer, so the password was never judged. Never say it is wrong.
+    if (respondIfAuthUnavailable(res, err, 'change-password')) return;
     return res.status(400).json({ success: false, error: { code: 'WRONG_PASSWORD', message: 'Current password is incorrect' } });
   }
-  await adminUpdateUser(user.id, { password: newPassword });
+  try {
+    await adminUpdateUser(user.id, { password: newPassword });
+  } catch (err) {
+    if (!(err instanceof AuthUpstreamUnavailableError)) throw err;
+    // D9: the outcome is UNKNOWN — GoTrue may have saved the password and lost the reply. Fail safe: the new
+    // password signs in only if the change landed, and then the other sessions are revoked as below.
+    try {
+      await signIn(email, newPassword);
+    } catch (probeErr) {
+      // Only GoTrue's definite "invalid credentials" says the change has not landed YET, and GoTrue may still apply
+      // an update it timed out on: neither answer promises that nothing changed.
+      const rejected = probeErr instanceof GoTrueSignInError && probeErr.credentialsRejected;
+      log.warn('change-password: update outcome unknown', { userId: user.id, newPasswordRejected: rejected }, 'Auth');
+      res.setHeader('Retry-After', String(AUTH_RETRY_AFTER_SECS));
+      return res.status(503).json({ success: false, error: rejected
+        ? { code: 'AUTH_UNAVAILABLE', message: "We couldn't confirm the change. Try signing in with your current password; if that fails, use your new one and sign out of all devices." }
+        : { code: 'PASSWORD_CHANGE_UNCONFIRMED', message: 'We could not confirm the change. Your password may have been changed: try signing in with the new one, then sign out of all devices.' } });
+    }
+  }
 
   // SECURITY: adminUpdateUser only rotates the password hash — GoTrue's
   // stateless HS256 refresh tokens survive it, so without this a stolen token

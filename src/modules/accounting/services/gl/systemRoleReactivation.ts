@@ -16,7 +16,7 @@ import { sql } from '@/lib/neon';
 import { SYSTEM_ACCOUNT_KEYS } from './systemAccountKeys';
 import { boundedRowWait, lockSystemRoleWrites } from './systemRoleWriteLock';
 import { ChartRefusal } from './chartRefusal';
-import { roleBarringChildren, roleTargetRefusal } from './roleTargetRules';
+import { roleTargetRefusal } from './roleTargetRules';
 import { assertRolesKept, snapshotRoles, type RoleSnapshot } from './systemRoleInvariant';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
 
@@ -43,11 +43,11 @@ export async function reactivationRefusal(companyId: string, accountId: string):
     return `Cannot reactivate system account ${r.account_code}: account ${r.holder_code} now holds the ${r.account_subtype} role. `
       + 'Reactivating it would give the role two holders; move the role in Default Accounts instead.';
   }
-  // The role is empty: this account becomes its holder. Sub-accounts bar it
-  // only where they bar a holder from gaining them (`roleBarringChildren`).
+  // The role is empty: this account becomes its holder, by the rule any
+  // account taking a role passes (sub-accounts bar a balance-sheet role only).
   return roleTargetRefusal(r.account_subtype, r.account_subtype, {
     code: r.account_code, type: r.account_type, isActive: true, subtype: r.account_subtype,
-    hasChildren: r.has_children === true && roleBarringChildren(r) !== null,
+    hasChildren: r.has_children === true,
   }, 'reactivate');
 }
 

@@ -9,7 +9,7 @@ import {
   Check, Building2, MapPin, Image, Landmark,
   Settings, FileText, ChevronLeft, ChevronRight, Loader2, LayoutGrid,
 } from 'lucide-react';
-import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage, isAuthUnavailableStatus } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   type WizardData, INITIAL_WIZARD,
@@ -72,7 +72,7 @@ export default function OnboardingWizard() {
       if (cancelled || redirectingRef.current) return;
       if (!r.ok) {
         window.clearTimeout(timeoutId);
-        void router.replace('/login');
+        if (isAuthUnavailableStatus(r.status)) setAuthTimeout(true); else void router.replace('/login'); // D9: an outage is not a sign-out
         return;
       }
       const body = await r.json();
@@ -155,7 +155,7 @@ export default function OnboardingWizard() {
     }).catch((err: unknown) => {
       log.warn('Auth check failed on onboarding page', { error: err }, 'onboarding');
       window.clearTimeout(timeoutId);
-      void router.replace('/login');
+      if (!cancelled) setAuthTimeout(true); // D9: unreachable is not signed out
     });
 
     return () => {

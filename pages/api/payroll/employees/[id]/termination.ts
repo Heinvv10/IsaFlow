@@ -5,7 +5,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { getPayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
@@ -19,6 +19,7 @@ import {
   type TerminationDetailsInput,
 } from '@/modules/accounting/services/payroll/payrollTerminationService';
 import { getEmployeeComponents } from '@/modules/accounting/services/payroll/payrollComponentService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 async function hasApprovedSeveranceDirective(companyId: string, employeeId: string, endDateIso: string | null): Promise<boolean> {
   if (!endDateIso) return false;
@@ -121,4 +122,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PUT']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

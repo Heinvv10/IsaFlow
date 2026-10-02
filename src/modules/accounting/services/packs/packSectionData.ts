@@ -89,6 +89,19 @@ export function packToCashFlow(d: Record<string, unknown>): PackCashFlow {
   return out;
 }
 
+/**
+ * Why a cash-flow line has no figure to print, keyed by field. Always present
+ * on the section (possibly empty), so an absent one is a rename — and would
+ * silently print the service's stand-in numbers as if they had been read.
+ */
+export function packToCashFlowUnavailable(d: Record<string, unknown>): Record<string, string> {
+  const v = d.unavailable;
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) {
+    throw new MissingPackFieldError('cash_flow', 'unavailable', `expected an object, got ${describe(v)}`);
+  }
+  return v as Record<string, string>;
+}
+
 // ── kpis / waterfall / commentary / ratios ───────────────────────────────────
 
 /** The KPI scorecard. An EMPTY array is legitimate (no targets met the data);
@@ -99,11 +112,35 @@ export function packToScorecard(d: Record<string, unknown>): KPIScorecardItem[] 
   return v as KPIScorecardItem[];
 }
 
+const STEP_COLOURS: ReadonlySet<unknown> = new Set(['green', 'red', 'blue', 'teal']);
+
+/** One step, checked rather than cast: a step that is not what a chart can draw
+ *  is refused here, naming which, instead of reaching the chart as `NaN`. */
+function stepProblem(step: unknown): string | null {
+  if (typeof step !== 'object' || step === null) return `is ${describe(step)}, not an object`;
+  const s = step as Record<string, unknown>;
+  if (typeof s.label !== 'string') return `has a label that is ${describe(s.label)}, not text`;
+  for (const key of ['start', 'end', 'value'] as const) {
+    if (typeof s[key] !== 'number' || !Number.isFinite(s[key])) return `has a ${key} that is ${describe(s[key])}, not a finite number`;
+  }
+  if (typeof s.isSubtotal !== 'boolean') return `has isSubtotal that is ${describe(s.isSubtotal)}, not a boolean`;
+  if (!STEP_COLOURS.has(s.color)) return `has a colour of ${describe(s.color)}, which is not a known kind`;
+  if (s.labelValue !== undefined && (typeof s.labelValue !== 'number' || !Number.isFinite(s.labelValue))) {
+    return `has a labelValue that is ${describe(s.labelValue)}, not a finite number`;
+  }
+  return null;
+}
+
 /** The profit-bridge steps. Empty is legitimate — the surfaces print "no
- *  profit bridge" — but absent is a rename. */
+ *  profit bridge" — but absent is a rename, and a step that is not a step is
+ *  refused by index. */
 export function packToWaterfallSteps(d: Record<string, unknown>): WaterfallStep[] {
   const v = d.steps;
   if (!Array.isArray(v)) throw new MissingPackFieldError('waterfall', 'steps', `expected an array, got ${describe(v)}`);
+  v.forEach((step, i) => {
+    const problem = stepProblem(step);
+    if (problem !== null) throw new MissingPackFieldError('waterfall', `steps[${i}]`, `step ${i} ${problem}`);
+  });
   return v as WaterfallStep[];
 }
 

@@ -36,7 +36,11 @@ vi.mock('@/lib/rateLimit', () => ({
 
 // Auto-mock the downstream report/export service modules so imports resolve;
 // they are never reached because the rate-limit gate returns early.
-vi.mock('@/modules/accounting/services/reports/reportPackService', () => ({
+// Partially mocked, not replaced: the board pack's scorecard reads
+// `DEFAULT_KPI_TARGETS` from this module AT IMPORT TIME, so a wholesale stub
+// makes the pack routes fail to load rather than fail their rate-limit check.
+vi.mock('@/modules/accounting/services/reports/reportPackService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/reports/reportPackService')>()),
   buildReportPack: vi.fn().mockReturnValue({ companyName: 'Co', period: '', sections: [] }),
 }));
 vi.mock('@/modules/accounting/services/core/pdfShared', () => ({
@@ -66,14 +70,19 @@ vi.mock('@/modules/accounting/services/reports/casewareExportService', () => ({
 vi.mock('@/lib/pdf/renderPagePdf', () => ({
   renderPagePdf: vi.fn().mockResolvedValue(Buffer.from('%PDF-1.7')),
 }));
-vi.mock('@/modules/accounting/services/reports/reportPackDataService', () => ({
-  getReportPackInput: vi.fn().mockResolvedValue({
+vi.mock('@/modules/accounting/services/reports/reportPackDataService', () => {
+  const input = {
     companyName: 'Co', period: '', revenue: 0, costOfSales: 0, operatingExpenses: 0,
     netProfit: 0, totalAssets: 0, totalLiabilities: 0, totalEquity: 0,
     currentAssets: 0, currentLiabilities: 0, cash: 0, accountsReceivable: 0,
     accountsPayable: 0, inventory: 0,
-  }),
-}));
+  };
+  return {
+    getReportPackInput: vi.fn().mockResolvedValue(input),
+    // The screen route's producer: the same input, with the figures it came from.
+    readReportPackInput: vi.fn().mockResolvedValue({ input, figures: { period: {}, cumulative: { unclassifiedCount: 0 } } }),
+  };
+});
 vi.mock('@/modules/accounting/services/packs/packTrendService', () => ({ getPackTrend: vi.fn().mockResolvedValue([]) }));
 vi.mock('@/modules/accounting/services/packs/pptxExportService', () => ({
   renderPackPptx: vi.fn().mockResolvedValue(Buffer.from('PK')),

@@ -7,10 +7,10 @@ import pg from 'pg';
 import '@/lib/pgTypes';
 import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteToken';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { als } from '@/lib/als';
 import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/gotrue';
+import { AuthUpstreamUnavailableError, respondToAuthOutage } from '@/lib/auth/authUpstream';
 import { sql } from '@/lib/neon';
-import { checkRateLimit, refundRateLimit } from '@/lib/rateLimit';
+import { chargeRateLimit, refundRateLimit, withRateLimit } from '@/lib/rateLimit';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
@@ -104,11 +104,11 @@ const handler: NextApiHandler = async (req, res) => {
   // owner — but the invitation is a single acceptance, and nothing legitimate
   // needs more than a handful of tries. Keyed on the digest, never the raw
   // token, so the rate-limit table holds no usable invitation secret.
-  // Charged above 1 deliberately: checkRateLimit short-circuits on its
-  // in-process LRU while a key sits below half its limit, which under-counts
-  // precisely the burst a guesser produces, and a cost above 1 is documented to
-  // always fall through to the authoritative shared counter. Ten attempts an
-  // hour, counted exactly and across pods.
+  // Charged above 1 for a reason that no longer applies: until R-175
+  // checkRateLimit admitted cost-1 calls from an in-process LRU without
+  // counting them. Every call now reaches the shared counter, so cost 2 of a
+  // max of 20 is simply ten attempts an hour, counted exactly and across pods.
+  // Left at 2 so the live counters keep their meaning.
   //
   // Placed AFTER the 410, not before it: the key is derived from a caller-chosen
   // URL segment, so charging it ahead of the lookup let an unauthenticated
@@ -116,24 +116,24 @@ const handler: NextApiHandler = async (req, res) => {
   // what proves the key names a real invitation, and this still precedes every
   // GoTrue call, which is what the cap exists to bound.
   //
-  // als.exit: checkRateLimit goes through `sql`, which routes onto the
-  // invite-token transaction whenever one is in flight. Any thrown path below
-  // (a GoTrue outage) ROLLBACKs that transaction and would discard the attempt
-  // with it, and the counter would also hold this key's row lock across two
-  // GoTrue round-trips. Run it on the module pool so the count survives.
+  // The limiter writes on its own pool (K-103), never on the invite-token
+  // transaction: a thrown path below ROLLBACKs that transaction and the attempt
+  // is still counted, and the counter's row lock is not held across the two
+  // GoTrue round-trips. The exception is a classified GoTrue outage, which
+  // judged no password: it is refunded after the fact (D9, outer catch below).
   const ATTEMPT_COST = 2;
   const ATTEMPTS_PER_HOUR = 10;
-  const admitted = await als.exit(() => checkRateLimit(`invite-accept:${tokenHash}`, {
+  const charge = await chargeRateLimit(`invite-accept:${tokenHash}`, {
     max: ATTEMPTS_PER_HOUR * ATTEMPT_COST, windowSecs: 3600, cost: ATTEMPT_COST,
-  }));
-  if (!admitted) {
+  });
+  if (!charge.admitted) {
     return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts for this invitation. Try again later.' } });
   }
   // Hand the units back on the two verdicts below that are reachable ONLY
   // after signIn has already succeeded, so no unauthenticated caller can spend
-  // the counter down. als.exit for the same reason the charge uses it: keep it
-  // off the invite-token transaction, which is rolled back on any throw.
-  const refund = () => als.exit(() => refundRateLimit(`invite-accept:${tokenHash}`, ATTEMPT_COST));
+  // the counter down. Into the window that was charged: after a rollover the
+  // units belong to a count that is gone, and the refund is a no-op.
+  const refund = () => refundRateLimit(`invite-accept:${tokenHash}`, ATTEMPT_COST, charge.windowStart);
 
 
   // 2-4 run on the BYPASSRLS admin role: RLS would refuse the company_users
@@ -188,7 +188,9 @@ const handler: NextApiHandler = async (req, res) => {
     try {
       tok = await signIn(inv.email, password);
     } catch (err) {
-      if (!isEstablished) throw err;
+      // D9: an outage is not a wrong password; the outer catch answers it. For a new invitee the GoTrue
+      // password set above has already run; a retry sets it again. No membership or acceptance is written.
+      if (err instanceof AuthUpstreamUnavailableError || !isEstablished) throw err;
       log.warn('invite accept rejected: wrong password for existing account', {
         inviteId: inv.id,
         companyId: inv.company_id,
@@ -268,6 +270,8 @@ const handler: NextApiHandler = async (req, res) => {
     // open transaction only logs `WARNING: there is no transaction in progress`
     // on every GoTrue failure, so ask first.
     if (opened) unusable = await rollbackFailed(client, 'invite accept');
+    // D9: a GoTrue outage at step 2 or 3 (both before BEGIN) judged no password: refund, answer 503.
+    else if (await respondToAuthOutage(res, err, 'invite accept', refund)) return;
     throw err;
   } finally {
     client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
@@ -287,4 +291,6 @@ const handler: NextApiHandler = async (req, res) => {
 // withErrorHandler OUTSIDE withInviteToken -- see the note on
 // pages/api/invitations/[token]/index.ts. A GoTrue outage rethrows out of the
 // handler and must reach the caller as JSON, not as a Next HTML 500.
-export default withErrorHandler(withInviteToken(handler));
+// D9: the per-token charge is refunded on a GoTrue outage, so a per-IP limit that is NEVER refunded bounds how
+// many GoTrue calls one link holder can drive during an outage. Charged before the invite-token transaction opens.
+export default withErrorHandler(withRateLimit(withInviteToken(handler), { max: 20, windowSecs: 900 }, 'invite-accept-by-ip'));

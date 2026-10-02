@@ -7,8 +7,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { CreateTaxDirectiveModal } from '@/components/payroll/TaxDirectiveComponents';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 type DirectiveType = 'lump_sum' | 'retirement' | 'severance' | 'death';
 type DirectiveStatus = 'pending' | 'approved' | 'expired' | 'cancelled';
@@ -92,6 +93,7 @@ export default function TaxDirectivesPage() {
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (debouncedSearch) params.set('search', debouncedSearch);
       const res = await apiFetch(`/api/accounting/tax-directives?${params}`);
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load the tax directives - try again'));
       await assertOk(res, 'Could not load the tax directives - try again');
       const json = await res.json();
       const payload = json.data ?? json;

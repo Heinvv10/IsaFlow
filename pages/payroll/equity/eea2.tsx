@@ -5,9 +5,10 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface Cell { race: string; gender: string; count: number }
 interface Level {
@@ -40,6 +41,7 @@ export default function EEA2Page() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/equity/eea2?asOf=${asOf}`);
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load EEA2 report - try again'));
       await assertOk(res, 'Could not load EEA2 report - try again');
       const json = await res.json();
       setReport((json.data ?? json) as Report);

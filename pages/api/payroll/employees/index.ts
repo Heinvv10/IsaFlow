@@ -14,6 +14,8 @@ import {
 } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
+import { canWrite } from '@/lib/auth/writeRoles';
+import { employeeNamesOnly } from '@/modules/accounting/services/payroll/payrollEmployeeRedaction';
 import {
   listPayrollEmployees,
   createPayrollEmployee,
@@ -24,11 +26,12 @@ async function handler(
   req: AuthenticatedNextApiRequest,
   res: NextApiResponse
 ): Promise<void> {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, companyRole } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     const employees = await listPayrollEmployees(companyId);
-    return apiResponse.success(res, employees);
+    // Personal data is for write roles; a viewer gets who the employees are, nothing else.
+    return apiResponse.success(res, canWrite(companyRole) ? employees : employees.map(employeeNamesOnly));
   }
 
   if (req.method === 'POST') {

@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Package, Loader2, AlertCircle, Plus, ChevronRight } from 'lucide-react';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
 
 interface PayPackage {
   id: string;
@@ -74,26 +75,28 @@ export default function PayPackagesPage() {
           retroactively change prior applications.
         </p>
 
-        <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-5">
-          <h2 className="text-base font-semibold text-[var(--ff-text-primary)] mb-3">New package</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-            <input placeholder="Code (EXEC)" value={form.code}
-              onChange={e => setForm({ ...form, code: e.target.value })}
-              className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
-            <input placeholder="Name (Executive)" value={form.name}
-              onChange={e => setForm({ ...form, name: e.target.value })}
-              className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
-            <input placeholder="Description (optional)" value={form.description}
-              onChange={e => setForm({ ...form, description: e.target.value })}
-              className="col-span-2 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
-          </div>
-          <div className="mt-3">
-            <button onClick={handleCreate} disabled={creating || !form.code.trim() || !form.name.trim()}
-              className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
-              <Plus className="h-4 w-4" /> Create package
-            </button>
-          </div>
-        </section>
+        <WriteOnly>
+          <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-5">
+            <h2 className="text-base font-semibold text-[var(--ff-text-primary)] mb-3">New package</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+              <input placeholder="Code (EXEC)" value={form.code}
+                onChange={e => setForm({ ...form, code: e.target.value })}
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+              <input placeholder="Name (Executive)" value={form.name}
+                onChange={e => setForm({ ...form, name: e.target.value })}
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+              <input placeholder="Description (optional)" value={form.description}
+                onChange={e => setForm({ ...form, description: e.target.value })}
+                className="col-span-2 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+            </div>
+            <div className="mt-3">
+              <button onClick={handleCreate} disabled={creating || !form.code.trim() || !form.name.trim()}
+                className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
+                <Plus className="h-4 w-4" /> Create package
+              </button>
+            </div>
+          </section>
+        </WriteOnly>
 
         {error && (
           <div className="flex items-center gap-2 text-sm text-red-400">

@@ -4,6 +4,7 @@ import type { NextApiHandler } from 'next';
 import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
 import { enrollTotp, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { verifyToken } from '@/lib/auth/gotrue';
+import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import { log } from '@/lib/logger';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { requireActiveAccount } from '@/lib/auth/requireActiveAccount';
@@ -26,7 +27,8 @@ const handler: NextApiHandler = async (req, res) => {
     const claims = await verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]);
     email = typeof claims.email === 'string' ? claims.email : '';
     userId = claims.sub;
-  } catch {
+  } catch (err) {
+    if (respondIfAuthUnavailable(res, err, '2fa-enroll')) return;
     return res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });
   }
 
@@ -42,6 +44,7 @@ const handler: NextApiHandler = async (req, res) => {
     const result = await enrollTotp(token, email);
     return res.status(200).json({ success: true, data: result });
   } catch (err) {
+    if (respondIfAuthUnavailable(res, err, '2fa-enroll')) return;
     if (err instanceof GotrueMfaError) {
       log.warn('2fa-enroll gotrue error', { status: err.status }, 'Auth');
       return res.status(err.status).json({ success: false, error: { code: 'ENROLL_FAILED', message: err.message } });

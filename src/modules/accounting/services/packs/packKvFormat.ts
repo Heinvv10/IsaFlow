@@ -7,7 +7,7 @@
  * Lives in the service layer rather than in PackSectionView so the PPTX route
  * can reuse it without pulling React and ECharts into an API bundle.
  */
-import { formatMoney, formatPct } from '@/lib/format/money';
+import { formatRatioFigure, formatRatioOf } from '@/modules/accounting/services/reports/ratioPresentation';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 import type { PackKvItem } from './packDocument';
 
@@ -21,12 +21,8 @@ export function formatPackKv(item: PackKvItem): string {
   // number, exactly as KpiTile.unavailable does on the executive dashboard.
   if (item.unavailable) return item.unavailable;
   if (item.value === null) return NO_FIGURE;
-  switch (item.format) {
-    case 'pct': return formatPct(item.value);
-    case 'ratio': return item.value.toFixed(2);
-    case 'days': return `${item.value.toFixed(0)} days`;
-    case 'money': return formatMoney(item.value, { cents: true });
-  }
+  // One writing of each unit, shared with every other ratio surface.
+  return formatRatioFigure(item.format, item.value);
 }
 
 /**
@@ -46,19 +42,34 @@ export function formatPackKv(item: PackKvItem): string {
  * here, so a fourth surface cannot invent a fourth answer.
  */
 export type ScorecardFigure =
-  | { scored: false; reason: string }
-  | { scored: true; value: string; target: number };
+  | { scored: false; reason: string; target: string }
+  | { scored: true; value: string; target: string };
 
 export function scorecardFigure(item: KPIScorecardItem): ScorecardFigure {
   // The service's own reason, printed INSTEAD of a figure — the same rule
   // `formatPackKv` applies to an unavailable KV item, and the same string the
   // executive dashboard's KpiTile shows for the same ratio.
-  if (item.value === null) return { scored: false, reason: item.reason ?? NO_FIGURE };
-  return { scored: true, value: item.value.toFixed(2), target: item.target };
+  //
+  // VALUE AND TARGET IN THE RATIO'S OWN UNIT, from the table every ratio
+  // surface reads. The tile printed `formatRatio` — "(1 310.83) / 35" for a
+  // gross margin, "213.23 / 30" for debtor days — beside a ratios page
+  // printing "(1 310.8%)" and "213 days" for the same two figures.
+  const target = formatRatioOf(item.ratioKey, item.target);
+  if (item.value === null) return { scored: false, reason: item.reason ?? NO_FIGURE, target };
+  return { scored: true, value: formatRatioOf(item.ratioKey, item.value), target };
 }
 
 /** The same decision as one line of text, for the deck. */
 export function formatScorecardValue(item: KPIScorecardItem): string {
   const figure = scorecardFigure(item);
   return figure.scored ? `${figure.value} / ${figure.target}` : figure.reason;
+}
+
+/**
+ * A KPI status as the legacy PDF and HTML packs print it. `not_meaningful`
+ * printed raw as "NOT_MEANINGFUL" — a code, not a word — and in the HTML pack
+ * in red. It is "Not meaningful", in a neutral style; it was never measured.
+ */
+export function kpiStatusLabel(status: KPIScorecardItem['status']): string {
+  return status === 'not_meaningful' ? 'Not meaningful' : status.toUpperCase();
 }

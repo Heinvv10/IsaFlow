@@ -65,7 +65,7 @@ interface Case {
 }
 
 const PAY = [{ id: 'p1', paymentNumber: 'D2-PAY-1', supplierName: 'D2 Old Payee', clientName: 'D2 Old Payee', date: '2026-01-01', amount: 100, allocatedAmount: 0 }];
-const SC = { scorecard: [{ ratioKey: 'k1', name: 'D2 Old KPI', value: 5, target: 5, status: 'green', percentOfTarget: 100 }], summary: { green: 1, amber: 0, red: 0, total: 1 } };
+const SC = { scorecard: [{ ratioKey: 'debtToEquity', name: 'D2 Old KPI', value: 5, target: 5, status: 'green', percentOfTarget: 100 }], summary: { green: 1, amber: 0, red: 0, total: 1 } };
 const BUD = { report: { period: 'current', lines: [{ account_code: '4000', account_name: 'D2 Old Budget Line', account_type: 'revenue', budget_amount: 10, actual_amount: 5, variance: 5, variance_pct: 50 }], total_budget: 10, total_actual: 5, total_variance: 5 } };
 const RECON = { type: 'reconciliation', months: [], totals: { glRevenue: 0, glOutputVat: 0, glInputVat: 0, glNetVat: 0, invoiceRevenue: 0, returnNetVat: 0, capitalGoodsOutput: 0, capitalGoodsInput: 0, revenueVariance: 0, outputVatVariance: 0, inputVatVariance: 0 }, issues: [{ month: '2026-01', severity: 'error', message: 'D2 Old Recon Issue' }] };
 const item = (n: string) => [{ id: 'i1', itemCode: 'D2-1', name: n, itemName: n, category: 'c', uom: 'ea', qtyOnHand: 1, minLevel: 0, lowStock: false, costPrice: 1, stockValue: 1, sellingPrice: 1, isActive: true, date: '2026-01-01', type: 'in', reference: 'r', qtyIn: 1, qtyOut: 0, balance: 1, poCount: 1, qtyOrdered: 1, totalCost: 1, avgCost: 1, timesSold: 1, qtySold: 1, totalRevenue: 1, avgPrice: 1 }];

@@ -20,7 +20,8 @@ import {
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { checkSendRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, checkSendRateLimit } from '@/lib/rateLimit';
+import { isValidUUID } from '@/lib/validation';
 import { sendStatementEmail } from '@/modules/accounting/services/ar/statementEmailService';
 
 type Row = Record<string, unknown>;
@@ -55,7 +56,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
+
+  // Abuse limit: every attempt counts, per user and company (30), and per user
+  // across all their companies (90), whatever comes of it, and it is never
+  // given back. It sits ahead of the ownership query below, which the volume
+  // charge no longer does (R-175).
+  if (!(await checkRateLimit(`statement-bulk-email:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))
+    || !(await checkRateLimit(`statement-bulk-email:user-attempts:${user.id}`, { max: 90, windowSecs: 900 }))) {
+    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
+  }
 
   const body = req.body as {
     customerIds?: unknown;
@@ -79,6 +89,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'all customerIds must be strings');
   }
   const customerIds = rawIds as string[];
+  // Before any query: a non-UUID id would fail the ::UUID cast below as a 500.
+  if (customerIds.some(id => !isValidUUID(id))) {
+    return apiResponse.badRequest(res, 'all customerIds must be UUIDs');
+  }
 
   if (
     typeof body.asAtDate !== 'string' ||
@@ -93,22 +107,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const message =
     typeof body.message === 'string' ? body.message : undefined;
 
-  // Charge the per-company / per-day VOLUME buckets one unit per recipient so a
-  // batch can't be used to blow past a real email ceiling; the per-IP bucket
-  // stays request-rate (one call = one request). companyMax/dailyMax are email
-  // volumes here (not request counts), sized to allow legitimate statement runs
-  // (batches are capped at MAX_BATCH_SIZE=100) while bounding an abusive loop.
-  // Tunable if a large tenant's monthly run needs more headroom.
-  const sendAllowed = await checkSendRateLimit(req, companyId, 'statement-bulk-email', {
-    ipMax: 30, // requests / 15 min per IP (cost 1 each)
-    companyMax: 2_000, // emails / 15 min per company
-    dailyMax: 10_000, // emails / day per company
-    count: customerIds.length,
-  });
-  if (!sendAllowed) {
-    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
-  }
-
   // IDOR guard — verify all IDs belong to this company
   const owned = (await sql`
     SELECT id FROM customers
@@ -121,13 +119,33 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (unauthorized.length > 0) {
     log.warn(
       'Unauthorized customerIds in statement-bulk-email request',
-      { companyId, unauthorized },
+      { companyId, count: unauthorized.length, sample: unauthorized.slice(0, 3) },
       'statement-bulk-email'
     );
     return apiResponse.forbidden(
       res,
       'One or more customerIds do not belong to this company'
     );
+  }
+
+  // Charge the per-company / per-day VOLUME buckets one unit per recipient so a
+  // batch can't be used to blow past a real email ceiling; the per-IP bucket
+  // stays request-rate (one call = one request). companyMax/dailyMax are email
+  // volumes here (not request counts), sized to allow legitimate statement runs
+  // (batches are capped at MAX_BATCH_SIZE=100) while bounding an abusive loop.
+  // Tunable if a large tenant's monthly run needs more headroom.
+  // Charged AFTER the ownership guard (R-175): a request refused there sends
+  // nothing, and used to spend one unit per id it named. refundUnused: each
+  // email the mail server accepts uses one unit; the rest come back.
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'statement-bulk-email', {
+    ipMax: 30, // requests / 15 min per IP (cost 1 each)
+    companyMax: 2_000, // emails / 15 min per company
+    dailyMax: 10_000, // emails / day per company
+    count: customerIds.length,
+    refundUnused: true,
+  });
+  if (!sendAllowed) {
+    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
 
   const { name: companyName, statementSignature } =

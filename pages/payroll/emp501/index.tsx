@@ -5,8 +5,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Scale, Loader2, AlertCircle, Download, CheckCircle } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface ReconciliationRow {
   month: number;
@@ -71,6 +72,7 @@ export default function Emp501Page() {
     setIsExporting(true);
     try {
       const res = await apiFetch(`/api/payroll/emp501/export?taxYear=${taxYear}`);
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not export the EMP501 file - try again'));
       await assertOk(res, 'Could not export the EMP501 file - try again');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

@@ -1,7 +1,7 @@
 /**
  * Payroll Runs API
- * GET  /api/payroll/runs  - List payroll runs
- * POST /api/payroll/runs  - Create a new payroll run
+ * GET  /api/payroll/runs  - List payroll runs (totals only; any member)
+ * POST /api/payroll/runs  - Create a new payroll run (write roles only)
  */
 
 import type { NextApiResponse } from 'next';
@@ -9,6 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   withAuth,
+  withWriteAccess,
   type AuthenticatedNextApiRequest,
   type CompanyAuthedRequest,
 } from '@/lib/auth';
@@ -60,4 +61,4 @@ async function handler(
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

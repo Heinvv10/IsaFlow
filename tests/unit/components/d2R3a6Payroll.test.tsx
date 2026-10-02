@@ -4,6 +4,7 @@
  * the new state, and the training page showed its error only inside the closed capture form.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', companyId: 'c1' }) }));
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { afterWrite, empty500, expectNoJargon, MSG, ok, on, refuse, serve, writeCalls, type Route } from '../helpers/d2R3a6';
