@@ -210,8 +210,8 @@ describe('trial_balance (getTrialBalanceReport) — payload guard', () => {
     const mockSql = sql as SqlMock;
     const periodMeta = { start_date: '2026-02-01', end_date: '2026-02-28', fy_start_month: 3 };
     const accountRows = [
-      { account_code: '1000', account_name: 'Bank', account_type: 'asset', normal_balance: 'debit', closing_debit: '0.1', closing_credit: '0', period_debit: '0.1', period_credit: '0' },
-      { account_code: '1001', account_name: 'Bank2', account_type: 'asset', normal_balance: 'debit', closing_debit: '0.2', closing_credit: '0', period_debit: '0.2', period_credit: '0' },
+      { account_code: '1000', account_name: 'Bank', account_type: 'asset', normal_balance: 'debit', closing_debit: '0.1', closing_credit: '0', opening_net: '0', period_debit: '0.1', period_credit: '0' },
+      { account_code: '1001', account_name: 'Bank2', account_type: 'asset', normal_balance: 'debit', closing_debit: '0.2', closing_credit: '0', opening_net: '0', period_debit: '0.2', period_credit: '0' },
     ];
     mockSql
       .mockResolvedValueOnce([periodMeta])

@@ -116,7 +116,7 @@ describe('company-groups H1 — per-company membership guard', () => {
     await (handler as Handler)(
       makeReq({
         action: 'set-mapping', groupId: GROUP_ID, companyId: OTHER_COMPANY,
-        companyAccountId: 'a', groupAccountId: 'b',
+        companyAccountId: '44444444-4444-4444-9444-444444444444', groupAccountId: '55555555-5555-4555-9555-555555555555',
       }),
       makeRes(),
     );
