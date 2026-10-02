@@ -68,7 +68,7 @@ describe('SectionCard ratios', () => {
     // The engine's own sentences (`ratioBasis.ts`), so the card cannot pass by
     // echoing a placeholder: a base that is not positive, an input the report
     // never read, an input read and nil, or a stated "Not stated: …".
-    const ENGINE_REASON = /is not positive, so this ratio has no meaning\.$|is not captured in this report, so this ratio cannot be stated\.$|^No .+ recorded in the period, so this ratio cannot be stated\.$|^Not stated: |^No inventory is held, so there is no stock to turn over|^Interest income is at least interest expense|^Interest expense is a net credit in the period, so cover on it is not meaningful\.$|^Equity is negative — liabilities exceed assets, so this ratio inverts/;
+    const ENGINE_REASON = /(?:is|are) not positive, so this ratio has no meaning\.$|^No inventory could be identified in the chart of accounts, so |is not captured in this report, so this ratio cannot be stated\.$|^No .+ recorded in the period, so this ratio cannot be stated\.$|^Not stated: |^No inventory is held, so there is no stock to turn over|^Interest income is at least interest expense|^Interest expense is a net credit in the period, so cover on it is not meaningful\.$|^Equity is negative — liabilities exceed assets, so this ratio inverts/;
     for (const line of shown) {
       expect(valueOf(line.label), line.label).toBe(reasons[line.key]);
       expect(reasons[line.key], line.key).toMatch(ENGINE_REASON);
