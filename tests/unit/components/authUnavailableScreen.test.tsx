@@ -60,7 +60,9 @@ describe('AppLayout during an auth-service outage', () => {
       vi.stubGlobal('fetch', meFetch([failure]));
       renderPage();
       expect(await screen.findByText(MESSAGE)).toBeInTheDocument();
-      expect(screen.getByText(/you.re still signed in/i)).toBeInTheDocument();
+      // The session cookie is HttpOnly and nothing has been verified, so the screen claims nothing about it.
+      expect(screen.getByRole('alert').textContent).toMatch(/can.t reach the sign-in service right now\. We.ll keep trying\.\s*Retry$/);
+      expect(screen.queryByText(/signed in|sign in again/i)).toBeNull();
       expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
       expect(screen.queryByText('customers page')).toBeNull();
     });
