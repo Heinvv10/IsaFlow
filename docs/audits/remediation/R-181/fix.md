@@ -290,6 +290,22 @@ orchestrator. Every other R-181 evidence log (red, green, mutations, regression)
   person to offset. Accepted: the alternative leaves Bank wrong whenever `requested_amount` is
   wrong, and Bank is the figure the statement reconciles against.
 - **The review flag has no UI**; the log line and `failure_reason` are what surface it (Hein).
+- **The first report's `amount` lives in a free-text tag** (`[paystack amount N cents]` in
+  `customer_payments.description`), the kind of free-text match `gatewayFeeService` rejects for its
+  own idempotency. If the tag were edited or renamed between verify and the webhook, a spurious
+  `amount_disagrees_with_first_report` would be raised. The impact is a wrong flag only; no money
+  moves. No code path edits a receipt description today (cancel only appends ` [CANCELLED]`, and
+  cancelled receipts are excluded from the dedupe read). The tag is not customer-visible:
+  statements use `bank_reference` and the portal uses fixed labels.
+- **Verify's `pending` can stay pending indefinitely.** When the settlement fails for a permanent
+  cause, verify keeps answering `pending` (never `failed`, so the payer is not invited to pay
+  again). The webhook fails on the same cause loudly: it answers 500, keeps the event
+  `processed = false` with its `processing_error`, and Paystack redelivers.
+- **The fee journal has no unique constraint (R-185, pre-existing).** `postGatewayFee` guards with a
+  SELECT on (company, reference, posting agent) and then inserts; two dedupe-path settlements for
+  one reference at the same moment (for example two different webhook bodies arriving together)
+  can both pass the SELECT and post the fee twice. Registered as R-185 (fix: a partial unique
+  index, or an advisory lock on the reference); not introduced by R-181 and not fixed here.
 
 ## Review round 3 (both reviewers: SHIP; residual LOWs)
 

@@ -15137,6 +15137,36 @@
       "title": "paystackClient.ts is over the 300-line file limit (432 lines)",
       "claim": "src/modules/billing/services/paystackClient.ts was 425 lines at 82bd2afdc, already over CLAUDE.md's 300-line limit. R-181 added 7 (verifyTransaction maps requested_amount and fees), making 432. A split (for example transactions, subscriptions and plans into separate modules) is out of R-181's scope.",
       "processNotes": "2026-10-02: recorded by the R-181 round 3 review. Pre-existing; not fixed."
+    },
+    {
+      "area": "accounting/ar portal",
+      "affectedPaths": [
+        "src/modules/accounting/services/ar/gatewayFeeService.ts"
+      ],
+      "sourceLabel": "R-181 PR #618 final review, 2026-10-02",
+      "sourceIds": [
+        "R-181"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Needs two dedupe-path settlements for one reference to run at the same moment; the effect is a duplicated fee expense and Bank understated by the fee, visible on reconciliation.",
+      "auditedSha": "c18bb8606",
+      "currentSha": "c18bb8606",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown. Census (read-only): gl_journal_entries with posting_agent = 'system:paystack-receipt:v1' and a non-null reference, grouped by (company_id, reference), status not reversed, having count > 1.",
+      "canonicalItem": null,
+      "branch": null,
+      "id": "R-185",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "The Paystack fee journal has no unique constraint; two concurrent dedupe-path settlements can post the fee twice",
+      "claim": "postGatewayFee (gatewayFeeService.ts) guards the fee leg with a SELECT on gl_journal_entries by (company_id, reference, posting_agent) and then inserts. Nothing enforces it: two calls for one reference at once (for example two different webhook bodies for the same reference arriving together, both on the receipt-already-banked path) can both pass the SELECT and both post the fee. Pre-existing; not introduced by R-181. Fix: a partial unique index on gl_journal_entries (company_id, reference) WHERE posting_agent = 'system:paystack-receipt:v1' AND reference IS NOT NULL AND status IS DISTINCT FROM 'reversed', or a transaction-scoped advisory lock on the reference before the SELECT.",
+      "processNotes": "2026-10-02: recorded by the R-181 PR #618 final review. Pre-existing; not fixed in R-181."
     }
   ],
   "sourceInventory": [
