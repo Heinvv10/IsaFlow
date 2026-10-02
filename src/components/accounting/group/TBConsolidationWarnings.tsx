@@ -17,31 +17,15 @@ export interface UnmappedEntity {
   companyId: string; companyName: string; accountCount: number; value: number;
 }
 
-/** D4: the fiscal years each member closed inside the range, and where its P&L rows start. */
-export interface YearEndCloses {
-  fiscalYearEndsClosed?: Record<string, string[]>;
-  fiscalYearStarts?: Record<string, string>;
-  entityNames?: Record<string, string>;
-}
-
 interface Props {
   unmapped?: { accountCount: number; value: number; byEntity: UnmappedEntity[] };
   /** False when members do not share a financial year end. */
   coterminous?: boolean;
-  yearEnd?: YearEndCloses;
 }
 
-/** One line per member whose range crosses a fiscal-year start; empty inside one fiscal year. */
-export function yearEndCloseLines({ fiscalYearEndsClosed = {}, fiscalYearStarts = {}, entityNames = {} }: YearEndCloses): string[] {
-  return Object.entries(fiscalYearEndsClosed).filter(([, ends]) => ends.length > 0).map(([id, ends]) =>
-    `${entityNames[id] ?? id}: profit of the fiscal year ending ${ends.join(', ')} closed to retained earnings — derived, not posted — `
-    + `and shown on Retained Earnings b/f; income statement rows run from ${fiscalYearStarts[id] ?? ''}.`);
-}
-
-export function TBConsolidationWarnings({ unmapped, coterminous, yearEnd }: Props) {
+export function TBConsolidationWarnings({ unmapped, coterminous }: Props) {
   const hasUnmapped = (unmapped?.accountCount ?? 0) > 0;
-  const closes = yearEnd ? yearEndCloseLines(yearEnd) : [];
-  if (!hasUnmapped && coterminous !== false && closes.length === 0) return null;
+  if (!hasUnmapped && coterminous !== false) return null;
 
   return (
     <>
@@ -75,15 +59,6 @@ export function TBConsolidationWarnings({ unmapped, coterminous, yearEnd }: Prop
             Each entity&apos;s income statement is measured from its own year start, so those columns
             cover different windows and are not additive without adjustment.
           </p>
-        </div>
-      )}
-
-      {closes.length > 0 && (
-        <div className="mb-6 rounded-lg border border-[var(--ff-border-light)] p-4 text-sm" role="note">
-          <p className="font-semibold text-[var(--ff-text-primary)]">This range crosses a fiscal-year start</p>
-          <ul className="mt-1 space-y-0.5 text-[var(--ff-text-secondary)]">
-            {closes.map(line => <li key={line}>{line}</li>)}
-          </ul>
         </div>
       )}
     </>

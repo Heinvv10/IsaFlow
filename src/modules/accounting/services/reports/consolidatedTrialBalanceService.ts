@@ -8,7 +8,6 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
 
 type Row = DbRow;
 
@@ -118,15 +117,13 @@ export interface EliminationLineWithAccount {
   /** Group account type — decides whether an elimination accumulates or resets each year. */
   groupAccountType: string;
   debit: number; credit: number;
-  /** The adjustment's period_end — when the elimination happened, for the fiscal-year split. */
-  adjustmentPeriodEnd: string;
 }
 
 export async function getPostedEliminations(
   groupId: string, periodStart: string, periodEnd: string
 ): Promise<EliminationLineWithAccount[]> {
   const adjRows = (await sql`
-    SELECT ca.lines, ca.period_end FROM consolidation_adjustments ca
+    SELECT ca.lines FROM consolidation_adjustments ca
     WHERE ca.group_id = ${groupId}::UUID AND ca.status = 'posted'
       AND ca.period_start >= ${periodStart} AND ca.period_end <= ${periodEnd}
   `) as Row[];
@@ -144,7 +141,6 @@ export async function getPostedEliminations(
           groupAccountName: String(gaRows[0]!.account_name),
           groupAccountType: String(gaRows[0]!.account_type ?? ''),
           debit: Number(line.debit || 0), credit: Number(line.credit || 0),
-          adjustmentPeriodEnd: fmtDate(adj.period_end),
         });
       }
     }

@@ -1,7 +1,7 @@
 /**
- * D4 round 3: consolidated-reports?action=trial-balance refuses a malformed or inverted range
- * with a 400 before any query. The consolidated TB walks fiscal-year boundaries
- * (fiscalYearCloseRows), which throws on a non-date — that used to surface as a 500.
+ * consolidated-reports?action=trial-balance refuses a malformed or inverted range with a 400
+ * before any query. Unvalidated, a non-date reached a SQL date cast (or the fiscal-year
+ * arithmetic) and surfaced as a 500.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';

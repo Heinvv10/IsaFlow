@@ -177,24 +177,28 @@ describe('getConsolidatedTrialBalance (GRP-06 — balances, not range movement)'
 });
 
 describe('getConsolidatedTrialBalance (eliminations follow the same basis)', () => {
-  // D4 round 3: P&L legs follow the members' fiscal-year floor (FY of the range end, 2025-03-01
-  // here); earlier ones fold into RE-BF. The DB-backed proof is consolidatedTrialBalanceFiscalYearDb.
-  it('takes balance-sheet eliminations cumulatively and P&L ones from the fiscal-year floor', async () => {
-    const leg = (id: string, type: string, debit: number, credit: number, end: string) =>
-      ({ groupAccountId: id, groupAccountCode: id, groupAccountName: id, groupAccountType: type, debit, credit, adjustmentPeriodEnd: end });
-    getPostedEliminations.mockResolvedValue([
-      leg(GROUP_BANK, 'asset', 0, 500, '2024-06-30'),
-      leg('ie-1', 'revenue', 9999, 0, '2025-02-28'), // prior fiscal year → RE-BF
-      leg('ie-1', 'revenue', 300, 0, '2025-04-30'),
-    ]);
+  it('takes balance-sheet eliminations cumulatively and income-statement ones over the range', async () => {
+    getPostedEliminations.mockImplementation(async (_g: string, start: string) =>
+      start === '1900-01-01'
+        ? [
+            { groupAccountId: GROUP_BANK, groupAccountCode: 'B100', groupAccountName: 'Cash', groupAccountType: 'asset', debit: 0, credit: 500 },
+            { groupAccountId: 'ie-1', groupAccountCode: 'E10', groupAccountName: 'Revenue', groupAccountType: 'revenue', debit: 9999, credit: 0 },
+          ]
+        : [
+            { groupAccountId: GROUP_BANK, groupAccountCode: 'B100', groupAccountName: 'Cash', groupAccountType: 'asset', debit: 0, credit: 111 },
+            { groupAccountId: 'ie-1', groupAccountCode: 'E10', groupAccountName: 'Revenue', groupAccountType: 'revenue', debit: 300, credit: 0 },
+          ],
+    );
     primeMember([{ account_id: 'acc-bank', total_debit: '1000', total_credit: '0' }]);
 
     const tb = await getConsolidatedTrialBalance(GROUP_ID, PERIOD_START, PERIOD_END);
-    expect(getPostedEliminations).toHaveBeenCalledTimes(1);
     expect(getPostedEliminations).toHaveBeenCalledWith(GROUP_ID, '1900-01-01', PERIOD_END);
-    expect(tb.groupAccounts.find(a => a.groupAccountId === GROUP_BANK)!.eliminationCredit).toBe(500);
-    expect(tb.groupAccounts.find(a => a.groupAccountId === 'ie-1')!.eliminationDebit).toBe(300);
-    expect(tb.groupAccounts.find(a => a.accountCode === 'RE-BF')!.eliminationDebit).toBe(9999);
+    expect(getPostedEliminations).toHaveBeenCalledWith(GROUP_ID, PERIOD_START, PERIOD_END);
+
+    const bank = tb.groupAccounts.find(a => a.groupAccountId === GROUP_BANK)!;
+    expect(bank.eliminationCredit).toBe(500);   // cumulative, not the 111 in-range figure
+    const revenue = tb.groupAccounts.find(a => a.groupAccountId === 'ie-1')!;
+    expect(revenue.eliminationDebit).toBe(300); // in-range, not the 9999 cumulative figure
   });
 });
 
