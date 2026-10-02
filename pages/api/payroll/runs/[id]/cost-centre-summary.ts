@@ -13,6 +13,7 @@ import {
   type CompanyAuthedRequest,
 } from '@/lib/auth';
 import { costCentreSummaryForRun } from '@/modules/accounting/services/core/costCentreService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -30,4 +31,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(handler));
+export default withAuth(withErrorHandler(withPayrollDetailAccess(handler)));
