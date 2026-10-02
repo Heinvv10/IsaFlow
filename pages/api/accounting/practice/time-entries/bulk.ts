@@ -40,6 +40,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     && body.weekdays.every((d: unknown) => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6))) {
     return apiResponse.badRequest(res, 'weekdays must be an array of whole numbers from 0 (Sunday) to 6 (Saturday)');
   }
+  // jobId reaches the job fence; refuse anything but a UUID here, with its own message.
+  if (body.jobId != null && body.jobId !== '' && !isUuidParam(body.jobId)) {
+    return apiResponse.badRequest(res, 'jobId must be a UUID');
+  }
   // Postgres text cannot hold a NUL (22021): refused here, since bulk treats any database error as a fault.
   if (hasNul(body.taskOverride)) return apiResponse.badRequest(res, NUL_MESSAGE);
   // A real calendar date, not just a string: '2026-13-45' split to NaN gave an empty range and a quiet 201.

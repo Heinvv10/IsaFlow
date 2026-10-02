@@ -47,6 +47,15 @@ describeIfDb('Engagement budgets — routes, bulk and MCP refuse a foreign or cl
       expect(await f.entriesNamed('EBR ok')).toBe(1);
     });
 
+    it('a jobId that is not a UUID is refused before any SQL with a fixed sentence that does not echo it', async () => {
+      for (const jobId of ['a\u0000b', 'x'.repeat(5000)]) {
+        const r = await f.call(timeEntriesRoute, 'POST', { ...base(), taskDescription: 'EBR junk job', jobId });
+        expect(r.statusCode, JSON.stringify(r.body).slice(0, 200)).toBe(400);
+        expect(r.body.error?.message).toBe('The job was not found for this client');
+      }
+      expect(await f.entriesNamed('EBR junk job')).toBe(0);
+    });
+
     it('answers a closed job with 400 and its message', async () => {
       const r = await f.call(timeEntriesRoute, 'POST', { ...base(), taskDescription: 'EBR closed', jobId: J.done });
       expect(r.statusCode).toBe(400);
@@ -85,6 +94,12 @@ describeIfDb('Engagement budgets — routes, bulk and MCP refuse a foreign or cl
     const kept = await f.call(entryRoute, 'PUT', { entryDate: null, hours: 2 }, { id });
     expect(kept.statusCode, JSON.stringify(kept.body)).toBe(200);
     expect(await dateOf()).toBe('2026-01-10');
+  });
+
+  it('POST /duplicate refuses an id that is not a UUID with 400', async () => {
+    const r = await f.call(duplicateRoute, 'POST', { id: 'nope', newDate: '2026-01-20' });
+    expect(r.statusCode).toBe(400);
+    expect(r.body.error?.message).toBe('id must be a UUID');
   });
 
   it('POST /duplicate refuses an impossible newDate with 400 before any SQL, writing nothing', async () => {
@@ -188,6 +203,8 @@ describeIfDb('Engagement budgets — routes, bulk and MCP refuse a foreign or cl
       ['dateTo before 1900', () => ({ templateId, dateFrom: '2026-01-05', dateTo: '1899-12-31' }), 'dateFrom and dateTo must be in or after 1900'],
       ...[true, '2', {}].map((hoursOverride) => [`hoursOverride ${JSON.stringify(hoursOverride)}`,
         () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', hoursOverride }), 'hoursOverride must be a number'] as const),
+      ...['zz', 'a\u0000b', 5].map((jobId) => [`jobId ${JSON.stringify(jobId)}`,
+        () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', jobId }), 'jobId must be a UUID'] as const),
       ['a NUL in taskOverride', () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', taskOverride: 'a\u0000b' }),
         'text must not contain a NUL (\\u0000) character, and arguments must not nest deeper than 8 levels or hold more than 100000 values'],
       ['an inverted range', () => ({ templateId, dateFrom: '2026-01-07', dateTo: '2026-01-05' }), 'dateFrom must be on or before dateTo'],
