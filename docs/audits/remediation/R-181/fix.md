@@ -264,8 +264,33 @@ Tests: `tests/integration/r181-review-round2.int.test.ts` (11 cases), the client
 LOW-2 and pin it). Green 47/47. Mutants P1..P11 on the new guards: all killed (P3 after one added
 case). Regression: 238 tests across k-036, k095*, k096, r166, r167*, r177, r178, k101, k061*,
 r181*: 238 of 239 pass. The one failure is a k061 contention case (`a bulk allocation
-interleaving ... with a merge`): it expects a 40P01 that does not occur. It fails whenever it runs
-alongside other files, including a run with no R-181 suite at all, and passes alone (3/3, and 36/36
-for the k061 files). It imports only the customer-merge routes, and nothing it reaches imports a
-file this branch changed, so it is attributed to its own sensitivity to parallel load. Not
-verified on a master checkout.
+interleaving ... with a merge`): it expects a 40P01 that does not occur. It passes alone (3/3, and
+36/36 for the k061 files). **It reproduces on master**: a detached worktree at origin/master
+82bd2afdc, the same 24 non-R-181 files against the fixture on port 55790 (migrations 718/719),
+1-minute load under 30, failed 2 of 6 runs with the identical assertion
+(`expected 'committed' to be '40P01'`); the branch head b331f20e2, alternating with it, also failed
+2 of 6. It is a pre-existing timing-sensitive test, not an R-181 regression.
+
+## Accepted residual risk
+
+- **Verify without a fee figure on a pass-on account.** When the return page beats the webhook and
+  Paystack's verify response carries no `fees`, `amount` is banked (e.g. R118.50 on a R115
+  invoice). The webhook's fee leg then nets Bank to the deposit, but the customer-paid fee (R3.50)
+  stays on the customer as unapplied credit and is also expensed. It is flagged
+  (`requested_amount_unverified`, `amount_disagrees_with_first_report`, `overpaid_unapplied`) for a
+  person to offset. Accepted: the alternative leaves Bank wrong whenever `requested_amount` is
+  wrong, and Bank is the figure the statement reconciles against.
+- **The review flag has no UI**; the log line and `failure_reason` are what surface it (Hein).
+
+## Review round 3 (both reviewers: SHIP; residual LOWs)
+
+- **The fee leg had no cap at the receipt.** `amount` R100 with `fees` R200 posted a R200 fee
+  against a R100 receipt, unflagged. The leg is now capped at the banked amount and flagged
+  `fee_exceeds_receipt` (red first; mutants Q1, Q2).
+- **Test gap: verify trusting `requested_amount`.** Verify reports R103, `requested_amount` R100,
+  fees R3 and banks R100; the webhook with the same figures posts no fee. Bank nets R100, the
+  receivable is credited R100, the ledger balances, no review. It was already correct; the case
+  pins the branch. Mutants that turn it red: verify passing no fee figure (Q3), no
+  `requested_amount` (Q4), and an excess equal to the fee distrusted (Q5).
+- **`paystackClient.ts` is 432 lines** (425 at 82bd2afdc, +7 from R-181): registered as R-183, not
+  split here.
