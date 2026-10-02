@@ -12,6 +12,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
+import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import { getSystemAccountId } from './systemAccountResolver';
 import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
 import { lockAssetTaxBase, writeAssetTaxAccumulation } from './assetTaxAccumulation';
@@ -91,7 +92,8 @@ async function postAssetDepreciationToGLThrows(
   // posted and return it instead of failing the asset.
   const period = periodDate ?? fmtDate(new Date());
   const entryNumber = `DEP-${assetNumber}-${period.slice(0, 7)}`;
-  // reversed_at IS NULL: a REVERSED entry must NOT count as already-posted —
+  // Standing, by its reversal chain (D8, shared/journalInForceAsAt): a re-reversed
+  // entry is back in the ledger and IS already posted. A REVERSED one must NOT count —
   // that would silently under-depreciate (assets.accumulated_depreciation is
   // never touched by reversal). With the number taken by the reversed
   // original, the INSERT below hits the unique index → savepoint rollback →
@@ -101,9 +103,9 @@ async function postAssetDepreciationToGLThrows(
   // `already_in_subledger` guard skips such an asset, with its reason, before
   // this is reached.
   const existing = (await sql`
-    SELECT id FROM gl_journal_entries
-    WHERE company_id = ${companyId} AND entry_number = ${entryNumber}
-      AND reversed_at IS NULL
+    SELECT je.id FROM gl_journal_entries je
+    WHERE je.company_id = ${companyId} AND je.entry_number = ${entryNumber}
+      AND ${journalStandsFragment('je.id', companyId)}
   `) as DbRow[];
   if (existing[0]) {
     log.info('Asset depreciation already posted this month — skipping', {

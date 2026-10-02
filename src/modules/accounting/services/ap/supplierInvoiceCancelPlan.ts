@@ -15,6 +15,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import { getJournalEntryById } from '../gl/journalEntryService';
 import { resolveReversalDateDetailed, type VatLockRoll } from '../gl/journalEntryReversalDate';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
@@ -133,10 +134,10 @@ export async function planSupplierInvoiceCancel(
   // self-assessment is one — would stand for a cancelled document. The cancel
   // reverses only the approval journal, so these are refused by name.
   const others = (await sql`
-    SELECT entry_number FROM gl_journal_entries
-    WHERE company_id = ${companyId}::UUID AND source_record_id = ${invoiceId}::UUID
-      AND status = 'posted' AND reversed_at IS NULL
-      AND id IS DISTINCT FROM ${bill.gl_journal_entry_id ?? null}::UUID
+    SELECT je.entry_number FROM gl_journal_entries je
+    WHERE je.company_id = ${companyId}::UUID AND je.source_record_id = ${invoiceId}::UUID
+      AND je.status = 'posted' AND ${journalStandsFragment('je.id', companyId)}
+      AND je.id IS DISTINCT FROM ${bill.gl_journal_entry_id ?? null}::UUID
     ORDER BY entry_number`) as DbRow[];
   if (others.length > 0) {
     throw new SupplierInvoiceCancelRefusal(
@@ -180,10 +181,10 @@ export async function planSupplierInvoiceCancel(
   // document on it, and never links it to the bill: that money IS in the GL.
   if (!entry && bill.source_document_id != null && FIFO_ELIGIBLE_STATUSES.includes(status)) {
     const carried = (await sql`
-      SELECT entry_number FROM gl_journal_entries
-      WHERE company_id = ${companyId}::UUID AND source_document_id = ${bill.source_document_id}::UUID
-        AND status = 'posted' AND reversed_at IS NULL
-      ORDER BY entry_number LIMIT 1`) as DbRow[];
+      SELECT je.entry_number FROM gl_journal_entries je
+      WHERE je.company_id = ${companyId}::UUID AND je.source_document_id = ${bill.source_document_id}::UUID
+        AND je.status = 'posted' AND ${journalStandsFragment('je.id', companyId)}
+      ORDER BY je.entry_number LIMIT 1`) as DbRow[];
     if (carried[0]) {
       throw new SupplierInvoiceCancelRefusal(
         `Supplier invoice ${number} has no approval journal, but its captured document already carries `

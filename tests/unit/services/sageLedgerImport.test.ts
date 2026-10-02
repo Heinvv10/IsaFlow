@@ -39,7 +39,7 @@
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 const { sqlMock, txMock, createMock, postMock } = vi.hoisted(() => ({
-  sqlMock: Object.assign(vi.fn(), { transaction: vi.fn() }),
+  sqlMock: Object.assign(vi.fn(), { transaction: vi.fn(), unsafe: vi.fn((s: string) => s) }),
   txMock: vi.fn(),
   createMock: vi.fn(),
   postMock: vi.fn(),

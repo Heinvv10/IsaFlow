@@ -117,7 +117,7 @@ describe('postDualDepreciationToLedger atomicity (PR #200)', () => {
 
   it('returns the existing journal as already-posted on a same-month re-run (idempotent)', async () => {
     mockByText({
-      'SELECT id FROM gl_journal_entries': [{ id: 'je-existing' }],
+      'SELECT je.id FROM gl_journal_entries': [{ id: 'je-existing' }],
       'INSERT INTO gl_journal_entries': new Error('must not re-insert when already posted'),
     });
 
@@ -130,14 +130,15 @@ describe('postDualDepreciationToLedger atomicity (PR #200)', () => {
   });
 
   it('a REVERSED same-month entry is NOT treated as already-posted — the re-run fails LOUD', async () => {
-    // The idempotency SELECT filters reversed_at IS NULL, so a reversed
-    // original is invisible to it; the INSERT then hits the unique index
-    // (number still taken by the reversed row) → savepoint → glFailed:true.
-    // Silent success here would permanently under-depreciate the asset
-    // (reversal never touches assets.accumulated_depreciation).
-    const idempotencySql = mockSql; // alias for clarity
+    // The idempotency SELECT keeps only an entry its reversal chain leaves
+    // standing (shared/journalInForceAsAt), so a reversed original is invisible
+    // to it; the INSERT then hits the unique index (number still taken by the
+    // reversed row) → savepoint → glFailed:true. Silent success here would
+    // permanently under-depreciate the asset (reversal never touches
+    // assets.accumulated_depreciation). The chain itself is proven against a
+    // real ledger in tests/integration/d8-rereversed-chain-write-guards.
     mockByText({
-      'SELECT id FROM gl_journal_entries': [], // reversed row filtered out
+      'SELECT je.id FROM gl_journal_entries': [], // reversed row filtered out
       'INSERT INTO gl_journal_entries': Object.assign(
         new Error('duplicate key value violates unique constraint "uq_gl_je_company_entry_number"'),
         { code: '23505' },
@@ -150,11 +151,8 @@ describe('postDualDepreciationToLedger atomicity (PR #200)', () => {
 
     expect(result.glFailed).toBe(true);
     expect(result.entryId).toBeNull();
-    const existingCheck = idempotencySql.mock.calls
-      .map((c) => (c[0] as unknown as string[]).join('?'))
-      .find((t) => /SELECT id FROM gl_journal_entries/i.test(t));
-    expect(existingCheck, 'idempotency check must exclude reversed entries').toMatch(
-      /reversed_at IS NULL/i,
-    );
+    const unsafe = (sql as unknown as { unsafe: MockedFunction<(text: string) => unknown> }).unsafe;
+    expect(unsafe.mock.calls.some(([text]) => /reversal_of_id/.test(text)),
+      'idempotency check must read the reversal chain').toBe(true);
   });
 });

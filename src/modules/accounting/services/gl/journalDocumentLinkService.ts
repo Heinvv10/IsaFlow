@@ -16,6 +16,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import {
   assertDocumentNotAlreadyPosted, DocumentAlreadyPostedRefusal, DocumentAlreadyLinkedRefusal,
@@ -227,7 +228,7 @@ export async function listLinkableDocuments(
       AND NOT EXISTS (
         SELECT 1 FROM gl_journal_entries je
         WHERE je.company_id = ${companyId}::UUID AND je.source_document_id = cd.id
-          AND je.status = 'posted' AND je.reversed_at IS NULL
+          AND je.status = 'posted' AND ${journalStandsFragment('je.id', companyId)}
       )
       AND NOT EXISTS (
         SELECT 1 FROM gl_journal_document_links jdl

@@ -6,7 +6,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
-const m = vi.hoisted(() => ({ sql: vi.fn(), logAuditOrThrow: vi.fn() }));
+const m = vi.hoisted(() => ({
+  sql: Object.assign(vi.fn(), { unsafe: vi.fn((s: string) => s) }), logAuditOrThrow: vi.fn(),
+}));
 vi.mock('@/lib/neon', () => ({ sql: m.sql, withSavepoint: (_name: string, fn: () => unknown) => fn() }));
 vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({
   logAuditOrThrow: m.logAuditOrThrow,
