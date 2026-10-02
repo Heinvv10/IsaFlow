@@ -133,6 +133,14 @@ export function receiptDescription(reference: string, reported: ReportedCharge, 
   return parts.join(' ');
 }
 
+const CURRENCY_TAG = /\(([A-Z]{3}) [\d.]+ reported, booked as ZAR\)/;
+
+/** The currency a receipt was reported in: its non-ZAR tag (receiptDescription), else ZAR. */
+export function receiptCurrency(description: string | null): string {
+  const tag = description ? CURRENCY_TAG.exec(description) : null;
+  return tag ? tag[1]! : 'ZAR';
+}
+
 /** The first report's Paystack `amount`: its tag, else what it banked. */
 export function firstReportedAmountCents(description: string | null, bankedCents: number): number {
   const tag = description ? AMOUNT_TAG.exec(description) : null;

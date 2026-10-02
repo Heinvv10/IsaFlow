@@ -14,6 +14,7 @@ import {
   firstReportedAmountCents,
   invoiceReview,
   merchantFee,
+  receiptCurrency,
   receiptDescription,
   settledCharge,
   type ReportedCharge,
@@ -63,6 +64,7 @@ describe('merchantFee: the fee leg, and Bank netting to amount - fees', () => {
     ['excess above fees (R103, R3)', 3, zar(10300), 10300, 3, [], 10000],
     ['excess above fees (R103, R2)', 2, zar(10300), 10300, 2, [], 10100],
     ['LOW-1: one cent above fees', 3, zar(10301), 10301, 3, [], 10001],
+    ['a one-cent fee leg (11850 / 11500 / 351)', 3.51, zar(11850), 11500, 0.01, [], 11499],
     ['amount missing', 3.5, zar(undefined), 11500, 3.5, [], null],
     ['non-ZAR: not posted', 3.5, { amountCents: 11500, currency: 'USD' }, 11500, null, ['fee_not_posted_currency'], null],
     ['second report below what was banked: capped at fees', 1.5, zar(5000), 6000, 1.5, ['fee_clamped'], null],
@@ -98,6 +100,9 @@ describe('receipt description and the first report amount', () => {
     expect(firstReportedAmountCents(tagged, 10000)).toBe(10300);
     expect(firstReportedAmountCents('Paystack card payment ref1', 10000)).toBe(10000);
     expect(firstReportedAmountCents(null, 10000)).toBe(10000);
+    expect(receiptCurrency(receiptDescription('ref1', { amountCents: 11500, currency: 'USD' }, 11500))).toBe('USD');
+    expect(receiptCurrency(tagged)).toBe('ZAR');
+    expect(receiptCurrency(null)).toBe('ZAR');
   });
 });
 

@@ -20,6 +20,8 @@ interface VerifyResponse {
   amountCents: number;
   /** Whether the invoice took any of it; false when it was banked unapplied. */
   appliedToInvoice?: boolean;
+  /** ISO currency the payment was reported in; a figure is shown only for ZAR. */
+  currency?: string;
   invoiceNumber?: string;
   companyName?: string;
 }
@@ -103,7 +105,9 @@ export default function PaystackReturnPage() {
               <CheckCircle2 className="w-14 h-14 text-emerald-600 mx-auto" />
               <h1 className="mt-4 text-2xl font-semibold text-slate-900">Payment received</h1>
               <p className="mt-2 text-slate-600">
-                Thank you. {fmtZAR(data.amountCents)} has been received
+                {data.currency && data.currency !== 'ZAR'
+                  ? 'Thank you. Your payment has been received'
+                  : `Thank you. ${fmtZAR(data.amountCents)} has been received`}
                 {data.appliedToInvoice && data.invoiceNumber ? ` against invoice ${data.invoiceNumber}` : ''}.
               </p>
               {data.companyName && (

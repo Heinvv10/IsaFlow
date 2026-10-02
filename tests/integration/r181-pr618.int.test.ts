@@ -115,6 +115,34 @@ describe('LOW-5: two different Paystack amounts for one transaction are flagged'
   });
 });
 
+describe('72b132f52 review L1: a one-cent fee leg is posted', () => {
+  it('R118.50 charged, requested_amount R115, fees R3.51: the merchant bore R0.01, Bank nets R114.99', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    expect((await deliver(ref, 11850, 'ZAR', { requested_amount: 11500, fees: 351 })).statusCode).toBe(200);
+    expect(await ledger(A, ref)).toMatchObject({ bankNet: '114.99', feeExpense: '0.01', balanced: true });
+  });
+});
+
+describe('72b132f52 review L2: verify names the currency it banked', () => {
+  it('settled in USD by the webhook first: currency USD, without asking Paystack', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    expect((await deliver(ref, 11500, 'USD')).statusCode).toBe(200);
+    expect((await verify(ref)).body.data).toMatchObject({ status: 'completed', currency: 'USD', appliedToInvoice: false });
+    expect(h.verifyTransaction).not.toHaveBeenCalled();
+  });
+
+  it('settled by verify in USD: currency USD; a ZAR settlement says ZAR', async () => {
+    const usd = await checkout(A, await invoice(A));
+    paystackSays(11500, { currency: 'USD' });
+    expect((await verify(usd)).body.data).toMatchObject({ status: 'completed', currency: 'USD' });
+    const zar = await checkout(A, await invoice(A));
+    paystackSays(11500);
+    expect((await verify(zar)).body.data).toMatchObject({ status: 'completed', currency: 'ZAR' });
+  });
+});
+
 describe('LOW-2: verify answers with what was banked, and whether the invoice took it', () => {
   it('a R50 charge on a R115 request: amountCents 5000, applied to the invoice', async () => {
     const id = await invoice(A);

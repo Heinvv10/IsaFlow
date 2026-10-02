@@ -1,0 +1,27 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r181-settlement
+
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-02T19:05:51.835Z","component":"accounting","data":{"reference":"r181_fee","fee":3.5,"journalEntryId":"je-fee"}}
+ ❯ tests/unit/services/ar/gatewayFeeLeg.test.ts (5 tests | 1 failed) 5ms
+     × posts one cent 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/ar/gatewayFeeLeg.test.ts > postGatewayFee > posts one cent
+AssertionError: expected "vi.fn()" to be called 1 times, but got 0 times
+ ❯ tests/unit/services/ar/gatewayFeeLeg.test.ts:30:20
+     28|   ])('posts %s', async (_label, feeRand, posted) => {
+     29|     await postGatewayFee(receipt(feeRand), 'user-1', 'bank-1', '2026-1…
+     30|     expect(create).toHaveBeenCalledTimes(1);
+       |                    ^
+     31|     const lines = (create.mock.calls[0]![1] as { lines: { debit: numbe…
+     32|     expect(lines.map((l) => [l.debit, l.credit])).toEqual([[posted, 0]…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 58 passed (59)
+   Start at  21:05:51
+   Duration  478ms (transform 314ms, setup 0ms, import 440ms, tests 11ms, environment 0ms)
+
