@@ -92,6 +92,16 @@ describe('R-181: the reported amount is what is banked', () => {
     }
   });
 
+  it('a request already completed with nothing banked: the webhook banks the reported amount', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    await pool.query("UPDATE paystack_payment_requests SET status = 'completed' WHERE paystack_reference = $1", [ref]);
+    expect((await deliver(ref, 5000)).statusCode).toBe(200);
+    expect(await settlement(A, ref, id)).toEqual({
+      payments: [{ total: '50.00', allocated: '50.00', status: 'confirmed' }],
+      bankDebit: '50.00', invoicePaid: '50.00', review: 'review:amount_mismatch' });
+  });
+
   it('verify banks the amount Paystack verified, not the request amount', async () => {
     const id = await invoice(A);
     const ref = await checkout(A, id);
