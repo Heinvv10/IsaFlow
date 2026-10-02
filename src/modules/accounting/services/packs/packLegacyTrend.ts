@@ -29,6 +29,13 @@ const FIGURE_PX = 12;
  *  halo. */
 const CHART_PX = 320;
 const FIGURE_UNDER_BAR_PX = 5 + FIGURE_PX + 2;
+/** Paper beyond a figure's glyphs on each side of its ground. */
+const GROUND_HALO_PX = 3;
+
+/** The figure with its grouping spaces as plain spaces: the same advance in
+ *  the face, but one zrender's ruler measures as a space rather than a full
+ *  em, so the ground it sizes is the figure's width and not a bar wider. */
+const groundable = (figure: string): string => figure.replace(/\u00a0/g, ' ');
 /** Bars that each carry a figure: about half a year, at 657px. */
 const LABEL_EVERY_BAR_UP_TO = 6;
 
@@ -56,13 +63,18 @@ export function legacyTrendChartOption(points: readonly PackTrendPoint[], scale:
     series: Array<Record<string, unknown>>;
   };
   const top = 48;
-  const labelled = (index: number) => drawn.length <= LABEL_EVERY_BAR_UP_TO || index === drawn.length - 1;
-  // The last figure is centred on the last bar, half a band inside the plot's
-  // right edge — at twelve months on 657px about 23px, less than half a
-  // nine-digit figure. Room for half the figure and its halo is kept beyond
-  // the plot, not counting that half band: it depends on the width drawn at.
+  const every = drawn.length <= LABEL_EVERY_BAR_UP_TO;
+  const labelled = (index: number) => every || index === drawn.length - 1;
+  // Where every bar is labelled, each figure is centred on its bar, and the
+  // last one needs half its width and its halo beyond the plot. Where only
+  // the last is, its bars are narrow — 46px a band at twelve months on 657px
+  // — and a centred nine-digit figure's ground lay on the bar before it; it
+  // starts at its own bar's left edge instead and runs right, past the plot,
+  // so the whole figure and its halo are kept beyond it. Neither counts the
+  // half band inside the plot: that depends on the width drawn at.
   const last = drawn[drawn.length - 1];
-  const reach = last === undefined ? 0 : Math.ceil(packFigureWidthPx(formatMoney(last.revenue, { scale }), FIGURE_PX) / 2 + 2);
+  const lastWidth = last === undefined ? 0 : packFigureWidthPx(formatMoney(last.revenue, { scale }), FIGURE_PX) + 2 * GROUND_HALO_PX;
+  const reach = Math.ceil(every ? lastWidth / 2 : lastWidth);
   return {
     ...base,
     grid: { ...base.grid, top, right: reach },
@@ -72,13 +84,28 @@ export function legacyTrendChartOption(points: readonly PackTrendPoint[], scale:
       ...series,
       name: 'Revenue',
       // A month of net credit notes falls below zero, and its figure goes
-      // with it: under the bar, not above it on the zero line.
-      data: drawn.map((p) => ({ value: p.revenue, label: { position: p.revenue < 0 ? 'bottom' : 'top' } })),
+      // with it: under the bar, not above it on the zero line. AND EVERY
+      // FIGURE STANDS ON PAPER, as a bridge's does: the (6 000 000) gridline
+      // ran through Brightsphere's (5 535 000). The ground is the figure's
+      // own advances wide plus a halo each side — zrender's ruler charges a
+      // grouping space a full em, and its ground ran onto the next bar.
+      data: drawn.map((p, index) => ({
+        value: p.revenue,
+        label: !labelled(index) ? { show: false } : {
+          // The face's own advances: zrender's ruler is short on digits.
+          width: Math.ceil(packFigureWidthPx(formatMoney(p.revenue, { scale }), FIGURE_PX)),
+          ...(every
+            ? { position: p.revenue < 0 ? 'bottom' : 'top' }
+            : { position: p.revenue < 0 ? ['0%', '100%'] : ['0%', 0], align: 'left', verticalAlign: p.revenue < 0 ? 'top' : 'bottom', offset: [0, p.revenue < 0 ? 5 : -5] }),
+          padding: [0, GROUND_HALO_PX],
+          backgroundColor: DEFAULT_CHART_PALETTE.paper,
+        },
+      })),
       label: {
         show: true,
         position: 'top',
         fontSize: FIGURE_PX,
-        formatter: (param: { dataIndex: number; value: number }) => (labelled(param.dataIndex) ? formatMoney(param.value, { scale }) : ''),
+        formatter: (param: { value: number }) => groundable(formatMoney(param.value, { scale })),
       },
     })),
   };

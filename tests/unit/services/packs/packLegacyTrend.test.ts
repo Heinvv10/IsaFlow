@@ -98,7 +98,7 @@ function trendFaults(svg: string, points: PackTrendPoint[]): string[] {
   const plotBottom = Math.max(...ticks.map((t) => (t.top + t.bottom) / 2));
   const faults: string[] = [];
   for (const p of due.filter((d) => d.revenue !== 0)) {
-    const label = boxes.find((b) => b.anchor === 'middle' && b.text === R(p.revenue));
+    const label = boxes.find((b) => b.anchor !== 'end' && b.text === R(p.revenue));
     if (label === undefined) { faults.push(`${p.label}'s ${R(p.revenue)} is not printed`); continue; }
     if (zeroY !== undefined) {
       const zero = (zeroY.top + zeroY.bottom) / 2;
@@ -109,10 +109,41 @@ function trendFaults(svg: string, points: PackTrendPoint[]): string[] {
   }
   return [
     ...faults,
+    ...struck(svg, boxes.filter((b) => b.anchor !== 'end' && /^\(?(<1|\d[\d ]*)\)?$/.test(b.text))),
     ...outsideSvg(svg),
     ...boxes.flatMap((a, i) => boxes.slice(i + 1).filter((b) => Math.max(a.left - b.right, b.left - a.right, a.top - b.bottom, b.top - a.bottom) < 1)
       .map((b) => `"${a.text}" meets "${b.text}"`)),
   ];
+}
+
+/**
+ * A RULE THROUGH A FIGURE, as the bridges are held to (`packGridlineStrikes`):
+ * every gridline or axis line crossing a figure's glyph box must have paper
+ * under the figure across the whole box — a halo reaches two pixels from a
+ * glyph, and the gap at a thousands separator is wider.
+ */
+function struck(svg: string, figures: Array<{ text: string; left: number; right: number; top: number; bottom: number }>): string[] {
+  const rules = [...svg.matchAll(/<path d="M([-\d.]+) ([-\d.]+)L([-\d.]+) \2"[^>]*stroke="#[0-9a-f]{6}"/gi)]
+    .map((m) => ({ y: Number(m[2]), x1: Math.min(Number(m[1]), Number(m[3])), x2: Math.max(Number(m[1]), Number(m[3])) }));
+  const grounds = [...svg.matchAll(/<path d="M([-\d.]+) ([-\d.]+)l([-\d.]+) 0l0 ([-\d.]+)l[-\d.]+ 0Z" transform="translate\(([-\d.]+) ([-\d.]+)\)" fill="#ffffff"/gi)]
+    .map((m) => {
+      const [x, y, w, h, tx, ty] = m.slice(1, 7).map(Number) as [number, number, number, number, number, number];
+      return { left: tx + Math.min(x, x + w), right: tx + Math.max(x, x + w), top: ty + Math.min(y, y + h), bottom: ty + Math.max(y, y + h) };
+    });
+  // And the paper lies on no other month's bar: it would erase it.
+  const bars = [...svg.matchAll(/<path d="M([-\d.]+) ([-\d.]+)l([-\d.]+) 0l0 ([-\d.]+)l[-\d.]+ 0Z" fill="#[0-9a-f]{6}"[^>]*ecmeta_data_index/gi)]
+    .map((m) => {
+      const [x, y, w, h] = m.slice(1, 5).map(Number) as [number, number, number, number];
+      return { left: x, right: x + w, top: Math.min(y, y + h), bottom: Math.max(y, y + h) };
+    });
+  const onBars = grounds.flatMap((g) => bars
+    .filter((b) => !(b.left <= (g.left + g.right) / 2 && b.right >= (g.left + g.right) / 2))
+    .filter((b) => g.left < b.right - 0.01 && g.right > b.left + 0.01 && g.top < b.bottom - 0.01 && g.bottom > b.top + 0.01)
+    .map((b) => `a figure's ground at x ${g.left.toFixed(1)}-${g.right.toFixed(1)} lies on the bar at ${b.left.toFixed(1)}-${b.right.toFixed(1)}`));
+  return [...onBars, ...figures.flatMap((f) => rules
+    .filter((r) => r.y > f.top && r.y < f.bottom && r.x1 < f.right && r.x2 > f.left)
+    .filter((r) => !grounds.some((g) => g.top <= r.y && g.bottom >= r.y && g.left <= f.left && g.right >= f.right))
+    .map((r) => `the rule at y=${r.y} runs through "${f.text}" with no paper under it`))];
 }
 
 /** Seeded trends: a late first month, magnitudes from hundreds to a billion,
