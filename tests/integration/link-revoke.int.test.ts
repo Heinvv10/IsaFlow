@@ -260,6 +260,14 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
     const l = await addLink(paid, 10, true);
     await pool.query("UPDATE portal_payment_links SET status = 'paid' WHERE id = $1", [l.linkId]);
     expect((await detail(paid))?.has_standing_link).toBe(false);
+    const expired = await invoice();
+    const e = await addLink(expired, 10, true);
+    await pool.query("UPDATE portal_payment_links SET expires_at = NOW() - interval '1 day' WHERE id = $1", [e.linkId]);
+    expect((await detail(expired))?.has_standing_link).toBe(false);
+    const live = await invoice();
+    const lv = await addLink(live, 10, true);
+    await pool.query("UPDATE portal_payment_links SET expires_at = NOW() + interval '10 days' WHERE id = $1", [lv.linkId]);
+    expect((await detail(live))?.has_standing_link).toBe(true);
     expect(await detail(pre717, randomUUID())).toBeNull();
   });
 });
