@@ -11,6 +11,8 @@ import { request } from './mfa-impersonation-postgres.helpers';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { CO, SECRET, USER, addLink, call, cleanupCompany, create, getLink, pool, requests, seedCompany } from './r167-portal-links.helpers';
 import { invoice, links, payNow, signIn, tokenOf } from './r177-portal-followups.helpers';
+import { als } from '@/lib/als';
+import { revokeStandingLink } from '@/modules/accounting/services/ar/standingPaymentLink';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -36,6 +38,16 @@ async function revoke(invoiceId: string, opts: { jwt?: string; csrf?: boolean } 
   }
   return call((await import('../../pages/api/accounting/customer-invoices/[id]/payment-link/revoke')).default as never,
     { ...req, query: { id: invoiceId } });
+}
+/** The service in a transaction of its own as the fixture owner: no row security, so only its predicates isolate. */
+async function revokeInTx(companyId: string, invoiceId: string) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const out = await als.run({ client, userId: USER, companyId, claims: {} } as never, () => revokeStandingLink(companyId, invoiceId));
+    await client.query('COMMIT');
+    return out;
+  } catch (err) { await client.query('ROLLBACK'); throw err; } finally { client.release(); }
 }
 const row = async (id: string) => (await pool.query<{ payment_url: string | null; on: boolean | null }>(
   'SELECT payment_url, online_payment_enabled AS on FROM customer_invoices WHERE id = $1', [id])).rows[0]!;
@@ -138,7 +150,13 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
       const { rows } = await pool.query<{ token: string }>(
         'INSERT INTO portal_payment_links (invoice_id, client_id, amount, charges_balance) SELECT $1, customer_id, 115, true FROM customer_invoices WHERE id = $1 RETURNING token', [id]);
       await pool.query('UPDATE customer_invoices SET payment_url = $2 WHERE id = $1', [id, `https://app.revoke.test/portal/pay/${rows[0]!.token}`]);
-      expect((await revoke(id)).statusCode).toBe(404);
+      const r = await revoke(id);
+      expect(r.statusCode).toBe(404);
+      expect(r.body.error?.message).toBe('Invoice not found');
+      expect(await status(rows[0]!.token)).toBe('active');
+      expect((await row(id)).on).toBe(true);
+      // Row security hides the row above; with none (the call below) the predicates alone must answer.
+      expect(await revokeInTx(CO, id)).toEqual({ ok: false, reason: 'invoice_not_found' });
       expect(await status(rows[0]!.token)).toBe('active');
       expect((await row(id)).on).toBe(true);
     } finally {
@@ -162,6 +180,15 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
     expect((await links(id)).map((l) => l.charges_balance)).toEqual([true]);
   });
 
+  it('a named link that is no longer active (paid) is not touched: 404', async () => {
+    const id = await invoice();
+    const token = tokenOf(await payNow(id));
+    await pool.query("UPDATE portal_payment_links SET status = 'paid' WHERE token = $1", [token]);
+    expect((await revoke(id)).statusCode).toBe(404);
+    expect(await status(token)).toBe('paid');
+    expect((await row(id)).on).toBe(true);
+  });
+
   it('a malformed id is 400', async () => {
     expect((await revoke('not-a-uuid')).statusCode).toBe(400);
   });
@@ -182,4 +209,20 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
     expect(r.statusCode).toBe(403);
     expect(await status(token)).toBe('active');
   });
+
+  it('waits at most 5s for an invoice another request holds, then answers a retryable 400 and writes nothing', async () => {
+    const id = await invoice();
+    const token = tokenOf(await payNow(id));
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM customer_invoices WHERE id = $1 FOR UPDATE', [id]);
+      const started = Date.now();
+      const r = await revoke(id);
+      expect(Date.now() - started).toBeGreaterThan(4000);
+      expect(r.statusCode).toBe(400);
+      expect(JSON.stringify(r.body)).toContain('CUSTOMER_INVOICE_LOCK_TIMEOUT');
+    } finally { await holder.query('ROLLBACK'); holder.release(); }
+    expect(await status(token)).toBe('active');
+  }, 20_000);
 });
