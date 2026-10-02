@@ -74,13 +74,13 @@ export default function AdminWaitlistPage() {
       const params = new URLSearchParams({ status: s, page: String(p), limit: String(LIMIT) });
       if (q) params.set('search', q);
       const res  = await apiFetch(`/api/admin/waitlist?${params}`);
-      await assertOk(res, 'Failed to load');
+      await assertOk(res, 'Could not load the waitlist - try again');
       const json = await res.json();
       const data = (json as { data: ListResponse }).data;
       setRows(data.items);
       setTotal(data.total);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Something went wrong - try again'));
+      setError(apiErrorMessage(err, 'Could not load the waitlist - try again'));
     } finally {
       setLoading(false);
     }
@@ -125,7 +125,7 @@ export default function AdminWaitlistPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ planCodeOverride: planOverride || null }),
       });
-      await assertOk(res, 'Promotion failed');
+      await assertOk(res, 'Could not promote the signup - try again');
       const json = await res.json();
       const data = (json as { data: { companyId: string | null; status: string } }).data;
       setPromoteTarget(null);
@@ -135,7 +135,7 @@ export default function AdminWaitlistPage() {
       }
       void load(status, search, page);
     } catch (err) {
-      setPromoteError(apiErrorMessage(err, 'Could not complete: promotion - try again'));
+      setPromoteError(apiErrorMessage(err, 'Could not promote the signup - try again'));
     } finally {
       setPromoting(false);
     }

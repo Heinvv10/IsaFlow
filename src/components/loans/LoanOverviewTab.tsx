@@ -29,11 +29,11 @@ export function LoanOverviewTab({ loan, onRefresh }: Props) {
         method: 'PATCH',
         body: JSON.stringify({ status: newStatus }),
       });
-      await assertOk(res, 'Failed to update status');
+      await assertOk(res, 'Could not update the loan status - try again');
       setStatus(newStatus);
       onRefresh();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not update status - try again'));
+      setError(apiErrorMessage(err, 'Could not update the loan status - try again'));
       setStatus(loan.status);
     } finally {
       setBusy(false);

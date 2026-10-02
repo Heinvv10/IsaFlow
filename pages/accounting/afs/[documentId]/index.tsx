@@ -59,6 +59,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
   const [actionError, setActionError] = useState('');
 
   const loadDoc = useCallback(async () => {
+    setActionError('');
     try {
       const res = await apiFetch(`/api/accounting/afs/${documentId}`, { credentials: 'include' });
       await assertOk(res, 'Could not load the document - try again');
@@ -66,6 +67,8 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
       if (json.data?.document) setDoc(json.data.document);
     } catch (err) {
       log.error('Failed to load AFS document', { error: err, documentId }, 'afs-document-page');
+      setDoc(null);
+      setActionError(apiErrorMessage(err, 'Could not load the document - try again'));
     }
   }, [documentId]);
 

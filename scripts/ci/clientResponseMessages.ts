@@ -14,11 +14,17 @@ import ts from 'typescript';
 import { isResponseType } from './clientResponseFlow';
 import { type Ctx, SINK, contains, inLog, isFn, unwrap } from './clientResponseShared';
 
-const BARE = /^\s*(failed|error|unknown error|unexpected error|request failed|something went wrong|server error|an error occurred|an error has occurred)\s*[.!?]*\s*$/i;
-const MSG_KEYS = /^(message|text|error|errormessage|msg|description|title|detail|payload|reason)$/i;
+/** A bare phrase, with only filler after it ("Something went wrong - try again", "Failed.", "Network error"). */
+const BARE = /^\s*(failed|error|unknown error( occurred)?|unexpected error( occurred)?|request failed|something went wrong|server error|network error|an (unexpected )?error (has )?occurred)\b[\s.,!?:;\u2013\u2014-]*(please\s+)?(try again( later)?)?[\s.!?]*$/i;
+/** A fallback that is not a sentence about what failed: assertOk / apiJson / apiErrorMessage arguments (what an empty 5xx shows). */
+const BAD_FALLBACK = (t: string) => BARE.test(t) || /^\s*(failed|error)\b/i.test(t) || /\bfailed\s*[.!]?\s*$/i.test(t) || /^\s*could not complete:/i.test(t);
+const MSG_KEYS = /(message|text|error|msg|description|title|detail|payload|reason)$/i;
+const JSX_MSG_ATTR = /^(message|error|errormessage|title|description|helpertext|hint)$/i;
+/** Elements whose text is a label (a status badge, an option, a column heading), not a message. */
+const LABEL_TAGS = /^(option|th|td|label|button|legend|dt)$/i;
 
 export function analyzeMessages(cx: Ctx): void {
-  const { checker, sf, add, refs, sym } = cx;
+  const { checker, sf, add, refs, sym, canon } = cx;
   const literalTyped = (n: ts.Node): boolean => {
     const t = checker.getContextualType(n as ts.Expression);
     if (!t) return false;
@@ -27,7 +33,17 @@ export function analyzeMessages(cx: Ctx): void {
   };
   const comparisonish = (p: ts.Node) =>
     (ts.isBinaryExpression(p) && [ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken].includes(p.operatorToken.kind))
-    || ts.isCaseClause(p) || ts.isImportDeclaration(p) || ts.isExportDeclaration(p) || ts.isLiteralTypeNode(p) || ts.isJsxAttribute(p) || ts.isElementAccessExpression(p);
+    || ts.isCaseClause(p) || ts.isImportDeclaration(p) || ts.isExportDeclaration(p) || ts.isLiteralTypeNode(p) || (ts.isJsxAttribute(p) && !JSX_MSG_ATTR.test(p.name.getText(sf))) || ts.isElementAccessExpression(p);
+  /** A branch of `cond ? 'Failed' : 'Sent'` where cond compares to that same word: a status label, not a message. */
+  const statusLabel = (n: ts.Node): boolean => {
+    const p = n.parent;
+    if (!p || !ts.isConditionalExpression(p) || p.condition === n) return false;
+    const word = (n as ts.StringLiteral).text?.trim().toLowerCase();
+    let hit = false;
+    const v = (m: ts.Node) => { if (ts.isStringLiteralLike(m) && m.text.trim().toLowerCase() === word) hit = true; ts.forEachChild(m, v); };
+    v(p.condition);
+    return hit;
+  };
   /** Does text at `n` reach a person? Climb operands and wrappers to the first real consumer. */
   const reachesPerson = (n: ts.Node): boolean => {
     let cur: ts.Node = n;
@@ -42,7 +58,7 @@ export function analyzeMessages(cx: Ctx): void {
         return false;
       }
       if (ts.isCallExpression(p) || ts.isNewExpression(p)) {
-        const callee = p.expression.getText(sf);
+        const callee = canon(p.expression);
         if (/^new /.test(p.getText(sf)) || ts.isNewExpression(p)) return /(Error)$/.test(callee);
         return SINK.test(callee) || /(^|\.)(assertOk|apiErrorMessage)$/.test(callee) || (callee === 'apiJson' && p.arguments[2] === cur);
       }
@@ -50,22 +66,36 @@ export function analyzeMessages(cx: Ctx): void {
       if (ts.isArrowFunction(p) && p.body === cur) return true;
       if (ts.isVariableDeclaration(p) && p.initializer === cur) return !p.type;
       if (ts.isPropertyAssignment(p) && p.initializer === cur) return MSG_KEYS.test(p.name.getText(sf));
+      if (ts.isJsxAttribute(p)) return JSX_MSG_ATTR.test(p.name.getText(sf));
       if (ts.isJsxExpression(p) || ts.isJsxElement(p) || ts.isJsxFragment(p)) return true;
       return false;
     }
     return false;
   };
   const visit = (n: ts.Node): void => {
-    if (ts.isJsxText(n)) { if (BARE.test(n.text) && /^\s*[A-Z]/.test(n.text) && !(ts.isJsxElement(n.parent) && n.parent.children.some((c) => ts.isJsxExpression(c)))) add(n, 'b', `JSX text ${JSON.stringify(n.text.trim())}: say what could not be done`); }
+    if (ts.isJsxText(n)) { if (BARE.test(n.text.replace(/\s+/g, ' ')) && /^\s*[A-Z]/.test(n.text) && !(ts.isJsxElement(n.parent) && LABEL_TAGS.test(n.parent.openingElement.tagName.getText(sf))) && !(/:\s*$/.test(n.text) && ts.isJsxElement(n.parent) && n.parent.children[n.parent.children.indexOf(n as ts.JsxChild) + 1] && ts.isJsxExpression(n.parent.children[n.parent.children.indexOf(n as ts.JsxChild) + 1]!))) add(n, 'b', `JSX text ${JSON.stringify(n.text.trim())}: say what could not be done`); }
     else if ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) && !inLog(n, sf) && !comparisonish(n.parent) && !(ts.isPropertyAssignment(n.parent) && n.parent.name === n)) {
       const t = n.text.trim();
-      if ((BARE.test(t) || /^HTTP$/i.test(t)) && !literalTyped(n) && reachesPerson(n)) add(n, 'b', `bare message ${JSON.stringify(n.text)}: say what could not be done`);
+      const fallbackArg = ts.isCallExpression(n.parent) && ts.isIdentifier(n.parent.expression) && n.parent.arguments[({ apiJson: 2, assertOk: 1, apiErrorMessage: 1 } as Record<string, number>)[canon(n.parent.expression)] ?? -1] === n;   // reported once, below, as a fallback
+      if ((BARE.test(t) || /^HTTP$/i.test(t)) && !literalTyped(n) && !statusLabel(n) && !fallbackArg && reachesPerson(n)) add(n, 'b', `bare message ${JSON.stringify(n.text)}: say what could not be done`);
     } else if (ts.isTemplateExpression(n) && !inLog(n, sf) && !comparisonish(n.parent)) {
       const head = n.head.text.trim();
       const status = n.templateSpans.some((s) => { const e = unwrap(s.expression); return ts.isPropertyAccessExpression(e) && /^status(Text)?$/.test(e.name.text) && isResponseType(checker, checker.getTypeAtLocation(e.expression)); });
       if ((/^(failed|error)\s*:?$/i.test(head) || /\bHTTP\s*$/i.test(n.head.text) || status) && !literalTyped(n) && reachesPerson(n)) add(n, 'b', 'a status code or a bare "Failed: ${x}" reaches a person: say what could not be done');
     }
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'apiJson' && n.arguments.length < 3) add(n, 'b', 'apiJson without a failure sentence (3rd argument): a failed request would read "Request to /api/... failed"');
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
+      const name = canon(n.expression);
+      if (name === 'apiJson' && n.arguments.length < 3) add(n, 'b', 'apiJson without a failure sentence (3rd argument): a failed request would read "Request to /api/... failed"');
+      const at = name === 'apiJson' ? 2 : name === 'assertOk' || name === 'apiErrorMessage' ? 1 : -1;   // the fallback an empty 5xx / 502 shows
+      const fb = at >= 0 ? n.arguments[at] : undefined;
+      if (fb && (ts.isStringLiteralLike(fb)) && BAD_FALLBACK(fb.text)) add(fb, 'b', `the fallback sentence ${JSON.stringify(fb.text)} does not say what failed: it is what a 502 or an empty 500 shows (say 'Could not <do the thing> - try again')`);
+    }
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.PlusToken && !inLog(n, sf) && !ts.isBinaryExpression(n.parent)) {
+      // 'Request failed with status ' + res.status
+      const parts: ts.Node[] = []; const flat = (m: ts.Node) => { if (ts.isBinaryExpression(m) && m.operatorToken.kind === ts.SyntaxKind.PlusToken) { flat(m.left); flat(m.right); } else parts.push(m); }; flat(n);
+      const st = parts.some((e) => { const u = unwrap(e); return ts.isPropertyAccessExpression(u) && /^status(Text)?$/.test(u.name.text) && isResponseType(checker, checker.getTypeAtLocation(u.expression)); });
+      if (st && parts.some((e) => ts.isStringLiteralLike(e)) && reachesPerson(n)) add(n, 'b', 'a status code concatenated into a message reaches a person: say what could not be done');
+    }
     ts.forEachChild(n, visit);
   };
   visit(sf);
@@ -78,7 +108,11 @@ export function analyzeMessages(cx: Ctx): void {
     if (ts.isIdentifier(u)) {
       const d = sym(u)?.valueDeclaration;
       if (d && isFn(d)) return d;
-      if (d && ts.isVariableDeclaration(d) && d.initializer && isFn(unwrap(d.initializer))) return unwrap(d.initializer) as ts.FunctionLikeDeclaration;
+      if (d && ts.isVariableDeclaration(d) && d.initializer) {
+        let init = unwrap(d.initializer);
+        if (ts.isCallExpression(init) && /^(useCallback|useMemo)$/.test(init.expression.getText(sf)) && init.arguments[0]) init = unwrap(init.arguments[0]);   // const onErr = useCallback((e) => ..., [])
+        if (isFn(init)) return init as ts.FunctionLikeDeclaration;
+      }
     }
     return undefined;
   };
@@ -88,7 +122,17 @@ export function analyzeMessages(cx: Ctx): void {
     if (ts.isIdentifier(name)) { const s = sym(name); if (s) errSyms.push({ s, scope }); }
     else for (const el of name.elements) if (ts.isBindingElement(el)) addBinding(el.name, scope);
   };
-  const addHandler = (e: ts.Expression | undefined) => { const f = resolveFn(e); if (f && f.parameters[0]) addBinding(f.parameters[0].name, f); };
+  const addHandler = (e: ts.Expression | undefined) => {
+    const f = resolveFn(e);
+    if (f && f.parameters[0]) addBinding(f.parameters[0].name, f);
+    // .catch(setErr) with `const [error, setErr] = useState(..)`: the state variable now holds the raw error
+    const u = e && unwrap(e); const d = u && ts.isIdentifier(u) ? sym(u)?.valueDeclaration : undefined;
+    if (d && ts.isBindingElement(d) && ts.isArrayBindingPattern(d.parent) && d.parent.elements[1] === d && ts.isVariableDeclaration(d.parent.parent)
+      && d.parent.parent.initializer && /^useState\b/.test(unwrap(d.parent.parent.initializer).getText(sf))) {
+      const first = d.parent.elements[0];
+      if (first && ts.isBindingElement(first)) addBinding(first.name, sf);
+    }
+  };
   const collect = (n: ts.Node): void => {
     if (ts.isCatchClause(n) && n.variableDeclaration) addBinding(n.variableDeclaration.name, n.block);
     if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
@@ -101,6 +145,18 @@ export function analyzeMessages(cx: Ctx): void {
   };
   collect(sf);
   const apiErrType = (n: ts.Node) => { const t = checker.getTypeAtLocation(n); return (t.isUnion() ? t.types : [t]).every((p) => /^Api(Request|Envelope)Error$/.test(p.symbol?.name ?? '')); };
+  /** `err instanceof BgError ? err.message : ..`: a class of the code's own, whose messages are written as sentences. */
+  const narrowedToOwnError = (n: ts.Node): boolean => {
+    for (let q = n.parent; q && !isFn(q); q = q.parent) {
+      if ((ts.isConditionalExpression(q) || ts.isIfStatement(q)) && q.parent) {
+        const cond = ts.isConditionalExpression(q) ? q.condition : q.expression;
+        let own = false; const v = (m: ts.Node) => { if (ts.isBinaryExpression(m) && m.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword && !/^(Error|TypeError|RangeError|DOMException)$/.test(m.right.getText(sf))) own = true; ts.forEachChild(m, v); };
+        v(cond);
+        if (own) return true;
+      }
+    }
+    return false;
+  };
   const seen = new Set<ts.Node>();
   const checkUses = (root: ts.Symbol, scope: ts.Node, depth: number) => {
     for (const id of refs(root)) {
@@ -112,6 +168,13 @@ export function analyzeMessages(cx: Ctx): void {
       if (inLog(id, sf)) continue;
       // an alias: const e = err as Error
       if (ts.isVariableDeclaration(p) && p.initializer === w && ts.isIdentifier(p.name) && depth < 3) { const s = sym(p.name); if (s) checkUses(s, scope, depth + 1); continue; }
+      // const { message } = err as Error: the destructured name is the raw text
+      if (ts.isVariableDeclaration(p) && p.initializer === w && ts.isObjectBindingPattern(p.name)) { for (const el of p.name.elements) if ((el.propertyName ?? el.name).getText(sf) === 'message') addBinding(el.name, scope); continue; }
+      // handed to a local function (handleError(err)): follow the parameter one level
+      if (ts.isCallExpression(p) && p.arguments.includes(w as ts.Expression) && depth < 3) {
+        const f = resolveFn(p.expression as ts.Expression); const prm = f && f.parameters[p.arguments.indexOf(w as ts.Expression)];
+        if (f && prm && ts.isIdentifier(prm.name)) { const s = sym(prm.name); if (s) { checkUses(s, f, depth + 1); continue; } }
+      }
       let raw = '';
       if (ts.isPropertyAccessExpression(p) && p.expression === w && /^(message|stack|toString|cause)$/.test(p.name.text)) raw = `.${p.name.text}`;
       else if (ts.isElementAccessExpression(p) && p.expression === w && ts.isStringLiteralLike(p.argumentExpression) && /^(message|stack)$/.test(p.argumentExpression.text)) raw = `['${p.argumentExpression.text}']`;
@@ -120,8 +183,9 @@ export function analyzeMessages(cx: Ctx): void {
       else if (ts.isBinaryExpression(p) && p.operatorToken.kind === ts.SyntaxKind.PlusToken) raw = 'string concatenation';
       else if (ts.isCallExpression(p) && p.arguments.includes(w as ts.Expression) && SINK.test(p.expression.getText(sf)) && !/apiErrorMessage/.test(p.expression.getText(sf))) raw = 'the error object passed to a message sink';
       else if (ts.isBindingElement(id.parent.parent?.parent ?? id)) raw = '';
+      if (raw && raw !== 'the error object passed to a message sink' && !reachesPerson(ts.isPropertyAccessExpression(p) && ts.isCallExpression(p.parent) && p.parent.expression === p ? p.parent : p)) raw = '';   // `(err as Error).message.includes('aborted')` is read, not shown
       if (!raw) { if (!ts.isIdentifier(id.parent) && sym(id)?.valueDeclaration && ts.isBindingElement(sym(id)!.valueDeclaration!) && root === sym(id)) { /* destructured name used directly */ } continue; }
-      if (apiErrType(w)) continue;
+      if (apiErrType(w) || narrowedToOwnError(w)) continue;
       add(id, 'c', `raw error text (${raw}) from a failed request: use apiErrorMessage(err, '<plain sentence>')`);
     }
   };

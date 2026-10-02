@@ -65,7 +65,7 @@ export default function NewCreditNotePage() {
         }),
       });
       await assertOk(res, 'Could not create the credit note - try again');
-      void router.push('/accounting/credit-notes');
+      await router.push('/accounting/credit-notes');
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the credit note - try again'));
     } finally { setIsSubmitting(false); }

@@ -197,7 +197,7 @@ export default function AdminCompanyDetailPage() {
       const res  = await apiFetch(`/api/admin/companies/${id}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
       await assertOk(res, 'Could not delete the company - try again');
       void router.push(adminHref('/admin/companies'));
-    } catch (err) { setActionError(apiErrorMessage(err, 'Could not delete the company - try again')); } finally { setActionLoading(false); }
+    } catch (err) { setActionError(apiErrorMessage(err, 'Could not delete the company - try again')); setActionLoading(false); }
   }
 
   function startEdit() {
@@ -237,7 +237,7 @@ export default function AdminCompanyDetailPage() {
       setEditMode(false);
       setEditForm(null);
     } catch (err) {
-      setEditError(apiErrorMessage(err, 'Could not complete: save - try again'));
+      setEditError(apiErrorMessage(err, 'Could not save the company - try again'));
     } finally {
       setEditSaving(false);
     }

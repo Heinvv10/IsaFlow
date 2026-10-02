@@ -67,7 +67,7 @@ describe('sales order detail: confirm action and reload', () => {
   });
   it('action 500 with an empty body: shows a plain sentence, not the JSON parse error', async () => {
     await mount(boom, () => ok(order('X')));
-    expect(await screen.findByText(/Action 'confirm' failed/)).toBeTruthy();
+    expect(await screen.findByText(/Could not confirm the sales order - try again/)).toBeTruthy();
     expectNoRawJsonError();
   });
   it('reload 400 after a successful action: shows the server message', async () => {

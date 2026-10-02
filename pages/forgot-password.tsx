@@ -34,7 +34,7 @@ export default function ForgotPasswordPage() {
       // Always show success (server returns 200 even for unknown emails)
       setSent(true);
     } catch {
-      setError('Network error. Please try again.');
+      setError('Could not send the reset link - check your connection and try again.');
     } finally {
       setSubmitting(false);
     }

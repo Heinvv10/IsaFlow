@@ -77,7 +77,7 @@ export default function DefaultAccountsPage() {
       setLoadFailed(false);
     } catch {
       setLoadFailed(true);
-      setMessage({ type: 'error', text: 'Failed to load configuration' });
+      setMessage({ type: 'error', text: 'Could not load the default accounts - try again' });
     } finally {
       setIsLoading(false);
     }
@@ -107,14 +107,14 @@ export default function DefaultAccountsPage() {
         await loadData();
       } else {
         const json = await res.json();
-        setMessage({ type: 'error', text: json.error?.message || json.message || 'Failed to save' });
+        setMessage({ type: 'error', text: json.error?.message || json.message || 'Could not save the default accounts - try again' });
         if (res.status === 409) await loadData();
         // Refused: nothing was saved, so the rows go back to the holders the page loaded —
         // a select still naming the refused account read as if it had been accepted.
         if (res.status === 400) setMappings((prev) => ({ ...prev, ...pick(loaded) }));
       }
     } catch {
-      setMessage({ type: 'error', text: 'Save request failed' });
+      setMessage({ type: 'error', text: 'Could not save the default accounts - try again' });
     } finally {
       setIsSaving(false);
     }

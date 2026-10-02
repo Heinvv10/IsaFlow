@@ -39,6 +39,8 @@ export default function NewSupplierPage() {
     setSaveAndNew(andNew);
 
     setIsSubmitting(true);
+    // Stays true while the detail page loads, so a second click cannot create a second supplier.
+    let navigating = false;
     try {
       const res = await apiFetch('/api/accounting/suppliers-list', {
         method: 'POST',
@@ -64,14 +66,15 @@ export default function NewSupplierPage() {
       if (andNew) {
         setForm(INITIAL_SUPPLIER_FORM);
         setFieldErrors({});
-        void router.push('/accounting/suppliers/new');
+        await router.push('/accounting/suppliers/new');
       } else {
-        void router.push(`/accounting/suppliers/${json.data?.id ?? ''}`);
+        navigating = true;
+        await router.push(`/accounting/suppliers/${json.data?.id ?? ''}`);
       }
     } catch (err: unknown) {
       notify.error(apiErrorMessage(err, 'Could not create the supplier - try again'));
     } finally {
-      setIsSubmitting(false);
+      if (!navigating) setIsSubmitting(false);
     }
   }
 

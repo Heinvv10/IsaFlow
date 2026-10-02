@@ -86,7 +86,7 @@ export default function AdminUserDetailPage() {
       setEditState({ firstName: u.first_name, lastName: u.last_name, phone: u.phone ?? '', role: u.role });
     } catch (err) {
       log.error('AdminUserDetail load failed', { userId: id, error: err }, 'admin-ui');
-      setError(apiErrorMessage(err, 'Could not load user - try again'));
+      setError(apiErrorMessage(err, 'Could not load this user - try again'));
     } finally { setLoading(false); }
   }, [id]);
 
@@ -109,10 +109,10 @@ export default function AdminUserDetailPage() {
     try {
       const url = endpoint ? `/api/admin/users/${id}/${endpoint}` : `/api/admin/users/${id}`;
       const res  = await apiFetch(url, { method, headers: { 'X-Admin-Request': 'true', ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
-      await assertOk(res, 'Something went wrong - try again');
+      await assertOk(res, 'Could not update the user - try again');
       return true;
     } catch (err) {
-      setActionError(apiErrorMessage(err, 'Something went wrong - try again'));
+      setActionError(apiErrorMessage(err, 'Could not update the user - try again'));
       return false;
     } finally { setActionLoading(false); }
   }
@@ -141,7 +141,7 @@ export default function AdminUserDetailPage() {
       showToast('Impersonation session opened');
     } catch (err) {
       log.error('Impersonation failed', { userId: user.id, error: err }, 'admin-ui');
-      setActionError(apiErrorMessage(err, 'Could not impersonate - try again'));
+      setActionError(apiErrorMessage(err, 'Could not start impersonation - try again'));
     } finally { setActionLoading(false); }
   }
 

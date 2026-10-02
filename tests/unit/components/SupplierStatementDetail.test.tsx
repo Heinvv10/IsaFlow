@@ -9,6 +9,6 @@ import Page from '../../../pages/accounting/supplier-statements/[supplierId]';
 it('shows an API failure instead of claiming no transactions exist', async () => {
   vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: false, error: { message: 'An internal error occurred' } }), { status: 500 }));
   render(<Page />);
-  expect(await screen.findByText('Failed to load supplier statement')).toBeTruthy();
+  expect(await screen.findByText('An internal error occurred')).toBeTruthy();
   expect(screen.queryByText('No transactions found for this supplier')).toBeNull();
 });

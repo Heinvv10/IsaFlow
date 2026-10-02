@@ -106,14 +106,14 @@ export function ChartOfAccountsTab() {
         credentials: 'include',
         body: JSON.stringify({ ...addForm, accountSubtype: addForm.accountSubtype || undefined, parentAccountId: addForm.parentAccountId || undefined, description: addForm.description || undefined, normalBalance }),
       });
-      await assertOk(res, 'Failed to create account'); notify.success('Account created');   // the envelope is { error: { message } }: the refusal's own words
+      await assertOk(res, 'Could not create the account - try again'); notify.success('Account created');   // the envelope is { error: { message } }: the refusal's own words
       setShowAddForm(false);
       setAddForm({ accountCode: '', accountName: '', accountType: 'asset', accountSubtype: '', parentAccountId: '', description: '' });
       setSuggestedCode('');
       await loadAccounts();
     } catch (err) {
-      log.error('Failed to create account', { error: err }, 'accounting-ui');
-      notify.error(apiErrorMessage(err, 'Failed to create account'));
+      log.error('Could not create the account - try again', { error: err }, 'accounting-ui');
+      notify.error(apiErrorMessage(err, 'Could not create the account - try again'));
     } finally {
       setIsSaving(false);
     }
@@ -133,14 +133,14 @@ export function ChartOfAccountsTab() {
       accountSubtype?: string | null;
       parentAccountId?: string | null;
     },
-  ) => {
+  ): Promise<boolean> => {
     try {
       const res = await apiFetch('/api/accounting/chart-of-accounts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id, ...data }) });
-      await assertOk(res, 'Failed to update account'); notify.success('Account updated');
-      await loadAccounts();
+      await assertOk(res, 'Could not update the account - try again'); notify.success('Account updated');
+      await loadAccounts(); return true;
     } catch (err) {
-      log.error('Failed to update account', { error: err }, 'accounting-ui');
-      notify.error(apiErrorMessage(err, 'Failed to update account'));
+      log.error('Could not update the account - try again', { error: err }, 'accounting-ui');
+      notify.error(apiErrorMessage(err, 'Could not update the account - try again')); return false;
     }
   };
 
@@ -155,16 +155,16 @@ export function ChartOfAccountsTab() {
     setIsDeleting(true);
     try {
       const res = await apiFetch(`/api/accounting/chart-of-accounts-detail?id=${id}`, { method: 'DELETE', credentials: 'include' });
-      await assertOk(res, 'Failed to delete account'); notify.success('Account deleted');
+      await assertOk(res, 'Could not delete the account - try again'); notify.success('Account deleted');
       setPendingDeleteId(null);
       await loadAccounts();
     } catch (err) {
-      log.error('Failed to delete account', { error: err }, 'accounting-ui');
+      log.error('Could not delete the account - try again', { error: err }, 'accounting-ui');
       // The dialog STAYS open on failure. The service refuses for reasons the
       // user can act on (non-zero balance, active children, unreconciled bank
       // transactions), and closing it would hide the reason behind a toast on
       // a row that looks unchanged.
-      notify.error(apiErrorMessage(err, 'Failed to delete account'));
+      notify.error(apiErrorMessage(err, 'Could not delete the account - try again'));
     } finally {
       setIsDeleting(false);
     }

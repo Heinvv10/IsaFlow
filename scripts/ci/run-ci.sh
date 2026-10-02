@@ -63,9 +63,9 @@ run_step "oauth-trust-flags"      bun scripts/ci/check-oauth-trust-flags.ts
 run_step "workflow-runs-ci"       bun scripts/ci/check-workflow-runs-ci.ts
 # Client code must read the HTTP status before a response body, say what failed
 # in a plain sentence, show errors through apiErrorMessage, and check its writes.
-# A type-checker based gate over every client file (selected by content, not by
-# directory); its stated limits are in scripts/ci/clientResponseRule.ts, so it
-# narrows what review has to find, it does not replace review.
+# A regression guard on the COMMON shapes, over every client file (selected by
+# imports, not by directory). It is not a completeness proof: its stated limits
+# are in scripts/ci/clientResponseRule.ts, and review still has to find the rest.
 run_step "client-responses"       bun scripts/ci/check-client-responses.ts
 run_step "unit-tests"        bun run test:unit
 run_step "component-tests"   bun run test:components

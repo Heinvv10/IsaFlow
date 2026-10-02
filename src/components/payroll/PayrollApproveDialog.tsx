@@ -53,7 +53,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
     setLoadError('');
     apiJson(`/api/payroll/runs/${runId}/journal-plan`, undefined, 'Could not load the journal plan - try again')
       .then((p) => { if (!cancelled) setPreview(p); })
-      .catch((err: unknown) => { if (!cancelled) setLoadError(apiErrorMessage(err, 'Could not load the journal this run would post')); });
+      .catch((err: unknown) => { if (!cancelled) setLoadError(apiErrorMessage(err, 'Could not load the journal plan - try again')); });
     return () => { cancelled = true; };
   }, [open, runId, reloadKey]);
 

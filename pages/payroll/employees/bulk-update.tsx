@@ -7,7 +7,7 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { Users, Loader2, AlertCircle, CheckCircle2, ChevronRight } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
@@ -112,14 +112,13 @@ export default function BulkUpdatePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filter, update }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(payrollLoadMessage(res.status, j.error?.message ?? j.message ?? 'Preview failed'));
-        setPreview(null);
-        return;
-      }
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not preview the update - try again'));
+      await assertOk(res, 'Could not preview the update - try again');
       const json = await res.json();
       setPreview((json.data ?? json) as Preview);
+    } catch (err) {
+      setPreview(null);
+      setError(apiErrorMessage(err, 'Could not preview the update - try again'));
     } finally {
       setPreviewing(false);
     }
@@ -138,14 +137,12 @@ export default function BulkUpdatePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? 'Apply failed');
-        return;
-      }
+      await assertOk(res, 'Could not apply the update - try again');
       const json = await res.json();
       setApplyResult((json.data ?? json) as { updated: number });
       setPreview(null);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not apply the update - try again'));
     } finally {
       setApplying(false);
     }

@@ -75,8 +75,12 @@ export default function MigrationHubPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [selecting, setSelecting] = useState(false);
+  // A failed load must not offer the source picker: picking would start a second session beside the real one.
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const loadSession = useCallback(async () => {
+    setLoadFailed(false);
+    setError('');
     try {
       const res = await apiFetch('/api/accounting/migration/session');
       await assertOk(res, 'Could not load your migration - try again');
@@ -89,6 +93,7 @@ export default function MigrationHubPage() {
       }
     } catch (e) {
       log.warn('Failed to load migration session', { error: e }, 'migration');
+      setLoadFailed(true);
       setError(apiErrorMessage(e, 'Could not load your migration - try again'));
     } finally {
       setIsLoading(false);
@@ -149,6 +154,13 @@ export default function MigrationHubPage() {
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
             </div>
+          ) : loadFailed ? (
+            <button
+              onClick={() => { setIsLoading(true); void loadSession(); }}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"
+            >
+              Retry
+            </button>
           ) : !session ? (
             <SourceSelection onSelect={selectSource} selecting={selecting} isSuperAdmin={user?.role === 'super_admin'} />
           ) : (

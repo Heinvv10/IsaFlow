@@ -42,7 +42,7 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
       if (!('links' in r)) throw new ApiEnvelopeError('The share links response did not contain a list of links.');
       setLinks(r.links);
     } catch (err) {
-      setListError(apiErrorMessage(err, 'Could not load share links.'));
+      setListError(apiErrorMessage(err, 'Could not load the share links - try again'));
     } finally {
       setLoading(false);
     }
@@ -61,7 +61,7 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
       const r = await apiJson('/api/accounting/share/links', {
         method: 'POST',
         body: JSON.stringify({ params, label: label.trim() || undefined, ttlDays }),
-      }, 'Could not load the share links - try again');
+      }, 'Could not create the share link - try again');
       // The raw token is returned ONCE and never again. Silently skipping this
       // block on the wrong arm would leave a live link minted against the
       // company's cap with a URL nobody can ever recover.
@@ -71,7 +71,7 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
       setLabel('');
       await refresh();
     } catch (err) {
-      setCreateError(apiErrorMessage(err, 'Could not create the share link.'));
+      setCreateError(apiErrorMessage(err, 'Could not create the share link - try again'));
     } finally {
       setCreating(false);
     }
@@ -82,7 +82,7 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
       await apiJson(`/api/accounting/share/links/${id}/revoke`, { method: 'POST' }, 'Could not revoke the share link - try again');
       await refresh();
     } catch (err) {
-      setListError(apiErrorMessage(err, 'Could not revoke that link.'));
+      setListError(apiErrorMessage(err, 'Could not revoke the share link - try again'));
     }
   }
 

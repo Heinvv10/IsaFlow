@@ -4,6 +4,8 @@
  */
 import { useState } from 'react';
 import { Lock, Unlock, Loader2 } from 'lucide-react';
+import { apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import type { VatPeriodLock } from './vatPeriodLockTypes';
 
@@ -77,7 +79,9 @@ function LockRow({
     if (!reason.trim()) { setError('A reason is required to unlock a VAT period'); return; }
     setSubmitting(true); setError('');
     let err: string | null;
-    try { err = await onUnlock(lock.id, reason.trim()); } finally { setSubmitting(false); }
+    try { err = await onUnlock(lock.id, reason.trim()); }
+    catch (e) { log.warn('VAT period unlock request failed', { error: e }, 'VatPeriodLocksTable'); err = apiErrorMessage(e, 'Could not unlock the VAT period - try again'); }
+    finally { setSubmitting(false); }
     if (err) { setError(err); return; }
     setReason(''); onCloseConfirm();
   };

@@ -21,10 +21,12 @@ export function ApplyPackageCard({ employeeId }: Props) {
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
   const [result, setResult] = useState<{ inserted: number; ended: number } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadFailed(false);
     try {
       const res = await apiFetch('/api/payroll/pay-packages?activeOnly=1');
       await assertOk(res, 'Could not load packages - try again');
@@ -32,6 +34,7 @@ export function ApplyPackageCard({ employeeId }: Props) {
       setPackages(((json.data ?? json) as Pkg[]) ?? []);
     } catch (err) {
       setPackages([]);
+      setLoadFailed(true);
       setError(apiErrorMessage(err, 'Could not load packages - try again'));
     } finally {
       setLoading(false);
@@ -70,7 +73,7 @@ export function ApplyPackageCard({ employeeId }: Props) {
         <div className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)]">
           <Loader2 className="h-4 w-4 animate-spin" />Loading...
         </div>
-      ) : packages.length === 0 ? (
+      ) : loadFailed ? null : packages.length === 0 ? (
         <div className="text-sm text-[var(--ff-text-secondary)]">
           No active packages. Create one under Setup → Pay Packages.
         </div>

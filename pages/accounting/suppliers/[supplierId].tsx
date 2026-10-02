@@ -79,7 +79,7 @@ export default function SupplierDetailPage() {
         alert(json.error?.message ?? 'Could not delete the supplier - try again');
         return;
       }
-      void router.push('/accounting/suppliers');
+      await router.push('/accounting/suppliers');
     } catch (err) {
       alert(apiErrorMessage(err, 'Could not delete the supplier - try again'));
     } finally {

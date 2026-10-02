@@ -98,9 +98,9 @@ export function BundleEditor({ itemId, parentDescription, onSaved }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ item_id: itemId, lines: lines.map((l, i) => ({ child_item_id: l.child_item_id, quantity: l.quantity, sort_order: i })) }),
       });
-      await assertOk(res, 'Save failed');
+      await assertOk(res, 'Could not save the bundle - try again');
       setSaved(true); onSaved?.();
-    } catch (e) { setError(apiErrorMessage(e, 'Save failed')); }
+    } catch (e) { setError(apiErrorMessage(e, 'Could not save the bundle - try again')); }
     finally { setSaving(false); }
   };
 

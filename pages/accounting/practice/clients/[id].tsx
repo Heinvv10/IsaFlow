@@ -150,7 +150,7 @@ export default function PracticeClientDetailPage() {
       <AppLayout>
         <div className="flex items-center justify-center gap-2 min-h-screen text-red-400">
           <AlertCircle className="h-5 w-5" />
-          <span>{error || 'Failed to load client'}</span>
+          <span>{error || 'Could not load the client - try again'}</span>
         </div>
       </AppLayout>
     );

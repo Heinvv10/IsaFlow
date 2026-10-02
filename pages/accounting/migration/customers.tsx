@@ -3,6 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { ApiEnvelopeError, apiErrorMessage, apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 const CUSTOMER_FIELDS = [
   'name', 'email', 'phone', 'vat_number', 'registration_number',
@@ -58,7 +59,10 @@ export default function CustomersImportPage() {
           ) as Partial<Record<CustomerField, string>>,
         })));
       },
-      error: err => setError(`CSV parse error: ${err.message}`),
+      error: err => {
+        log.warn('CSV parse error', { error: err }, 'migration');
+        setError('Could not read the CSV file - check it is a valid CSV and try again');
+      },
     });
   };
 

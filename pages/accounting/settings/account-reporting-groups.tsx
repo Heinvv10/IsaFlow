@@ -54,12 +54,12 @@ export default function AccountReportingGroupsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/account-reporting-groups');
-      await assertOk(res, 'Failed to load groups');
+      await assertOk(res, 'Could not load the reporting groups - try again');
       const json = await res.json();
       setGroups(json.data?.items ?? []);
     } catch (err) {
       setGroups([]);
-      setError(apiErrorMessage(err, 'Failed to load reporting groups'));
+      setError(apiErrorMessage(err, 'Could not load the reporting groups - try again'));
     } finally {
       setLoading(false);
     }
@@ -73,10 +73,10 @@ export default function AccountReportingGroupsPage() {
     setConfirmDelete(null);
     try {
       const res = await apiFetch(`/api/accounting/account-reporting-groups?id=${id}`, { method: 'DELETE' });
-      await assertOk(res, 'Failed to delete group');
+      await assertOk(res, 'Could not delete the reporting group - try again');
       setGroups(prev => prev.filter(g => g.id !== id));
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to delete group'));
+      setError(apiErrorMessage(err, 'Could not delete the reporting group - try again'));
     } finally {
       setDeleting(null);
     }

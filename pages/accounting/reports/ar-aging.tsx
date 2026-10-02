@@ -87,7 +87,7 @@ export default function ARAgingPage() {
     try {
       const params = new URLSearchParams({ as_at_date: asAtDate });
       const res = await apiFetch(`/api/accounting/reports-ar-aging?${params}`, { credentials: 'include' });
-      await assertOk(res, 'Failed to load AR aging');
+      await assertOk(res, 'Could not load the AR aging report - try again');
       const json = await res.json() as { data?: ARAgingData; message?: string; meta?: { hasMore?: boolean } };
       setData(json.data ?? null);
       setHasMore(Boolean((json as { meta?: { hasMore?: boolean } }).meta?.hasMore));

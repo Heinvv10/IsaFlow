@@ -142,13 +142,13 @@ export default function AssetDetailPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ proceeds: Number(form.disposal_amount) || 0, disposalDate: form.disposal_date, disposalType: form.disposal_method, notes: form.reason || undefined }),
       });
-      await assertOk(res, 'Disposal failed');
+      await assertOk(res, 'Could not dispose of the asset - try again');
       const json = await res.json() as { success?: boolean; error?: { message?: string } };
-      if (!json.success) { setDisposalError(json.error?.message ?? 'Disposal failed'); return; }
+      if (!json.success) { setDisposalError(json.error?.message ?? 'Could not dispose of the asset - try again'); return; }
       await router.push('/accounting/assets');
     } catch (err) {
       log.error('Disposal failed', { err, assetId: asset.id }, 'accounting');
-      setDisposalError(apiErrorMessage(err, 'Network error — please try again'));
+      setDisposalError(apiErrorMessage(err, 'Could not dispose of the asset - try again'));
     } finally { setSubmitting(false); }
   };
 

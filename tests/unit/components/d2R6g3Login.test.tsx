@@ -84,6 +84,13 @@ describe('TOTP step', () => {
     expect(document.body.textContent).not.toMatch(/invalid code/i);
     noRaw();
   });
+  it('a dropped connection says the code could not be verified, not "Network error"', async () => {
+    const input = await to2fa();
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await submitCode(input);
+    expect(await screen.findByText('Could not verify the code - check your connection and try again')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('Network error');
+  });
   it('4xx keeps the server message', async () => {
     const input = await to2fa();
     fetchMock.mockResolvedValueOnce(envelope(400, MSG));

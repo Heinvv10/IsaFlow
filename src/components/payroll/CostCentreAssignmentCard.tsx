@@ -33,17 +33,19 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
   const [selected, setSelected] = useState<string>(currentCostCentreId ?? '');
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [baseline, setBaseline] = useState<Allocation[]>([]);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
+    setLoadFailed(false);
     try {
       const [cRes, aRes] = await Promise.all([
         apiFetch('/api/payroll/cost-centres?activeOnly=1'),
         apiFetch(`/api/payroll/employees/${employeeId}/cost-allocations`),
       ]);
-      await assertOk(cRes, 'Could not load cost centres - try again');
-      await assertOk(aRes, 'Could not load the cost allocations - try again');
+      await assertOk(cRes, 'Could not load the cost centres and allocations - try again');
+      await assertOk(aRes, 'Could not load the cost centres and allocations - try again');
       const cJson = await cRes.json();
       setCentres((cJson.data ?? cJson) as CostCentre[]);
       const aJson = await aRes.json();
@@ -55,6 +57,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
       setCentres([]);
       setAllocations([]);
       setBaseline([]);
+      setLoadFailed(true);
       setError(apiErrorMessage(err, 'Could not load the cost centres and allocations - try again'));
     } finally {
       setLoading(false);
@@ -152,7 +155,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
         <div className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)]">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading cost centres...
         </div>
-      ) : centres.length === 0 ? (
+      ) : loadFailed ? null : centres.length === 0 ? (
         <div className="text-sm text-[var(--ff-text-secondary)]">
           No active cost centres. Create one under Setup → Cost Centres first.
         </div>

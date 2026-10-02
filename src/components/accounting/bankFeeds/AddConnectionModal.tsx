@@ -101,7 +101,7 @@ export function AddConnectionModal({ bankAccounts, onClose, onCreated }: Props) 
       notify.success('Extension paired. Open your bank tab to sync.');
       onCreated();
     } catch (err) {
-      notify.error(apiErrorMessage(err, 'Could not complete: pairing - try again'));
+      notify.error(apiErrorMessage(err, 'Could not pair the extension - try again'));
     } finally {
       setSaving(false);
     }

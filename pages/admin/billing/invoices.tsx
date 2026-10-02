@@ -105,6 +105,7 @@ export default function InvoicesPage() {
 
   async function handleAction(id: string, action: 'send' | 'mark_paid') {
     setActionId(id);
+    const failure = action === 'send' ? 'Could not send the invoice - try again' : 'Could not mark the invoice as paid - try again';
     try {
       // Route files use hyphens; mark_paid → mark-paid
       const route = action === 'mark_paid' ? 'mark-paid' : action;
@@ -114,10 +115,10 @@ export default function InvoicesPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body,
       });
-      await assertOk(res, 'Could not complete the invoice action - try again');
+      await assertOk(res, failure);
       void load(search, status, dateFrom, dateTo, page);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not complete the invoice action - try again'));
+      setError(apiErrorMessage(err, failure));
     } finally {
       setActionId(null);
     }

@@ -49,10 +49,10 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
           decimalPlaces: parseInt(form.decimalPlaces, 10) || 2,
         }),
       });
-      await assertOk(res, 'Failed to create currency');
+      await assertOk(res, 'Could not create the currency - try again');
       const json = await res.json();
       if (json.success === false) {
-        notify.error(json.error?.message || 'Failed to create currency');
+        notify.error(json.error?.message || 'Could not create the currency - try again');
         return;
       }
       notify.success(`Currency ${form.code.toUpperCase()} created`);
@@ -61,7 +61,7 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
       onRefresh();
     } catch (e) {
       log.error('Currency operation failed', { error: e }, 'currencies');
-      notify.error(apiErrorMessage(e, 'Failed to create currency'));
+      notify.error(apiErrorMessage(e, 'Could not create the currency - try again'));
     } finally {
       setSaving(false);
     }
@@ -76,14 +76,14 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
         body: JSON.stringify({ code: currency.code, isActive: !currency.isActive }),
       });
       if (!res.ok) {
-        notify.error('Failed to update currency');
+        notify.error('Could not update the currency - try again');
         return;
       }
       notify.success(`${currency.code} ${!currency.isActive ? 'activated' : 'deactivated'}`);
       onRefresh();
     } catch (e) {
       log.error('Currency operation failed', { error: e }, 'currencies');
-      notify.error('Failed to update currency');
+      notify.error('Could not update the currency - try again');
     } finally {
       setToggling(null);
     }

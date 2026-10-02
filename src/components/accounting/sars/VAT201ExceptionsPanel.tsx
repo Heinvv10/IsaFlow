@@ -35,7 +35,7 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
     setLoading(true); setError('');
     try {
       const res = await apiFetch(`/api/accounting/sars/vat-exceptions?from=${from}&to=${to}`, { credentials: 'include' });
-      await assertOk(res, 'Something went wrong - try again');
+      await assertOk(res, 'Could not load exceptions - try again');
       const json = await res.json();
       if (!cancelledRef?.current) { setReport(json.data); onLoadedRef.current?.(json.data); }
     } catch (err) {

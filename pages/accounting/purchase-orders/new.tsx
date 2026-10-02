@@ -61,7 +61,7 @@ export default function NewPurchaseOrderPage() {
           items: items.map(i => ({ ...i, quantity: Number(i.quantity), unitPrice: Number(i.unitPrice), taxRate: Number(i.taxRate) })),
         }),
       });
-      await assertOk(res, 'Something went wrong - try again');
+      await assertOk(res, 'Could not create the purchase order - try again');
       const json = await res.json();
       if (andNew) {
         setForm({ supplierId: '', orderDate: localISODate(), expectedDeliveryDate: '', notes: '', reference: '' });
@@ -71,7 +71,7 @@ export default function NewPurchaseOrderPage() {
         await router.push(`/accounting/purchase-orders/${json.data?.id ?? ''}`);
       }
     } catch (err) {
-      setError(apiErrorMessage(err, 'Something went wrong - try again'));
+      setError(apiErrorMessage(err, 'Could not create the purchase order - try again'));
     } finally {
       setSaving(false);
     }

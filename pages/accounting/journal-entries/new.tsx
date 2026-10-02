@@ -96,7 +96,7 @@ export default function NewJournalEntryPage() {
         }),
       });
       if (!res.ok) {
-        await assertOk(res, 'Failed to create journal entry');
+        await assertOk(res, 'Could not create the journal entry - try again');
       }
       const data = await res.json() as { data?: { id?: string }; id?: string };
       const entry = data.data ?? data;

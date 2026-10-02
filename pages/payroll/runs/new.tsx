@@ -36,7 +36,7 @@ export default function NewPayrollRunPage() {
       await assertOk(res, 'Could not create the payroll run - try again');
       const json = await res.json();
       const created = json.data ?? json;
-      void router.push(`/payroll/runs/${created.id}`);
+      await router.push(`/payroll/runs/${created.id}`);
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the payroll run - try again'));
     } finally {

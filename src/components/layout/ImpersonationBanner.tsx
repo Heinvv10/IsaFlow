@@ -32,10 +32,10 @@ export function ImpersonationBanner() {
         window.location.href = json.data.redirect;
       } else {
         alert(json.error?.message ?? 'Could not end impersonation - try again');
+        setBusy(false);
       }
     } catch (err) {
       alert(apiErrorMessage(err, 'Could not end impersonation - try again'));
-    } finally {
       setBusy(false);
     }
   }, []);

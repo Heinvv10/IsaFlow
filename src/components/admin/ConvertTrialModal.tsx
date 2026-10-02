@@ -56,11 +56,11 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
         body: JSON.stringify({ companyId, planId }),
       });
       if (!res.ok) {
-        await assertOk(res, 'Conversion failed');
+        await assertOk(res, 'Could not convert the trial - try again');
       }
       onConverted();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not complete: conversion - try again'));
+      setError(apiErrorMessage(err, 'Could not convert the trial - try again'));
     } finally {
       setWorking(false);
     }

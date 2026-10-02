@@ -44,11 +44,11 @@ export default function PortalLoginPage() {
         setState('sent');
       } else {
         setState('error');
-        setErrorMessage('Something went wrong. Please try again.');
+        setErrorMessage('Could not send the sign-in link - try again');
       }
     } catch {
       setState('error');
-      setErrorMessage('Something went wrong. Please try again.');
+      setErrorMessage('Could not send the sign-in link - try again');
     }
   }
 

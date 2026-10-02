@@ -89,7 +89,7 @@ export default function SalesOrderDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: order.id, action }),
       });
-      await assertOk(res, `Action '${action}' failed`);
+      await assertOk(res, `Could not ${action} the sales order - try again`);
       const json = await res.json();
       if (action === 'invoice') {
         const invoiceId = json.data?.invoiceId || json.invoiceId;
@@ -103,7 +103,7 @@ export default function SalesOrderDetailPage() {
       const refreshJson = await refreshRes.json();
       setOrder(refreshJson.data || refreshJson);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Something went wrong - try again'));
+      setError(apiErrorMessage(err, `Could not ${action} the sales order - try again`));
     } finally {
       setActionBusy(false);
     }

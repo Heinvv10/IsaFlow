@@ -50,6 +50,8 @@ interface RunDetail {
   lines: Line[];
 }
 
+const LOAD_FAILED = 'Could not load the payroll run - try again';
+
 export default function PayrollRunDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -82,7 +84,7 @@ export default function PayrollRunDetailPage() {
       setError(hasRun.current
         ? 'Could not refresh this run — reload the page to see its latest state.'
         : status === 404 ? 'Pay run not found'
-        : payrollLoadMessage(status, 'Could not load the payroll run - try again'));
+        : payrollLoadMessage(status, status >= 500 ? LOAD_FAILED : apiErrorMessage(err, LOAD_FAILED)));
     } finally {
       setIsLoading(false);
     }

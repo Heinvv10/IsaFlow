@@ -154,7 +154,7 @@ export default function ReportBuilderPage() {
       await assertOk(res, 'Could not save the report - try again');
       const json = await res.json();
       showToast('Report saved successfully');
-      void router.replace(`/accounting/reports/builder?id=${json.data.id}`);
+      await router.replace(`/accounting/reports/builder?id=${json.data.id}`);
     } catch (err) {
       showToast(apiErrorMessage(err, 'Could not save the report - try again'));
     } finally {

@@ -14,6 +14,7 @@ import {
 import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
 import { BalanceSheetBody } from '@/components/accounting/BalanceSheetBody';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
 import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
@@ -69,16 +70,16 @@ export default function BalanceSheetPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
-      .then(async r => { await assertOk(r, 'Could not load cost centres'); return r.json(); })
+      .then(async r => { await assertOk(r, 'Could not load the cost centres - try again'); return r.json(); })
       .then(json => setCostCentres(json.data?.items || json.data || []))
-      .catch(() => { /* reference data load failure — non-critical */ });
+      .catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'balance-sheet'); });
     apiFetch('/api/accounting/business-units?active=true', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed to load business units')))
+      .then(async r => { await assertOk(r, 'Could not load the business units - try again'); return r.json(); })
       .then(json => {
         const items = json.data?.items || json.data || [];
         setBusinessUnits(Array.isArray(items) ? items : []);
       })
-      .catch(() => { /* selected BU remains visible as unavailable */ });
+      .catch(err => { setBusinessUnits([]); log.warn('Failed to load business units', { err }, 'balance-sheet'); });
   }, []);
 
   const loadReport = useCallback(async () => {

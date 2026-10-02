@@ -62,10 +62,10 @@ export default function EliminationsPage() {
     try {
       const params = new URLSearchParams({ group_id: selectedGroupId, action: 'eliminations', period_start: periodStart, period_end: periodEnd });
       const res = await apiFetch(`/api/accounting/consolidated-reports?${params}`);
-      if (!res.ok) throw new Error('Failed to load elimination adjustments');
+      await assertOk(res, 'Could not load the elimination adjustments - try again');
       const json = await res.json();
       setItems((json.data || json).items || []);
-    } catch { setError('Failed to load elimination adjustments'); setItems([]); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load the elimination adjustments - try again')); setItems([]); }
     finally { setLoading(false); }
   }, [selectedGroupId, periodStart, periodEnd]);
 
@@ -87,13 +87,13 @@ export default function EliminationsPage() {
   }, [selectedGroupId, loadData]);
 
   const handleAutoGenerate = () =>
-    postAction('auto-generate', { action: 'auto-eliminate', period_start: periodStart, period_end: periodEnd }, 'Auto-generation failed');
+    postAction('auto-generate', { action: 'auto-eliminate', period_start: periodStart, period_end: periodEnd }, 'Could not generate the eliminations - try again');
 
   const handlePost = (id: string) =>
-    postAction(id, { action: 'post-elimination', elimination_id: id }, 'Failed to post elimination');
+    postAction(id, { action: 'post-elimination', elimination_id: id }, 'Could not post the elimination - try again');
 
   const handleReverse = (id: string) =>
-    postAction(id, { action: 'reverse-elimination', elimination_id: id }, 'Failed to reverse elimination');
+    postAction(id, { action: 'reverse-elimination', elimination_id: id }, 'Could not reverse the elimination - try again');
 
   function resetForm() {
     setFormType('interco_revenue'); setFormDescription(''); setFormPeriod(localISODate());
@@ -129,10 +129,10 @@ export default function EliminationsPage() {
           }),
         }
       );
-      await assertOk(res, 'Failed to create elimination');
+      await assertOk(res, 'Could not create the elimination - try again');
       setShowCreateModal(false); resetForm(); await loadData();
     } catch (err) {
-      setFormError(apiErrorMessage(err, 'Failed to create elimination'));
+      setFormError(apiErrorMessage(err, 'Could not create the elimination - try again'));
     } finally { setFormSaving(false); }
   }
 

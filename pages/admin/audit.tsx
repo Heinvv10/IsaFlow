@@ -166,13 +166,13 @@ export default function AdminAuditPage() {
       if (entityType) p.set('entity_type', entityType);
       if (search)     p.set('search',      search);
       const res  = await apiFetch(`/api/admin/audit?${p}`);
-      await assertOk(res, 'Failed to load');
+      await assertOk(res, 'Could not load the audit log - try again');
       const json = await res.json();
       const d = json.data as PagedResponse;
       setRows(d.items);
       setTotal(d.total);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Something went wrong - try again'));
+      setError(apiErrorMessage(err, 'Could not load the audit log - try again'));
     } finally {
       setLoading(false);
     }

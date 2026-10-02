@@ -184,7 +184,7 @@ export default function CaptureSettingsPage() {
                     </div>
                   </div>
                   <button type="button" role="switch" aria-checked={chaseSettings?.whatsappChaseEnabled ?? false}
-                    disabled={chaseSaving}
+                    disabled={chaseSaving || !chaseSettings}
                     onClick={() => chaseSettings && saveChase({ whatsappChaseEnabled: !chaseSettings.whatsappChaseEnabled })}
                     className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:opacity-50 ${chaseSettings?.whatsappChaseEnabled ? 'bg-green-600' : 'bg-slate-700'}`}>
                     <span className={`inline-block h-4 w-4 rounded-full bg-white shadow ring-0 transition-transform ${chaseSettings?.whatsappChaseEnabled ? 'translate-x-4' : 'translate-x-0'}`} />

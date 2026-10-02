@@ -38,7 +38,7 @@ export default function NewProductPage() {
         body: JSON.stringify({ ...form, costPrice: Number(form.costPrice), sellingPrice: Number(form.sellingPrice), reorderLevel: Number(form.reorderLevel), reorderQuantity: Number(form.reorderQuantity), taxRate: Number(form.taxRate) }),
       });
       await assertOk(res, 'Could not create the product - try again');
-      void router.push('/accounting/products');
+      await router.push('/accounting/products');
     } catch (err) { setError(apiErrorMessage(err, 'Could not create the product - try again')); }
     finally { setSaving(false); }
   };

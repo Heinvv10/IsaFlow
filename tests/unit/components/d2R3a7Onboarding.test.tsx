@@ -93,6 +93,23 @@ describe('onboarding submit', () => {
     await waitFor(() => expect(loc.href).toBe('/accounting'));
     expect([posts('/companies'), posts('coa-seed'), posts('company-directors'), posts('onboarding/documents'), posts('onboarding/complete')]).toEqual([1, 1, 1, 1, 1]);
   });
+  it('after success the Complete Setup button stays busy while the page navigates (no second submit)', async () => {
+    wizard(); render(<OnboardingWizard />); await toLastStep();
+    await waitFor(() => expect(loc.href).toBe('/accounting'));
+    expect(screen.queryByRole('button', { name: /complete setup/i })).toBeNull();
+    expect((screen.getByRole('button', { name: /saving/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+  it('a dropped connection says what could not be done and frees the button', async () => {
+    script((u, m) => {
+      if (u.includes('/api/auth/me')) return ok({ user: { onboarding_completed: false } });
+      if (m === 'POST' && u.includes('/companies')) throw new Error('socket hang up');
+      return undefined;
+    });
+    render(<OnboardingWizard />); await toLastStep();
+    expect(await screen.findByText('Could not finish setting up your company - try again')).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/Something went wrong|socket hang up/);
+    await waitFor(() => expect((screen.getByRole('button', { name: /complete setup/i }) as HTMLButtonElement).disabled).toBe(false));
+  });
   it('Retry after a seed failure resumes: no second company is created', async () => {
     let seeds = 0;
     script((u, m) => {

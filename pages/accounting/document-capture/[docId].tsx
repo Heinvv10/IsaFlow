@@ -118,7 +118,7 @@ export default function DocumentCaptureDetailPage() {
         }),
       });
       await assertOk(res, 'Could not confirm the document - try again'); const json = await res.json();
-      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Confirm failed');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Could not confirm the document - try again');
       notify.success('Document confirmed');
       void loadDocument();
     } catch (err) {
@@ -142,7 +142,7 @@ export default function DocumentCaptureDetailPage() {
         }),
       });
       await assertOk(res, 'Could not reject the document - try again'); const json = await res.json();
-      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Reject failed');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Could not reject the document - try again');
       notify.success('Document rejected');
       void loadDocument();
     } catch (err) {
@@ -169,7 +169,7 @@ export default function DocumentCaptureDetailPage() {
         }),
       });
       await assertOk(res, 'Could not match the document - try again'); const json = await res.json();
-      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Match failed');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Could not match the document - try again');
       notify.success('Matched to bank transaction');
       setBankTxId('');
       void loadDocument();

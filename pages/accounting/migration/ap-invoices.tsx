@@ -90,7 +90,10 @@ export default function ApInvoicesPage() {
           return { raw, mapped, matchedSupplierId: id, matchConfidence: confidence };
         }));
       },
-      error: err => setError(`CSV parse error: ${err.message}`),
+      error: err => {
+        log.warn('CSV parse error', { error: err }, 'migration');
+        setError('Could not read the CSV file - check it is a valid CSV and try again');
+      },
     });
   };
 

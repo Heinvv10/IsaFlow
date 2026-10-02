@@ -98,12 +98,12 @@ export default function ConsolidatedBalanceSheetPage() {
         as_at_date: asAtDate,
       });
       const res = await apiFetch(`/api/accounting/consolidated-reports?${params}`);
-      if (!res.ok) throw new Error('Failed to load consolidated balance sheet');
+      await assertOk(res, 'Could not load the consolidated balance sheet - try again');
       const json = await res.json();
       const payload: ConsolidatedBSResponse = json.data || json;
       setData(payload);
-    } catch {
-      setError('Failed to load consolidated balance sheet');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the consolidated balance sheet - try again'));
       setData(null);
     } finally {
       setLoading(false);

@@ -82,7 +82,7 @@ function safeDecode(value: string): string {
  * blobs perfectly well, and writing it to disk under a `.pdf` name is how a
  * correct refusal reached a user as a corrupt file.
  */
-async function downloadFile(url: string, fallbackName: string, failure: string): Promise<void> {
+export async function downloadFile(url: string, fallbackName: string, failure: string): Promise<void> {
   const res = await apiFetch(url);
   await assertOk(res, failure);
   const served = filenameFromDisposition(res.headers.get('Content-Disposition'));
@@ -115,7 +115,7 @@ export function usePackDownload(request: PackDownloadRequest): PackDownload {
         // the company slug lives on the server side of this call, so a
         // client-composed name cannot carry it.
         `report-pack-${packType}-${from}-to-${to}.${format}`,
-        `${format.toUpperCase()} generation failed`,
+        `Could not generate the ${format.toUpperCase()} pack - try again`,
       );
     } catch (err) {
       log.error('Failed to download report pack', { format, error: err });

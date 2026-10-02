@@ -73,10 +73,10 @@ export default function OpeningBalancesPage() {
           })),
         }),
       });
-      await assertOk(res, 'Failed to save');
+      await assertOk(res, 'Could not save the opening balances - try again');
       setMessage({ type: 'success', text: 'Opening balances saved as journal entry' });
     } catch (err) {
-      setMessage({ type: 'error', text: apiErrorMessage(err, 'Save request failed') });
+      setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not save the opening balances - try again') });
     } finally {
       setIsSaving(false);
     }

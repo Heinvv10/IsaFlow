@@ -127,20 +127,20 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
             accountCode: acctCode.trim(), accountName: acctName.trim(),
             accountType: acctType, normalBalance: nb,
           }),
-        }, 'Failed to create account') as { id: string; accountCode: string; accountName: string };
+        }, 'Could not create the account - try again') as { id: string; accountCode: string; accountName: string };
         entity = { id: d.id, code: d.accountCode, name: d.accountName };
       } else if (type === 'supplier') {
         const d = await apiJson(SUPPLIER_CREATE_URL, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(supplierCreateBody({ name: supName, email: supEmail, phone: supPhone })),
-        }, 'Failed to create supplier');
+        }, 'Could not create the supplier - try again');
         const row = createdRow(d);
         entity = { id: row.id, code: row.code, name: supName.trim() };
       } else {
         const d = await apiJson(CUSTOMER_CREATE_URL, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(customerCreateBody({ name: custName, email: custEmail, phone: custPhone })),
-        }, 'Failed to create customer');
+        }, 'Could not create the customer - try again');
         entity = { id: createdRow(d).id, name: custName.trim() };
       }
 

@@ -10,19 +10,38 @@ import { type Add, calls, enclosingFn, isFetchCall, isFn } from './clientRespons
 
 export function analyzeLoads(sf: ts.SourceFile, add: Add): void {
   // ── (e) a busy flag set true with no `finally` that clears it ─────────────
-  const FLAG = /^set(\w*)(Loading|Saving|Busy|Submitting|Working|Running|Processing|Sending)\w*$/;
+  const FLAG = /^set(\w*)(Loading|Saving|Busy|Submitting|Working|Running|Processing|Sending|Uploading|Downloading|Deleting|Updating|Creating|Fetching|Syncing|Importing|Exporting|Pending)\w*$/;
   const setterCalls = (root: ts.Node, name?: string): ts.CallExpression[] =>
     calls(root, (c) => ts.isIdentifier(c.expression) && (name ? c.expression.text === name : FLAG.test(c.expression.text)));
   const fnHasAwait = (fnNode: ts.Node) => { let a = false; const v = (n: ts.Node) => { if (ts.isAwaitExpression(n)) a = true; if (!a && !(isFn(n) && n !== fnNode)) ts.forEachChild(n, v); }; v(fnNode); return a; };
+  /** Does the block leave the page without awaiting it (window.location.href = .., a bare or void router.push)? */
+  const navigates = (blk: ts.Node): boolean => {
+    let found = false;
+    const v = (m: ts.Node) => {
+      if (ts.isBinaryExpression(m) && m.operatorToken.kind === ts.SyntaxKind.EqualsToken && /^(window\.)?location(\.href)?$/.test(m.left.getText(sf))) found = true;
+      if (ts.isCallExpression(m) && /^(window\.)?location\.(assign|replace)$|^(router|Router)\.(push|replace)$/.test(m.expression.getText(sf)) && !ts.isAwaitExpression(m.parent)) found = true;
+      if (!(isFn(m) && m !== blk)) ts.forEachChild(m, v);
+    };
+    v(blk);
+    return found;
+  };
   const visitE = (n: ts.Node) => {
+    // the converse: `finally { setBusy(false) }` after a navigation that is not awaited re-enables the button mid-redirect
+    if (ts.isTryStatement(n) && n.finallyBlock && navigates(n.tryBlock)) {
+      const guarded = (c: ts.Node) => { for (let q = c.parent; q && q !== n.finallyBlock; q = q.parent) if (ts.isIfStatement(q) || ts.isConditionalExpression(q)) return true; return false; };   // `if (!navigating) setBusy(false)`
+      for (const c of setterCalls(n.finallyBlock)) if (c.arguments[0]?.kind === ts.SyntaxKind.FalseKeyword && !guarded(c)) add(c, 'e', `\`${(c.expression as ts.Identifier).text}(false)\` in a finally after a navigation that is not awaited: the button re-enables while the page is leaving (double submit); clear it in the catch only`);
+    }
     if (isFn(n) && n.body && fnHasAwait(n)) {
       const own = (c: ts.Node) => enclosingFn(c) === n;
       const trues = setterCalls(n.body).filter((c) => own(c) && c.arguments[0]?.kind === ts.SyntaxKind.TrueKeyword);
       for (const t of trues) {
         const name = (t.expression as ts.Identifier).text;
         let cleared = false;
+        const clears = (blk: ts.Node) => setterCalls(blk, name).some((c) => c.arguments[0]?.kind === ts.SyntaxKind.FalseKeyword);
         const visitF = (m: ts.Node) => {
-          if (ts.isTryStatement(m) && m.finallyBlock && setterCalls(m.finallyBlock, name).some((c) => c.arguments[0]?.kind === ts.SyntaxKind.FalseKeyword)) cleared = true;
+          if (ts.isTryStatement(m) && m.finallyBlock && clears(m.finallyBlock)) cleared = true;
+          // a flag kept set on purpose while the page navigates away is cleared in the catch only
+          if (ts.isTryStatement(m) && m.catchClause && !m.finallyBlock && navigates(m.tryBlock) && clears(m.catchClause.block)) cleared = true;
           ts.forEachChild(m, visitF);
         };
         visitF(n.body);
@@ -61,20 +80,37 @@ export function analyzeLoads(sf: ts.SourceFile, add: Add): void {
   visitG(sf);
 
   // ── (g) a failed response swallowed: `if (!res.ok) return;` and nothing said ─
+  const isOkRead = (e: ts.Expression) => ts.isPropertyAccessExpression(e) && e.name.text === 'ok' && ts.isIdentifier(e.expression);
+  /** `!res.ok`, `res.status !== 200`, `res.status >= 400`, or any of them as a disjunct (`!res.ok || cancelled`). */
+  const failureTest = (c: ts.Expression): boolean => {
+    if (ts.isParenthesizedExpression(c)) return failureTest(c.expression);
+    if (ts.isBinaryExpression(c) && c.operatorToken.kind === ts.SyntaxKind.BarBarToken) return failureTest(c.left) || failureTest(c.right);
+    if (ts.isPrefixUnaryExpression(c) && c.operator === ts.SyntaxKind.ExclamationToken) return isOkRead(c.operand as ts.Expression);
+    if (ts.isBinaryExpression(c)) {
+      const op = c.operatorToken.kind; const l = c.left;
+      const st = ts.isPropertyAccessExpression(l) && l.name.text === 'status' && ts.isIdentifier(l.expression);
+      return st && (op === ts.SyntaxKind.ExclamationEqualsEqualsToken || op === ts.SyntaxKind.ExclamationEqualsToken || op === ts.SyntaxKind.GreaterThanEqualsToken || op === ts.SyntaxKind.GreaterThanToken) && ts.isNumericLiteral(c.right);
+    }
+    return false;
+  };
+  const emptyValue = (e: ts.Expression | undefined) => !e || e.kind === ts.SyntaxKind.NullKeyword
+    || /^(undefined|\[\]|\{\})$/.test(e.getText(sf));   // `return false` is a default answer ("not done yet"), `return []` an empty list
+  /** A statement that says nothing to a person: a reset setter (`setLoading(false)`, `setRows([])`). */
+  const quiet = (st: ts.Statement) => ts.isExpressionStatement(st) && ts.isCallExpression(st.expression) && ts.isIdentifier(st.expression.expression)
+    && /^set[A-Z]/.test(st.expression.expression.text) && !/(Error|Msg|Message|Toast|Notice|Flash|Banner)/.test(st.expression.expression.text)
+    && st.expression.arguments.every((a) => emptyValue(a as ts.Expression) || a.kind === ts.SyntaxKind.FalseKeyword);
   const visitS = (n: ts.Node) => {
     if (ts.isIfStatement(n) && !n.elseStatement) {
       const c = n.expression;
-      const neg = ts.isPrefixUnaryExpression(c) && c.operator === ts.SyntaxKind.ExclamationToken && ts.isPropertyAccessExpression(c.operand) && c.operand.name.text === 'ok';
-      const pos = ts.isPropertyAccessExpression(c) && c.name.text === 'ok' && ts.isIdentifier(c.expression);
-      const last = ts.isBlock(n.parent) ? n.parent.statements[n.parent.statements.length - 1] === n : true;   // anything after it may handle the failure
+      const pos = isOkRead(c);
+      const after = ts.isBlock(n.parent) ? n.parent.statements.slice(n.parent.statements.indexOf(n as ts.Statement) + 1) : [];
+      const last = after.every(quiet);   // anything after it that speaks may handle the failure
       if (pos && last) add(n, 'g', 'only the success branch is handled (`if (res.ok) {...}` with no else): a failed response is dropped without a word');
-      const only = ts.isBlock(n.thenStatement) ? (n.thenStatement.statements.length === 1 ? n.thenStatement.statements[0]! : undefined) : n.thenStatement;
-      if (neg && only && ((ts.isReturnStatement(only) && (!only.expression || only.expression.kind === ts.SyntaxKind.NullKeyword || only.expression.getText(sf) === 'undefined')) || ts.isContinueStatement(only))) {
-        add(n, 'g', 'a failed response is dropped without a word: show the error (or log it, for a polled tick)');
-      }
+      const stmts = ts.isBlock(n.thenStatement) ? n.thenStatement.statements : [n.thenStatement];
+      const speaks = stmts.some((st) => !quiet(st) && !(ts.isReturnStatement(st) && emptyValue(st.expression)) && !ts.isContinueStatement(st));
+      if (failureTest(c) && stmts.length > 0 && !speaks) add(n, 'g', 'a failed response is dropped without a word: show the error (or log it, for a polled tick)');
     }
     ts.forEachChild(n, visitS);
   };
   visitS(sf);
-
 }

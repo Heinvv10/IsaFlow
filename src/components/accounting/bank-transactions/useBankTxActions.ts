@@ -98,14 +98,14 @@ export function buildBankTxActions(deps: ActionDeps) {
           try {
             const params = new URLSearchParams({ pattern, matchType: 'contains', bankAccountId: selectedBank });
             const res = await apiFetch(`/api/accounting/bank-rules-preview?${params}`);
-            await assertOk(res, 'Rule preview unavailable');
+            await assertOk(res, 'Could not preview the matching rule - try again');
             const json = await res.json();
             const matchCount = json.data?.matchCount ?? 0;
             if (matchCount > 0) setRulePrompt({ tx, matchCount });
           } catch (e) { log.warn('Bank rule prompt check failed', { error: e }, 'banking'); }
         }
       }
-    } catch (e) { notify.error(apiErrorMessage(e, 'Something went wrong - try again')); }
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not allocate the transaction - try again')); }
   };
 
   const handleExclude = (txId: string) => setExcludingTxId(txId);
@@ -120,7 +120,7 @@ export function buildBankTxActions(deps: ActionDeps) {
   };
   const handleUnmatch = async (txId: string) => {
     try { await callAction({ action: 'unmatch', bankTransactionId: txId }); notify.success('Allocation undone'); loadTransactions(); refreshBankAccounts(); }
-    catch (e) { notify.error(apiErrorMessage(e, 'Something went wrong - try again')); }
+    catch (e) { notify.error(apiErrorMessage(e, 'Could not undo the allocation - try again')); }
   };
   const handleUpdateNotes = async (txId: string, notes: string) => {
     setTransactions(prev => prev.map(tx => tx.id === txId ? { ...tx, notes: notes || undefined } : tx));

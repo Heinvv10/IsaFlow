@@ -1,5 +1,5 @@
 /**
- * Classes a and d of the client-response gate, by TYPE and SYMBOL (not by name):
+ * Classes a and d of the client-response gate (a Response is found by TYPE; an apiFetch helper by its import, aliases included):
  *   a  a body read (.json/.text/.blob/.arrayBuffer/.formData) on a value the type checker says is a
  *      Response, with no status check that dominates it, tracked per declaration through aliases,
  *      .clone(), ternaries, destructuring, Promise.all/map and callback parameters
@@ -12,6 +12,8 @@
 import ts from 'typescript';
 import { type Ctx, calls, contains, enclosingFn, isFn, unwrap } from './clientResponseShared';
 
+/** Set per file by analyzeFlow: the source text of a callee with an `apiFetch as request` alias undone. */
+let canonOf: (n: ts.Node) => string = (n) => n.getText();
 const BODY_READS = new Set(['json', 'text', 'blob', 'arrayBuffer', 'formData']);
 const MUTATING_RE = /^(post|put|patch|delete)$/i;
 
@@ -22,9 +24,9 @@ export function isResponseType(c: ts.TypeChecker, t: ts.Type): boolean {
 }
 
 /** Is `id` (a reference to a response symbol) used as a status check, and over which code does that check dominate? */
-function checkOf(id: ts.Identifier): { node: ts.Node; mode: 'contains' | 'before' | 'if' } | undefined {
+function checkOf(id: ts.Expression): { node: ts.Node; mode: 'contains' | 'before' | 'if' } | undefined {
   const parent = id.parent;
-  if (ts.isCallExpression(parent) && parent.arguments[0] === id && /(^|\.)assertOk$/.test(parent.expression.getText())) {
+  if (ts.isCallExpression(parent) && parent.arguments[0] === id && /(^|\.)assertOk$/.test(canonOf(parent.expression))) {
     let n: ts.Node = parent;
     for (;;) {
       const p = n.parent;
@@ -50,9 +52,15 @@ function checkOf(id: ts.Identifier): { node: ts.Node; mode: 'contains' | 'before
       }
       if (op === ts.SyntaxKind.EqualsEqualsEqualsToken || op === ts.SyntaxKind.ExclamationEqualsEqualsToken || op === ts.SyntaxKind.EqualsEqualsToken
         || op === ts.SyntaxKind.ExclamationEqualsToken || op === ts.SyntaxKind.GreaterThanToken || op === ts.SyntaxKind.GreaterThanEqualsToken
-        || op === ts.SyntaxKind.LessThanToken || op === ts.SyntaxKind.LessThanEqualsToken) { n = p; continue; }
+        || op === ts.SyntaxKind.LessThanToken || op === ts.SyntaxKind.LessThanEqualsToken) {
+        const other = p.left === n ? p.right : p.left;
+        if (ts.isStringLiteralLike(other) && /^(fulfilled|rejected)$/.test(other.text)) return undefined;   // a Promise.allSettled settlement is not an HTTP status
+        n = p; continue;
+      }
       break;
     }
+    if (ts.isArrowFunction(p) && p.body === n) return fallback ? { node: fallback, mode: 'contains' } : { node: p, mode: 'before' };   // `(r) => r.ok` hands the status to the caller
+    if (ts.isSwitchStatement(p) && p.expression === n) return { node: p, mode: 'contains' };   // only a read inside the switch is covered by it
     if (ts.isReturnStatement(p) && p.expression === n) return fallback ? { node: fallback, mode: 'contains' } : { node: p, mode: 'before' };   // `return res.ok` hands the status to the caller
     if (ts.isIfStatement(p) && p.expression === n) return { node: p, mode: 'if' };
     if ((ts.isWhileStatement(p) || ts.isDoStatement(p)) && p.expression === n) return { node: p, mode: 'if' };
@@ -70,7 +78,8 @@ function dominates(chk: { node: ts.Node; mode: string }, read: ts.Node): boolean
 }
 
 export function analyzeFlow(cx: Ctx): void {
-  const { checker, sf, add, refs, sym } = cx;
+  const { checker, sf, add, refs, sym, canon } = cx;
+  canonOf = canon;
   const isResp = (n: ts.Node) => isResponseType(checker, checker.getTypeAtLocation(n));
   const aliasChain = (s: ts.Symbol): ts.Symbol[] => {
     const out = [s]; let cur: ts.Symbol | undefined = s;
@@ -99,6 +108,14 @@ export function analyzeFlow(cx: Ctx): void {
     if (!recv || !isResp(recv)) continue;
     let root = unwrap(recv);
     while (ts.isCallExpression(root) && ts.isPropertyAccessExpression(root.expression) && root.expression.name.text === 'clone') root = unwrap(root.expression.expression);
+    if (ts.isPropertyAccessExpression(root) && /^[\w$]+(\.[\w$]+)+$/.test(root.getText(sf))) {
+      // `settled.value.json()`: a check on the same property chain (`settled.value.ok`) counts
+      const text = root.getText(sf); const fn = enclosingFn(c) ?? sf; let ok = false;
+      const scan = (m: ts.Node) => { if (!ok && ts.isPropertyAccessExpression(m) && m.getText(sf) === text) { const chk = checkOf(m); if (chk && dominates(chk, c)) ok = true; } if (!ok) ts.forEachChild(m, scan); };
+      scan(fn);
+      if (!ok) add(c, 'a', `\`${text}\` is read before any status check that dominates the read (assertOk awaited / .ok / .status in a condition)`);
+      continue;
+    }
     if (!ts.isIdentifier(root)) { add(c, 'a', 'body read off a response nobody can have checked (an inline call or an expression)'); continue; }
     const s = sym(root);
     if (!s) continue;
@@ -185,7 +202,7 @@ export function analyzeFlow(cx: Ctx): void {
         return 'unchecked';
       }
       if (ts.isCallExpression(p)) {
-        const callee = p.expression.getText(sf);
+        const callee = canon(p.expression);
         if (/^Promise\.(all|allSettled|race)$/.test(callee)) { n = p; continue; }
         if (/(^|\.)assertOk$/.test(callee) && p.arguments[0] === n) {
           let k: ts.Node = p; for (;;) { const q = k.parent; if (ts.isParenthesizedExpression(q) || ts.isArrayLiteralExpression(q)) { k = q; continue; } return ts.isAwaitExpression(q) || ts.isReturnStatement(q) || (ts.isArrowFunction(q) && q.body === k) ? 'checked' : 'unchecked'; }
@@ -210,8 +227,10 @@ export function analyzeFlow(cx: Ctx): void {
         const parentCall = fn.parent && ts.isCallExpression(fn.parent) && fn.parent.arguments.includes(fn as ts.Expression) && ts.isPropertyAccessExpression(fn.parent.expression) && /^(map|flatMap)$/.test(fn.parent.expression.name.text) ? fn.parent : undefined;
         if (parentCall) { n = parentCall; continue; }
         let ws: ts.Symbol | undefined;
+        const hook = fn.parent && ts.isCallExpression(fn.parent) && /^(useCallback|useMemo)$/.test(fn.parent.expression.getText(sf)) ? fn.parent : undefined;   // const save = useCallback(async () => apiFetch(..), [])
+        const holder = hook ? hook.parent : fn.parent;
         if (ts.isFunctionDeclaration(fn) && fn.name) ws = sym(fn.name);
-        else if (fn.parent && ts.isVariableDeclaration(fn.parent) && ts.isIdentifier(fn.parent.name)) ws = sym(fn.parent.name);
+        else if (holder && ts.isVariableDeclaration(holder) && ts.isIdentifier(holder.name)) ws = sym(holder.name);
         if (ws) { writers.add(ws); return 'checked'; }
         return 'unchecked';
       }
@@ -221,7 +240,7 @@ export function analyzeFlow(cx: Ctx): void {
   };
   const report = (c: ts.CallExpression) => { if (!seenCalls.has(c)) { seenCalls.add(c); if (flow(c) === 'unchecked') add(c, 'd', 'a write whose result is never checked (assertOk the response; method not provably GET counts as a write)'); } };
   for (const c of calls(sf, () => true)) {
-    const callee = c.expression.getText(sf);
+    const callee = canon(c.expression);
     const fetcher = /^(apiFetch|fetch|(window|globalThis|self)\.fetch)$/.test(callee);
     const a0 = c.arguments[0] && unwrap(c.arguments[0]);
     if (fetcher && (a0 && ts.isNewExpression(a0) ? initMethod(a0) : initMethod(c.arguments[1])) === 'mut') report(c);

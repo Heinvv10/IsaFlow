@@ -95,7 +95,7 @@ export default function LoanPeriodClosePage() {
     try {
       const result = await postLoans([loanId]);
       if (result.errors.length > 0) {
-        setFlash({ type: 'error', msg: result.errors[0]?.error ?? 'Posting failed' });
+        setFlash({ type: 'error', msg: result.errors[0]?.error ?? 'Could not post the loan journal - try again' });
       } else {
         setFlash({ type: 'success', msg: 'Journal posted successfully' });
         await load();

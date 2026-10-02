@@ -90,8 +90,8 @@ export default function ExecutiveDashboardPage() {
       // "No financial data available for the selected period", which claims
       // the ledger has nothing for the range instead of reporting the
       // failure that actually happened.
-      await assertOk(sumRawRes, 'Failed to load the executive summary');
-      await assertOk(scRawRes, 'Failed to load the KPI scorecard');
+      await assertOk(sumRawRes, 'Could not load the executive summary - try again');
+      await assertOk(scRawRes, 'Could not load the KPI scorecard - try again');
       const sumRes = await sumRawRes.json();
       const scRes = await scRawRes.json();
       if (sumRes.data?.summary) setSummary(sumRes.data.summary);

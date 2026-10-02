@@ -101,7 +101,7 @@ export default function JobQueuePage() {
       headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
       body: JSON.stringify({ action, ids: [...selectedIds] }),
     });
-    await assertOk(res, 'Could not complete the bulk action - try again');
+    await assertOk(res, action === 'retry' ? 'Could not retry the jobs - try again' : 'Could not cancel the jobs - try again');
     return ((await res.json()) as { data: BulkResult }).data;
   };
 

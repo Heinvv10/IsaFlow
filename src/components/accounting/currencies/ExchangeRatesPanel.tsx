@@ -80,10 +80,10 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
           source: 'manual',
         }),
       });
-      await assertOk(res, 'Failed to save rate');
+      await assertOk(res, 'Could not save the exchange rate - try again');
       const json = await res.json();
       if (json.success === false) {
-        notify.error(json.error?.message || 'Failed to save rate');
+        notify.error(json.error?.message || 'Could not save the exchange rate - try again');
         return;
       }
       notify.success(`Rate ${rateForm.fromCurrency}/${rateForm.toCurrency} saved`);
@@ -91,7 +91,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
       onRefresh();
     } catch (e) {
       log.error('Exchange rate operation failed', { error: e }, 'currencies');
-      notify.error(apiErrorMessage(e, 'Failed to save exchange rate'));
+      notify.error(apiErrorMessage(e, 'Could not save the exchange rate - try again'));
     } finally {
       setSavingRate(false);
     }
@@ -117,10 +117,10 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
         amount: String(amt),
       });
       const res = await apiFetch(`/api/accounting/exchange-rates?${params}`);
-      await assertOk(res, 'No rate available for this pair');
+      await assertOk(res, 'Could not convert the amount - try again');
       const json = await res.json();
       if (json.success === false) {
-        notify.error(json.error?.message || 'No rate available for this pair');
+        notify.error(json.error?.message || 'Could not convert the amount - try again');
         return;
       }
       setConvertResult(json.data);

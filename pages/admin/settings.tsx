@@ -138,7 +138,7 @@ export default function AdminSettings() {
     setSuccess('');
     try {
       const res  = await apiFetch('/api/admin/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(settings) });
-      await assertOk(res, 'Failed to save settings');
+      await assertOk(res, 'Could not save settings - try again');
       setSuccess('Settings saved successfully.');
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not save settings - try again'));
@@ -153,7 +153,7 @@ export default function AdminSettings() {
     setAlertSuccess('');
     try {
       const res = await apiFetch('/api/admin/alert-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(alertSettings) });
-      await assertOk(res, 'Failed to save alert settings');
+      await assertOk(res, 'Could not save alert settings - try again');
       setAlertSuccess('Alert settings saved.');
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not save alert settings - try again'));

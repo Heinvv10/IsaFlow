@@ -92,7 +92,6 @@ export function PaystackMandateCard() {
       window.location.href = json.data.checkoutUrl;
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not start the debit order authorisation - try again'));
-    } finally {
       setBusy(false);
     }
   }, []);

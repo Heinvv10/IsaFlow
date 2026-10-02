@@ -59,7 +59,7 @@ describe('recurring journals: reload after a good write', () => {
     render(<RecurringJournalsPage />);
     fireEvent.click(await screen.findByTitle('Pause'));
     expect(await screen.findByText('Could not load recurring journals - try again')).toBeTruthy();
-    expect(screen.queryByText('Could not pause this recurring journal')).toBeNull();
+    expect(screen.queryByText('Could not pause this recurring journal - try again')).toBeNull();
     expect(screen.queryByText('D2 Rent Template')).toBeNull();
   });
   it('a refused write shows the server message', async () => {

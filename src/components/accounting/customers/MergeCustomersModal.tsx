@@ -101,12 +101,12 @@ export function MergeCustomersModal({ candidateA, candidateB, onClose, onMerged 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source_id: source.id, target_id: target.id }),
       });
-      await assertOk(res, 'Merge failed. Please try again.');
+      await assertOk(res, 'Could not merge the customers - try again');
       const json = await res.json() as { data?: { merged: boolean; target_id: string } };
       const targetId = json.data?.target_id ?? target.id;
       onMerged(targetId);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Network error. Please try again.'));
+      setError(apiErrorMessage(err, 'Could not merge the customers - try again'));
     } finally {
       setIsMerging(false);
     }

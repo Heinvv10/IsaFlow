@@ -67,7 +67,7 @@ describe('CostCentreAssignmentCard load', () => {
   it('empty 500 on allocations: a plain sentence, not an editable blank view', async () => {
     serve(on('GET', 'cost-centres', () => ok(CC)), on('GET', 'cost-allocations', () => empty500()));
     card();
-    expect(await screen.findByText('Could not load the cost allocations - try again')).toBeDefined();
+    expect(await screen.findByText('Could not load the cost centres and allocations - try again')).toBeDefined();
     expectNoJargon();
   });
   it('200: lists the centres, no error', async () => {

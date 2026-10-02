@@ -92,7 +92,7 @@ export default function InvitePage() {
       // Give a moment to show success, then redirect
       setTimeout(() => { void router.push('/accounting'); }, 1500);
     } catch {
-      setErrorMsg('Network error. Please try again.');
+      setErrorMsg('Could not accept the invitation - check your connection and try again.');
       setPageState('error');
     }
   }

@@ -41,12 +41,12 @@ export function CompanyBillingTab({ companyId }: Props) {
       const res  = await apiFetch(
         `/api/admin/billing/subscriptions?company_id=${encodeURIComponent(companyId)}&limit=1`
       );
-      await assertOk(res, 'Failed to load subscription');
+      await assertOk(res, 'Could not load the subscription - try again');
       const json = await res.json() as { data: PaginatedSubscriptions };
       const items = json.data?.items ?? [];
       setSubscription(items.length > 0 ? (items[0] ?? null) : null);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not load subscription - try again'));
+      setError(apiErrorMessage(err, 'Could not load the subscription - try again'));
     } finally {
       setLoading(false);
     }
@@ -88,11 +88,11 @@ export function CompanyBillingTab({ companyId }: Props) {
             : { status: 'cancelled' }
         ),
       });
-      await assertOk(res, 'Cancel failed');
+      await assertOk(res, 'Could not cancel the subscription - try again');
       setCancelOpen(false);
       await loadSubscription();
     } catch (err) {
-      setActionError(apiErrorMessage(err, 'Could not complete: cancel - try again'));
+      setActionError(apiErrorMessage(err, 'Could not cancel the subscription - try again'));
     } finally {
       setCancelLoading(false);
     }
@@ -106,9 +106,22 @@ export function CompanyBillingTab({ companyId }: Props) {
     );
   }
 
+  if (error) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
+        </div>
+        <button onClick={() => void loadSubscription()} className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300">
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
-      {[error, actionError, invoicesError].filter(Boolean).map((msg, i) => (
+      {[actionError, invoicesError].filter(Boolean).map((msg, i) => (
         <div key={i} className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
           <AlertCircle className="w-4 h-4 flex-shrink-0" /> {msg}
         </div>

@@ -18,28 +18,10 @@
     "reason": "A status badge, column header or heading label for a failed item or an error panel, not an error message produced from a failed request."
   },
   {
-    "file": "pages/admin/email-log.tsx",
-    "kind": "b",
-    "line": "<option value=\"failed\">Failed</option>",
-    "reason": "A status badge, column header or heading label for a failed item or an error panel, not an error message produced from a failed request."
-  },
-  {
-    "file": "pages/admin/email-log.tsx",
-    "kind": "b",
-    "line": "<AlertCircle className=\"w-3 h-3\" /> Failed",
-    "reason": "A status badge, column header or heading label for a failed item or an error panel, not an error message produced from a failed request."
-  },
-  {
-    "file": "pages/payroll/batches/[id].tsx",
-    "kind": "b",
-    "line": "<th className=\"py-2 px-3 font-medium text-[var(--ff-text-secondary)]\">Error</th>",
-    "reason": "A status badge, column header or heading label for a failed item or an error panel, not an error message produced from a failed request."
-  },
-  {
     "file": "src/components/ErrorBoundary.tsx",
     "kind": "b",
     "line": "<h1 className=\"text-xl font-semibold text-slate-900 dark:text-white mb-2\">Something went wrong</h1>",
-    "reason": "A status badge, column header or heading label for a failed item or an error panel, not an error message produced from a failed request."
+    "reason": "The heading of the render-crash panel only. The panel below it shows a fixed plain sentence and logs the raw error (never error.message), so nothing raw reaches the person."
   },
   {
     "file": "src/components/accounting/capture/CaptureInboxPanel.tsx",
@@ -66,12 +48,6 @@
     "reason": "A status badge, column header or heading label for a failed item or an error panel, not an error message produced from a failed request."
   },
   {
-    "file": "src/components/showcase/ToastDemo.tsx",
-    "kind": "b",
-    "line": "Error",
-    "reason": "A status badge, column header or heading label for a failed item or an error panel, not an error message produced from a failed request."
-  },
-  {
     "file": "src/components/ui/Input.tsx",
     "kind": "b",
     "line": "const resolvedVariant = error ? 'error' : inputVariant;",
@@ -81,7 +57,7 @@
     "file": "public/isa-track.js",
     "kind": "d",
     "line": "navigator.sendBeacon(endpoint, new Blob([payload], { type: 'application/json' }));",
-    "reason": "Page-view telemetry: sendBeacon cannot return a response, and the fetch branch beside it checks res.ok."
+    "reason": "Page-view telemetry: sendBeacon cannot return a response, and the fetch branch beside it also drops the result on purpose (the .then(res => res.ok) feeds nothing); a missed beat changes nothing the person sees."
   },
   {
     "file": "src/hooks/useTrackPageVisit.ts",
@@ -96,29 +72,9 @@
     "reason": "Machine diagnostic: it only becomes the data-print-error-fonts attribute the PDF renderer reads (pinned as 'HTTP <n>' by the playwright/gotenberg transport tests); no person sees it."
   },
   {
-    "file": "src/components/accounting/packs/usePrintMode.ts",
-    "kind": "c",
-    "line": "if (live) reportFontFailure(err instanceof Error ? err.message : String(err));",
-    "reason": "Machine diagnostic for the PDF renderer's data-print-error-fonts attribute and the log; never rendered to a person.",
-    "count": 2
-  },
-  {
-    "file": "src/lib/auth/authUpstream.ts",
-    "kind": "a",
-    "line": "return await res.json();",
-    "reason": "Server-side helper, not a client: callAuthUpstream already turned every unavailable status into AuthUpstreamUnavailableError and this wrapper converts a body failure into the same error; the caller judges 4xx."
-  },
-  {
-    "file": "src/lib/auth/authUpstream.ts",
+    "file": "pages/admin/email-log.tsx",
     "kind": "b",
-    "line": "throw new AuthUpstreamUnavailableError(`${what} unavailable: ${res.status}`);",
-    "reason": "Server-side internal error text for logs; the route answers a fixed 503 sentence to the person."
-  },
-  {
-    "file": "src/components/accounting/packs/usePackPagesData.ts",
-    "kind": "c",
-    "line": "markPrintError('pages', err instanceof ApiRequestError ? `HTTP ${err.status}` : err instanceof Error ? err.message : String(err));",
-    "reason": "Machine diagnostic for the PDF renderer's data-print-error-pages attribute (packPagesPrintError.dom.test pins 'pages: socket hang up'); the person sees apiErrorMessage's sentence via setError.",
-    "count": 2
+    "line": "<AlertCircle className=\"w-3 h-3\" /> Failed",
+    "reason": "A status badge for a failed email in the log, not a message about a failed request; the badge is a label next to an icon."
   }
 ]

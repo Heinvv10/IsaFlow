@@ -67,8 +67,8 @@ export default function PresentPackPage() {
       try {
         const packData = await apiJson(
           `/api/accounting/reports-pack?type=${packType}&from=${from}&to=${to}`,
-    undefined,
-    'Could not load the report pack - try again',
+          undefined,
+          'Could not load the report pack - try again',
         );
         if (!live) return;
         setSlides(buildSlides(packData.pack as ReportPack));

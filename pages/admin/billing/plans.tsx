@@ -56,12 +56,12 @@ export default function PlansPage() {
     setError('');
     try {
       const res  = await apiFetch('/api/admin/billing/plans?include_archived=true');
-      await assertOk(res, 'Failed to load plans');
+      await assertOk(res, 'Could not load the plans - try again');
       const json = await res.json();
       setPlans((json.data ?? []) as Plan[]);
     } catch (err) {
       setPlans([]);
-      setError(apiErrorMessage(err, 'Could not load plans - try again'));
+      setError(apiErrorMessage(err, 'Could not load the plans - try again'));
     } finally {
       setLoading(false);
     }
@@ -123,11 +123,11 @@ export default function PlansPage() {
       const res  = editId
         ? await apiFetch(`/api/admin/billing/plans/${editId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body) })
         : await apiFetch('/api/admin/billing/plans',           { method: 'POST',  headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body) });
-      await assertOk(res, 'Save failed');
+      await assertOk(res, 'Could not save the plan - try again');
       setShowForm(false);
       void load();
     } catch (err) {
-      setFormError(apiErrorMessage(err, 'Could not complete: save - try again'));
+      setFormError(apiErrorMessage(err, 'Could not save the plan - try again'));
     } finally {
       setSaving(false);
     }
@@ -137,10 +137,10 @@ export default function PlansPage() {
     if (!confirm('Archive this plan? Existing subscriptions will not be affected.')) return;
     try {
       const res  = await apiFetch(`/api/admin/billing/plans/${id}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
-      await assertOk(res, 'Archive failed');
+      await assertOk(res, 'Could not archive the plan - try again');
       void load();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not complete: archive - try again'));
+      setError(apiErrorMessage(err, 'Could not archive the plan - try again'));
     }
   }
 

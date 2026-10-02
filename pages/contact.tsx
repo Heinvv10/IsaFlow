@@ -49,7 +49,7 @@ export default function ContactPage() {
         form.reset();
       } else {
         setStatus('error');
-        setError(json?.error?.message ?? 'Something went wrong. Please email accounts@isaflow.co.za.');
+        setError(json?.error?.message ?? 'Could not send your message. Please email accounts@isaflow.co.za.');
       }
     } catch {
       setStatus('error');

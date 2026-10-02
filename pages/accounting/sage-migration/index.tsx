@@ -39,7 +39,7 @@ export default function SageMigrationPage() {
   const loadStatus = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/sage-migration');
-      await assertOk(res, 'Failed to load');
+      await assertOk(res, 'Could not load the Sage migration - try again');
       const json = await res.json();
       setStatus(json.data || json);
     } catch (err) {
@@ -61,7 +61,7 @@ export default function SageMigrationPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, ...extra }),
       });
-      await assertOk(res, 'Action failed');
+      await assertOk(res, 'Could not run that Sage migration step - try again');
       const json = await res.json();
 
       const data = json.data || json;
@@ -79,7 +79,7 @@ export default function SageMigrationPage() {
 
       await loadStatus();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not complete: action - try again'));
+      setError(apiErrorMessage(err, 'Could not run that Sage migration step - try again'));
     } finally {
       setActionLoading('');
     }

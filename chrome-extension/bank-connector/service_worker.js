@@ -149,7 +149,9 @@ async function handleSync(connectionId, opts) {
   });
 
   if (!ingestRes.ok) {
-    throw userError('IsaFlow could not save the transactions - try again');
+    // A 4xx carries IsaFlow's own reason (e.g. a rejected date range); a 5xx body is not for people.
+    const reason = ingestRes.status < 500 && ingestRes.body && ingestRes.body.error && ingestRes.body.error.message;
+    throw userError(typeof reason === 'string' && reason ? reason : 'IsaFlow could not save the transactions - try again');
   }
 
   conn.lastSyncAt = new Date().toISOString();
@@ -164,7 +166,8 @@ function sendToTab(tabId, msg) {
       const err = chrome.runtime.lastError;
       if (err) return reject(new Error(err.message));
       if (!resp) return reject(new Error('No response from scraper'));
-      if (resp.ok === false) return reject(new Error(resp.error || 'Scraper failed'));
+      // The scraper's own sentence (session expired, bank refused, date cap) is written for the person: keep it.
+      if (resp.ok === false) return reject(userError(resp.error || 'The bank page could not finish that - try again'));
       resolve(resp.value);
     });
   });

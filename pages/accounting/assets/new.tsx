@@ -89,7 +89,7 @@ export default function NewAssetPage() {
         }),
       });
       await assertOk(res, 'Could not create the asset - try again');
-      void router.push('/accounting/assets');
+      await router.push('/accounting/assets');
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the asset - try again'));
     } finally {

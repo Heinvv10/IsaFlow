@@ -97,10 +97,10 @@ export default function ConsolidatedTrialBalancePage() {
     try {
       const params = new URLSearchParams({ group_id: selectedGroupId, action: 'trial-balance', period_start: periodStart, period_end: periodEnd });
       const res = await apiFetch(`/api/accounting/consolidated-reports?${params}`);
-      if (!res.ok) throw new Error('Failed to load consolidated trial balance');
+      await assertOk(res, 'Could not load the consolidated trial balance - try again');
       const json = await res.json();
       setData(json.data || json);
-    } catch { setError('Failed to load consolidated trial balance'); setData(null); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load the consolidated trial balance - try again')); setData(null); }
     finally { setLoading(false); }
   }, [selectedGroupId, periodStart, periodEnd]);
 

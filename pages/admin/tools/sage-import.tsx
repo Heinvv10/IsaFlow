@@ -182,11 +182,11 @@ export default function AdminSageImportPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ companyId: selectedCompanyId, pulled: payload }),
       });
-      await assertOk(res, 'Could not complete: commit - try again');
+      await assertOk(res, 'Could not import the Sage data - try again');
       const json = await res.json();
       setCommitSummary(json.data);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not complete: commit - try again'));
+      setError(apiErrorMessage(err, 'Could not import the Sage data - try again'));
     } finally {
       setCommitting(false);
     }

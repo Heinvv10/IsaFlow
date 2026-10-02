@@ -78,12 +78,13 @@ export default function LoansListPage() {
 
   async function seedComponents(): Promise<void> {
     setSeeding(true);
+    setComponentsError('');
     try {
       const res = await apiFetch('/api/payroll/loans/setup-components', { method: 'POST' });
       await assertOk(res, 'Could not set up the loan components - try again');
       await load();
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not set up the loan components - try again'));
+      setComponentsError(apiErrorMessage(err, 'Could not set up the loan components - try again'));
     } finally {
       setSeeding(false);
     }

@@ -71,7 +71,7 @@ describe('admin job queue', () => {
   it('bulk retry: toast shows a plain sentence on an empty 500', async () => {
     withJob(empty500); render(<JobQueuePage />);
     fireEvent.click(await screen.findByText('d2_job_type')); fireEvent.click(await screen.findByText('Retry Selected'));
-    await waitFor(() => expect(bodyText()).toContain('Could not complete the bulk action')); noParserText();
+    await waitFor(() => expect(bodyText()).toContain('Could not retry the jobs - try again')); noParserText();
   });
   it('bulk retry: toast reports the result on a 200', async () => {
     withJob(() => ok({ processed: 7, errors: [] })); render(<JobQueuePage />);

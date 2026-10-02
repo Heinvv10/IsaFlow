@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Banknote, Loader2, AlertCircle, Download } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { localISODate, prevMonthRange } from '@/lib/dateUtils';
 
 interface CashFlowSection {
@@ -39,10 +40,10 @@ export default function CashFlowPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres', { credentials: 'include' })
-      .then(async r => { await assertOk(r, 'Could not load cost centres'); return r.json(); }).then(res => {
+      .then(async r => { await assertOk(r, 'Could not load the cost centres - try again'); return r.json(); }).then(res => {
       const list = res.data?.items || [];
       setCostCentres(list.map((c: Record<string, unknown>) => ({ id: String(c.id), code: String(c.code), name: String(c.name) })));
-    }).catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
+    }).catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'cash-flow'); });
   }, []);
 
   const loadReport = useCallback(async () => {
