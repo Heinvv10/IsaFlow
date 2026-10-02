@@ -201,7 +201,8 @@ describe('project profitability', () => {
 });
 
 describe('report reference lists', () => {
-  const failing = (part: string) => serve(on('GET', part, () => refuse()));
+  // the report body itself is refused too, so the page never renders a report from the helper's default empty list
+  const failing = (part: string) => serve(on('GET', part, () => refuse()), on('GET', 'reports-', () => refuse()), on('GET', 'financial-statements', () => refuse()));
   it.each([
     ['balance sheet', () => <BalanceSheetPage />, 'cost-centres', 'Failed to load cost centres', 'balance-sheet'],
     ['balance sheet', () => <BalanceSheetPage />, 'business-units', 'Failed to load business units', 'balance-sheet'],
