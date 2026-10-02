@@ -15034,12 +15034,16 @@
       ],
       "testNames": [
         "tests/integration/r181-settlement-amount.int.test.ts",
-        "tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts"
+        "tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts",
+        "tests/integration/r181-review-round1.int.test.ts",
+        "tests/integration/r167-link-charges-link-amount.int.test.ts",
+        "tests/unit/services/billing/paystackClient.test.ts"
       ],
       "evidencePaths": [
         "docs/audits/remediation/R-181/fix.md",
         "docs/audits/remediation/R-181/red.int.log",
         "docs/audits/remediation/R-181/red.r2.int.log",
+        "docs/audits/remediation/R-181/red.r3.int.log",
         "docs/audits/remediation/R-181/green.int.log",
         "docs/audits/remediation/R-181/mutations.log",
         "docs/audits/remediation/R-181/regression.int.log"
@@ -15056,13 +15060,15 @@
         "src/modules/billing/services/paystackEventHandlers.ts",
         "pages/api/portal/payments/paystack/verify.ts",
         "src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts",
-        "src/modules/accounting/services/ar/gatewaySettlementReview.ts"
+        "src/modules/accounting/services/ar/gatewaySettlementReview.ts",
+        "src/modules/accounting/services/ar/gatewayReceiptAllocation.ts",
+        "src/modules/billing/services/paystackClient.ts"
       ],
       "sourceLabel": "R-167 blind review follow-ups, 2026-10-01",
       "claim": "handleChargeSuccess (paystackEventHandlers.ts) and the return-page verify bank paystack_payment_requests.amount_cents. Neither compares it with event.data.amount / the verified amount. Paystack charges what was initialised, so a mismatch is not expected, but if one occurs the receipt is banked at the wrong value with no log line. Also (R-180 review): settlement has no status rule, so a checkout already open on a draft or pending_approval invoice banks a receipt against an invoice that is not in the ledger.",
       "severityRationale": "Theoretical: needs Paystack to settle a different amount than was initialised.",
       "historicalDataImpact": "Unknown. Census (read-only, for Hein): compare amount_cents with the amount in paystack_webhook_events payloads for completed requests.",
-      "processNotes": "2026-10-01: recorded by the R-167 adversarial review. Not fixed: what to do on a mismatch (bank the reported amount, or refuse and alert) is a decision for Hein. 2026-10-02: Hein decided: bank what Paystack reports, log an error, flag for review; on an invoice outside the ledger bank it unapplied. No review column exists on receipts; the flag is paystack_payment_requests.failure_reason = 'review:<reasons>' on the completed request (the noteAuthorisationNotAttached precedent), no migration. RED 12/14 on origin/master 82bd2afdc; GREEN 16/16; 16 mutants, 15 killed, 1 equivalent (company_id on the flag UPDATE: the reference is globally unique). Round 2 (Hein approved the failure_reason note, no migration, on conditions): the note write runs in its own savepoint and a failure is logged, never costing the receipt (red.r2.int.log: 500 and the receipt rolled back on the round-1 write); a prior non-review reason is kept after the note and logged; the unapplied case is asserted in getUnappliedReceipts. GREEN 19/19; 21 mutants, 20 killed, 1 equivalent. Regression suites k-036, k095*, r166, r167*, r177, r178, k101 green (165/165 with r181); k-036's part- and over-settlement deliveries now report the settled amount (docs/audits/remediation/R-181/fix.md).",
+      "processNotes": "2026-10-01: recorded by the R-167 adversarial review. Not fixed: what to do on a mismatch (bank the reported amount, or refuse and alert) is a decision for Hein. 2026-10-02: Hein decided: bank what Paystack reports, log an error, flag for review; on an invoice outside the ledger bank it unapplied. No review column exists on receipts; the flag is paystack_payment_requests.failure_reason = 'review:<reasons>' on the completed request (the noteAuthorisationNotAttached precedent), no migration. RED 12/14 on origin/master 82bd2afdc; GREEN 16/16; 16 mutants, 15 killed, 1 equivalent (company_id on the flag UPDATE: the reference is globally unique). Round 2 (Hein approved the failure_reason note, no migration, on conditions): the note write runs in its own savepoint and a failure is logged, never costing the receipt (red.r2.int.log: 500 and the receipt rolled back on the round-1 write); a prior non-review reason is kept after the note and logged; the unapplied case is asserted in getUnappliedReceipts. GREEN 19/19; 21 mutants, 20 killed, 1 equivalent. Regression suites k-036, k095*, r166, r167*, r177, r178, k101 green (165/165 with r181); k-036's part- and over-settlement deliveries now report the settled amount (docs/audits/remediation/R-181/fix.md). Review round 1 (general FIX, adversarial SHIP on 5d312dc1e), fixed in ce90064fd/a684f6f64: requested_amount (Paystack's charge before a customer-paid fee) is the receipt when reported, and the fee leg posts only the merchant's share, so Bank nets to amount - fees; a non-ZAR receipt names its currency and its fee is flagged, not posted; the second of webhook/verify compares its amount (amount_disagrees_with_first_report); an overpayment banked unapplied is overpaid_unapplied; review notes merge; the allocation is decided under the invoice row lock (payment row first, 5s bounded; a timeout rolls back for redelivery). Recorded, not changed: the flag has no UI; the company_id-on-the-flag-update mutant is equivalent. RED 12/31 (red.r3.int.log); GREEN 31/31; 43 mutants, 42 killed, 1 equivalent; regression 187/187; unit suite green.",
       "reportedSeverity": "low"
     },
     {
