@@ -83,6 +83,7 @@ describe('Engagement Budgets report', () => {
     expect(within(over).getByText(/^-R\s?900\.00$/).className).toContain('text-red-700');
     expect(within(over).getByText('Over budget')).toBeTruthy();
     expect(within(screen.getByText('No-budget job').closest('tr')!).getAllByText('No budget').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('eb-report-note').className).toContain('text-slate-600 dark:text-slate-300');
 
     await screen.findByRole('option', { name: 'Acme Trading' });
     fireEvent.change(screen.getByLabelText('Client'), { target: { value: 'c1' } });
