@@ -11,6 +11,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 const access = vi.hoisted(() => ({
   userBelongsToCompany: vi.fn(), userBelongsToGroup: vi.fn(), userCanWriteGroup: vi.fn(), userCreatedGroup: vi.fn(),
+  userCanWriteCompany: vi.fn(),
 }));
 const svc = vi.hoisted(() => ({
   getGroup: vi.fn(), listGroupsForUser: vi.fn(), createGroup: vi.fn(), updateGroup: vi.fn(), deleteGroup: vi.fn(),
@@ -50,7 +51,7 @@ const CASES: Case[] = [
   ['delete-group-account', 'groups', 'DELETE', { action: 'delete-group-account', account_id: 'a', group_id: G }, {}, 'deleteGroupAccount'],
   ['delete-group', 'groups', 'DELETE', { group_id: G }, {}, 'deleteGroup'],
   ['interco create', 'interco', 'POST', {}, { groupId: G, sourceCompanyId: CO, targetCompanyId: CO2, transactionType: 'sale', amount: 1000000, transactionDate: '2026-01-15' }, 'createIntercompanyTransaction'],
-  ['interco match', 'interco', 'POST', {}, { action: 'match', groupId: G, sourceId: 's', targetId: 't' }, 'matchIntercompanyTransactions'],
+  ['interco match', 'interco', 'POST', {}, { action: 'match', groupId: G, sourceId: CO, targetId: CO2 }, 'matchIntercompanyTransactions'],
 ];
 
 async function call(c: Case) {
@@ -68,6 +69,7 @@ beforeEach(() => {
   access.userBelongsToGroup.mockReset().mockResolvedValue(true);
   access.userCanWriteGroup.mockReset().mockResolvedValue(true);
   access.userCreatedGroup.mockReset().mockResolvedValue(false);
+  access.userCanWriteCompany.mockReset().mockResolvedValue(true);
 });
 
 describe.each(CASES)('%s', (...c) => {

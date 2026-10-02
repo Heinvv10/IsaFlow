@@ -115,3 +115,22 @@ export async function userCanWriteGroup(userId: string, groupId: string): Promis
 
   return rows.length > 0;
 }
+
+/**
+ * True when the user holds a write role (owner / admin / manager — DEFAULT_WRITE_ROLES) in the
+ * company itself. Putting a company INTO a group (add-member, holding company, a consolidation
+ * subsidiary) exposes its whole ledger to every member of that group, so it needs this, not
+ * plain membership: a viewer of a company must not be able to publish its books.
+ */
+export async function userCanWriteCompany(userId: string, companyId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1
+    FROM   company_users
+    WHERE  company_id = ${companyId}::UUID
+      AND  user_id    = ${userId}
+      AND  role = ANY(${[...DEFAULT_WRITE_ROLES]}::TEXT[])
+    LIMIT  1
+  `) as Record<string, unknown>[];
+
+  return rows.length > 0;
+}
