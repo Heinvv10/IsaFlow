@@ -105,7 +105,8 @@ function sharedScaleClause(tiles: PackKpiTile[], scale: MoneyScale): string {
     ? ''
     : ` ${inWords(own.map((t) => `${t.label} on ${ownRange(t, scale)}`))} `
       + `${own.length === 1 ? 'is' : 'are'} in other units, each drawn on its own.`;
-  return ` ${inWords(shared.map((t) => t.label))} share one y-scale, ${range}, so none of them `
+  // "from": a range opening on a bracketed figure read as a list marker.
+  return ` ${inWords(shared.map((t) => t.label))} share one y-scale, from ${range}, so none of them `
     + `can look like it moved more than it did.${rest}`;
 }
 

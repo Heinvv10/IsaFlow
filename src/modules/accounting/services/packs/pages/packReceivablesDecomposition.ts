@@ -138,7 +138,11 @@ export function decomposition(
     const population = item.documentIds.length;
     // Grouped like every other figure on the sheet: "across 1 012", not "1012".
     const across = population === 0 ? '' : ` across ${formatMoney(population, { pack: true })}`;
-    return `${money(item.amount)}${across} ${ITEM_CLAUSE[item.type]!}`;
+    // A BRACKETED FIGURE NEVER OPENS A CLAUSE: "…, (2) across 14 open
+    // documents" read as item (2) of a numbered list.
+    const amount = money(item.amount);
+    const lead = amount.startsWith('(') ? `a difference of ${amount}` : amount;
+    return `${lead}${across} ${ITEM_CLAUSE[item.type]!}`;
   });
   const list = clauses.length === 1
     ? clauses[0]!
