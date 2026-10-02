@@ -6,6 +6,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Scale, Loader2, AlertCircle, Download, Building2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { csvCell } from '@/lib/csv';
 import { TBSummaryCards, TBBalanceFooter } from '@/components/accounting/group/TBSummaryCards';
 import { TBConsolidationWarnings, yearEndCloseLines } from '@/components/accounting/group/TBConsolidationWarnings';
 import type { UnmappedEntity } from '@/components/accounting/group/TBConsolidationWarnings';
@@ -126,20 +127,21 @@ export default function ConsolidatedTrialBalancePage() {
     const headerCols = ['Group Account Code', 'Account Name', 'Account Type'];
     entityIds.forEach(eid => { const name = data.entityNames[eid] || eid; headerCols.push(`${name} Debit`, `${name} Credit`); });
     headerCols.push('Eliminations Debit', 'Eliminations Credit', 'Consolidated Debit', 'Consolidated Credit');
-    const csvRows: string[] = [headerCols.map(c => `"${c}"`).join(',')];
+    // Text cells via csvCell (quotes doubled, formula-leading = + - @ neutralised); amounts are non-negative numbers.
+    const csvRows: string[] = [headerCols.map(csvCell).join(',')];
     for (const row of data.groupAccounts) {
-      const cols: string[] = [`"${row.groupAccountCode}"`, `"${row.groupAccountName}"`, `"${row.accountType}"`];
+      const cols: string[] = [csvCell(row.groupAccountCode), csvCell(row.groupAccountName), csvCell(row.accountType)];
       entityIds.forEach(eid => { const eb = row.entities[eid]; cols.push(String(eb?.debit ?? 0), String(eb?.credit ?? 0)); });
       cols.push(String(row.eliminationDebit), String(row.eliminationCredit), String(row.consolidatedDebit), String(row.consolidatedCredit));
       csvRows.push(cols.join(','));
     }
     if (totals) {
-      const tCols: string[] = ['""', '"TOTALS"', '""'];
+      const tCols: string[] = [csvCell(''), csvCell('TOTALS'), csvCell('')];
       entityIds.forEach(eid => { const eb = totals.entities[eid]; tCols.push(String(eb?.debit ?? 0), String(eb?.credit ?? 0)); });
       tCols.push(String(totals.eliminationDebit), String(totals.eliminationCredit), String(totals.consolidatedDebit), String(totals.consolidatedCredit));
       csvRows.push(tCols.join(','));
     }
-    for (const line of yearEndCloseLines(data)) csvRows.push('', `"Year-end close (derived — not posted)","${line.replace(/"/g, '""')}"`);
+    for (const line of yearEndCloseLines(data)) csvRows.push('', `${csvCell('Year-end close (derived — not posted)')},${csvCell(line)}`);
     const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

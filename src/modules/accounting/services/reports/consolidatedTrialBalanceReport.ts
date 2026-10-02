@@ -17,8 +17,9 @@
  *     is not merged into a posted equity account — see BROUGHT_FORWARD_CODE.
  *
  * Eliminations follow the same split: cumulative for balance-sheet group
- * accounts (as getConsolidatedBalanceSheet already does), range-bound for
- * income-statement ones.
+ * accounts (as getConsolidatedBalanceSheet already does); income-statement legs
+ * from the members' fiscal-year floor, earlier ones on RE-BF
+ * (consolidatedTrialBalanceEliminations, D4 round 3).
  *
  * P2-5: accounts with no group-CoA mapping are excluded from the rows AND from
  * the brought-forward sum, and the count and value of what was dropped is
@@ -39,18 +40,13 @@ import {
   memberBroughtForward,
   memberFiscalYearStart,
 } from './consolidatedTrialBalanceMembers';
+import { eliminationsOnFloor } from './consolidatedTrialBalanceEliminations';
 import {
   getGroupMembers,
   getCoaMappingsForCompanies,
-  getPostedEliminations,
   type EntityBalance,
   type MappingEntry,
 } from './consolidatedTrialBalanceService';
-
-/** The earliest date the ledger can hold — "since inception" for a range query. */
-const INCEPTION = '1900-01-01';
-
-const BALANCE_SHEET_TYPES = new Set(['asset', 'liability', 'equity']);
 
 interface ConsolidatedTrialBalanceRow {
   groupAccountId: string; accountCode: string; accountName: string; accountType: string;
@@ -142,25 +138,24 @@ function addEntityNet(row: ConsolidatedTrialBalanceRow, companyId: string, net: 
   row.entities[companyId]!.credit = round2(row.entities[companyId]!.credit + credit);
 }
 
+/** Eliminations on the members' fiscal-year floor — see consolidatedTrialBalanceEliminations. */
 async function applyEliminations(
   accountMap: Map<string, ConsolidatedTrialBalanceRow>,
-  groupId: string, periodStart: string, periodEnd: string,
+  groupId: string, periodEnd: string, floor: string,
 ): Promise<void> {
-  const [cumulative, inRange] = await Promise.all([
-    getPostedEliminations(groupId, INCEPTION, periodEnd),
-    getPostedEliminations(groupId, periodStart, periodEnd),
-  ]);
-  const applicable = [
-    ...cumulative.filter(e => BALANCE_SHEET_TYPES.has(e.groupAccountType)),
-    ...inRange.filter(e => !BALANCE_SHEET_TYPES.has(e.groupAccountType)),
-  ];
-  for (const elim of applicable) {
-    const entry = upsert(
-      accountMap, elim.groupAccountId, elim.groupAccountCode, elim.groupAccountName, elim.groupAccountType,
-    );
-    entry.eliminationDebit = round2(entry.eliminationDebit + elim.debit);
-    entry.eliminationCredit = round2(entry.eliminationCredit + elim.credit);
+  const { rows, broughtForward } = await eliminationsOnFloor(groupId, periodEnd, floor);
+  const add = (entry: ConsolidatedTrialBalanceRow, debit: number, credit: number) => {
+    entry.eliminationDebit = round2(entry.eliminationDebit + debit);
+    entry.eliminationCredit = round2(entry.eliminationCredit + credit);
+  };
+  for (const e of rows) {
+    add(upsert(accountMap, e.groupAccountId, e.groupAccountCode, e.groupAccountName, e.groupAccountType), e.debit, e.credit);
   }
+  if (broughtForward.debit === 0 && broughtForward.credit === 0) return;
+  const bf = broughtForwardLine(floor);
+  const entry = upsert(accountMap, BROUGHT_FORWARD_CODE, bf.accountCode, bf.accountName, 'equity');
+  entry.derived = true;
+  add(entry, broughtForward.debit, broughtForward.credit);
 }
 
 export async function getConsolidatedTrialBalance(
@@ -231,7 +226,9 @@ export async function getConsolidatedTrialBalance(
       addEntityNet(entry, member.companyId, -broughtForward);
     }
 
-    await applyEliminations(accountMap, groupId, periodStart, periodEnd);
+    // The group's floor is the holding company's (listed first): see consolidatedTrialBalanceEliminations.
+    const groupFloor = members[0] ? fiscalYearStarts[members[0].companyId] : undefined;
+    if (groupFloor) await applyEliminations(accountMap, groupId, periodEnd, groupFloor);
 
     const groupAccounts: ConsolidatedTrialBalanceRow[] = [];
     const totals: ConsolidatedTrialBalanceTotals = {

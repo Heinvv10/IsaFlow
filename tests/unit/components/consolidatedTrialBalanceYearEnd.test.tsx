@@ -19,10 +19,10 @@ const CO = 'aaaaaaaa-0000-0000-0000-000000000001';
 const row = { groupAccountId: 'g', groupAccountCode: 'B100', groupAccountName: 'Cash', accountType: 'asset',
   entities: { [CO]: { debit: 100, credit: 0 } }, eliminationDebit: 0, eliminationCredit: 0, consolidatedDebit: 100, consolidatedCredit: 0 };
 
-function serve(fiscalYearEndsClosed: Record<string, string[]>) {
+function serve(fiscalYearEndsClosed: Record<string, string[]>, name = 'Co A', account = row) {
   vi.mocked(apiFetch).mockImplementation(async (url) => {
     const data = String(url).includes('company-groups') ? [{ id: 'grp', name: 'Group' }] : {
-      groupAccounts: [row], entityNames: { [CO]: 'Co A' },
+      groupAccounts: [account], entityNames: { [CO]: name },
       totals: { entities: { [CO]: { debit: 100, credit: 0 } }, eliminationDebit: 0, eliminationCredit: 0, consolidatedDebit: 100, consolidatedCredit: 0 },
       accountCount: 1, difference: 100, balanced: false, unmapped: { accountCount: 0, value: 0, byEntity: [] }, coterminous: true,
       fiscalYearStarts: { [CO]: '2026-03-01' }, fiscalYearEndsClosed,
@@ -49,6 +49,19 @@ describe('consolidated trial balance — fiscal years closed inside the range', 
     expect(note.textContent).toContain('Co A: profit of the fiscal year ending 2026-02-28 closed to retained earnings — derived, not posted');
     expect(note.textContent).toContain('income statement rows run from 2026-03-01');
     expect(await exportedCsv()).toContain('"Year-end close (derived — not posted)","Co A: profit of the fiscal year ending 2026-02-28');
+  });
+
+  // An entity or account name that Excel would read as a formula is neutralised in EVERY text
+  // cell (shared csvCell), and quotes are doubled — header, rows, totals and the note line.
+  it('neutralises formula-leading text and doubles quotes across the whole export', async () => {
+    serve({ [CO]: ['2026-02-28'] }, '=HYPERLINK("x")', { ...row, groupAccountCode: '-B100', groupAccountName: '+Cash', accountType: '@asset' });
+    render(<ConsolidatedTrialBalancePage />);
+    await screen.findByRole('note');
+    const csv = await exportedCsv();
+    expect(csv).toContain(`"'=HYPERLINK(""x"") Debit"`);
+    expect(csv).toContain(`"'-B100","'+Cash","'@asset",100,0`);
+    expect(csv).toContain(`"Year-end close (derived — not posted)","'=HYPERLINK(""x""): profit of the fiscal year ending 2026-02-28`);
+    expect(csv).not.toMatch(/(^|,)"[=+\-@]/m);
   });
 
   it('adds nothing when the range sits inside one fiscal year', async () => {
