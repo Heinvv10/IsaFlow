@@ -209,6 +209,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       }
     }
   } catch (err) {
+    // Bank reversal is a D8 flow: a held bank line or payment there is a lock timeout, 503 + Retry-After, as on every
+    // route into one (D8 round 17). The other verbs keep K-071's 409 below; registered, not changed here.
+    if (body.action === 'reverse' && respondIfLockTimeout(res, err)) return;
     // CONTENTION first, and 409 — the status this codebase gives "a peer holds
     // the row, retry". `allocate` reaches `planSupplierPaymentApplication` and
     // `planReceiptApplication` through `recordSupplierBankPayment` /

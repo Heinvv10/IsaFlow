@@ -7,7 +7,7 @@
  * F2 Batch reversal: `lockBillCandidates` reset lock_timeout to DEFAULT inside the flow budget, so its posting waited
  *    unbounded and answered 200 once the holder let go.
  * F4 HTTP void / receipt cancel with the payment row or its bank line held: 409 with no Retry-After. A held row is a
- *    lock timeout.
+ *    lock timeout. Round 17: bank reversal (`bank-transactions-action` reverse) too.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
@@ -19,10 +19,12 @@ import supplierPaymentsAction from '../../pages/api/accounting/supplier-payments
 import supplierInvoicesAction from '../../pages/api/accounting/supplier-invoices-action';
 import customerInvoicesDetail from '../../pages/api/accounting/customer-invoices-detail';
 import batchPaymentsAction from '../../pages/api/accounting/batch-payments-action';
+import bankTransactionsAction from '../../pages/api/accounting/bank-transactions-action';
+import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import softDeleteRoute from '../../pages/api/accounting/soft-delete';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { request, response } from './mfa-impersonation-postgres.helpers';
-import { inTx } from './helpers/l1FifoFixture';
+import { inTx, seedBankTx } from './helpers/l1FifoFixture';
 import { confirmedReceipt, postedBill, postedInvoice, processedPayment, setup, teardown, type Ctx } from './d8-r4-helpers';
 
 let c: Ctx;
@@ -68,6 +70,18 @@ async function lineOn(je: string, amount: number): Promise<string> {
 interface Case { je: string; hold: () => Promise<() => Promise<void>>; run: () => ReturnType<typeof call> }
 const supplierVoid = (pay: string) => () => call(supplierPaymentsAction as Handler, 'POST', { action: 'void', paymentId: pay });
 const receiptCancel = (rc: string) => () => call(customerPaymentsAction as Handler, 'POST', { action: 'cancel', paymentId: rc });
+
+/** A statement line allocated to a customer receipt for a posted invoice: the line, the receipt and its journal. */
+async function allocatedReceipt(): Promise<{ bt: string; rc: string; je: string }> {
+  const inv = await postedInvoice(c);
+  const bt = await seedBankTx(c.fx, { date: '2026-05-22', amount: 1150, description: `D8R17 ${++c.seq}` });
+  const a = await inTx(c.fx, () => allocateTransaction(c.fx.companyId, bt, null, c.fx.userId, undefined, 'customer',
+    c.fx.customerId, undefined, undefined, undefined, undefined, inv.id));
+  const rc = String((await one(sql`SELECT id FROM customer_payments WHERE gl_journal_entry_id = ${a.journalEntryId}::UUID`)).id);
+  return { bt, rc, je: a.journalEntryId };
+}
+const bankReverse = (bt: string) => () =>
+  call(bankTransactionsAction as Handler, 'POST', { action: 'reverse', bankTransactionId: bt });
 
 const cases: Record<string, () => Promise<Case>> = {
   'F1 HTTP void, the bank balance row': async () => {
@@ -123,6 +137,14 @@ const cases: Record<string, () => Promise<Case>> = {
   'F4 receipt cancel, the receipt row': async () => {
     const r = await confirmedReceipt(c, (await postedInvoice(c)).id, 400);
     return { je: r.je, hold: () => holdFor('SELECT id FROM customer_payments WHERE id = $1 FOR UPDATE', [r.id]), run: receiptCancel(r.id) };
+  },
+  'R17 bank reversal, its bank line': async () => {
+    const a = await allocatedReceipt();
+    return { je: a.je, hold: () => holdFor('SELECT id FROM bank_transactions WHERE id = $1 FOR UPDATE', [a.bt]), run: bankReverse(a.bt) };
+  },
+  'R17 bank reversal, the receipt row': async () => {
+    const a = await allocatedReceipt();
+    return { je: a.je, hold: () => holdFor('SELECT id FROM customer_payments WHERE id = $1 FOR UPDATE', [a.rc]), run: bankReverse(a.bt) };
   },
   'F4 receipt cancel, its bank line': async () => {
     const r = await confirmedReceipt(c, (await postedInvoice(c)).id, 400);
