@@ -128,11 +128,11 @@ export async function updatePracticeEntry(
 
   const row = existing[0]!;
 
-  // Validate entryDate if provided
-  if (input.entryDate !== undefined) {
+  // Validate entryDate if provided (null, like undefined, leaves it unchanged — the UPDATE COALESCEs it)
+  if (input.entryDate != null) {
     assertRealEntryDate(input.entryDate);
     const today = new Date().toISOString().split('T')[0]!;
-    if (input.entryDate > today) throw new Error('entry date cannot be in the future');
+    if (input.entryDate > today) throw new PracticeEntryRefusal('entry date cannot be in the future');
   }
 
   // Validate hours if provided
