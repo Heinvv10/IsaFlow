@@ -8,6 +8,7 @@ import '@/lib/pgTypes';
 import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteToken';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/gotrue';
+import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import { sql } from '@/lib/neon';
 import { chargeRateLimit, refundRateLimit } from '@/lib/rateLimit';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
@@ -186,6 +187,8 @@ const handler: NextApiHandler = async (req, res) => {
     try {
       tok = await signIn(inv.email, password);
     } catch (err) {
+      // D9: an outage is not a wrong password. Nothing is written before this point.
+      if (respondIfAuthUnavailable(res, err, 'invite accept')) return;
       if (!isEstablished) throw err;
       log.warn('invite accept rejected: wrong password for existing account', {
         inviteId: inv.id,

@@ -44,6 +44,7 @@ const handler: NextApiHandler = async (req, res) => {
     const result = await enrollTotp(token, email);
     return res.status(200).json({ success: true, data: result });
   } catch (err) {
+    if (respondIfAuthUnavailable(res, err, '2fa-enroll')) return;
     if (err instanceof GotrueMfaError) {
       log.warn('2fa-enroll gotrue error', { status: err.status }, 'Auth');
       return res.status(err.status).json({ success: false, error: { code: 'ENROLL_FAILED', message: err.message } });

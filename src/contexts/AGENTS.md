@@ -17,7 +17,7 @@ The React providers `_app.tsx` wraps every page in: who the user is (`AuthContex
 ## Business rules
 - **The server reads the `active_company_id` COOKIE, not anything this provider holds.** `withAuth` scopes every query by that cookie. `localStorage` (`isaflow_active_company`) exists only so the first client render has a name to show instead of flashing the fallback title. Only `switchCompany` moves the cookie: it POSTs `/api/auth/switch-company`, mirrors the choice into `localStorage`, then hard-reloads; on mount the provider follows the cookie (below).
 - A changed user identity inside one provider instance drops the previous user's tenant state immediately, rather than leaving it visible until the refetch returns.
-- **An outage is not a sign-out (D9).** `AuthProvider` keeps the known user when `/api/auth/me` answers 5xx/408/429 or cannot be reached, keeps a FIRST check in `loading` (so `AdminLayout` does not redirect to `/login`) and retries every `AUTH_RETRY_AFTER_SECS`. Only another non-OK status (401/403) clears the user. Tests: `tests/unit/components/authOutageClient.test.tsx`.
+- **An outage is not a sign-out (D9).** `AuthProvider` keeps the known user when `/api/auth/me` answers 5xx/408/429 or cannot be reached, keeps a FIRST check in `loading` (so `AdminLayout` does not redirect to `/login`) and retries every `AUTH_RETRY_AFTER_SECS`. It exposes `authUnavailable`, so `AppLayout`'s pending screen (`src/components/layout/AuthPendingScreen.tsx`) says the sign-in service is unreachable and the user is still signed in, with a Retry button; the page appears by itself when `/me` answers. Only another non-OK status (401/403) clears the user. Tests: `tests/unit/components/authOutageClient.test.tsx`, `authUnavailableScreen.test.tsx`.
 - Memberships are always fetched, super admins included. A previous short-circuit that trusted `localStorage` for super admins left the switcher empty and could pin the UI to a company the user could not leave.
 
 ## Business rule — the label names the company the SERVER serves (R-148)
@@ -31,6 +31,7 @@ The React providers `_app.tsx` wraps every page in: who the user is (`AuthContex
 - `tests/unit/components/contexts/` — provider behaviour, including the print-render gate.
 
 ## Recent changes
+- 2026-10-02: D9 round 2 — `authUnavailable` drives an outage message + Retry on AppLayout's pending screen, instead of a bare spinner.
 - 2026-10-02: D9 — `AuthProvider` treats an unavailable `/api/auth/me` as "try again", not "signed out".
 - 2026-09-28: R-148 — the mount-time divergence is fixed: the provider activates the server's `activeCompanyId` and corrects `localStorage` to it; a failed fetch shows no company and leaves `localStorage` alone.
 - 2026-09-06: `skipFetch` added to both providers for the PDF print render; the mount-time cookie/`localStorage` divergence above recorded as a follow-up.

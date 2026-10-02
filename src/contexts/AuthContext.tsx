@@ -35,6 +35,8 @@ interface AuthContextType {
   user: AuthUser | null;
   /** True while the initial session check is in progress */
   loading: boolean;
+  /** D9: the last /api/auth/me check hit an outage (5xx/408/429/unreachable), not a sign-out */
+  authUnavailable: boolean;
   /** Last authentication error message */
   error: string | null;
   /** True when a valid user session exists */
@@ -113,13 +115,10 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [authUnavailable, setAuthUnavailable] = useState(false);
   const retry = useRef<{ active: boolean; settled: boolean; timer?: ReturnType<typeof setTimeout> }>({ active: true, settled: false });
-  /**
-   * Fetch current session from the API. D9: a 5xx/429 or an unreachable server
-   * is an outage, not a sign-out — keep what is known (AdminLayout redirects on
-   * a null user). A first check stays pending and retries; once settled, the
-   * focus/interval re-checks are the retry, so an outage is not polled harder.
-   */
+  /** Fetch the session. D9: an outage is not a sign-out: keep the user (AdminLayout redirects on null), keep a
+   *  first check pending and retry it every 5 s; a settled session retries only on focus/interval. */
   const checkAuth = useCallback(async function check(): Promise<void> {
     clearTimeout(retry.current.timer);
     let unavailable = false;
@@ -144,6 +143,7 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
       unavailable = true;
       log.error('Failed to check auth session', { error: err }, 'auth-context');
     }
+    setAuthUnavailable(unavailable);
     if (!unavailable) { retry.current.settled = true; setLoading(false); }
     else if (retry.current.active && !retry.current.settled) retry.current.timer = setTimeout(() => { void check(); }, AUTH_RETRY_AFTER_SECS * 1000);
   }, []);
@@ -275,6 +275,7 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
   const value: AuthContextType = useMemo(() => ({
     user,
     loading,
+    authUnavailable,
     error,
     isAuthenticated: user !== null,
     login,
@@ -284,7 +285,7 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
     hasPermission,
     hasRole,
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [user, loading, error]);
+  }), [user, loading, authUnavailable, error]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
