@@ -76,6 +76,6 @@ describe('add year modal', () => {
   it('a plain transport error shows a sentence, not its text', async () => {
     render(<AddYearModal existingYears={[2024]} onConfirm={async () => { throw new TypeError('Failed to fetch'); }} onClose={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Create Year' }));
-    expect(await screen.findByText('Could not create the year - try again')).toBeTruthy();
+    expect(await screen.findByText('Could not create the financial year - try again')).toBeTruthy();
   });
 });

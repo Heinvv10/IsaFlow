@@ -9,6 +9,8 @@ import Link from 'next/link';
 import { ArrowLeft, FileText, Download, Loader2, Presentation } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { PackNotices } from '@/components/accounting/packs/PackNotices';
+import { retryAfterSeconds } from '@/components/accounting/packs/retryAfterSeconds';
 import {
   DataQualityNotice,
   type UnclassifiedWarning,
@@ -40,21 +42,7 @@ const PACK_LOAD_FAILED = 'Could not load the report pack - try again';
  *  parameter rely on it, and the download route always names one. */
 const DEFAULT_PRINT_PACK = 'management';
 
-/**
- * How long the server told us to wait, in whole seconds.
- *
- * `Retry-After` is optional and `apiResponse.tooManyRequests` does not
- * currently set one, so the absent case is the NORMAL case rather than an
- * error path — the message just drops the countdown. The header's HTTP-date
- * form is not read: this endpoint's limiter is a fixed window in seconds, and
- * guessing at a date form nothing sends would be untested code.
- */
-export function retryAfterSeconds(headers: { get(name: string): string | null }): number | null {
-  const raw = headers.get('Retry-After');
-  if (raw === null) return null;
-  const seconds = Number(raw.trim());
-  return Number.isInteger(seconds) && seconds > 0 ? seconds : null;
-}
+export { retryAfterSeconds };
 
 /**
  * The page has two entirely separate lives: the interactive screen below, and
@@ -228,38 +216,7 @@ function ReportPacksScreen() {
 
         <div className="p-6 space-y-6 max-w-7xl">
           <DataQualityNotice unclassifiedAccounts={unclassified} />
-          {downloadError && (
-            <div
-              role="alert"
-              className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
-            >
-              {/* `whitespace-pre-line`: the integrity gate reports every
-                  problem it found, one per line. Collapsed onto one line a
-                  three-problem refusal is unreadable, and the reader needs
-                  all three — a pack that has drifted has usually drifted in
-                  more than one place. */}
-              <p className="font-medium">This pack could not be downloaded.</p>
-              <p className="mt-1 whitespace-pre-line">{downloadError}</p>
-            </div>
-          )}
-          {loadError && (
-            <div
-              role="alert"
-              className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
-            >
-              {loadError}
-            </div>
-          )}
-          {rateLimited && (
-            <div
-              role="status"
-              className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400"
-            >
-              Too many report requests. {rateLimited.seconds === null
-                ? 'Please try again in a moment.'
-                : `Please try again in ${rateLimited.seconds} seconds.`}
-            </div>
-          )}
+          <PackNotices downloadError={downloadError} loadError={loadError} rateLimited={rateLimited} />
           {/* Pack Type Selector */}
           <div className="grid grid-cols-3 gap-4">
             {PACK_CONFIGS.map(cfg => (

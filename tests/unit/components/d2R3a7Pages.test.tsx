@@ -36,7 +36,7 @@ vi.mock('@/components/accounting/financialYears/YearCard', () => ({
 }));
 vi.mock('@/components/accounting/financialYears/AddYearModal', () => ({
   AddYearModal: ({ onConfirm }: { onConfirm: (y: number) => Promise<void> }) => (
-    <button onClick={() => { void onConfirm(2099).catch((e: Error) => { document.body.setAttribute('data-add-error', e.message); }); }}>add year go</button>
+    <button onClick={() => { void onConfirm(2099).catch((e: Error) => { document.body.setAttribute('data-add-error', e.message); document.body.setAttribute('data-add-error-class', e.name); }); }}>add year go</button>
   ),
 }));
 vi.mock('@/components/accounting/financialYears/CloseYearModal', () => ({ CloseYearModal: () => null }));
@@ -50,7 +50,7 @@ import BankAccountsPage from '../../../pages/accounting/bank-accounts/index';
 import NewInvoicePage from '../../../pages/accounting/customer-invoices/new';
 
 useApiJsonOverMock();
-afterEach(() => { cleanup(); push.mockClear(); vi.mocked(notify.error).mockClear(); vi.mocked(notify.success).mockClear(); document.body.removeAttribute('data-add-error'); });
+afterEach(() => { cleanup(); push.mockClear(); vi.mocked(notify.error).mockClear(); vi.mocked(notify.success).mockClear(); document.body.removeAttribute('data-add-error'); document.body.removeAttribute('data-add-error-class'); });
 
 const RUN = { processed: 1, skipped: 0, glFailed: 0, total: 1, results: [] };
 const click = async (name: RegExp | string) => fireEvent.click(await screen.findByRole('button', { name }));
@@ -159,9 +159,12 @@ describe('financial-years', () => {
   };
   it('add year 400: the modal gets the server message', async () => {
     await addYear(refuse); await waitFor(() => expect(document.body.getAttribute('data-add-error')).toBe(MSG));
+    // The page rethrows the request failure itself, not a re-wrapped ApiEnvelopeError.
+    expect(document.body.getAttribute('data-add-error-class')).toBe('ApiRequestError');
   });
   it('add year empty-body 500: the modal gets a plain sentence', async () => {
-    await addYear(empty500); await waitFor(() => expect(document.body.getAttribute('data-add-error')).toBe('Could not create the year - try again'));
+    await addYear(empty500); await waitFor(() => expect(document.body.getAttribute('data-add-error')).toBe('Could not create the financial year - try again'));
+    expect(document.body.getAttribute('data-add-error-class')).toBe('ApiRequestError');
   });
 });
 

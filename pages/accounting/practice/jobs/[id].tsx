@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Briefcase, Loader2, AlertCircle, ArrowLeft, Clock } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { JobStatusBadge } from '@/components/practice/JobStatusBadge';
+import { TabError } from '@/components/practice/TabError';
 import type { PracticeJob } from '@/modules/accounting/services/practice/practiceJobService';
 import type { PracticeTask } from '@/modules/accounting/services/practice/practiceTaskService';
 import type { PracticeTimeEntry } from '@/modules/accounting/services/practice/practiceTimeEntryService';
@@ -30,15 +31,6 @@ const trunc = (s: string | null | undefined) => s ? s.slice(0, 8) : '—';
 const fmt = (s: string | null | undefined) => s ?? '—';
 const inp = 'w-full rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-primary)] px-3 py-2 text-sm';
 const TH = ({ h }: { h: string }) => <th className="text-left py-2 px-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">{h}</th>;
-
-function TabError({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <div role="alert" className="flex items-center justify-between gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-      <span>{message}</span>
-      <button onClick={onRetry} className="px-3 py-1 rounded-md border border-red-500/30 hover:bg-red-500/10">Retry</button>
-    </div>
-  );
-}
 
 export default function JobDetailPage() {
   const router = useRouter();
