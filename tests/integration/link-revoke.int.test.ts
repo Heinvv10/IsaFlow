@@ -132,6 +132,21 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
     expect((await getLink(old.token)).statusCode).toBe(404);
   });
 
+  it('a pre-717 fixed-amount link (charges_balance true by default) is cancelled; cancelled equals the active standing links found', async () => {
+    const id = await invoice();
+    const pre717 = await addLink(id, 10, true);
+    const modern = await addLink(id, 20, false);
+    const named = tokenOf(await payNow(id));
+    const found = Number((await pool.query(
+      "SELECT count(*) FROM portal_payment_links WHERE invoice_id = $1 AND status = 'active' AND charges_balance", [id])).rows[0].count);
+    expect(found).toBe(2);
+    const r = await revoke(id);
+    expect(r.body.data).toEqual({ revoked: true, cancelled: found });
+    expect(await status(pre717.token)).toBe('cancelled');
+    expect(await status(named)).toBe('cancelled');
+    expect(await status(modern.token)).toBe('active');
+  });
+
   it('stuck button: a payment_url naming an explicit-amount link is cleared, the link left active', async () => {
     const id = await invoice();
     const explicit = await addLink(id, 10, false);
