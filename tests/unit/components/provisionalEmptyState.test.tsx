@@ -54,3 +54,27 @@ it('the attach modal\'s document list loads empty: "no extracted documents", and
   expect(await screen.findByText(NO_DOCS)).toBeTruthy();
   expect(screen.queryByText(/Could not load/)).toBeNull();
 });
+
+// Round 15 (review of f16dc3412): the error must not outlive a load that succeeds.
+it('the attach modal reopened after a failed document load: the error is gone and the documents show', async () => {
+  const doc = { id: 'd1', fileName: 'slip.pdf', vendorName: 'Shell', documentDate: '2026-09-21', totalAmount: 150, documentType: 'receipt' };
+  let calls = 0;
+  await openAttachWith(() => (++calls === 1 ? empty500() : json({ success: true, data: [doc] })));
+  expect(await screen.findByText('Could not load documents - try again')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Attach evidence' }));
+  expect(await screen.findByText('Shell')).toBeTruthy();
+  expect(screen.queryByText('Could not load documents - try again')).toBeNull();
+});
+
+it('the list fails, then "Try again" loads it: the banner is gone and the rows show', async () => {
+  let calls = 0;
+  vi.mocked(apiFetch).mockImplementation(async () => (++calls === 1
+    ? empty500() : json({ success: true, data: { outstanding: [entry] } })));
+  render(<ProvisionalPage />);
+  expect(await screen.findByText('Could not load the provisional entries - try again')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  expect(await screen.findByText('Card purchase')).toBeTruthy();
+  expect(screen.queryByText('Could not load the provisional entries - try again')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+});
