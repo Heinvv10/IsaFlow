@@ -23,12 +23,19 @@ import {
 } from '@/modules/accounting/services/reports/consolidatedReportingService';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 
-/** 400 text for a bad range, or null. `typeof` first inside isLedgerDate: a repeated param is an array. */
-function rangeError(periodStart: unknown, periodEnd: unknown): string | null {
-  if (periodStart === undefined || periodEnd === undefined) return 'period_start and period_end required';
-  if (!isLedgerDate(periodStart)) return `period_start ${LEDGER_DATE_MESSAGE}`;
-  if (!isLedgerDate(periodEnd)) return `period_end ${LEDGER_DATE_MESSAGE}`;
-  return periodStart > periodEnd ? 'period_start must not be after period_end' : null;
+/**
+ * 400 text for a bad date range, or null — checked before any query, because an unvalidated
+ * date reaches a SQL date cast and 500s. `typeof` first inside isLedgerDate: a repeated
+ * param is an array. `optional`: a missing date is allowed, a present one must be valid.
+ */
+function rangeError(
+  start: unknown, end: unknown, { optional = false, names = ['period_start', 'period_end'] } = {},
+): string | null {
+  const [s, e] = names as [string, string];
+  if (!optional && (start === undefined || end === undefined || start === '' || end === '')) return `${s} and ${e} required`;
+  if (start !== undefined && !isLedgerDate(start)) return `${s} ${LEDGER_DATE_MESSAGE}`;
+  if (end !== undefined && !isLedgerDate(end)) return `${e} ${LEDGER_DATE_MESSAGE}`;
+  return typeof start === 'string' && typeof end === 'string' && start > end ? `${s} must not be after ${e}` : null;
 }
 
 // Uses withAuth (not withCompany) because consolidated reports aggregate data
@@ -59,7 +66,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'income-statement') {
       const periodStart = req.query.period_start as string;
       const periodEnd = req.query.period_end as string;
-      if (!periodStart || !periodEnd) return apiResponse.badRequest(res, 'period_start and period_end required');
+      const bad = rangeError(req.query.period_start, req.query.period_end);
+      if (bad) return apiResponse.badRequest(res, bad);
       const report = await getConsolidatedIncomeStatement(groupId, periodStart, periodEnd);
       return apiResponse.success(res, report);
     }
@@ -67,6 +75,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'balance-sheet') {
       const asAtDate = req.query.as_at_date as string;
       if (!asAtDate) return apiResponse.badRequest(res, 'as_at_date required');
+      if (!isLedgerDate(req.query.as_at_date)) return apiResponse.badRequest(res, `as_at_date ${LEDGER_DATE_MESSAGE}`);
       const report = await getConsolidatedBalanceSheet(groupId, asAtDate);
       return apiResponse.success(res, report);
     }
@@ -79,6 +88,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'eliminations') {
       const periodStart = req.query.period_start as string | undefined;
       const periodEnd = req.query.period_end as string | undefined;
+      const bad = rangeError(req.query.period_start, req.query.period_end, { optional: true });
+      if (bad) return apiResponse.badRequest(res, bad);
       const adjustments = await getEliminationAdjustments(groupId, periodStart, periodEnd);
       return apiResponse.success(res, { items: adjustments });
     }
@@ -96,6 +107,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!adjustmentType || !lines?.length) {
         return apiResponse.badRequest(res, 'adjustmentType and lines required');
       }
+      const bad = rangeError(periodStart, periodEnd, { optional: true, names: ['periodStart', 'periodEnd'] });
+      if (bad) return apiResponse.badRequest(res, bad);
       const adj = await createEliminationAdjustment(gId, {
         adjustmentType, description, periodStart, periodEnd, lines,
       });
@@ -118,7 +131,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     if (action === 'auto-eliminate') {
       const { periodStart, periodEnd } = req.body;
-      if (!periodStart || !periodEnd) return apiResponse.badRequest(res, 'periodStart and periodEnd required');
+      const bad = rangeError(periodStart, periodEnd, { names: ['periodStart', 'periodEnd'] });
+      if (bad) return apiResponse.badRequest(res, bad);
       const adjustments = await autoGenerateEliminations(gId, periodStart, periodEnd);
       return apiResponse.success(res, { items: adjustments, count: adjustments.length });
     }
