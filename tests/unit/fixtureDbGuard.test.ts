@@ -45,6 +45,21 @@ describe('assertLocalFixtureDbUrl', () => {
     expect(() => assertLocalFixtureDbUrl('DATABASE_URL', url, BOTH)).not.toThrow();
   });
 
+  it.each([
+    ['no port', 'postgres://localhost/isaflow_test'],
+    ['an empty port', 'postgres://localhost:/isaflow_test'],
+    ['no port, fixture name', 'postgres://127.0.0.1/isaflow_schema_fixture'],
+  ])('refuses %s, which leaves pg to PGPORT (here the Supabase server)', (_label, url) => {
+    // rev-d7-cc487eb4b: pg reads PGPORT when the URL names no port, so the
+    // string alone cannot say where it connects. Stubbed to the dev/prod port.
+    vi.stubEnv('PGPORT', '7772');
+    try {
+      expect(() => assertLocalFixtureDbUrl('DATABASE_URL', url, BOTH)).toThrow(/port/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('holds a caller to its own names', () => {
     expect(() => assertLocalFixtureDbUrl('DATABASE_URL', FIXTURE_TEST, ['isaflow_schema_fixture'])).toThrow();
   });
