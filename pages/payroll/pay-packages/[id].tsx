@@ -9,6 +9,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { Package, ArrowLeft, Loader2, AlertCircle, Plus, X, Save } from 'lucide-react';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
+import { useCompany } from '@/contexts/CompanyContext';
+import { canWrite } from '@/lib/auth/writeRoles';
 
 interface Component {
   id: string;
@@ -44,6 +46,7 @@ interface Pkg {
 
 export default function PayPackageEditPage() {
   const router = useRouter();
+  const readOnly = !canWrite(useCompany().companyRole); // same rule as WriteOnly: the inputs are display-only for a viewer
   const { id } = router.query;
   const packageId = typeof id === 'string' ? id : '';
 
@@ -160,23 +163,23 @@ export default function PayPackageEditPage() {
             <div className="space-y-2">
               {rows.map((r, idx) => (
                 <div key={idx} className="flex items-center gap-2">
-                  <select value={r.componentId}
+                  <select value={r.componentId} disabled={readOnly}
                     onChange={e => setRows(rows.map((x, i) => i === idx ? { ...x, componentId: e.target.value } : x))}
                     className="flex-1 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]">
                     {allComponents.map(c => (
                       <option key={c.id} value={c.id}>{c.name} ({c.sarsSourceCode})</option>
                     ))}
                   </select>
-                  <input type="number" step="0.01" value={r.amount}
+                  <input type="number" step="0.01" value={r.amount} disabled={readOnly}
                     onChange={e => setRows(rows.map((x, i) => i === idx ? { ...x, amount: Number(e.target.value) } : x))}
                     className="w-32 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-right text-[var(--ff-text-primary)]" />
                   <label className="inline-flex items-center gap-1 text-xs text-[var(--ff-text-secondary)]">
-                    <input type="checkbox" checked={r.isRecurring}
+                    <input type="checkbox" checked={r.isRecurring} disabled={readOnly}
                       onChange={e => setRows(rows.map((x, i) => i === idx ? { ...x, isRecurring: e.target.checked } : x))} />
                     Recurring
                   </label>
                   <WriteOnly>
-                    <button onClick={() => setRows(rows.filter((_, i) => i !== idx))}
+                    <button onClick={() => setRows(rows.filter((_, i) => i !== idx))} aria-label="Remove component"
                       className="p-2 text-[var(--ff-text-secondary)] hover:text-red-400">
                       <X className="h-4 w-4" />
                     </button>
