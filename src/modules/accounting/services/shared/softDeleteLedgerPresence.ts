@@ -108,27 +108,98 @@ export function documentInLedgerAsAtFragmentForRowTenant(alias: InvoiceAlias, as
   return chainParityFragment(alias, `${alias}.company_id`, '$1::date', [asAtStr]);
 }
 
+/**
+ * D7: the ids of every POSTED entry in a SOFT-DELETED invoice's or bill's
+ * reversal chain PAST its own journal (R, R2, R3 ... never O), walked by
+ * `chainWalk` like every predicate in this file. The one definition of "a
+ * deleted document's chain" for each reader that has to leave it out:
+ *
+ *   - the AR/AP orphan scan (reconciliation/orphanControlPostings). The
+ *     sub-ledger side already accounts for the chain through its parity.
+ *   - the VAT reconciliation's GL leg (reports/vatReconciliationService). Its
+ *     invoice leg keeps a deleted invoice in the month it was raised, whatever
+ *     the chain did.
+ *
+ * Excluding only the entry `soft_delete_journal_reversals` records broke both
+ * of them as soon as that entry was itself reversed by hand. That row does not
+ * move; the chain does.
+ *
+ * A parenthesised, UNCORRELATED subquery for `<expr> NOT IN ${...}`, which
+ * Postgres evaluates once as a hashed sub-plan. `id` is a primary key, so it
+ * can never yield the NULL that turns NOT IN into "nothing".
+ */
+export function deletedDocumentReversalChainIds(companyId: string) {
+  const deletedJournals = `o.id IN (
+      SELECT ci.gl_journal_entry_id FROM customer_invoices ci
+      WHERE ci.company_id = $1::UUID AND ci.deleted_at IS NOT NULL
+      UNION ALL
+      SELECT si.gl_journal_entry_id FROM supplier_invoices si
+      WHERE si.company_id = $1::UUID AND si.deleted_at IS NOT NULL)`;
+  return sql.unsafe(
+    `(WITH RECURSIVE ${chainWalk('deleted_chain', reversalsOf(deletedJournals, '$1::UUID'), '$1::UUID')}
+      SELECT id FROM deleted_chain)`,
+    [companyId],
+  );
+}
+
+/**
+ * D7: TRUE when the document's journal is REVERSED OUT of the ledger as at
+ * `asAtStr`, meaning an ODD number of the posted reversals hanging off it are
+ * dated on or before that date. Reading one link instead ("O has a posted
+ * reversal") says a document deleted and restored inside its period, O <- R <-
+ * R2, is reversed when its chain stands. Same prefix precondition as the
+ * parity predicate above. The row must expose `gl_journal_entry_id`, and the
+ * journal must be known to be posted: an unposted one has no reversals and
+ * reads FALSE. INTERPOLATION ONLY.
+ */
+export function journalReversedAsAtFragment(alias: InvoiceAlias, asAtStr: string, companyId: string) {
+  return sql.unsafe(
+    `(WITH RECURSIVE ${chainWalk('links', reversalsOf(`o.id = ${alias}.gl_journal_entry_id`, '$1::UUID'), '$1::UUID')}
+      SELECT COUNT(*) FILTER (WHERE links.entry_date <= $2::date) % 2 = 1 FROM links)`,
+    [companyId, asAtStr],
+  );
+}
+
+/**
+ * The ONE recursive walk every chain predicate here uses: POSTED entries of
+ * one tenant, following `reversal_of_id` down from `seed` (which selects
+ * `id, entry_date`). The link points at the entry reversed and the UNIQUE on
+ * (company_id, reversal_of_id) keeps the chain linear, so the walk IS the chain.
+ */
+function chainWalk(name: string, seed: string, tenantExpr: string): string {
+  return `${name} AS (
+      ${seed}
+      UNION ALL
+      SELECT j.id, j.entry_date
+      FROM gl_journal_entries j
+      JOIN ${name} ON j.reversal_of_id = ${name}.id
+      WHERE j.company_id = ${tenantExpr} AND j.status = 'posted'
+    )`;
+}
+
+/** Seed: the posted entries reversing a POSTED journal `o` that matches `journalPredicate`. */
+function reversalsOf(journalPredicate: string, tenantExpr: string): string {
+  return `SELECT r.id, r.entry_date
+      FROM gl_journal_entries r
+      JOIN gl_journal_entries o ON o.id = r.reversal_of_id
+                               AND o.company_id = ${tenantExpr} AND o.status = 'posted'
+      WHERE r.company_id = ${tenantExpr} AND r.status = 'posted' AND ${journalPredicate}`;
+}
+
 function chainParityFragment(
   alias: InvoiceAlias,
   tenantExpr: string,
   asAtExpr: string,
   params: unknown[],
 ) {
+  const seed = `SELECT je.id, je.entry_date
+      FROM gl_journal_entries je
+      WHERE je.id = ${alias}.gl_journal_entry_id
+        AND je.company_id = ${tenantExpr}
+        AND je.status = 'posted'`;
   return sql.unsafe(
     `(CASE WHEN ${alias}.deleted_at IS NULL THEN TRUE ELSE (
-        WITH RECURSIVE chain AS (
-          SELECT je.id, je.entry_date
-          FROM gl_journal_entries je
-          WHERE je.id = ${alias}.gl_journal_entry_id
-            AND je.company_id = ${tenantExpr}
-            AND je.status = 'posted'
-          UNION ALL
-          SELECT j.id, j.entry_date
-          FROM gl_journal_entries j
-          JOIN chain ON j.reversal_of_id = chain.id
-          WHERE j.company_id = ${tenantExpr}
-            AND j.status = 'posted'
-        )
+        WITH RECURSIVE ${chainWalk('chain', seed, tenantExpr)}
         SELECT COUNT(*) FILTER (WHERE chain.entry_date <= ${asAtExpr}) % 2 = 1
         FROM chain
       ) END)`,

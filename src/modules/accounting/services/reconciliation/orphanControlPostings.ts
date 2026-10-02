@@ -8,6 +8,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { deletedDocumentReversalChainIds } from '../shared/softDeleteLedgerPresence';
 
 /**
  * @returns one row per unclaimed journal: `id`, `reversal_of_id`,
@@ -38,21 +39,11 @@ export async function readOrphanControlPostings(
   // link of it re-opens a gap both sides had closed. Excluding only the entry
   // `soft_delete_journal_reversals` records did that the moment R was itself
   // reversed (D7): R2 lost its partner and became a false orphan, failing the
-  // AR/AP close checks on books that tied. The walk is the presence
-  // predicate's own walk — posted entries, this tenant, from the document's
-  // link — so the two can never disagree about which entries are the chain.
+  // AR/AP close checks on books that tied. The chain comes from
+  // shared/softDeleteLedgerPresence, which owns the parity walk, so the two can
+  // never disagree about which entries are the chain.
   return (await (isAr
     ? sql`
-      WITH RECURSIVE deleted_chain AS (
-        SELECT je.id FROM customer_invoices d
-        JOIN gl_journal_entries je ON je.id = d.gl_journal_entry_id
-                                  AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
-        WHERE d.company_id = ${companyId}::UUID AND d.deleted_at IS NOT NULL
-        UNION ALL
-        SELECT j.id FROM gl_journal_entries j
-        JOIN deleted_chain c ON j.reversal_of_id = c.id
-        WHERE j.company_id = ${companyId}::UUID AND j.status = 'posted'
-      )
       SELECT je.id, je.reversal_of_id, je.entry_number AS document_number,
              NULL::text AS entity_name,
              je.entry_date AS document_date, je.created_at,
@@ -89,22 +80,12 @@ export async function readOrphanControlPostings(
         AND NOT EXISTS (SELECT 1 FROM customer_write_offs d
                         WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
                           AND COALESCE(d.status, '') <> 'cancelled')
-        AND NOT EXISTS (SELECT 1 FROM deleted_chain dc WHERE dc.id = je.id)
+        AND je.id NOT IN ${deletedDocumentReversalChainIds(companyId)}
       GROUP BY je.id, je.reversal_of_id, je.entry_number, je.entry_date, je.created_at
       HAVING COALESCE(SUM(jl.credit - jl.debit), 0) <> 0
       ORDER BY je.entry_date, je.id
     `
     : sql`
-      WITH RECURSIVE deleted_chain AS (
-        SELECT je.id FROM supplier_invoices d
-        JOIN gl_journal_entries je ON je.id = d.gl_journal_entry_id
-                                  AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
-        WHERE d.company_id = ${companyId}::UUID AND d.deleted_at IS NOT NULL
-        UNION ALL
-        SELECT j.id FROM gl_journal_entries j
-        JOIN deleted_chain c ON j.reversal_of_id = c.id
-        WHERE j.company_id = ${companyId}::UUID AND j.status = 'posted'
-      )
       SELECT je.id, je.reversal_of_id, je.entry_number AS document_number,
              NULL::text AS entity_name,
              je.entry_date AS document_date, je.created_at,
@@ -127,7 +108,7 @@ export async function readOrphanControlPostings(
         AND NOT EXISTS (SELECT 1 FROM credit_notes d
                         WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
                           AND COALESCE(d.status, '') <> 'cancelled')
-        AND NOT EXISTS (SELECT 1 FROM deleted_chain dc WHERE dc.id = je.id)
+        AND je.id NOT IN ${deletedDocumentReversalChainIds(companyId)}
       GROUP BY je.id, je.reversal_of_id, je.entry_number, je.entry_date, je.created_at
       HAVING COALESCE(SUM(jl.debit - jl.credit), 0) <> 0
       ORDER BY je.entry_date, je.id
