@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Briefcase, Loader2, AlertCircle, ArrowLeft, Clock } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { JobStatusBadge } from '@/components/practice/JobStatusBadge';
+import { JobBudgetPanel } from '@/components/practice/JobBudgetPanel';
 import type { PracticeJob } from '@/modules/accounting/services/practice/practiceJobService';
 import type { PracticeTask } from '@/modules/accounting/services/practice/practiceTaskService';
 import type { PracticeTimeEntry } from '@/modules/accounting/services/practice/practiceTimeEntryService';
@@ -193,7 +194,8 @@ export default function JobDetailPage() {
           </div>
         </div>
 
-        <div className="px-6 py-6 max-w-4xl">
+        <div className="px-6 py-6 max-w-4xl space-y-4">
+          <JobBudgetPanel jobId={job.id} refreshKey={job.updatedAt} />
           {tab === 'details' && (
             <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -233,6 +235,7 @@ export default function JobDetailPage() {
                 </label>
                 <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Budgeted Hours</span><input type="number" min="0" step="0.5" value={form.budgetedHours ?? ''} onChange={e => setForm(f => ({ ...f, budgetedHours: e.target.value ? Number(e.target.value) : null }))} className={inp} /></label>
                 <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Fixed Fee (R)</span><input type="number" min="0" step="0.01" value={form.fixedFeeAmount ?? ''} onChange={e => setForm(f => ({ ...f, fixedFeeAmount: e.target.value ? Number(e.target.value) : null }))} className={inp} /></label>
+                <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Engagement Budget (R)</span><input type="number" min="0" step="0.01" value={form.budgetAmount ?? ''} placeholder="No budget" onChange={e => setForm(f => ({ ...f, budgetAmount: e.target.value ? Number(e.target.value) : null }))} className={inp} /></label>
               </div>
               <div className="flex justify-end pt-2">
                 <button onClick={() => void save()} disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">
