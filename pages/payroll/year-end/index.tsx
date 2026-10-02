@@ -12,6 +12,7 @@ import {
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface YearEndStatus {
   taxYear: number;
@@ -75,7 +76,7 @@ export default function YearEndPage() {
       const res = await apiFetch(`/api/payroll/irp5/easyfile-export?taxYear=${taxYear}`);
       if (!res.ok) {
         const json = await res.json().catch(() => null) as { error?: { message?: string } } | null;
-        setDownloadError(json?.error?.message ?? `HTTP ${res.status}`);
+        setDownloadError(payrollLoadMessage(res.status, json?.error?.message ?? `HTTP ${res.status}`));
         return;
       }
       const blob = await res.blob();

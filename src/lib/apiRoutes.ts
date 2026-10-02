@@ -52,7 +52,8 @@ import type { getIncomeStatement } from '@/modules/accounting/services/reports/f
 import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
 import type { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
 import type { mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
-import type { approvePayrollRun, previewPayrollApproval } from '@/modules/accounting/services/payroll/payrollApprovalService';
+import type { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
+import type { JournalPlanPreview } from '@/modules/accounting/services/payroll/payrollApprovalGate';
 import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
 import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
@@ -166,7 +167,8 @@ interface DynamicRoutes {
   '/api/accounting/commentary/{}/reject': { commentary: CommentaryRow };
   '/api/accounting/annotations/{}/resolve': { resolved: true };
   // PAY-01. GET only / POST only respectively; the handlers are passthroughs.
-  '/api/payroll/runs/{}/journal-plan': NonNullable<Awaited<ReturnType<typeof previewPayrollApproval>>>;
+  // plan.blockers is withheld from the response (the route strips it): the top-level `blocker` is the one answer.
+  '/api/payroll/runs/{}/journal-plan': JournalPlanPreview;
   '/api/payroll/runs/{}/approve': Awaited<ReturnType<typeof approvePayrollRun>>;
 }
 

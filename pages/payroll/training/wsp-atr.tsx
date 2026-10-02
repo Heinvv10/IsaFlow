@@ -6,6 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { GraduationCap, Loader2, AlertCircle } from 'lucide-react';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface CategoryRow {
   category: string;
@@ -47,7 +48,7 @@ export default function WspAtrPage() {
       const res = await apiFetch(`/api/payroll/training-events/wsp-atr?year=${year}`);
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? `HTTP ${res.status}`);
+        setError(payrollLoadMessage(res.status, j.error?.message ?? j.message ?? `HTTP ${res.status}`));
         return;
       }
       const json = await res.json();

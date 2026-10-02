@@ -13,6 +13,7 @@ import {
 } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { wspAtrReport } from '@/modules/accounting/services/payroll/trainingEventService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
@@ -23,4 +24,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, report);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

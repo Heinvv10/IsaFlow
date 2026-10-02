@@ -9,7 +9,6 @@ import { apiResponse } from '@/lib/apiResponse';
 import {
   withAuth,
   withCsrf,
-  withWriteAccess,
   type AuthenticatedNextApiRequest,
   type CompanyAuthedRequest,
 } from '@/lib/auth';
@@ -19,6 +18,7 @@ import {
   BatchNotFoundError,
   BatchNotEditableError,
 } from '@/modules/accounting/services/payroll/payrollBatchService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   const { companyId } = req as CompanyAuthedRequest;
@@ -44,4 +44,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

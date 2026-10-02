@@ -18,6 +18,7 @@ import {
 import { log } from '@/lib/logger';
 import { getParallelRunReport } from '@/modules/accounting/services/payroll/payrollParallelRunReportService';
 import { buildParallelRunComparisonCsv } from '@/modules/accounting/services/payroll/payrollParallelRunCsv';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -48,4 +49,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   res.status(200).send(csv);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
