@@ -142,6 +142,14 @@ describe('recordGatewayInvoiceReceipt wiring', () => {
     expect(reasons()).toEqual([['amount_disagrees_with_first_report']]);
   });
 
+  it('dedupe: the same Paystack amount but bank figures one cent apart is flagged (R2.01 banked, R2.00 now)', async () => {
+    h.already = { id: 'p-1', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+      total_amount: '2.01', description: 'Paystack card payment r181_wiring [paystack amount 205 cents]' };
+    await recordGatewayInvoiceReceipt({ ...base, requestedCents: 200, feeRand: null,
+      reported: { amountCents: 205, currency: 'ZAR', requestedAmountCents: 200, feeCents: 5 } });
+    expect(reasons()).toEqual([['amount_disagrees_with_first_report']]);
+  });
+
   it('the receipt INSERT carries receiptDescription (the first report amount tag)', async () => {
     await recordGatewayInvoiceReceipt({ ...base, feeRand: 3.5,
       reported: { amountCents: 11850, currency: 'ZAR', requestedAmountCents: 11500, feeCents: 350 } });

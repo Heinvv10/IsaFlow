@@ -15181,6 +15181,36 @@
       "title": "The Paystack fee journal has no unique constraint; two concurrent dedupe-path settlements can post the fee twice",
       "claim": "postGatewayFee (gatewayFeeService.ts) guards the fee leg with a SELECT on gl_journal_entries by (company_id, reference, posting_agent) and then inserts. Nothing enforces it: two calls for one reference at once (for example two different webhook bodies for the same reference arriving together, both on the receipt-already-banked path) can both pass the SELECT and both post the fee. Pre-existing; not introduced by R-181. Fix: a partial unique index on gl_journal_entries (company_id, reference) WHERE posting_agent = 'system:paystack-receipt:v1' AND reference IS NOT NULL AND status IS DISTINCT FROM 'reversed', or a transaction-scoped advisory lock on the reference before the SELECT.",
       "processNotes": "2026-10-02: recorded by the R-181 PR #618 final review. Pre-existing; not fixed in R-181."
+    },
+    {
+      "area": "accounting/core archiving",
+      "affectedPaths": [
+        "src/modules/accounting/services/core/archiveExecutionService.ts"
+      ],
+      "sourceLabel": "R-181 PR #618 review at 7c0e9c407, 2026-10-02",
+      "sourceIds": [
+        "R-181"
+      ],
+      "correctedTrigger": "Probed on isaflow-fixture-r181 in a rolled-back transaction: deleting a paid customer invoice referenced by a customer_invoice paystack_payment_requests row fails with 23514 (paystack_pr_invoice_has_invoice), because the FK's ON DELETE SET NULL would null customer_invoice_id. So the reported outcome (request completed with a NULL invoice and never banked) cannot arise while that CHECK is validated; the reachable outcome is the archive DELETE failing.",
+      "severityRationale": "Pre-existing. Either outcome needs an archivable (paid or cancelled, before the cutoff) invoice that a Paystack request references. Unverified whether archiving reaches such an invoice in practice, or whether prod has the CHECK validated.",
+      "auditedSha": "195aba969",
+      "currentSha": "195aba969",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown. Census (read-only): (1) the reported shape, expected 0 while the CHECK holds: SELECT pr.id, pr.company_id, pr.paystack_reference FROM paystack_payment_requests pr WHERE pr.purpose = 'customer_invoice' AND pr.customer_invoice_id IS NULL AND pr.status = 'completed' AND NOT EXISTS (SELECT 1 FROM customer_payments cp WHERE cp.company_id = pr.company_id AND cp.bank_reference = pr.paystack_reference AND cp.status IS DISTINCT FROM 'cancelled'); (2) whether the CHECK is validated: SELECT convalidated FROM pg_constraint WHERE conname = 'paystack_pr_invoice_has_invoice'; (3) invoices an archive run would fail on: SELECT ci.company_id, ci.id FROM customer_invoices ci JOIN paystack_payment_requests pr ON pr.customer_invoice_id = ci.id WHERE ci.status IN ('paid','cancelled').",
+      "canonicalItem": null,
+      "branch": null,
+      "id": "R-186",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "Archive execution hard-deletes customer invoices that a Paystack payment request still references",
+      "claim": "archiveExecutionService DELETEs customer_invoices (paid or cancelled, before the cutoff). paystack_payment_requests.customer_invoice_id references them ON DELETE SET NULL, and paystack_pr_invoice_has_invoice requires it for purpose customer_invoice. As reported: a request whose invoice was archived could be completed and never banked (handleChargeSuccess settles only when customer_invoice_id is set). As probed: the SET NULL violates the CHECK, so the archive DELETE fails with 23514 instead. Fix: exclude invoices referenced by a Paystack request from the archive (or archive the requests with them), and decide what an archived invoice's open checkout should do.",
+      "processNotes": "2026-10-02: recorded by the R-181 PR #618 review at 7c0e9c407. Pre-existing; not fixed in R-181. Unverified whether archiving can reach an invoice with an open checkout."
     }
   ],
   "sourceInventory": [

@@ -52,11 +52,18 @@ leaves an unapplied receipt on the customer, and that does show in the unapplied
 ## Fix
 
 - **`src/modules/accounting/services/ar/gatewaySettlementReview.ts` (new).**
-  - `settledCharge(requestedCents, reported)` returns the cents to bank and why they need review.
-    It banks the reported amount when that is a positive integer. A missing, zero or fractional
-    amount falls back to the request amount, flagged `amount_not_reported`; refusing would make
-    every webhook redelivery fail. A difference is `amount_mismatch`. A currency other than `ZAR`
-    is `currency_mismatch`.
+  - `settledCharge(requestedCents, reported)` returns the cents to bank and why they need review
+    (the rule as it stands after every review round; the rounds below say how it got here).
+    It banks `requested_amount` when `0 <= amount - requested_amount <= fees` (the excess is a fee
+    the customer paid); otherwise `amount`, flagged `requested_amount_exceeds_fee`,
+    `amount_below_requested_amount` or, with no fee figure, `requested_amount_unverified`. With no
+    `amount` it banks `requested_amount`; with neither, the request's `amount_cents`; a missing,
+    zero or fractional `amount` is always flagged `amount_not_reported` (refusing would make every
+    webhook redelivery fail). A banked figure that differs from the request is `amount_mismatch`; a
+    currency other than `ZAR` is `currency_mismatch`.
+  - `merchantFee` gives the fee leg, `fees - (amount - banked)` clamped to `[0, fees]` and never
+    above the receipt, so Bank nets to `amount - fees`. Every comparison that decides a flag or an
+    allocation is made in whole cents.
   - `invoiceReview(status, deletedAt)` returns `invoice_deleted` for a soft-deleted invoice,
     `invoice_<status>` for one outside `documentInPopulation`, or null.
   - `flagSettlementForReview` writes the flag, scoped by `company_id` and reference, and logs at
@@ -451,3 +458,29 @@ Green: R-181 integration 61/61 on 55563.
 
 Evidence: unit 73/73 and component 5/5 under `env -u DATABASE_URL`; X1..X6 all killed
 (`mutations.log`). No database run this round.
+
+## Review at 7c0e9c407 (FIX: M + 2 LOWs + one register)
+
+- **M. More wiring escaped the unit suite.** `gatewayReceiptWiring.test.ts` now pins the review
+  reasons (first report; an invoice outside the ledger; the second report's Paystack `amount`
+  differing from the first's; bank figures one cent apart), the INSERTed description
+  (`receiptDescription`) and the receipt's re-point to the customer read under the lock. Mutants
+  Y1..Y5 go red without a database: the main-path flag removed, `invoiceBlock` dropped, the
+  Paystack-amount comparison dropped, a plain description, the re-point removed.
+- **L1. One-cent decisions were made in float rand** (`2.01 - 2.00 > 0.01` is false). Every
+  difference that decides a flag or an allocation is now compared in integer cents: the second
+  report's bank figure, the allocation INSERT threshold, `allocationPlan`'s balance, allocation and
+  overpayment, `merchantFee`'s clamp and receipt cap, `postGatewayFee`'s skip and verify's
+  `appliedToInvoice`. The orphaned `EPS` export is gone. Unit cases at one cent (R2.01 vs R2.00,
+  R20000.01 vs R20000.00, a one-cent allocation, a one-cent clamp, one cent applied); mutants C1..C6
+  restoring the float comparisons go red.
+- **L2.** The "Fix" section above states the current rule.
+- **Registered: R-186** (archiving and Paystack requests). Probed on the fixture in a rolled-back
+  transaction: deleting a paid invoice that a `customer_invoice` request references does NOT leave
+  the request with a NULL invoice id: `ON DELETE SET NULL` violates `paystack_pr_invoice_has_invoice`
+  and the DELETE fails with 23514. So the "completed and never banked" outcome cannot arise while
+  that CHECK is validated; what is reachable instead is the archive run failing for any company
+  whose archivable invoice has a Paystack request. Details and census queries in the R-186 entry.
+
+Evidence: unit 87/87 and component 5/5 under `env -u DATABASE_URL`; Y1..Y5 and C1..C6 all killed
+(`mutations.log`, red before the change `red.r11.unit.log`); R-181 integration 61/61 on 55563.

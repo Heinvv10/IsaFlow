@@ -152,3 +152,18 @@ X4 verify answers the checkout amount [pages/api/portal/payments/paystack/verify
 X5 verify says applied whatever was allocated [pages/api/portal/payments/paystack/verify.ts]: 2 failed | 71 passed (73) -> KILLED; red: banked in USD and held unapplied; nothing banked yet: the checkout amount, not applied, ZAR
 X6 verify always says ZAR [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 72 passed (73) -> KILLED; red: banked in USD and held unapplied
 AFTER unit: 73 passed (73) | component: 5 passed (5)
+
+REVIEW AT 7c0e9c407 — flag/description/re-point wiring (M) and one-cent decisions in whole cents (L1); env -u DATABASE_URL, code at 195aba969
+BASELINE unit: 87 passed (87) | component: 5 passed (5)
+Y1 main-path flagSettlementForReview removed (:215) [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 2 failed | 85 passed (87) -> KILLED; red: the first report flags its reasons: R50 reported on a R115 request; an invoice outside the ledger is a reason of its own
+Y2 invoiceBlock dropped from the reasons (:210) [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 86 passed (87) -> KILLED; red: an invoice outside the ledger is a reason of its own
+Y3 Paystack-amount comparison dropped (:130) [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 86 passed (87) -> KILLED; red: dedupe: Paystack reporting R103 after a first report of R100 is flagged though both bank R100
+Y4 plain description instead of receiptDescription (:167) [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 86 passed (87) -> KILLED; red: the receipt INSERT carries receiptDescription (the first report amount tag)
+Y5 client_id re-point after a merge removed (:190) [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 86 passed (87) -> KILLED; red: a merge moved the invoice: the receipt is re-pointed to the customer read under the lock
+C1 dedupe bank-figure comparison in float rand [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 86 passed (87) -> KILLED; red: dedupe: the same Paystack amount but bank figures one cent apart is flagged (R2.01 banked, R2.00 now)
+C2 allocation INSERT threshold in float rand [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 86 passed (87) -> KILLED; red: a one-cent allocation is inserted
+C3 outstanding balance in float [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 3 failed | 84 passed (87) -> KILLED; red: one cent owed (R2.01 total, R2.00 paid); one cent owed on a large invoice (R20000.01, R20000.00 paid), one cent banked; exactly the balance on a large invoice
+C4 a one-cent overpayment not overpaid [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 1 failed | 86 passed (87) -> KILLED; red: one cent over (R2.01 on R2.00 owed)
+C5 a one-cent clamp not flagged [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 86 passed (87) -> KILLED; red: a clamp that bites by one cent
+C6 verify: one cent applied is not applied [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 86 passed (87) -> KILLED; red: one cent applied is applied
+AFTER unit: 87 passed (87) | component: 5 passed (5)
