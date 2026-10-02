@@ -53,8 +53,8 @@ describe('on a loss on positive revenue', () => {
   });
 
   it('states the current ratio in the pack\'s notation', () => {
-    expect(highlights).toContain('Current ratio is (0.14), below 1.00 — liquidity risk');
-    expect(alerts).toContain('Current ratio (0.14) — current liabilities exceed current assets');
+    expect(highlights).toContain('Current ratio is (0.14)×, below 1.00× — liquidity risk');
+    expect(alerts).toContain('Current ratio (0.14)× — current liabilities exceed current assets');
   });
 
   it('states the loss as money: grouped, with cents', () => {
@@ -97,12 +97,12 @@ describe('on healthy figures', () => {
       'Revenue grew 40.0% vs prior period',
       'Gross margin is a positive 50.0% — strong',
       'Net profit margin is a positive 16.7% — healthy',
-      'Current ratio is 2.40 — strong liquidity',
+      'Current ratio is 2.40× — strong liquidity',
     ]);
   });
 
   it('states high leverage as a ratio in its unit', () => {
-    expect(messages(generateAlerts(HEALTHY))).toEqual(['High leverage — debt-to-equity ratio at 2.50']);
+    expect(messages(generateAlerts(HEALTHY))).toEqual(['High leverage — debt-to-equity ratio at 2.50×']);
   });
 });
 

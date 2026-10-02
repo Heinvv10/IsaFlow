@@ -81,7 +81,7 @@ describe('the executive dashboard\'s KPI scorecard tiles', () => {
   it.each([
     ['Gross Profit Margin', '(1 310.8%)', 'Target: 35.0%'],
     ['Debtor Days', '213 days', 'Target: 30 days'],
-    ['Current Ratio', '0.58', 'Target: 1.50'],
+    ['Current Ratio', '0.58×', 'Target: 1.50×'],
   ])('%s prints %s against "%s"', async (name, value, target) => {
     serve(summary({ gross: 45.5, net: 12 }));
     render(<ExecutiveDashboardPage />);

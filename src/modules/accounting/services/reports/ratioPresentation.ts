@@ -26,16 +26,26 @@ export type RatioKey = Exclude<keyof ExtendedRatioResult, 'notMeaningful'>;
  *   days   a day count                               73 days
  *   money  a rand amount                             1 234 567.89
  */
-export type RatioFormat = 'pct' | 'times' | 'ratio' | 'days' | 'money';
+/**
+ * The units. EVERY MULTIPLE IS `times` and prints with ×: the pack printed
+ * "1.71×" for a turnover beside "(0.14)" for the current ratio and "1.68"
+ * for the debt ratio — the same kind of figure in two notations. `ratio`
+ * (a bare multiple) is kept for a caller's own figure but no ratio here uses
+ * it. A PER-HEAD amount is `currency` — money with the symbol, "R 10 140.00",
+ * so a rand amount per employee does not read as a count; a statement amount
+ * (EBITDA, working capital, free cash flow) is `money`, unsymbolled as in the
+ * pack's statement tables.
+ */
+export type RatioFormat = 'pct' | 'times' | 'ratio' | 'days' | 'money' | 'currency';
 
 const RATIOS = {
   // Base ratios
   grossProfitMargin: { label: 'Gross Profit Margin', format: 'pct' },
   netProfitMargin: { label: 'Net Profit Margin', format: 'pct' },
   operatingProfitMargin: { label: 'Operating Profit Margin', format: 'pct' },
-  currentRatio: { label: 'Current Ratio', format: 'ratio' },
-  quickRatio: { label: 'Quick Ratio', format: 'ratio' },
-  debtToEquity: { label: 'Debt to Equity', format: 'ratio' },
+  currentRatio: { label: 'Current Ratio', format: 'times' },
+  quickRatio: { label: 'Quick Ratio', format: 'times' },
+  debtToEquity: { label: 'Debt to Equity', format: 'times' },
   returnOnAssets: { label: 'Return on Assets (ROA)', format: 'pct' },
   returnOnEquity: { label: 'Return on Equity (ROE)', format: 'pct' },
   debtorDays: { label: 'Debtor Days', format: 'days' },
@@ -49,12 +59,12 @@ const RATIOS = {
   directMaterialMargin: { label: 'Direct Material Margin', format: 'pct' },
   // Leverage
   interestCoverage: { label: 'Interest Cover', format: 'times' },
-  debtRatio: { label: 'Debt Ratio', format: 'ratio' },
+  debtRatio: { label: 'Debt Ratio', format: 'times' },
   equityMultiplier: { label: 'Equity Multiplier', format: 'times' },
   // Liquidity
-  cashRatio: { label: 'Cash Ratio', format: 'ratio' },
+  cashRatio: { label: 'Cash Ratio', format: 'times' },
   workingCapital: { label: 'Working Capital', format: 'money' },
-  operatingCashFlowRatio: { label: 'Operating Cash Flow Ratio', format: 'ratio' },
+  operatingCashFlowRatio: { label: 'Operating Cash Flow Ratio', format: 'times' },
   // Efficiency
   assetTurnover: { label: 'Asset Turnover', format: 'times' },
   receivablesTurnover: { label: 'Receivables Turnover', format: 'times' },
@@ -69,11 +79,11 @@ const RATIOS = {
   pbtToNetInterest: { label: 'PBT to Net Interest', format: 'times' },
   netProfitToNetInterest: { label: 'Net Profit to Net Interest', format: 'times' },
   // Employee productivity
-  revenuePerEmployee: { label: 'Revenue per Employee', format: 'money' },
-  pbitPerEmployee: { label: 'PBIT per Employee', format: 'money' },
-  ebitdaPerEmployee: { label: 'EBITDA per Employee', format: 'money' },
+  revenuePerEmployee: { label: 'Revenue per Employee', format: 'currency' },
+  pbitPerEmployee: { label: 'PBIT per Employee', format: 'currency' },
+  ebitdaPerEmployee: { label: 'EBITDA per Employee', format: 'currency' },
   employeeCostToRevenue: { label: 'Employee Cost to Revenue', format: 'pct' },
-  employeeCostPerHead: { label: 'Employee Cost per Head', format: 'money' },
+  employeeCostPerHead: { label: 'Employee Cost per Head', format: 'currency' },
   // Returns
   dividendCover: { label: 'Dividend Cover', format: 'times' },
   retentionRate: { label: 'Retention Rate', format: 'pct' },
@@ -130,6 +140,7 @@ export function formatRatioFigure(format: RatioFormat, value: number): string {
     case 'ratio': return formatRatio(value);
     case 'days': return formatDays(value);
     case 'money': return formatMoney(value, { cents: true, pack: true });
+    case 'currency': return formatMoney(value, { cents: true, pack: true, symbol: true });
   }
 }
 

@@ -107,7 +107,7 @@ describe('buildPackDocument', () => {
     expect(items.find((i) => i.label === 'Debt Ratio')!.format).toBe('times');
     // A cover or a turnover is a multiple, and is written as one.
     expect(items.find((i) => i.label === 'Asset Turnover')!.format).toBe('times');
-    expect(new Set(items.map((i) => i.format))).toEqual(new Set(['money', 'pct', 'ratio', 'times', 'days']));
+    expect(new Set(items.map((i) => i.format))).toEqual(new Set(['money', 'currency', 'pct', 'times', 'days']));
     // No label is an engine key split on its capitals.
     expect(items.map((i) => i.label).filter((l) => /\b(Ebitda|Roce|Pbit|Pbt|Dupont)\b/.test(l))).toEqual([]);
   });

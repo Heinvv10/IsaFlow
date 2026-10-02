@@ -31,8 +31,8 @@ describe('the risk sentences on a loss', () => {
   });
 
   it('state the ratios in the pack\'s notation', () => {
-    expect(text).toContain('Current ratio (0.14) is below 1.00 — unable to cover short-term obligations');
-    expect(text).toContain('Debt-to-equity 3.10 exceeds 3.00');
+    expect(text).toContain('Current ratio (0.14)× is below 1.00× — unable to cover short-term obligations');
+    expect(text).toContain('Debt-to-equity 3.10× exceeds 3.00×');
   });
 
   it('carry no minus sign', () => {
@@ -55,8 +55,8 @@ describe('on ordinary figures', () => {
       ratios: { grossMargin: 18.25, netMargin: 3, currentRatio: 1.2, quickRatio: 1 },
     });
     expect(text).toEqual([
-      'Current ratio 1.20 is below recommended 1.50',
-      'Debt-to-equity 2.50 exceeds 2.00 — high financial leverage',
+      'Current ratio 1.20× is below recommended 1.50×',
+      'Debt-to-equity 2.50× exceeds 2.00× — high financial leverage',
       'Gross margin is a positive 18.3%, below 20.0%',
       'Net margin is a positive 3.0%, below 5.0%',
     ]);

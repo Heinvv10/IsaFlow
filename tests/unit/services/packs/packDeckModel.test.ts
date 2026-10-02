@@ -89,7 +89,7 @@ describe('buildPackDeck', () => {
       ] }],
     };
     const rows = buildPackDeck(scorecard).flatMap((s) => (s.kind === 'table' ? s.rows : []));
-    expect(rows[0]!.value).toBe('2.32 / 2.00');
+    expect(rows[0]!.value).toBe('2.32× / 2.00×');
     expect(rows[1]!.value).toBe('Equity is not positive');
   });
 

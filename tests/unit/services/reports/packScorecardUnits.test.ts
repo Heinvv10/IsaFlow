@@ -60,7 +60,7 @@ function htmlCells(s: PackSection): Map<string, [string, string]> {
 const DEMO_TILES: Array<[string, string, string]> = [
   ['Gross Profit Margin', '(1 300.0%)', '35.0%'],
   ['Net Profit Margin', '(1 500.0%)', '15.0%'],
-  ['Current Ratio', '0.14', '1.50'],
+  ['Current Ratio', '0.14×', '1.50×'],
   ['Debtor Days', '212 days', '30 days'],
 ];
 

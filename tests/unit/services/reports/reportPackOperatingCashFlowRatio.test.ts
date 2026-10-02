@@ -86,7 +86,7 @@ describe('the operating cash flow ratio where the cash flow statement was read',
     const { item, deck } = printed(READ);
     expect(item.unavailable).toBeUndefined();
     expect(item.value).toBe(0.36);
-    expect(deck).toBe('0.36');
+    expect(deck).toBe('0.36×');
     expect((ratiosSection(READ).data as { notMeaningful: Record<string, string> }).notMeaningful.operatingCashFlowRatio)
       .toBeUndefined();
   });

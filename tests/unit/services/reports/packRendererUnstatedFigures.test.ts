@@ -120,7 +120,7 @@ describe.each(RENDERERS)('%s — ratios', (_name, rows) => {
 
   it('still prints the ordinary ratios as numbers', () => {
     const cells = rows(section({ ...BASE, ...FLOWS }, 'ratios'));
-    expect(cells.get('Current Ratio')).toBe('2.00');
+    expect(cells.get('Current Ratio')).toBe('2.00×');
     // In its unit: a margin is a percentage, a turnover a multiple.
     // A level, so unsigned: a gross margin of 45% did not rise by 45%.
     expect(cells.get('Gross Profit Margin')).toBe('45.0%');

@@ -53,9 +53,9 @@ describe('SectionCard ratios', () => {
     expect(text).not.toMatch(/\d{7,}/);
   });
 
-  it('writes a ratio of no unit as two decimals', () => {
+  it('writes a multiple as two decimals with ×', () => {
     open(ratios(INPUT));
-    expect(valueOf('Current Ratio')).toMatch(/^\(?\d+\.\d\d\)?$/);
+    expect(valueOf('Current Ratio')).toMatch(/^\(?\d+\.\d\d\)?×$/);
   });
 
   it('prints the service\'s own reason string for every ratio it could not compute', () => {

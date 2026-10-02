@@ -42,7 +42,7 @@ describe('Financial Analysis KPI tiles', () => {
   it.each([
     ['Gross Profit Margin', '(1 310.8%)', 'Target: 35.0%'],
     ['Debtor Days', '213 days', 'Target: 30 days'],
-    ['Current Ratio', '2.40', 'Target: 1.50'],
+    ['Current Ratio', '2.40×', 'Target: 1.50×'],
     ['Interest Cover', '5.17×', 'Target: 3.00×'],
   ])('%s prints %s against "%s"', async (name, value, target) => {
     serve();
