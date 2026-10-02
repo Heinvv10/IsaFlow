@@ -7,6 +7,7 @@
 import { boardActionMatters, narrativeTitle } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import type { MoneyScale } from '@/lib/format/money';
 import { buildCommentaryBlocks } from './packPageBlocks';
+import { bulkLoadedNote } from './packBulkLoadedJournals';
 import type { SelectedMatters } from './packMattersPrinted';
 import { page, type UnnumberedPage } from './packFrontMatter';
 import type { ledgerStalenessNote } from './packLedgerStaleness';
@@ -50,6 +51,7 @@ export function buildNarrativePage(
   // existed to explain why the headline's net-profit percentage could not be
   // formed, and the headline no longer states one. It was also the second
   // unanchored footnote in the pack.
+  const bulkLoaded = bulkLoadedNote(input.bulkLoadedJournals);
   const narrativePage = page(
     narrativeTitle(boardActionMatters(matters), [...matters.printed, ...matters.omitted], scale),
     'Commentary and actions',
@@ -65,6 +67,10 @@ export function buildNarrativePage(
       ...(staleLedger === null ? [] : [staleLedger]),
       ...(debtorsBase === null ? [] : [debtorsBase]),
       ...(shortPanels === null ? [] : [shortPanels]),
+      // AND WHAT ITS CHECKS LEFT OUT. The action panel is drawn from the
+      // matters page's checks, so a bulk load the late-recording test skipped
+      // is said here too — see `bulkLoadedSentence`.
+      ...(bulkLoaded === null ? [] : [bulkLoaded]),
     ],
     'portrait',
     [],

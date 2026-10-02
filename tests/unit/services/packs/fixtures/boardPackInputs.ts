@@ -220,6 +220,8 @@ export const demoInput: BoardPackInput = {
   set: demoSet,
   trend,
   matters,
+  // No journal in the window was recorded in a bulk load.
+  bulkLoadedJournals: null,
   commentary: {
     status: 'approved',
     body: 'Trading held up through the winter and the operating line improved.',

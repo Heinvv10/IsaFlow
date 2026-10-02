@@ -196,6 +196,11 @@ export const velocityInput: BoardPackInput = {
   set: velocitySet,
   trend: velocityTrend,
   matters: velocityMatters,
+  // The September 2026 reload, at the scale page 11 printed (19 581 matters
+  // "not printed"). The count is that page's, not a census of the ledger; the
+  // span is the reload's recording days on the production copy of 18
+  // September 2026 (5 to 18 September, twelve days).
+  bulkLoadedJournals: { journals: 19_581, days: 12, firstRecorded: '2026-09-05', lastRecorded: '2026-09-18' },
   receivables: {
     agedDebtorsTotal: 16_089_000,
     subledgerTotal: 16_089_000,

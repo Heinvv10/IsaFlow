@@ -8,6 +8,7 @@
 import { inScale, type MoneyScale } from '@/lib/format/money';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import { money } from './derivedProseFigures';
+import { groupedCount } from '@/modules/accounting/services/packs/pages/packMatterWords';
 
 /**
  * "One check could not be run and is listed as a matter." — or nothing.
@@ -20,7 +21,7 @@ import { money } from './derivedProseFigures';
 export function failedChecksClause(matters: readonly PackMatter[]): string {
   const failed = matters.filter((m) => m.kind === 'checkFailed').length;
   if (failed === 0) return '';
-  return ` ${failed === 1 ? 'One check' : `${failed} checks`} could not be run and ${failed === 1 ? 'is' : 'are'} listed as a matter.`;
+  return ` ${failed === 1 ? 'One check' : `${groupedCount(failed)} checks`} could not be run and ${failed === 1 ? 'is' : 'are'} listed as a matter.`;
 }
 
 /**
@@ -68,7 +69,8 @@ export function narrativeTitle(
     return `0 matters require a board decision this period; this page carries the commentary on it.${failed}`;
   }
   const shownFindings = shown.filter((m) => m.kind === 'finding');
-  const scope = `${shownFindings.length} of ${findings} matters requiring a board decision `
+  // GROUPED: "4 of 19588 matters" sat over a panel quoting "10 353".
+  const scope = `${groupedCount(shownFindings.length)} of ${groupedCount(findings)} matters requiring a board decision `
     + `${shownFindings.length === 1 ? 'is' : 'are'} put to the board on this page`;
   const quantified = shownFindings.filter((m) => m.quantum !== null);
   if (quantified.length === 0) {

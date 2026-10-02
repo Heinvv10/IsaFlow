@@ -29,6 +29,7 @@ import { FilingDeadlineUnknownError } from '@/modules/accounting/services/report
 import { BOARD_DECISIONS } from './packMatterDecisions';
 import type { PeriodWindow } from '@/modules/accounting/services/reports/priorPeriod';
 import { NO_PRIOR_MEETING_RECORD, SOURCES } from './packMatterSources';
+import type { BulkLoadedJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
 
 export { NO_PRIOR_MEETING_RECORD, SOURCES } from './packMatterSources';
 
@@ -74,6 +75,10 @@ export interface PackMattersRead {
   /** The full open AR subledger. Null only where the aging report could not
    *  be read at all, in which case the check is already a named matter. */
   subledgerTotal: number | null;
+  /** Journals the backdating check skipped as a bulk load — see
+   *  `BULK_LOAD_MIN`. Null where it skipped none, or where the check failed
+   *  (and is then a named matter of its own). */
+  bulkLoadedJournals: BulkLoadedJournals | null;
 }
 
 /**
@@ -128,6 +133,7 @@ export async function buildMatters(
   const matters: PackMatter[] = [];
   let agedDebtorsTotal: number | null = null;
   let subledgerTotal: number | null = null;
+  let bulkLoadedJournals: BulkLoadedJournals | null = null;
 
   // Sequential, not Promise.all — `sql` in @/lib/neon routes every query
   // through the ONE request-scoped pg connection held in the async-local
@@ -143,6 +149,7 @@ export async function buildMatters(
       matters.push(...result.matters);
       if (result.agedDebtorsTotal !== undefined) agedDebtorsTotal = result.agedDebtorsTotal;
       if (result.subledgerTotal !== undefined) subledgerTotal = result.subledgerTotal;
+      if (result.bulkLoaded !== undefined) bulkLoadedJournals = result.bulkLoaded;
     } catch (error) {
       // ONLY A CHECK THAT COULD NOT BE RUN IS A FAILED CHECK: the database
       // refusing the read, or the filings source refusing to date a deadline
@@ -166,11 +173,12 @@ export async function buildMatters(
     }
   }
 
-  if (matters.length === 0) return { matters: [NO_MATTERS], agedDebtorsTotal, subledgerTotal };
+  if (matters.length === 0) return { matters: [NO_MATTERS], agedDebtorsTotal, subledgerTotal, bulkLoadedJournals };
 
   return {
     matters: matters.sort((a, b) => Math.abs(b.quantum ?? 0) - Math.abs(a.quantum ?? 0)),
     agedDebtorsTotal,
     subledgerTotal,
+    bulkLoadedJournals,
   };
 }

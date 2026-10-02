@@ -8,6 +8,7 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
 import type { PackMatter } from './packMatters';
+import type { BulkLoadedJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
 import type { PackReceivablesRead } from './packReceivablesReconciliation';
 import type { PackDraftReason } from './packDraftStatus';
 import type { PackNarrative } from './packPageModel';
@@ -34,6 +35,10 @@ export interface BoardPackInput {
   set: PackFigureSet;
   trend: PackTrendPoint[];
   matters: PackMatter[];
+  /** Journals recorded in a bulk load, which the backdating check did not
+   *  test — `buildMatters(...).bulkLoadedJournals`. Pages 4 and 11 say how
+   *  many and when, so a reload is never a silent gap in the checks. */
+  bulkLoadedJournals: BulkLoadedJournals | null;
   /**
    * What the pack knows about its own receivables: the aged debtors total
    * where a sheet prints it, the full open subledger, and

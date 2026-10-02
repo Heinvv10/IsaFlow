@@ -12,6 +12,9 @@ import { failedChecksClause } from '@/modules/accounting/services/packs/narrativ
 import { disclose, note } from './packPageBlocks';
 import { mattersExposure, omittedQuantum, type SelectedMatters } from './packMattersPrinted';
 import { matterSourcesInWords } from './packDerivedMatters';
+import { bulkLoadedSentence } from './packBulkLoadedJournals';
+import type { BulkLoadedJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
+import { groupedCount } from './packMatterWords';
 import { remainingPageMm } from './packPageFit';
 import { MATTERS_OMITTED_NOTE_MM } from './packPageMetrics';
 import { notMeaningfulNotesMm } from './packBlockHeights';
@@ -69,6 +72,9 @@ export function mattersTitle(matters: PackMatter[], scale: MoneyScale): string {
   // word — exposure — under two conventions. See `mattersExposure`.
   const total = mattersExposure(findings) ?? 0;
   const noun = findings.length === 1 ? 'matter requires' : 'matters require';
+  // GROUPED, like every figure on the sheet: Velocity Fibre's read "19588
+  // matters require a board decision, 19587 of them carrying 579 019".
+  const n = groupedCount;
   // WITH ITS UNIT. It read "26 of them carrying 1 675 of exposure" over a note
   // reading "They come to 658 R'000 in total" — two figures about two
   // different sets, one of which said what it was measured in. A reader with
@@ -80,8 +86,8 @@ export function mattersTitle(matters: PackMatter[], scale: MoneyScale): string {
   // `R'000` trailed a number instead of heading a column.
   const exposure = quantified.length === 0
     ? 'none of them carrying a single rand amount'
-    : `${quantified.length} of them carrying ${inScale(`${formatMoney(total, { scale })}${EXPOSURE_CLAUSE}`, scale)}`;
-  return `${findings.length} ${noun} a board decision, ${exposure}.${failedClause}`;
+    : `${n(quantified.length)} of them carrying ${inScale(`${formatMoney(total, { scale })}${EXPOSURE_CLAUSE}`, scale)}`;
+  return `${n(findings.length)} ${noun} a board decision, ${exposure}.${failedClause}`;
 }
 
 /**
@@ -154,6 +160,11 @@ export function buildMattersSupportBlocks(
    *  `packReceivablesReconciliation.ts` for why it is budgeted against the
    *  table rather than appended after it. */
   receivables: PackPageBlock | null = null,
+  /** What the late-recording test skipped as a bulk load — see
+   *  `bulkLoadedSentence`. Stated under Sources because it is a statement
+   *  about what was checked, and charged to the table's budget like the rest
+   *  of this block. */
+  bulkLoaded: BulkLoadedJournals | null = null,
 ): PackPageBlock[] {
   return [
     { kind: 'narrative', narrative: commentary },
@@ -188,7 +199,8 @@ export function buildMattersSupportBlocks(
       // for every matter listed above." One fact, twice, on one page, on the
       // page whose paper is measured in matters rows. The silent-omission
       // guarantee stays, because nothing else on the sheet states it.
-      note('Sources', `${matterSourcesInWords().charAt(0).toUpperCase()}${matterSourcesInWords().slice(1)}. A source that fails is named as a matter, never dropped.`),
+      note('Sources', `${matterSourcesInWords().charAt(0).toUpperCase()}${matterSourcesInWords().slice(1)}. A source that fails is named as a matter, never dropped.`
+        + (bulkLoaded === null ? '' : ` ${bulkLoadedSentence(bulkLoaded)}`)),
     ]),
   ];
 }

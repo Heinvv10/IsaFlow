@@ -41,6 +41,7 @@ export function selectBoardPackMatters(
   const mattersSupport = buildMattersSupportBlocks(
     input.mattersCommentary ?? pending,
     receivablesReconciliation,
+    input.bulkLoadedJournals,
   );
   // The title first, from the FULL list: the budget the table spends depends
   // on how much paper the header leaves, and the headline must not change

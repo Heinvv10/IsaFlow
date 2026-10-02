@@ -89,7 +89,7 @@ function agingWithConcentration(largestTotal: number, otherTotals: number[]): Ag
 function everySourceEmpty(): void {
   agingSpy.mockResolvedValue(emptyAging());
   bankSpy.mockResolvedValue([]);
-  journalSpy.mockResolvedValue([]);
+  journalSpy.mockResolvedValue({ flags: [], bulkLoaded: null });
   filingSpy.mockResolvedValue([]);
 }
 
@@ -118,7 +118,7 @@ describe('buildMatters', () => {
       { entryId: 'j1', entryNumber: 'JE-1', entryDate: '2026-03-01', description: 'Estimate', amount: 90_000, reason: 'round_number' },
       { entryId: 'j2', entryNumber: 'JE-2', entryDate: '2026-04-01', description: 'Late entry', amount: 5_000, reason: 'backdated' },
     ];
-    journalSpy.mockResolvedValue(journalFlags);
+    journalSpy.mockResolvedValue({ flags: journalFlags, bulkLoaded: null });
     const filings: OverdueFiling[] = [
       { filingType: 'Annual Financial Statements', fiscalYear: 2025, deadline: '2026-03-31', daysOverdue: 10 },
     ];
@@ -140,6 +140,21 @@ describe('buildMatters', () => {
     expect(matters).toHaveLength(1);
     expect(matters[0]?.issue).toMatch(/no matters/i);
     expect(matters[0]?.quantum).toBeNull();
+  });
+
+  it('hands back what the late-recording test skipped as a bulk load, for pages 4 and 11', async () => {
+    everySourceEmpty();
+    const bulk = { journals: 19_581, days: 12, firstRecorded: '2026-09-05', lastRecorded: '2026-09-18' };
+    journalSpy.mockResolvedValue({ flags: [], bulkLoaded: bulk });
+    const read = await buildMatters('c1', window);
+    expect(read.bulkLoadedJournals).toEqual(bulk);
+    // A load is not a matter: with nothing else raised, the page still says so.
+    expect(read.matters.map((m) => m.kind)).toEqual(['none']);
+  });
+
+  it('reports no bulk load where the source skipped none', async () => {
+    everySourceEmpty();
+    expect((await buildMatters('c1', window)).bulkLoadedJournals).toBeNull();
   });
 
   it('reports a source that failed rather than silently omitting its matters', async () => {
@@ -318,7 +333,7 @@ describe('buildMatters', () => {
       await touchLedger('bank');
       return [{ suggestedCount: 0, unallocatedCount: 3, unreconciledBalance: 15_000 }];
     });
-    journalSpy.mockImplementation(async () => { await touchLedger('journals'); return []; });
+    journalSpy.mockImplementation(async () => { await touchLedger('journals'); return { flags: [], bulkLoaded: null }; });
     filingSpy.mockImplementation(async () => { await touchLedger('filings'); return []; });
     const tx = fakeRequestTx((statement) =>
       (statement.includes('/* aging */') ? pgError('57014', 'canceling statement due to statement timeout') : null));

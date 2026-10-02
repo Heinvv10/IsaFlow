@@ -159,6 +159,7 @@ export async function buildBoardPackDocument(
     set,
     trend,
     matters: matters.matters,
+    bulkLoadedJournals: matters.bulkLoadedJournals,
     // Page 11's reconciliation and page 4's debtors-base note are both taken
     // from this — see `packReceivablesReconciliation.ts`.
     receivables: {

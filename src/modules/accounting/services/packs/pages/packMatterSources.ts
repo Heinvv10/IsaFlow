@@ -10,7 +10,7 @@ import { getAgingReport } from '@/modules/accounting/services/reports/agingRepor
 import { formatMoney, inScale } from '@/lib/format/money';
 import { PACK_SCALE } from './packBasis';
 import { getBankAccountsStatus, type BankAccountStatusRow } from '@/modules/accounting/services/bank/bankAccountStatusService';
-import { getUnusualJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
+import { getUnusualJournals, type BulkLoadedJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
 import { getOverdueStatutoryFilings } from '@/modules/accounting/services/reports/statutoryFilingsService';
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
 import { formatPackDate } from './packPeriodLabel';
@@ -50,6 +50,10 @@ export interface SourceResult {
    * cannot say so without this number. See `receivablesBaseNote`.
    */
   subledgerTotal?: number;
+  /** What the unusual-journals source did not test for late recording
+   *  because it was recorded in a bulk load — present only on that source,
+   *  null where it skipped nothing. Pages 4 and 11 state it. */
+  bulkLoaded?: BulkLoadedJournals | null;
 }
 
 const CONCENTRATION_THRESHOLD_PCT = 20;
@@ -216,9 +220,9 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
 async function unusualJournalMatters(
   companyId: string,
   window: PeriodWindow,
-): Promise<PackMatter[]> {
-  const flags = await getUnusualJournals(companyId, window);
-  return flags.map((f) => ({
+): Promise<SourceResult> {
+  const { flags, bulkLoaded } = await getUnusualJournals(companyId, window);
+  return { bulkLoaded, matters: flags.map((f) => ({
     kind: 'finding' as const,
     issue: `Journal ${f.entryNumber ?? f.entryId} (${
       f.reason === 'round_number' ? 'large round-number amount' : 'recorded well after its entry date'
@@ -227,7 +231,7 @@ async function unusualJournalMatters(
     owner: 'Finance',
     movement: NO_PRIOR_MEETING_RECORD,
     decisionRequired: BOARD_DECISIONS.unusualJournal,
-  }));
+  })) };
 }
 
 async function overdueFilingMatters(companyId: string, window: PeriodWindow): Promise<PackMatter[]> {
@@ -279,6 +283,6 @@ export const SOURCES: ReadonlyArray<{
 }> = [
   { label: 'aged debtors', check: 'aged debtor concentration', build: agedDebtorConcentrationMatters },
   { label: 'unreconciled bank items', check: 'unreconciled bank items', build: async (companyId) => ({ matters: await unreconciledBankMatters(companyId) }) },
-  { label: 'unusual journals', check: 'unusual journals', build: async (c, w) => ({ matters: await unusualJournalMatters(c, w) }) },
+  { label: 'unusual journals', check: 'unusual journals', build: unusualJournalMatters },
   { label: 'overdue statutory filings', check: 'overdue statutory filings', build: async (c, w) => ({ matters: await overdueFilingMatters(c, w) }) },
 ];
