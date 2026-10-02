@@ -25,6 +25,9 @@ vi.mock('next/router', () => ({
 }));
 vi.mock('@/components/analytics/TrackerScript', () => ({ TrackerScript: () => null }));
 
+// The first import of pages/_app is slow under a loaded machine; the 5 s default failed pre-push gates. Timing only.
+const LOAD_TIMEOUT = 60_000;
+
 describe('pages/_app.tsx — service worker registration', () => {
   beforeEach(() => {
     register.mockClear();
@@ -58,8 +61,8 @@ describe('pages/_app.tsx — service worker registration', () => {
     // gate let the page through; which one depends only on the environment.
     await waitFor(() => {
       expect(register.mock.calls.length + getRegistrations.mock.calls.length).toBeGreaterThan(0);
-    });
-  });
+    }, { timeout: 15_000 });
+  }, LOAD_TIMEOUT);
 
   it('does not touch it at all on the public share page', async () => {
     pathname = '/share/[token]';
@@ -68,5 +71,5 @@ describe('pages/_app.tsx — service worker registration', () => {
     await new Promise(r => setTimeout(r, 0));
     expect(register).not.toHaveBeenCalled();
     expect(getRegistrations).not.toHaveBeenCalled();
-  });
+  }, LOAD_TIMEOUT);
 });

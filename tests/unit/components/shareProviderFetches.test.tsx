@@ -42,6 +42,9 @@ async function mount() {
   );
 }
 
+// The first import of pages/_app is slow under a loaded machine; the 5 s default failed pre-push gates. Timing only.
+const LOAD_TIMEOUT = 60_000;
+
 describe('pages/_app.tsx — provider fetches on the public share page', () => {
   beforeEach(() => {
     fetchMock.mockClear();
@@ -53,8 +56,8 @@ describe('pages/_app.tsx — provider fetches on the public share page', () => {
   it('fetches the session on an ordinary app page', async () => {
     pathname = '/accounting/reports/report-packs';
     await mount();
-    await waitFor(() => expect(asked().some(u => u.includes('/api/auth/me'))).toBe(true));
-  });
+    await waitFor(() => expect(asked().some(u => u.includes('/api/auth/me'))).toBe(true), { timeout: 15_000 });
+  }, LOAD_TIMEOUT);
 
   it('fetches neither the session nor the companies on a share route', async () => {
     pathname = '/share/[token]';
@@ -63,5 +66,5 @@ describe('pages/_app.tsx — provider fetches on the public share page', () => {
     await new Promise(r => setTimeout(r, 0));
     expect(asked().some(u => u.includes('/api/auth/me'))).toBe(false);
     expect(asked().some(u => u.includes('/api/accounting/companies'))).toBe(false);
-  });
+  }, LOAD_TIMEOUT);
 });
