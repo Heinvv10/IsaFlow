@@ -13,6 +13,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { MAX_CHAIN_DEPTH } from '../shared/journalChainHead';
 
 /** How every settlement refusal names the undo — the UI action first. */
 export const UNAPPLY_REMEDY = 'Unapply on the payment page (or the unapply_supplier_payment tool)';
@@ -26,12 +27,24 @@ export async function refuseReversingSettlementJournal(
   entry: { id: string; entryNumber: string; source?: string | null },
 ): Promise<void> {
   if (!entry.source || !SETTLEMENT_SOURCES.has(entry.source)) return;
+  // The entry OR any entry it reverses (D8): a provisional reversed and
+  // re-reversed settles through its chain, and reversing the head R2 takes it
+  // out of the ledger exactly as reversing it would. Walked up `reversal_of_id`,
+  // bounded like shared/journalChainHead.
   const [row] = (await sql`
-    SELECT payment_number, settles_provisional_je_id = ${entry.id}::UUID AS is_provisional
+    WITH RECURSIVE up AS (
+      SELECT id, reversal_of_id, 1 AS depth FROM gl_journal_entries
+      WHERE id = ${entry.id}::UUID AND company_id = ${companyId}::UUID
+      UNION ALL
+      SELECT p.id, p.reversal_of_id, up.depth + 1 FROM gl_journal_entries p
+      JOIN up ON p.id = up.reversal_of_id
+      WHERE p.company_id = ${companyId}::UUID AND up.depth < ${MAX_CHAIN_DEPTH}
+    )
+    SELECT payment_number, settles_provisional_je_id IN (SELECT id FROM up) AS is_provisional
     FROM supplier_payments
     WHERE company_id = ${companyId}::UUID AND status <> 'cancelled'
       AND settles_provisional_je_id IS NOT NULL
-      AND (settles_provisional_je_id = ${entry.id}::UUID OR gl_journal_entry_id = ${entry.id}::UUID)
+      AND (settles_provisional_je_id IN (SELECT id FROM up) OR gl_journal_entry_id IN (SELECT id FROM up))
     LIMIT 1
   `) as DbRow[];
   if (!row) return;

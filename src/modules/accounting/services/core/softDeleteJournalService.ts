@@ -29,6 +29,7 @@ import { log } from '@/lib/logger';
 import { reverseJournalEntry } from '../gl/journalEntryPostingService';
 import { assertInvoiceDeletable } from './softDeleteInvoiceGuards';
 import { SoftDeleteRefusalError } from './softDeleteErrors';
+import { findJournalChainHead } from '../shared/journalChainHead';
 
 /**
  * Lock the document's journal entry and report whether it is still live.
@@ -68,21 +69,9 @@ async function chainHead(
   companyId: string,
   rootJournalEntryId: string,
 ): Promise<{ id: string; standing: boolean }> {
-  const rows = (await sql`
-    WITH RECURSIVE chain AS (
-      SELECT id, reversed_at, 1 AS depth
-      FROM gl_journal_entries
-      WHERE id = ${rootJournalEntryId}::UUID AND company_id = ${companyId}::UUID
-        AND status = 'posted'
-      UNION ALL
-      SELECT j.id, j.reversed_at, chain.depth + 1
-      FROM gl_journal_entries j
-      JOIN chain ON j.reversal_of_id = chain.id
-      WHERE j.company_id = ${companyId}::UUID AND j.status = 'posted'
-    )
-    SELECT id, depth FROM chain WHERE reversed_at IS NULL
-  `) as DbRow[];
-  if (rows.length !== 1) {
+  // The walk itself is shared/journalChainHead (D8), with a cycle guard.
+  const chain = await findJournalChainHead(companyId, rootJournalEntryId);
+  if (!chain || chain.kind !== 'head') {
     // Every other guard in this file throws, and this one must too: skipping
     // here soft-deletes the document with its journal left standing, which is
     // the exact defect this service exists to prevent, with nothing in the
@@ -95,12 +84,12 @@ async function chainHead(
     // until somebody read the server log.
     throw new SoftDeleteRefusalError(
       `Journal entry ${rootJournalEntryId} has an unexpected reversal chain ` +
-        `(${rows.length} un-reversed posted entries): this document's journal ` +
-        'cannot be reversed safely. Open that entry in the GL and put its ' +
+        `(${chain ? chain.unreversed : 0} un-reversed posted entries${chain?.cyclic ? ', looping' : ''}): ` +
+        "this document's journal cannot be reversed safely. Open that entry in the GL and put its " +
         'reversal chain back into a posted state before deleting the document.',
     );
   }
-  return { id: String(rows[0]!.id), standing: Number(rows[0]!.depth) % 2 === 1 };
+  return { id: chain.id, standing: chain.standing };
 }
 
 /**

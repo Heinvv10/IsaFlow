@@ -21,6 +21,11 @@
  * The caller asserts the journal itself is posted; an unposted one has no
  * reversals and reads TRUE.
  *
+ * CYCLE GUARD (D8 round 2): the unique index forbids two reversals of one
+ * entry, not a loop, so a forged one would recurse for ever. The walk carries
+ * its path (seeded with the journal itself) and stops at the first repeat or at
+ * MAX_CHAIN_DEPTH; the parity of a looped chain is meaningless but it ends.
+ *
  * Built with ONE `sql.unsafe` (not a nested tagged template) for the reason
  * softDeleteLedgerPresence gives: a nested `sql` call consumes a queued mock
  * row in every unit suite that stubs `@/lib/neon`. INTERPOLATION ONLY — the
@@ -30,6 +35,7 @@
  *   input: it is spliced into the SQL text.
  */
 import { sql } from '@/lib/neon';
+import { MAX_CHAIN_DEPTH } from './journalChainHead';
 
 /** As at `asAtStr` ('YYYY-MM-DD'): only reversals dated on or before it count. For a dated report. */
 export function journalInForceAsAtFragment(journalIdColumn: string, asAtStr: string, companyId: string) {
@@ -48,15 +54,16 @@ export function journalStandsFragment(journalIdColumn: string, companyId: string
 function chainParity(journalIdColumn: string, companyId: string, asAtStr: string | null) {
   return sql.unsafe(
     `(WITH RECURSIVE reversals AS (
-        SELECT r.id, r.entry_date
+        SELECT r.id, r.entry_date, ARRAY[r.reversal_of_id, r.id] AS path
         FROM gl_journal_entries r
         WHERE r.reversal_of_id = ${journalIdColumn}
           AND r.company_id = $1::UUID AND r.status = 'posted'
         UNION ALL
-        SELECT j.id, j.entry_date
+        SELECT j.id, j.entry_date, reversals.path || j.id
         FROM gl_journal_entries j
         JOIN reversals ON j.reversal_of_id = reversals.id
         WHERE j.company_id = $1::UUID AND j.status = 'posted'
+          AND NOT j.id = ANY(reversals.path) AND cardinality(reversals.path) < ${MAX_CHAIN_DEPTH}
       )
       SELECT COUNT(*) FILTER (WHERE $2::DATE IS NULL OR reversals.entry_date <= $2::DATE) % 2 = 0
       FROM reversals)`,

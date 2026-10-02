@@ -16,6 +16,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { journalStandsFragment } from '../shared/journalInForceAsAt';
+import { brokenChainMessage, findJournalChainHead } from '../shared/journalChainHead';
 import { getJournalEntryById } from '../gl/journalEntryService';
 import { resolveReversalDateDetailed, type VatLockRoll } from '../gl/journalEntryReversalDate';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
@@ -43,7 +44,7 @@ export interface SupplierInvoiceCancelPlan {
   invoiceNumber: string;
   status: string;
   totalAmount: number;
-  /** The approval journal the cancel will reverse, or null when there is none to reverse. */
+  /** The entry the cancel will reverse — the approval journal's chain head — or null when its chain is out. */
   journal: {
     id: string;
     entryNumber: string;
@@ -194,11 +195,18 @@ export async function planSupplierInvoiceCancel(
     }
   }
 
-  // The cancel reverses only a posted, not-yet-reversed journal — the same test here.
-  if (!entry || entry.status !== 'posted' || entry.reversedAt) return { ...base, journal: null };
-  if (!entry.lines || entry.lines.length === 0) {
+  // The cancel reverses the posted journal's chain HEAD while the chain stands
+  // (D8, shared/journalChainHead) — `reversed_at` on the approval journal is not
+  // the answer: after O <- R <- R2 the GL carries the bill again through R2.
+  // Nothing when the chain is out; the same test the cancel makes.
+  if (!entry || entry.status !== 'posted') return { ...base, journal: null };
+  const chain = await findJournalChainHead(companyId, entry.id);
+  if (chain?.kind === 'broken') throw new SupplierInvoiceCancelRefusal(brokenChainMessage(entry.id, chain));
+  if (!chain || !chain.standing) return { ...base, journal: null };
+  const head = chain.id === entry.id ? entry : await getJournalEntryById(companyId, chain.id);
+  if (!head || !head.lines || head.lines.length === 0) {
     throw new SupplierInvoiceCancelRefusal(
-      `Supplier invoice ${number}'s journal ${entry.entryNumber} has no lines, so it cannot be reversed. `
+      `Supplier invoice ${number}'s journal ${head?.entryNumber ?? chain.id} has no lines, so it cannot be reversed. `
       + 'Reconcile it by hand.',
     );
   }
@@ -208,18 +216,18 @@ export async function planSupplierInvoiceCancel(
   // shows the rolled date and why. Only when no date up to today can take it
   // does this refuse (VatPeriodLockedError, a refusal the MCP boundary shows).
   const { date: reversalDate, vatLockRoll } = await resolveReversalDateDetailed(
-    companyId, fmtDate(entry.entryDate), undefined, entry.lines);
+    companyId, fmtDate(head.entryDate), undefined, head.lines);
   // A late-claim companion is reversed with the journal; refused here, before
   // any write, if it cannot be.
-  const lateClaim = await planLateClaimCompanionReversal(companyId, entry.id);
+  const lateClaim = await planLateClaimCompanionReversal(companyId, head.id);
   return {
     ...base,
     journal: {
-      id: entry.id,
-      entryNumber: entry.entryNumber,
+      id: head.id,
+      entryNumber: head.entryNumber,
       reversalDate,
       vatLockRoll,
-      lines: entry.lines.map((l) => ({
+      lines: head.lines.map((l) => ({
         accountId: l.glAccountId,
         accountCode: l.accountCode ?? '',
         accountName: l.accountName ?? '',

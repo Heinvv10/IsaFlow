@@ -273,11 +273,11 @@ async function voidSupplierPaymentInner(
       `;
     }
 
-    // (4) Free the bank line, then reverse the payment journal. Skipped when the
-    // journal already carries a reversal claim (`reversed_at`).
+    // (4) Free the bank line, then reverse the payment journal — its chain head
+    // (`leg.reverseId`, D8). Skipped when the chain is already out of the ledger.
     if (journalId && leg && !leg.alreadyReversed) {
       await lockJournalAndUnmatch(companyId, journalId, leg, `Payment ${payment.paymentNumber}`);
-      await reverseJournalEntry(companyId, journalId, userId);
+      await reverseJournalEntry(companyId, leg.reverseId, userId);
     }
 
     // Guarded flip: the status re-assertion is now redundant against a
