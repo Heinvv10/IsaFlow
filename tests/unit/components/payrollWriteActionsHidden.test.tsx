@@ -71,20 +71,23 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); company.role = 'viewer'; });
 
 const sleep = (ms: number) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
 /**
- * After the page's own marker is on screen: nothing in flight, every timer shorter than the wait fired, and
- * no further fetch started — checked until two consecutive passes see the same call count. Only then is a
- * "not there" claim about a control worth anything.
+ * Run after the page's own marker is on screen, before claiming a control is absent. It covers: no fetch in
+ * flight, no new fetch started, and every timer shorter than the 350 ms window fired (two consecutive passes
+ * see the same call count). It does NOT cover a leak driven by an arbitrary later timer: no page has one, and
+ * the cases that matter (WriteOnly unwrapped, data-driven leaks) are covered. Bounded: a page that keeps
+ * fetching (polling) fails the probe instead of looping, and stops there, so it cannot leak into later probes.
  */
 async function quiet(): Promise<void> {
   let seen = -1;
-  while (seen !== fetchMock.mock.calls.length || inFlight > 0) {
+  for (let pass = 0; pass < 10; pass += 1) {
+    if (seen === fetchMock.mock.calls.length && inFlight === 0) return;
     seen = fetchMock.mock.calls.length;
     await sleep(350);
   }
+  throw new Error('page never goes quiet (polling?)');
 }
 
 const hrefs = () => Array.from(document.querySelectorAll('a')).map((a) => a.getAttribute('href'));
-
 const button = (re: RegExp) => screen.queryAllByRole('button', { name: re }).length;
 
 type Probe = [string, () => React.ReactElement, () => number, string | RegExp];
@@ -153,5 +156,22 @@ describe('pay package inputs', () => {
     await screen.findByText('Executive');
     await quiet();
     expect(editable()).toBe(0);
+  });
+});
+
+describe('quiet() is bounded', () => {
+  it('a page that polls every 100 ms fails with a clear message, and the next probe is unaffected', async () => {
+    const Poller = () => { React.useEffect(() => { const t = setInterval(() => { void fetch('/api/payroll/poll'); }, 100); return () => clearInterval(t); }, []); return <h1>Poller</h1>; };
+    render(<Poller />);
+    await screen.findByText('Poller');
+    await expect(quiet()).rejects.toThrow('page never goes quiet (polling?)');
+    cleanup(); // the interval is cleared on unmount: nothing keeps fetching into the next probe
+    fetchMock.mockClear();
+    await sleep(250);
+    expect(fetchMock).not.toHaveBeenCalled();
+    company.role = 'manager';
+    render(<EmployeesPage />);
+    expect(await screen.findByText('Marker employee')).toBeTruthy();
+    await quiet();
   });
 });
