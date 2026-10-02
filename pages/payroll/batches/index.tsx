@@ -8,6 +8,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Layers, Loader2, AlertCircle, Plus } from 'lucide-react';
+import { useCompany } from '@/contexts/CompanyContext';
+import { canWrite } from '@/lib/auth/writeRoles';
 
 interface BatchRow {
   id: string;
@@ -43,6 +45,8 @@ function TypeBadge({ type }: { type: BatchRow['batchType'] }) {
 }
 
 export default function PayrollBatchesListPage() {
+  const { companyRole } = useCompany();
+  const mayWrite = canWrite(companyRole); // batch lines are per-employee pay
   const [batches, setBatches] = useState<BatchRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -142,7 +146,9 @@ export default function PayrollBatchesListPage() {
                       <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{b.lineCount}</td>
                       <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(b.totalAmount)}</td>
                       <td className="py-3 px-4 text-right">
-                        <Link href={`/payroll/batches/${b.id}`} className="text-indigo-400 hover:text-indigo-300 text-xs font-medium">Open</Link>
+                        {mayWrite && (
+                          <Link href={`/payroll/batches/${b.id}`} className="text-indigo-400 hover:text-indigo-300 text-xs font-medium">Open</Link>
+                        )}
                       </td>
                     </tr>
                   ))}

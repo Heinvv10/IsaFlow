@@ -21,6 +21,7 @@ import { PayScaleCard } from '@/components/payroll/PayScaleCard';
 import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
 import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCard';
 import { localISODate } from '@/lib/dateUtils';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 export default function EmployeeDetailPage() {
   const router = useRouter();
@@ -53,6 +54,7 @@ export default function EmployeeDetailPage() {
       if (!eRes.ok) throw new Error(`Employee HTTP ${eRes.status}`);
       const eJson = await eRes.json();
       const cJson = cRes.ok ? await cRes.json() : { data: [] };
+      if (aRes.status === 403) setError(payrollLoadMessage(403, ''));
       const aJson = aRes.ok ? await aRes.json() : { data: [] };
       setEmployee((eJson.data ?? eJson) as Employee);
       setComponents((cJson.data ?? cJson) as Component[]);

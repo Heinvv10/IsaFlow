@@ -20,11 +20,12 @@ import emp501Export from '../../pages/api/payroll/emp501/export';
 import components from '../../pages/api/payroll/employees/[id]/components';
 import termination from '../../pages/api/payroll/employees/[id]/termination';
 import loansIndex from '../../pages/api/payroll/loans';
+import loanDetail from '../../pages/api/payroll/loans/[id]';
 import uifDetail from '../../pages/api/payroll/uif/[id]';
 import batchDetail from '../../pages/api/payroll/batches/[id]';
 import parallelCompare from '../../pages/api/payroll/parallel-run/compare';
 import parallelExport from '../../pages/api/payroll/parallel-run/export';
-import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 
 assertDisposable();
@@ -53,6 +54,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
+    for (const t of ['payroll_loan_payments', 'payroll_loan_schedule']) {
+      await pool.query(`DELETE FROM ${t} WHERE loan_id IN (SELECT id FROM payroll_loans WHERE company_id = $1)`, [company]);
+    }
+    await pool.query('DELETE FROM payroll_loans WHERE company_id = $1', [company]);
     await cleanPayrollCompanies(pool, [company]);
     await pool.query('DELETE FROM users WHERE id = ANY($1)', [[owner, viewer]]);
   } finally { await pool.end(); }
@@ -142,5 +147,99 @@ describe('journal-plan preview — one blocker answer', () => {
     expect(r.body.data!.plan).not.toHaveProperty('blockers');
     const a = await call(approve as Route, 'POST', `/api/payroll/runs/${runId}/approve`, runId, { body: { expectedPlanHash: r.body.data!.planHash } });
     expect(a.statusCode).toBe(200);
+  });
+});
+
+/** Like `call`, but with a query string and a response that can `send`/`end(body)` (the exports answer with a file body). */
+async function raw(route: Route, method: string, url: string, query: Record<string, unknown>, user: string, body?: unknown) {
+  const req = request({ 'sb-access-token': tokens[user]!, active_company_id: company }, method) as never as { url: string; query: Record<string, unknown>; body: unknown };
+  req.url = url;
+  req.query = query;
+  req.body = body;
+  const out = response();
+  const state = out.state as unknown as { body: unknown; send: (b: unknown) => unknown; end: (b?: unknown) => unknown };
+  state.send = function send(this: { body: unknown }, b: unknown) { this.body = b; return this; };
+  state.end = function end(this: { body: unknown }, b?: unknown) { if (b !== undefined) this.body = b; return this; };
+  await route(req as never, out.res as never);
+  return { status: out.state.statusCode, body: String(state.body ?? ''), json: state.body };
+}
+
+const count = async (table: string, where: string, arg: string) =>
+  Number((await pool.query<{ n: string }>(`SELECT count(*) AS n FROM ${table} WHERE ${where}`, [arg])).rows[0]!.n);
+
+describe('writes the gate newly closes — viewer 403 and nothing written, owner unchanged', () => {
+  let assignmentId = '';
+  let allowanceId = '';
+  beforeAll(async () => {
+    assignmentId = (await pool.query<{ id: string }>('SELECT id FROM payroll_employee_components WHERE employee_id = $1', [employeeId])).rows[0]!.id;
+    allowanceId = (await pool.query<{ id: string }>(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type) VALUES ($1, 'D3 Allowance', '3713', 'earning') RETURNING id`,
+      [company])).rows[0]!.id;
+  });
+  const url = () => `/api/payroll/employees/${employeeId}/components`;
+  const assigns = () => count('payroll_employee_components', 'employee_id = $1', employeeId);
+  const loanBody = { employeeId: '', loanNumber: 'D3-L1', description: 'D3', principal: 1000, annualInterestRate: 0, termMonths: 5, method: 'interest_free', startDate: '2026-03-01', firstPeriodYear: 2026, firstPeriodMonth: 4 };
+
+  it('components POST: viewer 403, no assignment written; owner 201 writes one', async () => {
+    const before = await assigns();
+    const body = { componentId: allowanceId, amount: 100, effectiveFrom: '2026-01-01' };
+    const v = await call(components as Route, 'POST', url(), employeeId, { user: viewer, body });
+    expect(v.statusCode).toBe(403);
+    expect(await assigns()).toBe(before);
+    const o = await call(components as Route, 'POST', url(), employeeId, { body });
+    expect(o.statusCode).toBe(201);
+    expect(await assigns()).toBe(before + 1);
+  });
+
+  it('components DELETE: viewer 403, assignment not ended; owner ends it', async () => {
+    const ended = async () => (await pool.query<{ e: unknown }>('SELECT effective_to AS e FROM payroll_employee_components WHERE id = $1', [assignmentId])).rows[0]!.e;
+    const route = components as Route;
+    const del = (user: string) => raw(route, 'DELETE', url(), { id: employeeId, aid: assignmentId }, user, { effectiveTo: '2026-12-31' });
+    expect((await del(viewer)).status).toBe(403);
+    expect(await ended()).toBeNull();
+    expect((await del(owner)).status).toBe(200);
+    expect(await ended()).not.toBeNull();
+  });
+
+  it('loans POST: viewer 403, no loan written; owner 201 writes one', async () => {
+    const body = { ...loanBody, employeeId };
+    const v = await call(loansIndex as Route, 'POST', '/api/payroll/loans', undefined, { user: viewer, body });
+    expect(v.statusCode).toBe(403);
+    expect(await count('payroll_loans', 'company_id = $1', company)).toBe(0);
+    const o = await call(loansIndex as Route, 'POST', '/api/payroll/loans', undefined, { body });
+    expect(o.statusCode).toBe(201);
+    expect(await count('payroll_loans', 'company_id = $1', company)).toBe(1);
+  });
+
+  it('loans/[id] POST: viewer 403 (not 405); owner keeps its 405', async () => {
+    const id = crypto.randomUUID();
+    expect((await call(loanDetail as Route, 'POST', `/api/payroll/loans/${id}`, id, { user: viewer })).statusCode).toBe(403);
+    expect((await call(loanDetail as Route, 'POST', `/api/payroll/loans/${id}`, id)).statusCode).toBe(405);
+  });
+});
+
+describe('exports — an owner with a complete company profile gets the file', () => {
+  beforeAll(async () => {
+    await pool.query(
+      `UPDATE companies SET paye_reference_number = '7123456789', sars_contact_first_name = 'Sam', sars_contact_last_name = 'Contact',
+         sars_contact_telephone = '0215550100', physical_address_line1 = '1 Test Street', physical_city = 'Cape Town', physical_province = 'Western Cape', physical_postal_code = '8001' WHERE id = $1`, [company]);
+    await pool.query("UPDATE payroll_employees SET id_number = '8001015009087' WHERE company_id = $1", [company]);
+  });
+
+  it('emp501/export: 200 with the CSV, the employee row carries the run\'s PAYE', async () => {
+    const paye = (await pool.query<{ p: string }>('SELECT paye AS p FROM payroll_run_lines WHERE run_id = $1', [runId])).rows[0]!.p;
+    const r = await raw(emp501Export as Route, 'GET', '/api/payroll/emp501/export', { taxYear: '2027' }, owner);
+    expect(r.status).toBe(200);
+    expect(r.body.split('\n')[0]).toBe('employee_name,irp5_number,gross_income,paye,uif,sdl');
+    expect(r.body).toContain(`Wanda Test,0123456789,20000.00,${Number(paye).toFixed(2)}`);
+    expect((await raw(emp501Export as Route, 'GET', '/api/payroll/emp501/export', { taxYear: '2027' }, viewer)).status).toBe(403);
+  });
+
+  it('irp5/easyfile-export: 200 with the file naming the employee and the PAYE reference', async () => {
+    const r = await raw(irp5Export as Route, 'GET', '/api/payroll/irp5/easyfile-export', { taxYear: '2027' }, owner);
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    expect(r.body.length).toBeGreaterThan(100);
+    expect(r.body).toContain('7123456789');
+    expect(r.body).toContain('Test');
   });
 });
