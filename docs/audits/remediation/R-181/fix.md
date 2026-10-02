@@ -29,7 +29,20 @@ request. `noteAuthorisationNotAttached` already writes it on a completed request
 was charged and nothing could be attached". The value is `review:<reasons>`, comma-joined:
 `amount_mismatch`, `amount_not_reported`, `currency_mismatch`, `invoice_draft`,
 `invoice_pending_approval`, `invoice_cancelled`, `invoice_deleted`. The receipt is found from the
-request by `customer_payments.bank_reference = paystack_reference`. No migration.
+request by `customer_payments.bank_reference = paystack_reference`. No migration: Hein approved
+this marker over one on 2026-10-02, on three conditions, each tested:
+
+- **The note never costs the receipt.** The UPDATE runs in its own savepoint
+  (`withSavepoint('gateway_review_note')`). A failure is logged at error level, not thrown. Outside a
+  savepoint a failed write aborted the settlement transaction; the webhook answered 500 and the
+  receipt rolled back (`red.r2.int.log`).
+- **A prior reason is not overwritten silently.** A non-review `failure_reason` the request already
+  carried is kept after the note (`review:amount_mismatch | previously: abandoned while starting`,
+  the reason `portalLinkCharge` writes on a checkout swept while starting) and named in the log as
+  `previousFailureReason`. An earlier review note is replaced.
+- **The unapplied case is visible.** A receipt banked against an invoice outside the ledger is
+  asserted in `getUnappliedReceipts` (the `list_unapplied_receipts` service) for the customer, at
+  the full amount.
 
 Limit: nothing in the app shows `failure_reason` for a customer-invoice request yet. The flag can
 be queried, and the `log.error` line is what alerts someone. An invoice outside the ledger also
@@ -47,7 +60,8 @@ leaves an unapplied receipt on the customer, and that does show in the unapplied
     `invoice_<status>` for one outside `documentInPopulation`, or null.
   - `flagSettlementForReview` writes the flag, scoped by `company_id` and reference, and logs at
     error level with the company, the reference, expected and reported cents, the reported
-    currency, the invoice and what was banked and allocated.
+    currency, the prior reason, the invoice and what was banked and allocated. See the three
+    conditions above.
 - **`gatewayInvoiceReceiptService.recordGatewayInvoiceReceipt`** now takes `requestedCents` and
   `reported` instead of `amountRand`. It reads the invoice's `status` and `deleted_at`. An invoice
   outside the ledger is allocated 0, so the whole receipt is banked unapplied on the customer
@@ -88,14 +102,20 @@ Real Postgres, the real webhook route and verify route. Only `paystackClient` is
   reported amount.
 - Verify banks what Paystack verified.
 - Draft, pending approval, cancelled, soft-deleted (webhook), and draft (verify): banked in full,
-  allocated 0, invoice `amount_paid` untouched, flagged, logged.
+  allocated 0, invoice `amount_paid` untouched, flagged, logged, and listed as unapplied for the
+  customer.
+- The note write made to fail for real (22012 inside the transaction): 200, the receipt banked, the
+  request completed, no note, the failure logged.
+- A prior `abandoned while starting` reason is kept after the note and logged. A prior review note
+  is replaced.
 - Webhook then verify, and verify then webhook: one receipt, the reported amount, in either order.
 - Tenant isolation: a flagged settlement in company A writes nothing in company B. A request in A
   naming B's invoice settles nothing (500, rolled back).
 
 Evidence: `red.int.log` (12 of 14 red on the unchanged code, origin/master 82bd2afdc; the
-unreported-amount and completed-branch cases were added after it), `green.int.log` (16/16),
-`mutations.log` (16 mutants: 15 killed, 1 equivalent), `regression.int.log`.
+unreported-amount and completed-branch cases were added after it), `red.r2.int.log` (the two
+note-condition tests red on the round-1 note write, 5d312dc1e), `green.int.log` (19/19),
+`mutations.log` (21 mutants: 20 killed, 1 equivalent), `regression.int.log` (165/165).
 
 `k-036` changed: its part-payment and over-settlement cases seeded a request for R400 / R1,650
 but delivered a webhook reporting R1,150. Their deliveries now report the settled amount, as
