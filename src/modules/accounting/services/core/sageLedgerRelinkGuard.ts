@@ -9,6 +9,7 @@
 
 import { sql } from '@/lib/neon';
 import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
+import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import type { DbRow } from '@/types/db';
 
 export type LedgerRelinkDecision =
@@ -40,13 +41,13 @@ export async function decideLedgerRelink(
   // the old entry_number scheme got wrong: it collided for the same document
   // number on two different dates and failed a legitimate group.
   const existing = (await sql`
-    SELECT id FROM gl_journal_entries
-    WHERE company_id = ${companyId}::UUID
-      AND reference = ${entryRef}
-      AND entry_date = ${entryDate}::DATE
-      AND posting_agent = 'import:sage'
-      AND status = 'posted'
-      AND reversed_at IS NULL
+    SELECT je.id FROM gl_journal_entries je
+    WHERE je.company_id = ${companyId}::UUID
+      AND je.reference = ${entryRef}
+      AND je.entry_date = ${entryDate}::DATE
+      AND je.posting_agent = 'import:sage'
+      AND je.status = 'posted'
+      AND ${journalStandsFragment('je.id', companyId)}
     LIMIT 1
   `) as DbRow[];
 

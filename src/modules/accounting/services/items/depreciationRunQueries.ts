@@ -6,6 +6,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import type { DepreciationBlocker } from './depreciationRunPlan';
 
 /** Assets plus the category policy each one inherits. */
@@ -35,10 +36,10 @@ export async function loadDepreciationAssets(companyId: string): Promise<DbRow[]
 export async function alreadyPosted(companyId: string, numbers: string[]): Promise<Set<string>> {
   if (numbers.length === 0) return new Set();
   const rows = (await sql`
-    SELECT entry_number FROM gl_journal_entries
-    WHERE company_id = ${companyId}::UUID
-      AND entry_number = ANY(${numbers}::TEXT[])
-      AND reversed_at IS NULL
+    SELECT je.entry_number FROM gl_journal_entries je
+    WHERE je.company_id = ${companyId}::UUID
+      AND je.entry_number = ANY(${numbers}::TEXT[])
+      AND ${journalStandsFragment('je.id', companyId)}
   `) as DbRow[];
   return new Set(rows.map((r) => String(r.entry_number)));
 }

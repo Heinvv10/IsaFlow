@@ -31,7 +31,7 @@ vi.mock('@/lib/als', () => ({
   als: { getStore: () => ({ client: { query: clientQuery } }) },
   assertTxUsable: vi.fn(),
 }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: vi.fn((s: string) => s) }) }));
 vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
   BankTransactionLockTimeoutError: class extends Error {},
   lockBankTransactionForUpdate: vi.fn(async (_c: string, id: string) => {

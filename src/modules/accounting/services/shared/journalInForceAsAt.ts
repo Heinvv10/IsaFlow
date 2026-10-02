@@ -28,11 +28,24 @@
  *
  * @param journalIdColumn a column reference written in code (`lc.id`), never
  *   input: it is spliced into the SQL text.
- * @param asAtStr 'YYYY-MM-DD'.
  */
 import { sql } from '@/lib/neon';
 
+/** As at `asAtStr` ('YYYY-MM-DD'): only reversals dated on or before it count. For a dated report. */
 export function journalInForceAsAtFragment(journalIdColumn: string, asAtStr: string, companyId: string) {
+  return chainParity(journalIdColumn, companyId, asAtStr);
+}
+
+/**
+ * As the ledger stands NOW: every posted reversal counts, whatever its date —
+ * the reading `reversed_at` gives a single reversal, so a write guard swapping
+ * `reversed_at IS NULL` for this changes nothing but the re-reversed chain.
+ */
+export function journalStandsFragment(journalIdColumn: string, companyId: string) {
+  return chainParity(journalIdColumn, companyId, null);
+}
+
+function chainParity(journalIdColumn: string, companyId: string, asAtStr: string | null) {
   return sql.unsafe(
     `(WITH RECURSIVE reversals AS (
         SELECT r.id, r.entry_date
@@ -45,7 +58,8 @@ export function journalInForceAsAtFragment(journalIdColumn: string, asAtStr: str
         JOIN reversals ON j.reversal_of_id = reversals.id
         WHERE j.company_id = $1::UUID AND j.status = 'posted'
       )
-      SELECT COUNT(*) FILTER (WHERE reversals.entry_date <= $2::DATE) % 2 = 0 FROM reversals)`,
+      SELECT COUNT(*) FILTER (WHERE $2::DATE IS NULL OR reversals.entry_date <= $2::DATE) % 2 = 0
+      FROM reversals)`,
     [companyId, asAtStr],
   );
 }
