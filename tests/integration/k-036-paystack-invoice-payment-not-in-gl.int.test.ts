@@ -292,7 +292,8 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
       [companyId, invoiceId, reference, partialCents],
     );
 
-    const result = await deliverWebhook(reference);
+    // R-181: the receipt is what Paystack reports, so the delivery reports the part-payment too.
+    const result = await deliverWebhook(reference, { amount: partialCents });
     expect(result.state.statusCode).toBe(200);
 
     const after = await expectBalancedReceipt(partialCents / 100);
@@ -326,7 +327,7 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
     const settledRand = INVOICE_TOTAL + 500;
     await seedPaymentRequest(reference, Math.round(settledRand * 100));
 
-    const result = await deliverWebhook(reference);
+    const result = await deliverWebhook(reference, { amount: Math.round(settledRand * 100) });
     expect(result.state.statusCode).toBe(200);
 
     const after = await ledgerFootprint();
