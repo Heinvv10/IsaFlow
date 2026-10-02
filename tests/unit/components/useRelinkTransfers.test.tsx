@@ -50,4 +50,14 @@ describe('useRelinkTransfers', () => {
     await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
     expect(refused.result.current).toBe(false);
   });
+
+  it('clears a stale failure notice when the user moves to a company where they are a viewer', async () => {
+    company.role = 'admin';
+    vi.mocked(apiFetch).mockResolvedValue(reply(200, { success: true, data: { linked: 0, failed: true } }));
+    const { result, rerender } = renderHook(() => useRelinkTransfers('bank-1'));
+    await waitFor(() => expect(result.current).toBe(true));
+    company.role = 'viewer';
+    rerender();
+    await waitFor(() => expect(result.current).toBe(false));
+  });
 });

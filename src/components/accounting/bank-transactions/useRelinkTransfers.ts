@@ -15,9 +15,9 @@ export function useRelinkTransfers(selectedBank: string): boolean {
   const [relinkFailed, setRelinkFailed] = useState(false);
 
   useEffect(() => {
+    setRelinkFailed(false);
     if (!selectedBank || !mayWrite) return;
     let cancelled = false;
-    setRelinkFailed(false);
     apiFetch('/api/accounting/bank-relink-transfers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
