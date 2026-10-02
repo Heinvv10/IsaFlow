@@ -17,16 +17,18 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
-vi.mock('@/modules/accounting/services/core/companyAccessService', () => ({ userBelongsToGroup: vi.fn(async () => true) }));
+vi.mock('@/modules/accounting/services/core/companyAccessService', () => ({ userBelongsToGroup: vi.fn(async () => true), userCanWriteGroup: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/reports/consolidatedReportingService', () => svc);
 
 import handler from '../../../pages/api/accounting/consolidated-reports';
 
+const GROUP = '80000000-0000-4000-8000-000000000001';
+
 async function call(method: 'GET' | 'POST', action: string, params: Record<string, unknown>) {
   const res = { status: vi.fn().mockReturnThis(), json: vi.fn(), setHeader: vi.fn() };
   const req = method === 'GET'
-    ? { method, user: { id: 'u1' }, query: { group_id: 'g', action, ...params }, body: {} }
-    : { method, user: { id: 'u1' }, query: { group_id: 'g', action }, body: { adjustmentType: 'ic', lines: [{}], ...params } };
+    ? { method, user: { id: 'u1' }, query: { group_id: GROUP, action, ...params }, body: {} }
+    : { method, user: { id: 'u1' }, query: { group_id: GROUP, action }, body: { adjustmentType: 'ic', lines: [{ groupAccountId: '81000000-0000-4000-8000-000000000001', debit: 0, credit: 0 }], ...params } };
   await handler(req as unknown as NextApiRequest, res as unknown as NextApiResponse);
   return res;
 }

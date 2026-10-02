@@ -9,7 +9,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { userBelongsToGroup } from '@/modules/accounting/services/core/companyAccessService';
+import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
+import { isUuidParam } from '@/lib/validation';
 import {
   getConsolidatedTrialBalance,
   getConsolidatedIncomeStatement,
@@ -38,6 +39,23 @@ function rangeError(
   return typeof start === 'string' && typeof end === 'string' && start > end ? `${s} must not be after ${e}` : null;
 }
 
+/** 400 text for a create-elimination body, or null. `typeof` on every field before it is used. */
+function eliminationBodyError(body: Record<string, unknown>): string | null {
+  if (typeof body.adjustmentType !== 'string' || !body.adjustmentType) return 'adjustmentType is required (a string)';
+  if (body.description !== undefined && typeof body.description !== 'string') return 'description must be a string';
+  if (!Array.isArray(body.lines) || body.lines.length === 0) return 'lines must be a non-empty array';
+  for (const line of body.lines as unknown[]) {
+    const l = (line ?? {}) as Record<string, unknown>;
+    if (!isUuidParam(l.groupAccountId)) return 'each line needs a groupAccountId (a group account UUID)';
+    for (const side of ['debit', 'credit'] as const) {
+      const v = l[side];
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return `each line's ${side} must be a non-negative number`;
+    }
+    if (l.description !== undefined && typeof l.description !== 'string') return "each line's description must be a string";
+  }
+  return null;
+}
+
 // Uses withAuth (not withCompany) because consolidated reports aggregate data
 // from multiple companies in a group. Security comes from userBelongsToGroup(),
 // which ensures the caller belongs to at least one company in the group before
@@ -51,7 +69,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const verifyGroupAccess = (gId: string) => userBelongsToGroup(userId, gId);
 
   if (req.method === 'GET') {
-    if (!groupId) return apiResponse.badRequest(res, 'group_id required');
+    if (groupId === undefined) return apiResponse.badRequest(res, 'group_id required');
+    if (!isUuidParam(req.query.group_id)) return apiResponse.badRequest(res, 'group_id must be a valid UUID');
     if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
 
     if (action === 'trial-balance') {
@@ -98,15 +117,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    if (!groupId && !req.body.groupId) return apiResponse.badRequest(res, 'groupId required');
-    const gId = groupId || req.body.groupId;
+    const body: Record<string, unknown> = req.body && typeof req.body === 'object' ? req.body : {};
+    const rawGroupId: unknown = req.query.group_id ?? body.groupId;
+    if (rawGroupId === undefined) return apiResponse.badRequest(res, 'groupId required');
+    if (!isUuidParam(rawGroupId)) return apiResponse.badRequest(res, 'group_id must be a valid UUID');
+    const gId = rawGroupId;
     if (!(await verifyGroupAccess(gId))) return apiResponse.forbidden(res, 'Access denied to this group');
+    // Every POST action writes eliminations: membership alone (any role) reads, it does not write.
+    if (!(await userCanWriteGroup(userId, gId))) {
+      return apiResponse.forbidden(res, 'Your role in this group does not allow changing eliminations.');
+    }
+    if ((action === 'post-elimination' || action === 'reverse-elimination') && !isUuidParam(body.adjustmentId)) {
+      return apiResponse.badRequest(res, 'adjustmentId must be a valid UUID');
+    }
 
     if (action === 'create-elimination') {
+      const shape = eliminationBodyError(body);
+      if (shape) return apiResponse.badRequest(res, shape);
       const { adjustmentType, description, periodStart, periodEnd, lines } = req.body;
-      if (!adjustmentType || !lines?.length) {
-        return apiResponse.badRequest(res, 'adjustmentType and lines required');
-      }
       const bad = rangeError(periodStart, periodEnd, { optional: true, names: ['periodStart', 'periodEnd'] });
       if (bad) return apiResponse.badRequest(res, bad);
       const adj = await createEliminationAdjustment(gId, {
@@ -116,16 +144,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (action === 'post-elimination') {
-      const { adjustmentId } = req.body;
-      if (!adjustmentId) return apiResponse.badRequest(res, 'adjustmentId required');
-      await postEliminationAdjustment(adjustmentId, gId);
+      await postEliminationAdjustment(body.adjustmentId as string, gId);
       return apiResponse.success(res, { posted: true });
     }
 
     if (action === 'reverse-elimination') {
-      const { adjustmentId } = req.body;
-      if (!adjustmentId) return apiResponse.badRequest(res, 'adjustmentId required');
-      await reverseEliminationAdjustment(adjustmentId, gId);
+      await reverseEliminationAdjustment(body.adjustmentId as string, gId);
       return apiResponse.success(res, { reversed: true });
     }
 
