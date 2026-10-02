@@ -21,7 +21,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('@/modules/accounting/services/practice/practiceStaffRateService', () => ({ resolveRate: resolveRateMock }));
 vi.mock('@/modules/accounting/services/practice/practiceEntryTemplateService', () => ({ getEntryTemplate: getEntryTemplateMock }));
 
-import { createPracticeEntry } from '@/modules/accounting/services/practice/practiceTimeEntryService';
+import { createPracticeEntry, updatePracticeEntry } from '@/modules/accounting/services/practice/practiceTimeEntryService';
 import { bulkCreateFromTemplate } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 import { PracticeEntryRefusal } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
 
@@ -50,6 +50,13 @@ describe('createPracticeEntry refusals are PracticeEntryRefusal', () => {
   it('a future date', async () => {
     await refusal(createPracticeEntry(COMPANY, USER, { ...input, entryDate: '2999-01-01' }), /entry date cannot be in the future/);
   });
+
+  it.each(['10000-01-05', '2026-02-31', '2026-13-01', '0000-01-01', 'abc', '', 20260105, null])(
+    'an entry date that is not a real date: %s', async (entryDate) => {
+      await refusal(createPracticeEntry(COMPANY, USER, { ...input, entryDate: entryDate as string }),
+        /entry date must be a real date \(YYYY-MM-DD\)/);
+      expect(sqlMock).not.toHaveBeenCalled();
+    });
 
   it.each([0, 0.004, 25])('hours %s', async (hours) => {
     await refusal(createPracticeEntry(COMPANY, USER, { ...input, hours }), /hours must be between 0 and 24/);
@@ -98,5 +105,14 @@ describe('bulkCreateFromTemplate refusals are PracticeEntryRefusal', () => {
   it('a range over 62 days', async () => {
     getEntryTemplateMock.mockResolvedValueOnce(TEMPLATE);
     await refusal(bulk({ dateFrom: '2026-01-01', dateTo: '2026-12-31' }), /bulk range too large/);
+  });
+});
+
+describe('updatePracticeEntry refuses an entry date that is not a real date', () => {
+  it.each(['10000-01-05', '2026-02-31'])('%s', async (entryDate) => {
+    sqlMock.mockResolvedValueOnce([{ status: 'draft', practice_client_id: CLIENT, entry_date: '2026-04-13', user_id: USER,
+      hours: 1, job_category_id: CATEGORY, work_item_id: WORK_ITEM, job_id: null }]);
+    await refusal(updatePracticeEntry(COMPANY, 'e1', { entryDate }), /entry date must be a real date/);
+    expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 });

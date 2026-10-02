@@ -16,7 +16,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { isJobFenceRefusal } from '@/modules/accounting/services/practice/practiceClientFence';
 import { PracticeEntryRefusal } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
-import { hasNul, isJsonObjectBody, isUuidParam, NUL_MESSAGE } from '@/lib/validation';
+import { hasNul, isJsonObjectBody, isRealCalendarDate, isUuidParam, NUL_MESSAGE } from '@/lib/validation';
 import {
   bulkCreateFromTemplate,
   type BulkFromTemplateInput,
@@ -42,11 +42,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
   // Postgres text cannot hold a NUL (22021): refused here, since bulk treats any database error as a fault.
   if (hasNul(body.taskOverride)) return apiResponse.badRequest(res, NUL_MESSAGE);
-  if (!body.dateFrom || typeof body.dateFrom !== 'string') {
+  // A real calendar date, not just a string: '2026-13-45' split to NaN gave an empty range and a quiet 201.
+  if (typeof body.dateFrom !== 'string' || !isRealCalendarDate(body.dateFrom)) {
     return apiResponse.badRequest(res, 'dateFrom is required (YYYY-MM-DD)');
   }
-  if (!body.dateTo || typeof body.dateTo !== 'string') {
+  if (typeof body.dateTo !== 'string' || !isRealCalendarDate(body.dateTo)) {
     return apiResponse.badRequest(res, 'dateTo is required (YYYY-MM-DD)');
+  }
+  // `true` used to be read as 1 hour. The form sends a number.
+  if (body.hoursOverride != null && (typeof body.hoursOverride !== 'number' || !Number.isFinite(body.hoursOverride))) {
+    return apiResponse.badRequest(res, 'hoursOverride must be a number');
   }
 
   try {

@@ -18,6 +18,7 @@ import type {
 import { roundHours, lineTotalFor, PracticeEntryRefusal } from './practiceTimeEntryTypes';
 import { assertJobForPracticeClient, rethrowJobFkAsRefusal } from './practiceClientFence';
 import { mapEntry } from './practiceTimeEntryMap';
+import { isRealCalendarDate } from '@/lib/validation';
 
 export { listPracticeEntries } from './practiceTimeEntryList';
 
@@ -65,6 +66,8 @@ export async function createPracticeEntry(
   input: PracticeTimeEntryInput,
 ): Promise<PracticeTimeEntry> {
   const today = new Date().toISOString().split('T')[0]!;
+  // Strict first: the future check compares strings, and '10000-01-05' sorts before '2026-…'.
+  assertRealEntryDate(input.entryDate);
   if (input.entryDate > today) throw new PracticeEntryRefusal('entry date cannot be in the future');
   // Range-check the ROUNDED value: 0.004 is > 0 here but 0.00 in the column.
   const hours = roundHours(input.hours);
@@ -127,6 +130,7 @@ export async function updatePracticeEntry(
 
   // Validate entryDate if provided
   if (input.entryDate !== undefined) {
+    assertRealEntryDate(input.entryDate);
     const today = new Date().toISOString().split('T')[0]!;
     if (input.entryDate > today) throw new Error('entry date cannot be in the future');
   }
@@ -261,4 +265,10 @@ export async function getEntryStatusesByIds(
 /** Ids compare case-insensitively (Postgres stores a uuid lowercase): an uppercase copy of the kept job is not a new link. */
 function sameJobId(next: unknown, kept: string | null): boolean {
   return typeof next === 'string' && kept !== null && next.toLowerCase() === kept.toLowerCase();
+}
+
+function assertRealEntryDate(value: unknown): void {
+  if (typeof value !== 'string' || !isRealCalendarDate(value)) {
+    throw new PracticeEntryRefusal('entry date must be a real date (YYYY-MM-DD)');
+  }
 }

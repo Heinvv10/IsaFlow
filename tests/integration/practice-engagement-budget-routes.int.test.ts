@@ -70,6 +70,19 @@ describeIfDb('Engagement budgets — routes, bulk and MCP refuse a foreign or cl
       }
     });
 
+  it('POST and PUT /time-entries refuse a year-10000 or impossible entry date with 400, storing nothing', async () => {
+    for (const entryDate of ['10000-01-05', '2026-02-31']) {
+      const r = await f.call(timeEntriesRoute, 'POST', { ...base(), entryDate, taskDescription: `EBR bad date ${entryDate}` });
+      expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
+      expect(await f.entriesNamed(`EBR bad date ${entryDate}`)).toBe(0);
+    }
+    const id = await f.entry({ job: null, hours: 1, rate: 1000, desc: 'EBR date put' });
+    const r = await f.call(entryRoute, 'PUT', { entryDate: '10000-01-05' }, { id });
+    expect(r.statusCode).toBe(400);
+    expect((await f.pool.query("SELECT to_char(entry_date, 'YYYY-MM-DD') AS d FROM time_entries WHERE id = $1", [id])).rows[0].d)
+      .toBe('2026-01-10');
+  });
+
   it('GET /time-entries answers a malformed jobId with 400, a real one with 200', async () => {
     expect((await f.call(timeEntriesRoute, 'GET', {}, { jobId: 'nope' })).statusCode).toBe(400);
     expect((await f.call(timeEntriesRoute, 'GET', {}, { jobId: J.own! })).statusCode).toBe(200);
@@ -155,6 +168,11 @@ describeIfDb('Engagement budgets — routes, bulk and MCP refuse a foreign or cl
       ...[3, 5, {}, { 1: true }, [7], [1.5], ['1'], [-1]].map((weekdays) => [`weekdays ${JSON.stringify(weekdays)}`,
         () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', weekdays }),
         'weekdays must be an array of whole numbers from 0 (Sunday) to 6 (Saturday)'] as const),
+      ...[['abc', '2026-01-07'], ['2026-13-45', '2026-01-07']].map(([dateFrom, dateTo]) => [`dateFrom ${dateFrom}`,
+        () => ({ templateId, dateFrom, dateTo }), 'dateFrom is required (YYYY-MM-DD)'] as const),
+      ['dateTo 2026-02-31', () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-02-31' }), 'dateTo is required (YYYY-MM-DD)'],
+      ...[true, '2', {}].map((hoursOverride) => [`hoursOverride ${JSON.stringify(hoursOverride)}`,
+        () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', hoursOverride }), 'hoursOverride must be a number'] as const),
       ['a NUL in taskOverride', () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', taskOverride: 'a\u0000b' }),
         'text must not contain a NUL (\\u0000) character, and arguments must not nest deeper than 8 levels or hold more than 100000 values'],
       ['an inverted range', () => ({ templateId, dateFrom: '2026-01-07', dateTo: '2026-01-05' }), 'dateFrom must be on or before dateTo'],
