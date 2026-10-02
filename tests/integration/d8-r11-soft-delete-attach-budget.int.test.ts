@@ -6,7 +6,8 @@
  * F6 The automatic evidence attach answered a wait past its budget "nothing attached", so the capture post booked the
  *    bill beside a provisional left unevidenced. The lock timeout now propagates.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { softDelete, undoDelete } from '@/modules/accounting/services/core/softDeleteService';
 import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
@@ -49,6 +50,7 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 11: soft delete and the aut
     assertNotProductionDb('D8 round 11 soft delete / attach');
     c = await setup('D8R11S');
   }, 120000);
+  afterEach(() => { vi.restoreAllMocks(); });
   afterAll(async () => {
     if (c) await sql`DELETE FROM soft_delete_journal_reversals WHERE company_id = ${c.fx.companyId}::UUID`;
     await teardown(c);
@@ -56,24 +58,29 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 11: soft delete and the aut
 
   it('F7 soft delete of an invoice a peer holds refuses within the budget; nothing deleted, nothing reversed', async () => {
     const inv = await postedInvoice(c);
+    const errors = vi.spyOn(log, 'error');
     const r = await whileHeld(HOLD_INVOICE, inv.id,
       () => softDelete(c.fx.companyId, 'customer_invoice', inv.id, c.fx.userId));
     expect(r.ok, JSON.stringify(r)).toBe(false);
     expect((r as { e: unknown }).e).toBeInstanceOf(RowLockTimeoutError);
     expect(r.ms).toBeLessThan(9000);
     expect(await invoiceState(inv.id)).toEqual({ deleted: false, reversals: 0 });
+    // D8 round 13: an answered 503, not an ERROR event.
+    expect(errors.mock.calls.map(([m]) => m)).not.toContain('Soft delete failed');
   }, 30000);
 
   it('F7 the undo of a delete on an invoice a peer holds refuses within the budget; it stays deleted', async () => {
     const inv = await postedInvoice(c);
     await inTx(c.fx, () => softDelete(c.fx.companyId, 'customer_invoice', inv.id, c.fx.userId));
     expect(await invoiceState(inv.id)).toEqual({ deleted: true, reversals: 1 });
+    const errors = vi.spyOn(log, 'error');
     const r = await whileHeld(HOLD_INVOICE, inv.id,
       () => undoDelete(c.fx.companyId, 'customer_invoice', inv.id, c.fx.userId));
     expect(r.ok, JSON.stringify(r)).toBe(false);
     expect((r as { e: unknown }).e).toBeInstanceOf(RowLockTimeoutError);
     expect(r.ms).toBeLessThan(9000);
     expect(await invoiceState(inv.id)).toEqual({ deleted: true, reversals: 1 });
+    expect(errors.mock.calls.map(([m]) => m)).not.toContain('Undo delete failed');
   }, 30000);
 
   it('F6 the automatic attach meets a held bank line: the lock timeout surfaces, the provisional is untouched', async () => {
