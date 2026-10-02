@@ -41,5 +41,16 @@ describe('consolidated trial balance across a fiscal-year start', () => {
     expect(params(1)).toContain('2026-03-01');
     expect(params(1)).not.toContain('2025-03-01');
     expect(params(2)).toContain('2026-03-01');
+    // The Feb 2026 year end falls inside the range: its profit is on RE-BF (derived, not posted).
+    expect(tb.fiscalYearEndsClosed['aaaaaaaa-0000-0000-0000-000000000001']).toEqual(['2026-02-28']);
+  });
+
+  it('closes no fiscal year when the range is one fiscal year', async () => {
+    mockSql
+      .mockResolvedValueOnce([{ financial_year_start: 3 }])
+      .mockResolvedValueOnce([{ account_id: 'acc-bank', total_debit: '100', total_credit: '0' }])
+      .mockResolvedValueOnce([{ retained: '0' }]);
+    const tb = await getConsolidatedTrialBalance('group', '2025-03-01', '2026-02-28');
+    expect(tb.fiscalYearEndsClosed['aaaaaaaa-0000-0000-0000-000000000001']).toEqual([]);
   });
 });

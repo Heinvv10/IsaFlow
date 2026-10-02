@@ -19,7 +19,7 @@ export function YearEndCloseNote({ closed, derived }: { closed?: number; derived
     : `net ${fmt(Math.abs(closed))}${closed > 0 ? ' returned from' : ' closed to'} retained earnings`;
   return (
     <span className="block text-xs italic text-[var(--ff-text-tertiary)]">
-      Year-end close (derived — not posted): {text}
+      Year-end close: {text} — derived, not posted
     </span>
   );
 }
