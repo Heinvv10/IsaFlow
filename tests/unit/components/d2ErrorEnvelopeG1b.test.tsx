@@ -80,6 +80,7 @@ const ELIM = { id: 'e1', adjustmentNumber: 'ELM-1', adjustmentType: 'interco_rev
 function scriptElim(failAction: string, message: string, item = ELIM) {
   vi.mocked(apiFetch).mockReset().mockImplementation(async (url, init) => {
     const u = String(url);
+    if (u.includes('action=accounts')) return ok({ items: [{ id: 'ga4', accountCode: '4000' }, { id: 'ga5', accountCode: '5000' }] });
     if (u.includes('company-groups')) return ok({ items: [{ id: 'g1', name: 'Group One' }] });
     if (u.includes('consolidated-reports') && (init?.method ?? 'GET').toUpperCase() === 'POST') {
       const body = JSON.parse(String(init?.body ?? '{}')) as { action?: string };
