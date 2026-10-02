@@ -29,7 +29,7 @@ vi.mock('@/lib/auth/oauth', () => ({ validateOauthAccessToken: async () => null 
 const BAD: Array<[string, number]> = [
   ['abc', 10], ['0', 10], ['-3', 10], ['2.5', 3], ['500', 10], ['0x10', 10], ['1e1', 10], ['5.0', 5], ['+4', 4],
 ];
-// AUTH_POOL_MAX sites never go below 2, whatever the spelling asks for.
+// The AUTH_POOL_MAX and PG_POOL_MAX sites never go below 2, whatever the spelling asks for.
 const BELOW_MINIMUM = ['1', '1.0', '0.5'];
 
 async function lastMax(build: () => Promise<unknown>): Promise<number | undefined> {
@@ -105,7 +105,7 @@ describe.each(Object.entries(sites))('%s pool size (R-182)', (_name, site) => {
 
   it.each(BELOW_MINIMUM)('is raised to the minimum for %j when the variable has one', async (raw) => {
     vi.stubEnv(site.env, raw);
-    const expected = site.env === 'AUTH_POOL_MAX' ? 2 : 1;
+    const expected = site.env === 'AUTH_POOL_MAX' || site.env === 'PG_POOL_MAX' ? 2 : 1;
     expect(await site.max()).toBe(expected);
   });
 

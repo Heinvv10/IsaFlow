@@ -57,7 +57,9 @@ The cap of 100 is per variable, not per process: `AUTH_POOL_MAX` sizes four pool
 would be 400 connections in one process. AUTH_POOL_MAX advice: its default of 20 is 80
 connections per process and 100 would be 400, so with max_connections 100 shared with dev, CI
 and Supabase, set it no higher than the default and lower it (10 gives 40) if connections run
-short. Its minimum is 2 (see Review round 3).
+short. Its floor is 2 (see Review round 3), and so is PG_POOL_MAX's (Review round 4). A floor of 2 is
+what makes one PDF render, or one nested `sql` inside `withTransaction`, possible at all; it is
+not a safe size, since a pool of 2 can still be taken by a concurrent request.
 
 Sum of the per-process pools: **117**, plus 2 per in-flight verify-email request and 1 per
 impersonation write. That exceeds `max_connections` 100 on its own, before dev, CI and
@@ -121,3 +123,21 @@ Evidence: `green.round2.log` (exact commands; 149 passed in 5 files; wider suite
    export wait out the acquire timeout. `1`, `1.0`, `0.5` are raised to 2 with the warning.
    The render ceiling is `max(1, floor(2/4))` = 1, so it stays at least 1 and correct.
    Tested at the reader, `authPoolMax`, every AUTH_POOL_MAX pool site and the semaphore.
+
+## Review round 4
+1. `minimum` is held to `min(minimum, default, 10)` inside the reader, so a floor can never make a
+   refused value give a pool bigger than the default or 10 (tested with a floor of 50).
+2. PG_POOL_MAX: a path that needs two neon-pool connections exists. Outside a request,
+   `withTransaction` (`neon.ts`, the `pool.connect()` branch) holds one connection; a bare `sql`
+   in its callback has no ALS client and runs on `getPool().query`, a second connection from the
+   same pool. `payrollBulkEmployeeService.ts:168-174` records this as a known edge (unreachable
+   from its one caller today, which is inside `withAuth`). Proved in
+   `tests/unit/lib/neonPoolNestedSql.test.ts` (real pg-pool, fake client): a size-1 pool times out
+   on the second acquire while the first is held; with PG_POOL_MAX 1, `1.0` or `0.5` the pool is
+   raised to 2 and the nested `sql` completes using two connections. So PG_POOL_MAX has a floor
+   of 2 (`MIN_PG_POOL_MAX`). No in-repo caller was shown to hit it today; the floor removes a
+   deadlock that one new caller could create.
+3. Wording: a floor of 2 is the minimum that makes one PDF render or one nested `sql` possible,
+   not a safe size (see the budget section).
+4. JSDoc wraps at `poolLimits.ts` reflowed.
+Evidence: `green.round4.log` (184 passed in 6 files), `mutations.log` round 4.

@@ -29,10 +29,15 @@ import { log } from '@/lib/logger';
 export const AUTH_POOL_CONNECTION_TIMEOUT_MS = 15_000;
 export const AUTH_POOL_IDLE_TIMEOUT_MS = 30_000;
 export const DEFAULT_AUTH_POOL_MAX = 20;
-/** A pack PDF render holds one withAuth connection and the headless browser
- *  re-enters the API for a second, from these same pools. With a pool of 1 the
- *  second waits out the acquire timeout, so the auth pools never go below 2. */
+/** The floor that makes ONE pack PDF render possible, not a safe size. A render
+ *  holds one withAuth connection and the headless browser re-enters the API for
+ *  a second, from these same pools; with a pool of 1 the second waits out the
+ *  acquire timeout. A pool of 2 can still be taken by a concurrent request. */
 export const MIN_AUTH_POOL_MAX = 2;
+/** The floor for the main pool (PG_POOL_MAX): `withTransaction` outside a
+ *  request holds one connection, and a bare `sql` in its callback takes a second
+ *  from the same pool. With a pool of 1 that waits out the connect timeout. */
+export const MIN_PG_POOL_MAX = 2;
 
 const LARGEST_POOL = 100;
 /** What pg-pool 3.13 made of an unusable `max` (`max = max || poolSize || 10`):
@@ -41,21 +46,26 @@ const INVALID_VALUE_CEILING = 10;
 const warned = new Set<string>();
 
 /**
- * A pool's size from the environment (R-182): a whole number from 1 to 100
- * (at least `minimum`, default 1) written as plain decimal digits is used as
- * given. Unset or blank is
- * `fallback`, silently.
+ * A pool's size from the environment (R-182): a whole number from `minimum`
+ * (default 1) to 100, written as plain decimal digits, is used as given. Unset
+ * or blank is `fallback`, silently.
  *
  * Anything else is refused with ONE warning per (name, value). It gives
  * `min(fallback, 10, ceil(Number(text)))` when `Number(text)` is a finite
- * positive number, else `min(fallback, 10)`; and never below `minimum`. The
- * auth pools' minimum is 2: a PDF render holds one connection and the browser
- * re-enters the API for a second from the same pools, so 1, `1.0` and `0.5` are
- * raised to 2 (with the warning), not honoured. Apart from that, no spelling that the old plain
- * `Number(...)` read as a usable size (`5.0`, `+5`, `0x5`, `2.5`, `1e1`) gives
- * a pool with more connections than pg-pool allowed for it (it opened up to
- * ceil(max)); NaN and 0 give 10, which is what pg-pool made of them. Negative
- * and Infinity values, which were broken before, also give `min(fallback, 10)`.
+ * positive number, else `min(fallback, 10)`; and never below `minimum`. Apart
+ * from that floor, no spelling the old plain `Number(...)` read as a usable
+ * size (`5.0`, `+5`, `0x5`, `2.5`, `1e1`) gives a pool with more connections
+ * than pg-pool allowed for it (it opened up to ceil(max)). NaN and 0 give 10,
+ * which is what pg-pool made of them. Negative and Infinity values, which were
+ * broken before, also give `min(fallback, 10)`.
+ *
+ * `minimum` is itself held to `min(minimum, fallback, 10)`, so a floor can never
+ * make a refused value give a pool bigger than the default or 10.
+ *
+ * The floors are 2 for AUTH_POOL_MAX (MIN_AUTH_POOL_MAX) and PG_POOL_MAX
+ * (MIN_PG_POOL_MAX). A floor of 2 is what makes one PDF render, or one nested
+ * `sql` inside `withTransaction`, possible at all. It is not a safe size: a
+ * pool of 2 can still be taken by a concurrent request.
  *
  * Why not a plain `Number(...)`: pg-pool turns NaN and 0 into 10 on its own, so
  * those were never unbounded. The dangers were a huge or Infinity value (a pool
@@ -75,19 +85,20 @@ const warned = new Set<string>();
 export function poolSizeFromEnv(name: string, fallback: number, category = 'pool', minimum = 1): number {
   const raw = process.env[name];
   if (raw === undefined || raw.trim() === '') return fallback;
+  const floor = Math.min(minimum, fallback, INVALID_VALUE_CEILING);
   const text = raw.trim();
   const digitsOnly = /^[0-9]+$/.test(text);
   if (digitsOnly) {
     const n = Number(text);
-    if (n >= minimum && n <= LARGEST_POOL) return n;
+    if (n >= floor && n <= LARGEST_POOL) return n;
   }
   const asNumber = Number(text);
   const honoured = Number.isFinite(asNumber) && asNumber > 0 ? Math.ceil(asNumber) : Infinity;
-  const used = Math.max(minimum, Math.min(fallback, INVALID_VALUE_CEILING, honoured));
+  const used = Math.max(floor, Math.min(fallback, INVALID_VALUE_CEILING, honoured));
   const key = `${name}=${text}`;
   if (!warned.has(key)) {
     warned.add(key);
-    log.warn(`${name} is not a whole number from ${minimum} to ${LARGEST_POOL}; using ${used}`, {
+    log.warn(`${name} is not a whole number from ${floor} to ${LARGEST_POOL}; using ${used}`, {
       name, length: raw.length, digitsOnly, default: fallback, using: used,
     }, category);
   }

@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn, error: vi.fn() } }));
 
-import { poolSizeFromEnv, authPoolMax, DEFAULT_AUTH_POOL_MAX, MIN_AUTH_POOL_MAX } from '@/lib/limits/poolLimits';
+import { poolSizeFromEnv, authPoolMax, DEFAULT_AUTH_POOL_MAX, MIN_AUTH_POOL_MAX, MIN_PG_POOL_MAX } from '@/lib/limits/poolLimits';
 
 const NAME = 'R182_TEST_POOL_MAX';
 
@@ -125,6 +125,19 @@ describe('poolSizeFromEnv (R-182)', () => {
   it('a minimum applies to the reader as well', () => {
     vi.stubEnv(NAME, '3');
     expect(poolSizeFromEnv(NAME, 20, 'pool', 5)).toBe(5);
+  });
+
+  it('a minimum above the default or above 10 cannot give a pool bigger than either', () => {
+    vi.stubEnv(NAME, '3');
+    expect(poolSizeFromEnv(NAME, 20, 'pool', 50)).toBe(10);
+    expect(poolSizeFromEnv(NAME, 4, 'pool', 50)).toBe(4);
+    vi.stubEnv(NAME, 'abc');
+    expect(poolSizeFromEnv(NAME, 4, 'pool', 50)).toBe(4);
+    expect(poolSizeFromEnv(NAME, 20, 'pool', 50)).toBe(10);
+  });
+
+  it('PG_POOL_MAX floor is 2', () => {
+    expect(MIN_PG_POOL_MAX).toBe(2);
   });
 
   it("'50.0' gives 10 while '50' gives 50", () => {
