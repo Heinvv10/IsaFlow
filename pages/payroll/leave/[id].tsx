@@ -2,7 +2,7 @@
  * Leave Request detail — view and approve/reject.
  * Route: /payroll/leave/[id]
  */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { CalendarOff, Loader2, AlertCircle, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
@@ -44,6 +44,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 export default function LeaveDetailPage() {
   const router = useRouter();
+  // load() must depend on the id only: the router object's identity is not a reason to fetch again.
+  const routerRef = useRef(router);
+  routerRef.current = router;
   const { id } = router.query as { id: string };
   const [request, setRequest] = useState<LeaveRequest | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -54,7 +57,7 @@ export default function LeaveDetailPage() {
     if (!id) return;
     // Guard: if id is not a UUID (e.g. a nav typo like "types"), redirect to the list
     if (!UUID_RE.test(id)) {
-      await router.replace('/payroll/leave');
+      await routerRef.current.replace('/payroll/leave');
       return;
     }
     setIsLoading(true);
@@ -69,7 +72,7 @@ export default function LeaveDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [id, router]);
+  }, [id]);
 
   useEffect(() => { void load(); }, [load]);
 

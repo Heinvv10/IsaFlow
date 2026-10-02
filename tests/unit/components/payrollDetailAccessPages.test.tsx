@@ -13,7 +13,9 @@ vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 const ID = '11111111-1111-4111-8111-111111111111';
-vi.mock('next/router', () => ({ useRouter: () => ({ isReady: true, query: { id: ID }, push: vi.fn(), pathname: '/' }) }));
+// One router object for every render: a fresh one each time is not what Next gives a page.
+const router = vi.hoisted(() => ({ isReady: true, query: { id: '11111111-1111-4111-8111-111111111111' }, push: () => undefined, replace: () => undefined, pathname: '/' }));
+vi.mock('next/router', () => ({ useRouter: vi.fn(() => router) }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'viewer' }) }));
 
 import VariancePage from '@/../pages/payroll/runs/[id]/variance';
@@ -90,6 +92,25 @@ describe('bulk update — the preview (a POST read) says so on 403', () => {
     render(<BulkPage />);
     fireEvent.click(await screen.findByRole('button', { name: /^preview/i }));
     expect(await screen.findByText(NO_ACCESS)).toBeTruthy();
+  });
+});
+
+describe('leave request page — the router object is not a reason to fetch again', () => {
+  it('a router whose identity changes every render still fetches the request once and keeps its 403 message', async () => {
+    const LeaveRequest = (await import('@/../pages/payroll/leave/[id]')).default;
+    const leaveCalls: string[] = [];
+    fetchMock.mockImplementation(async (url: string) => { leaveCalls.push(String(url)); return forbidden(); });
+    const unstable = vi.mocked((await import('next/router')).useRouter);
+    unstable.mockImplementation(() => ({ isReady: true, query: { id: ID }, push: vi.fn(), replace: vi.fn(), pathname: '/' }) as never);
+    try {
+      render(<LeaveRequest />);
+      expect(await screen.findByText(NO_ACCESS)).toBeTruthy();
+      await new Promise((r) => setTimeout(r, 150));
+      expect(screen.getByText(NO_ACCESS)).toBeTruthy();
+      expect(leaveCalls.filter((u) => u.endsWith(`/api/payroll/leave/${ID}`))).toHaveLength(1);
+    } finally {
+      unstable.mockImplementation(() => router as never);
+    }
   });
 });
 

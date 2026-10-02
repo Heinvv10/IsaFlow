@@ -10,7 +10,8 @@ import { render, screen, cleanup } from '@testing-library/react';
 vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
-vi.mock('next/router', () => ({ useRouter: () => ({ isReady: true, query: {}, push: vi.fn(), pathname: '/' }) }));
+const router = vi.hoisted(() => ({ isReady: true, query: { id: '11111111-1111-4111-8111-111111111111' }, push: () => undefined, replace: () => undefined, pathname: '/' }));
+vi.mock('next/router', () => ({ useRouter: () => router }));
 const company = vi.hoisted(() => ({ role: 'viewer' as string | null }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: company.role }) }));
 
@@ -26,10 +27,12 @@ import ParallelRunPage from '@/../pages/payroll/parallel-run/index';
 import UifPage from '@/../pages/payroll/uif/index';
 import TrainingPage from '@/../pages/payroll/training/index';
 import LeaveBalancesPage from '@/../pages/payroll/leave/balances';
+import PayPackagePage from '@/../pages/payroll/pay-packages/[id]';
 
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
 const fetchMock = vi.fn();
-beforeEach(() => { fetchMock.mockReset(); fetchMock.mockImplementation(async () => ok([])); vi.stubGlobal('fetch', fetchMock); });
+const PACKAGE = { id: 'p1', code: 'EXEC', name: 'Executive', description: null, isActive: true, components: [{ id: 'pc1', componentId: 'c1', componentName: 'Basic', sarsSourceCode: '3601', componentType: 'earning', amount: 100, isRecurring: true }] };
+beforeEach(() => { fetchMock.mockReset(); fetchMock.mockImplementation(async (url: string) => String(url).includes('/api/payroll/pay-packages/') ? ok(PACKAGE) : ok([])); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); company.role = 'viewer'; });
 
 const hrefs = () => Array.from(document.querySelectorAll('a')).map((a) => a.getAttribute('href'));
@@ -48,6 +51,8 @@ const probes: Probe[] = [
   ['parallel run: upload card', () => <ParallelRunPage />, () => button(/choose csv/i)],
   ['UIF: Generate Declaration', () => <UifPage />, () => button(/generate declaration/i)],
   ['training: New event', () => <TrainingPage />, () => button(/new event/i)],
+  ['pay package: Add component', () => <PayPackagePage />, () => button(/add component/i)],
+  ['pay package: Save components', () => <PayPackagePage />, () => button(/save components/i)],
   ['leave balances: Run Monthly Accrual', () => <LeaveBalancesPage />, () => button(/run monthly accrual/i)],
 ];
 
