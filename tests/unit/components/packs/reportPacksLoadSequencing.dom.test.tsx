@@ -10,6 +10,7 @@
  * and the figures were individually correct, which is what makes it dangerous:
  * a reader has no way to notice.
  */
+import { useApiJsonOverMock } from '../../helpers/apiJsonOverMock';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
@@ -28,13 +29,13 @@ vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-const apiFetchMock = vi.fn();
-vi.mock('@/lib/apiFetch', () => ({
-  apiFetch: (...a: unknown[]) => apiFetchMock(...a),
-  assertOk: vi.fn(() => Promise.resolve({})),
-}));
+vi.mock('@/lib/apiFetch', async () => (await import('../../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 
+import { apiFetch } from '@/lib/apiFetch';
 import ReportPacksPage from '../../../../pages/accounting/reports/report-packs';
+
+const apiFetchMock = vi.mocked(apiFetch);
 
 /** A pack whose company name says which request produced it. */
 function pack(marker: string, type: string) {

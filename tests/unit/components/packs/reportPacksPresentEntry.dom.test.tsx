@@ -8,6 +8,7 @@
  * always said `management` would show a board reader a different document
  * from the one on their screen.
  */
+import { useApiJsonOverMock } from '../../helpers/apiJsonOverMock';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 
@@ -20,13 +21,13 @@ vi.mock('next/router', () => ({
 }));
 vi.mock('@/lib/logger', () => ({ log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 
-const apiFetchMock = vi.fn();
-vi.mock('@/lib/apiFetch', () => ({
-  apiFetch: (...a: unknown[]) => apiFetchMock(...a),
-  assertOk: vi.fn(() => Promise.resolve({})),
-}));
+vi.mock('@/lib/apiFetch', async () => (await import('../../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 
+import { apiFetch } from '@/lib/apiFetch';
 import ReportPacksPage from '../../../../pages/accounting/reports/report-packs';
+
+const apiFetchMock = vi.mocked(apiFetch);
 
 const PACK = {
   type: 'board',
