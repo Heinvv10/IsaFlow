@@ -280,8 +280,8 @@ export function buildBankTxActions(deps: ActionDeps) {
   };
   // ---- Row-level selection handlers (also persist to DB) ----
   const handleRowTypeChange = (txId: string, type: AllocType) => {
-    setRowSelections(prev => ({ ...prev, [txId]: { type, entityId: '', label: '', vatCode: type === 'account' ? (prev[txId]?.vatCode || 'none') : 'none' } }));
-    saveSelection(txId, type, '');
+    const vatCode: VatCode = type === 'account' ? (rowSelections[txId]?.vatCode || 'none') : 'none';
+    setRowSelections(prev => ({ ...prev, [txId]: { type, entityId: '', label: '', vatCode } })); saveSelection(txId, type, '', vatCode);
   };
   const handleRowEntityChange = (txId: string, entityId: string, label: string) => {
     const type = rowSelections[txId]?.type || 'account';

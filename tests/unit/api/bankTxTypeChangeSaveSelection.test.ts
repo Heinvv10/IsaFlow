@@ -29,9 +29,9 @@ const COMPANY = '00000000-0000-4000-8000-000000000001';
 const TX = '00000000-0000-4000-8000-000000000003';
 const SUP = '00000000-0000-4000-8000-000000000005';
 
-function actions() {
+function actions(rowSelections: Record<string, unknown> = {}) {
   return buildBankTxActions({
-    transactions: [], glAccounts: [], selectedBank: 'b', selectedIds: new Set(), rowSelections: {}, batchType: 'account',
+    transactions: [], glAccounts: [], selectedBank: 'b', selectedIds: new Set(), rowSelections, batchType: 'account',
     excludingTxId: null, createEntityTxId: null,
     setSmartRunning: vi.fn(), setRowSelections: vi.fn(), setTransactions: vi.fn(), setSelectedIds: vi.fn(),
     setShowBatchEdit: vi.fn(), setRulePrompt: vi.fn(), setExcludingTxId: vi.fn(), loadTransactions: vi.fn(),
@@ -54,9 +54,9 @@ describe('row Type change -> save_selection', () => {
     const bodies = sent();
     expect(bodies).toHaveLength(1);
     expect(await post(bodies[0])).toBe(200);
-    // second sql call is the UPDATE; its supplier/customer/gl bindings are all NULL
+    // second sql call is the UPDATE: gl / supplier / customer bindings are NULL, then the vat code (none for a supplier row)
     const update = sqlMock.mock.calls[1]!;
-    expect((update.slice(1) as unknown[]).slice(0, 4)).toEqual([null, null, null, null]);
+    expect((update.slice(1) as unknown[]).slice(0, 4)).toEqual([null, null, null, 'none']);
   });
 
   it('choosing a supplier then saves once, with the supplier id', async () => {
@@ -65,5 +65,26 @@ describe('row Type change -> save_selection', () => {
     expect(bodies).toHaveLength(1);
     expect(bodies[0]).toMatchObject({ action: 'save_selection', bankTransactionId: TX, selectionEntityId: SUP });
     expect(await post(bodies[0])).toBe(200);
+  });
+
+  it('keeps the vat code the screen shows: an account row keeps it, a supplier row resets to none', async () => {
+    const rows = { [TX]: { type: 'account', entityId: SUP, label: 'x', vatCode: 'S' } };
+    const setRows = vi.fn();
+    const a = buildBankTxActions({
+      transactions: [], glAccounts: [], selectedBank: 'b', selectedIds: new Set(), rowSelections: rows, batchType: 'account',
+      excludingTxId: null, createEntityTxId: null, setSmartRunning: vi.fn(), setRowSelections: setRows, setTransactions: vi.fn(),
+      setSelectedIds: vi.fn(), setShowBatchEdit: vi.fn(), setRulePrompt: vi.fn(), setExcludingTxId: vi.fn(), loadTransactions: vi.fn(),
+      refreshBankAccounts: vi.fn(),
+    } as unknown as Parameters<typeof buildBankTxActions>[0]);
+    a.handleRowTypeChange(TX, 'account');
+    a.handleRowTypeChange(TX, 'supplier');
+    const [first, second] = sent();
+    expect(first).toMatchObject({ selectionType: 'account', vatCode: 'S' });
+    expect(second).toMatchObject({ selectionType: 'supplier', vatCode: 'none' });
+    // what the screen holds is what was sent
+    const screen = setRows.mock.calls.map(([fn]) => (fn as (p: Record<string, { vatCode: string }>) => Record<string, { vatCode: string }>)(rows as never)[TX]!.vatCode);
+    expect(screen).toEqual(['S', 'none']);
+    expect(await post(first)).toBe(200);
+    expect(sqlMock.mock.calls[1]!.slice(1).slice(0, 4)).toEqual([null, null, null, 'S']);
   });
 });
