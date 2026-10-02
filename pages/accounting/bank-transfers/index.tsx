@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface BankAccount {
@@ -62,16 +62,12 @@ export default function BankTransfersPage() {
           transferDate,
         }),
       });
-      const json = await res.json();
-      if (res.ok) {
-        setMessage({ type: 'success', text: 'Transfer completed — journal entry created' });
-        setAmount('');
-        setReference('');
-      } else {
-        setMessage({ type: 'error', text: json.message || 'Transfer failed' });
-      }
-    } catch {
-      setMessage({ type: 'error', text: 'Transfer request failed' });
+      await assertOk(res, 'Transfer failed');
+      setMessage({ type: 'success', text: 'Transfer completed — journal entry created' });
+      setAmount('');
+      setReference('');
+    } catch (err) {
+      setMessage({ type: 'error', text: apiErrorMessage(err, 'Transfer request failed') });
     } finally {
       setIsSubmitting(false);
     }

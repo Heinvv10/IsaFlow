@@ -7,7 +7,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { CalendarOff, Loader2, AlertCircle, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface LeaveRequest {
   id: string;
@@ -82,8 +82,7 @@ export default function LeaveDetailPage() {
         body: JSON.stringify({ status }),
       });
       if (!res.ok) {
-        const json = await res.json() as { message?: string };
-        throw new Error(json.message ?? `HTTP ${res.status}`);
+        await assertOk(res, `HTTP ${res.status}`);
       }
       await load();
     } catch (err) {

@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Package, Loader2, AlertCircle, Trash2, Calendar, CheckCircle2, XCircle, BarChart2 } from 'lucide-react';
 import { AssetDualTrackPanel } from '@/components/assets/AssetDualTrackPanel';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { toDepreciationMethod } from '@/modules/accounting/services/items/farDepreciationService';
 import { buildDepreciationSchedule } from '@/modules/accounting/services/items/depreciationSchedule';
@@ -141,12 +141,13 @@ export default function AssetDetailPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ proceeds: Number(form.disposal_amount) || 0, disposalDate: form.disposal_date, disposalType: form.disposal_method, notes: form.reason || undefined }),
       });
-      const json = await res.json() as { success?: boolean; error?: string; message?: string };
-      if (!res.ok || !json.success) { setDisposalError(json.error ?? json.message ?? 'Disposal failed'); return; }
+      await assertOk(res, 'Disposal failed');
+      const json = await res.json() as { success?: boolean; error?: { message?: string } };
+      if (!json.success) { setDisposalError(json.error?.message ?? 'Disposal failed'); return; }
       await router.push('/accounting/assets');
     } catch (err) {
       log.error('Disposal failed', { err, assetId: asset.id }, 'accounting');
-      setDisposalError('Network error — please try again');
+      setDisposalError(apiErrorMessage(err, 'Network error — please try again'));
     } finally { setSubmitting(false); }
   };
 

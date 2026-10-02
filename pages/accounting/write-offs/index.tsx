@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { XCircle, Plus, Check, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface WriteOff {
   id: string; writeOffNumber: string; clientId: string; clientName?: string;
@@ -73,8 +73,7 @@ export default function WriteOffsPage() {
         credentials: 'include',
         body: JSON.stringify({ clientId: form.clientId, invoiceId: form.invoiceId, amount: Number(form.amount), reason: form.reason }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      await assertOk(res, 'Failed');
       setShowForm(false);
       setForm({ clientId: '', invoiceId: '', amount: '', reason: '' });
       await load();

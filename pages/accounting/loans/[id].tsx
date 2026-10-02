@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Landmark, ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
 import { log } from '@/lib/logger';
 import { Loan, ScheduleRow, LoanEvent, RateCurve, RatePoint, PRODUCT_LABELS } from '@/components/loans/types';
@@ -49,10 +49,14 @@ export default function LoanDetailPage() {
     if (!id) return;
     setLoadingLoan(true);
     setError('');
-    const res = await apiFetch(`/api/accounting/loans/${id}`);
-    const json = await res.json();
-    if (!res.ok) { setError(json.message || 'Failed to load loan'); setLoadingLoan(false); return; }
-    setLoan(json.data);
+    try {
+      const res = await apiFetch(`/api/accounting/loans/${id}`);
+      await assertOk(res, 'Failed to load loan');
+      const json = await res.json();
+      setLoan(json.data);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to load loan'));
+    }
     setLoadingLoan(false);
   }, [id]);
 

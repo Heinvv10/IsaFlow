@@ -11,7 +11,7 @@ import { ArrowLeft, BarChart3, Loader2, AlertCircle, Download, FileSpreadsheet }
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import { IncomeStatementSections } from '@/components/accounting/IncomeStatementSections';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
 import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
@@ -163,8 +163,8 @@ export default function IncomeStatementPage() {
         params.set('compare_end', priorEnd.toISOString().split('T')[0] ?? '');
       }
       const res = await apiFetch(`/api/accounting/reports-income-statement?${params}`);
+      await assertOk(res, 'Failed to load');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load');
       if (requestId === reportRequestRef.current) setReport(json.data || json);
     } catch (err) {
       if (requestId === reportRequestRef.current)

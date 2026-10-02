@@ -9,7 +9,7 @@ import { ReportBuilderSidebar } from '@/components/accounting/reports/ReportBuil
 import { ReportBuilderFilters, type FilterRow } from '@/components/accounting/reports/ReportBuilderFilters';
 import { ReportBuilderPreview } from '@/components/accounting/reports/ReportBuilderPreview';
 import { Play, Save, Download, ChevronLeft, BookOpen } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { localISODate } from '@/lib/dateUtils';
@@ -116,11 +116,11 @@ export default function ReportBuilderPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      await assertOk(res, 'Run failed');
       const json = await res.json();
-      if (!res.ok) { showToast(json.message || 'Run failed'); return; }
       setResult(json.data);
-    } catch {
-      showToast('Failed to run report');
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Failed to run report'));
     } finally {
       setIsRunning(false);
     }
@@ -148,12 +148,12 @@ export default function ReportBuilderPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      await assertOk(res, 'Save failed');
       const json = await res.json();
-      if (!res.ok) { showToast(json.message || 'Save failed'); return; }
       showToast('Report saved successfully');
       void router.replace(`/accounting/reports/builder?id=${json.data.id}`);
-    } catch {
-      showToast('Failed to save report');
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Failed to save report'));
     } finally {
       setIsSaving(false);
     }

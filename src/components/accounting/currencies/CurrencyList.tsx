@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { Plus, Loader2, Check, X, Star } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { Currency } from '@/modules/accounting/services/core/currencyService';
 
@@ -49,9 +49,10 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
           decimalPlaces: parseInt(form.decimalPlaces, 10) || 2,
         }),
       });
+      await assertOk(res, 'Failed to create currency');
       const json = await res.json();
-      if (!res.ok || json.success === false) {
-        notify.error(json.message || 'Failed to create currency');
+      if (json.success === false) {
+        notify.error(json.error?.message || 'Failed to create currency');
         return;
       }
       notify.success(`Currency ${form.code.toUpperCase()} created`);
@@ -60,7 +61,7 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
       onRefresh();
     } catch (e) {
       log.error('Currency operation failed', { error: e }, 'currencies');
-      notify.error('Failed to create currency');
+      notify.error(apiErrorMessage(e, 'Failed to create currency'));
     } finally {
       setSaving(false);
     }

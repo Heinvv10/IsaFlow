@@ -16,11 +16,17 @@ type ZoneStatus = 'idle' | 'uploading' | 'parsed' | 'error';
 interface Company { id: string; name: string; trading_name: string | null }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 interface ZoneState { status: ZoneStatus; count: number; error: string; parsed: any[] }
+/** What POST /api/accounting/migration-execute returns (ExecuteMigrationResult). */
 interface ExecResult {
-  accounts?:  { succeeded: number; failed: number };
-  customers?: { succeeded: number; failed: number };
-  suppliers?: { succeeded: number; failed: number };
+  accountsImported: number;
+  customersImported: number;
+  suppliersImported: number;
+  openingBalancesSet: number;
+  errors: string[];
 }
+const IMPORTED: Record<FileType, keyof Pick<ExecResult, 'accountsImported' | 'customersImported' | 'suppliersImported'>> = {
+  accounts: 'accountsImported', customers: 'customersImported', suppliers: 'suppliersImported',
+};
 
 const BLANK: ZoneState = { status: 'idle', count: 0, error: '', parsed: [] };
 
@@ -68,8 +74,8 @@ export default function AdminMigrationsPage() {
     setLoadingCo(true);
     try {
       const res  = await apiFetch('/api/admin/companies?limit=200&sort_by=name&sort_dir=asc');
+      await assertOk(res, 'Failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
       const items: Company[] = (json.data?.items ?? []).map((c: Company) =>
         ({ id: c.id, name: c.name, trading_name: c.trading_name }));
       setCompanies(items);
@@ -102,8 +108,8 @@ export default function AdminMigrationsPage() {
         headers: { 'X-Company-Id': companyId },
         body: fd,
       });
+      await assertOk(res, 'Parse failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Parse failed');
       patch(type, { status: 'parsed', count: json.data?.count ?? 0, parsed: json.data?.parsed ?? [] });
     } catch (err) {
       patch(type, { status: 'error', error: err instanceof Error ? err.message : 'Upload failed' });
@@ -121,7 +127,8 @@ export default function AdminMigrationsPage() {
         body: JSON.stringify({ source, accounts: zones.accounts.parsed, customers: zones.customers.parsed, suppliers: zones.suppliers.parsed }),
       });
       await assertOk(res, 'Migration failed');
-      setResult((await res.json()).data as ExecResult);
+      const { data } = await res.json() as { data: ExecResult };
+      setResult({ ...data, errors: Array.isArray(data.errors) ? data.errors : [] });
     } catch (err) {
       setExecErr(apiErrorMessage(err, 'Migration failed'));
     } finally { setExecuting(false); }
@@ -238,21 +245,26 @@ export default function AdminMigrationsPage() {
           <div className="bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-800 rounded-xl p-5 space-y-3">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-teal-600 dark:text-teal-400" />
-              <p className="text-sm font-semibold text-teal-900 dark:text-teal-200">Migration complete</p>
+              <p className="text-sm font-semibold text-teal-900 dark:text-teal-200">
+                {result.errors.length > 0 ? 'Migration finished with problems' : 'Migration complete'}
+              </p>
             </div>
             <div className="grid grid-cols-3 gap-3 text-center text-sm">
-              {ZONES.map(({ type, label }) => {
-                const r = result[type];
-                if (!r) return <div key={type} className="bg-white dark:bg-gray-800 rounded-lg py-3 px-2 text-gray-600 dark:text-gray-400 text-xs">{label}<br />not imported</div>;
-                return (
-                  <div key={type} className="bg-white dark:bg-gray-800 rounded-lg py-3 px-2">
-                    <p className="font-medium text-gray-900 dark:text-white">{label}</p>
-                    <p className="text-teal-600 dark:text-teal-400 mt-1">{r.succeeded} imported</p>
-                    {r.failed > 0 && <p className="text-red-500 text-xs">{r.failed} failed</p>}
-                  </div>
-                );
-              })}
+              {ZONES.map(({ type, label }) => (
+                <div key={type} className="bg-white dark:bg-gray-800 rounded-lg py-3 px-2">
+                  <p className="font-medium text-gray-900 dark:text-white">{label}</p>
+                  <p className="text-teal-600 dark:text-teal-400 mt-1">{result[IMPORTED[type]]} imported</p>
+                </div>
+              ))}
             </div>
+            {result.openingBalancesSet > 0 && (
+              <p className="text-sm text-teal-900 dark:text-teal-200">{result.openingBalancesSet} opening balances set</p>
+            )}
+            {result.errors.length > 0 && (
+              <ul className="text-xs text-red-600 dark:text-red-400 list-disc pl-5 space-y-1">
+                {result.errors.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            )}
           </div>
         )}
 

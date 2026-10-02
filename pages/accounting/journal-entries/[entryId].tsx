@@ -21,7 +21,7 @@ import {
   Hash,
 } from 'lucide-react';
 import type { JournalEntry } from '@/modules/accounting/types/gl.types';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { LinkTaxInvoiceButton } from '@/components/accounting/gl/LinkTaxInvoiceButton';
 
@@ -39,8 +39,7 @@ export default function JournalEntryDetailPage() {
     try {
       const res = await apiFetch(`/api/accounting/journal-entries-detail?id=${entryId}`);
       if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.message || 'Failed to load entry');
+        await assertOk(res, 'Failed to load entry');
       }
       const data = await res.json();
       setEntry(data.data || data);
@@ -68,8 +67,7 @@ export default function JournalEntryDetailPage() {
         body: JSON.stringify({ id: entry.id, action }),
       });
       if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.message || `Failed to ${action} entry`);
+        await assertOk(res, `Failed to ${action} entry`);
       }
       notifyLateClaims(await res.json()); // post: VAT claimed in a later period (s16(3))
       await loadEntry();

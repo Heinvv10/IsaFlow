@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   AlertCircle, Loader2, Upload, CheckCircle2, FileSpreadsheet, X,
   Search, RotateCcw, BadgeCheck, Ban, ExternalLink,
@@ -97,8 +97,8 @@ export default function AdminSarsCodesPage() {
       if (category) params.set('category', category);
       if (statusFilter) params.set('status', statusFilter);
       const res = await apiFetch(`/api/admin/payroll/sars-codes?${params.toString()}`);
+      await assertOk(res, 'Failed to load');
       const json = await res.json() as { data?: { releases: ReleaseRow[]; codes: CodeRow[]; taxYear: number | null }; message?: string };
-      if (!res.ok) throw new Error(json.message || 'Failed to load');
       setReleases(json.data?.releases ?? []);
       setCodes(json.data?.codes ?? []);
       setTaxYear(json.data?.taxYear ?? null);
@@ -123,10 +123,11 @@ export default function AdminSarsCodesPage() {
       method: 'POST',
       body: JSON.stringify({ taxYear: year }),
     });
-    if (res.ok) await load(year);
-    else {
-      const j = await res.json().catch(() => ({}));
-      alert(j.message || 'Failed to set current');
+    try {
+      await assertOk(res, 'Failed to set current');
+      await load(year);
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Failed to set current'));
     }
   };
 
@@ -139,12 +140,12 @@ export default function AdminSarsCodesPage() {
       method: 'PATCH',
       body: JSON.stringify({ status: next }),
     });
-    if (res.ok) {
+    try {
+      await assertOk(res, 'Failed to update');
       if (drawerCode?.code === row.code) setDrawerCode({ ...row, status: next });
       await load(taxYear);
-    } else {
-      const j = await res.json().catch(() => ({}));
-      alert(j.message || 'Failed to update');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Failed to update'));
     }
   };
 
@@ -406,8 +407,8 @@ function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete
       if (dryRun) fd.append('dryRun', '1');
 
       const res = await apiFetch('/api/admin/payroll/sars-codes/import', { method: 'POST', body: fd });
+      await assertOk(res, 'Import failed');
       const json = await res.json() as { data?: ImportResult; message?: string };
-      if (!res.ok) throw new Error(json.message || 'Import failed');
       setPreview(json.data ?? null);
       setStep(dryRun ? 'preview' : 'done');
       if (!dryRun) setTimeout(onComplete, 1500);

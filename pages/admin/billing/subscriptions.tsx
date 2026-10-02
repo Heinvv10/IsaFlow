@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Ban, Download } from 'lucide-react';
@@ -85,8 +85,8 @@ export default function SubscriptionsPage() {
       if (q)  params.set('search', q);
       if (st) params.set('status', st);
       const res  = await apiFetch(`/api/admin/billing/subscriptions?${params}`);
+      await assertOk(res, 'Failed to load subscriptions');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load subscriptions');
       const d = json.data as PagedResponse;
       setRows(d.items);
       setTotal(d.total);
@@ -136,8 +136,7 @@ export default function SubscriptionsPage() {
           discount_pct:  parseFloat(form.discount_pct) || 0,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to create subscription');
+      await assertOk(res, 'Failed to create subscription');
       setShowForm(false);
       setForm(EMPTY_FORM);
       void load(search, status, 1);

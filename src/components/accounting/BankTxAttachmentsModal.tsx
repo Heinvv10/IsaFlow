@@ -14,7 +14,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Paperclip, Trash2, Upload, FileImage, FileText, AlertCircle, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -129,8 +129,9 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
           fileSize: file.size,
         }),
       });
-      const json = await res.json() as { success: boolean; message?: string };
-      if (!res.ok || !json.success) throw new Error(json.message ?? 'Upload failed');
+      await assertOk(res, 'Upload failed');
+      const json = await res.json() as { success: boolean; error?: { message?: string } };
+      if (!json.success) throw new Error(json.error?.message ?? 'Upload failed');
       notify.success(`${file.name} uploaded`);
       await fetchAttachments();
     } catch (err) {
@@ -163,8 +164,9 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
         `/api/accounting/bank-tx-attachments?id=${encodeURIComponent(id)}`,
         { method: 'DELETE' },
       );
-      const json = await res.json() as { success: boolean; message?: string };
-      if (!res.ok || !json.success) throw new Error(json.message ?? 'Delete failed');
+      await assertOk(res, 'Delete failed');
+      const json = await res.json() as { success: boolean; error?: { message?: string } };
+      if (!json.success) throw new Error(json.error?.message ?? 'Delete failed');
       notify.success(`${name} removed`);
       setAttachments(prev => prev.filter(a => a.id !== id));
     } catch (err) {

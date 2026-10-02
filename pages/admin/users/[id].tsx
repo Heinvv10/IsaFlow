@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
   ArrowLeft, AlertCircle, Loader2, User, CheckCircle2,
@@ -79,8 +79,8 @@ export default function AdminUserDetailPage() {
     setLoading(true); setError('');
     try {
       const res  = await apiFetch(`/api/admin/users/${id}`);
+      await assertOk(res, 'Failed to load user');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load user');
       const u = json.data as UserDetail;
       setUser(u);
       setEditState({ firstName: u.first_name, lastName: u.last_name, phone: u.phone ?? '', role: u.role });
@@ -134,8 +134,8 @@ export default function AdminUserDetailPage() {
     setActionLoading(true); setActionError('');
     try {
       const res  = await apiFetch(`/api/admin/companies/${defaultCompany.company_id}/impersonate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      await assertOk(res, 'Failed to create impersonation token');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to create impersonation token');
       const token = (json.data as { token: string }).token;
       window.open(`/accounting?impersonate=${encodeURIComponent(token)}`, '_blank');
       showToast('Impersonation session opened');

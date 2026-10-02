@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { Landmark, ArrowLeft, Loader2 } from 'lucide-react';
 import { RateCurve } from '@/components/loans/types';
 
@@ -99,8 +99,8 @@ export default function NewLoanPage() {
         method: 'POST',
         body: JSON.stringify(body),
       });
+      await assertOk(res, 'Failed to create loan');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to create loan');
       await router.push(`/accounting/loans/${json.data.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create loan');

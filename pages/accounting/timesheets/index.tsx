@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Clock, Plus, ChevronLeft, ChevronRight, FileText, Loader2, X, Check } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { TimeEntryModal } from '@/components/accounting/time-tracking/TimeEntryModal';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -71,6 +71,8 @@ export default function TimesheetsPage() {
     }).catch(() => { /* non-critical */ });
   }, []);
 
+  function showToast(msg: string, ok: boolean) { setToast({ msg, ok }); }
+
   const loadEntries = useCallback(async () => {
     setLoading(true);
     const from = fmtISO(weekStart);
@@ -92,7 +94,6 @@ export default function TimesheetsPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  function showToast(msg: string, ok: boolean) { setToast({ msg, ok }); }
 
   const weekDates = DAY_LABELS.map((_, i) => addDays(weekStart, i));
   const byDate = entries.reduce<Record<string, TimeEntry[]>>((acc, e) => {
@@ -129,8 +130,7 @@ export default function TimesheetsPage() {
       const res = await apiFetch('/api/accounting/time-entries', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
-      const j = await res.json() as { message?: string };
-      if (!res.ok) throw new Error(j.message ?? 'Failed');
+      await assertOk(res, 'Failed');
       showToast('Entry added', true);
       setShowForm(false); setForm({ ...BLANK_FORM }); void loadEntries();
     } catch (err) { showToast(err instanceof Error ? err.message : 'Save failed', false); }
@@ -148,8 +148,8 @@ export default function TimesheetsPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ timeEntryIds: ids, customerId: first.customerId, invoiceDate: fmtISO(new Date()) }),
       });
+      await assertOk(res, 'Failed');
       const j = await res.json() as { data?: { invoiceNumber?: string }; message?: string };
-      if (!res.ok) throw new Error(j.message ?? 'Failed');
       showToast(`Invoice ${j.data?.invoiceNumber ?? ''} created`, true);
       setSelected(new Set()); void loadEntries();
     } catch (err) { showToast(err instanceof Error ? err.message : 'Invoice failed', false); }

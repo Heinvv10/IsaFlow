@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Loader2, AlertCircle, Plus, Zap } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   fmt,
   selectClass,
@@ -79,13 +79,10 @@ export default function EliminationsPage() {
         `/api/accounting/consolidated-reports?group_id=${selectedGroupId}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
       );
-      if (!res.ok) {
-        const json = await res.json();
-        throw new Error(json.message || errMsg);
-      }
+      await assertOk(res, errMsg);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : errMsg);
+      setError(apiErrorMessage(err, errMsg));
     } finally { setActionLoading(null); }
   }, [selectedGroupId, loadData]);
 
@@ -132,10 +129,10 @@ export default function EliminationsPage() {
           }),
         }
       );
-      if (!res.ok) { const json = await res.json(); throw new Error(json.message || 'Failed to create elimination'); }
+      await assertOk(res, 'Failed to create elimination');
       setShowCreateModal(false); resetForm(); await loadData();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to create elimination');
+      setFormError(apiErrorMessage(err, 'Failed to create elimination'));
     } finally { setFormSaving(false); }
   }
 

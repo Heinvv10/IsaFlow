@@ -133,8 +133,7 @@ export default function TimeTrackingPage() {
     setBusy(id);
     try {
       const res = await apiFetch(`/api/accounting/time-entries?id=${id}`, { method: 'DELETE' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      await assertOk(res, 'Failed');
       setSuccess('Entry deleted'); await loadEntries();
     } catch (err) { setError(err instanceof Error ? err.message : 'Delete failed'); }
     finally { setBusy(''); }
@@ -159,8 +158,8 @@ export default function TimeTrackingPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, ids }),
       });
+      await assertOk(res, 'Failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
       setSuccess(`${action === 'submit' ? 'Submitted' : 'Approved'} ${json.data?.count || 0} entries`);
       setSelected(new Set()); await loadEntries();
     } catch (err) { setError(err instanceof Error ? err.message : 'Action failed'); }

@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { formatDate } from '@/utils/formatters';
 import { PlusCircle, Play, Edit2, Trash2, Share2, AlertCircle, FileText } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface Template {
   id: string;
@@ -48,11 +48,11 @@ export default function MyReportsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/custom-reports', { credentials: 'include' });
+      await assertOk(res, 'Failed to load');
       const json = await res.json();
-      if (!res.ok) { setError(json.message || 'Failed to load'); return; }
       setTemplates(json.data?.items ?? []);
-    } catch {
-      setError('Failed to load reports');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to load reports'));
     } finally {
       setIsLoading(false);
     }

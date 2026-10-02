@@ -9,7 +9,7 @@ import Link from 'next/link';
 import {
   ArrowLeft, Database, Loader2, AlertCircle, Download, Wand2, Save,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface AccountMapping {
@@ -50,8 +50,8 @@ export default function CaseWareExportPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/account-mappings?system=caseware');
+      await assertOk(res, 'Failed to load mappings');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message ?? 'Failed to load mappings');
       const items: AccountMapping[] = json.data?.items ?? [];
       setMappings(items);
       const initial: Record<string, { code: string; label: string }> = {};
@@ -77,8 +77,8 @@ export default function CaseWareExportPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'auto-suggest', targetSystem: 'caseware' }),
       });
+      await assertOk(res, 'Auto-suggest failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message ?? 'Auto-suggest failed');
       setSaveMsg(`Auto-suggested ${json.data?.applied ?? 0} account codes`);
       await loadMappings();
     } catch (err) {

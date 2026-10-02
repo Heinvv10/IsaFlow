@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { emitApplyToast } from './applyToast';
 import type { BankRuleFormState } from './BankRuleForm';
 import type { BankRuleRowData, VatCode } from './BankRuleRow';
@@ -202,8 +202,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
           credentials: 'include',
           body: JSON.stringify({ action: 'update', id: editingRule.id, ...payload }),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.message || 'Failed to update rule');
+        await assertOk(res, 'Failed to update rule');
         notify.success(`Rule "${payload.ruleName}" updated`);
       } else {
         const res = await apiFetch('/api/accounting/bank-rules', {
@@ -214,8 +213,8 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
             ...(selectedBankId ? { bankAccountId: selectedBankId } : {}),
           }),
         });
+        await assertOk(res, 'Failed to create rule');
         const json = await res.json();
-        if (!res.ok) throw new Error(json.message || 'Failed to create rule');
         const parts = {
           applied: Number(json.data?.applied ?? 0),
           autoPostSkippedClosedPeriod: Number(json.data?.autoPostSkippedClosedPeriod ?? 0),
@@ -258,8 +257,8 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action, id, ...extra }),
       });
+      await assertOk(res, `${action} failed`);
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || `${action} failed`);
       if (action === 'apply') {
         const data = json.data;
         // Guard against partial server responses.
@@ -294,8 +293,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action: 'deleteMany', ids: [...selected] }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Bulk delete failed');
+      await assertOk(res, 'Bulk delete failed');
       notify.success(`${count} rule${count !== 1 ? 's' : ''} deleted`);
       await load();
     } catch (err) {

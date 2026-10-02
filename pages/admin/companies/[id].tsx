@@ -129,8 +129,8 @@ export default function AdminCompanyDetailPage() {
     setLoading(true); setError('');
     try {
       const res  = await apiFetch(`/api/admin/companies/${id}`);
+      await assertOk(res, 'Failed to load company');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load company');
       setCompany(json.data as CompanyDetail);
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
     finally { setLoading(false); }
@@ -171,8 +171,7 @@ export default function AdminCompanyDetailPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ reason: suspendReason }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      await assertOk(res, 'Failed');
       setSuspendOpen(false); setSuspendReason(''); void load();
     } catch (err) { setActionError(err instanceof Error ? err.message : 'Failed'); }
     finally { setActionLoading(false); }
@@ -183,8 +182,7 @@ export default function AdminCompanyDetailPage() {
     setActionLoading(true); setActionError('');
     try {
       const res  = await apiFetch(`/api/admin/companies/${id}/activate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      await assertOk(res, 'Failed');
       void load();
     } catch (err) { setActionError(err instanceof Error ? err.message : 'Failed'); }
     finally { setActionLoading(false); }
@@ -195,8 +193,7 @@ export default function AdminCompanyDetailPage() {
     setActionLoading(true); setActionError('');
     try {
       const res  = await apiFetch(`/api/admin/companies/${id}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      await assertOk(res, 'Failed');
       void router.push(adminHref('/admin/companies'));
     } catch (err) { setActionError(err instanceof Error ? err.message : 'Failed'); setActionLoading(false); }
   }

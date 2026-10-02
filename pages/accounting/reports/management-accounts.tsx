@@ -11,7 +11,7 @@ import {
   ArrowLeft, BarChart3, Loader2, AlertCircle,
   Download, Mail, TrendingUp, Scale, Banknote,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/format/money';
 import { ManagementPandLRows, ManagementBalanceSheetRows, KVRow } from '@/components/accounting/ManagementPandLRows';
 import { ManagementKpiRow } from '@/components/accounting/ManagementKpiRow';
@@ -133,8 +133,8 @@ export default function ManagementAccountsPage() {
     try {
       const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
       const res = await apiFetch(`/api/accounting/reports-management-accounts?${params}`);
+      await assertOk(res, 'Failed to load');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load');
       setReport(json.data ?? json);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load report');

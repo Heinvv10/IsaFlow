@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { X, MessageCircle, AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { composeBankTxQueryMessage } from '@/modules/accounting/services/capture/bankTxQueryMessage';
 import type { BankTx } from '@/components/accounting/BankTxTable';
 
@@ -142,18 +142,12 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
         }),
       });
 
-      if (!res.ok) {
-        // apiResponse error envelope: { success: false, error: { code, message } }
-        const json = await res.json() as { message?: string; error?: { message?: string } | string };
-        const errMsg = typeof json.error === 'string' ? json.error : json.error?.message;
-        setInlineError(json.message ?? errMsg ?? 'Failed to send query');
-        return;
-      }
+      await assertOk(res, 'Failed to send query');
 
       onSent?.();
       onClose();
     } catch (err) {
-      setInlineError(err instanceof Error ? err.message : 'Unexpected error sending query');
+      setInlineError(apiErrorMessage(err, 'Unexpected error sending query'));
     } finally {
       setSending(false);
     }

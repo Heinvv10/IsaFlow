@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Percent, Plus, Check, Loader2 } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 import { localISODate } from '@/lib/dateUtils';
@@ -65,8 +65,7 @@ export default function VATAdjustmentsPage() {
           reason: form.reason,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      await assertOk(res, 'Failed');
       setShowForm(false);
       setForm({ adjustmentDate: localISODate(), vatPeriod: '', adjustmentType: 'input', amount: '', reason: '' });
       await load();

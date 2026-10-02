@@ -74,8 +74,8 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
       form.append('source', source);
       form.append('fileType', fileType);
       const res = await apiFetch('/api/accounting/migration-parse', { method: 'POST', body: form });
+      await assertOk(res, 'Parse failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Parse failed');
       if (fileType === 'accounts') setAccounts(json.data.parsed);
       if (fileType === 'customers') setCustomers(json.data.parsed);
       if (fileType === 'suppliers') setSuppliers(json.data.parsed);
@@ -134,8 +134,8 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sourceAccounts: accounts.filter(a => a.openingBalance !== 0) }),
       });
+      await assertOk(res, 'Verify failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Verify failed');
       setVerifyResults(json.data.results);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Verification failed');

@@ -118,8 +118,7 @@ export default function RecurringJournalsPage() {
         method, headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify(payload),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      await assertOk(res, 'Failed');
       resetForm();
       await load();
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }

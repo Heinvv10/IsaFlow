@@ -142,7 +142,6 @@ export default function AdminSageImportPage() {
         const msg =
           (typeof json.error === 'string' && json.error) ||
           json.error?.message ||
-          json.message ||
           `Pull failed (${res.status})`;
         throw new Error(msg);
       }

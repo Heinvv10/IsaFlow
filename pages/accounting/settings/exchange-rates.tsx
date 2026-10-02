@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { AddRateForm, ConverterWidget } from '@/components/accounting/exchangeRates/ExchangeRateForms';
 import type { Currency } from '@/components/accounting/exchangeRates/ExchangeRateForms';
@@ -54,15 +54,11 @@ export default function ExchangeRatesSettingsPage() {
       const res = await apiFetch(`/api/accounting/exchange-rates?id=${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({})) as { message?: string };
-        notify.error(json.message || 'Failed to delete rate');
-        return;
-      }
+      await assertOk(res, 'Failed to delete rate');
       notify.success('Exchange rate deleted');
       setRates(prev => prev.filter(r => r.id !== id));
-    } catch {
-      notify.error('Failed to delete exchange rate');
+    } catch (err) {
+      notify.error(apiErrorMessage(err, 'Failed to delete exchange rate'));
     } finally {
       setDeleting(null);
     }

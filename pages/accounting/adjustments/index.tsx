@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { SlidersHorizontal, Plus, Check, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
 interface Adjustment {
@@ -77,8 +77,7 @@ export default function AdjustmentsPage() {
         credentials: 'include',
         body: JSON.stringify({ entityType, entityId: form.entityId, adjustmentType: form.adjustmentType, amount: Number(form.amount), reason: form.reason }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      await assertOk(res, 'Failed');
       setShowForm(false);
       setForm({ entityId: '', adjustmentType: 'debit', amount: '', reason: '' });
       await load();

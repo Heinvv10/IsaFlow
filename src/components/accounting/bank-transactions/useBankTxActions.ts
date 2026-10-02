@@ -4,7 +4,7 @@
  * and all derived handler functions.
  */
 
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { log } from '@/lib/logger';
 import { extractPattern } from '@/components/accounting/CreateRuleModal';
@@ -129,8 +129,9 @@ export function buildBankTxActions(deps: ActionDeps) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'update_notes', bankTransactionId: txId, notes }),
       });
+      await assertOk(res, 'Failed to save note');
       const json = await res.json();
-      if (!res.ok || json.success === false) throw new Error(json.message || 'Failed to save note');
+      if (json.success === false) throw new Error(json.error?.message || 'Failed to save note');
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to save note'); loadTransactions(); }
   };
   const handleBatchAccept = async () => {
@@ -256,8 +257,8 @@ export function buildBankTxActions(deps: ActionDeps) {
     if (!selectedBank) return;
     try {
       const res = await apiFetch(`/api/accounting/bank-reconciliation-report?bankAccountId=${selectedBank}`);
+      await assertOk(res, 'Failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
       const { generateReconReport } = await import('@/modules/accounting/utils/reconReportPdf');
       const blob = await generateReconReport(json.data || json);
       const url = URL.createObjectURL(blob);

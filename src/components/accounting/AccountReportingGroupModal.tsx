@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, ChevronRight, ChevronLeft, Search, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface GlAccount {
   id: string;
@@ -106,8 +106,8 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name.trim(), report_type: reportType, display_order: displayOrder }),
         });
+        await assertOk(res, 'Failed to create group');
         const json = await res.json();
-        if (!res.ok) { setError(json.message ?? 'Failed to create group'); return; }
         groupId = json.data?.id;
       } else {
         const res = await apiFetch(`/api/accounting/account-reporting-groups?id=${group!.id}`, {
@@ -115,8 +115,7 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name.trim(), report_type: reportType, display_order: displayOrder }),
         });
-        const json = await res.json();
-        if (!res.ok) { setError(json.message ?? 'Failed to update group'); return; }
+        await assertOk(res, 'Failed to update group');
       }
 
       // Save members
@@ -128,10 +127,11 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
           body: JSON.stringify({ gl_account_ids: Array.from(memberIds) }),
         }
       );
-      const membersJson = await membersRes.json();
-      if (!membersRes.ok) { setError(membersJson.message ?? 'Failed to save members'); return; }
+      await assertOk(membersRes, 'Failed to save members');
 
       onSaved();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to save group'));
     } finally {
       setSaving(false);
     }

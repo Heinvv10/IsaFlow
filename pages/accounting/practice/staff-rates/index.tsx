@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { DollarSign, Loader2, AlertCircle, Plus } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import type { StaffRate } from '@/modules/accounting/services/practice/practiceStaffRateService';
 import { localISODate } from '@/lib/dateUtils';
@@ -104,8 +104,7 @@ export default function StaffRatesPage() {
         }),
       });
       if (!res.ok) {
-        const j = await res.json() as { message?: string };
-        throw new Error(j.message ?? `HTTP ${res.status}`);
+        await assertOk(res, `HTTP ${res.status}`);
       }
       setForm((f) => ({ ...EMPTY_FORM, userId: f.userId, currency: f.currency }));
       await loadRates(selectedUser);

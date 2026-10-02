@@ -9,7 +9,7 @@ import Link from 'next/link';
 import {
   ArrowLeft, FileText, Loader2, AlertCircle, Download, Plus, Save,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { NoteCard } from '@/components/accounting/NoteCard';
 
 interface DisclosureNote {
@@ -42,8 +42,8 @@ export default function DisclosureNotesPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/disclosure-notes?year=${year}`);
+      await assertOk(res, 'Failed to load notes');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message ?? 'Failed to load notes');
       setNotes(json.data?.notes ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load notes');
@@ -67,8 +67,7 @@ export default function DisclosureNotesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fiscalYear: year, noteNumber: manualNumber, title: manualTitle, content: manualContent }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message ?? 'Failed to save note');
+      await assertOk(res, 'Failed to save note');
       setManualTitle(''); setManualContent(''); setManualNumber(20); setShowAddForm(false);
       await loadNotes();
     } catch (err) {

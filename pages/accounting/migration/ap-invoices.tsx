@@ -3,7 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import InvoiceImportResult, { type InvoiceImportResultData } from '@/components/accounting/migration/InvoiceImportResult';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 import { fetchAllSuppliers, truncatedSuppliersNotice } from '@/lib/fetchAllSuppliers';
 import { log } from '@/lib/logger';
 
@@ -142,8 +142,8 @@ export default function ApInvoicesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, invoices }),
       });
+      await assertOk(res, 'Import failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Import failed');
       setImportResult(json.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed');

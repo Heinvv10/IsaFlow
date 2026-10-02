@@ -14,7 +14,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   Briefcase, AlertCircle, Loader2,
   Building2, Filter,
@@ -66,8 +66,8 @@ export default function BureauDashboardPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch('/api/bureau');
+      await assertOk(res, 'Failed to load');
       const json = await res.json() as { data?: DashboardData; message?: string };
-      if (!res.ok) throw new Error(json.message || 'Failed to load');
       setData(json.data ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
