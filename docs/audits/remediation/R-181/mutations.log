@@ -88,3 +88,4 @@ NOTES (adversarial round 2)
   and P3 re-run against it alone (source restored after; green 47/47 over all three R-181 suites).
 - Round 2 general mutants N1..N5 above were run on 45aeb23c5; N2 and N5 targeted the pre-clamp
   merchantFee, which P4/P5 now cover in its clamped form.
+P12 fee leg ignores (amount - banked) (round-2 suite only, after the resend's reverse-order case): 3 failed | 8 passed (11) -> KILLED
