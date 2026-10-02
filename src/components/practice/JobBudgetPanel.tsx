@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { fetchJobBudget, type JobBudgetRow } from './practiceApi';
-import { EngagementBudgetSummary } from './EngagementBudgetSummary';
+import { EngagementBudgetSummary, BUDGET_STATE_TEXT } from './EngagementBudgetSummary';
 
 export function JobBudgetPanel({ jobId, refreshKey }: { jobId: string; refreshKey: string }) {
   // undefined = loading; null = no such job for this company.
@@ -26,7 +26,7 @@ export function JobBudgetPanel({ jobId, refreshKey }: { jobId: string; refreshKe
     return () => { cancelled = true; };
   }, [jobId, refreshKey]);
 
-  if (error) return <p className="text-sm text-red-400">Could not load the engagement budget: {error}</p>;
+  if (error) return <p className={`text-sm ${BUDGET_STATE_TEXT.over}`}>Could not load the engagement budget: {error}</p>;
   if (status === null) return null;
   if (status === undefined) return <div className="flex items-center gap-2 text-sm text-[var(--ff-text-tertiary)]"><Loader2 className="h-4 w-4 animate-spin" />Loading engagement budget…</div>;
   return <EngagementBudgetSummary status={status} />;
