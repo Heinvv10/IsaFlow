@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import type { PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { sql, getPoolForTests } from '@/lib/neon';
+import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
@@ -124,22 +125,21 @@ export async function reverseTip(co: Co, root: string, reversalDate?: string): P
 
 /**
  * The DB guard for the chain suites. They forge corrupt reversal chains, so
- * they run only against a disposable LOCAL database: `isaflow_schema_fixture`
- * or `isaflow_test` on localhost. The dev/production server (isaflow,
- * isaflow_dev, isaflow_staging) carries neither name, and it is not reached
- * through localhost from a fixture URL. Unlike `assertDisposable` (the route
- * suites), these suites never call GoTrue or the platform-admin pool, so they
- * do not need those URLs, and they do not need the fixture's NAME.
+ * they run only against a disposable LOCAL fixture database:
+ * `isaflow_schema_fixture`, or `isaflow_test` — the second name the fixture
+ * containers carry for the suites that demand it (assertNotProductionDb).
+ * The URL is checked the way pg will read it (fixtureDbGuard): no query
+ * parameter but sslmode, so `?host=` cannot point a "localhost" URL at another
+ * server; localhost only; not the IsaFlow Supabase stack's ports; and one of
+ * those two names, which the dev/production server does not carry. Unlike
+ * `assertDisposable` (route suites), these suites never call GoTrue or the
+ * platform-admin pool, so those URLs are not required.
  */
 export function assertChainFixtureDb(): void {
   if (process.env.ISAFLOW_DISPOSABLE_AUTH_TEST !== '1') {
     throw new Error('Disposable opt-in required: ISAFLOW_DISPOSABLE_AUTH_TEST=1');
   }
-  const url = new URL(process.env.DATABASE_URL ?? 'http://missing.invalid');
-  if (!['localhost', '127.0.0.1'].includes(url.hostname)) throw new Error('DATABASE_URL must be localhost');
-  if (!['/isaflow_schema_fixture', '/isaflow_test'].includes(url.pathname)) {
-    throw new Error('DATABASE_URL must name isaflow_schema_fixture or isaflow_test');
-  }
+  assertLocalFixtureDbUrl('DATABASE_URL', process.env.DATABASE_URL, ['isaflow_schema_fixture', 'isaflow_test']);
 }
 
 /**
