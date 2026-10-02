@@ -30,11 +30,11 @@ export async function verify(ref: string): Promise<{ statusCode: number; body: {
   return out.state as never;
 }
 
-/** A signed charge.success carrying what Paystack says it received. */
-export async function deliver(reference: string, cents: number, currency = 'ZAR'): Promise<{ statusCode: number }> {
+/** A signed charge.success carrying what Paystack says it received (`null`: no amount at all). */
+export async function deliver(reference: string, cents: number | null, currency = 'ZAR'): Promise<{ statusCode: number }> {
   const webhook = await route('../../pages/api/webhooks/paystack');
   const body = JSON.stringify({ event: 'charge.success', data: {
-    id: 181, reference, status: 'success', amount: cents, currency, channel: 'card',
+    id: 181, reference, status: 'success', ...(cents === null ? {} : { amount: cents }), currency, channel: 'card',
     customer: { email: 'payer@r181.test', customer_code: 'CUS_r181' } } });
   const req = Readable.from([Buffer.from(body)]) as unknown as NextApiRequest;
   Object.assign(req, { method: 'POST', headers: { 'content-type': 'application/json',
