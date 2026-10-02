@@ -1,5 +1,6 @@
 // src/lib/auth/gotrue.ts
 import { validateImpersonationProof } from './impersonationAssurance';
+import { callAuthUpstream, readAuthUpstreamJson } from './authUpstream';
 import { jwtVerify, SignJWT, type JWTPayload } from 'jose';
 
 export interface GoTrueUser {
@@ -66,11 +67,13 @@ export async function verifyToken(token: string, impersonationProof?: string): P
   if (impersonationProof && await validateImpersonationProof(impersonationProof, claims)) return claims;
   // Password tokens remain AAL1 even when MFA is enrolled. Cookie names do not
   // prove challenge completion; consult current enrollment before authorizing.
-  const res = await gotrueFetch('/user', { method: 'GET' }, {
+  // An outage throws AuthUpstreamUnavailableError (503, cookies kept); any other
+  // non-OK reply is a verdict on the token (401, cookies cleared).
+  const res = await callAuthUpstream('Session assurance check', (signal) => gotrueFetch('/user', { method: 'GET', signal }, {
     apikey: getEnv('SUPABASE_ANON_KEY'), Authorization: `Bearer ${token}`,
-  });
+  }));
   if (!res.ok) throw new Error(`Session assurance check failed: ${res.status}`);
-  const user: unknown = await res.json();
+  const user = await readAuthUpstreamJson('Session assurance check', res);
   if (!user || typeof user !== 'object' || !('id' in user) || user.id !== claims.sub) {
     throw new Error('Session assurance identity mismatch');
   }
@@ -104,27 +107,29 @@ function adminHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${key}`, apikey: key };
 }
 
+/** An outage throws AuthUpstreamUnavailableError: login must not count it as a wrong password. */
 export async function signIn(email: string, password: string): Promise<GoTrueTokenResponse> {
-  const res = await gotrueFetch(
+  const res = await callAuthUpstream('gotrue signIn', (signal) => gotrueFetch(
     '/token?grant_type=password',
-    { method: 'POST', body: JSON.stringify({ email, password }) },
+    { method: 'POST', body: JSON.stringify({ email, password }), signal },
     { apikey: getEnv('SUPABASE_ANON_KEY') }
-  );
+  ));
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`gotrue signIn failed: ${res.status} ${body}`);
   }
-  return res.json() as Promise<GoTrueTokenResponse>;
+  return readAuthUpstreamJson('gotrue signIn', res) as Promise<GoTrueTokenResponse>;
 }
 
+/** An outage throws AuthUpstreamUnavailableError: the refresh route must not end the session on it. */
 export async function refresh(refreshToken: string): Promise<GoTrueTokenResponse> {
-  const res = await gotrueFetch(
+  const res = await callAuthUpstream('gotrue refresh', (signal) => gotrueFetch(
     '/token?grant_type=refresh_token',
-    { method: 'POST', body: JSON.stringify({ refresh_token: refreshToken }) },
+    { method: 'POST', body: JSON.stringify({ refresh_token: refreshToken }), signal },
     { apikey: getEnv('SUPABASE_ANON_KEY') }
-  );
+  ));
   if (!res.ok) throw new Error(`gotrue refresh failed: ${res.status}`);
-  return res.json() as Promise<GoTrueTokenResponse>;
+  return readAuthUpstreamJson('gotrue refresh', res) as Promise<GoTrueTokenResponse>;
 }
 
 // GoTrue /logout scopes (verified against this deployment, GoTrue @ :7770):

@@ -1,6 +1,7 @@
 // pages/api/auth/login.ts
 import type { NextApiHandler } from 'next';
 import { signIn } from '@/lib/auth/gotrue';
+import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import { listFactors, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { setAuthCookies, setActiveCompanyCookie, setOnboardingDoneCookie, setPendingMfaCookie, setPendingRememberCookie } from '@/lib/auth/cookies';
 import { checkLockout, recordFailure, clearLockout } from '@/lib/auth/accountLockout';
@@ -43,6 +44,8 @@ const handler: NextApiHandler = async (req, res) => {
   try {
     token = await signIn(cleanEmail, password);
   } catch (err) {
+    // D9: GoTrue could not answer, so the password was never judged. Not a failed attempt.
+    if (respondIfAuthUnavailable(res, err, 'login')) return;
     const failure = await recordFailure(cleanEmail, ip);
     log.info('login failed', { email, message: err instanceof Error ? err.message : 'unknown', locked: failure.locked }, 'Auth');
     if (failure.locked) {
