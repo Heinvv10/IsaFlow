@@ -86,3 +86,28 @@ describe('the same reads still state the figures they can', () => {
     expect(current.unavailable).toMatch(/receivables are a net credit/i);
   });
 });
+
+describe('the cash conversion cycle built from those day counts', () => {
+  // The cycle is debtor days plus inventory days less creditor days. Where the
+  // row above it is n/m, a cycle printed beside it was built from the very
+  // figure the page calls unmeasurable: "(45 days)" under a net-credit book,
+  // and an inflated 143 days where negative creditor days were subtracted.
+  const stocked = (over: Parameters<typeof figures>[0]) => figures({ inventory: 310_000, inventoryCaveat: null, ...over });
+
+  it('is n/m with the debtor-days reason where receivables are a net credit', () => {
+    const prior = rowOf(set(stocked({ accountsReceivable: -300_000 })), 'Cash conversion cycle').prior!;
+    expect(prior.value).toBeNull();
+    expect(prior.unavailable).toMatch(/receivables are a net credit/i);
+  });
+
+  it('is n/m with the creditor-days reason where payables are a net debit', () => {
+    const actual = rowOf({ ...demoSet, current: stocked({ accountsPayable: -200_000 }) }, 'Cash conversion cycle').actual;
+    expect(actual.value).toBeNull();
+    expect(actual.unavailable).toMatch(/payables are a net debit/i);
+  });
+
+  it('is still stated where both day counts are', () => {
+    expect(rowOf({ ...demoSet, current: stocked({}) }, 'Cash conversion cycle').actual.value).not.toBeNull();
+  });
+});
+
