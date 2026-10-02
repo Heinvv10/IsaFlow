@@ -9,26 +9,47 @@ import { createJournalEntry, getJournalEntryById } from '@/modules/accounting/se
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { journalVatRefusal } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
-import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
+import type { JournalLineInput, VatType } from '@/modules/accounting/types/gl.types';
 import { mcpPostingOpts } from '../mcpActor';
 import { ALLOW_LATE_INPUT_CLAIM_PROP, allowLateInputClaim } from './lateClaimArg';
+import { resolveLineVatCode } from './allocationVatGuard';
 import { NOT_FOUND, guardCastableArgs, guardUuidList, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
-function parseLines(raw: unknown): JournalLineInput[] | null {
+/**
+ * The VAT treatments a manual line may carry — the same set an allocation
+ * stamps on its lines (gl.types VatType). Without one, a manual line on a VAT
+ * control account is an "uncoded GL VAT line" and BLOCKS the VAT201, so a
+ * correcting journal that mirrors an allocation (e.g. moving a reversal into
+ * the period it corrects) could never be filed. Opt-in per line: omitted, the
+ * line stays uncoded exactly as before.
+ */
+export const JOURNAL_LINE_VAT_TYPES: readonly VatType[] = [
+  'standard', 'zero_rated', 'exempt', 'capital_goods', 'export', 'imported', 'reverse_charge', 'bad_debt',
+];
+
+function parseLines(raw: unknown): JournalLineInput[] | string | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   const lines: JournalLineInput[] = [];
-  for (const item of raw) {
+  for (const [i, item] of raw.entries()) {
     if (!item || typeof item !== 'object') return null;
     const o = item as Record<string, unknown>;
     const glAccountId = typeof o.account_id === 'string' ? o.account_id : '';
     const debit = Number(o.debit ?? 0);
     const credit = Number(o.credit ?? 0);
     if (!glAccountId || !Number.isFinite(debit) || !Number.isFinite(credit)) return null;
+    let vatType: VatType | undefined;
+    if (o.vat_type !== undefined && o.vat_type !== null) {
+      if (typeof o.vat_type !== 'string' || !(JOURNAL_LINE_VAT_TYPES as readonly string[]).includes(o.vat_type)) {
+        return `lines[${i}].vat_type must be one of: ${JOURNAL_LINE_VAT_TYPES.join(', ')}`;
+      }
+      vatType = o.vat_type as VatType;
+    }
     lines.push({
       glAccountId,
       debit,
       credit,
       description: typeof o.description === 'string' ? o.description : undefined,
+      ...(vatType ? { vatType } : {}),
     });
   }
   return lines;
@@ -37,7 +58,7 @@ function parseLines(raw: unknown): JournalLineInput[] | null {
 export const createDraftJournalTool: McpTool = {
   name: 'create_draft_journal',
   description:
-    'Create an UNPOSTED (draft) GL journal entry. Lines use account_id (GL account UUID) with debit/credit amounts; total debits must equal total credits. Does not post — use post_journal (needs write:post) to post.',
+    'Create an UNPOSTED (draft) GL journal entry. Lines use account_id (GL account UUID) with debit/credit amounts; total debits must equal total credits. A line may carry vat_type (standard, zero_rated, exempt, …) so a correcting journal on VAT Input/Output is coded for the VAT201 like an allocation. Does not post — use post_journal (needs write:post) to post.',
   scope: 'write:journals',
   write: true,
   inputSchema: {
@@ -55,6 +76,14 @@ export const createDraftJournalTool: McpTool = {
             debit: { type: 'number', minimum: 0 },
             credit: { type: 'number', minimum: 0 },
             description: { type: 'string' },
+            vat_type: {
+              type: 'string',
+              enum: [...JOURNAL_LINE_VAT_TYPES],
+              description:
+                'VAT treatment of this line, as an allocation would stamp it. Set it on a VAT Input/'
+                + 'Output line AND on the base line it belongs to; a VAT-account line without it is '
+                + 'reported by vat_exceptions as uncoded and blocks the VAT201. Omit for non-VAT lines.',
+            },
           },
           required: ['account_id'],
           additionalProperties: false,
@@ -72,6 +101,7 @@ export const createDraftJournalTool: McpTool = {
     const badDate = guardCastableArgs(args, { date: ['date'] });
     if (badDate) return badDate;
     const lines = parseLines(args.lines);
+    if (typeof lines === 'string') return toolError(lines);
     if (!lines) return toolError('lines must be a non-empty array of {account_id, debit, credit}');
     // accountsBelongToCompany casts every one of these to ::UUID, so a typo
     // there fails the ownership check itself rather than the posting.
@@ -82,6 +112,24 @@ export const createDraftJournalTool: McpTool = {
     // this company's own trial balance via the RLS-hidden joined row).
     if (!(await accountsBelongToCompany(ctx.companyId, lines.map((l) => l.glAccountId)))) {
       return toolError('One or more account_id values are not GL accounts in your company.');
+    }
+    // A coded line is a VAT claim the agent is asserting, unattended: run it
+    // through the same s17(2)(a) / non-supply / bank-transfer funnel every MCP
+    // allocation goes through. REFUSE rather than coerce — the journal carries
+    // its VAT amount on an explicit line, so silently relabelling the code
+    // would leave that amount describing a claim the code now denies.
+    for (const [i, line] of lines.entries()) {
+      if (!line.vatType) continue;
+      const guarded = await resolveLineVatCode(
+        ctx.companyId, '', { allocType: 'account', contraAccountId: line.glAccountId, vatCode: line.vatType },
+        'create_draft_journal',
+      );
+      if (guarded.vatCoerced) {
+        return toolError(
+          `lines[${i}].vat_type ${line.vatType} is not claimable on that account `
+          + `(${guarded.vatCoerced.reason}) — use no vat_type, or book it to a supply account.`,
+        );
+      }
     }
     try {
       // Stamp the agent. Without meta, createJournalEntry falls back to
