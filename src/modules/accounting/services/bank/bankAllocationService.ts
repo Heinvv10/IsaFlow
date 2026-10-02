@@ -25,7 +25,7 @@ import { autoApplyCustomerReceipt } from '../ar/customerAutoAllocate';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
-import { assertReversalDatePostable } from './reversalDatePostable';
+import { assertReversalDatePostable, reversalTargetOf } from './reversalDatePostable';
 import { refuseSettledProvisionalLine } from '../ap/provisionalSettlementGuards';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { assertPostedForAllocation } from './bankFeedStateGuard';
@@ -796,15 +796,15 @@ export async function reverseReconciledTransaction(
   // reading "completed". Before any write, so every caller answers it 400.
   refuseLockedCash(await reconciliationLockOf(companyId, tx), 'This bank line');
   await refuseSettledProvisionalLine(companyId, tx); // R-127: a settled provisional's own line
-  let journalEntryId: string | null = null;
+  let journalEntryId: string | null = null, reverseId = '';
   if (tx.matched_journal_line_id) {
     const jlRows = (await sql`
       SELECT jl.journal_entry_id FROM gl_journal_lines jl
       WHERE jl.id = ${tx.matched_journal_line_id}::UUID AND jl.company_id = ${companyId}::UUID`) as Row[];
     if (jlRows.length > 0 && jlRows[0]!.journal_entry_id) {
       journalEntryId = String(jlRows[0]!.journal_entry_id);
-      // Read-only, and before the first write of this function.
-      await assertReversalDatePostable(companyId, journalEntryId, opts?.reversalDate);
+      reverseId = await reversalTargetOf(companyId, journalEntryId); // read-only, pre-write; D8: the chain head
+      await assertReversalDatePostable(companyId, reverseId, opts?.reversalDate);
     }
   }
 
@@ -834,7 +834,7 @@ export async function reverseReconciledTransaction(
       result = await unwindBankAllocationApplication(companyId, journalEntryId);
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
       try {
-        const reversal = await reverseJournalEntry(companyId, journalEntryId, userId, opts);
+        const reversal = await reverseJournalEntry(companyId, reverseId, userId, opts);
         // Carried out so reverse_bank_allocation / void_receipt can say the
         // contra was dated past a locked VAT period.
         result = { ...result, vatLockRoll: reversal.vatLockRoll ?? null };

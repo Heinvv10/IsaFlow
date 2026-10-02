@@ -29,6 +29,7 @@ import { UNAPPLICABLE_STATUSES } from '../shared/creditNoteApplicationWrites';
 import { EPS, round2 } from '../shared/autoAllocateStrategy';
 import { mapRow } from './creditNoteMapper';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
+import { lockStandingChainHead } from '../shared/journalChainHead';
 
 /** The states that have something to reverse. A draft has posted nothing. */
 const CANCELLABLE_STATUSES = new Set(['approved', 'partially_applied', 'applied']);
@@ -65,13 +66,14 @@ export async function cancelCreditNote(companyId: string,
     // Reverse the GL journal entry. (It used to manage its own transaction; it
     // now runs on the ALS-bound request client like everything else, so the
     // reversal and the un-apply below commit or roll back together.)
-    if (cn.gl_journal_entry_id) {
-      await reverseJournalEntry(
-        companyId,
-        String(cn.gl_journal_entry_id),
-        userId,
-        actorMeta(opts),
-      );
+    // At its reversal-chain HEAD (D8, shared/journalChainHead): after O <- R <- R2
+    // the GL carries the note again through R2 while O is stamped reversed, and
+    // reversing O threw "already reversed". A chain already out reverses nothing.
+    const head = cn.gl_journal_entry_id
+      ? await lockStandingChainHead(companyId, String(cn.gl_journal_entry_id))
+      : null;
+    if (head) {
+      await reverseJournalEntry(companyId, head, userId, actorMeta(opts));
     }
 
     // Un-apply exactly what was applied, never the note's face value, and do it
