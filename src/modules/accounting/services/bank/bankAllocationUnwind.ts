@@ -69,6 +69,10 @@ export interface BankAllocationUnwindResult {
   paymentsCancelled: number;
   /** Set by the reversal when a locked VAT period moved its default date forward. */
   vatLockRoll?: VatLockRoll | null;
+  /** Date of the allocation journal that was reversed (YYYY-MM-DD). */
+  originalEntryDate?: string | null;
+  /** Date the contra journal actually carries (YYYY-MM-DD). */
+  reversalEntryDate?: string | null;
 }
 
 function round2(n: number): number {
