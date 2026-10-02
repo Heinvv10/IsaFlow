@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { Search, Building2, AlertCircle, Loader2, ChevronLeft, ChevronRight, Download } from 'lucide-react';
@@ -95,8 +95,8 @@ export default function AdminUsersPage() {
       if (r)  params.set('role', r);
       if (st) params.set('status', st);
       const res  = await apiFetch(`/api/admin/users?${params}`);
+      await assertOk(res, 'Failed to load users');
       const json = await res.json() as { data?: PagedResponse; message?: string };
-      if (!res.ok) throw new Error(json.message ?? 'Failed to load users');
       const d = json.data as PagedResponse;
       setRows(d.items);
       setTotal(d.total);
@@ -128,8 +128,7 @@ export default function AdminUsersPage() {
     try {
       const res = await apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
       if (!res.ok) {
-        const json = await res.json() as { message?: string };
-        throw new Error(json.message ?? 'Delete failed');
+        await assertOk(res, 'Delete failed');
       }
       setConfirmDeleteId(null);
       void load(search, company, role, status, page);

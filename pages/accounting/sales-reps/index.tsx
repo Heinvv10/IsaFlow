@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, Plus, Search, Loader2, X, Pencil, UserX } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { useCompany } from '@/contexts/CompanyContext';
 
@@ -51,16 +51,12 @@ export default function SalesRepsPage() {
     setError(null);
     try {
       const res = await apiFetch('/api/accounting/sales-reps');
-      const json = await res.json() as { data?: SalesRep[]; message?: string };
-      if (!res.ok) {
-        setError(json.message ?? 'Failed to load sales reps');
-        setReps([]);
-      } else {
-        setReps(json.data ?? []);
-      }
+      await assertOk(res, 'Failed to load sales reps');
+      const json = await res.json() as { data?: SalesRep[] };
+      setReps(json.data ?? []);
     } catch (err) {
       log.error('Failed to load sales reps', { err });
-      setError('Network error — could not load sales reps');
+      setError(apiErrorMessage(err, 'Network error — could not load sales reps'));
       setReps([]);
     }
     setLoading(false);
@@ -126,16 +122,12 @@ export default function SalesRepsPage() {
         });
       }
 
-      const json = await res.json() as { message?: string };
-      if (!res.ok) {
-        setFormError(json.message ?? 'Save failed');
-      } else {
-        closeModal();
-        await loadReps();
-      }
+      await assertOk(res, 'Save failed');
+      closeModal();
+      await loadReps();
     } catch (err) {
       log.error('Failed to save sales rep', { err });
-      setFormError('Network error — save failed');
+      setFormError(apiErrorMessage(err, 'Network error — save failed'));
     }
     setSaving(false);
   };
@@ -147,15 +139,11 @@ export default function SalesRepsPage() {
         method: 'PUT',
         body: JSON.stringify({ id: rep.id, is_active: !rep.is_active }),
       });
-      const json = await res.json() as { message?: string };
-      if (!res.ok) {
-        setError(json.message ?? 'Update failed');
-      } else {
-        await loadReps();
-      }
+      await assertOk(res, 'Update failed');
+      await loadReps();
     } catch (err) {
       log.error('Failed to update sales rep', { err });
-      setError('Network error — update failed');
+      setError(apiErrorMessage(err, 'Network error — update failed'));
     }
   };
 

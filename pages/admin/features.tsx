@@ -30,8 +30,8 @@ export default function AdminFeaturesPage() {
     setError('');
     try {
       const res  = await apiFetch('/api/admin/features');
+      await assertOk(res, 'Failed to load features');
       const json = await res.json() as { data?: FeatureFlag[]; message?: string };
-      if (!res.ok) throw new Error(json.message || 'Failed to load features');
       setFlags(json.data ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load features');
@@ -63,8 +63,8 @@ export default function AdminFeaturesPage() {
           is_global: editState.is_global,
         }),
       });
+      await assertOk(res, 'Failed to save');
       const json = await res.json() as { data?: FeatureFlag; message?: string };
-      if (!res.ok) throw new Error(json.message || 'Failed to save');
       setFlags((prev) => prev.map((f) => (f.id === id && json.data ? json.data : f)));
       setEditing(null);
     } catch (err) {

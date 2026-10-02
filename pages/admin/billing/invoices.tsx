@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Send, CreditCard } from 'lucide-react';
 
@@ -77,8 +77,8 @@ export default function InvoicesPage() {
       if (from) params.set('date_from', from);
       if (to)   params.set('date_to',   to);
       const res  = await apiFetch(`/api/admin/billing/invoices?${params}`);
+      await assertOk(res, 'Failed to load invoices');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load invoices');
       const d = json.data as PagedResponse;
       setRows(d.items);
       setTotal(d.total);
@@ -113,8 +113,7 @@ export default function InvoicesPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body,
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Action failed');
+      await assertOk(res, 'Action failed');
       void load(search, status, dateFrom, dateTo, page);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed');
@@ -142,8 +141,7 @@ export default function InvoicesPage() {
           notes:          form.notes || null,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to create invoice');
+      await assertOk(res, 'Failed to create invoice');
       setShowForm(false);
       setForm(EMPTY_FORM);
       void load(search, status, dateFrom, dateTo, 1);

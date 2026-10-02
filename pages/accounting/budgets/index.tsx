@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Wallet, Plus, Trash2, Loader2, Copy } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface GLAccount { id: string; accountCode: string; accountName: string }
 interface BudgetEntry {
@@ -75,8 +75,7 @@ export default function BudgetManagementPage() {
           annualAmount: Number(form.annualAmount), notes: form.notes || undefined,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      await assertOk(res, 'Failed');
       setShowForm(false);
       setForm({ glAccountId: '', annualAmount: '', notes: '' });
       await load();
@@ -101,8 +100,8 @@ export default function BudgetManagementPage() {
         credentials: 'include',
         body: JSON.stringify({ action: 'copy', fromYear: fiscalYear, toYear: fiscalYear + 1 }),
       });
+      await assertOk(res, 'Failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
       setSuccess(`Copied ${json.data?.copied || 0} budgets to ${fiscalYear + 1}`);
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
     finally { setBusy(''); }

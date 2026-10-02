@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Save, Loader2, Search } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface ItemOption {
   id: string;
@@ -96,9 +96,9 @@ export function BundleEditor({ itemId, parentDescription, onSaved }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ item_id: itemId, lines: lines.map((l, i) => ({ child_item_id: l.child_item_id, quantity: l.quantity, sort_order: i })) }),
       });
-      if (!res.ok) { const j = await res.json() as { message?: string }; throw new Error(j.message ?? 'Save failed'); }
+      await assertOk(res, 'Save failed');
       setSaved(true); onSaved?.();
-    } catch (e) { setError(e instanceof Error ? e.message : 'Save failed'); }
+    } catch (e) { setError(apiErrorMessage(e, 'Save failed')); }
     finally { setSaving(false); }
   };
 

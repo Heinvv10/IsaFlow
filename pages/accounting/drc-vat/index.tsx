@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowRightLeft, Loader2, Check } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
@@ -59,8 +59,8 @@ export default function DRCVatPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ supplierInvoiceId: invoiceId }),
       });
+      await assertOk(res, 'Failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
       setSuccess(`DRC VAT applied: ${fmt(json.data?.vatAmount || 0)}`);
       await load();
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }

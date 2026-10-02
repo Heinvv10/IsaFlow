@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Plus, Loader2, ToggleLeft, ToggleRight, Pencil } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface BusinessUnit {
   id: string;
@@ -61,16 +61,14 @@ export default function BusinessUnitsPage() {
           credentials: 'include',
           body: JSON.stringify({ name: form.name, code: form.code, description: form.description }),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.message || 'Failed');
+        await assertOk(res, 'Failed');
       } else {
         const res = await apiFetch('/api/accounting/cost-centres', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ name: form.name, code: form.code, description: form.description }),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.message || 'Failed');
+        await assertOk(res, 'Failed');
       }
       setShowForm(false); setEditId(null);
       setForm({ name: '', code: '', description: '' });

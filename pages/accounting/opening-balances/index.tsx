@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { BookMarked, Loader2, AlertCircle, Save } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface AccountBalance {
   id: string;
@@ -72,14 +72,10 @@ export default function OpeningBalancesPage() {
           })),
         }),
       });
-      if (res.ok) {
-        setMessage({ type: 'success', text: 'Opening balances saved as journal entry' });
-      } else {
-        const json = await res.json();
-        setMessage({ type: 'error', text: json.message || 'Failed to save' });
-      }
-    } catch {
-      setMessage({ type: 'error', text: 'Save request failed' });
+      await assertOk(res, 'Failed to save');
+      setMessage({ type: 'success', text: 'Opening balances saved as journal entry' });
+    } catch (err) {
+      setMessage({ type: 'error', text: apiErrorMessage(err, 'Save request failed') });
     } finally {
       setIsSaving(false);
     }

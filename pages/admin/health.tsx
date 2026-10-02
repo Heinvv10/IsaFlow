@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   Activity, Database, Zap, Mail, Users, Clock,
   RefreshCw, AlertTriangle, Loader2,
@@ -46,8 +46,8 @@ export default function SystemHealthPage() {
     setError('');
     try {
       const res  = await apiFetch('/api/admin/health');
+      await assertOk(res, 'Failed to load health data');
       const json = await res.json() as { data: SystemHealthData; message?: string };
-      if (!res.ok) throw new Error(json.message ?? 'Failed to load health data');
       setData(json.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load health data');

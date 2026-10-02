@@ -15,7 +15,7 @@ import {
   BarChart3, Loader2, AlertCircle, CheckCircle2,
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   StepCard, MigrationStep, MigrationHistory, type MigrationStatus,
 } from '@/components/accounting/sageMigration/sageMigrationParts';
@@ -39,8 +39,8 @@ export default function SageMigrationPage() {
   const loadStatus = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/sage-migration');
+      await assertOk(res, 'Failed to load');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load');
       setStatus(json.data || json);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load migration status');
@@ -61,8 +61,8 @@ export default function SageMigrationPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, ...extra }),
       });
+      await assertOk(res, 'Action failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Action failed');
 
       const data = json.data || json;
 

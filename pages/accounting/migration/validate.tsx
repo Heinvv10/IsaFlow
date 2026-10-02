@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, CheckCircle2, AlertCircle, AlertTriangle, Loader2, ShieldCheck, PartyPopper } from 'lucide-react';
-import { apiFetch, apiJson, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, apiJson, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface ValidationCheck {
@@ -49,8 +49,8 @@ export default function ValidatePage() {
     setIsLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/migration/validate?sessionId=${sid}`);
+      await assertOk(res, 'Validation failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Validation failed');
       setValidation(json.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Validation failed');
@@ -81,8 +81,7 @@ export default function ValidatePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, action: 'complete' }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to complete migration');
+      await assertOk(res, 'Failed to complete migration');
       setCompleted(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to complete migration');

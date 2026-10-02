@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { SlidersHorizontal, X, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { ScheduleRow, LoanEvent } from './types';
 import { LoanScheduleTable } from './LoanScheduleTable';
 
@@ -50,8 +50,8 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
         method: 'POST',
         body: JSON.stringify({ events: evPayload }),
       });
+      await assertOk(res, 'Preview failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Preview failed');
       setPreviewRows(json.data?.rows ?? []);
     } catch (err) {
       setPreviewError(err instanceof Error ? err.message : 'Preview failed');

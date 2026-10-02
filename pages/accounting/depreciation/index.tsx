@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingDown, Play, Loader2 } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   calculatePolicyDepreciation,
@@ -139,8 +139,8 @@ export default function DepreciationPage() {
         method: 'POST',
         credentials: 'include',
       });
+      await assertOk(res, 'Failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
       setLastRun(json.data);
       await loadAssets();
     } catch (err) {

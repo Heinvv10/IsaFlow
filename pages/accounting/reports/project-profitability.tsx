@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { ArrowLeft, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
 import type { ProjectProfitabilityReport } from '@/modules/accounting/types/gl.types';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 function getDefaultDates() {
@@ -37,8 +37,8 @@ export default function ProjectProfitabilityPage() {
     try {
       const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
       const res = await apiFetch(`/api/accounting/reports-project-profitability?${params}`);
+      await assertOk(res, 'Failed to load');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load');
       const data = json.data || json;
       setReports(Array.isArray(data) ? data : []);
     } catch (err) {

@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { Loader2, RefreshCw, Mail, AlertCircle, CheckCircle, Clock, Send } from 'lucide-react';
 import type { EmailLogItem, EmailLogStats } from '../api/admin/email-log';
 
@@ -123,8 +123,7 @@ export default function EmailLogPage() {
     setResendingId(logId);
     try {
       const res  = await apiFetch('/api/admin/email-log/resend', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify({ logId }), credentials: 'include' });
-      const json = await res.json() as { message?: string };
-      if (!res.ok) throw new Error(json.message ?? 'Resend failed');
+      await assertOk(res, 'Resend failed');
       setResendStatus(prev => ({ ...prev, [logId]: 'ok' }));
       setTimeout(() => setResendStatus(prev => { const n = { ...prev }; delete n[logId]; return n; }), 4000);
     } catch {

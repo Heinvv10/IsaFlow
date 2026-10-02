@@ -192,7 +192,7 @@ async function executeUnderLock(
     try {
       await transaction((txSql) =>
         validSuppliers.map(sup => txSql`
-          INSERT INTO suppliers (company_id, name, email, phone, vat_number, billing_address)
+          INSERT INTO suppliers (company_id, name, email, phone, vat_number, address)
           VALUES (
             ${companyId}::UUID,
             ${sup.name},

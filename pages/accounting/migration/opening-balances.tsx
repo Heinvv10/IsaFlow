@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 
 interface BalanceRow {
   accountCode: string;
@@ -74,8 +74,8 @@ export default function OpeningBalancesPage() {
           balances: rows.map(r => ({ accountCode: r.accountCode, debit: r.debit, credit: r.credit })),
         }),
       });
+      await assertOk(res, 'Import failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Import failed');
       setImportResult(json.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed');

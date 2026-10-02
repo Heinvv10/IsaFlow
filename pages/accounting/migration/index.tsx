@@ -7,7 +7,7 @@ import {
   Building2,
 } from 'lucide-react';
 import SessionIssues, { type SessionIssue } from '@/components/accounting/migration/SessionIssues';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { log } from '@/lib/logger';
 
@@ -104,8 +104,8 @@ export default function MigrationHubPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sourceSystem }),
       });
+      await assertOk(res, 'Failed to create session');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to create session');
       const raw = (json.data.session ?? json.data) as Partial<MigrationSession>;
       setSession({ ...raw, stepsCompleted: raw.stepsCompleted ?? {} } as MigrationSession);
     } catch (err) {

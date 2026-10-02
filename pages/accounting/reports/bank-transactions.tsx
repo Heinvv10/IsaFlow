@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Landmark, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { groupBankAccountOptions } from '@/components/accounting/bank/groupBankOptions';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -85,8 +85,8 @@ export default function BankTransactionsPage() {
         period_start: periodStart, period_end: periodEnd, account_code: accountCode,
       });
       const res = await apiFetch(`/api/accounting/reports-bank-transactions?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
       setReport(json.data || null);
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
     finally { setLoading(false); }

@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Building2, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatOverdueDaysCompact } from '@/lib/format/aging';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -87,8 +87,8 @@ export default function APAgingPage() {
     try {
       const params = new URLSearchParams({ as_at_date: asAtDate });
       const res = await apiFetch(`/api/accounting/reports-ap-aging?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Failed to load AP aging');
       const json = await res.json() as { data?: APAgingData; message?: string; meta?: { hasMore?: boolean } };
-      if (!res.ok) throw new Error(json.message ?? 'Failed to load AP aging');
       setData(json.data ?? null);
       setHasMore(Boolean((json as { meta?: { hasMore?: boolean } }).meta?.hasMore));
     } catch (err) {

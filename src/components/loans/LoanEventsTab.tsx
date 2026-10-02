@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { Plus, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { LoanEvent, fmtDate, fmt } from './types';
 
 interface Props {
@@ -45,8 +45,7 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
         method: 'POST',
         body: JSON.stringify(body),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to add event');
+      await assertOk(res, 'Failed to add event');
       setForm(EMPTY_FORM);
       setShowForm(false);
       onRefresh();

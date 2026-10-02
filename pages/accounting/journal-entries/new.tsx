@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { log } from '@/lib/logger';
 import { ArrowLeft, Plus, Trash2, Loader2, AlertCircle, CheckCircle2, BookOpen, Receipt } from 'lucide-react';
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { DescriptionAutocomplete } from '@/components/accounting/DescriptionAutocomplete';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -96,8 +96,7 @@ export default function NewJournalEntryPage() {
         }),
       });
       if (!res.ok) {
-        const errData = await res.json() as { message?: string };
-        throw new Error(errData.message || 'Failed to create journal entry');
+        await assertOk(res, 'Failed to create journal entry');
       }
       const data = await res.json() as { data?: { id?: string }; id?: string };
       const entry = data.data ?? data;

@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { CalendarCheck, Loader2, AlertCircle, AlertTriangle, CheckCircle2, Lock } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface FiscalYear {
   year_label: string;
@@ -57,28 +57,25 @@ export default function YearEndPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ yearLabel, action: 'close' }),
       });
+      await assertOk(res, 'Year-end processing failed');
       const json = await res.json();
-      if (res.ok) {
-        // The SERVICE's sentence, not a hardcoded one. A 200 no longer means a
-        // closing journal was written: a dormant year closes with no journal at
-        // all, and a re-run of an already-closed year reports the journal some
-        // earlier close wrote. Announcing "Closing journal created" for either
-        // tells the operator this run posted something it did not.
-        const data = json.data || json;
-        setMessage({
-          // A residual is P&L sitting in a closed year that no closing journal
-          // and no equity account contains, and that no re-run can sweep up.
-          // The service says so in the sentence; a green tick beside it would
-          // read as "nothing to do here", which is the opposite.
-          type: Number(data.unclosedNetIncome ?? 0) !== 0 ? 'error' : 'success',
-          text: data.message || `Year ${yearLabel} closed.`,
-        });
-        void loadYears();
-      } else {
-        setMessage({ type: 'error', text: json.message || 'Year-end processing failed' });
-      }
-    } catch {
-      setMessage({ type: 'error', text: 'Year-end request failed' });
+      // The SERVICE's sentence, not a hardcoded one. A 200 no longer means a
+      // closing journal was written: a dormant year closes with no journal at
+      // all, and a re-run of an already-closed year reports the journal some
+      // earlier close wrote. Announcing "Closing journal created" for either
+      // tells the operator this run posted something it did not.
+      const data = json.data || json;
+      setMessage({
+        // A residual is P&L sitting in a closed year that no closing journal
+        // and no equity account contains, and that no re-run can sweep up.
+        // The service says so in the sentence; a green tick beside it would
+        // read as "nothing to do here", which is the opposite.
+        type: Number(data.unclosedNetIncome ?? 0) !== 0 ? 'error' : 'success',
+        text: data.message || `Year ${yearLabel} closed.`,
+      });
+      void loadYears();
+    } catch (err) {
+      setMessage({ type: 'error', text: apiErrorMessage(err, 'Year-end request failed') });
     } finally {
       setIsProcessing(false);
     }

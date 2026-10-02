@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 
 const CUSTOMER_FIELDS = [
   'name', 'email', 'phone', 'vat_number', 'registration_number',
@@ -101,8 +101,8 @@ export default function CustomersImportPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, customers, duplicateStrategy }),
       });
+      await assertOk(res, 'Import failed');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Import failed');
       setImportResult(json.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed');

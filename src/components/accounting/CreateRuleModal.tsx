@@ -7,7 +7,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Search, BookmarkPlus, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import type { BankTx, SelectOption } from './BankTxTable';
 import type { RuleMatchType, RuleVatCode } from '@/modules/accounting/types/bank.types';
 
@@ -246,8 +246,9 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      await assertOk(res, 'Failed to create rule');
       const json = await res.json();
-      if (!res.ok || json.success === false) throw new Error(json.message || 'Failed to create rule');
+      if (json.success === false) throw new Error(json.error?.message || 'Failed to create rule');
       const rawApplied = (json as { data?: { applied?: unknown } }).data?.applied;
       const applied = typeof rawApplied === 'number' && Number.isFinite(rawApplied) ? rawApplied : 0;
       const verb = autoCreateEntry ? 'allocated' : 'matched';

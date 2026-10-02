@@ -3,7 +3,7 @@
  * Used by /admin/trials.
  */
 import { useState, useEffect } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { Loader2, X } from 'lucide-react';
 
 interface Plan {
@@ -54,8 +54,7 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
         body: JSON.stringify({ companyId, planId }),
       });
       if (!res.ok) {
-        const json = await res.json() as { message?: string };
-        throw new Error(json.message ?? 'Conversion failed');
+        await assertOk(res, 'Conversion failed');
       }
       onConverted();
     } catch (err) {

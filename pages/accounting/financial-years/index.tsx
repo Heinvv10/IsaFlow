@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { CalendarRange, Plus, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import type { FiscalPeriod } from '@/modules/accounting/types/gl.types';
 import { groupPeriodsIntoYears } from '@/components/accounting/financialYears/types';
@@ -82,8 +82,7 @@ export default function FinancialYearsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, action }),
       });
-      const json = await res.json() as { message?: string };
-      if (!res.ok) throw new Error(json.message ?? 'Action failed');
+      await assertOk(res, 'Action failed');
       await fetchPeriods();
     } catch (err) {
       log.error('Period action failed', { id, action, error: err }, 'financial-years-page');
@@ -109,8 +108,7 @@ export default function FinancialYearsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'close_year', fiscalYear: closeYearTarget }),
       });
-      const json = await res.json() as { message?: string };
-      if (!res.ok) throw new Error(json.message ?? 'Failed to close year');
+      await assertOk(res, 'Failed to close year');
       setCloseYearTarget(null);
       await fetchPeriods();
     } catch (err) {
@@ -131,8 +129,7 @@ export default function FinancialYearsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ year }),
     });
-    const json = await res.json() as { message?: string };
-    if (!res.ok) throw new Error(json.message ?? 'Failed to create year');
+    await assertOk(res, 'Failed to create year');
     await fetchPeriods();
   }, [fetchPeriods]);
 

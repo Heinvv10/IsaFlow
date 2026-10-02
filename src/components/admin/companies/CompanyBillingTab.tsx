@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { Loader2, AlertCircle } from 'lucide-react';
 import {
@@ -82,8 +82,7 @@ export function CompanyBillingTab({ companyId }: Props) {
             : { status: 'cancelled' }
         ),
       });
-      const json = await res.json() as { message?: string };
-      if (!res.ok) throw new Error(json.message || 'Cancel failed');
+      await assertOk(res, 'Cancel failed');
       setCancelOpen(false);
       await loadSubscription();
     } catch (err) {

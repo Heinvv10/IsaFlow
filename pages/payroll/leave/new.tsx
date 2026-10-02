@@ -7,7 +7,7 @@ import { useRouter } from 'next/router';
 import { CalendarOff, Loader2, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface EmployeeOption { id: string; firstName: string; lastName: string; employeeNumber: string }
 interface LeaveTypeOption { id: string; name: string; isPaid: boolean }
@@ -82,8 +82,7 @@ export default function NewLeaveRequestPage() {
         body: JSON.stringify({ employeeId, leaveTypeId, startDate, endDate, days, reason: reason || undefined }),
       });
       if (!res.ok) {
-        const json = await res.json() as { message?: string };
-        throw new Error(json.message ?? `HTTP ${res.status}`);
+        await assertOk(res, `HTTP ${res.status}`);
       }
       await router.push('/payroll/leave');
     } catch (err) {

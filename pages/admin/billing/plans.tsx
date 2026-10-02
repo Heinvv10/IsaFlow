@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { AlertCircle, Loader2, Plus, Pencil, Archive, X, Check } from 'lucide-react';
 
@@ -56,8 +56,8 @@ export default function PlansPage() {
     setError('');
     try {
       const res  = await apiFetch('/api/admin/billing/plans?include_archived=true');
+      await assertOk(res, 'Failed to load plans');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load plans');
       setPlans((json.data ?? []) as Plan[]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load plans');
@@ -122,8 +122,7 @@ export default function PlansPage() {
       const res  = editId
         ? await apiFetch(`/api/admin/billing/plans/${editId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body) })
         : await apiFetch('/api/admin/billing/plans',           { method: 'POST',  headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body) });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Save failed');
+      await assertOk(res, 'Save failed');
       setShowForm(false);
       void load();
     } catch (err) {
@@ -137,8 +136,7 @@ export default function PlansPage() {
     if (!confirm('Archive this plan? Existing subscriptions will not be affected.')) return;
     try {
       const res  = await apiFetch(`/api/admin/billing/plans/${id}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Archive failed');
+      await assertOk(res, 'Archive failed');
       void load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Archive failed');

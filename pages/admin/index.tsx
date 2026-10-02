@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Building2, Users, ArrowRight, Loader2, Activity, Clock } from 'lucide-react';
@@ -87,15 +87,15 @@ export default function AdminDashboard() {
         apiFetch('/api/admin/analytics/health'),
         apiFetch('/api/admin/trials?within=7'),
       ]);
+      await assertOk(statsRes, 'Failed to load dashboard');
       const statsJson  = await statsRes.json();
       const healthJson = await healthRes.json();
       const trialsJson = await trialsRes.json();
-      if (!statsRes.ok) throw new Error(statsJson.message || 'Failed to load dashboard');
       setStats(statsJson.data as DashboardStats);
       if (healthRes.ok) setHealth(healthJson.data as PlatformHealth);
       if (trialsRes.ok) setTrials((trialsJson.data ?? []) as TrialRow[]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load dashboard');
+      setError(apiErrorMessage(err, 'Failed to load dashboard'));
     } finally {
       setLoading(false);
     }

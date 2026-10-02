@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   Briefcase, AlertCircle, Loader2, Building2, Plus, Trash2, ArrowLeft,
 } from 'lucide-react';
@@ -48,8 +48,8 @@ export default function BureauClientsPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch('/api/bureau');
+      await assertOk(res, 'Failed to load');
       const json = await res.json() as { data?: DashboardData; message?: string };
-      if (!res.ok) throw new Error(json.message || 'Failed to load');
       const list = json.data?.bureaus ?? [];
       setBureaus(list);
       if (list.length > 0 && !activeBureauId) setActiveBureauId(list[0]!.id);
@@ -63,8 +63,8 @@ export default function BureauClientsPage() {
   const loadClients = useCallback(async (bureauId: string) => {
     try {
       const res = await apiFetch(`/api/bureau/clients?bureauId=${bureauId}`);
+      await assertOk(res, 'Failed to load clients');
       const json = await res.json() as { data?: { companies: BureauClient[] }; message?: string };
-      if (!res.ok) throw new Error(json.message || 'Failed to load clients');
       setClients(json.data?.companies ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load clients');
@@ -82,13 +82,10 @@ export default function BureauClientsPage() {
         method: 'POST',
         body: JSON.stringify({ bureauId: activeBureauId, companyId }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.message || 'Failed to link');
-      }
+      await assertOk(res, 'Failed to link');
       await loadClients(activeBureauId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to link');
+      setError(apiErrorMessage(err, 'Failed to link'));
     } finally {
       setWorking(false);
     }
@@ -103,13 +100,10 @@ export default function BureauClientsPage() {
         method: 'DELETE',
         body: JSON.stringify({ bureauId: activeBureauId, companyId }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.message || 'Failed to unlink');
-      }
+      await assertOk(res, 'Failed to unlink');
       await loadClients(activeBureauId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to unlink');
+      setError(apiErrorMessage(err, 'Failed to unlink'));
     } finally {
       setWorking(false);
     }
