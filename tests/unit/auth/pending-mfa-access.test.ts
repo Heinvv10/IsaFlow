@@ -15,6 +15,8 @@ vi.mock('@/lib/auth/authPool', () => ({ getAuthPool: () => ({
 }) }));
 vi.mock('@/lib/rateLimit', () => ({
   checkRateLimit: async () => true,
+  chargeRateLimit: vi.fn(async () => ({ admitted: true, windowStart: null })),
+  refundRateLimit: vi.fn(async () => undefined),
   getClientIp: () => '127.0.0.1',
   withRateLimit: (handler: unknown) => handler,
 }));

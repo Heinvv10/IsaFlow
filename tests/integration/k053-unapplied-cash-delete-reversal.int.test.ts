@@ -303,8 +303,8 @@ describeIfDb('K-053 a soft-delete reversal is not an unapplied-cash orphan', () 
   it('mid-chain, with the document still deleted, exactly one leg is reported', async () => {
     await inTx(() => softDelete(COMPANY, 'customer_invoice', invoice, USER));
 
-    // R7 is recorded in `soft_delete_journal_reversals`, so the query excludes
-    // it by that row and the six restored legs pair off. The reconciler is back
+    // The document is deleted again, so the query excludes its whole reversal
+    // chain, R7 and the six restored legs with it (orphanControlPostings). The reconciler is back
     // to the bare journal alone — the delete has moved the control account and
     // the dated presence predicate has taken the document off the sub-ledger
     // side with it, so there is nothing to reconcile.
