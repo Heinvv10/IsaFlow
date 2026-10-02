@@ -1,0 +1,20 @@
+baseline (unmutated, HEAD d66f5d81a): Tests  105 passed (105)
+M1-lower-bound | src/lib/limits/poolLimits.ts | 'n >= 1 &&' -> 'n >= 0 &&' | Tests  10 failed | 95 passed (105)
+M2-upper-bound | src/lib/limits/poolLimits.ts | 'n <= LARGEST_POOL' -> 'n <= 1e9' | Tests  10 failed | 95 passed (105)
+M3-digits-only | src/lib/limits/poolLimits.ts | '/^[0-9]+$/.test(text)' -> 'text !== ''' | Tests  27 failed | 78 passed (105)
+M4-blank-silent | src/lib/limits/poolLimits.ts | 'raw === undefined || raw.trim() === ''' -> 'raw === undefined' | Tests  2 failed | 103 passed (105)
+M5-no-warning | src/lib/limits/poolLimits.ts | '  log.warn(`${name}' -> '  void (`${name}' | Tests  28 failed | 77 passed (105)
+M6-fallback-wrong | src/lib/limits/poolLimits.ts | '  return fallback;
+}
+
+/** The pool's configured' -> '  return Math.min(fallback, 5);
+}
+
+/** The pool's configured' | Tests  78 failed | 27 passed (105)
+M7-authPoolMax-raw | src/lib/limits/poolLimits.ts | 'poolSizeFromEnv('AUTH_POOL_MAX', DEFAULT_AUTH_POOL_MAX)' -> 'Number(process.env.AUTH_POOL_MAX ?? DEFAULT_AUTH_POOL_MAX)' | Tests  29 failed | 76 passed (105)
+M8-neon | src/lib/neon.ts | 'poolSizeFromEnv('PG_POOL_MAX', 10)' -> 'Number(process.env.PG_POOL_MAX ?? 10)' | Tests  6 failed | 99 passed (105)
+M9-extension | src/lib/auth/withExtensionToken.ts | 'authPoolMax()' -> 'Number(process.env.AUTH_POOL_MAX ?? 20)' | Tests  7 failed | 98 passed (105)
+M10-bearer | src/lib/auth/bearerPipeline.ts | 'authPoolMax(),' -> 'Number(process.env.AUTH_POOL_MAX ?? 20),' | Tests  7 failed | 98 passed (105)
+M11-appPool | src/lib/auth/withPlatformAdmin.pools.ts | 'authPoolMax()' -> 'Number(process.env.AUTH_POOL_MAX ?? 20)' | Tests  7 failed | 98 passed (105)
+M12-adminPool | src/lib/auth/withPlatformAdmin.pools.ts | 'poolSizeFromEnv('PLATFORM_ADMIN_POOL_MAX', 10)' -> 'Number(process.env.PLATFORM_ADMIN_POOL_MAX ?? 10)' | Tests  6 failed | 99 passed (105)
+M13-rateLimit | src/lib/rateLimitPool.ts | 'poolSizeFromEnv('RATE_LIMIT_POOL_MAX', DEFAULT_RATE_LIMIT_POOL_MAX)' -> 'Number(process.env.RATE_LIMIT_POOL_MAX ?? DEFAULT_RATE_LIMIT_POOL_MAX)' | Tests  15 failed | 90 passed (105)
