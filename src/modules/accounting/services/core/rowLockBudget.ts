@@ -53,6 +53,33 @@ const isPgError = (err: unknown) => {
   return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code);
 };
 
+interface QueryClient { query: (text: string, params?: unknown[]) => Promise<unknown> }
+
+/**
+ * The `lock_timeout` in force, read before a lock helper sets its own, so it can put back exactly that
+ * (D8 round 10). The pre-existing helpers reset to DEFAULT, which silently unbounded every later lock of
+ * an enclosing `withRowLockBudget`.
+ */
+export async function currentLockTimeout(client: QueryClient): Promise<string> {
+  const r = (await client.query("SELECT current_setting('lock_timeout') AS v")) as { rows?: { v?: unknown }[] } | undefined;
+  return String(r?.rows?.[0]?.v ?? '0');
+}
+
+/**
+ * Put `previous` back, for a helper's `finally`. Skipped after a Postgres error: the transaction (or
+ * savepoint) is aborted, its rollback restores the setting, and a statement now would raise 25P02 in place
+ * of the real error. A restore that fails after a non-Postgres refusal is logged; the refusal stands.
+ */
+export async function restoreLockTimeout(client: QueryClient, previous: string, failure: unknown = null): Promise<void> {
+  if (isPgError(failure)) return;
+  try {
+    await client.query("SELECT set_config('lock_timeout', $1, true)", [previous]);
+  } catch (restoreErr) {
+    if (failure === null) throw restoreErr;
+    log.error('Failed to restore lock_timeout after a refused row lock', { error: restoreErr }, 'accounting');
+  }
+}
+
 export async function withRowLockBudget<T>(
   fn: () => Promise<T>,
   onTimeout: () => Error,
@@ -63,23 +90,16 @@ export async function withRowLockBudget<T>(
   assertTxUsable();
   const remaining = (opts.deadline ?? Date.now() + ROW_LOCK_BUDGET_MS) - Date.now();
   if (remaining <= 0) throw onTimeout();
-  const current = await client.query("SELECT current_setting('lock_timeout') AS v");
-  const previous = String(current?.rows?.[0]?.v ?? '0');
+  const previous = await currentLockTimeout(client);
   await client.query("SELECT set_config('lock_timeout', $1, true)", [`${remaining}ms`]);
-  const restore = () => client.query("SELECT set_config('lock_timeout', $1, true)", [previous]);
-  let out: T;
+  let failure: unknown = null;
   try {
-    out = await fn();
+    return await fn();
   } catch (err) {
-    if (!isPgError(err)) {
-      // A refusal thrown by `fn` itself (the transaction is live): put the caller's value back, keep the refusal.
-      await restore().catch((restoreErr: unknown) => {
-        log.error('Failed to restore lock_timeout after a refused row lock', { error: restoreErr }, 'accounting');
-      });
-    }
+    failure = err;
     if ((opts.isTimeout ?? isLockNotAvailable)(err)) throw onTimeout();
     throw err;
+  } finally {
+    await restoreLockTimeout(client, previous, failure);
   }
-  await restore();
-  return out;
 }

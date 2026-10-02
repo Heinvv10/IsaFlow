@@ -150,7 +150,8 @@ describe('the invoice read locks what it is about to decide from', () => {
     expect(read).toMatch(/FOR UPDATE OF ci/);
     expect(read).toMatch(/ORDER BY ci\.id/);
     expect(mockTx.queries).toContain("SET LOCAL lock_timeout = '5s'");
-    expect(mockTx.queries).toContain('SET LOCAL lock_timeout = DEFAULT');
+    // D8 round 10: the value found is put back (set_config), not DEFAULT.
+    expect(mockTx.queries).toContain("SELECT set_config('lock_timeout', $1, true)");
   });
 
   it('turns a lock timeout into a refusal that names the retry', async () => {
@@ -160,7 +161,7 @@ describe('the invoice read locks what it is about to decide from', () => {
     await expect(
       planReceiptApplication(COMPANY, PAYMENT, [{ invoiceId: INV_A, amount: 100 }]),
     ).rejects.toThrow(/retry in a moment/i);
-    expect(mockTx.queries).not.toContain('SET LOCAL lock_timeout = DEFAULT');
+    expect(mockTx.queries).not.toContain("SELECT set_config('lock_timeout', $1, true)");
   });
 
   it('turns a DEADLOCK into the same retryable refusal', async () => {
@@ -174,7 +175,7 @@ describe('the invoice read locks what it is about to decide from', () => {
     await expect(
       planReceiptApplication(COMPANY, PAYMENT, [{ invoiceId: INV_A, amount: 100 }]),
     ).rejects.toThrow(/retry in a moment/i);
-    expect(mockTx.queries).not.toContain('SET LOCAL lock_timeout = DEFAULT');
+    expect(mockTx.queries).not.toContain("SELECT set_config('lock_timeout', $1, true)");
   });
 
   it('refuses to run at all outside a request transaction', async () => {

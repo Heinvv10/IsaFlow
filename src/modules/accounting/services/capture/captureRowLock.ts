@@ -60,6 +60,7 @@ import { als, assertTxUsable } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { isCaptureEventPostable } from './captureEventLock';
+import { currentLockTimeout, restoreLockTimeout } from '../core/rowLockBudget';
 
 /** `lock_not_available` (the 5s `lock_timeout` elapsed) and `deadlock_detected`. */
 const RETRYABLE_LOCK_ERRORS = new Set(['55P03', '40P01']);
@@ -98,14 +99,18 @@ export async function lockWithTimeout(rowId: string, read: () => Promise<DbRow[]
     );
   }
   assertTxUsable();
+  const previousLockTimeout = await currentLockTimeout(client);
   await client.query("SET LOCAL lock_timeout = '5s'");
+  let failure: unknown = null;
   try {
     const rows = await read();
-    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
+    failure = err;
     if (isRetryableLockError(err)) throw new CaptureRowLockTimeoutError(rowId);
     throw err;
+  } finally {
+    await restoreLockTimeout(client, previousLockTimeout, failure);
   }
 }
 
@@ -156,11 +161,8 @@ export async function lockCaptureEventForUpdate(
  * waits on a NEW lock: this transaction already holds the row, and a
  * concurrent `discard` blocks behind it instead of racing it.
  *
- * Returns only the ids still open for posting (`isCaptureEventPostable`). A
- * document reached with no capture_events row at all — an upload straight
- * through `/accounting/capture`, never through email/WhatsApp/mirror — returns
- * an empty array, and the caller's later UPDATE is then a no-op, never a new
- * state.
+ * Returns only the ids still open for posting (`isCaptureEventPostable`). A document with no capture_events
+ * row (an upload straight through `/accounting/capture`) returns [], and the caller's later UPDATE is a no-op.
  */
 export async function lockPostableCaptureEventIds(
   companyId: string,
@@ -174,17 +176,21 @@ export async function lockPostableCaptureEventIds(
     );
   }
   assertTxUsable();
+  const previousLockTimeout = await currentLockTimeout(client);
   await client.query("SET LOCAL lock_timeout = '5s'");
   let rows: DbRow[];
+  let failure: unknown = null;
   try {
     rows = (await sql`
       SELECT id, status FROM capture_events
       WHERE captured_document_id = ${documentId}::uuid AND company_id = ${companyId}
       FOR UPDATE`) as DbRow[];
-    await client.query('SET LOCAL lock_timeout = DEFAULT');
   } catch (err) {
+    failure = err;
     if (isRetryableLockError(err)) throw new CaptureRowLockTimeoutError(documentId);
     throw err;
+  } finally {
+    await restoreLockTimeout(client, previousLockTimeout, failure);
   }
   return rows.filter((row) => isCaptureEventPostable(row.status)).map((row) => String(row.id));
 }
