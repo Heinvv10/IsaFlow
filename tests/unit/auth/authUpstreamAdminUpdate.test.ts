@@ -84,8 +84,10 @@ const ok = (body: unknown): Answerer => async () => Response.json(body);
 /** GoTrue's stored password: a sign-in succeeds only with it; an admin PUT that GoTrue applies changes it. */
 const gt = { password: 'right-password' };
 const bodyPassword = (init?: RequestInit) => (JSON.parse(String(init?.body ?? '{}')) as { password?: string }).password;
+/** GoTrue v2.186's own reply to a wrong password (observed on the disposable isaflow-gotrue-d9). */
+const INVALID_CREDENTIALS = '{"code":400,"error_code":"invalid_credentials","msg":"Invalid login credentials"}';
 const signInWithState: Answerer = async (init) => (bodyPassword(init) === gt.password
-  ? Response.json(SESSION) : new Response('{"error":"invalid_grant"}', { status: 400 }));
+  ? Response.json(SESSION) : new Response(INVALID_CREDENTIALS, { status: 400 }));
 const applyUpdate: Answerer = async (init) => {
   gt.password = bodyPassword(init) ?? gt.password;
   return Response.json({ id: 'user-1', email: 'user@example.test' });
@@ -122,11 +124,15 @@ beforeEach(() => {
 afterEach(() => { restoreBound(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 const NEW_VALUE = 'n'.repeat(12); // the new password the user types: a test value
+const REJECTED_PROBE_MESSAGE = "We couldn't confirm the change. Try signing in with your current password; if that fails, use your new one and sign out of all devices.";
 
 describe.each(OUTAGES)('when GoTrue answers the admin update with %s', (_label, outage) => {
-  it('POST /api/auth/change-password → 503, not 500', async () => {
+  it('POST /api/auth/change-password → 503, not 500; the new password is rejected, so the answer says how to check', async () => {
     vi.stubGlobal('fetch', gotrue({ update: outage }));
-    expectOutage(await call(changePassword, { currentPassword: 'right-password', newPassword: NEW_VALUE }));
+    const answer = await call(changePassword, { currentPassword: 'right-password', newPassword: NEW_VALUE });
+    expectOutage(answer);
+    // GoTrue may still apply a change it timed out on, so the answer never promises that nothing changed.
+    expect(answer.body).toMatchObject({ error: { message: REJECTED_PROBE_MESSAGE } });
   });
   it('POST /api/auth/change-email → 503, not 502 GOTRUE_ERROR', async () => {
     vi.stubGlobal('fetch', gotrue({ update: outage }));
@@ -207,5 +213,29 @@ describe('the update\'s outcome is unknown (GoTrue saved it, then the reply was 
     vi.stubGlobal('fetch', retry);
     expect((await call(doReset, { recoveryToken: 'link-1', newPassword: NEW_VALUE })).status).toBe(200);
     expect(logouts(retry)).toEqual(['http://gotrue.test.local/logout?scope=global']);
+  });
+});
+
+describe('change-password: every probe outcome but a definite credentials rejection is PASSWORD_CHANGE_UNCONFIRMED', () => {
+  const probe = (reply: Answerer): Answerer => async (init) => (bodyPassword(init) === 'right-password' ? Response.json(SESSION) : reply(init));
+  const notDefinite: Array<[string, Answerer]> = [
+    ['an outage (503)', async () => new Response('', { status: 503 })],
+    ['a 400 that is not "invalid credentials"', async () => new Response('{"code":400,"error_code":"email_not_confirmed","msg":"Email not confirmed"}', { status: 400 })],
+    ['a 422', async () => new Response('{"code":422,"msg":"unprocessable"}', { status: 422 })],
+    ['a 400 with an unreadable body', async () => new Response('<html>bad gateway</html>', { status: 400 })],
+    ['a 200 whose body is cut off', OUTAGES[4]![1]],
+  ];
+  it.each(notDefinite)('the probe gets %s → 503 PASSWORD_CHANGE_UNCONFIRMED', async (_l, reply) => {
+    vi.stubGlobal('fetch', gotrue({ update: hang, token: probe(reply) }));
+    const answer = await call(changePassword, { currentPassword: 'right-password', newPassword: NEW_VALUE });
+    expect(answer.status).toBe(503);
+    expect(answer.headers['retry-after']).toBe('5');
+    expect(answer.body).toMatchObject({ success: false, error: { code: 'PASSWORD_CHANGE_UNCONFIRMED' } });
+  });
+  it('the probe gets GoTrue\'s definite "invalid credentials" → 503 that tells the user how to check, never "nothing changed"', async () => {
+    vi.stubGlobal('fetch', gotrue({ update: hang, token: probe(async () => new Response(INVALID_CREDENTIALS, { status: 400 })) }));
+    const answer = await call(changePassword, { currentPassword: 'right-password', newPassword: NEW_VALUE });
+    expect(answer.status).toBe(503);
+    expect(answer.body).toMatchObject({ success: false, error: { code: 'AUTH_UNAVAILABLE', message: REJECTED_PROBE_MESSAGE } });
   });
 });
