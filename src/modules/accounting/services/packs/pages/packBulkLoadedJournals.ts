@@ -22,11 +22,11 @@ import type { PackPageBlock } from './packPageModel';
 
 export function bulkLoadedSentence(b: BulkLoadedJournals): string {
   const when = b.days === 1
-    ? `on ${formatPackDate(b.firstRecorded)}, a day that`
+    ? `on ${formatPackDate(b.firstRecorded)}, a day on which`
     : `on ${groupedCount(b.days)} days between ${formatPackDate(b.firstRecorded)} and `
-      + `${formatPackDate(b.lastRecorded)}, each a day that`;
-  return `${plural(b.journals, 'journal')} recorded in bulk ${when} recorded ${BULK_LOAD_MIN} or more `
-    + `dated over ${BACKDATE_DAYS} days earlier, ${b.journals === 1 ? 'is' : 'are'} not tested for late `
+      + `${formatPackDate(b.lastRecorded)}, each a day on which`;
+  return `${plural(b.journals, 'journal')} recorded in bulk ${when} ${BULK_LOAD_MIN} or more journals `
+    + `dated over ${BACKDATE_DAYS} days earlier were recorded, ${b.journals === 1 ? 'is' : 'are'} not tested for late `
     + 'recording, which a reload trips on every journal. The round-number test still covers them.';
 }
 
