@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, ChevronLeft, ChevronRight, ScrollText, Download } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -166,8 +166,8 @@ export default function AdminAuditPage() {
       if (entityType) p.set('entity_type', entityType);
       if (search)     p.set('search',      search);
       const res  = await apiFetch(`/api/admin/audit?${p}`);
+      await assertOk(res, 'Failed to load');
       const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message ?? 'Failed to load');
       const d = json.data as PagedResponse;
       setRows(d.items);
       setTotal(d.total);
