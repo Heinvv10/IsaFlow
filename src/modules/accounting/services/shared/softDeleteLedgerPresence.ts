@@ -128,15 +128,29 @@ export function documentInLedgerAsAtFragmentForRowTenant(alias: InvoiceAlias, as
  * that reverses nothing is decided without a walk (CASE, as above).
  * INTERPOLATION ONLY.
  */
-export function deletedDocumentChainLinkFragment(entryAlias: 'je' | 'gje', companyId: string) {
+export function deletedDocumentChainLinkFragment(
+  entryAlias: 'je' | 'gje',
+  companyId: string,
+  /**
+   * 'otherMonth' narrows it to links whose document's own journal is dated in
+   * a DIFFERENT calendar month from the link (the row must expose
+   * `entry_date`): the VAT reconciliation's rate keeps a delete and its
+   * reversal that fall in one month, where they net to nothing, and drops a
+   * reversal that rolled into a later month.
+   */
+  only: 'any' | 'otherMonth' = 'any',
+) {
   const deletedJournal = (table: string) => `EXISTS (SELECT 1 FROM ${table} d
           WHERE d.company_id = $1::UUID AND d.deleted_at IS NOT NULL
             AND d.gl_journal_entry_id = up_chain.id)`;
+  const month = only === 'otherMonth'
+    ? `AND date_trunc('month', up_chain.entry_date) <> date_trunc('month', ${entryAlias}.entry_date)`
+    : '';
   return sql.unsafe(
     `(CASE WHEN ${entryAlias}.reversal_of_id IS NULL THEN FALSE ELSE EXISTS (
         WITH RECURSIVE ${chainWalk('up_chain', `${entryAlias}.id`, '$1::UUID', 'up')}
         SELECT 1 FROM up_chain
-        WHERE up_chain.depth > 0 AND NOT up_chain.is_cycle
+        WHERE up_chain.depth > 0 AND NOT up_chain.is_cycle ${month}
           AND (${deletedJournal('customer_invoices')} OR ${deletedJournal('supplier_invoices')})
       ) END)`,
     [companyId],
