@@ -192,14 +192,26 @@ describe('POST /api/accounting/bank-transactions-manual', () => {
   });
 });
 
+// D8 round 16 (brk-d8d F4): on the two payment-action routes a HELD ROW is a lock timeout — 503 + Retry-After, the
+// answer every route into a D8 flow gives (`respondIfLockTimeout`). 409 stays for the retryable state conflicts.
 describe('POST /api/accounting/supplier-payments-action', () => {
-  it('answers a contended payment 409 with the retry wording', async () => {
+  it('answers a held payment row 503 with the retry wording', async () => {
     vi.mocked(processSupplierPayment).mockRejectedValue(new PaymentLockTimeoutError(PAYMENT));
     const { req, res } = mockReqRes({ action: 'process', paymentId: PAYMENT });
     await supplierAction(req, res);
 
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(503);
     expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
+  });
+
+  it('still answers a retryable state conflict 409', async () => {
+    vi.mocked(processSupplierPayment).mockRejectedValue(
+      new SupplierPaymentRefusal('This document changed while it was being reversed — retry in a moment.', { retryable: true }),
+    );
+    const { req, res } = mockReqRes({ action: 'process', paymentId: PAYMENT });
+    await supplierAction(req, res);
+
+    expect(res.statusCode).toBe(409);
   });
 
   it('still answers a books refusal 400', async () => {
@@ -215,13 +227,23 @@ describe('POST /api/accounting/supplier-payments-action', () => {
 });
 
 describe('POST /api/accounting/customer-payments-action', () => {
-  it('answers a contended receipt 409 with the retry wording', async () => {
+  it('answers a held receipt row 503 with the retry wording', async () => {
     vi.mocked(confirmCustomerPayment).mockRejectedValue(new PaymentLockTimeoutError(PAYMENT));
     const { req, res } = mockReqRes({ action: 'confirm', paymentId: PAYMENT });
     await customerAction(req, res);
 
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(503);
     expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
+  });
+
+  it('still answers a retryable state conflict 409', async () => {
+    vi.mocked(confirmCustomerPayment).mockRejectedValue(
+      new ReceiptRefusal('This document changed while it was being reversed — retry in a moment.', { retryable: true }),
+    );
+    const { req, res } = mockReqRes({ action: 'confirm', paymentId: PAYMENT });
+    await customerAction(req, res);
+
+    expect(res.statusCode).toBe(409);
   });
 
   it('still answers a books refusal 400', async () => {
