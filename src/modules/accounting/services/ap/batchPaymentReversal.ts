@@ -31,7 +31,7 @@ import { fetchBillCandidates, round2 } from './supplierAllocationLines';
 import { toCents } from './billAllocatable';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { assertSameJournal, lockBankLegOf, lockJournalAndUnmatch } from './paymentJournalReversal';
-import { underFlowLockBudget } from '../core/rowLockBudget';
+import { RowLockTimeoutError, underFlowLockBudget } from '../core/rowLockBudget';
 
 /** The batch is already reversed — a double-click's loser. Answered 409. */
 export class BatchAlreadyReversedError extends Error {
@@ -110,7 +110,11 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
     WHERE sp.batch_id = ${batchId}::UUID AND sp.company_id = ${companyId}::UUID
     GROUP BY pa.invoice_id ORDER BY pa.invoice_id
   `) as DbRow[];
-  const bills = await fetchBillCandidates(companyId, null, perBill.map((r) => String(r.invoice_id)));
+  const bills = await fetchBillCandidates(companyId, null, perBill.map((r) => String(r.invoice_id))).catch((err: unknown) => {
+    // Its one retryable refusal is a held bill — a lock timeout on this D8 flow, 503 at the route, not 409 (round 18).
+    if (err instanceof SupplierPaymentRefusal && err.retryable) throw new RowLockTimeoutError(`Batch ${number}`);
+    throw err;
+  });
   for (const r of perBill) {
     const bill = bills.get(String(r.invoice_id));
     if (!bill || toCents(Number(bill.amount_paid ?? 0)) < toCents(Number(r.amount))) {
