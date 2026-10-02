@@ -9,6 +9,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { resolveReversalDate } from '../gl/journalEntryService';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { loadJournalVatLines } from '../gl/journalVatLockGuard';
+import { findJournalChainHead } from '../shared/journalChainHead';
 
 type Row = DbRow;
 
@@ -54,4 +55,16 @@ export async function assertReversalDatePostable(
     `Cannot reverse: the fiscal period covering ${reversalDate} is not open (closed or locked). `
     + 'Re-open it before reversing.',
   );
+}
+
+/**
+ * D8: the entry a reversal of `journalEntryId` must post against. Its reversal
+ * chain's HEAD while that chain stands — after O <- R <- R2 the GL carries O
+ * again through R2 while O is stamped reversed, and reversing O throws "already
+ * reversed". Otherwise the journal itself, which reverseJournalEntry then judges
+ * exactly as before (a chain already out, or broken, is still refused there).
+ */
+export async function reversalTargetOf(companyId: string, journalEntryId: string): Promise<string> {
+  const chain = await findJournalChainHead(companyId, journalEntryId);
+  return chain?.kind === 'head' && chain.standing ? chain.id : journalEntryId;
 }

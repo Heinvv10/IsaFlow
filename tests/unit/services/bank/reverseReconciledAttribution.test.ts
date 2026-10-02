@@ -56,6 +56,11 @@ vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => 
 vi.mock('@/modules/accounting/services/capture/fourWayMatchService', () => ({
   recordPaymentMatch: vi.fn(),
 }));
+// D8: the reversal target is the chain head (real-ledger proof: d8-r3-credit-note-bank-chain-head);
+// here the matched journal itself stands, so the head is the journal.
+vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({
+  findJournalChainHead: vi.fn(async (_companyId: string, id: string) => ({ kind: 'head', id, standing: true })),
+}));
 
 import { sql } from '@/lib/neon';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
