@@ -46,3 +46,10 @@ Q1-minimum-1 | src/lib/limits/poolLimits.ts | 'MIN_AUTH_POOL_MAX = 2' -> 'MIN_AU
 Q2-minimum-not-applied-to-invalid | src/lib/limits/poolLimits.ts | 'Math.max(minimum, Math.min(fallback, INVALID_VALUE_CEILING, honoured))' -> 'Math.min(fallback, INVALID_VALUE_CEILING, honoured)' | Tests  17 failed | 161 passed (178)
 Q3-minimum-not-applied-to-valid | src/lib/limits/poolLimits.ts | 'n >= minimum && n <= LARGEST_POOL' -> 'n >= 1 && n <= LARGEST_POOL' | Tests  6 failed | 172 passed (178)
 Q4-auth-minimum-dropped | src/lib/limits/poolLimits.ts | ''pool', MIN_AUTH_POOL_MAX)' -> ''pool')' | Tests  16 failed | 162 passed (178)
+
+## Round 4 (files: tests/unit/lib/poolSizeFromEnv.test.ts tests/unit/lib/poolSizesBuilt.test.ts tests/unit/lib/pgPoolMaxPremise.test.ts tests/unit/lib/rateLimitPoolMax.test.ts tests/unit/lib/pdf/renderSemaphore.test.ts tests/unit/lib/neonPoolNestedSql.test.ts)
+baseline (unmutated): Tests  184 passed (184)
+R1-pg-floor-1 | src/lib/limits/poolLimits.ts | 'MIN_PG_POOL_MAX = 2' -> 'MIN_PG_POOL_MAX = 1' | Tests  7 failed | 177 passed (184)
+R2-neon-floor-dropped | src/lib/neon.ts | ''pool', MIN_PG_POOL_MAX)' -> ''pool')' | Tests  6 failed | 178 passed (184)
+R3-floor-unclamped | src/lib/limits/poolLimits.ts | 'Math.min(minimum, fallback, INVALID_VALUE_CEILING)' -> 'minimum' | Tests  1 failed | 183 passed (184)
+R4-floor-only-default | src/lib/limits/poolLimits.ts | 'Math.min(minimum, fallback, INVALID_VALUE_CEILING)' -> 'Math.min(minimum, fallback)' | Tests  1 failed | 183 passed (184)
