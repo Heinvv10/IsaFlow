@@ -22,6 +22,7 @@
  * fixture that happens to lay out well.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { velocityInput } from '../services/packs/fixtures/velocityBoardPack';
 import { chromium, type Browser } from 'playwright';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { isContentPage } from '@/modules/accounting/services/packs/pages/packPageModel';
@@ -64,6 +65,9 @@ const FIXTURES = {
   // second proof printed it, at fourteen sheets, and it is the reason the
   // three above could all be green while the document was wrong.
   live: liveDemoInput,
+  // VELOCITY FIBRE AS PRODUCTION RENDERED IT: a two-day part month, a bulk
+  // reload disclosed on pages 4 and 11, a ratio below two places.
+  velocity: velocityInput,
   // THE TWO SHAPES THE MATTERS CAP DID NOT CAP. `MATTERS_PRINTED_MAX` kept
   // every null-quantum matter before it looked at the count, so these printed
   // fourteen and thirteen sheets at the commit that claimed twelve. They are
