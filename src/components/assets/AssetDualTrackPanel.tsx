@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { Loader2, TrendingDown, Receipt, AlertTriangle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface PeriodRow {
   yyyymm: string;
@@ -48,13 +48,15 @@ export function AssetDualTrackPanel({ assetId }: { assetId: string }) {
   const [rows, setRows] = useState<PeriodRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TrackTab>('policy');
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    setLoading(true);
+    setLoading(true); setError('');
     apiFetch(`/api/accounting/assets/${assetId}/period-ledger`, { credentials: 'include' })
-      .then(r => r.json())
-      .then(j => { setRows(j.data || []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .then(async r => { await assertOk(r, 'Could not load the depreciation periods - try again'); return r.json(); })
+      .then(j => { setRows(j.data || []); })
+      .catch(err => { setRows([]); setError(apiErrorMessage(err, 'Could not load the depreciation periods - try again')); })
+      .finally(() => setLoading(false));
   }, [assetId]);
 
   if (loading) return (
@@ -62,6 +64,8 @@ export function AssetDualTrackPanel({ assetId }: { assetId: string }) {
       <Loader2 className="h-5 w-5 animate-spin mr-2" />Loading period data…
     </div>
   );
+
+  if (error) return <p className="py-12 text-center text-sm text-red-400">{error}</p>;
 
   if (rows.length === 0) return (
     <div className="flex flex-col items-center justify-center py-12 gap-2 text-[var(--ff-text-tertiary)]">

@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
@@ -20,6 +20,9 @@ vi.mock('@/components/ui', () => ({
 
 import { apiFetch } from '@/lib/apiFetch';
 import ApprovalsPage from '../../../pages/accounting/approvals/index';
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
+
+useApiJsonOverMock();
 
 const fetchMock = apiFetch as unknown as ReturnType<typeof vi.fn>;
 
@@ -30,7 +33,7 @@ const pendingRequest = {
   decidedByName: undefined, decidedAt: null, decisionNotes: null,
 };
 
-const ok = (data: unknown) => ({ ok: true, json: () => Promise.resolve({ data }) });
+const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
 
 /** The two loads the page issues on mount, then on every refetch. */
 const primeLoad = () => {
@@ -43,17 +46,14 @@ describe('approvals page — decision refusal', () => {
 
   it("shows the server's reason when the decision is refused", async () => {
     primeLoad();
-    fetchMock.mockResolvedValueOnce({
-      ok: false,
-      json: () => Promise.resolve({
-        success: false,
-        error: {
-          code: 'FORBIDDEN',
-          message: 'You cannot approve an approval request you raised yourself',
-          details: { reason: 'SELF_APPROVAL_FORBIDDEN' },
-        },
-      }),
-    });
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      success: false,
+      error: {
+        code: 'FORBIDDEN',
+        message: 'You cannot approve an approval request you raised yourself',
+        details: { reason: 'SELF_APPROVAL_FORBIDDEN' },
+      },
+    }), { status: 403 }));
 
     render(<ApprovalsPage />);
     fireEvent.click(await screen.findByText('Approve'));
@@ -61,31 +61,29 @@ describe('approvals page — decision refusal', () => {
     expect(await screen.findByText(
       'You cannot approve an approval request you raised yourself',
     )).toBeDefined();
-    expect(screen.queryByText('Failed to process decision')).toBeNull();
+    expect(screen.queryByText('Could not process the decision - try again')).toBeNull();
   });
 
   it('falls back to the generic message when the body carries no reason', async () => {
     primeLoad();
-    fetchMock.mockResolvedValueOnce({ ok: false, json: () => Promise.reject(new Error('not json')) });
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 500 }));
 
     render(<ApprovalsPage />);
     fireEvent.click(await screen.findByText('Approve'));
 
-    expect(await screen.findByText('Failed to process decision')).toBeDefined();
+    expect(await screen.findByText('Could not process the decision - try again')).toBeDefined();
   });
 
   it('clears a previous refusal and refetches when the decision succeeds', async () => {
     primeLoad();
-    fetchMock.mockResolvedValueOnce({
-      ok: false,
-      json: () => Promise.resolve({ error: { message: 'Refused once' } }),
-    });
+    fetchMock.mockResolvedValueOnce(new Response(
+      JSON.stringify({ success: false, error: { code: 'BAD_REQUEST', message: 'Refused once' } }), { status: 400 }));
 
     render(<ApprovalsPage />);
     fireEvent.click(await screen.findByText('Approve'));
     expect(await screen.findByText('Refused once')).toBeDefined();
 
-    fetchMock.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ data: {} }) });
+    fetchMock.mockResolvedValueOnce(ok({}));
     primeLoad();
     fireEvent.click(screen.getByText('Approve'));
 

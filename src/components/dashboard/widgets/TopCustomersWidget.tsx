@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { Users } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -63,7 +63,10 @@ async function fetchTopCustomers(): Promise<CustomerRow[] | null> {
   inFlight = apiFetch(
     `/api/accounting/reports-customer?period_start=${start}&period_end=${end}`
   )
-    .then(r => r.json() as Promise<ApiResponse>)
+    .then(async r => {
+      await assertOk(r, 'Could not load top customers - try again');
+      return r.json() as Promise<ApiResponse>;
+    })
     .then(json => {
       let rows: CustomerRow[] = [];
       if (Array.isArray(json?.data)) {
@@ -114,8 +117,8 @@ export function TopCustomersWidget() {
         if (result) setRows(result);
         setLoading(false);
       })
-      .catch(() => {
-        if (mounted.current) { setError('Unable to load top customers'); setLoading(false); }
+      .catch((err: unknown) => {
+        if (mounted.current) { setError(apiErrorMessage(err, 'Could not load top customers - try again')); setLoading(false); }
       });
     return () => { mounted.current = false; };
   }, []);

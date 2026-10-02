@@ -2,7 +2,7 @@
 // Inline IFRS disclosure notes for an AFS document's fiscal year.
 
 import { useState, useEffect } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { DisclosureNote, NoteTable } from '@/modules/accounting/services/reports/disclosureNoteService';
 import { Loader2, AlertCircle, BookOpen } from 'lucide-react';
@@ -77,8 +77,8 @@ export function AfsNotesTab({ fiscalYear }: Props) {
     setLoading(true);
     setError('');
     apiFetch(`/api/accounting/disclosure-notes?year=${fiscalYear}`, { credentials: 'include' })
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      .then(async r => {
+        await assertOk(r, 'Could not load the disclosure notes - try again');
         return r.json() as Promise<{ data: { notes: DisclosureNote[] } }>;
       })
       .then(json => {
@@ -90,7 +90,8 @@ export function AfsNotesTab({ fiscalYear }: Props) {
       .catch((err: unknown) => {
         if (!cancelled) {
           log.warn('Failed to load disclosure notes', { error: err, fiscalYear }, 'AfsNotesTab');
-          setError(err instanceof Error ? err.message : 'Failed to load notes');
+          setNotes([]);
+          setError(apiErrorMessage(err, 'Could not load the disclosure notes - try again'));
           setLoading(false);
         }
       });

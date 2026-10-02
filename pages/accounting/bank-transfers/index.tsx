@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface BankAccount {
@@ -31,11 +31,12 @@ export default function BankTransfersPage() {
     setIsLoading(true);
     try {
       const res = await apiFetch('/api/accounting/chart-of-accounts?subtype=bank');
+      await assertOk(res, 'Could not load bank accounts - try again');
       const json = await res.json();
       const data = json.data || json;
       setBankAccounts(data.accounts || []);
-    } catch {
-      setMessage({ type: 'error', text: 'Failed to load bank accounts' });
+    } catch (err) {
+      setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not load bank accounts - try again') });
     } finally {
       setIsLoading(false);
     }
@@ -62,16 +63,12 @@ export default function BankTransfersPage() {
           transferDate,
         }),
       });
-      const json = await res.json();
-      if (res.ok) {
-        setMessage({ type: 'success', text: 'Transfer completed — journal entry created' });
-        setAmount('');
-        setReference('');
-      } else {
-        setMessage({ type: 'error', text: json.message || 'Transfer failed' });
-      }
-    } catch {
-      setMessage({ type: 'error', text: 'Transfer request failed' });
+      await assertOk(res, 'Could not record the transfer - try again');
+      setMessage({ type: 'success', text: 'Transfer completed — journal entry created' });
+      setAmount('');
+      setReference('');
+    } catch (err) {
+      setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not record the transfer - try again') });
     } finally {
       setIsSubmitting(false);
     }

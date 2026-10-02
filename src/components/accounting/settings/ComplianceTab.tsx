@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import { CalendarClock, Loader2, Save } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { INPUT_CLS, LABEL_CLS, SECTION_CLS } from './settingsTypes';
 
 interface Obligations {
@@ -47,20 +47,21 @@ export function ComplianceTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const res = await apiFetch('/api/accounting/compliance-obligations');
+        await assertOk(res, 'Could not load the compliance obligations - try again');
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed to load');
         if (!cancelled && json.data) {
           setConfig(json.data as Obligations);
           setExists(true);
         }
-      } catch {
-        if (!cancelled) setMessage({ kind: 'err', text: 'Failed to load compliance obligations' });
+      } catch (err) {
+        if (!cancelled) { setConfig(DEFAULTS); setExists(false); setLoadError(apiErrorMessage(err, 'Could not load the compliance obligations - try again')); }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -75,13 +76,13 @@ export function ComplianceTab() {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
       });
+      await assertOk(res, 'Could not save - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed to save');
       setConfig(json.data as Obligations);
       setExists(true);
       setMessage({ kind: 'ok', text: 'Compliance obligations saved' });
     } catch (err) {
-      setMessage({ kind: 'err', text: err instanceof Error ? err.message : 'Failed to save' });
+      setMessage({ kind: 'err', text: apiErrorMessage(err, 'Could not save - try again') });
     } finally {
       setSaving(false);
     }
@@ -89,6 +90,10 @@ export function ComplianceTab() {
 
   if (loading) {
     return <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-teal-500" /></div>;
+  }
+
+  if (loadError) {
+    return <div role="alert" className="py-8 text-center text-sm text-red-500">{loadError}</div>;
   }
 
   return (

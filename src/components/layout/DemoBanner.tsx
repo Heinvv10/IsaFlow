@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { AlertTriangle, ArrowRight, Loader2 } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
 
+import { apiErrorMessage } from '@/lib/apiFetch';
 /**
  * Read the demo flag defensively. The `Company` interface has `isDemo`, but
  * the runtime payload sometimes flows in as the snake_case `is_demo` from
@@ -55,7 +56,7 @@ export function DemoBanner() {
       // them on a deep demo URL that may not exist for their tenant.
       await router.push('/accounting');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to switch company');
+      setError(apiErrorMessage(err, 'Could not switch company - try again'));
       setSwitching(false);
     }
   }

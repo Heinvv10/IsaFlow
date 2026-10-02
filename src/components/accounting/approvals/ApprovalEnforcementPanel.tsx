@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface EnforcementData {
   items: { documentType: string }[];
@@ -28,13 +28,15 @@ export function ApprovalEnforcementPanel() {
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    const res = await apiFetch('/api/accounting/approval-enforcement?preview=1');
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(body.error?.message || 'Could not load approval enforcement');
-      return;
+    try {
+      const res = await apiFetch('/api/accounting/approval-enforcement?preview=1');
+      await assertOk(res, 'Could not load approval enforcement - try again');
+      const body = await res.json();
+      setData(body.data as EnforcementData);
+    } catch (err) {
+      setData(null);
+      setError(apiErrorMessage(err, 'Could not load approval enforcement - try again'));
     }
-    setData(body.data as EnforcementData);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -48,16 +50,14 @@ export function ApprovalEnforcementPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ documentType, enabled }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error?.message || 'Changing approval enforcement failed');
-      }
-      await load();
+      await assertOk(res, 'Could not change approval enforcement - try again');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Changing approval enforcement failed');
-    } finally {
+      setError(apiErrorMessage(err, 'Could not change approval enforcement - try again'));
       setBusy('');
+      return;
     }
+    await load(); // reports its own failure; the write already succeeded
+    setBusy('');
   };
 
   if (!data || data.enforceable.length === 0) {

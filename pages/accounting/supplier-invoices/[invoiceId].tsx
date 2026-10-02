@@ -11,7 +11,7 @@ import Link from 'next/link';
 import { ArrowLeft, Receipt, Loader2, AlertCircle, FileText } from 'lucide-react';
 import type { SupplierInvoice, SupplierInvoiceItem } from '@/modules/accounting/types/ap.types';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ThreeWayMatchPanel } from '@/components/accounting/ap/ThreeWayMatchPanel';
 import { MarkVatDeclaredElsewhereButton } from '@/components/accounting/sars/MarkVatDeclaredElsewhereButton';
 import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
@@ -56,12 +56,15 @@ export default function SupplierInvoiceDetailPage() {
 
   const loadInvoice = useCallback(async () => {
     setIsLoading(true);
+    setError('');
     try {
       const res = await apiFetch(`/api/accounting/supplier-invoices-detail?id=${invoiceId}`);
+      await assertOk(res, 'Could not load the invoice - try again');
       const json = await res.json();
       setInvoice(json.data || json);
-    } catch {
-      setError('Failed to load invoice');
+    } catch (err) {
+      setInvoice(null);
+      setError(apiErrorMessage(err, 'Could not load the invoice - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -75,22 +78,23 @@ export default function SupplierInvoiceDetailPage() {
   const handleAction = useCallback(async (action: string) => {
     if (!invoiceId) return;
     setActionLoading(action);
+    setError('');
     try {
       const res = await apiFetch('/api/accounting/supplier-invoices-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, invoiceId }),
       });
+      // R-035: 409 is the approval gate — reload so the page offers Submit for approval.
       if (!res.ok) {
-        const err = await res.json();
-        // R-035: 409 is the approval gate — reload so the page offers Submit for approval.
         if (res.status === 409) await loadInvoice();
-        throw new Error(err.error?.message || 'Action failed');
+        await assertOk(res, 'Could not complete that action - try again'); // throws: the response is not ok
+        return;
       }
       notifyLateClaims(await res.json()); // approve: VAT claimed in a later period (s16(3))
       await loadInvoice();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+      setError(apiErrorMessage(err, 'Could not complete that action - try again'));
     } finally {
       setActionLoading('');
     }
@@ -98,19 +102,21 @@ export default function SupplierInvoiceDetailPage() {
 
   const handleSaveEdit = async () => {
     setActionLoading('save');
+    setError('');
     try {
       const res = await apiFetch('/api/accounting/supplier-invoices-detail', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: invoiceId, ...editForm }),
       });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || 'Save failed'); }
+      await assertOk(res, 'Could not save the invoice - try again');
       setEditing(false);
       await loadInvoice();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
+      setError(apiErrorMessage(err, 'Could not save the invoice - try again'));
+    } finally {
+      setActionLoading('');
     }
-    setActionLoading('');
   };
 
   const { groups, overflowActions } = useSupplierInvoiceActions(

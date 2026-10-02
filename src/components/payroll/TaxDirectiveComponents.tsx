@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { X, Loader2, Calculator, Plus } from 'lucide-react';
 import { calculateLumpSumTax, type LumpSumCalculation } from '@/lib/taxCalculations';
 
@@ -62,14 +62,11 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        const j = await res.json();
-        throw new Error(j.error?.message ?? 'Failed to create directive');
-      }
+      await assertOk(res, 'Could not create the tax directive - try again');
       onCreated();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setError(apiErrorMessage(err, 'Could not create the tax directive - try again'));
     } finally {
       setSaving(false);
     }

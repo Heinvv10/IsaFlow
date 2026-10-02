@@ -4,6 +4,7 @@
  *   ?account_code=XXXX           (required)
  *   ?period_start=YYYY-MM-DD     (required)
  *   ?period_end=YYYY-MM-DD       (required)
+ *   ?cost_centre_id=<uuid>       (optional)
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -13,7 +14,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import { getAccountTransactions } from '@/modules/accounting/services/reports/transactionReportingService';
-import { hasNul, NUL_MESSAGE } from '@/lib/validation';
+import { hasNul, NUL_MESSAGE, UUID_RE } from '@/lib/validation';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { LedgerAccountNotFoundError } from '@/modules/accounting/services/gl/ledgerErrors';
 import { csvCell } from '@/lib/csv';
@@ -26,6 +27,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const accountCode = req.query.account_code as string;
   const periodStart = req.query.period_start as string;
   const periodEnd = req.query.period_end as string;
+  const costCentreId = req.query.cost_centre_id;
+  if (costCentreId !== undefined && (typeof costCentreId !== 'string' || !UUID_RE.test(costCentreId))) {
+    return apiResponse.badRequest(res, 'cost_centre_id must be a valid UUID');
+  }
 
   if (typeof accountCode !== 'string' || !accountCode) return apiResponse.badRequest(res, 'account_code is required (one non-empty value)');
   if (!periodStart) return apiResponse.badRequest(res, 'period_start is required');
@@ -43,7 +48,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const report = await getAccountTransactions(companyId, accountCode, periodStart, periodEnd);
+    const report = await getAccountTransactions(companyId, accountCode, periodStart, periodEnd, costCentreId);
 
     const csvLines = [
       `Date,Entry Number,Description,Debit,Credit,Balance,Source,Derived`,

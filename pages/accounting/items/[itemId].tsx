@@ -10,7 +10,7 @@ import Link from 'next/link';
 import {
   ArrowLeft, Box, Loader2, AlertCircle, CheckCircle2, XCircle, Layers,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { BundleEditor } from '@/components/accounting/items/BundleEditor';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 import { localISODate } from '@/lib/dateUtils';
@@ -43,6 +43,7 @@ export default function ItemDetailPage() {
   const [error, setError] = useState('');
   const [isBundle, setIsBundle] = useState(false);
   const [togglingBundle, setTogglingBundle] = useState(false);
+  const [toggleError, setToggleError] = useState('');
 
   useEffect(() => {
     if (!itemId) return;
@@ -54,6 +55,7 @@ export default function ItemDetailPage() {
     setLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/items?id=${String(itemId)}`);
+      await assertOk(res, 'Could not load the item - try again');
       const json = await res.json() as { data?: unknown };
       const data = json.data;
       if (data && typeof data === 'object' && 'id' in data) {
@@ -63,8 +65,8 @@ export default function ItemDetailPage() {
       } else {
         setError('Item not found');
       }
-    } catch {
-      setError('Failed to load item');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the item - try again'));
     } finally {
       setLoading(false);
     }
@@ -73,6 +75,7 @@ export default function ItemDetailPage() {
   const handleToggleBundle = async () => {
     if (!item) return;
     setTogglingBundle(true);
+    setToggleError('');
     try {
       if (!isBundle) {
         setIsBundle(true);
@@ -81,8 +84,11 @@ export default function ItemDetailPage() {
           `/api/accounting/item-bundles?itemId=${item.id}`,
           { method: 'DELETE' }
         );
-        if (res.ok) setIsBundle(false);
+        await assertOk(res, 'Could not remove the bundle components - try again');
+        setIsBundle(false);
       }
+    } catch (err) {
+      setToggleError(apiErrorMessage(err, 'Could not remove the bundle components - try again'));
     } finally {
       setTogglingBundle(false);
     }
@@ -229,6 +235,9 @@ export default function ItemDetailPage() {
                 </button>
               </label>
             </div>
+            {toggleError && (
+              <div className="flex items-center gap-2 mb-3 text-sm text-red-400"><AlertCircle className="h-4 w-4" /> {toggleError}</div>
+            )}
 
             {isBundle ? (
               <BundleEditor

@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { ArrowDownCircle, ArrowUpCircle, Banknote, Loader2, AlertCircle, TrendingUp } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
@@ -59,14 +59,12 @@ export default function CashMovementPage() {
     try {
       const params = new URLSearchParams({ from, to });
       const res = await apiFetch(`/api/accounting/reports/cash-movement?${params}`);
+      await assertOk(res, 'Could not load the cash movement report - try again');
       const json = await res.json();
-      if (!res.ok) {
-        setError(json?.error?.message ?? 'Failed to load cash movement report');
-        return;
-      }
       setData(json.data ?? json);
-    } catch {
-      setError('Failed to load cash movement report');
+    } catch (err) {
+      setData(null);
+      setError(apiErrorMessage(err, 'Could not load the cash movement report - try again'));
     } finally {
       setLoading(false);
     }

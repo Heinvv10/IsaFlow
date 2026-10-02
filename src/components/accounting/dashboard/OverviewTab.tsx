@@ -11,7 +11,7 @@ import {
   ArrowDown, Clock, AlertCircle,
 } from 'lucide-react';
 import { Users, Upload } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { PAGE_REGISTRY, DEFAULT_QUICK_ACTIONS, type PageMeta } from '@/modules/accounting/constants/pageRegistry';
 import { OverviewTables } from './OverviewTables';
@@ -68,6 +68,7 @@ function fmtCompact(n: number): string {
 export function OverviewTab() {
   const [data, setData] = useState<KPIData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [kpiError, setKpiError] = useState('');
   const [provisionalCount, setProvisionalCount] = useState<number | null>(null);
   const [missingInvoiceCount, setMissingInvoiceCount] = useState<number | null>(null);
   const [quickActions, setQuickActions] = useState<PageMeta[]>(
@@ -78,23 +79,24 @@ export function OverviewTab() {
     void loadKPIData();
     void loadQuickActions();
     apiFetch('/api/accounting/provisional/outstanding')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the provisional entry count - try again'); return r.json(); })
       .then((json: { data?: unknown[] }) => setProvisionalCount((json.data ?? []).length))
-      .catch(() => { /* non-critical */ });
+      .catch(err => setKpiError(apiErrorMessage(err, 'Could not load the provisional entry count - try again')));
     apiFetch('/api/accounting/expected-invoice-alerts?status=pending')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the missing invoice alerts - try again'); return r.json(); })
       .then((json: { data?: unknown[] }) => setMissingInvoiceCount((json.data ?? []).length))
-      .catch(() => { /* non-critical */ });
+      .catch(err => setKpiError(apiErrorMessage(err, 'Could not load the missing invoice alerts - try again')));
   }, []);
 
   const loadKPIData = async () => {
     setIsLoading(true);
     try {
-      const res = await apiFetch('/api/accounting/kpi-dashboard', { credentials: 'include' });
+      const res = await apiFetch('/api/accounting/kpi-dashboard', { credentials: 'include' }); await assertOk(res, 'Could not load the dashboard figures - try again');
       const json = await res.json();
       setData(json.data || json);
     } catch (err) {
-      log.error('Failed to load KPI data', { error: err }, 'accounting-ui');
+      setData(null); log.error('Failed to load KPI data', { error: err }, 'accounting-ui');
+      setKpiError(apiErrorMessage(err, 'Could not load the dashboard figures - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -103,7 +105,7 @@ export function OverviewTab() {
   const loadQuickActions = async () => {
     try {
       const res = await apiFetch('/api/accounting/page-visits?limit=6', { credentials: 'include' });
-      const json = await res.json();
+      await assertOk(res, 'Could not load quick actions'); const json = await res.json();
       const rows = (json.data || []) as { page_path: string }[];
       const tracked = rows.map(r => PAGE_REGISTRY[r.page_path]).filter((p): p is PageMeta => !!p);
       if (tracked.length >= 6) {
@@ -134,6 +136,7 @@ export function OverviewTab() {
 
   return (
     <div className="space-y-6">
+      {kpiError && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{kpiError}</div>}
       {/* Workbench — exception-first signals for accountants */}
       <WorkbenchSection />
 

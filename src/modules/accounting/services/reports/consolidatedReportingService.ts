@@ -12,7 +12,7 @@ import type { DbRow } from '@/types/db';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { asAtTodayStr, documentInLedgerAsAtFragmentForRowTenant } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
-
+import { EliminationStateError, EliminationUnbalancedError } from './eliminationErrors';
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
 
@@ -180,7 +180,7 @@ export async function createEliminationAdjustment(
     let totalDebit = 0, totalCredit = 0;
     for (const line of input.lines) { totalDebit += line.debit; totalCredit += line.credit; }
     if (Math.abs(totalDebit - totalCredit) > 0.01) {
-      throw new Error(`Elimination adjustment lines do not balance: debit=${totalDebit}, credit=${totalCredit}`);
+      throw new EliminationUnbalancedError(totalDebit, totalCredit);
     }
     const rows = (await sql`
       INSERT INTO consolidation_adjustments (
@@ -205,7 +205,7 @@ export async function postEliminationAdjustment(adjustmentId: string, groupId: s
       UPDATE consolidation_adjustments SET status='posted', posted_at=NOW(), updated_at=NOW()
       WHERE id=${adjustmentId}::UUID AND group_id=${groupId}::UUID AND status='draft' RETURNING id
     `) as DbRow[];
-    if (result.length === 0) throw new Error(`Adjustment ${adjustmentId} not found or not in draft status`);
+    if (result.length === 0) throw new EliminationStateError(adjustmentId, 'draft');
     log.info('Posted elimination adjustment', { adjustmentId, groupId }, 'accounting');
   } catch (err) {
     log.error('Failed to post elimination adjustment', { adjustmentId, groupId, error: err }, 'accounting');
@@ -219,7 +219,7 @@ export async function reverseEliminationAdjustment(adjustmentId: string, groupId
       UPDATE consolidation_adjustments SET status='reversed', updated_at=NOW()
       WHERE id=${adjustmentId}::UUID AND group_id=${groupId}::UUID AND status='posted' RETURNING id
     `) as DbRow[];
-    if (result.length === 0) throw new Error(`Adjustment ${adjustmentId} not found or not in posted status`);
+    if (result.length === 0) throw new EliminationStateError(adjustmentId, 'posted');
     log.info('Reversed elimination adjustment', { adjustmentId, groupId }, 'accounting');
   } catch (err) {
     log.error('Failed to reverse elimination adjustment', { adjustmentId, groupId, error: err }, 'accounting');

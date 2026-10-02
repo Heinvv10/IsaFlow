@@ -2,7 +2,7 @@
 // Inline Balance Sheet + Income Statement scoped to the AFS document period.
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { BalanceSheetReport, IncomeStatementReport } from '@/modules/accounting/types/gl.report.types';
 import { AlertCircle } from 'lucide-react';
@@ -85,11 +85,11 @@ function useRemote<T>(url: string): RemoteState<T> {
   const fetch = useCallback(() => {
     setState({ data: null, loading: true, error: '' });
     apiFetch(url, { credentials: 'include' })
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() as Promise<{ data: T }>; })
+      .then(async r => { await assertOk(r, 'Could not load the statement - try again'); return r.json() as Promise<{ data: T }>; })
       .then(json => setState({ data: json.data, loading: false, error: '' }))
       .catch((err: unknown) => {
         log.warn('AfsStatementsTab fetch failed', { url, error: err }, 'AfsStatementsTab');
-        setState({ data: null, loading: false, error: err instanceof Error ? err.message : String(err) });
+        setState({ data: null, loading: false, error: apiErrorMessage(err, 'Could not load the statement - try again') });
       });
   }, [url]);
   useEffect(() => { fetch(); }, [fetch]);

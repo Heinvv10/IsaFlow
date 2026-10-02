@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { ArrowLeft, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   DataQualityNotice,
   type UnclassifiedWarning,
@@ -50,11 +50,12 @@ export default function ThreeWayForecastPage() {
   const [taxRate, setTaxRate] = useState(27);
   const [forecast, setForecast] = useState<ForecastResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('pnl');
 
   const runForecast = useCallback(async () => {
-    setLoading(true);
+    setLoading(true); setError('');
     try {
       const params = new URLSearchParams({
         months: String(months),
@@ -64,10 +65,16 @@ export default function ThreeWayForecastPage() {
         capex: String(capex),
         taxRate: String(taxRate),
       });
-      const res = await apiFetch(`/api/accounting/reports-three-way-forecast?${params}`).then(r => r.json());
+      const httpRes = await apiFetch(`/api/accounting/reports-three-way-forecast?${params}`);
+      await assertOk(httpRes, 'Could not run the forecast - try again');
+      const res = await httpRes.json();
       if (res.data?.forecast) setForecast(res.data.forecast);
       setUnclassified(res.data?.unclassifiedAccounts ?? null);
-    } catch (err) { log.error('Failed to run forecast', { error: err instanceof Error ? err.message : String(err) }); }
+    } catch (err) {
+      setForecast(null); setUnclassified(null);
+      setError(apiErrorMessage(err, 'Could not run the forecast - try again'));
+      log.error('Failed to run forecast', { error: err instanceof Error ? err.message : String(err) });
+    }
     finally { setLoading(false); }
   }, [months, revenueGrowth, cosGrowth, opexGrowth, capex, taxRate]);
 
@@ -105,6 +112,7 @@ export default function ThreeWayForecastPage() {
 
         <div className="p-6 space-y-6 max-w-7xl">
           <DataQualityNotice unclassifiedAccounts={unclassified} />
+          {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
           {/* Parameter Panel */}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">Forecast Parameters</h2>

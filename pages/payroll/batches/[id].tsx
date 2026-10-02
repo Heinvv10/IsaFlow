@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Layers, Loader2, AlertCircle, CheckCircle2, Send, Plus, Trash2, ArrowLeft } from 'lucide-react';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
@@ -93,17 +93,19 @@ export default function BatchGridPage() {
         apiFetch(`/api/payroll/batches/${id}`),
         apiFetch('/api/payroll/employees'),
       ]);
-      if (!batchRes.ok) { setError(payrollLoadMessage(batchRes.status, 'Failed to load batch')); return; }
+      if (batchRes.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load the batch - try again'));
+      await assertOk(batchRes, 'Could not load the batch - try again');
       const batchJson = await batchRes.json();
       const payload = (batchJson.data ?? batchJson) as { batch: Batch; lines: BatchLine[] };
       setBatch(payload.batch);
       setLines(payload.lines);
-      if (empRes.ok) {
-        const empJson = await empRes.json();
-        setEmployees((empJson.data ?? empJson) as Employee[]);
-      }
-    } catch {
-      setError('Failed to load batch');
+      try { await assertOk(empRes, 'Could not load the employee list - try again'); const empJson = await empRes.json(); setEmployees((empJson.data ?? empJson) as Employee[]); }
+      catch (err) { setEmployees([]); setError(apiErrorMessage(err, 'Could not load the employee list - try again')); }
+    } catch (err) {
+      setBatch(null);
+      setLines([]);
+      setEmployees([]);
+      setError(apiErrorMessage(err, 'Could not load the batch - try again'));
     } finally {
       setLoading(false);
     }
@@ -165,16 +167,12 @@ export default function BatchGridPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lines: payloads }),
       });
-      const json = await res.json();
-      if (!res.ok) {
-        setError(json.error?.message ?? json.message ?? 'Save failed');
-        return;
-      }
+      await assertOk(res, 'Could not save the lines - try again');
       setDrafts([emptyDraft]);
       setMessage(`Saved ${payloads.length} line(s)`);
       await load();
-    } catch {
-      setError('Save failed');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the lines - try again'));
     } finally {
       setBusy(false);
     }
@@ -183,6 +181,7 @@ export default function BatchGridPage() {
   async function removeLine(lineId: string): Promise<void> {
     if (!confirm('Remove this line?')) return;
     setBusy(true);
+    setError('');
     try {
       const res = await apiFetch(`/api/payroll/batches/${id}/lines`, {
         method: 'POST',
@@ -195,11 +194,10 @@ export default function BatchGridPage() {
           }],
         }),
       });
-      if (!res.ok) {
-        setError('Remove failed');
-      } else {
-        await load();
-      }
+      await assertOk(res, 'Could not remove the line - try again');
+      await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not remove the line - try again'));
     } finally {
       setBusy(false);
     }
@@ -211,15 +209,14 @@ export default function BatchGridPage() {
     setMessage('');
     try {
       const res = await apiFetch(`/api/payroll/batches/${id}/validate`, { method: 'POST' });
+      await assertOk(res, 'Could not validate the batch - try again');
       const json = await res.json();
-      if (!res.ok) {
-        setError(json.error?.message ?? json.message ?? 'Validate failed');
-        return;
-      }
       const payload = (json.data ?? json) as { ok: boolean; errors: unknown[]; totalLines: number };
       if (payload.ok) setMessage(`Validated — ${payload.totalLines} line(s) clean`);
       else setError(`${payload.errors.length} line(s) have errors`);
       await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not validate the batch - try again'));
     } finally {
       setBusy(false);
     }
@@ -232,14 +229,13 @@ export default function BatchGridPage() {
     setMessage('');
     try {
       const res = await apiFetch(`/api/payroll/batches/${id}/post`, { method: 'POST' });
+      await assertOk(res, 'Could not post the batch - try again');
       const json = await res.json();
-      if (!res.ok) {
-        setError(json.error?.message ?? json.message ?? 'Post failed');
-        return;
-      }
       const payload = (json.data ?? json) as { inserted: number };
       setMessage(`Posted — ${payload.inserted} component assignment(s) created`);
       await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not post the batch - try again'));
     } finally {
       setBusy(false);
     }
@@ -259,7 +255,7 @@ export default function BatchGridPage() {
     return (
       <AppLayout>
         <div className="flex items-center justify-center gap-2 text-red-400 py-12">
-          <AlertCircle className="h-5 w-5" /><span>{error || 'Batch not found'}</span>
+          <AlertCircle className="h-5 w-5" /><span>{[error || 'Batch not found', message].filter(Boolean).join(' - ')}</span>
         </div>
       </AppLayout>
     );

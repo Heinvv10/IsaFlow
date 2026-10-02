@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Wifi, WifiOff, Loader2, Plus } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk, ApiRequestError } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { BankFeedCard } from '@/components/accounting/bankFeeds/BankFeedCard';
 import { AddConnectionModal } from '@/components/accounting/bankFeeds/AddConnectionModal';
@@ -16,6 +16,7 @@ export default function BankFeedsPage() {
   const [connections, setConnections] = useState<BankFeedConnection[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [loading, setLoading] = useState(true);
+  const [connectionsError, setConnectionsError] = useState('');
   const [syncing, setSyncing] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -24,35 +25,41 @@ export default function BankFeedsPage() {
   const [logsLoading, setLogsLoading] = useState<string | null>(null);
 
   const fetchConnections = useCallback(async () => {
+    setConnectionsError('');
     try {
       const res = await apiFetch('/api/accounting/bank-feeds');
+      await assertOk(res, 'Could not load the bank feed connections - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed');
       setConnections(json.data?.items ?? []);
-    } catch {
-      notify.error('Failed to load bank feed connections');
+    } catch (err) {
+      setConnections([]);
+      const message = apiErrorMessage(err, 'Could not load the bank feed connections - try again');
+      setConnectionsError(message);
+      notify.error(message);
     }
   }, []);
 
   const fetchBankAccounts = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/bank-accounts');
+      await assertOk(res, 'Could not load the bank accounts - try again');
       const json = await res.json();
-      if (res.ok) {
-        // The bank-accounts endpoint returns the rows directly under `data`
-        // as an array, not under `data.items`. Tolerate both shapes so this
-        // doesn't regress when the API is normalised.
-        const items = Array.isArray(json.data)
-          ? json.data
-          : Array.isArray(json.data?.items)
-            ? json.data.items
-            : [];
-        setBankAccounts(items.map((a: Record<string, unknown>) => ({
-          id: String(a.id),
-          accountName: String(a.accountName ?? a.account_name ?? ''),
-        })));
-      }
-    } catch { /* optional — proceed without bank accounts */ }
+      // The bank-accounts endpoint returns the rows directly under `data`
+      // as an array, not under `data.items`. Tolerate both shapes so this
+      // doesn't regress when the API is normalised.
+      const items = Array.isArray(json.data)
+        ? json.data
+        : Array.isArray(json.data?.items)
+          ? json.data.items
+          : [];
+      setBankAccounts(items.map((a: Record<string, unknown>) => ({
+        id: String(a.id),
+        accountName: String(a.accountName ?? a.account_name ?? ''),
+      })));
+    } catch (err) {
+      setBankAccounts([]);
+      notify.error(apiErrorMessage(err, 'Could not load the bank accounts - try again'));
+    }
   }, []);
 
   useEffect(() => {
@@ -76,7 +83,8 @@ export default function BankFeedsPage() {
         if (d?.source !== 'isaflow-bank-extension') return;
         if (d.type !== 'isaflow-bank-ext-sync-reply' || d.requestId !== requestId) return;
         cleanup();
-        if (!d.ok) return reject(new Error(d.error || 'Extension sync failed'));
+        // status 0: the extension's own sentence (it is not an HTTP failure) so apiErrorMessage keeps it.
+        if (!d.ok) return reject(new ApiRequestError(d.error || 'The bank extension could not sync the connection - try again', 0));
         resolve(d.value as { found: number; imported: number; duplicate: number });
       };
       window.addEventListener('message', onMsg);
@@ -90,7 +98,7 @@ export default function BankFeedsPage() {
       // Safety timeout — extension should reply within 60s for typical 180-day fetches.
       timeoutHandle = setTimeout(() => {
         cleanup();
-        reject(new Error('Extension did not reply (timed out). Is it installed and the bank tab open?'));
+        reject(new ApiRequestError('The bank extension did not reply - check it is installed and the bank tab is open', 0));
       }, 60_000);
     });
   };
@@ -107,8 +115,8 @@ export default function BankFeedsPage() {
         notify.success(`Sync done: ${r.imported} imported, ${r.duplicate} duplicates`);
       } else {
         const res = await apiFetch(`/api/accounting/bank-feeds/${connectionId}/sync`, { method: 'POST' });
+        await assertOk(res, 'Could not sync the connection - try again');
         const json = await res.json();
-        if (!res.ok) throw new Error(json?.error?.message || 'Sync failed');
         const r = json.data as { imported?: number; duplicate?: number; instructions?: string };
         if (r.instructions) notify.info(r.instructions);
         else notify.success(`Sync done: ${r.imported ?? 0} imported, ${r.duplicate ?? 0} duplicates`);
@@ -116,7 +124,7 @@ export default function BankFeedsPage() {
       await fetchConnections();
       if (expandedLogs === connectionId) await loadSyncLogs(connectionId);
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Sync failed');
+      notify.error(apiErrorMessage(err, 'Could not sync the connection - try again'));
     } finally {
       setSyncing(null);
     }
@@ -127,12 +135,11 @@ export default function BankFeedsPage() {
     setDeleting(connectionId);
     try {
       const res = await apiFetch(`/api/accounting/bank-feeds/${connectionId}`, { method: 'DELETE' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Delete failed');
+      await assertOk(res, 'Could not delete the connection - try again');
       notify.success('Connection deleted');
       await fetchConnections();
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Delete failed');
+      notify.error(apiErrorMessage(err, 'Could not delete the connection - try again'));
     } finally {
       setDeleting(null);
     }
@@ -142,9 +149,10 @@ export default function BankFeedsPage() {
     setLogsLoading(connectionId);
     try {
       const res = await apiFetch(`/api/accounting/bank-feeds/${connectionId}/logs`);
+      await assertOk(res, 'Could not load the sync history - try again');
       const json = await res.json();
-      if (res.ok) setSyncLogs(prev => ({ ...prev, [connectionId]: json.data?.items ?? [] }));
-    } catch { /* fail silently */ }
+      setSyncLogs(prev => ({ ...prev, [connectionId]: json.data?.items ?? [] }));
+    } catch (err) { notify.error(apiErrorMessage(err, 'Could not load the sync history - try again')); }
     finally { setLogsLoading(null); }
   };
 
@@ -185,6 +193,16 @@ export default function BankFeedsPage() {
         {loading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
+          </div>
+        ) : connectionsError ? (
+          <div role="alert" className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center">
+            <p className="text-sm text-red-400 mb-4">{connectionsError}</p>
+            <button
+              onClick={() => { setLoading(true); void fetchConnections().finally(() => setLoading(false)); }}
+              className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-semibold transition-colors"
+            >
+              Retry
+            </button>
           </div>
         ) : connections.length === 0 ? (
           <div className="bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] rounded-xl p-10 text-center">

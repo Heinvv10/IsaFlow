@@ -19,7 +19,7 @@ import {
   Landmark, FileText, Clock, BookOpen, CalendarX2, Receipt,
   AlertCircle, ArrowRight,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { isVatSurfaceHref } from '@/components/accounting/navSections/vatNav';
@@ -145,9 +145,10 @@ export function WorkbenchSection() {
 
     apiFetch('/api/accounting/dashboard/workbench')
       .then(async (res) => {
+        await assertOk(res, 'Could not load workbench metrics');
         const json = (await res.json()) as { data?: WorkbenchMetrics };
         if (!cancelled) {
-          if (!res.ok || !json.data) {
+          if (!json.data) {
             setError('Could not load workbench metrics');
           } else {
             setMetrics(json.data);

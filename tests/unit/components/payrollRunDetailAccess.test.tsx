@@ -40,10 +40,10 @@ describe('payroll run page — refusals on load', () => {
     expect(screen.queryByText('Failed to load run')).toBeNull();
   });
 
-  it('a 500 still says "Failed to load run"', async () => {
+  it('a 500 says the run could not be loaded, not the no-access text', async () => {
     fetchMock.mockImplementation(async () => envelope(500, 'INTERNAL_ERROR', 'boom'));
     render(<PayrollRunDetailPage />);
-    expect(await screen.findByText('Failed to load run')).toBeTruthy();
+    expect(await screen.findByText('Could not load the payroll run - try again')).toBeTruthy();
   });
 
   it('a write role served the run sees its figures', async () => {

@@ -1,22 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { bureauClientErrorMessage } from '@/components/bureau/clientHomeError';
+import { ApiEnvelopeError, ApiRequestError } from '@/lib/apiFetch';
 
 describe('bureauClientErrorMessage', () => {
-  it('returns the bureau-specific copy for a 404 regardless of body', () => {
-    expect(bureauClientErrorMessage(404, {})).toBe('This client is not in your bureau.');
-    expect(bureauClientErrorMessage(404, { error: { message: 'Client not found' } }))
-      .toBe('This client is not in your bureau.');
+  it('returns the bureau-specific copy for a 404 regardless of the server message', () => {
+    expect(bureauClientErrorMessage(new ApiRequestError('Client not found', 404))).toBe('This client is not in your bureau.');
   });
 
-  it('surfaces the server error.message for non-404 failures', () => {
-    expect(bureauClientErrorMessage(500, { error: { message: 'Boom' } })).toBe('Boom');
+  it('surfaces the server message for other failures', () => {
+    expect(bureauClientErrorMessage(new ApiRequestError('Boom', 500))).toBe('Boom');
+    expect(bureauClientErrorMessage(new ApiEnvelopeError('Odd body'))).toBe('Odd body');
   });
 
-  it('falls back to a top-level message field if present (back-compat)', () => {
-    expect(bureauClientErrorMessage(500, { message: 'Legacy' })).toBe('Legacy');
-  });
-
-  it('defaults to "Failed to load" when no message is present', () => {
-    expect(bureauClientErrorMessage(500, {})).toBe('Failed to load');
+  it('is a plain sentence for a transport failure', () => {
+    expect(bureauClientErrorMessage(new TypeError('Failed to fetch'))).toBe('Could not load this client - try again');
   });
 });

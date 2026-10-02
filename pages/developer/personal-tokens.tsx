@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { PAT_SCOPES } from '@/lib/auth/patScopes';
 import { PAT_SCOPE_META } from '@/lib/auth/patScopeMeta';
 import { isOptInScope } from '@/lib/auth/consentScopes';
@@ -104,14 +104,12 @@ export default function PersonalTokensPage() {
     setLoading(true);
     try {
       const res = await apiFetch('/api/auth/personal-tokens');
-      const json = (await res.json()) as { data?: PatItem[]; error?: { message?: string } };
-      if (!res.ok) {
-        showToast(json.error?.message ?? 'Failed to load tokens', false);
-        return;
-      }
+      await assertOk(res, 'Could not load your tokens - try again');
+      const json = (await res.json()) as { data?: PatItem[] };
       setTokens(json.data ?? []);
-    } catch {
-      showToast('Network error loading tokens', false);
+    } catch (err) {
+      setTokens([]);
+      showToast(apiErrorMessage(err, 'Could not load your tokens - try again'), false);
     } finally {
       setLoading(false);
     }
@@ -145,17 +143,14 @@ export default function PersonalTokensPage() {
           expiresInDays,
         }),
       });
-      const json = (await res.json()) as { data?: NewPat; error?: { message?: string } };
-      if (!res.ok) {
-        showToast(json.error?.message ?? 'Failed to mint token', false);
-        return;
-      }
+      await assertOk(res, 'Could not create the token - try again');
+      const json = (await res.json()) as { data?: NewPat };
       setNewPat(json.data ?? null);
       setName('');
       setScopeSet(new Set(['read:reports']));
       void load();
-    } catch {
-      showToast('Network error', false);
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not create the token - try again'), false);
     } finally {
       setGenerating(false);
     }
@@ -165,15 +160,11 @@ export default function PersonalTokensPage() {
     setRevoking(id);
     try {
       const res = await apiFetch(`/api/auth/personal-tokens/${id}`, { method: 'DELETE' });
-      const json = (await res.json()) as { error?: { message?: string } };
-      if (!res.ok) {
-        showToast(json.error?.message ?? 'Failed to revoke token', false);
-        return;
-      }
+      await assertOk(res, 'Could not revoke the token - try again');
       showToast('Token revoked', true);
       void load();
-    } catch {
-      showToast('Network error', false);
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not revoke the token - try again'), false);
     } finally {
       setRevoking(null);
     }

@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingUp, AlertTriangle, AlertCircle, Loader2, RefreshCw, Info } from 'lucide-react';
 import dynamic from 'next/dynamic';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 const ResponsiveContainer = dynamic(
   () => import('recharts').then(m => m.ResponsiveContainer),
@@ -100,11 +100,11 @@ export default function CashFlowForecastPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/cash-flow-forecast?months=${months}`);
-      if (!res.ok) throw new Error('Failed to load forecast');
+      await assertOk(res, 'Could not load the cash flow forecast - try again');
       const json = await res.json();
       setData(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load forecast');
+      setData(null); setError(apiErrorMessage(err, 'Could not load the cash flow forecast - try again'));
     } finally {
       setLoading(false);
     }

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 
 vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a> }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async (orig) => ({ ...await orig<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
 
 import { apiFetch } from '@/lib/apiFetch';
 import { AgingInvoicesPanel } from '@/components/accounting/AgingInvoicesPanel';
@@ -48,7 +48,7 @@ describe('AgingInvoicesPanel', () => {
   it('reports a failed load', async () => {
     vi.mocked(apiFetch).mockResolvedValue(new Response('{}', { status: 403 }));
     inTable(<AgingInvoicesPanel side="ap" entityId={CUSTOMER} entityName="Acme" asAtDate="2026-05-31" colSpan={8} />);
-    expect(await screen.findByText(/Could not load invoices for Acme \(HTTP 403\)/)).toBeTruthy();
+    expect(await screen.findByText('Could not load the invoices - try again')).toBeTruthy();
   });
 });
 
@@ -68,6 +68,6 @@ describe('DebtorInvoicesPanel', () => {
   it('reports a failed load instead of an empty list', async () => {
     vi.mocked(apiFetch).mockResolvedValue(new Response('{}', { status: 500 }));
     inTable(<DebtorInvoicesPanel clientId={CUSTOMER} clientName="Herotel" />);
-    expect(await screen.findByText(/Could not load invoices for Herotel \(HTTP 500\)/)).toBeTruthy();
+    expect(await screen.findByText(/Could not load invoices for Herotel \(Could not load the invoices - try again\)/)).toBeTruthy();
   });
 });

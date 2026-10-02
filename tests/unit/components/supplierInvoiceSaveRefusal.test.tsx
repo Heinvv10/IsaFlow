@@ -53,13 +53,10 @@ describe('supplier invoice detail page — save refusal', () => {
     render(<SupplierInvoiceDetailPage />);
     fireEvent.click(await screen.findByText('Edit'));
 
-    fetchMock.mockResolvedValueOnce({
-      ok: false,
-      json: () => Promise.resolve({
-        success: false,
-        error: { message: 'Only draft or pending-approval invoices can be edited' },
-      }),
-    });
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      success: false,
+      error: { code: 'BAD_REQUEST', message: 'Only draft or pending-approval invoices can be edited' },
+    }), { status: 400 }));
 
     fireEvent.click(await screen.findByText('Save'));
 

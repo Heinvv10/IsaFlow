@@ -5,7 +5,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Scale, Loader2, AlertCircle, Download, CheckCircle } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
@@ -55,11 +55,12 @@ export default function Emp501Page() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/emp501/reconciliation?taxYear=${taxYear}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the EMP501 reconciliation - try again');
       const json = await res.json() as { data?: Emp501Summary };
       setSummary((json.data ?? null) as Emp501Summary | null);
-    } catch {
-      setError('Failed to load EMP501 reconciliation');
+    } catch (err) {
+      setSummary(null);
+      setError(apiErrorMessage(err, 'Could not load the EMP501 reconciliation - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -71,7 +72,8 @@ export default function Emp501Page() {
     setIsExporting(true);
     try {
       const res = await apiFetch(`/api/payroll/emp501/export?taxYear=${taxYear}`);
-      if (!res.ok) { setError(payrollLoadMessage(res.status, 'Export failed')); return; }
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not export the EMP501 file - try again'));
+      await assertOk(res, 'Could not export the EMP501 file - try again');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -79,8 +81,8 @@ export default function Emp501Page() {
       a.download = `EMP501_${taxYear - 1}_${taxYear}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      setError('Export failed');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not export the EMP501 file - try again'));
     } finally {
       setIsExporting(false);
     }

@@ -2,9 +2,9 @@
  * DeliveryLog — expandable delivery attempt history for a webhook row.
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Loader2, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { AdminWebhookDetail, DeliveryAttempt } from '@/modules/admin/services/adminWebhookService';
 
 interface Props {
@@ -50,23 +50,33 @@ export function DeliveryLog({ webhookId }: Props) {
   const [loading, setLoading]     = useState(false);
   const [redelivering, setRedelivering] = useState(false);
   const [toast, setToast]         = useState<string | null>(null);
+  const autoLoaded = useRef(false);
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
   };
 
-  const load = async () => {
+  /** Returns '' on success, else the plain-sentence reason (the caller decides how to say it). */
+  const fetchDetail = async (): Promise<string> => {
     setLoading(true);
     try {
       const res  = await apiFetch(`/api/admin/webhooks/${webhookId}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load deliveries - try again');
       const json = await res.json() as { data: AdminWebhookDetail };
       setDetail(json.data);
-    } catch {
-      showToast('Failed to load deliveries');
+      return '';
+    } catch (err) {
+      setDetail(null);
+      return apiErrorMessage(err, 'Could not load deliveries - try again');
     } finally {
       setLoading(false);
     }
+  };
+
+  const load = async () => {
+    const problem = await fetchDetail();
+    if (problem) showToast(problem);
   };
 
   const redeliver = async () => {
@@ -77,22 +87,19 @@ export function DeliveryLog({ webhookId }: Props) {
         credentials: 'include',
         body: JSON.stringify({}),
       });
-      if (!res.ok) {
-        const j = await res.json() as { error?: { message?: string } };
-        showToast(j.error?.message ?? 'Redeliver failed');
-      } else {
-        showToast('Delivery queued for retry');
-        await load();
-      }
-    } catch {
-      showToast('Redeliver request failed');
+      await assertOk(res, 'Could not queue the redelivery - try again');
+      const problem = await fetchDetail();
+      showToast(problem ? `Delivery queued for retry, but the list could not be refreshed: ${problem}` : 'Delivery queued for retry');
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not queue the redelivery - try again'));
     } finally {
       setRedelivering(false);
     }
   };
 
   // Auto-load on first render of this component
-  if (!detail && !loading) {
+  if (!detail && !loading && !autoLoaded.current) {
+    autoLoaded.current = true;
     void load();
   }
 

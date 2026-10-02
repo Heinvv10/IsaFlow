@@ -11,7 +11,7 @@ import { ArrowLeft, Wallet, Loader2, AlertCircle, Check, X } from 'lucide-react'
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { notify } from '@/utils/toast';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -64,11 +64,13 @@ export default function CustomerPaymentDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/customer-payments?id=${paymentId}`);
+      await assertOk(res, 'Could not load the payment - try again');
       const json = await res.json();
       const data = json.data || json;
       setPayment(data);
-    } catch {
-      setError('Failed to load payment');
+    } catch (err) {
+      setPayment(null);
+      setError(apiErrorMessage(err, 'Could not load the payment - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -90,12 +92,11 @@ export default function CustomerPaymentDetailPage() {
           credentials: 'include',
           body: JSON.stringify({ action: 'cancel', paymentId: payment.id, reason }),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error?.message || 'Cancel failed');
+        await assertOk(res, 'Could not cancel the payment - try again');
         notify.success('Payment cancelled');
         void loadPayment();
       } catch (err) {
-        notify.error(err instanceof Error ? err.message : 'Failed to cancel');
+        notify.error(apiErrorMessage(err, 'Could not cancel the payment - try again'));
       } finally {
         setActing(false);
       }
@@ -108,12 +109,11 @@ export default function CustomerPaymentDetailPage() {
           credentials: 'include',
           body: JSON.stringify({ action: 'confirm', paymentId: payment.id }),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error?.message || 'Confirm failed');
+        await assertOk(res, 'Could not confirm the payment - try again');
         notify.success('Payment confirmed and GL posted');
         void loadPayment();
       } catch (err) {
-        notify.error(err instanceof Error ? err.message : 'Failed to confirm');
+        notify.error(apiErrorMessage(err, 'Could not confirm the payment - try again'));
       } finally {
         setActing(false);
       }

@@ -31,7 +31,7 @@
  * alternative is a document sent to a board with unvetted markup in it.
  */
 import { useEffect, useState } from 'react';
-import { ApiRequestError, apiJson } from '@/lib/apiFetch';
+import { ApiRequestError, apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { clearPrintError, markPrintError } from './usePrintMode';
 import { packPagesApiPath } from '@/modules/accounting/services/packs/packSections';
@@ -52,7 +52,7 @@ export function usePackPagesData(packType: PackType, from: string, to: string): 
     let cancelled = false;
     void (async () => {
       try {
-        const raw = await apiJson(`${packPagesApiPath(packType)}?from=${from}&to=${to}`);
+        const raw = await apiJson(`${packPagesApiPath(packType)}?from=${from}&to=${to}`, undefined, 'The report pack pages could not be loaded. Try again.');
         // Adopted BEFORE the cancellation check, so a document that fails the
         // guards is reported even if this effect has been superseded — a
         // refusal is a fact about the payload, not about this render.
@@ -61,12 +61,12 @@ export function usePackPagesData(packType: PackType, from: string, to: string): 
         clearPrintError('pages');
         setDocument(adopted);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        log.error('usePackPagesData: failed', { packType, from, to, error: message });
+        const message = apiErrorMessage(err, 'The report pack pages could not be loaded. Try again.');
+        log.error('usePackPagesData: failed', { packType, from, to, error: err });
         // The status, never the body: this attribute is read by the render
         // route's logs, and a refusal body is a tenant-facing sentence.
         if (!cancelled) {
-          markPrintError('pages', err instanceof ApiRequestError ? `HTTP ${err.status}` : message);
+          markPrintError('pages', err instanceof ApiRequestError ? `HTTP ${err.status}` : err instanceof Error ? err.message : String(err));
           setError(message);
         }
       }

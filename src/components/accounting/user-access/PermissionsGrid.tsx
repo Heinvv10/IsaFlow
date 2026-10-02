@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { RotateCcw } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface ModulePermission {
   moduleKey: string;
@@ -52,16 +52,22 @@ export function PermissionsGrid({ userId, userRole, onFeedback }: PermissionsGri
   const [perms, setPerms] = useState<ModulePermission[]>([]);
   const [loading, setLoading] = useState(true);
   const [resetting, setResetting] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const isFullAccess = FULL_ACCESS_ROLES.includes(userRole);
 
   // Debounce map: moduleKey → timeout id
   const debounceRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const loadPerms = useCallback(async () => {
-    setLoading(true);
+    setLoading(true); setLoadError(null);
     try {
-      const res = await (await apiFetch(`/api/accounting/permissions?userId=${userId}`)).json();
+      const r = await apiFetch(`/api/accounting/permissions?userId=${userId}`);
+      await assertOk(r, 'Could not load the permissions - try again');
+      const res = await r.json();
       setPerms((res.data?.permissions as ModulePermission[]) ?? []);
+    } catch (err) {
+      setPerms([]);
+      setLoadError(apiErrorMessage(err, 'Could not load the permissions - try again'));
     } finally {
       setLoading(false);
     }
@@ -71,7 +77,7 @@ export function PermissionsGrid({ userId, userRole, onFeedback }: PermissionsGri
 
   async function savePermission(mod: ModulePermission) {
     try {
-      await apiFetch('/api/accounting/permissions', {
+      const res = await apiFetch('/api/accounting/permissions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -86,8 +92,9 @@ export function PermissionsGrid({ userId, userRole, onFeedback }: PermissionsGri
           accountRangeTo: mod.accountRangeTo ?? undefined,
         }),
       });
-    } catch {
-      onFeedback('Failed to save permission. Please try again.');
+      await assertOk(res, 'Could not save the permission - try again');
+    } catch (err) {
+      onFeedback(apiErrorMessage(err, 'Could not save the permission - try again'));
       void loadPerms();
     }
   }
@@ -126,11 +133,12 @@ export function PermissionsGrid({ userId, userRole, onFeedback }: PermissionsGri
   async function handleReset() {
     setResetting(true);
     try {
-      await apiFetch(`/api/accounting/permissions?userId=${userId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/accounting/permissions?userId=${userId}`, { method: 'DELETE' });
+      await assertOk(res, 'Could not reset the permissions - try again');
       onFeedback('Permissions reset to role defaults.');
       void loadPerms();
-    } catch {
-      onFeedback('Failed to reset permissions.');
+    } catch (err) {
+      onFeedback(apiErrorMessage(err, 'Could not reset the permissions - try again'));
     } finally {
       setResetting(false);
     }
@@ -138,6 +146,10 @@ export function PermissionsGrid({ userId, userRole, onFeedback }: PermissionsGri
 
   if (loading) {
     return <div className="px-6 py-6 text-center text-sm text-gray-500">Loading permissions...</div>;
+  }
+
+  if (loadError) {
+    return <div className="px-6 py-6 text-center text-sm text-red-400" role="alert">{loadError}</div>;
   }
 
   if (isFullAccess) {

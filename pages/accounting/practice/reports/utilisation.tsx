@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, BarChart2, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import type { UtilisationRow } from '@/modules/accounting/services/practice/practiceReportsService';
@@ -47,15 +47,16 @@ export default function UtilisationPage() {
   const [users, setUsers] = useState<CompanyUserSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usersError, setUsersError] = useState<string | null>(null);
   const [period, setPeriod] = useState<PeriodRange>({ dateFrom: firstOfMonth(), dateTo: todayIso() });
   const [userId, setUserId] = useState('');
 
   useEffect(() => {
     apiFetch('/api/accounting/practice/users').then(async (res) => {
-      if (!res.ok) return;
+      await assertOk(res, 'Could not load the staff names - try again');
       const json = (await res.json()) as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
       setUsers(Array.isArray(json) ? json : ((json as { data?: CompanyUserSummary[] }).data ?? []));
-    }).catch(() => { /* non-critical */ });
+    }).catch((e: unknown) => { setUsers([]); setUsersError(apiErrorMessage(e, 'Could not load the staff names - try again')); });
   }, []);
 
   useEffect(() => {
@@ -65,11 +66,12 @@ export default function UtilisationPage() {
     if (userId.trim()) qs.set('userId', userId.trim());
     apiFetch(`/api/accounting/practice/reports/utilisation?${qs.toString()}`)
       .then(async (res) => {
+        await assertOk(res, 'Could not load the utilisation report - try again');
         const json = (await res.json()) as { data?: UtilisationRow[] } | UtilisationRow[];
         const data = (json && typeof json === 'object' && 'data' in json ? (json as { data: UtilisationRow[] }).data : json) as UtilisationRow[];
         setRows(data ?? []);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
+      .catch((e: unknown) => { setRows([]); setError(apiErrorMessage(e, 'Could not load the utilisation report - try again')); })
       .finally(() => setLoading(false));
   }, [period.dateFrom, period.dateTo, userId]);
 
@@ -126,6 +128,7 @@ export default function UtilisationPage() {
           </div>
 
           {error && <ErrBanner msg={error} />}
+          {usersError && <ErrBanner msg={usersError} />}
 
           {loading
             ? <div className="flex items-center gap-2 py-12 justify-center text-[var(--ff-text-tertiary)] text-sm"><Loader2 className="h-5 w-5 animate-spin" />Loading…</div>

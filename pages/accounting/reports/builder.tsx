@@ -9,7 +9,8 @@ import { ReportBuilderSidebar } from '@/components/accounting/reports/ReportBuil
 import { ReportBuilderFilters, type FilterRow } from '@/components/accounting/reports/ReportBuilderFilters';
 import { ReportBuilderPreview } from '@/components/accounting/reports/ReportBuilderPreview';
 import { Play, Save, Download, ChevronLeft, BookOpen } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { localISODate } from '@/lib/dateUtils';
@@ -39,6 +40,7 @@ interface RunResult {
   rowCount: number;
 }
 
+const EMPTY_RESULT: RunResult = { columns: [], rows: [], totals: {}, rowCount: 0 };
 export default function ReportBuilderPage() {
   const router = useRouter();
   const [dataSource, setDataSource] = useState('');
@@ -46,7 +48,7 @@ export default function ReportBuilderPage() {
   const [columns, setColumns] = useState<Column[]>([]);
   const [filters, setFilters] = useState<FilterRow[]>([]);
   const [sort, setSort] = useState<SortState[]>([]);
-  const [result, setResult] = useState<RunResult>({ columns: [], rows: [], totals: {}, rowCount: 0 });
+  const [result, setResult] = useState<RunResult>(EMPTY_RESULT);
   const [isRunning, setIsRunning] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [reportName, setReportName] = useState('Untitled Report');
@@ -63,12 +65,12 @@ export default function ReportBuilderPage() {
     setColumns([]);
     setFilters([]);
     setSort([]);
-    setResult({ columns: [], rows: [], totals: {}, rowCount: 0 });
+    setResult(EMPTY_RESULT);
     if (source) {
       apiFetch(`/api/accounting/custom-reports-fields?source=${source}`, { credentials: 'include' })
-        .then(r => r.json())
+        .then(async r => { await assertOk(r, 'Could not load report fields - try again'); return r.json(); })
         .then(json => setAvailableFields(json.data?.fields ?? []))
-        .catch(() => setAvailableFields([]));
+        .catch(err => { setAvailableFields([]); showToast(apiErrorMessage(err, 'Could not load report fields - try again')); });
     } else {
       setAvailableFields([]);
     }
@@ -116,11 +118,13 @@ export default function ReportBuilderPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      await assertOk(res, 'Could not run the report - try again');
       const json = await res.json();
-      if (!res.ok) { showToast(json.message || 'Run failed'); return; }
+      if (!json.data) throw new ApiEnvelopeError('Could not run the report - try again');
       setResult(json.data);
-    } catch {
-      showToast('Failed to run report');
+    } catch (err) {
+      setResult(EMPTY_RESULT);
+      showToast(apiErrorMessage(err, 'Could not run the report - try again'));
     } finally {
       setIsRunning(false);
     }
@@ -148,12 +152,11 @@ export default function ReportBuilderPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const json = await res.json();
-      if (!res.ok) { showToast(json.message || 'Save failed'); return; }
-      showToast('Report saved successfully');
-      void router.replace(`/accounting/reports/builder?id=${json.data.id}`);
-    } catch {
-      showToast('Failed to save report');
+      await assertOk(res, 'Could not save the report - try again');
+      const json = await res.json(); showToast('Report saved successfully');
+      try { await router.replace(`/accounting/reports/builder?id=${json.data.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'report-builder'); }
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not save the report - try again'));
     } finally {
       setIsSaving(false);
     }
@@ -188,7 +191,7 @@ export default function ReportBuilderPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).then(async res => {
-      if (!res.ok) { showToast('Export failed'); return; }
+      await assertOk(res, 'Could not export the report - try again');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -196,7 +199,7 @@ export default function ReportBuilderPage() {
       a.download = `${reportName.replace(/[^a-z0-9_-]/gi, '_')}_${localISODate()}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-    }).catch(() => showToast('Export failed'));
+    }).catch(err => showToast(apiErrorMessage(err, 'Could not export the report - try again')));
     void form;
   }
 

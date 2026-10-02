@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { Send, Download, Loader2, AlertCircle } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -190,10 +190,11 @@ export function InvoicePreviewModal({ open, onClose, invoice, invoiceId, onSend 
     setFetchError('');
     void apiFetch(`/api/accounting/customer-invoices-detail?id=${invoiceId}`)
       .then(async (res) => {
+        await assertOk(res, 'Could not load the invoice - try again');
         const json = await res.json() as { data?: InvoicePreviewData };
         setFetched(json.data ?? null);
       })
-      .catch(() => setFetchError('Failed to load invoice.'))
+      .catch((err: unknown) => { setFetched(null); setFetchError(apiErrorMessage(err, 'Could not load the invoice - try again')); })
       .finally(() => setFetchLoading(false));
   }, [open, invoiceId, invoice]);
 

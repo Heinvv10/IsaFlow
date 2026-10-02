@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Plug, ShieldCheck, Loader2, ShieldOff, X } from 'lucide-react';
 
 interface ConnectedApp {
@@ -49,22 +49,27 @@ export default function ConnectedAppsPage() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const load = useCallback(async () => {
+  /** Returns '' on success, else the plain-sentence reason (the caller decides how to say it). */
+  const fetchApps = useCallback(async (): Promise<string> => {
     setLoading(true);
     try {
       const res = await apiFetch('/api/oauth/connected-apps');
-      const json = (await res.json()) as { data?: ConnectedApp[]; error?: { message?: string } };
-      if (!res.ok) {
-        showToast(json.error?.message ?? 'Failed to load connected apps', false);
-        return;
-      }
+      await assertOk(res, 'Could not load your connected apps - try again');
+      const json = (await res.json()) as { data?: ConnectedApp[] };
       setApps(json.data ?? []);
-    } catch {
-      showToast('Network error', false);
+      return '';
+    } catch (err) {
+      setApps([]);
+      return apiErrorMessage(err, 'Could not load your connected apps - try again');
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const load = useCallback(async () => {
+    const problem = await fetchApps();
+    if (problem) showToast(problem, false);
+  }, [fetchApps]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -73,12 +78,12 @@ export default function ConnectedAppsPage() {
     setRevoking(authorisationId);
     try {
       const res = await apiFetch(`/api/oauth/authorisations/${authorisationId}`, { method: 'DELETE' });
-      const json = (await res.json()) as { error?: { message?: string } };
-      if (!res.ok) { showToast(json.error?.message ?? 'Failed to revoke', false); return; }
-      showToast('Access revoked', true);
-      void load();
-    } catch {
-      showToast('Network error', false);
+      await assertOk(res, 'Could not revoke access - try again');
+      const problem = await fetchApps();
+      if (problem) showToast('Access revoked, but the list could not be refreshed - reload the page', false);
+      else showToast('Access revoked', true);
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not revoke access - try again'), false);
     } finally {
       setRevoking(null);
     }

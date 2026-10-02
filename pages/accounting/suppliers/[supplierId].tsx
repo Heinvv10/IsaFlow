@@ -10,7 +10,8 @@ import { ContactsTab } from '@/components/accounting/suppliers/ContactsTab';
 import { ActivityTab } from '@/components/accounting/suppliers/ActivityTab';
 import Link from 'next/link';
 import { ArrowLeft, Building2, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 import { DrcFlagToggle } from '@/components/accounting/suppliers/DrcFlagToggle';
 
@@ -41,16 +42,20 @@ export default function SupplierDetailPage() {
   const loadSupplier = useCallback(async () => {
     if (!supplierId) return;
     setLoading(true);
+    setError('');
     try {
       const res  = await apiFetch(`/api/accounting/suppliers-list?id=${supplierId}`);
+      await assertOk(res, 'Could not load the supplier - try again');
       const json = await res.json() as { data?: Supplier; success?: boolean };
       if (!json.success || !json.data) {
+        setSupplier(null);
         setError('Supplier not found');
         return;
       }
       setSupplier(json.data);
-    } catch {
-      setError('Failed to load supplier');
+    } catch (err) {
+      setSupplier(null);
+      setError(apiErrorMessage(err, 'Could not load the supplier - try again'));
     } finally {
       setLoading(false);
     }
@@ -69,14 +74,15 @@ export default function SupplierDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ entityType: 'supplier', entityId: supplierId as string }),
       });
-      const json = await res.json() as { success?: boolean; error?: { message?: string } };
-      if (!res.ok || json.success === false) {
-        alert(json.error?.message ?? 'Failed to delete supplier');
+      await assertOk(res, 'Could not delete the supplier - try again');
+      const json = await res.json().catch(() => ({})) as { success?: boolean; error?: { message?: string } };
+      if (json.success === false) {
+        alert(json.error?.message ?? 'Could not delete the supplier - try again');
         return;
       }
-      void router.push('/accounting/suppliers');
-    } catch {
-      alert('Failed to delete supplier');
+      try { await router.push('/accounting/suppliers'); } catch (e) { log.warn('navigation failed', { error: e }, 'suppliers-supplierId'); }
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Could not delete the supplier - try again'));
     } finally {
       setDeleting(false);
     }

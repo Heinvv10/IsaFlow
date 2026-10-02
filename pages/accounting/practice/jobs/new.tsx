@@ -4,7 +4,8 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Briefcase, Loader2, ArrowLeft, Save, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import type { PracticeJob } from '@/modules/accounting/services/practice/practiceJobService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 
@@ -24,8 +25,12 @@ const IC = 'w-full py-2 px-3 rounded-lg bg-[var(--ff-bg-tertiary)] border border
 const SC = 'w-full py-2 px-3 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500';
 const LC = 'block text-sm font-medium text-[var(--ff-text-primary)] mb-1.5';
 
-async function fetchOpts(url: string): Promise<Opt[]> {
-  const r = await apiFetch(url); if (!r.ok) return [];
+const CLIENTS_FAILED = 'Could not load the clients - try again';
+const CATEGORIES_FAILED = 'Could not load the job categories - try again';
+const USERS_FAILED = 'Could not load the users - try again';
+
+async function fetchOpts(url: string, failure: string): Promise<Opt[]> {
+  const r = await apiFetch(url); await assertOk(r, failure);
   const j = await r.json() as unknown;
   const payload = (j && typeof j === 'object' && 'data' in j ? (j as { data: unknown }).data : j) as unknown;
   if (Array.isArray(payload)) return payload as Opt[];
@@ -39,7 +44,7 @@ async function fetchOpts(url: string): Promise<Opt[]> {
 }
 
 async function fetchUsers(): Promise<CompanyUserSummary[]> {
-  const r = await apiFetch('/api/accounting/practice/users'); if (!r.ok) return [];
+  const r = await apiFetch('/api/accounting/practice/users'); await assertOk(r, USERS_FAILED);
   const j = await r.json() as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
   return (Array.isArray(j) ? j : (j as { data?: CompanyUserSummary[] }).data) ?? [];
 }
@@ -53,10 +58,15 @@ export default function NewPracticeJobPage() {
   const [fe, setFe] = useState<Partial<Record<keyof FormState, string>>>({});
 
   useEffect(() => {
+    // A failed list must say so: an empty required Client dropdown reads as "no clients" and the form is unusable.
+    const report = (err: unknown, fallback: string) => {
+      log.warn(fallback, { error: err }, 'practice-job-new');
+      setError(apiErrorMessage(err, fallback));
+    };
     void Promise.all([
-      fetchOpts('/api/accounting/practice/clients?status=active').then(setClients),
-      fetchOpts('/api/accounting/practice/job-categories?isActive=true').then(setCats),
-      fetchUsers().then(setUsers),
+      fetchOpts('/api/accounting/practice/clients?status=active', CLIENTS_FAILED).then(setClients).catch((e) => report(e, CLIENTS_FAILED)),
+      fetchOpts('/api/accounting/practice/job-categories?isActive=true', CATEGORIES_FAILED).then(setCats).catch((e) => report(e, CATEGORIES_FAILED)),
+      fetchUsers().then(setUsers).catch((e) => report(e, USERS_FAILED)),
     ]);
   }, []);
 
@@ -101,11 +111,11 @@ export default function NewPracticeJobPage() {
         budgetAmount: form.budgetAmount ? Number(form.budgetAmount) : undefined,
       };
       const res = await apiFetch('/api/accounting/practice/jobs', { method: 'POST', body: JSON.stringify(body) });
-      await assertOk(res, 'Failed to create job');
+      await assertOk(res, 'Could not create the job - try again');
       const j = await res.json() as { data?: PracticeJob } | PracticeJob;
-      await router.push(`/accounting/practice/jobs/${((j as { data?: PracticeJob }).data ?? (j as PracticeJob)).id}`);
+      try { await router.push(`/accounting/practice/jobs/${((j as { data?: PracticeJob }).data ?? (j as PracticeJob)).id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'practice-jobs-new'); }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create job');
+      setError(apiErrorMessage(err, 'Could not create the job - try again'));
     } finally { setIsSubmitting(false); }
   }
 

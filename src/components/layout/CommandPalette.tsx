@@ -13,7 +13,8 @@ import {
 } from 'react';
 import { useRouter } from 'next/router';
 import { Search, X, Clock, Zap } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { ResultRow, ActionRow } from '@/components/layout/CommandPaletteRows';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -89,36 +90,34 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const [actions, setActions] = useState<QuickAction[]>([]);
   const [recentItems, setRecentItems] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchActions = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/global-search?q=');
-      if (res.ok) {
-        const data = await res.json() as { success: boolean; data: { actions: QuickAction[] } };
-        if (data.success) setActions(data.data.actions);
-      }
-    } catch {
-      // Non-fatal — actions are cosmetic
+      await assertOk(res, 'Could not load the quick actions');
+      const data = await res.json() as { success: boolean; data: { actions: QuickAction[] } };
+      if (data.success) setActions(data.data.actions);
+    } catch (err) {
+      log.warn('command palette: quick actions not loaded (cosmetic)', { err });
     }
   }, []);
 
   const runSearch = useCallback(async (q: string) => {
+    setSearchError('');
     try {
       const res = await apiFetch(`/api/accounting/global-search?q=${encodeURIComponent(q)}&limit=12`);
-      if (res.ok) {
-        const data = await res.json() as {
-          success: boolean;
-          data: { results: SearchResult[]; actions: QuickAction[] };
-        };
-        if (data.success) {
-          setResults(data.data.results);
-          setActions(data.data.actions);
-        }
-      }
-    } catch {
+      await assertOk(res, 'Could not search - try again');
+      const data = await res.json() as {
+        success: boolean;
+        data: { results: SearchResult[]; actions: QuickAction[] };
+      };
+      if (data.success) setResults(data.data.results);
+    } catch (err) {
       setResults([]);
+      setSearchError(apiErrorMessage(err, 'Could not search - try again'));
     } finally {
       setLoading(false);
       setSelectedIndex(0);
@@ -234,7 +233,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
 
           {showSearch && !loading && results.length === 0 && (
             <div className="px-4 py-8 text-center text-sm text-[var(--ff-text-tertiary)]">
-              No results for &ldquo;{query}&rdquo;
+              {searchError || <>No results for &ldquo;{query}&rdquo;</>}
             </div>
           )}
 
