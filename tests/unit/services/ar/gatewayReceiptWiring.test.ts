@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const h = vi.hoisted(() => ({
   calls: [] as { text: string; values: unknown[] }[],
   already: null as null | Record<string, unknown>,
+  /** What the invoice-locked allocation decides; null = the default (min of receipt and R115). */
+  allocated: null as null | number,
 }));
 vi.mock('@/lib/neon', () => ({
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -31,7 +33,7 @@ vi.mock('@/modules/accounting/services/ar/gatewayFeeService', () => ({ postGatew
 vi.mock('@/modules/accounting/services/ar/portalLinkCharge', () => ({ spendPaymentLinkOfRequest: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/ar/gatewayReceiptAllocation', () => ({
   decideGatewayAllocation: vi.fn(async (_c: string, _i: string, amountRand: number, _r: string, hold: string | null) => ({
-    allocated: hold ? 0 : Math.min(amountRand, 115), invoiceBlock: hold, overpaid: false,
+    allocated: hold ? 0 : (h.allocated ?? Math.min(amountRand, 115)), invoiceBlock: hold, overpaid: false,
     clientId: CUSTOMER, status: 'sent', deleted: false,
   })),
 }));
@@ -53,7 +55,9 @@ const receiptInsert = () => h.calls.find((c) => c.text.includes('INSERT INTO cus
 const base = { companyId: '33333333-3333-4333-8333-333333333333', invoiceId: '44444444-4444-4444-8444-444444444444',
   reference: 'r181_wiring', requestedCents: 11500 };
 
-beforeEach(() => { h.calls.length = 0; h.already = null; fee.mockClear(); allocate.mockClear(); });
+const allocationInsert = () => h.calls.find((c) => c.text.includes('INSERT INTO customer_payment_allocations'));
+
+beforeEach(() => { h.calls.length = 0; h.already = null; h.allocated = null; fee.mockClear(); allocate.mockClear(); });
 
 describe('recordGatewayInvoiceReceipt wiring', () => {
   it('pass-on fee: banks requested_amount, hands postGatewayFee no fee (the customer paid it)', async () => {
@@ -86,5 +90,21 @@ describe('recordGatewayInvoiceReceipt wiring', () => {
     expect(receiptInsert()).toBeUndefined();
     expect(allocate).not.toHaveBeenCalled();
     expect(fee.mock.calls[0]![0]).toMatchObject({ feeRand: 3.5 });
+  });
+
+  it('dedupe after verify trusted requested_amount (R115 banked, amount R118.50 tagged): the customer-paid fee posts nothing', async () => {
+    h.already = { id: 'p-1', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+      total_amount: '115.00', description: 'Paystack card payment r181_wiring [paystack amount 11850 cents]' };
+    await recordGatewayInvoiceReceipt({ ...base, feeRand: 3.5,
+      reported: { amountCents: 11850, currency: 'ZAR', requestedAmountCents: 11500, feeCents: 350 } });
+    // Bank: R115 receipt - R0 = R115, what Paystack deposits (R118.50 - R3.50). The raw R3.50 would net R111.50.
+    expect(fee.mock.calls[0]![0]).toMatchObject({ feeRand: 0 });
+  });
+
+  it('the allocation INSERT carries what the locked invoice can take (R50), not the whole receipt (R115)', async () => {
+    h.allocated = 50;
+    await recordGatewayInvoiceReceipt({ ...base, feeRand: null, reported: { amountCents: 11500, currency: 'ZAR' } });
+    expect(receiptInsert()!.values[4]).toBe(115);
+    expect(allocationInsert()!.values[2]).toBe(50);
   });
 });
