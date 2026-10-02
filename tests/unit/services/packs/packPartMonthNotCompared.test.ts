@@ -19,6 +19,8 @@ import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackPage, PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { demoInput } from './fixtures/boardPackInputs';
+import { monthlyResultsCaption } from '@/modules/accounting/services/packs/pages/packMonthlyCaption';
+import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { velocityInput } from './fixtures/velocityBoardPack';
 
 const pageNamed = (doc: PackPagesDocument, nav: string): PackPage => {
@@ -127,6 +129,19 @@ describe('page 5\'s caption, which names the biggest month', () => {
     const caption = JSON.stringify(pageNamed(buildBoardPackPages(input), 'Monthly results').blocks);
     expect(caption).not.toMatch(/\(part\) carried the most revenue/);
     expect(caption).toMatch(/carried the most revenue of any whole month/);
+  });
+});
+
+describe('page 5\'s caption on a window whose revenue is not a positive base', () => {
+  it('names the largest WHOLE month as such where the stub out-earned it', () => {
+    // Twelve whole months of (100) and a two-day stub of 200: the window is
+    // (1 000). "The largest single month is M1" would be false — the stub is larger.
+    const trend = demoInput.trend.map((point, i, all) => (i === all.length - 1
+      ? { ...point, partial: true, daysCovered: 2, revenue: 200_000 }
+      : { ...point, revenue: -100_000 }));
+    const caption = monthlyResultsCaption(trend, PACK_SCALE);
+    expect(caption).toContain('not a positive base');
+    expect(caption).toMatch(/The largest single whole month is /);
   });
 });
 

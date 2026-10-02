@@ -117,7 +117,7 @@ export function monthlyResultsCaption(trend: PackTrendPoint[], scale: MoneyScale
   const base = printed(total);
   if (base <= 0) {
     return `Revenue over ${window} is ${money(total)}, which is not a positive base, so no `
-      + `month's share of it is meaningful. The largest single month is ${monthLabel(biggest)}, at `
+      + `month's share of it is meaningful. The largest single ${any === 'any whole month' ? 'whole month' : 'month'} is ${monthLabel(biggest)}, at `
       + `${money(biggest.revenue)}.`
       + largestContraryFigureSentence(trend, scale);
   }
