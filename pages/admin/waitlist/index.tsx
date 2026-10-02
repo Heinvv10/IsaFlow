@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Search, UserPlus, ExternalLink, X, Check } from 'lucide-react';
 
@@ -74,8 +74,8 @@ export default function AdminWaitlistPage() {
       const params = new URLSearchParams({ status: s, page: String(p), limit: String(LIMIT) });
       if (q) params.set('search', q);
       const res  = await apiFetch(`/api/admin/waitlist?${params}`);
+      await assertOk(res, 'Failed to load');
       const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Failed to load');
       const data = (json as { data: ListResponse }).data;
       setRows(data.items);
       setTotal(data.total);
@@ -125,8 +125,8 @@ export default function AdminWaitlistPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ planCodeOverride: planOverride || null }),
       });
+      await assertOk(res, 'Promotion failed');
       const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Promotion failed');
       const data = (json as { data: { companyId: string | null; status: string } }).data;
       setPromoteTarget(null);
       if (data.companyId) {

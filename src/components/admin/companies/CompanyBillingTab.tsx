@@ -40,8 +40,8 @@ export function CompanyBillingTab({ companyId }: Props) {
       const res  = await apiFetch(
         `/api/admin/billing/subscriptions?company_id=${encodeURIComponent(companyId)}&limit=1`
       );
+      await assertOk(res, 'Failed to load subscription');
       const json = await res.json() as { data: PaginatedSubscriptions };
-      if (!res.ok) throw new Error((json as unknown as { message: string }).message || 'Failed to load subscription');
       const items = json.data?.items ?? [];
       setSubscription(items.length > 0 ? (items[0] ?? null) : null);
     } catch (err) {

@@ -123,12 +123,8 @@ export default function AdminSarsCodesPage() {
       method: 'POST',
       body: JSON.stringify({ taxYear: year }),
     });
-    try {
-      await assertOk(res, 'Failed to set current');
-      await load(year);
-    } catch (err) {
-      alert(apiErrorMessage(err, 'Failed to set current'));
-    }
+    try { await assertOk(res, 'Failed to set current'); await load(year); }
+    catch (err) { alert(apiErrorMessage(err, 'Failed to set current')); }
   };
 
   const onToggleStatus = async (row: CodeRow) => {

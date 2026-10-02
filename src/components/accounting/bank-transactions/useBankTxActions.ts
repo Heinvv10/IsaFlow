@@ -130,8 +130,7 @@ export function buildBankTxActions(deps: ActionDeps) {
         body: JSON.stringify({ action: 'update_notes', bankTransactionId: txId, notes }),
       });
       await assertOk(res, 'Failed to save note');
-      const json = await res.json();
-      if (json.success === false) throw new Error(json.error?.message || 'Failed to save note');
+      const json = await res.json(); if (json.success === false) throw new Error(json.error?.message || 'Failed to save note');
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to save note'); loadTransactions(); }
   };
   const handleBatchAccept = async () => {
