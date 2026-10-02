@@ -35,6 +35,9 @@ describe('Paystack portal return page', () => {
     render(<PaystackReturnPage />);
     await waitFor(() => expect(screen.getByText('Payment received')).toBeDefined());
     expect(screen.getByText(/50,00 has been received against invoice INV-181\./)).toBeDefined();
+    // Nothing the settlement does emails a receipt, so the page must not say it did.
+    expect(screen.queryByText(/emailed/)).toBeNull();
+    expect(screen.getByText('You can close this window.')).toBeDefined();
   });
 
   it('completed but not applied (invoice not open for payment): no invoice wording', async () => {

@@ -386,8 +386,9 @@ pre-existing k061 contention case above). All on `isaflow-fixture-r181`, 127.0.0
   (whether the invoice took any of it). The page names the invoice only when it did, and stops
   polling after 10 tries or a 429 on "Still confirming your payment". Tests: three verify cases in
   `r181-pr618.int.test.ts` (red 3/8, `red.r8.int.log`) and `tests/unit/components/paystackPortalReturn.test.tsx`
-  (red 3/4, `red.r8.component.log`). Not changed, noted: the completed state's existing line "A
-  receipt has been emailed to you" is not backed by anything the settlement sends.
+  (red 3/4, `red.r8.component.log`). The completed state's line "A receipt has been emailed to
+  you" was a promise nothing keeps (the settlement sends no email): removed, not replaced; the
+  page now says only "You can close this window." (red first, `red.r9.component.log`).
 - **LOW-3.** The "verify carries no fee" comments (`gatewayFeeService.ts`,
   `gatewayInvoiceReceiptService.ts`, `paystackEventHandlers.ts`) corrected; `fees` added to
   `billing/.claude.md`; mirrors regenerated.

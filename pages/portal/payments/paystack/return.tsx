@@ -110,7 +110,7 @@ export default function PaystackReturnPage() {
                 <p className="mt-1 text-sm text-slate-500">Paid to {data.companyName}</p>
               )}
               <p className="mt-6 text-xs text-slate-400">
-                A receipt has been emailed to you. You can close this window.
+                You can close this window.
               </p>
             </div>
           )}
