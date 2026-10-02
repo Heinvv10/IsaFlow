@@ -47,7 +47,7 @@ Mutants (each restored after the run):
 | `withCsrf` removed | killed |
 | `withWriteAccess` removed | killed (viewer) |
 | `isUuidParam` removed | killed |
-| company_id dropped from the lock select | killed (service called without row security) |
+| company_id dropped from the lock select (first version) | killed (service called without row security) |
 | `FOR NO KEY UPDATE` dropped | killed (5s lock-timeout test) |
 | hook guard forced true / forced false | killed |
 | company_id dropped from the named-link select, or from the final invoice UPDATE | **survive, equivalent**: the lock select has already refused another company's invoice, and both statements are keyed on that same invoice id |
@@ -55,3 +55,36 @@ Mutants (each restored after the run):
 ## Not verified
 
 Browser proof of the button and dialog (run by the lead).
+
+## Review round 1 (head `85d47fced`: two MEDIUM, no HIGH)
+
+1. **Older standing links stayed payable.** Pre-R-177 Pay Now minted one `charges_balance` link per
+   click (30-day expiry); revoke cancelled only the one `payment_url` names. Now one statement
+   cancels every active `charges_balance` link on the invoice (`invoice_id` and company scoped,
+   under the same lock) and the response says how many (`{ revoked: true, cancelled: n }`).
+   Explicit-amount links and an open Paystack checkout are still untouched.
+2. **Stuck button.** A `payment_url` naming a paid, cancelled, fixed-amount or missing link used to
+   answer 404 forever. Revoke is now "make sure no standing link is live and clear
+   payment_url / online_payment_enabled": 200 with the count (0 allowed) whenever the invoice has a
+   `payment_url` or any active standing link; 404 only when there is nothing to do.
+3. The cancel is one `UPDATE ... RETURNING` with `AND invoice_id = <invoice>`; the invoice is
+   cleared after it, in the same transaction, so `payment_url` is never cleared without the cancel.
+4. Tests: refusal asserted as the specific 400 (not `!== 200`); hook docstring corrected; the dialog
+   reloads the invoice after a failed attempt too (a stale item disappears), then shows the message.
+5. Dialog copy: "Every Pay Now link on INV will stop working for anyone who has it. Links for a fixed
+   amount are not affected, and a payment already started at Paystack can still complete. The next
+   Pay Now creates a new link."
+
+Integration 19/19 (was 13/13; the old "explicit link named by payment_url is 404" test became the
+stuck-button 200 case). Mutants against the committed baseline (each restored): cancel `status`
+dropped, cancel `charges_balance` dropped, cancel `invoice_id` dropped, `has_link` always false /
+without `charges_balance` / without `status` / without the invoice join, refusal `&&` to `||`,
+invoice clear skipped, company dropped from the lock select, `FOR NO KEY UPDATE` dropped: all
+killed. Survivor, equivalent: the company `EXISTS` in the cancel statement (the lock select has
+already refused another company's invoice).
+
+Browser proof (lead, local dev server against the fixture, no Paystack): on an approved invoice with
+a standing link, "More invoice actions" -> "Revoke payment link" -> dialog "Revoke payment link?" ->
+"Revoke link" cancelled the link, cleared `payment_url` and `online_payment_enabled`, and removed
+"Copy Payment Link". That run was against the first version of the dialog copy; the round-1 copy
+above has not been re-proved in the browser.
