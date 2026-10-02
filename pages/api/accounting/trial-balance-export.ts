@@ -7,6 +7,11 @@
  * ones) — see trialBalanceService.ts. It used to export one period's turnover
  * under a "Debit"/"Credit" heading.
  * Optional cost_centre_id and business_unit_id filters are cumulative.
+ *
+ * D4: when the period crosses a fiscal-year start, opening + movement no longer
+ * equals closing on the income-statement rows and RE-BF; a trailing section lists
+ * each row's derived year-end close (the service's closedToRetainedEarnings) so the
+ * file reconciles. The column layout is unchanged, so existing importers keep working.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -86,6 +91,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       ``,
       `${csvVal('Check')},${csvVal(balanced ? 'Balanced' : 'OUT OF BALANCE')},${csvVal('Difference (should be 0)')},${csvVal('')},${csvVal('')},${csvVal('')},${csvVal('')},${csvVal('')},${difference.toFixed(2)},`,
       `${csvVal('Accounts')},${csvVal(String(report.accountCount))},${csvVal('Income statement measured from')},${csvVal(report.fiscalYearStart)},,,,,,`,
+      ...yearEndCloseSection(rows, report.fiscalYearEndsClosed ?? []),
     ];
 
     const csv = csvLines.join('\n');
@@ -101,4 +107,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
+/** Opening + Movement + Closed = Closing on every row listed. Empty inside one fiscal year. */
+function yearEndCloseSection(
+  rows: Array<{ accountCode: string; accountName: string; normalBalance: string; closedToRetainedEarnings?: number }>,
+  fiscalYearEnds: string[],
+): string[] {
+  if (fiscalYearEnds.length === 0) return [];
+  const closed = rows.filter(r => (r.closedToRetainedEarnings ?? 0) !== 0);
+  return [
+    ``,
+    `${csvVal('Year-end close (derived — not posted)')},${csvVal(`Fiscal year end ${fiscalYearEnds.join(' / ')}`)},${csvVal('Opening + Movement + Closed = Closing')}`,
+    'Account Code,Account Name,Closed Debit,Closed Credit',
+    ...closed.map(r => {
+      // closedToRetainedEarnings is on the account's normal side; the columns are debit/credit.
+      const netDebit = r.normalBalance === 'debit' ? r.closedToRetainedEarnings! : -r.closedToRetainedEarnings!;
+      return [csvVal(r.accountCode), csvVal(r.accountName),
+        Math.max(netDebit, 0).toFixed(2), Math.max(-netDebit, 0).toFixed(2)].join(',');
+    }),
+  ];
+}
+
 export default withAuth(withErrorHandler(withWriteAccess(handler)));

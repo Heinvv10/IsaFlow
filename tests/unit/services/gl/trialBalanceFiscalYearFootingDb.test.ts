@@ -7,7 +7,9 @@
  * months 1, 2, 3 and 12, and asserts for each:
  *
  *   - the TB foots at the opening, the movement and the closing;
- *   - every row (RE-BF included) opens and closes where the GL report does;
+ *   - every row (RE-BF included) opens and closes where the GL report does, and its derived
+ *     year-end close equals the GL report's derived close rows, with opening + movement +
+ *     close = closing; inside one fiscal year the close is zero on every row;
  *   - balance-sheet rows are their inception-to-date balance, independently summed;
  *   - income-statement rows are the movement since the fiscal year containing the period end.
  *
@@ -68,11 +70,13 @@ describe('trial balance — fiscal year of the period end, every month (Postgres
         let misaligned = 0;
         for (const [id, start, end] of periods) {
           const at = `fy ${fy} ${start}..${end}`;
-          if (fiscalYearStart(start, fy) !== fiscalYearStart(end, fy)) misaligned += 1;
+          const crosses = fiscalYearStart(start, fy) !== fiscalYearStart(end, fy);
+          if (crosses) misaligned += 1;
           const report = await getTrialBalanceReport(company, id);
           expect([report.periodStart, report.periodEnd, report.fiscalYearStart], at)
             .toEqual([start, end, fiscalYearStart(end, fy)]);
           expect([report.balanced, report.difference], at).toEqual([true, 0]);
+          expect(report.fiscalYearEndsClosed.length > 0, `${at} FY ends closed`).toBe(crosses);
           expect(Math.abs(sum(report.rows, 'openingDebit') - sum(report.rows, 'openingCredit')), `${at} opening`).toBeLessThan(0.005);
           expect(Math.abs(sum(report.rows, 'periodDebit') - sum(report.rows, 'periodCredit')), `${at} movement`).toBeLessThan(0.005);
 
@@ -85,6 +89,13 @@ describe('trial balance — fiscal year of the period end, every month (Postgres
               ? [signed(code, row.openingDebit ?? 0, row.openingCredit ?? 0), signed(code, row.debitBalance, row.creditBalance)]
               : [0, 0];
             expect(tb, `${at} ${code}`).toEqual([ledger?.openingBalance ?? 0, ledger?.closingBalance ?? 0]);
+            const glClosed = (ledger?.transactions ?? []).filter(t => t.derived)
+              .reduce((s, t) => s + signed(code, t.debit, t.credit), 0);
+            const closed = row?.closedToRetainedEarnings ?? 0;
+            expect(closed, `${at} ${code} close`).toBe(glClosed);
+            if (!crosses) expect(closed, `${at} ${code} aligned`).toBe(0);
+            const movement = row ? signed(code, row.periodDebit ?? 0, row.periodCredit ?? 0) : 0;
+            expect(Math.abs(tb[0]! + movement + closed - tb[1]!), `${at} ${code} identity`).toBeLessThan(0.005);
             if (code !== 'RE-BF') expect(tb[1], `${at} ${code} independent`).toBe(expectedClosing(code, end, fy));
           }
         }

@@ -14,7 +14,7 @@ import { getAccountTransactions } from '@/modules/accounting/services/gl/transac
 import { getGeneralLedgerReport } from '@/modules/accounting/services/gl/generalLedgerReportService';
 import { getGeneralLedgerLines } from '@/modules/accounting/services/gl/generalLedgerStreamService';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
-import { getTrialBalance } from '@/modules/accounting/services/gl/trialBalanceService';
+import { getTrialBalance, getTrialBalanceReport } from '@/modules/accounting/services/gl/trialBalanceService';
 import { isDbReachable } from '../../helpers/dbReachable';
 import { company, FEB, NORMAL, SEPT, tbClosing, withLedger } from './ledgerAgreementFixture';
 
@@ -49,14 +49,19 @@ describe('ledger listings agree with the trial balance (Postgres)', async () => 
   // D4 (R1 on PR #595): a Jan–Dec period on a March-FY company starts in one fiscal year and ends in the
   // next. The TB floors income-statement accounts at the fiscal year containing the period END, as every
   // ledger view does: 5200 is 250 (Mar–Dec 2026), not 1550 (from 1 Mar 2025).
-  it.skipIf(!reachable)('D4: a period crossing an FY start — TB opening, movement and closing agree with every listing', async () => {
+  it.skipIf(!reachable)('D4: a period crossing an FY start — TB opening, movement, derived close and closing agree with every listing', async () => {
     const YEAR = '20000000-0000-4000-8000-0000000000b3';
     await withLedger(3, async () => {
-      const tb = await getTrialBalance(company, YEAR);
+      const tbReport = await getTrialBalanceReport(company, YEAR);
+      const tb = tbReport.rows;
+      expect(tbReport.fiscalYearEndsClosed).toEqual(['2026-02-28']);
       expect(tbClosing(tb, '5200')).toBe(250);
       expect(tbClosing(tb, '4300')).toBe(40);
       // Profit before 1 Mar 2026: 100 income − 1307 labour.
       expect(tbClosing(tb, 'RE-BF')).toBe(-1207);
+      // 5200 closes 1300 (Mar 2025–Feb 2026) and 4300 100; RE-BF takes the 1200 net loss.
+      expect(['5200', '4300', 'RE-BF', '1100'].map(c => tb.find(r => r.accountCode === c)?.closedToRetainedEarnings))
+        .toEqual([-1300, -100, -1200, 0]);
       const report = await getGeneralLedgerReport(company, '2026-01-01', '2026-12-31');
       const signed = (r: (typeof tb)[number], side: 'opening' | 'closing') => {
         const [dr, cr] = side === 'opening' ? [r.openingDebit ?? 0, r.openingCredit ?? 0] : [r.debitBalance, r.creditBalance];
@@ -66,13 +71,17 @@ describe('ledger listings agree with the trial balance (Postgres)', async () => 
         const gl = report.find(a => a.accountCode === row.accountCode);
         expect([signed(row, 'opening'), signed(row, 'closing')], row.accountCode)
           .toEqual([gl?.openingBalance, gl?.closingBalance]);
+        // The GL report's derived close rows, on the account's normal side.
+        const glClosed = (gl?.transactions ?? []).filter(t => t.derived)
+          .reduce((s, t) => s + (row.normalBalance === 'debit' ? t.debit - t.credit : t.credit - t.debit), 0);
+        expect(row.closedToRetainedEarnings, row.accountCode).toBe(glClosed);
         if (row.accountCode === 'RE-BF') continue;
         const detail = await ledger(row.accountCode, '2026-01-01', '2026-12-31');
         const inline = await getAccountTransactions(company, row.accountCode, '2026-01-01', '2026-12-31');
         const movement = row.normalBalance === 'debit'
           ? (row.periodDebit ?? 0) - (row.periodCredit ?? 0) : (row.periodCredit ?? 0) - (row.periodDebit ?? 0);
-        expect([signed(row, 'opening'), movement, signed(row, 'closing')], row.accountCode)
-          .toEqual([detail.openingBalance, detail.periodNet, detail.periodClosingBalance]);
+        expect([signed(row, 'opening'), movement, row.closedToRetainedEarnings, signed(row, 'closing')], row.accountCode)
+          .toEqual([detail.openingBalance, detail.periodNet, detail.closedToRetainedEarnings, detail.periodClosingBalance]);
         expect([inline.openingBalance, inline.periodNet, inline.closingBalance], row.accountCode)
           .toEqual([detail.openingBalance, detail.periodNet, detail.periodClosingBalance]);
       }

@@ -117,3 +117,12 @@ export function splitNet(net: number): { debit: number; credit: number } {
   const rounded = round2(net);
   return rounded >= 0 ? { debit: rounded, credit: 0 } : { debit: 0, credit: -rounded };
 }
+
+/**
+ * The derived year-end close on an account's normal side — the sign the account ledger's
+ * `closedToRetainedEarnings` uses: closing = opening + movement + this. Zero unless the
+ * range crosses a fiscal-year start. `netDebit` is debit-positive.
+ */
+export function closedOnNormalSide(normalBalance: 'debit' | 'credit', netDebit: number): number {
+  return round2(normalBalance === 'debit' ? netDebit : -netDebit);
+}

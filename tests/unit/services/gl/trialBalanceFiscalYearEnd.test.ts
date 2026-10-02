@@ -36,6 +36,7 @@ describe('trial balance across a fiscal-year start (Jan–Dec period, March FY)'
     const report = await getTrialBalanceReport(COMPANY, 'period');
 
     expect(report.fiscalYearStart).toBe('2026-03-01');
+    expect(report.fiscalYearEndsClosed).toEqual(['2026-02-28']);
     expect(params(1)).toEqual(expect.arrayContaining(['2026-03-01', '2025-03-01', '2026-01-01', '2026-12-31']));
     // Brought-forward profit: closing as at the FY of the end, opening as at the FY of the start.
     expect(params(2)).toContain('2026-03-01');
@@ -45,6 +46,8 @@ describe('trial balance across a fiscal-year start (Jan–Dec period, March FY)'
     expect(bf.accountName).toContain('profit before 2026-03-01');
     const labour = report.rows.find(r => r.accountCode === '5200')!;
     expect([labour.openingDebit, labour.periodDebit, labour.debitBalance]).toEqual([1000, 550, 250]);
+    // The derived close, on each account's normal side: opening + movement + close = closing.
+    expect([labour.closedToRetainedEarnings, bf.closedToRetainedEarnings]).toEqual([-1300, -1200]);
   });
 
   it('asks for the brought-forward profit once when the period sits inside one fiscal year', async () => {
@@ -53,9 +56,12 @@ describe('trial balance across a fiscal-year start (Jan–Dec period, March FY)'
       .mockResolvedValueOnce([row({ closing_debit: '200', period_debit: '200' })])
       .mockResolvedValueOnce([{ retained: '-1207' }]);
 
-    const rows = await getTrialBalance(COMPANY, 'period');
+    const report = await getTrialBalanceReport(COMPANY, 'period');
+    const rows = report.rows;
 
     expect(mockSql).toHaveBeenCalledTimes(3);
+    expect(report.fiscalYearEndsClosed).toEqual([]);
+    expect(rows.map(r => r.closedToRetainedEarnings)).toEqual([0, 0]);
     const bf = rows.find(r => r.accountCode === 'RE-BF')!;
     expect([bf.creditBalance, bf.openingCredit, bf.debitBalance, bf.openingDebit]).toEqual([0, 0, 1207, 1207]);
   });

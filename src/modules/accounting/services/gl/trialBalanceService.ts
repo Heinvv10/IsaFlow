@@ -25,8 +25,10 @@ import {
   fiscalYearStart,
   resolveFiscalYearStartMonth,
 } from './fiscalYearBasis';
+import { fiscalYearEndBefore, fiscalYearStartsWithin } from './fiscalYearCloseRows';
 import {
   broughtForwardLine,
+  closedOnNormalSide,
   getRetainedEarningsBroughtForward,
   round2,
   splitNet,
@@ -60,14 +62,15 @@ interface PeriodBasis {
   periodStart: string;
   periodEnd: string;
   /**
-   * First day of the fiscal year containing the period END — the income-statement
-   * cut-off for the closing balance, the floor every ledger listing uses
-   * (fiscalYearCloseRows). Not the period START: a Jan–Dec period on a March
-   * company starts in one fiscal year and ends in the next (D4).
+   * First day of the FY containing the period END — the income-statement cut-off for the
+   * closing, as every ledger listing (fiscalYearCloseRows). Not the period START: a Jan–Dec
+   * period on a March company starts in one fiscal year and ends in the next (D4).
    */
   fyStart: string;
   /** First day of the fiscal year containing the period START — the opening's cut-off. */
   openingFyStart: string;
+  /** Last day of each fiscal year that ends inside the period — where the derived closes fall. */
+  fiscalYearEndsClosed: string[];
 }
 
 async function loadPeriodBasis(companyId: string, fiscalPeriodId: string): Promise<PeriodBasis | null> {
@@ -98,19 +101,15 @@ async function loadPeriodBasis(companyId: string, fiscalPeriodId: string): Promi
     periodEnd,
     fyStart: fiscalYearStart(periodEnd, fyStartMonth),
     openingFyStart: fiscalYearStart(periodStart, fyStartMonth),
+    fiscalYearEndsClosed: fiscalYearStartsWithin(periodStart, periodEnd, fyStartMonth).map(fiscalYearEndBefore),
   };
 }
 
 /**
- * Balances as at the end of `fiscalPeriodId`.
- *
- * Balance-sheet accounts are cumulative from inception; income-statement
- * accounts are year-to-date within the fiscal year containing the period END.
- * Each row also carries the opening balance at the period start and the
- * period's posted debit/credit movement — the account ledger's opening,
- * periodNet and closing. Opening + movement = closing, except where the period
- * crosses a fiscal-year start: there the gap is the derived year-end close the
- * ledger listings show as a row.
+ * Balances as at the end of `fiscalPeriodId`: balance-sheet accounts cumulative from
+ * inception, income-statement accounts year-to-date within the FY containing the period END.
+ * Each row also carries the opening at the period start, the posted movement and the derived
+ * year-end close (see toTrialBalanceRow): opening + movement + close = closing.
  */
 export async function getTrialBalance(
   companyId: string,
@@ -189,20 +188,25 @@ function toTrialBalanceRow(r: Row): TrialBalanceRow {
   const periodCredit = round2(Number(r.period_credit));
   const closingNet = round2(Number(r.closing_debit) - Number(r.closing_credit));
   const closing = splitNet(closingNet);
-  // On the ledger listings' basis, so it equals their opening. Within one fiscal year it is
-  // closing − movement; across a fiscal-year start the gap is the derived year-end close.
-  const opening = splitNet(Number(r.opening_net));
+  // D4 (Hein, 2026-10-02): opening / movement / close / closing are the account ledger's
+  // openingBalance / periodNet / closedToRetainedEarnings / periodClosingBalance, so the TB,
+  // ledger pages, drill-down and GL report agree column by column. Opening floors at the FY of
+  // the period START, closing at the FY of the END; the close bridges them across an FY start.
+  const openingNet = round2(Number(r.opening_net));
+  const opening = splitNet(openingNet);
+  const normalBalance = String(r.normal_balance) as 'debit' | 'credit';
   return {
     accountCode: String(r.account_code),
     accountName: String(r.account_name),
     accountType: String(r.account_type),
-    normalBalance: String(r.normal_balance) as 'debit' | 'credit',
+    normalBalance,
     debitBalance: closing.debit,
     creditBalance: closing.credit,
     openingDebit: opening.debit,
     openingCredit: opening.credit,
     periodDebit,
     periodCredit,
+    closedToRetainedEarnings: closedOnNormalSide(normalBalance, closingNet - openingNet - (periodDebit - periodCredit)),
   };
 }
 
@@ -250,6 +254,8 @@ function appendBroughtForward(
     openingCredit: opening.credit,
     periodDebit: 0,
     periodCredit: 0,
+    // What the fiscal years closed inside the period added to it (credit = profit).
+    closedToRetainedEarnings: closedOnNormalSide('credit', openingBroughtForward - broughtForward),
   });
 }
 
@@ -281,6 +287,7 @@ export async function getTrialBalanceReport(
     periodStart: basis?.periodStart ?? '',
     periodEnd: basis?.periodEnd ?? '',
     fiscalYearStart: basis?.fyStart ?? '',
+    fiscalYearEndsClosed: basis?.fiscalYearEndsClosed ?? [],
     costCentreId: options.costCentreId,
     businessUnitId: options.businessUnitId,
     rows,
