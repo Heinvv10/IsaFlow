@@ -1,37 +1,39 @@
 /**
- * WHAT THE LATE-RECORDING TEST SKIPPED, IN ONE SENTENCE FOR TWO PAGES.
+ * A BULK LOAD IS ONE MATTER, NOT NINETEEN THOUSAND AND NOT NONE.
  *
- * `getUnusualJournals` leaves a bulk load out of the backdating test — a day
- * on which the company recorded `BULK_LOAD_MIN` or more journals dated over
- * `BACKDATE_DAYS` days earlier is a ledger being loaded or rebuilt, not a
- * period moving. Velocity Fibre's September 2026 reload had made 19 588
- * "matters" of it. A check that leaves something out says so where it
- * reports: page 11's "What was checked", and page 4, whose action panel is
- * drawn from the same checks. One sentence, so the two cannot describe the
- * same skip differently.
+ * `getUnusualJournals` does not test a bulk load journal by journal for late
+ * recording — a day on which the company recorded `BULK_LOAD_MIN` or more
+ * journals dated over `BACKDATE_DAYS` days earlier — because Velocity Fibre's
+ * September 2026 rebuild made 19 588 "matters" of it. Nor does it drop them:
+ * a load that reaches back into a period a board has already been reported
+ * on is itself a matter, and one deliberately backdated journal recorded
+ * among nine routine ones is inside it. So the load is raised as ONE matter,
+ * stating how many journals, on which days, and how far back they are dated.
+ * It has no single rand amount, so it prints with the unquantified matters.
  */
 import {
   BACKDATE_DAYS,
   BULK_LOAD_MIN,
   type BulkLoadedJournals,
 } from '@/modules/accounting/services/reports/unusualJournalsService';
-import { mustDisclose, note } from './packBlockBuilders';
+import { BOARD_DECISIONS } from './packMatterDecisions';
 import { groupedCount, plural } from './packMatterWords';
 import { formatPackDate } from './packPeriodLabel';
-import type { PackPageBlock } from './packPageModel';
+import type { PackMatter } from './packMatters';
 
-export function bulkLoadedSentence(b: BulkLoadedJournals): string {
+export function bulkLoadedMatter(b: BulkLoadedJournals, movement: string): PackMatter {
   const when = b.days === 1
-    ? `on ${formatPackDate(b.firstRecorded)}, a day on which`
-    : `on ${groupedCount(b.days)} days between ${formatPackDate(b.firstRecorded)} and `
-      + `${formatPackDate(b.lastRecorded)}, each a day on which`;
-  return `${plural(b.journals, 'journal')} recorded in bulk ${when} ${BULK_LOAD_MIN} or more journals `
-    + `dated over ${BACKDATE_DAYS} days earlier were recorded, ${b.journals === 1 ? 'is' : 'are'} not tested for late `
-    + 'recording, which a reload trips on every journal. The round-number test still covers them.';
-}
-
-/** Page 4's statement of it — a disclosure that must print, or null where
- *  nothing was skipped. */
-export function bulkLoadedNote(b: BulkLoadedJournals | null): PackPageBlock | null {
-  return b === null ? null : mustDisclose('Journals recorded in bulk', [note('Late recording', bulkLoadedSentence(b))]);
+    ? `on ${formatPackDate(b.firstRecorded)}`
+    : `on ${groupedCount(b.days)} days between ${formatPackDate(b.firstRecorded)} and ${formatPackDate(b.lastRecorded)}`;
+  return {
+    kind: 'finding',
+    issue: `${plural(b.journals, 'journal')} dated as far back as ${formatPackDate(b.oldestEntryDate)} `
+      + `${b.journals === 1 ? 'was' : 'were'} recorded in bulk ${when}: ${BULK_LOAD_MIN} or more journals `
+      + `dated over ${BACKDATE_DAYS} days earlier were recorded on ${b.days === 1 ? 'that day' : 'each'}, `
+      + 'so none is listed here one by one for late recording.',
+    quantum: null,
+    owner: 'Finance',
+    movement,
+    decisionRequired: BOARD_DECISIONS.bulkLoadedJournals,
+  };
 }

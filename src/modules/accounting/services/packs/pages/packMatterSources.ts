@@ -10,7 +10,8 @@ import { getAgingReport } from '@/modules/accounting/services/reports/agingRepor
 import { formatMoney, inScale } from '@/lib/format/money';
 import { PACK_SCALE } from './packBasis';
 import { getBankAccountsStatus, type BankAccountStatusRow } from '@/modules/accounting/services/bank/bankAccountStatusService';
-import { getUnusualJournals, type BulkLoadedJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
+import { getUnusualJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
+import { bulkLoadedMatter } from './packBulkLoadedJournals';
 import { getOverdueStatutoryFilings } from '@/modules/accounting/services/reports/statutoryFilingsService';
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
 import { formatPackDate } from './packPeriodLabel';
@@ -50,10 +51,6 @@ export interface SourceResult {
    * cannot say so without this number. See `receivablesBaseNote`.
    */
   subledgerTotal?: number;
-  /** What the unusual-journals source did not test for late recording
-   *  because it was recorded in a bulk load — present only on that source,
-   *  null where it skipped nothing. Pages 4 and 11 state it. */
-  bulkLoaded?: BulkLoadedJournals | null;
 }
 
 const CONCENTRATION_THRESHOLD_PCT = 20;
@@ -222,7 +219,7 @@ async function unusualJournalMatters(
   window: PeriodWindow,
 ): Promise<SourceResult> {
   const { flags, bulkLoaded } = await getUnusualJournals(companyId, window);
-  return { bulkLoaded, matters: flags.map((f) => ({
+  const journals: PackMatter[] = flags.map((f) => ({
     kind: 'finding' as const,
     issue: `Journal ${f.entryNumber ?? f.entryId} (${
       f.reason === 'round_number' ? 'large round-number amount' : 'recorded well after its entry date'
@@ -231,7 +228,9 @@ async function unusualJournalMatters(
     owner: 'Finance',
     movement: NO_PRIOR_MEETING_RECORD,
     decisionRequired: BOARD_DECISIONS.unusualJournal,
-  })) };
+  }));
+  // A bulk load is one matter of its own — see `bulkLoadedMatter`.
+  return { matters: bulkLoaded === null ? journals : [bulkLoadedMatter(bulkLoaded, NO_PRIOR_MEETING_RECORD), ...journals] };
 }
 
 async function overdueFilingMatters(companyId: string, window: PeriodWindow): Promise<PackMatter[]> {

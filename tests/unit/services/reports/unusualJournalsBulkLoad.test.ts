@@ -69,7 +69,7 @@ describe('a day that recorded a bulk load', () => {
 
     expect(result.flags).toEqual([]);
     expect(result.bulkLoaded).toEqual({
-      journals: 30, days: 1, firstRecorded: '2026-09-05', lastRecorded: '2026-09-05',
+      journals: 30, days: 1, firstRecorded: '2026-09-05', lastRecorded: '2026-09-05', oldestEntryDate: '2026-01-15',
     });
   });
 
@@ -83,7 +83,9 @@ describe('a day that recorded a bulk load', () => {
 
     const ten = await run([late], recorded(BULK_LOAD_MIN, '2026-03-01', '2026-04-20T09:00:00.000Z'));
     expect(ten.flags).toEqual([]);
-    expect(ten.bulkLoaded).toEqual({ journals: 1, days: 1, firstRecorded: '2026-04-20', lastRecorded: '2026-04-20' });
+    expect(ten.bulkLoaded).toEqual({
+      journals: 1, days: 1, firstRecorded: '2026-04-20', lastRecorded: '2026-04-20', oldestEntryDate: '2026-03-01',
+    });
   });
 
   it('counts the company\'s whole day, not only the journals that fall in the window', async () => {
@@ -133,11 +135,25 @@ describe('a day that recorded a bulk load', () => {
       ...recorded(12, '2026-02-01', '2026-09-11T07:00:00.000Z'),
       ...recorded(12, '2026-02-01', '2026-09-18T07:00:00.000Z'),
     ]);
-    expect(result.bulkLoaded).toEqual({ journals: 3, days: 3, firstRecorded: '2026-09-05', lastRecorded: '2026-09-18' });
+    expect(result.bulkLoaded).toEqual({
+      journals: 3, days: 3, firstRecorded: '2026-09-05', lastRecorded: '2026-09-18', oldestEntryDate: '2026-02-01',
+    });
   });
 });
 
 describe('what a bulk load does not excuse', () => {
+  it('a journal backdated into a reported quarter among routine late captures is carried in the load\'s oldest date', async () => {
+    // Nine August invoices captured late on 10 September, and one R487 312.55
+    // journal dated 31 March: ten on the day, so a load — and the load's
+    // oldest date is the March one, which page 11 prints.
+    const rows = [
+      ...Array.from({ length: 9 }, (_, i) => journal(`aug${i}`, '2026-08-20', '2026-09-10T08:00:00.000Z')),
+      journal('q1', '2026-03-31', '2026-09-10T09:00:00.000Z', 487_312.55),
+    ];
+    const result = await run(rows, recorded(10, '2026-08-20', '2026-09-10T08:00:00.000Z'));
+    expect(result.bulkLoaded).toMatchObject({ journals: 10, oldestEntryDate: '2026-03-31' });
+  });
+
   it('a round number recorded in a bulk load is still a round number, and is not counted as skipped', async () => {
     const round = journal('r', '2026-03-01', '2026-09-05T07:00:00.000Z', 6_000_000);
     const plain = journal('p', '2026-03-02', '2026-09-05T07:00:00.000Z');

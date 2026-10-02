@@ -28,7 +28,7 @@ const getPackTrend = vi.fn(async () => trend);
 // demo fixture's total is its own control-account balance, so the two agree
 // and no reconciliation prints; a mock returning the bare array would make
 // every one of these tests build a pack with `agedDebtorsTotal` undefined.
-const mattersRead = { matters, agedDebtorsTotal: demoSet.current.accountsReceivable, bulkLoadedJournals: null };
+const mattersRead = { matters, agedDebtorsTotal: demoSet.current.accountsReceivable };
 const buildMatters = vi.fn(async () => mattersRead);
 const getBrandProfile = vi.fn(async () => null);
 const listCommentary = vi.fn(async () => [] as unknown[]);
@@ -241,14 +241,6 @@ describe('draft, commentary and period', () => {
     expect(JSON.stringify(doc)).not.toContain('Discarded sentence');
   });
 
-  it('carries the bulk load the matters read skipped onto pages 4 and 11', async () => {
-    const bulk = { journals: 19_581, days: 12, firstRecorded: '2026-09-05', lastRecorded: '2026-09-18' };
-    buildMatters.mockResolvedValue({ ...mattersRead, bulkLoadedJournals: bulk } as unknown as typeof mattersRead);
-    const doc = await buildBoardPackDocument(request());
-    const saying = doc.pages.filter((pg) => JSON.stringify(pg.blocks).includes('recorded in bulk'));
-    expect(saying.map((pg) => pg.navLabel)).toEqual(['Commentary and actions', 'Matters for the board']);
-  });
-
   it('falls back to the pending placeholder when nothing is approved', async () => {
     listCommentary.mockResolvedValue([{ status: 'draft', approvedText: null, draftText: 'x' }]);
 
@@ -346,7 +338,7 @@ describe('a reconciliation that fails its own invariants', () => {
     invariants: DECLARED.map((name) => ({ name, holds: name !== broken, detail: '' })),
   });
   const build = async (broken: string | null): Promise<string> => {
-    buildMatters.mockResolvedValue({ matters, agedDebtorsTotal: subledger, subledgerTotal: subledger, bulkLoadedJournals: null } as typeof mattersRead);
+    buildMatters.mockResolvedValue({ matters, agedDebtorsTotal: subledger, subledgerTotal: subledger } as typeof mattersRead);
     reconcileSubledger.mockResolvedValue(reconciliation(broken));
     return JSON.stringify(await buildBoardPackDocument(request()));
   };

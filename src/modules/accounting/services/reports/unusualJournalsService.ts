@@ -38,6 +38,9 @@ export interface BulkLoadedJournals {
   days: number;
   firstRecorded: string;
   lastRecorded: string;
+  /** The earliest date any of them carries, `YYYY-MM-DD` — how far back into
+   *  periods already reported on the load reached. */
+  oldestEntryDate: string;
 }
 
 export interface UnusualJournals {
@@ -201,9 +204,13 @@ export async function getUnusualJournals(
 
   const flags: UnusualJournalFlag[] = [];
   const skippedOn: string[] = [];
+  let oldestEntryDate: string | null = null;
   for (const j of journals) {
     const inBulkLoad = j.isBackdated && bulkDays.has(j.recordedOn);
-    if (inBulkLoad && !j.isRoundNumber) skippedOn.push(j.recordedOn);
+    if (inBulkLoad && !j.isRoundNumber) {
+      skippedOn.push(j.recordedOn);
+      if (oldestEntryDate === null || j.entryDate < oldestEntryDate) oldestEntryDate = j.entryDate;
+    }
     const isBackdatedMatter = j.isBackdated && !inBulkLoad;
     if (!j.isRoundNumber && !isBackdatedMatter) continue;
 
@@ -227,6 +234,7 @@ export async function getUnusualJournals(
       days: skippedDays.length,
       firstRecorded: skippedDays[0]!,
       lastRecorded: skippedDays[skippedDays.length - 1]!,
+      oldestEntryDate: oldestEntryDate!,
     },
   };
 }

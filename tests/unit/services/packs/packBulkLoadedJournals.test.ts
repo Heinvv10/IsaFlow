@@ -1,30 +1,28 @@
 /**
- * PAGES 4 AND 11 SAY WHAT THE BACKDATING CHECK SKIPPED, AND COUNT LIKE THE
- * REST OF THE SHEET.
+ * A BULK LOAD IS ONE MATTER ON PAGES 4 AND 11, AND COUNTS ARE GROUPED.
  *
  * Velocity Fibre's ledger was reloaded in September 2026 and its board pack
- * raised 19 588 "matters", almost all of them reloaded journals recorded after
- * their dates. The check now leaves a bulk load out (`BULK_LOAD_MIN`), and a
- * check that leaves something out has to say so where it reports: page 11's
- * "What was checked" and page 4, whose action panel is drawn from the same
- * checks. A pack with no bulk load says nothing about one.
+ * raised 19 588 "matters", almost all reloaded journals recorded after their
+ * dates. The backdating check no longer lists a bulk load journal by journal
+ * (`BULK_LOAD_MIN`), and it does not drop it either: the load is ONE matter,
+ * saying how many journals, on which days and how far back they are dated —
+ * so a deliberately backdated journal recorded among routine ones still
+ * reaches the board, as part of a load it is asked to rule on.
  *
  * And a count is written the way every figure on the sheet is: page 4's title
  * read "4 of 19588 matters" over a quantum column reading "10 353".
  */
 import { beforeEach, describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { BOARD_DECISIONS } from '@/modules/accounting/services/packs/pages/packMatterDecisions';
 import { checkMattersCrossReference } from '@/modules/accounting/services/packs/figures/packMattersIntegrity';
 import type { PackPage, PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { demoInput } from './fixtures/boardPackInputs';
 import { velocityInput } from './fixtures/velocityBoardPack';
-
-const RELOAD = { journals: 19_581, days: 12, firstRecorded: '2026-09-05', lastRecorded: '2026-09-18' };
 
 const pageNamed = (doc: PackPagesDocument, nav: string): PackPage => {
   const page = doc.pages.find((p) => p.navLabel === nav);
@@ -32,41 +30,21 @@ const pageNamed = (doc: PackPagesDocument, nav: string): PackPage => {
   return page!;
 };
 
-/** Every sentence a page prints in its disclosures. */
-function notesOf(page: PackPage): string {
-  return page.blocks.flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes.map((n) => `${n.heading}: ${n.body}`) : []))
-    .join('\n');
-}
-
 describe('a pack whose ledger was loaded in bulk', () => {
   let doc: PackPagesDocument;
-  beforeEach(() => { doc = buildBoardPackPages({ ...velocityInput, bulkLoadedJournals: RELOAD }); });
+  beforeEach(() => { doc = buildBoardPackPages(velocityInput); });
 
-  for (const nav of ['Commentary and actions', 'Matters for the board']) {
-    it(`states on "${nav}" how many journals the late-recording test skipped, and when they were loaded`, () => {
-      const notes = notesOf(pageNamed(doc, nav));
-      expect(notes).toMatch(/19 581 journals recorded in bulk/);
-      expect(notes).toContain('on 12 days between 5 September 2026 and 18 September 2026');
-      expect(notes).toMatch(/not tested for late recording/);
-      expect(notes).toMatch(/round-number test still covers them/);
-    });
-  }
-
-  it('names the day itself where the load was one day', () => {
-    const one = buildBoardPackPages({
-      ...velocityInput,
-      bulkLoadedJournals: { journals: 1, days: 1, firstRecorded: '2026-09-05', lastRecorded: '2026-09-05' },
-    });
-    expect(notesOf(pageNamed(one, 'Matters for the board'))).toContain('1 journal recorded in bulk on 5 September 2026');
+  it('lists the load on page 11 as one row, among the matters with no single amount', () => {
+    const table = pageNamed(doc, 'Matters for the board').blocks.find((b) => b.kind === 'matters');
+    if (table === undefined || table.kind !== 'matters') throw new Error('page 11 has no table');
+    const loads = table.matters.filter((m) => /recorded in bulk/.test(m.issue));
+    expect(loads).toHaveLength(1);
+    expect(loads[0]!.issue).toMatch(/^19\u00a0581 journals dated as far back as 1 April 2025 were recorded in bulk on 12 days between 5 September 2026 and 18 September 2026/);
+    expect(loads[0]!.decisionRequired).toBe(BOARD_DECISIONS.bulkLoadedJournals);
   });
-});
 
-describe('a pack whose ledger was not', () => {
-  it('says nothing about a bulk load on either page', () => {
-    const doc = buildBoardPackPages({ ...velocityInput, bulkLoadedJournals: null });
-    for (const nav of ['Commentary and actions', 'Matters for the board']) {
-      expect(notesOf(pageNamed(doc, nav))).not.toMatch(/in bulk/);
-    }
+  it('puts the load before the board on page 4', () => {
+    expect(JSON.stringify(pageNamed(doc, 'Commentary and actions').blocks)).toContain('recorded in bulk');
   });
 });
 

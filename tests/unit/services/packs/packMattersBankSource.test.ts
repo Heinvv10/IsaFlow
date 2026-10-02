@@ -23,7 +23,8 @@ vi.mock('@/lib/neon', async (orig) => ({
 vi.mock('@/modules/accounting/services/reports/agingReportService', () => ({
   getAgingReport: agingSpy,
 }));
-vi.mock('@/modules/accounting/services/reports/unusualJournalsService', () => ({
+vi.mock('@/modules/accounting/services/reports/unusualJournalsService', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
   getUnusualJournals: vi.fn(async () => ({ flags: [], bulkLoaded: null })),
 }));
 vi.mock('@/modules/accounting/services/reports/statutoryFilingsService', async (orig) => ({

@@ -25,6 +25,7 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { BOARD_DECISIONS } from '@/modules/accounting/services/packs/pages/packMatterDecisions';
+import { bulkLoadedMatter } from '@/modules/accounting/services/packs/pages/packBulkLoadedJournals';
 import { demoInput, figures } from './boardPackInputs';
 
 const NO_PRIOR_MEETING_RECORD = 'Not tracked — no prior board pack is stored to compare against.';
@@ -158,7 +159,16 @@ const ROUND_NUMBER_JOURNALS: Array<[string, string, number]> = [
   ['JE-2026-12876', 'transfer', 1_000_000],
 ];
 
+/** The September 2026 reload as `bulkLoadedMatter` raises it — at the scale
+ *  page 11 printed (19 581 matters "not printed"), over the reload's recording
+ *  days on the 18 September production copy. The count is that page's, not a
+ *  census of the ledger. */
+export const VELOCITY_RELOAD = {
+  journals: 19_581, days: 12, firstRecorded: '2026-09-05', lastRecorded: '2026-09-18', oldestEntryDate: '2025-04-01',
+};
+
 export const velocityMatters: PackMatter[] = [
+  bulkLoadedMatter(VELOCITY_RELOAD, NO_PRIOR_MEETING_RECORD),
   {
     kind: 'finding',
     issue: '30 unreconciled bank items across 2 bank accounts, as at the time this pack was extracted '
@@ -197,11 +207,6 @@ export const velocityInput: BoardPackInput = {
   set: velocitySet,
   trend: velocityTrend,
   matters: velocityMatters,
-  // The September 2026 reload, at the scale page 11 printed (19 581 matters
-  // "not printed"). The count is that page's, not a census of the ledger; the
-  // span is the reload's recording days on the production copy of 18
-  // September 2026 (5 to 18 September, twelve days).
-  bulkLoadedJournals: { journals: 19_581, days: 12, firstRecorded: '2026-09-05', lastRecorded: '2026-09-18' },
   receivables: {
     agedDebtorsTotal: 16_089_000,
     subledgerTotal: 16_089_000,

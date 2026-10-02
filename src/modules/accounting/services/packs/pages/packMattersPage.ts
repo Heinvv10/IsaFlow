@@ -12,8 +12,6 @@ import { failedChecksClause } from '@/modules/accounting/services/packs/narrativ
 import { disclose, note } from './packPageBlocks';
 import { mattersExposure, omittedQuantum, type SelectedMatters } from './packMattersPrinted';
 import { matterSourcesInWords } from './packDerivedMatters';
-import { bulkLoadedSentence } from './packBulkLoadedJournals';
-import type { BulkLoadedJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
 import { groupedCount } from './packMatterWords';
 import { remainingPageMm } from './packPageFit';
 import { MATTERS_OMITTED_NOTE_MM } from './packPageMetrics';
@@ -160,11 +158,6 @@ export function buildMattersSupportBlocks(
    *  `packReceivablesReconciliation.ts` for why it is budgeted against the
    *  table rather than appended after it. */
   receivables: PackPageBlock | null = null,
-  /** What the late-recording test skipped as a bulk load — see
-   *  `bulkLoadedSentence`. Stated under Sources because it is a statement
-   *  about what was checked, and charged to the table's budget like the rest
-   *  of this block. */
-  bulkLoaded: BulkLoadedJournals | null = null,
 ): PackPageBlock[] {
   return [
     { kind: 'narrative', narrative: commentary },
@@ -199,8 +192,7 @@ export function buildMattersSupportBlocks(
       // for every matter listed above." One fact, twice, on one page, on the
       // page whose paper is measured in matters rows. The silent-omission
       // guarantee stays, because nothing else on the sheet states it.
-      note('Sources', `${matterSourcesInWords().charAt(0).toUpperCase()}${matterSourcesInWords().slice(1)}. A source that fails is named as a matter, never dropped.`
-        + (bulkLoaded === null ? '' : ` ${bulkLoadedSentence(bulkLoaded)}`)),
+      note('Sources', `${matterSourcesInWords().charAt(0).toUpperCase()}${matterSourcesInWords().slice(1)}. A source that fails is named as a matter, never dropped.`),
     ]),
   ];
 }
