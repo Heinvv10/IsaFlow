@@ -15056,8 +15056,13 @@
     {
       "area": "lib",
       "affectedPaths": [
+        "src/lib/limits/poolLimits.ts",
+        "src/lib/neon.ts",
+        "src/lib/rateLimitPool.ts",
         "src/lib/auth/authPool.ts",
-        "src/lib/neon.ts"
+        "src/lib/auth/withExtensionToken.ts",
+        "src/lib/auth/withPlatformAdmin.pools.ts",
+        "src/lib/auth/bearerPipeline.ts"
       ],
       "sourceLabel": "R-175 coder report, 2026-10-01",
       "sourceIds": [
@@ -15067,16 +15072,25 @@
       "severityRationale": "Needs a misconfigured environment variable; the shared Postgres has max_connections 100, so an unbounded pool could exhaust it for prod and dev together.",
       "auditedSha": "77e184aa4",
       "currentSha": "77e184aa4",
-      "status": "candidate",
+      "status": "in-progress",
       "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
+      "testNames": [
+        "tests/unit/lib/poolSizeFromEnv.test.ts",
+        "tests/unit/lib/poolSizesBuilt.test.ts",
+        "tests/unit/lib/rateLimitPoolMax.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-182/fix.md",
+        "docs/audits/remediation/R-182/red.unit.log",
+        "docs/audits/remediation/R-182/green.log",
+        "docs/audits/remediation/R-182/mutations.log"
+      ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "None.",
       "canonicalItem": null,
-      "branch": null,
+      "branch": "fix/r182-pool-size-validation-20261002",
       "id": "R-182",
       "severity": "low",
       "reportedSeverity": "low",
