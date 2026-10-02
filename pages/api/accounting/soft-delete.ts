@@ -25,6 +25,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import {
   softDelete,
   undoDelete,
@@ -100,6 +101,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (isUserFixable(err)) {
         return apiResponse.badRequest(res, (err as Error).message);
       }
+      // An invoice's delete runs under one flow lock budget (D8 round 11): 503 + Retry-After.
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Soft delete API error', { entityType, entityId, error: err }, 'accounting');
       return apiResponse.internalError(res, err, 'Failed to delete entity');
     }
@@ -133,6 +136,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (isUserFixable(err)) {
         return apiResponse.badRequest(res, (err as Error).message);
       }
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Undo delete API error', { entityType, entityId, error: err }, 'accounting');
       return apiResponse.internalError(res, err, 'Failed to restore entity');
     }
