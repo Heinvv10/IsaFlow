@@ -113,7 +113,7 @@ describe('BulkActionBar (route: data = { total, succeeded, failed, results: [{ i
       results: [{ invoiceId: 'i1', ok: true }, { invoiceId: 'i2', ok: false, error: 'D2 already posted' }, { invoiceId: 'i3', ok: false, error: 'D2 already posted' }] })));
     render(<Page onComplete={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Post to GL' }));
-    expect((await screen.findByRole('alert')).textContent).toBe('2 of 3 GL postings failed: D2 already posted');
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('2 of 3 GL postings failed: D2 already posted'));
   });
 });
 

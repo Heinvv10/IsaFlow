@@ -72,7 +72,7 @@ describe('bank feeds', () => {
     let fail = true;
     serve((u, m) => (fail && m === 'GET' && u.includes('/bank-feeds') ? empty500() : undefined), on('GET', '/bank-feeds', () => ok({ items: [EXT_CONN] })));
     render(<BankFeedsPage />);
-    expect((await screen.findByRole('alert')).textContent).toContain('Could not load the bank feed connections - try again');
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Could not load the bank feed connections - try again'));
     expect(screen.queryByText('No Bank Feed Connections')).toBeNull();
     fail = false;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
@@ -228,7 +228,7 @@ describe('practice job detail tabs', () => {
       on('GET', 'practice/jobs/j1', () => ok(JOB)), on('GET', 'practice/tasks', () => ok({ tasks: [{ id: 't1', title: 'D2 task', status: 'pending', priority: 'normal', assignedTo: null, dueDate: null }] })));
     render(<JobDetailPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'tasks' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('Could not load the tasks - try again');
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Could not load the tasks - try again'));
     expect(screen.queryByText('No tasks yet')).toBeNull();
     fail = false;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
@@ -241,7 +241,7 @@ describe('practice job detail tabs', () => {
       on('GET', 'practice/jobs/j1', () => ok(JOB)), on('GET', 'time-entries', () => ok({ entries: [] })));
     render(<JobDetailPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'time' }));
-    expect((await screen.findByRole('alert')).textContent).toContain(MSG);
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain(MSG));
     expect(screen.queryByText('No time entries for this job')).toBeNull();
     fail = false;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
@@ -253,7 +253,6 @@ describe('report packs', () => {
   it.each([403, 500])('a %i (not a 429) is shown, not a blank screen', async (status) => {
     serve(on('GET', 'reports-pack', () => (status === 403 ? refuse(MSG, 403) : empty500())));
     render(<ReportPacksPage />);
-    const alerts = await screen.findAllByRole('alert');
-    expect(alerts.map(a => a.textContent).join('|')).toContain(status === 403 ? MSG : 'Could not load the report pack - try again');
+    await waitFor(() => expect(screen.getAllByRole('alert').map(a => a.textContent).join('|')).toContain(status === 403 ? MSG : 'Could not load the report pack - try again'));
   });
 });

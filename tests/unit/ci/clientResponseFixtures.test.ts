@@ -5,7 +5,7 @@
  * behaviour of the CLI is exercised in a throwaway git repo.
  */
 import { describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -49,9 +49,15 @@ describe('negatives: the correct shape stays quiet', () => {
   for (const [name, src] of quiet) it(name, () => expect(kinds(src)).toEqual([]));
 });
 
-describe('fail-closed CLI', () => {
+describe('fail-closed CLI', { timeout: 150_000 }, () => {
   const cli = resolve('scripts/ci/check-client-responses.ts');
-  const run = (dir: string) => { try { execFileSync('bun', [cli], { cwd: dir, stdio: 'pipe', encoding: 'utf8' }); return 0; } catch (e) { return (e as { status: number }).status; } };
+  /** 0 = clean, 1 = the gate reported a violation. A crash or a timeout is NOT 1: it throws with the child's stderr. */
+  const run = (dir: string) => {
+    const r = spawnSync('bun', [cli], { cwd: dir, encoding: 'utf8', timeout: 120_000, killSignal: 'SIGKILL' });
+    if (r.error || r.signal) throw new Error(`gate child did not finish (${r.error?.message ?? r.signal}); stderr: ${r.stderr}`);
+    if (r.status !== 0 && !/(unpinned hit|no client files|stale pin|pin without|syntax errors|not part of the program)/.test(r.stderr + r.stdout)) throw new Error(`gate child exited ${r.status} without a verdict; stderr: ${r.stderr}`);
+    return r.status;
+  };
   const repo = (files: Record<string, string>, pins = '[]') => {
     const dir = mkdtempSync(join(tmpdir(), 'crg-'));
     execFileSync('git', ['init', '-q'], { cwd: dir });
