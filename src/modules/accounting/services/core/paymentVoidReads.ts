@@ -55,29 +55,3 @@ export async function peekPaymentJournal(
   const id = rows[0]!.gl_journal_entry_id;
   return id == null ? null : String(id);
 }
-
-/**
- * Statement lines matched to ANOTHER journal of the payment journal's reversal chain — after O <- R <- R2 a line
- * can be matched to R2, the head the void reverses (D8 round 10, brk-d8c F2: the void looked at O alone and left
- * the line matched to a chain it took out of the ledger). Walked with the cycle guard of shared/journalChainHead;
- * the caller locks them first, refuses reconciled cash, and frees them as the HTTP void does.
- */
-export async function findChainBankTransactions(companyId: string, rootId: string): Promise<string[]> {
-  const rows = (await sql`
-    WITH RECURSIVE walk AS (
-      SELECT id, 1 AS depth, ARRAY[id] AS seen, false AS looped
-      FROM gl_journal_entries WHERE id = ${rootId}::UUID AND company_id = ${companyId}::UUID
-      UNION ALL
-      SELECT j.id, walk.depth + 1, walk.seen || j.id, j.id = ANY(walk.seen)
-      FROM gl_journal_entries j JOIN walk ON j.reversal_of_id = walk.id
-      WHERE j.company_id = ${companyId}::UUID AND NOT walk.looped AND walk.depth < 64
-    )
-    SELECT DISTINCT bt.id
-    FROM bank_transactions bt
-    JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id
-    WHERE bt.company_id = ${companyId}::UUID
-      AND jl.journal_entry_id IN (SELECT id FROM walk WHERE id <> ${rootId}::UUID)
-      AND bt.status IN ('allocated', 'matched', 'reconciled')
-    ORDER BY bt.id`) as DbRow[];
-  return rows.map((r) => String(r.id));
-}

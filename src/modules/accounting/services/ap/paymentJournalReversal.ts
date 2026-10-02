@@ -25,6 +25,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { lockBankTransactionsInIdOrder } from '../bank/bankTxLock';
+import { findChainBankLines } from '../bank/chainBankLines';
 import { unmatchTransaction } from '../bank/bankTxStatusMutations';
 import { ReconciledCashError, reconciliationLockOf, refuseLockedCash } from '../bank/reconciledCash';
 import { ReversalBeforeOriginalError, resolveReversalDate } from '../gl/journalEntryReversalDate';
@@ -44,7 +45,7 @@ export interface BankLeg {
    * back in the ledger (D8, shared/journalChainHead).
    */
   reverseId: string;
-  /** Bank lines MATCHED to the journal, locked, to unmatch once the writes begin. */
+  /** Bank lines MATCHED to any journal of its chain, locked, to unmatch once the writes begin. */
   bankLineIds: string[];
   /** Every bank line seen on the journal, matched or allocated — the re-check's baseline. */
   seenLineIds: string[];
@@ -70,20 +71,9 @@ async function assertNotReconciled(companyId: string, row: DbRow, label: string)
   }
 }
 
-/** Bank lines matched to any of `journalIds` — the journal and, for a re-reversed one, its head. */
-async function matchedBankLines(companyId: string, journalIds: string[]): Promise<string[]> {
-  const rows = (await sql`
-    SELECT bt.id FROM bank_transactions bt
-    JOIN gl_journal_lines l ON l.id = bt.matched_journal_line_id
-    WHERE l.journal_entry_id = ANY(${journalIds}::UUID[]) AND bt.company_id = ${companyId}::UUID
-    ORDER BY bt.id
-  `) as DbRow[];
-  return rows.map((r) => String(r.id));
-}
-
 /**
  * FIRST, before the document lock: every pre-write refusal about the journal,
- * then a lock on each bank line matched to it. `label` names the document.
+ * then a lock on each bank line matched to any journal of its chain. `label` names the document.
  */
 export async function lockBankLegOf(companyId: string, journalId: string, label: string): Promise<BankLeg> {
   const je = (await sql`
@@ -102,7 +92,7 @@ export async function lockBankLegOf(companyId: string, journalId: string, label:
       // reversal does not unmatch them, so a line matched to it would stay
       // 'matched' against cash the ledger no longer holds — and reconciled cash
       // must still refuse the void.
-      const lines = await lockMatchedLines(companyId, [journalId], label);
+      const lines = await lockMatchedLines(companyId, journalId, label);
       return { alreadyReversed: true, reverseId: journalId, ...lines };
     }
     const [head] = (await sql`
@@ -132,15 +122,18 @@ export async function lockBankLegOf(companyId: string, journalId: string, label:
       + 'fiscal period — re-open it or create the fiscal year first.');
   }
 
-  const lines = await lockMatchedLines(companyId, [...new Set([journalId, target.id])], label);
+  const lines = await lockMatchedLines(companyId, journalId, label);
   return { alreadyReversed: false, reverseId: target.id, ...lines };
 }
 
-/** Lock every bank line matched to `journalIds`, refuse reconciled cash, and sort them: unmatch vs allocated. */
+/**
+ * Lock every bank line matched to ANY journal of `journalId`'s reversal chain — root, middle or head (D8 round 12,
+ * `bank/chainBankLines`, the MCP void's finder too) — refuse reconciled cash, and sort them: unmatch vs allocated.
+ */
 async function lockMatchedLines(
-  companyId: string, journalIds: string[], label: string,
+  companyId: string, journalId: string, label: string,
 ): Promise<Pick<BankLeg, 'bankLineIds' | 'seenLineIds' | 'allocatedLineIds'>> {
-  const ids = await matchedBankLines(companyId, journalIds);
+  const ids = await findChainBankLines(companyId, journalId);
   const toUnmatch: string[] = [];
   const allocated: string[] = [];
   // The one id order every flow takes bank lines in (D8 round 11, `bank/bankTxLock`).
@@ -184,7 +177,7 @@ export async function lockJournalAndUnmatch(
       { retryable: true },
     );
   }
-  const now = await matchedBankLines(companyId, journals);
+  const now = await findChainBankLines(companyId, journalId);
   if (now.some((id) => !leg.seenLineIds.includes(id))) {
     throw new SupplierPaymentRefusal(
       `A bank line was matched to ${label}'s journal while it was being reversed — retry in a moment.`,

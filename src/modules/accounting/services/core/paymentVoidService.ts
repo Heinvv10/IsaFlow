@@ -59,7 +59,8 @@ import {
 } from '../bank/bankAllocationUnwind';
 import { reverseReconciledTransaction } from '../bank/bankAllocationService';
 import { lockBankTransactionsInIdOrder } from '../bank/bankTxLock';
-import { findBankTransactions, findChainBankTransactions, peekPaymentJournal } from './paymentVoidReads';
+import { findBankTransactions, peekPaymentJournal } from './paymentVoidReads';
+import { findChainBankLines } from '../bank/chainBankLines';
 import { reconciliationLockOf, refuseLockedCash } from '../bank/reconciledCash';
 import { unmatchTransaction } from '../bank/bankTxStatusMutations';
 import { voidSettlementDocument } from '../ap/provisionalSettlementVoid';
@@ -177,15 +178,13 @@ async function voidPaymentDocumentInner(
   const peekedJournalId = await peekPaymentJournal(companyId, kind, paymentId);
   if (peekedJournalId === undefined) return { refusal: 'not_found' };
 
-  const bankLines = peekedJournalId
-    ? await findBankTransactions(companyId, peekedJournalId)
-    : [];
-  if (bankLines.length > 1) {
-    return { refusal: 'ambiguous_bank_lines', count: bankLines.length };
-  }
+  const bankLines = peekedJournalId ? await findBankTransactions(companyId, peekedJournalId) : [];
+  if (bankLines.length > 1) return { refusal: 'ambiguous_bank_lines', count: bankLines.length };
   const bankTransactionId = bankLines[0] ?? null;
-  // Lines matched to another journal of the chain (the head R2, D8 round 10): locked too, reconciled cash refused.
-  const chainLines = peekedJournalId ? await findChainBankTransactions(companyId, peekedJournalId) : [];
+  // Every other line matched to a journal of the chain (`bank/chainBankLines`, the HTTP void's finder too, D8 round
+  // 12): locked, reconciled cash refused, freed as the chain goes out.
+  const chainLines = peekedJournalId
+    ? (await findChainBankLines(companyId, peekedJournalId)).filter((id) => !bankLines.includes(id)) : [];
   // The root's line and the chain's in ONE id-ordered pass, as the HTTP void takes them (D8 round 11): two passes
   // deadlocked against it when the head's line had the lower id. `reverseReconciledTransaction`'s re-lock is a no-op.
   const locked = await lockBankTransactionsInIdOrder(
