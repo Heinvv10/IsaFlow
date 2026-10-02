@@ -243,4 +243,36 @@ describe('company-groups guards (Postgres)', async () => {
       expect(await sql`SELECT is_active FROM company_groups WHERE id = ${G}::uuid`).toEqual([{ is_active: true }]);
     });
   });
+  // Round 12 (blind review of 3abc332ee, test gap): two current members with mappings — asking for
+  // one company's mappings returns only that company's rows.
+  it.skipIf(!reachable)('GET mappings with company_id returns only that company\'s rows', async () => {
+    await withGroups(async () => {
+      await sql`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type) VALUES
+        (${acct(2)}::uuid, ${VIEWED}::uuid, '2000', 'Viewed Creditors', 'liability')`;
+      await sql`INSERT INTO group_coa_mappings (group_id, company_id, company_account_id, group_account_id) VALUES
+        (${G}::uuid, ${MINE}::uuid, ${acct(1)}::uuid, ${gacct(1)}::uuid), (${G}::uuid, ${VIEWED}::uuid, ${acct(2)}::uuid, ${gacct(1)}::uuid)`;
+      const codes = async (companyId?: string) => {
+        const res = await call('GET', 'attacker', {}, { action: 'mappings', group_id: G, ...(companyId ? { company_id: companyId } : {}) });
+        expect(res.statusCode).toBe(200);
+        return (res.sent as { data: { items: Array<{ companyId: string; companyAccountCode: string }> } }).data.items
+          .map(m => `${m.companyId}:${m.companyAccountCode}`).sort();
+      };
+      expect(await codes(MINE)).toEqual([`${MINE}:1000`]);
+      expect(await codes(VIEWED)).toEqual([`${VIEWED}:2000`]);
+      expect(await codes()).toEqual([`${MINE}:1000`, `${VIEWED}:2000`]);
+    });
+  });
+
+  // Round 12 (test gap): a mapping id of ANOTHER group, named under this group, is not found — 404,
+  // and nothing is deleted in either group.
+  it.skipIf(!reachable)('remove-mapping with another group\'s mapping id is a 404 and deletes nothing', async () => {
+    await withGroups(async () => {
+      await sql`INSERT INTO company_group_members (group_id, company_id) VALUES (${G2}::uuid, ${MINE}::uuid)`;
+      const [foreign] = (await sql`INSERT INTO group_coa_mappings (group_id, company_id, company_account_id, group_account_id) VALUES
+        (${G2}::uuid, ${MINE}::uuid, ${acct(1)}::uuid, ${gacct(9)}::uuid) RETURNING id`) as Array<{ id: string }>;
+      const res = await call('DELETE', 'attacker', {}, { action: 'remove-mapping', mapping_id: foreign!.id, group_id: G });
+      expect(res.statusCode).toBe(404);
+      expect(await sql`SELECT count(*)::int AS n FROM group_coa_mappings`).toEqual([{ n: 1 }]);
+    });
+  });
 });
