@@ -276,6 +276,12 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
     const e = await addLink(expired, 10, true);
     await pool.query("UPDATE portal_payment_links SET expires_at = NOW() - interval '1 day' WHERE id = $1", [e.linkId]);
     expect((await detail(expired))?.has_standing_link).toBe(false);
+    // resolveLinkCharge: the standing link the invoice names never expires, whatever its stored expiry
+    const named = await invoice();
+    const nl = await addLink(named, 10, true);
+    await pool.query("UPDATE portal_payment_links SET expires_at = NOW() - interval '1 day' WHERE id = $1", [nl.linkId]);
+    await pool.query('UPDATE customer_invoices SET payment_url = $2 WHERE id = $1', [named, `https://app.revoke.test/portal/pay/${nl.token}`]);
+    expect((await detail(named))?.has_standing_link).toBe(true);
     const live = await invoice();
     const lv = await addLink(live, 10, true);
     await pool.query("UPDATE portal_payment_links SET expires_at = NOW() + interval '10 days' WHERE id = $1", [lv.linkId]);

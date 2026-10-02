@@ -11,6 +11,7 @@
 
 import { sql } from '@/lib/neon';
 import { EXPORT_ROW_CEILING } from '@/lib/pagination';
+import { linkExpiredSql } from './portalLinkCharge';
 
 type Row = Record<string, unknown>;
 
@@ -195,7 +196,7 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
            ci.online_payment_enabled, ci.payment_url,
            EXISTS (SELECT 1 FROM portal_payment_links l
                    WHERE l.invoice_id = ci.id AND l.status = 'active' AND l.charges_balance
-                     AND COALESCE(l.expires_at > NOW(), true)) AS has_standing_link,
+                     AND NOT ${linkExpiredSql()}) AS has_standing_link,
            ci.currency_code, ci.exchange_rate, ci.functional_total,
            to_char(ci.billing_period_start, 'YYYY-MM-DD') AS billing_period_start,
            to_char(ci.billing_period_end, 'YYYY-MM-DD') AS billing_period_end,

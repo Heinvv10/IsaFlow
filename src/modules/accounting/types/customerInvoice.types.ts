@@ -35,7 +35,7 @@ export interface CustomerInvoiceDetail {
   email_sent_to?: string;
   online_payment_enabled?: boolean;
   payment_url?: string;
-  /** An active standing (`charges_balance`) payment link exists, whether or not payment_url names it. */
+  /** An active, unexpired standing (`charges_balance`) payment link exists, whether or not payment_url names it. The link payment_url names never expires. */
   has_standing_link?: boolean;
   items: CustomerInvoiceItem[];
 }
