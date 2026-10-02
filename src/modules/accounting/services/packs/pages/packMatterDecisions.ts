@@ -45,4 +45,5 @@ export const BOARD_DECISIONS = {
   overdueFiling: 'Whether to file immediately, accepting any penalty exposure.',
   creditMonth: 'Whether the reversals behind the credit belong to this period.',
   checkFailed: 'Whether to re-run this check before the meeting, or proceed without it.',
+  bulkLoadedJournals: 'Whether the periods these journals were posted into are reviewed again before the figures are relied on.',
 } as const;

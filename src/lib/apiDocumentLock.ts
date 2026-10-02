@@ -21,25 +21,25 @@
 
 import type { NextApiResponse } from 'next';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
-import { DocumentNumberLockTimeoutError } from '@/modules/accounting/services/core/companySettingsService';
-import { TimeEntryLockTimeoutError } from '@/modules/accounting/services/practice/timeEntryLock';
-import { DocumentClaimLockTimeoutError } from '@/modules/accounting/services/core/documentClaimLock';
-import { RecurringTemplateLockTimeoutError } from '@/modules/accounting/services/core/recurringTemplateLock';
-import { WipEntriesLockedError } from '@/modules/accounting/services/practice/wipEntryLock';
-import { SystemRoleLockTimeoutError } from '@/modules/accounting/services/gl/systemRoleWriteLock';
-import { GlAccountLockTimeoutError } from '@/modules/accounting/services/gl/glAccountLock';
+import { isLockTimeoutError } from '@/lib/lockTimeout';
 
+/**
+ * ONE predicate for every row-lock timeout (D8 round 9), `@/lib/lockTimeout`'s since round 11: each class carries a
+ * `code` ending in `_LOCK_TIMEOUT` — DOCUMENT_NUMBER_, BANK_TX_, PAYMENT_, JOURNAL_REVERSAL_, ROW_
+ * (core/rowLockBudget), CREDIT_NOTE_, … — so a new class is answered without a list to forget it in. The list it
+ * replaced missed BankTransactionLockTimeoutError: dismiss's bank-line lock answered 500.
+ */
 export function respondIfLockTimeout(res: NextApiResponse, err: unknown): boolean {
-  if (!(err instanceof DocumentNumberLockTimeoutError)
-    && !(err instanceof TimeEntryLockTimeoutError)
-    && !(err instanceof DocumentClaimLockTimeoutError)
-    && !(err instanceof RecurringTemplateLockTimeoutError)
-    && !(err instanceof WipEntriesLockedError)
-    && !(err instanceof SystemRoleLockTimeoutError)
-    && !(err instanceof GlAccountLockTimeoutError)) {
-    return false;
-  }
-  res.setHeader('Retry-After', '2');
-  apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE, err.message, { code: err.code });
+  if (!isLockTimeoutError(err)) return false;
+  respondRowHeld(res, err.message, err.code);
   return true;
+}
+
+/**
+ * The same 503 + Retry-After for a service that reports a held row as a RESULT rather than a throw (D8 round 18: the
+ * manual evidence attach's `contended`). A held row is a lock timeout, never a 409.
+ */
+export function respondRowHeld(res: NextApiResponse, message: string, code: string): void {
+  res.setHeader('Retry-After', '2');
+  apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE, message, { code });
 }

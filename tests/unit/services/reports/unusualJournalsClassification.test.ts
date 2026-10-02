@@ -41,8 +41,12 @@ function journal(over: Partial<Row> = {}): Row {
 }
 
 async function flagsFor(...rows: Row[]) {
+  // The window's rows, and — where one is late — the same rows again as the
+  // census of the days they were recorded on: one late journal on its day,
+  // under `BULK_LOAD_MIN`, so the backdating rule here is the per-journal one.
+  // `unusualJournalsBulkLoad.test.ts` holds the bulk-load case.
   sqlSpy.mockResolvedValue(rows);
-  return getUnusualJournals(COMPANY, WINDOW);
+  return (await getUnusualJournals(COMPANY, WINDOW)).flags;
 }
 
 async function reasonOf(over: Partial<Row>): Promise<string | null> {

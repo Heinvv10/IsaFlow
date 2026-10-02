@@ -44,7 +44,9 @@ const UNIT_OF: Record<string, 'times' | 'pct' | 'days' | 'currency' | 'money'> =
 const WRITTEN: Record<string, [string, string]> = {
   times: ['10 140.50×', '(0.14)×'],
   pct: ['10 140.5%', '(0.1%)'],
-  days: ['10 141 days', '0 days'],
+  // −0.14 days is a real figure below the day it is printed to: a bound,
+  // not the "0 days" that read as a measured nil (see `belowPrecision`).
+  days: ['10 141 days', '(<1 day)'],
   currency: ['R 10 140.50', '(R 0.14)'],
   money: ['10 140.50', '(0.14)'],
 };

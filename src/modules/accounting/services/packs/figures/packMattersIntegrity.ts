@@ -53,8 +53,11 @@ import type { PackPagesDocument } from '../pages/packPageModel';
  * numbers are compared, and a title that states none is refused rather than
  * skipped.
  */
-const RAISED_ON_PANEL_PAGE = /^(?:\d+ of (\d+) matters requiring a board decision|(0) matters require a board decision)/;
-const RAISED_ON_MATTERS_PAGE = /^(\d+) matters? requires? a board decision/;
+// A COUNT IS GROUPED LIKE EVERY FIGURE (`groupedCount`): "1\u00a0234".
+const COUNT = '(\\d{1,3}(?:\u00a0\\d{3})*)';
+const readCount = (s: string): number => Number(s.replace(/\u00a0/g, ''));
+const RAISED_ON_PANEL_PAGE = new RegExp(`^(?:${COUNT} of ${COUNT} matters requiring a board decision|(0) matters require a board decision)`);
+const RAISED_ON_MATTERS_PAGE = new RegExp(`^${COUNT} matters? requires? a board decision`);
 
 function checkMattersTitles(doc: PackPagesDocument): string[] {
   const panelPage = doc.pages.find((p) => p.blocks.some((b) => b.kind === 'narrative' && b.boardActions !== undefined));
@@ -70,8 +73,8 @@ function checkMattersTitles(doc: PackPagesDocument): string[] {
         + 'require a board decision, so it cannot be held to the other page that counts them.',
     ];
   }
-  const panelCount = Number(onPanel[1] ?? onPanel[2]);
-  const mattersCount = Number(onMatters[1]);
+  const panelCount = readCount(onPanel[2] ?? onPanel[3]!);
+  const mattersCount = readCount(onMatters[1]!);
   if (panelCount === mattersCount) return [];
   return [
     `Page ${panelPage.number} says ${panelCount} ${panelCount === 1 ? 'matter requires' : 'matters require'} `
@@ -80,8 +83,8 @@ function checkMattersTitles(doc: PackPagesDocument): string[] {
   ];
 }
 
-const FOLLOW_ON = /^(\d+) further matters? follows? on the matters page\./;
-const NOT_PRINTED = /^(\d+) further matters? (?:is|are) not printed in this pack;/;
+const FOLLOW_ON = new RegExp(`^${COUNT} further matters? follows? on the matters page\\.`);
+const NOT_PRINTED = new RegExp(`^${COUNT} further matters? (?:is|are) not printed in this pack;`);
 const SAME_DECISION = /^Each of these needs the same decision: /;
 
 export function checkMattersCrossReference(doc: PackPagesDocument): string[] {
@@ -104,9 +107,9 @@ export function checkMattersCrossReference(doc: PackPagesDocument): string[] {
   // pack that discloses an omission. Both halves are the panel.
   for (const item of [...panel.boardActions, ...(panel.boardActionsTail ?? [])]) {
     const follow = FOLLOW_ON.exec(item);
-    if (follow !== null) { followOn = Number(follow[1]); continue; }
+    if (follow !== null) { followOn = readCount(follow[1]!); continue; }
     const rest = NOT_PRINTED.exec(item);
-    if (rest !== null) { notPrinted = Number(rest[1]); continue; }
+    if (rest !== null) { notPrinted = readCount(rest[1]!); continue; }
     if (SAME_DECISION.test(item)) continue;
 
     named += 1;

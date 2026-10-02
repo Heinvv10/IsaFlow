@@ -16,7 +16,7 @@ import {
   BatchNotProcessableError,
 } from '@/modules/accounting/services/ap/batchPaymentService';
 import { BatchAlreadyReversedError, reverseBatch } from '@/modules/accounting/services/ap/batchPaymentReversal';
-import { DocumentClaimLockTimeoutError } from '@/modules/accounting/services/core/documentClaimLock';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import {
   isRetryableSupplierPaymentRefusal,
   isSupplierPaymentRefusal,
@@ -57,13 +57,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
+    // A held row — the batch (`DocumentClaimLockTimeoutError`), a bill, the journal — is a lock timeout: 503 +
+    // Retry-After (D8 round 18), never the 409 below, which answers the batch's state.
+    if (respondIfLockTimeout(res, err)) return;
     log.error('Batch payment action failed', { error: err }, 'accounting-api');
     // Only the two refusals raised BEFORE the first posting may be answered
     // with a 4xx: withAuth COMMITs anything below 500, so a blanket
     // badRequestFromError committed a half-processed batch — a posted journal
     // with the invoices not updated — and reported it to the user as a 400.
-    if (err instanceof BatchNotProcessableError || err instanceof BatchAlreadyReversedError
-      || err instanceof DocumentClaimLockTimeoutError) {
+    if (err instanceof BatchNotProcessableError || err instanceof BatchAlreadyReversedError) {
       return apiResponse.conflict(res, err.message);
     }
     if (err instanceof Error && err.message === 'Batch not found') {

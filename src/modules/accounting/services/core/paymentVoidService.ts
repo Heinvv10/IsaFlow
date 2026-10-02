@@ -58,9 +58,14 @@ import {
   unwindOnePayment,
 } from '../bank/bankAllocationUnwind';
 import { reverseReconciledTransaction } from '../bank/bankAllocationService';
-import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
+import { lockBankTransactionsInIdOrder } from '../bank/bankTxLock';
 import { findBankTransactions, peekPaymentJournal } from './paymentVoidReads';
+import { findChainBankLines } from '../bank/chainBankLines';
+import { reconciliationLockOf, refuseLockedCash } from '../bank/reconciledCash';
+import { unmatchTransaction } from '../bank/bankTxStatusMutations';
 import { voidSettlementDocument } from '../ap/provisionalSettlementVoid';
+import { lockStandingChainHead } from '../shared/journalChainHead';
+import { underFlowLockBudget } from './rowLockBudget';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 
@@ -151,7 +156,18 @@ async function loadPayment(
   };
 }
 
+/** Every lock of the void under ONE budget, plain UPDATEs included (D8 round 10, core/rowLockBudget). */
 export async function voidPaymentDocument(
+  companyId: string,
+  kind: PaymentKind,
+  paymentId: string,
+  userId: string,
+  opts?: PostingActorOpts & { reversalDate?: string },
+): Promise<VoidPaymentResult | VoidRefusal> {
+  return underFlowLockBudget(`Payment ${paymentId}`, () => voidPaymentDocumentInner(companyId, kind, paymentId, userId, opts));
+}
+
+async function voidPaymentDocumentInner(
   companyId: string,
   kind: PaymentKind,
   paymentId: string,
@@ -162,16 +178,22 @@ export async function voidPaymentDocument(
   const peekedJournalId = await peekPaymentJournal(companyId, kind, paymentId);
   if (peekedJournalId === undefined) return { refusal: 'not_found' };
 
-  const bankLines = peekedJournalId
-    ? await findBankTransactions(companyId, peekedJournalId)
-    : [];
-  if (bankLines.length > 1) {
-    return { refusal: 'ambiguous_bank_lines', count: bankLines.length };
-  }
+  const bankLines = peekedJournalId ? await findBankTransactions(companyId, peekedJournalId) : [];
+  if (bankLines.length > 1) return { refusal: 'ambiguous_bank_lines', count: bankLines.length };
   const bankTransactionId = bankLines[0] ?? null;
-  // A no-op re-lock for `reverseReconciledTransaction` below — one statement,
-  // and it fixes the order for the pair.
-  if (bankTransactionId) await lockBankTransactionForUpdate(companyId, bankTransactionId);
+  // Every other line matched to a journal of the chain (`bank/chainBankLines`, the HTTP void's finder too, D8 round
+  // 12): locked, reconciled cash refused, freed as the chain goes out.
+  const chainLines = peekedJournalId
+    ? (await findChainBankLines(companyId, peekedJournalId)).filter((id) => !bankLines.includes(id)) : [];
+  // The root's line and the chain's in ONE id-ordered pass, as the HTTP void takes them (D8 round 11): two passes
+  // deadlocked against it when the head's line had the lower id. `reverseReconciledTransaction`'s re-lock is a no-op.
+  const locked = await lockBankTransactionsInIdOrder(
+    companyId, bankTransactionId ? [bankTransactionId, ...chainLines] : chainLines);
+  for (const line of locked) {
+    if (chainLines.includes(String(line.id))) {
+      refuseLockedCash(await reconciliationLockOf(companyId, line), "This payment's bank line");
+    }
+  }
 
   const payment = await loadPayment(companyId, kind, paymentId);
   if (!payment) return { refusal: 'not_found' };
@@ -199,6 +221,7 @@ export async function voidPaymentDocument(
     const unwoundViaBank = await reverseReconciledTransaction(
       companyId, bankTransactionId, userId, opts,
     );
+    for (const id of chainLines) await unmatchTransaction(companyId, id);
     log.info('Voided payment document via its bank allocation', {
       companyId, kind, paymentId, bankTransactionId,
       invoicesReopened: unwoundViaBank.invoicesReopened,
@@ -240,11 +263,18 @@ export async function voidPaymentDocument(
 
     if (payment.journalEntryId) {
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
-      // No catch: a closed period or an already-reversed entry must reach the
-      // savepoint above — and through it the caller's. Flattening it into a
-      // returned error would RELEASE both and commit the unwind.
-      vatLockRoll = (await reverseJournalEntry(companyId, payment.journalEntryId, userId, opts)).vatLockRoll ?? null;
+      // The chain HEAD while the journal's chain stands (D8): after O <- R <- R2
+      // the GL carries the payment again through R2 and O is stamped reversed.
+      // A chain already OUT reverses nothing and the document is still voided,
+      // as the HTTP void does (D8 round 4) — refusing left the payment
+      // 'processed' and its bills paid against a ledger that holds no payment.
+      const head = await lockStandingChainHead(companyId, payment.journalEntryId);
+      // No catch: a closed period or a broken chain must reach the savepoint
+      // above — and through it the caller's. Flattening it into a returned
+      // error would RELEASE both and commit the unwind.
+      if (head) vatLockRoll = (await reverseJournalEntry(companyId, head, userId, opts)).vatLockRoll ?? null;
     }
+    for (const id of chainLines) await unmatchTransaction(companyId, id); // the line follows the chain out
     return result;
   });
 

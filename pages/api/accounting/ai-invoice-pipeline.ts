@@ -260,7 +260,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // Attach evidence to a matching provisional JE; an auto-approved invoice is then
   // settled against it (R-127), or posted on its own when it evidences none (R-160),
-  // and withdrawn to draft when its journal cannot post. Throws only if that revert fails.
+  // and withdrawn to draft when its journal cannot post. Throws only if that revert fails, or on a lock
+  // timeout (D8 round 11), which withErrorHandler answers 503 so the whole post is retried.
   const provisionalAttach = await attachEvidenceAndSettleApproved({
     companyId, userId, documentId, invoiceId: invoice.id as string, invoiceStatus: String(invoice.status),
     supplierId: supplierMatch.supplierId, totalAmount: invoiceInput.totalAmount, invoiceDate: invoiceInput.invoiceDate,

@@ -56,12 +56,28 @@ vi.mock('@/modules/accounting/services/bank/bankAllocationUnwind', () => ({
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   reverseReconciledTransaction: vi.fn(),
 }));
-vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
-  lockBankTransactionForUpdate: vi.fn(),
-}));
+vi.mock('@/modules/accounting/services/bank/bankTxLock', () => {
+  const lockBankTransactionForUpdate = vi.fn();
+  return {
+    lockBankTransactionForUpdate,
+    // The real helper's contract (D8 round 11): each id once, ascending, through the one-row lock.
+    lockBankTransactionsInIdOrder: vi.fn(async (companyId: string, ids: string[]) => {
+      const rows: unknown[] = [];
+      for (const id of [...new Set(ids)].sort()) {
+        const row: unknown = await lockBankTransactionForUpdate(companyId, id);
+        if (row) rows.push(row);
+      }
+      return rows;
+    }),
+  };
+});
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   reverseJournalEntry: vi.fn(),
 }));
+// D8: the chain head (real-ledger proof: d8-r2-chain-head-cancel-void) is the journal itself here.
+vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({ lockStandingChainHead: async (_c: string, id: string) => id }));
+// D8 rounds 10/12: lines matched to another journal of the chain (real-ledger proof: d8-r12-chain-bank-lines); none here.
+vi.mock('@/modules/accounting/services/bank/chainBankLines', () => ({ findChainBankLines: vi.fn(async () => []) }));
 
 import { sql } from '@/lib/neon';
 import {

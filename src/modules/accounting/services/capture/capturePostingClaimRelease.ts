@@ -9,6 +9,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { journalStandsFragment } from '../shared/journalInForceAsAt';
 
 /**
  * Release the posting claim — but only once nothing the document produced is
@@ -56,7 +57,7 @@ export async function releaseCapturedDocumentPostingClaim(
           WHERE je.source_document_id = cd.id
             AND je.company_id = cd.company_id
             AND je.source = 'auto_expense_receipt'
-            AND je.reversed_at IS NULL
+            AND ${journalStandsFragment('je.id', companyId)}
        )
        AND NOT EXISTS (
          SELECT 1 FROM supplier_invoices si
@@ -69,7 +70,7 @@ export async function releaseCapturedDocumentPostingClaim(
           WHERE pje.source_document_id = cd.id
             AND pje.company_id = cd.company_id
             AND pje.evidenced_at IS NOT NULL
-            AND pje.reversed_at IS NULL
+            AND ${journalStandsFragment('pje.id', companyId)}
        )
        AND NOT EXISTS (
          SELECT 1 FROM expense_claim_lines ecl
@@ -124,7 +125,7 @@ export async function releaseUnpostedCaptureClaim(
                 AND je.company_id = ${companyId}
                 AND je.source = 'auto_expense_receipt'
                 AND je.status <> 'draft'
-                AND je.reversed_at IS NULL
+                AND ${journalStandsFragment('je.id', companyId)}
            )
         OR EXISTS (
              SELECT 1 FROM supplier_invoices si
@@ -137,7 +138,7 @@ export async function releaseUnpostedCaptureClaim(
               WHERE pje.source_document_id = ${documentId}::uuid
                 AND pje.company_id = ${companyId}
                 AND pje.evidenced_at IS NOT NULL
-                AND pje.reversed_at IS NULL
+                AND ${journalStandsFragment('pje.id', companyId)}
            )
         OR EXISTS (
              SELECT 1 FROM expense_claim_lines ecl

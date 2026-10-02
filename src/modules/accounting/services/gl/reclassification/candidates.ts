@@ -8,6 +8,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { journalStandsFragment } from '../../shared/journalInForceAsAt';
 import type { CandidateRow } from './partition';
 
 export type {
@@ -69,8 +70,9 @@ export async function findReclassCandidates(
                 AND rbl.source_line_id = jl.id
                 -- A reversed reclassification did not stick, so its source line
                 -- is movable again. Without this a corrected mistake would be
-                -- permanently unfixable.
-                AND rje.reversed_at IS NULL
+                -- permanently unfixable. Read by the chain (D8): a reclass whose
+                -- reversal was itself reversed stuck after all.
+                AND ${journalStandsFragment('rje.id', companyId)}
            ) AS already_reclassified,
            EXISTS (
              SELECT 1 FROM reclassification_batch_lines rbl2

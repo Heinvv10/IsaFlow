@@ -18,6 +18,13 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   reverseJournalEntry: (...a: unknown[]) => reverseJournalEntry(...a),
 }));
 
+// D8: the entry reversed is the journal's chain head (real-ledger proof:
+// tests/integration/d8-r4-matrix, M-DISMISS); here the journal itself stands.
+const lockStandingChainHead = vi.fn();
+vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({
+  lockStandingChainHead: (...a: unknown[]) => lockStandingChainHead(...a),
+}));
+
 import { dismissProvisionalEntry } from '@/modules/accounting/services/bank/provisionalDismissService';
 
 function routeSql(handlers: Array<{ match: RegExp; rows: unknown[] }>) {
@@ -32,6 +39,8 @@ describe('dismissProvisionalEntry', () => {
   beforeEach(() => {
     sqlMock.mockReset();
     reverseJournalEntry.mockReset();
+    lockStandingChainHead.mockReset();
+    lockStandingChainHead.mockImplementation(async (_companyId: string, id: string) => id);
   });
 
   it('throws when the JE does not belong to the company', async () => {
@@ -77,5 +86,17 @@ describe('dismissProvisionalEntry', () => {
     const r = await dismissProvisionalEntry('co-1', 'je-1', 'u-1');
     expect(r.bankTransactionsReset).toBe(0);
     expect(r.reversalJournalEntryId).toBe('je-contra');
+  });
+
+  it('reverses nothing when the chain is already out, and still frees the bank line (D8)', async () => {
+    lockStandingChainHead.mockResolvedValue(null);
+    routeSql([
+      { match: /FROM gl_journal_entries/, rows: [{ id: 'je-1', needs_evidence: true, status: 'posted' }] },
+      { match: /UPDATE bank_transactions/, rows: [{ id: 'tx-1' }] },
+    ]);
+
+    const r = await dismissProvisionalEntry('co-1', 'je-1', 'u-1');
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
+    expect(r).toEqual({ reversalJournalEntryId: null, bankTransactionsReset: 1 });
   });
 });
