@@ -94,7 +94,7 @@ describe('BL-84: postEliminationAdjustment — group_id must be in UPDATE WHERE 
 
     await expect(
       postEliminationAdjustment(B184_ADJ_B, GROUP_A)
-    ).rejects.toThrow(/not found or not in draft status/);
+    ).rejects.toThrow(/is not a draft adjustment of this group/);
 
     // group_id must have been passed to SQL
     const values = flatSqlValues();
@@ -131,7 +131,7 @@ describe('BL-84: reverseEliminationAdjustment — group_id must be in UPDATE WHE
 
     await expect(
       reverseEliminationAdjustment(B184_ADJ_B, GROUP_A)
-    ).rejects.toThrow(/not found or not in posted status/);
+    ).rejects.toThrow(/is not a posted adjustment of this group/);
 
     const values = flatSqlValues();
     expect(values).toContain(B184_ADJ_B);

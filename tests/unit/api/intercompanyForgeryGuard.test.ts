@@ -32,10 +32,11 @@ vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => ({
 
 import handler from '../../../pages/api/accounting/intercompany-transactions';
 
-const GROUP = 'group-1';
-const SOURCE = 'company-source';
-const TARGET_IN = 'company-target-in';
-const TARGET_FOREIGN = 'company-foreign';
+// UUIDs: the route checks id shape (400) before the forgery guard runs (D4 round 9).
+const GROUP = '80000000-0000-4000-8000-000000000001';
+const SOURCE = '10000000-0000-4000-8000-0000000000a1';
+const TARGET_IN = '10000000-0000-4000-8000-0000000000a2';
+const TARGET_FOREIGN = '10000000-0000-4000-8000-0000000000ff';
 
 function mockReqRes(body: Record<string, unknown>) {
   const req = {

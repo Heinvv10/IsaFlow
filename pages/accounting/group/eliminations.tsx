@@ -14,12 +14,28 @@ import {
   type EliminationType,
   type EliminationLine,
   type EliminationAdjustment,
+  toEliminationRow,
 } from '@/components/accounting/group/EliminationsShared';
 import { EliminationsTable } from '@/components/accounting/group/EliminationsTable';
 import { EliminationsCreateModal } from '@/components/accounting/group/EliminationsCreateModal';
 import { localISODate } from '@/lib/dateUtils';
 
 interface EntityGroup { id: string; name: string; }
+
+/**
+ * The group's account code → id. Elimination lines are stored by group account ID (the
+ * consolidated reports look them up by id), but the form takes the code a person knows.
+ */
+async function groupAccountIds(groupId: string): Promise<Map<string, string>> {
+  const res = await apiFetch(`/api/accounting/company-groups?action=accounts&group_id=${encodeURIComponent(groupId)}`);
+  await assertOk(res, 'Could not load the group chart of accounts');
+  const json = (await res.json()) as { data?: { items?: Array<{ id?: unknown; accountCode?: unknown }> } };
+  const map = new Map<string, string>();
+  for (const a of json.data?.items ?? []) {
+    if (typeof a.id === 'string' && typeof a.accountCode === 'string') map.set(a.accountCode, a.id);
+  }
+  return map;
+}
 
 const BLANK_LINES: EliminationLine[] = [
   { groupAccountCode: '', debit: 0, credit: 0 },
@@ -64,7 +80,8 @@ export default function EliminationsPage() {
       const res = await apiFetch(`/api/accounting/consolidated-reports?${params}`);
       await assertOk(res, 'Could not load the elimination adjustments - try again');
       const json = await res.json();
-      setItems((json.data || json).items || []);
+      const list: unknown = (json.data || json).items;
+      setItems(Array.isArray(list) ? list.map(toEliminationRow) : []);
     } catch (err) { setError(apiErrorMessage(err, 'Could not load the elimination adjustments - try again')); setItems([]); }
     finally { setLoading(false); }
   }, [selectedGroupId, periodStart, periodEnd]);
@@ -87,13 +104,13 @@ export default function EliminationsPage() {
   }, [selectedGroupId, loadData]);
 
   const handleAutoGenerate = () =>
-    postAction('auto-generate', { action: 'auto-eliminate', period_start: periodStart, period_end: periodEnd }, 'Could not generate the eliminations - try again');
+    postAction('auto-generate', { action: 'auto-eliminate', periodStart, periodEnd }, 'Could not generate the eliminations - try again');
 
   const handlePost = (id: string) =>
-    postAction(id, { action: 'post-elimination', elimination_id: id }, 'Could not post the elimination - try again');
+    postAction(id, { action: 'post-elimination', adjustmentId: id }, 'Could not post the elimination - try again');
 
   const handleReverse = (id: string) =>
-    postAction(id, { action: 'reverse-elimination', elimination_id: id }, 'Could not reverse the elimination - try again');
+    postAction(id, { action: 'reverse-elimination', adjustmentId: id }, 'Could not reverse the elimination - try again');
 
   function resetForm() {
     setFormType('interco_revenue'); setFormDescription(''); setFormPeriod(localISODate());
@@ -115,15 +132,22 @@ export default function EliminationsPage() {
     }
     setFormSaving(true); setFormError('');
     try {
+      const ids = await groupAccountIds(selectedGroupId);
+      const unknown = formLines.map((l) => l.groupAccountCode.trim()).filter((c) => !ids.has(c));
+      if (unknown.length > 0) {
+        setFormError(`Not a group account code: ${[...new Set(unknown)].join(', ')}`);
+        return;
+      }
       const res = await apiFetch(
         `/api/accounting/consolidated-reports?group_id=${selectedGroupId}`,
         {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            action: 'create-elimination', type: formType,
-            description: formDescription, period: formPeriod,
+            // The field names the route reads; the elimination is dated on the chosen day.
+            action: 'create-elimination', adjustmentType: formType,
+            description: formDescription, periodStart: formPeriod, periodEnd: formPeriod,
             lines: formLines.map((l) => ({
-              group_account_code: l.groupAccountCode,
+              groupAccountId: ids.get(l.groupAccountCode.trim()),
               debit: Number(l.debit || 0), credit: Number(l.credit || 0),
             })),
           }),

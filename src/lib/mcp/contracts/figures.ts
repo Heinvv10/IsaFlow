@@ -331,12 +331,12 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     // gap between them is the only thing that can detect the break, exactly as
     // for ar.subledger.v1 vs ar.control.v1.
   }),
-  'gl.trialbalance.v2': def({
-    id: 'gl.trialbalance.v2',
+  'gl.trialbalance.v3': def({
+    id: 'gl.trialbalance.v3',
     label: 'Trial balance',
     owner: 'gl/trialBalanceService#getTrialBalance',
     includes:
-      'Opening, movement and closing for EVERY account, not only those with movement in the period.',
+      'Opening (balance at the period start), posted movement, derived year-end close and closing for EVERY account, not only those with movement in the period. Balance-sheet accounts are cumulative; income-statement accounts run from the start of the fiscal year containing the period end, with earlier profit on a derived Retained Earnings b/f line. opening + movement + close = closing on every row; the close is 0 unless the period crosses a fiscal-year start.',
     excludes:
       'Nothing. An account omitted because it did not move in the month is the defect that let a 7-of-118 listing be stamped Balanced.',
   }),

@@ -61,7 +61,7 @@ function makeDbRow(overrides: Record<string, unknown> = {}) {
     account_type: 'asset',
     normal_balance: 'debit',
     closing_debit: '1000.00',
-    closing_credit: '0.00',
+    closing_credit: '0.00', opening_net: '0.00',
     period_debit: '1000.00',
     period_credit: '0.00',
     ...overrides,
@@ -211,9 +211,9 @@ describe('getTrialBalance (CS-01 — balances, not period movement)', () => {
     const text = sqlTextOf(mockSql, 1);
 
     const exemption = /ga\.account_type IN \('asset', 'liability', 'equity'\)\s+OR je\.entry_date >=/g;
-    // Once for the debit CASE, once for the credit CASE — dropping either one
-    // silently makes half the statement period-bounded.
-    expect(text.match(exemption)?.length).toBe(2);
+    // Once for the debit CASE, once for the credit CASE, once for the opening —
+    // dropping any one silently makes part of the statement period-bounded.
+    expect(text.match(exemption)?.length).toBe(3);
   });
 
   /**
@@ -241,11 +241,11 @@ describe('getTrialBalance (CS-01 — balances, not period movement)', () => {
     await getTrialBalance(COMPANY_ID, PERIOD_ID);
     const text = sqlTextOf(mockSql, 1);
 
-    // Exactly four lower bounds on entry_date, all inside CASE arms:
-    // two for the fiscal-year cut-off, two for the period movement columns.
-    // A fifth means someone bounded the row set itself.
+    // Exactly five lower bounds on entry_date, all inside CASE arms: two for the
+    // closing's fiscal-year cut-off, one for the opening's, two for the period
+    // movement columns. A sixth means someone bounded the row set itself.
     const lowerBounds = text.match(/je\.entry_date\s*>=/g) ?? [];
-    expect(lowerBounds).toHaveLength(4);
+    expect(lowerBounds).toHaveLength(5);
 
     // The only entry_date predicate in the WHERE clause is the upper bound.
     const whereClause = text.slice(text.indexOf('FROM gl_journal_lines'));
@@ -355,7 +355,7 @@ describe('getTrialBalance (CS-01 — balances, not period movement)', () => {
   it('exposes opening balance and period movement that reconcile to the closing balance', async () => {
     primeSql([
       makeDbRow({
-        closing_debit: '30640532.90', closing_credit: '24637060.26',
+        closing_debit: '30640532.90', closing_credit: '24637060.26', opening_net: '5889629.20',
         period_debit: '229570.66', period_credit: '115727.22',
       }),
     ]);
@@ -609,7 +609,7 @@ describe('getTrialBalanceReport (one balanced assertion, computed once)', () => 
 describe('zero balances vs no movement (the old HAVING conflated them)', () => {
   const dormant = makeDbRow({
     account_code: '1121', account_name: 'Loan Account - Blitz Fibre',
-    closing_debit: '335000.00', closing_credit: '205000.00', period_debit: '0', period_credit: '0',
+    closing_debit: '335000.00', closing_credit: '205000.00', opening_net: '130000.00', period_debit: '0', period_credit: '0',
   });
   const nettedToZero = makeDbRow({
     account_code: '49512173', account_name: 'Loan account - Integrivest',

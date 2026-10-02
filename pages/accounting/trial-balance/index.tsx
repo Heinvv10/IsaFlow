@@ -10,6 +10,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Scale, Loader2, AlertCircle, Download, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { TrialBalanceRow } from '@/components/reports/TrialBalanceRow';
 import type { TBRowData } from '@/components/reports/TrialBalanceRow';
+import { TrialBalanceYearEndNote } from '@/components/reports/TrialBalanceYearEndNote';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
@@ -37,6 +38,7 @@ export default function TrialBalancePage() {
   const [balanced, setBalanced] = useState(true);
   const [accountCount, setAccountCount] = useState(0);
   const [fiscalYearStart, setFiscalYearStart] = useState('');
+  const [fiscalYearEnds, setFiscalYearEnds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
@@ -77,6 +79,7 @@ export default function TrialBalancePage() {
       setBalanced(data.balanced === true);
       setAccountCount(Number(data.accountCount || 0));
       setFiscalYearStart(String(data.fiscalYearStart || ''));
+      setFiscalYearEnds(Array.isArray(data.fiscalYearEndsClosed) ? data.fiscalYearEndsClosed.map(String) : []);
     } catch (err) { setError(apiErrorMessage(err, 'Could not load the trial balance - try again')); }
     finally { setLoading(false); }
   }, [selectedPeriod, costCentreId, businessUnitId, comparePeriodId, filtersReady]);
@@ -271,6 +274,7 @@ export default function TrialBalancePage() {
                   </tr>
                 </tfoot>
               </table>
+              <TrialBalanceYearEndNote fiscalYearEnds={fiscalYearEnds} broughtForwardClosed={rows.find(r => r.derived)?.closedToRetainedEarnings ?? 0} />
             </div>
           )}
         </div>

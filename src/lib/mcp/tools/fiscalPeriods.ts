@@ -212,7 +212,7 @@ export const periodCloseChecklistTool: McpTool = {
       fiscal_period_id: readiness.periodId,
       period_label: readiness.periodLabel,
       overall_status: readiness.overallStatus,
-      figure_basis: figureBasis('gl.trialbalance.v2'),
+      figure_basis: figureBasis('gl.trialbalance.v3'),
       items: readiness.items.map((i) => ({
         key: i.key, label: i.label, status: i.status, reason: i.reason, fix_href: i.fixHref,
       })),
