@@ -118,6 +118,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
                 amountCents: live.amountCents,
                 currency: live.currency,
                 requestedAmountCents: live.requestedAmountCents,
+                feeCents: live.feesCents,
               },
               reference: pr.paystack_reference,
               // verifyTransaction reports paidAt but no fee. The webhook does

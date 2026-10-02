@@ -25,8 +25,13 @@ const EPS = 0.01;
 
 export interface GatewayAllocation {
   allocated: number;
-  /** `invoice_<status>` / `invoice_deleted` when the invoice is outside the ledger. */
+  /**
+   * Why the invoice takes none of it: `invoice_<status>` / `invoice_deleted` when the
+   * invoice is outside the ledger, or the caller's own hold (`unapplied_currency`).
+   */
   invoiceBlock: string | null;
+  /** The invoice's customer as read under the lock: a merge may have moved it since. */
+  clientId: string | null;
   /** Banked but neither allocated nor blocked: the customer is owed a refund or a placement. */
   overpaid: boolean;
   status: string | null;
@@ -38,12 +43,15 @@ export async function decideGatewayAllocation(
   invoiceId: string,
   amountRand: number,
   reference: string,
+  hold: string | null = null,
 ): Promise<GatewayAllocation> {
   const locked = await withCustomerInvoiceLock('recordGatewayInvoiceReceipt', `Invoice ${invoiceId}`, () => sql<{
     locked_total: string; amount_paid: string | null; status: string | null; deleted_at: string | null;
+    client_id: string | null;
   }>`
     SELECT total_amount::text AS locked_total, amount_paid::text AS amount_paid,
-           status, deleted_at::text AS deleted_at
+           status, deleted_at::text AS deleted_at,
+           COALESCE(client_id, customer_id)::text AS client_id
     FROM customer_invoices
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
     FOR UPDATE
@@ -67,7 +75,7 @@ export async function decideGatewayAllocation(
 
   // An invoice outside the ledger takes none of it: the whole receipt stays on the
   // customer unapplied, for a person to place.
-  const invoiceBlock = invoiceReview(invoice.status, invoice.deleted_at);
+  const invoiceBlock = invoiceReview(invoice.status, invoice.deleted_at) ?? hold;
   // The gateway can settle more than the invoice still owes — an EFT part-payment
   // landing between the payment link and the card charge is enough. The excess is
   // real cash in the bank, so the receipt is banked in full and only the part the
@@ -83,5 +91,8 @@ export async function decideGatewayAllocation(
       'accounting',
     );
   }
-  return { allocated, invoiceBlock, overpaid, status: invoice.status, deleted: invoice.deleted_at !== null };
+  return {
+    allocated, invoiceBlock, overpaid, clientId: invoice.client_id,
+    status: invoice.status, deleted: invoice.deleted_at !== null,
+  };
 }

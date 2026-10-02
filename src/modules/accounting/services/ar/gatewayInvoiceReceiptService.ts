@@ -177,7 +177,17 @@ export async function recordGatewayInvoiceReceipt(
       ${description}, ${actorId}::UUID
     )
   `;
-  const plan = await decideGatewayAllocation(companyId, invoiceId, amountRand, reference);
+  // A non-ZAR figure never settles a ZAR invoice: banked (Hein), left unapplied, flagged.
+  const plan = await decideGatewayAllocation(companyId, invoiceId, amountRand, reference,
+    isBookCurrency(receipt.reported) ? null : 'unapplied_currency');
+  // The customer as read under the lock: a merge committed since the unlocked read moved the
+  // invoice, and the receipt follows it rather than staying on the merged-away customer.
+  if (plan.clientId && plan.clientId !== invoice.client_id) {
+    await sql`
+      UPDATE customer_payments SET client_id = ${plan.clientId}::UUID
+      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID
+    `;
+  }
   if (plan.allocated > EPS) {
     await sql`
       INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated)

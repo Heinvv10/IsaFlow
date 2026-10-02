@@ -32,48 +32,67 @@ export interface ReportedCharge {
    * account that passes charges to the customer, `amount` = requested_amount + fee.
    */
   requestedAmountCents?: unknown;
+  /** Paystack's `fees` in cents: what bounds a customer-paid excess. Null when not reported. */
+  feeCents?: unknown;
 }
 
 const positiveCents = (v: unknown): number | null =>
   (typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : null);
+const nonNegativeCents = (v: unknown): number | null =>
+  (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : null);
 
 export const isBookCurrency = (reported: ReportedCharge): boolean => reported.currency === BOOK_CURRENCY;
 
 /**
+ * Why `requested_amount` may not be banked in place of `amount`, or null when it may.
+ * It may only when the excess `amount - requested_amount` is a fee the customer paid:
+ * 0 <= excess <= fees. Anything else banks `amount`, and the fee leg then makes Bank
+ * net to `amount - fees`, what Paystack settles. With no fee figure (a verify response
+ * without one) the excess cannot be bounded, so `amount` is banked and the later
+ * webhook's fee leg brings Bank to the settlement (fix.md, review round 2).
+ */
+function requestedAmountDistrust(amount: number, requestedAmount: number, fee: number | null): string | null {
+  if (amount < requestedAmount) return 'amount_below_requested_amount';
+  if (amount === requestedAmount) return null;
+  if (fee === null) return 'requested_amount_unverified';
+  return amount - requestedAmount > fee ? 'requested_amount_exceeds_fee' : null;
+}
+
+/**
  * The cents to bank and the reasons it needs review.
  *
- * `requested_amount` when Paystack reports one: the rest of `amount` is a fee the
- * customer paid, which is the gateway's money, not customer credit. Otherwise
- * `amount`. A missing or malformed amount is flagged even when `requested_amount`
- * is present, and with neither the request (what Paystack was asked to charge)
- * is banked: refusing would make every webhook redelivery fail. An `amount` below `requested_amount` makes the latter
- * untrustworthy, so the amount is banked and both are flagged.
+ * `requested_amount` when Paystack reports one it can be trusted for (see
+ * requestedAmountDistrust): the rest of `amount` is a fee the customer paid, the
+ * gateway's money, not customer credit. Otherwise `amount`. A missing or malformed
+ * amount is flagged even when `requested_amount` is present (which is then banked),
+ * and with neither the request (what Paystack was asked to charge) is banked:
+ * refusing would make every webhook redelivery fail.
  */
 export function settledCharge(
   requestedCents: number,
   reported: ReportedCharge,
 ): { cents: number; reviews: string[] } {
-  const reviews: string[] = [];
   const amount = positiveCents(reported.amountCents);
-  let requestedAmount = positiveCents(reported.requestedAmountCents);
-  if (requestedAmount !== null && amount !== null && amount < requestedAmount) requestedAmount = null;
-  const cents = requestedAmount ?? amount;
+  const requestedAmount = positiveCents(reported.requestedAmountCents);
+  const distrust = amount !== null && requestedAmount !== null
+    ? requestedAmountDistrust(amount, requestedAmount, nonNegativeCents(reported.feeCents)) : null;
+  const cents = (distrust === null ? requestedAmount : null) ?? amount ?? requestedCents;
+  const reviews: string[] = [];
   if (amount === null) reviews.push('amount_not_reported');
-  if (cents !== null && cents !== requestedCents) reviews.push('amount_mismatch');
-  if (positiveCents(reported.requestedAmountCents) !== null && requestedAmount === null) {
-    reviews.push('amount_below_requested_amount');
-  }
+  if (cents !== requestedCents) reviews.push('amount_mismatch');
+  if (distrust) reviews.push(distrust);
   if (!isBookCurrency(reported)) reviews.push('currency_mismatch');
-  return { cents: cents ?? requestedCents, reviews };
+  return { cents, reviews };
 }
 
 /**
- * The fee leg to post, in rand, so that Bank nets to `amount - fees`, which is
- * what Paystack deposits: the fee less what `amount` holds above the receipt
- * (`bankedCents`, the receipt as booked — on a second report, what the FIRST one
- * banked, not what this one would have). With charges passed to the customer and
- * the receipt at requested_amount, that excess is the fee the customer paid. A
- * non-ZAR fee is not posted as rand: it is flagged instead.
+ * The fee leg to post, in rand: `fees - (amount - banked)`, clamped to [0, fees],
+ * so that Bank nets to `amount - fees`, what Paystack deposits. `bankedCents` is the
+ * receipt as booked — on a second report, what the FIRST one banked. With charges
+ * passed to the customer and the receipt at requested_amount, `amount - banked` is
+ * the fee the customer paid. A clamp that bites means Bank cannot reach the deposit
+ * (or would need more than the reported fee): it is flagged, never booked as a fee.
+ * A non-ZAR fee is not posted as rand: it is flagged instead.
  */
 export function merchantFee(
   feeRand: number | null | undefined,
@@ -84,8 +103,9 @@ export function merchantFee(
   if (!Number.isFinite(fee) || fee <= 0) return { feeRand: null, reviews: [] };
   if (!isBookCurrency(reported)) return { feeRand: null, reviews: ['fee_not_posted_currency'] };
   const amount = positiveCents(reported.amountCents);
-  const customerPaid = amount !== null && amount >= bankedCents ? (amount - bankedCents) / 100 : 0;
-  return { feeRand: Math.max(0, Math.round((fee - customerPaid) * 100) / 100), reviews: [] };
+  const raw = fee - (amount === null ? 0 : (amount - bankedCents) / 100);
+  const posted = Math.round(Math.min(fee, Math.max(0, raw)) * 100) / 100;
+  return { feeRand: posted, reviews: Math.abs(posted - raw) > 0.005 ? ['fee_clamped'] : [] };
 }
 
 /**
