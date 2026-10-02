@@ -62,6 +62,13 @@ export function readDebtorDays(ratios: ExtendedRatioResult, raw: ReportPackFigur
       unavailable: 'Revenue is not positive, so days of sales outstanding cannot be measured.',
     };
   }
+  // A NET CREDIT IS NOT A DEBTOR BOOK. Velocity Fibre's comparative carried
+  // receivables of (1 097) and page 9 printed "(30 days)" — a book collected
+  // a month before the sale. The quotient's sign has stopped tracking the
+  // story, the same rule as a base that is not positive. Nil stays a nil.
+  if (raw.accountsReceivable < 0) {
+    return { value: null, unavailable: 'Trade receivables are a net credit, so days of sales outstanding cannot be measured.' };
+  }
   return { value: measured(ratios.debtorDays, raw.accountsReceivable, raw.revenue, DAYS_IN_YEAR) };
 }
 
@@ -83,6 +90,10 @@ export function readCreditorDays(ratios: ExtendedRatioResult, raw: ReportPackFig
       value: null,
       unavailable: 'Cost of sales is not positive, so days of purchases outstanding cannot be measured.',
     };
+  }
+  // The mirror of debtor days: payables in net debit are not a creditor book.
+  if (raw.accountsPayable < 0) {
+    return { value: null, unavailable: 'Trade payables are a net debit, so days of purchases outstanding cannot be measured.' };
   }
   return { value: measured(ratios.creditorDays, raw.accountsPayable, raw.costOfSales, DAYS_IN_YEAR) };
 }
@@ -140,6 +151,13 @@ export function readInterestCover(ratios: ExtendedRatioResult, raw: ReportPackFi
       : { value: null, unavailable };
   }
   const numerator = operatingProfitOf(raw);
+  // A LOSS COVERS NOTHING. Velocity Fibre's comparative printed "(805.28)×":
+  // a negative multiple says nothing a reader can use about servicing debt,
+  // and it ranked as a figure beside real ones. Stated as n/m with the
+  // reason, as the highlights page treats a base that is not positive.
+  if (numerator < 0) {
+    return { value: null, unavailable: 'Operating profit is a loss, so there are no earnings to cover interest with.' };
+  }
   return {
     value: measured(ratios.interestCoverage, numerator, raw.interestExpense),
     basis: { numerator, denominator: raw.interestExpense },
