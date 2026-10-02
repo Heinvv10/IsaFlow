@@ -18,7 +18,7 @@
 
 import pg from 'pg';
 import { log } from '@/lib/logger';
-import { poolSizeFromEnv } from '@/lib/limits/poolLimits';
+import { poolSizeFromEnv, MIN_PG_POOL_MAX } from '@/lib/limits/poolLimits';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { logTransactionRollback } from '@/lib/transactionRefusal';
 // Static, not the `await import` used elsewhere in this file. assertTxUsable
@@ -65,7 +65,7 @@ export function getPool(): pg.Pool {
   if (!_pool) {
     _pool = new pg.Pool({
       connectionString: getDatabaseUrl(),
-      max: poolSizeFromEnv('PG_POOL_MAX', 10),
+      max: poolSizeFromEnv('PG_POOL_MAX', 10, 'pool', MIN_PG_POOL_MAX),
       connectionTimeoutMillis: 15000,
       idleTimeoutMillis: 30000,
       // Supabase self-hosted uses self-signed certs; flip DATABASE_SSL=strict
