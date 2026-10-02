@@ -58,6 +58,10 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn().mockResolvedValue({ id: 'acc-ar' }),
 }));
+// D8: the journal reversed is its chain head (real-ledger proof: tests/integration/d8-r4-matrix, M-RCPT); here, itself.
+vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({
+  lockStandingChainHead: vi.fn(async (_companyId: string, id: string) => id),
+}));
 
 vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({
   getCustomerPaymentById: vi.fn(),

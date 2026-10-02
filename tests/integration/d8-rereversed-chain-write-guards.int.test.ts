@@ -21,6 +21,11 @@ import { alreadyPosted } from '@/modules/accounting/services/items/depreciationR
 import { postAssetDepreciationToGL } from '@/modules/accounting/services/gl/assetDepreciationPosting';
 import { decideLedgerRelink } from '@/modules/accounting/services/core/sageLedgerRelinkGuard';
 import { planSupplierInvoiceCancel } from '@/modules/accounting/services/ap/supplierInvoiceCancelPlan';
+import {
+  refuseIfJournalNamesBill, SupplierInvoiceDraftUpdateRefusal,
+} from '@/modules/accounting/services/ap/supplierInvoiceDraftUpdateGuards';
+import { linkDocumentToJournal } from '@/modules/accounting/services/gl/journalDocumentLinkService';
+import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
 import { findReclassCandidates } from '@/modules/accounting/services/gl/reclassification/candidates';
 import { targetPriorSources } from '@/modules/accounting/services/gl/reclassification/warnings';
 import { fmtDate } from '@/lib/fmtDate';
@@ -103,7 +108,11 @@ describeIfDb('D8: a re-reversed journal still carries what it carried', () => {
     await sql`DELETE FROM assets WHERE company_id = ${fx.companyId}::UUID`;
     await sql`DELETE FROM reclassification_batch_lines WHERE company_id = ${fx.companyId}::UUID`;
     await sql`DELETE FROM reclassification_batches WHERE company_id = ${fx.companyId}::UUID`;
+    await sql`DELETE FROM gl_journal_document_links WHERE company_id = ${fx.companyId}::UUID`;
+    await sql`DELETE FROM audit_log WHERE company_id = ${fx.companyId}::UUID`;
+    await sql`UPDATE bank_transactions SET provisional_je_id = NULL WHERE company_id = ${fx.companyId}::UUID`;
     await dropFixture(fx);
+    await sql`DELETE FROM users WHERE id = ${fx.userId}`;
   }, 120000);
 
   it('documentJournalClaimGuard: refuses a second journal on a document its re-reversed journal still carries', async () => {
@@ -198,6 +207,41 @@ describeIfDb('D8: a re-reversed journal still carries what it carried', () => {
     expect(rows.find((r) => r.line_id === String(line!.id))?.already_reclassified).toBe(true);
     // ...and the target still counts the source as a prior one.
     expect(await inTx(fx, () => targetPriorSources(fx.companyId, String(target!.id), fx.bankAccountId))).toBe(1);
+  });
+
+  it('draft-bill edit: refuses while a re-reversed journal sourced from the bill still stands (D8 round 4, L-1)', async () => {
+    const bill = await seedBill(fx, { number: `D8E${++seq}`, date: '2026-05-10', total: 100, status: 'draft' });
+    await reverseTwice(await postedJournal({
+      patch: (id) => sql`UPDATE gl_journal_entries SET source_record_id = ${bill}::UUID WHERE id = ${id}::UUID`,
+    }));
+    await expect(inTx(fx, () => refuseIfJournalNamesBill(fx.companyId, bill, 'D8E', false)))
+      .rejects.toThrow(SupplierInvoiceDraftUpdateRefusal);
+  });
+
+  it('document link: a re-reversed journal still takes a document link (D8 round 4, L-3)', async () => {
+    // The link is audit-logged, and audit_log.user_id references users.
+    await sql`INSERT INTO users (id, email, role, is_active) VALUES (${fx.userId}, ${`d8-${fx.userId}@isaflow.test`}, 'admin', true)
+              ON CONFLICT (id) DO NOTHING`;
+    const doc = await document();
+    const x = await postedJournal();
+    await reverseTwice(x);
+    const link = await inTx(fx, () => linkDocumentToJournal(fx.companyId, x, doc, fx.userId, 'D8 round 4'));
+    expect(link.journalEntryId).toBe(x);
+  });
+
+  it('evidence attach: a re-reversed provisional still needing evidence is evidenced (D8 round 4, L-3)', async () => {
+    const doc = await document();
+    const x = await postedJournal({
+      patch: (id) => sql`UPDATE gl_journal_entries SET needs_evidence = true WHERE id = ${id}::UUID`,
+    });
+    await sql`
+      INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status,
+        provisional_je_id, predicted_supplier_id)
+      VALUES (${fx.companyId}::UUID, ${fx.bankAccountId}::UUID, '2026-05-10', -100, ${`D8 PROV ${fx.tag}`},
+        'provisional', ${x}::UUID, ${fx.supplierId}::UUID)`;
+    await reverseTwice(x);
+    const out = await inTx(fx, () => attachEvidenceToProvisional(fx.companyId, doc, fx.supplierId, 100, '2026-05-10'));
+    expect(out.attachedJeId).toBe(x);
   });
 
   it('bill cancel: refuses while a re-reversed journal sourced from the bill still stands', async () => {

@@ -96,7 +96,6 @@ async function reverseJournalEntryInner(
     if (entry.source === 'auto_vat_late_claim' && !opts?.lateClaimCascade) {
       throw new LateClaimCompanionReversalError(entry.entryNumber);
     }
-    await refuseReversingSettlementJournal(companyId, entry); // R-127: either half of a bank-first settlement
     await refuseReversalAgainstPayRun(companyId, entry); // W3-01: a pay run's journal, judged by the ledger, under its locks
 
     // Debits and credits swap; every dimension and the VAT classification come
@@ -124,6 +123,18 @@ async function reverseJournalEntryInner(
     // before it has created anything to clean up.
     if (!await claimJournalReversal(companyId, id, userId)) {
       throw new Error('Journal entry already reversed');
+    }
+    // R-127: either half of a bank-first settlement — AFTER the claim (D8 round
+    // 4, B1). Before it, this was an unlocked read of supplier_payments that an
+    // approval settling the provisional (which locks it, and since D8 its chain
+    // head) could commit right past. Now the claim's row lock waits for that
+    // approval and this read sees its settlement. A refusal releases the claim:
+    // withAuth COMMITs a 4xx, and a stranded claim reads as reversed.
+    try {
+      await refuseReversingSettlementJournal(companyId, entry);
+    } catch (err) {
+      await releaseJournalReversalClaim(companyId, id);
+      throw err;
     }
 
     let reversalEntry: JournalEntry;

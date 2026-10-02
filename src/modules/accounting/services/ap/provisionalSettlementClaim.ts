@@ -33,6 +33,7 @@ import { findActiveVatLock, journalMovesVatFigure } from '../gl/journalVatLockGu
 import type { JournalLine } from '../../types/gl.types';
 import { round2 } from './supplierAllocationLines';
 import { journalStandsFragment } from '../shared/journalInForceAsAt';
+import { lockStandingChainHead } from '../shared/journalChainHead';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 
 const CENT = 0.005;
@@ -71,9 +72,18 @@ async function lockCandidates(companyId: string, documentId: string): Promise<Db
       ORDER BY je.id
       FOR UPDATE OF je
     `) as DbRow[];
+    // D8 round 4 (B1): X's row lock does not hold a re-reversed X in the
+    // ledger — its HEAD (R2) does, and a reversal of R2 claims R2, not X. So
+    // lock the standing head too, under the same budget, and drop a candidate
+    // whose chain went out meanwhile; the reversal then waits on this lock and
+    // meets the settlement in refuseReversingSettlementJournal.
+    const standing: DbRow[] = [];
+    for (const r of rows) {
+      if (await lockStandingChainHead(companyId, String(r.je_id), (m) => new SupplierPaymentRefusal(m))) standing.push(r);
+    }
     // Success path only: after a timeout the transaction is aborted (see supplierInvoiceLock.ts).
     await client.query('SET LOCAL lock_timeout = DEFAULT');
-    return rows;
+    return standing;
   } catch (err) {
     if ((err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE) {
       throw new SupplierPaymentRefusal(

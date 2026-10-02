@@ -14,11 +14,13 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reverseJournalEntry } from '../gl/journalEntryService';
+import { lockStandingChainHead } from '../shared/journalChainHead';
 
 type Row = DbRow;
 
 export interface DismissResult {
-  reversalJournalEntryId: string;
+  /** The contra posted, or null when the provisional's reversal chain was already out (D8). */
+  reversalJournalEntryId: string | null;
   bankTransactionsReset: number;
 }
 
@@ -37,7 +39,11 @@ export async function dismissProvisionalEntry(
     throw new Error('Journal entry is not provisional — dismiss only applies to provisional entries');
   }
 
-  const reversal = await reverseJournalEntry(companyId, jeId, userId);
+  // At its reversal-chain HEAD (D8): a provisional reversed and re-reversed is
+  // back in the ledger through the second contra and stamped reversed; one
+  // whose chain is already out reverses nothing and only frees its bank line.
+  const head = await lockStandingChainHead(companyId, jeId);
+  const reversal = head ? await reverseJournalEntry(companyId, head, userId) : null;
 
   const resetRows = (await sql`
     UPDATE bank_transactions
@@ -48,12 +54,12 @@ export async function dismissProvisionalEntry(
 
   log.info(
     'Provisional entry dismissed (reversed)',
-    { companyId, jeId, reversalId: reversal.id, bankTransactionsReset: resetRows.length },
+    { companyId, jeId, reversalId: reversal?.id ?? null, bankTransactionsReset: resetRows.length },
     'provisional-dismiss',
   );
 
   return {
-    reversalJournalEntryId: String(reversal.id),
+    reversalJournalEntryId: reversal ? String(reversal.id) : null,
     bankTransactionsReset: resetRows.length,
   };
 }

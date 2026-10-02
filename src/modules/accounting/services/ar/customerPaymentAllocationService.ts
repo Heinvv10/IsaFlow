@@ -16,6 +16,7 @@ import { assertNoInactiveAccountLines } from '../gl/journalEntryPostingService';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { assertJournalVatPeriodOpen } from '../gl/journalVatLockGuard';
 import { lockCustomerPaymentForUpdate } from '../core/paymentLock';
+import { lockStandingChainHead } from '../shared/journalChainHead';
 import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
@@ -187,11 +188,10 @@ async function cancelCustomerPaymentInner(
       `;
     }
 
-    // (4) Reverse the GL journal LAST — the pre-existing posted entry is the
-    // most-contended row of the four and the canonical order puts it last.
-    if (payment.glJournalEntryId) {
-      await reverseJournalEntry(companyId, payment.glJournalEntryId, userId);
-    }
+    // (4) Reverse the GL journal LAST, at its reversal-chain HEAD (D8; a chain already out reverses nothing) —
+    // the pre-existing posted entry is the most-contended row of the four and the canonical order puts it last.
+    const head = payment.glJournalEntryId ? await lockStandingChainHead(companyId, payment.glJournalEntryId) : null;
+    if (head) await reverseJournalEntry(companyId, head, userId);
 
     const cancelNote = reason ? ` [CANCELLED: ${reason}]` : ' [CANCELLED]';
     const updated = (await sql`
