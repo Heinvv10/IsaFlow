@@ -111,6 +111,7 @@ describe('paystackClient — REST surface', () => {
         reference: 'ref_2',
         id: 9876,
         amount: 250000,
+        requested_amount: 245000,
         currency: 'ZAR',
         channel: 'card',
         paid_at: '2026-05-01T10:00:00Z',
@@ -136,6 +137,7 @@ describe('paystackClient — REST surface', () => {
 
     expect(result.status).toBe('success');
     expect(result.amountCents).toBe(250000);
+    expect(result.requestedAmountCents).toBe(245000); // R-181: before a customer-paid fee
     expect(result.authorization?.authorizationCode).toBe('AUTH_xyz');
     expect(result.authorization?.last4).toBe('4242');
     expect(result.authorization?.reusable).toBe(true);
@@ -165,6 +167,7 @@ describe('paystackClient — REST surface', () => {
     const { verifyTransaction } = await import('@/modules/billing/services/paystackClient');
     const result = await verifyTransaction('r');
     expect(result.status).toBe(expected);
+    expect(result.requestedAmountCents).toBeNull();
   });
 
   it('chargeAuthorization sends authorization_code + email + amount', async () => {
