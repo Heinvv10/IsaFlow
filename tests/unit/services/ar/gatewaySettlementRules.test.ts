@@ -69,6 +69,7 @@ describe('merchantFee: the fee leg, and Bank netting to amount - fees', () => {
     ['non-ZAR: not posted', 3.5, { amountCents: 11500, currency: 'USD' }, 11500, null, ['fee_not_posted_currency'], null],
     ['second report below what was banked: capped at fees', 1.5, zar(5000), 6000, 1.5, ['fee_clamped'], null],
     ['second report above what was banked by more than fees', 3, zar(10500), 10000, 0, ['fee_clamped'], null],
+    ['a clamp that bites by one cent', 3, zar(10301), 10000, 0, ['fee_clamped'], null],
     ['fee larger than the receipt: capped at the receipt', 200, zar(10000), 10000, 100, ['fee_exceeds_receipt'], null],
   ] as const)('%s', (_label, feeRand, reported, bankedCents, posted, reviews, deposit) => {
     const leg = merchantFee(feeRand, reported, bankedCents);

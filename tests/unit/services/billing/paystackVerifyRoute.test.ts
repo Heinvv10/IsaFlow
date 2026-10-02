@@ -62,6 +62,12 @@ describe('verify: a settled payment answers with what was banked', () => {
     expect((await call()).body.data).toMatchObject({ status: 'completed', amountCents: 5000, appliedToInvoice: true, currency: 'ZAR' });
   });
 
+  it('one cent applied is applied', async () => {
+    h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, status: 'completed' }]);
+    h.rows.set('FROM customer_payments cp', [{ total: '115.00', applied: '0.01', description: 'Paystack card payment r181_verify' }]);
+    expect((await call()).body.data).toMatchObject({ appliedToInvoice: true });
+  });
+
   it('banked in USD and held unapplied', async () => {
     h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, status: 'completed' }]);
     h.rows.set('FROM customer_payments cp', [{ total: '115.00', applied: '0',
