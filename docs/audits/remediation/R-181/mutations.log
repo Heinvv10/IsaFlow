@@ -56,3 +56,13 @@ NOTES (review round 1; code at ce90064fd, tests at a684f6f64)
   asserts it fired; M37 (no 5s lock_timeout) by the lock-timeout test (the webhook waits forever).
 - Earlier batches (round 1 on 5d312dc1e, round 2 on f7ef79b60) are superseded: this batch re-runs
   every guard still in the code, with the patterns rewritten for the restructured functions.
+
+
+REVIEW ROUND 2 (general) — new guards only
+BASELINE (integration): 37 passed (37)
+N1 amount_not_reported only without requested_amount [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 36 passed (37) -> KILLED
+N2 second-report fee costed against its own report [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 36 passed (37) -> KILLED
+N3 second report drops its own reasons [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 2 failed | 35 passed (37) -> KILLED
+N4 empty prior reason kept as previously [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 36 passed (37) -> KILLED
+N5 customer-paid excess when amount is below the receipt [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 36 passed (37) -> KILLED
+AFTER: 37 passed (37)
