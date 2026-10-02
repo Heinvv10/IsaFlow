@@ -9,7 +9,8 @@ import Link from 'next/link';
 import {
   ArrowLeft, FileText, Loader2, AlertCircle, Download, Plus, Save,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { NoteCard } from '@/components/accounting/NoteCard';
 
 interface DisclosureNote {
@@ -42,11 +43,12 @@ export default function DisclosureNotesPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/disclosure-notes?year=${year}`);
+      await assertOk(res, 'Could not load notes - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message ?? 'Failed to load notes');
       setNotes(json.data?.notes ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load notes');
+      setNotes([]);
+      setError(apiErrorMessage(err, 'Could not load notes - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -67,20 +69,25 @@ export default function DisclosureNotesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fiscalYear: year, noteNumber: manualNumber, title: manualTitle, content: manualContent }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message ?? 'Failed to save note');
+      await assertOk(res, 'Could not save the note - try again');
       setManualTitle(''); setManualContent(''); setManualNumber(20); setShowAddForm(false);
       await loadNotes();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to save');
+      setSaveError(apiErrorMessage(err, 'Could not save the note - try again'));
     } finally { setIsSaving(false); }
   }
 
   async function handleDeleteManual(noteId: string) {
     if (!confirm('Delete this note?')) return;
-    const res = await apiFetch(`/api/accounting/disclosure-notes-manual?id=${noteId}`, { method: 'DELETE' });
-    if (!res.ok) { setError('Failed to delete note'); return; }
-    await loadNotes();
+    setError('');
+    try {
+      const res = await apiFetch(`/api/accounting/disclosure-notes-manual?id=${noteId}`, { method: 'DELETE' });
+      await assertOk(res, 'Could not delete the note - try again');
+      await loadNotes();
+    } catch (err) {
+      log.error('Failed to delete disclosure note', { error: err, noteId }, 'disclosure-notes');
+      setError(apiErrorMessage(err, 'Could not delete the note - try again'));
+    }
   }
 
   const yearOptions = Array.from({ length: 10 }, (_, i) => currentFiscalYear() - i);

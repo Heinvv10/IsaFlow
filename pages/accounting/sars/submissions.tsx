@@ -12,7 +12,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SubmissionDetailModal, type SubmissionDetail } from '@/components/accounting/sars/SubmissionDetailModal';
 
 interface Submission extends SubmissionDetail {
@@ -68,8 +68,8 @@ export default function SubmissionsPage() {
         `/api/accounting/sars/sars-submissions${typeParam}`,
         { credentials: 'include', signal: controller.signal },
       );
+      await assertOk(res, 'Could not load submissions - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       setSubmissions(json.data?.items || []);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
@@ -80,7 +80,8 @@ export default function SubmissionsPage() {
           setError('Request timed out after 30 seconds. Click Retry to try again.');
         }
       } else {
-        setError(err instanceof Error ? err.message : 'Failed to load submissions');
+        setSubmissions([]);
+        setError(apiErrorMessage(err, 'Could not load submissions - try again'));
       }
     } finally {
       window.clearTimeout(timer);
@@ -107,11 +108,13 @@ export default function SubmissionsPage() {
         credentials: 'include',
         body: JSON.stringify({ id, action: 'get' }),
       });
+      await assertOk(res, 'Could not load the submission details - try again');
       const json = await res.json();
       if (json.data) {
         setDetail(json.data);
       }
-    } catch {
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the submission details - try again'));
       // Fallback to local data
       const sub = submissions.find((s) => s.id === id);
       if (sub) setDetail(sub);

@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { BarChart3, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface BudgetLine {
@@ -57,11 +57,13 @@ export default function BudgetVsActualPage() {
     try {
       const params = new URLSearchParams({ period: fiscalPeriod });
       const res = await apiFetch(`/api/accounting/reports-budget-vs-actual?${params}`);
+      await assertOk(res, 'Could not load the budget report - try again');
       const json = await res.json();
       const data = json.data || json;
       setReport(data.report || data);
-    } catch {
-      setError('Failed to load budget report');
+    } catch (err) {
+      setReport(null);
+      setError(apiErrorMessage(err, 'Could not load the budget report - try again'));
     } finally {
       setIsLoading(false);
     }

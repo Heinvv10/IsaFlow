@@ -6,7 +6,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ClipboardList, Plus, Search, Loader2, Trash2, Edit, X, FileText } from 'lucide-react';
 import { StatusPill, PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -31,24 +31,29 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 };
 const TABS = ['all', 'draft', 'confirmed', 'invoiced'] as const;
 
-interface ModalProps { customers: CustomerOption[]; onClose: () => void; onCreated: () => void }
-function CreateOrderModal({ customers, onClose, onCreated }: ModalProps) {
+interface ModalProps { customers: CustomerOption[]; customersError: string; onClose: () => void; onCreated: () => void }
+function CreateOrderModal({ customers, customersError, onClose, onCreated }: ModalProps) {
   const [form, setForm] = useState({
     customer_id: '', order_date: localISODate(),
     delivery_date: '', reference: '', notes: '', internal_notes: '',
   });
   const [lines, setLines] = useState([{ description: '', quantity: 1, unit_price: 0, tax_rate: 15 }]);
   const [saving, setSaving] = useState(false);
+  const [createError, setCreateError] = useState('');
   const subtotal = lines.reduce((s, l) => s + l.quantity * l.unit_price, 0);
 
   const handleCreate = async () => {
     if (lines.every(l => !l.description)) return;
-    setSaving(true);
-    await apiFetch('/api/accounting/customer-sales-orders', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, items: lines.filter(l => l.description) }),
-    });
-    setSaving(false); onCreated(); onClose();
+    setSaving(true); setCreateError('');
+    try {
+      const res = await apiFetch('/api/accounting/customer-sales-orders', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, items: lines.filter(l => l.description) }),
+      });
+      await assertOk(res, 'Could not create the sales order - try again');
+      onCreated(); onClose();
+    } catch (err) { setCreateError(apiErrorMessage(err, 'Could not create the sales order - try again')); }
+    finally { setSaving(false); }
   };
 
   return (
@@ -69,6 +74,7 @@ function CreateOrderModal({ customers, onClose, onCreated }: ModalProps) {
                 <option value="">Select a customer…</option>
                 {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+              {customersError && <p className="text-xs text-red-500 mt-1">{customersError}</p>}
             </div>
             <div><label className={lbl}>Order Date</label><input type="date" value={form.order_date} onChange={e => setForm(p => ({ ...p, order_date: e.target.value }))} className={inp} /></div>
             <div><label className={lbl}>Delivery Date</label><input type="date" value={form.delivery_date} onChange={e => setForm(p => ({ ...p, delivery_date: e.target.value }))} className={inp} /></div>
@@ -111,6 +117,7 @@ function CreateOrderModal({ customers, onClose, onCreated }: ModalProps) {
             )}
           </div>
         </div>
+        {createError && <p className="px-6 pb-4 text-sm text-red-600 dark:text-red-400">{createError}</p>}
         <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-800/20">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
           <button onClick={handleCreate} disabled={saving || !form.customer_id || lines.every(l => !l.description)} className="px-5 py-2 text-sm font-semibold bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">
@@ -134,6 +141,7 @@ export default function CustomerSalesOrdersPage() {
   const [showNew, setShowNew] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
+  const [customersError, setCustomersError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -142,30 +150,36 @@ export default function CustomerSalesOrdersPage() {
       if (tab !== 'all') params.set('status', tab);
       if (search) params.set('search', search);
       const res = await apiFetch(`/api/accounting/customer-sales-orders?${params}`);
+      await assertOk(res, 'Could not load sales orders - try again');
       const json = await res.json();
       const d = json.data || json;
       setOrders(d.orders || []); setTotal(d.total || 0);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setOrders([]); setTotal(0);
+      setError(apiErrorMessage(err, 'Could not load sales orders - try again'));
     } finally { setLoading(false); }
   }, [tab, search]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    apiFetch('/api/accounting/customers').then(r => r.json()).then((json: { data?: CustomerOption[] }) => {
+    apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); }).then((json: { data?: CustomerOption[] }) => {
       const list = Array.isArray(json.data) ? json.data : [];
       setCustomers(list.map((c: CustomerOption) => ({ id: String(c.id), name: String(c.name) })));
-    }).catch(() => {/* non-fatal */});
+    }).catch(err => setCustomersError(apiErrorMessage(err, 'Could not load customers - try again')));
   }, []);
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this draft sales order?')) return;
-    setDeleting(id);
-    await apiFetch('/api/accounting/customer-sales-orders', {
-      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
-    setDeleting(null); void load();
+    setDeleting(id); setError('');
+    try {
+      const res = await apiFetch('/api/accounting/customer-sales-orders', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      await assertOk(res, 'Could not delete the sales order - try again');
+      void load();
+    } catch (err) { setError(apiErrorMessage(err, 'Could not delete the sales order - try again')); }
+    finally { setDeleting(null); }
   };
 
   return (
@@ -244,7 +258,7 @@ export default function CustomerSalesOrdersPage() {
           </div>
         </div>
       </div>
-      {showNew && <CreateOrderModal customers={customers} onClose={() => setShowNew(false)} onCreated={load} />}
+      {showNew && <CreateOrderModal customers={customers} customersError={customersError} onClose={() => setShowNew(false)} onCreated={load} />}
     </AppLayout>
   );
 }

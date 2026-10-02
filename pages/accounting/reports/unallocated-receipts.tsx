@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -23,6 +23,7 @@ export default function UnallocatedReceiptsReport() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
+      await assertOk(res, 'Could not load unallocated receipts - try again');
       const json = await res.json();
       const d = json.data;
       const raw: Receipt[] = Array.isArray(d) ? d : d?.items || d?.payments || [];
@@ -32,7 +33,7 @@ export default function UnallocatedReceiptsReport() {
         .map(r => ({ ...r, amount: Number(r.totalAmount ?? r.amount ?? 0), allocatedAmount: Number(r.allocatedAmount ?? 0) }))
         .filter(r => (r.amount - r.allocatedAmount) > 0.01));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setError(apiErrorMessage(err, 'Could not load unallocated receipts - try again'));
     } finally {
       setLoading(false);
     }

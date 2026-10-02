@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, Loader2, AlertCircle, FileText, ExternalLink } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 
 import type { AccountEvidenceRow, JeEvidenceDetail } from '@/modules/accounting/services/core/evidenceGraphService';
 
@@ -54,12 +54,12 @@ function JEDetailPanel({ jeId, onBack }: { jeId: string; onBack: () => void }) {
     setLoading(true);
     apiFetch(`/api/accounting/evidence/je/${jeId}`)
       .then(async r => {
+        await assertOk(r, 'Could not load JE detail - try again');
         const json = await r.json();
-        if (!r.ok) throw new Error('Failed to load JE detail');
         return json;
       })
       .then(json => { if (json.data) setDetail(json.data); else setErr('Not found'); })
-      .catch(() => setErr('Failed to load JE detail'))
+      .catch(e => setErr(apiErrorMessage(e, 'Could not load JE detail - try again')))
       .finally(() => setLoading(false));
   }, [jeId]);
 
@@ -120,12 +120,13 @@ export function EvidenceDrillModal({ accountId, accountName, periodStart, period
     if (businessUnitId) params.set('business_unit_id', businessUnitId);
     apiFetch(`/api/accounting/evidence/trial-balance/${accountId}?${params}`)
       .then(async r => {
+        await assertOk(r, 'Could not load the evidence - try again');
         const json = await r.json();
-        if (!r.ok || !Array.isArray(json.data?.rows)) throw new Error('Failed to load evidence');
+        if (!Array.isArray(json.data?.rows)) throw new ApiEnvelopeError('Could not load the evidence - try again');
         return json.data.rows as AccountEvidenceRow[];
       })
       .then(nextRows => { if (!cancelled) setRows(nextRows); })
-      .catch(() => { if (!cancelled) setErr('Failed to load evidence'); })
+      .catch(e => { if (!cancelled) { setRows([]); setErr(apiErrorMessage(e, 'Could not load the evidence - try again')); } })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [accountId, periodStart, periodEnd, costCentreId, businessUnitId]);

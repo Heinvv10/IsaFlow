@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { ArrowLeftRight, AlertTriangle, Loader2, X, FileText, Mail, Hash } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 export interface MergeCandidate {
   id: string;
@@ -101,15 +101,12 @@ export function MergeCustomersModal({ candidateA, candidateB, onClose, onMerged 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source_id: source.id, target_id: target.id }),
       });
-      const json = await res.json() as { data?: { merged: boolean; target_id: string }; message?: string };
-      if (!res.ok) {
-        setError(json.message ?? 'Merge failed. Please try again.');
-        return;
-      }
+      await assertOk(res, 'Could not merge the customers - try again');
+      const json = await res.json() as { data?: { merged: boolean; target_id: string } };
       const targetId = json.data?.target_id ?? target.id;
       onMerged(targetId);
-    } catch {
-      setError('Network error. Please try again.');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not merge the customers - try again'));
     } finally {
       setIsMerging(false);
     }

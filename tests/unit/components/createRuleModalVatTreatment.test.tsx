@@ -17,7 +17,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch }));
+vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch }));
 vi.mock('@/utils/toast', () => ({
   notify: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }));

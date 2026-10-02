@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface CustomerOption { id: string; name: string }
@@ -34,7 +34,7 @@ export function CustomerTypeahead({ selectedId, selectedLabel, onSelect, onClear
     const t = setTimeout(async () => {
       try {
         const res = await apiFetch(`/api/accounting/customers?q=${encodeURIComponent(q)}`);
-        if (!res.ok) throw new Error(`customers search returned ${res.status}`);
+        await assertOk(res, 'Could not search the customers - try again');
         const json = await res.json() as { data?: CustomerOption[] };
         if (!cancelled) setOptions((json.data ?? []).slice(0, MAX_OPTIONS).map(c => ({ id: c.id, name: c.name })));
       } catch (err) {

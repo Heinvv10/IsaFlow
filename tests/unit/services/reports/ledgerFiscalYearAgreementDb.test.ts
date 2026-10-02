@@ -5,94 +5,21 @@
  * GL report (getGeneralLedgerReport) and the MCP general_ledger stream.
  *
  * Adopts the adversarial breaker's repro cases for PR #595 (brk595Repro).
- * Connection-local temp tables in a rolled-back transaction — no persistent
- * writes; the temp tables shadow the real ones on this connection only.
+ * Fixture and harness: ledgerAgreementFixture.ts.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { als } from '@/lib/als';
-import { getPoolForTests, sql } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
 import { getAccountTransactions } from '@/modules/accounting/services/gl/transactionLedgerService';
 import { getGeneralLedgerReport } from '@/modules/accounting/services/gl/generalLedgerReportService';
 import { getGeneralLedgerLines } from '@/modules/accounting/services/gl/generalLedgerStreamService';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
-import { getTrialBalance } from '@/modules/accounting/services/gl/trialBalanceService';
-import type { TrialBalanceRow } from '@/modules/accounting/types/gl.types';
+import { getTrialBalance, getTrialBalanceReport } from '@/modules/accounting/services/gl/trialBalanceService';
 import { isDbReachable } from '../../helpers/dbReachable';
-import { assertNotProductionDb } from '../../../helpers/assertNotProductionDb';
+import { company, FEB, NORMAL, SEPT, tbClosing, withLedger } from './ledgerAgreementFixture';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
-const company = '10000000-0000-4000-8000-0000000000b1';
-const other = '10000000-0000-4000-8000-0000000000b2';
-const SEPT = '20000000-0000-4000-8000-0000000000b1';
-const FEB = '20000000-0000-4000-8000-0000000000b2';
-const acct = {
-  bank: '50000000-0000-4000-8000-0000000000b1',
-  equity: '50000000-0000-4000-8000-0000000000b2',
-  labour: '50000000-0000-4000-8000-0000000000b3',
-  income: '50000000-0000-4000-8000-0000000000b4',
-};
-const NORMAL: Record<string, 'debit' | 'credit'> = { '1100': 'debit', '3000': 'credit', '5200': 'debit', '4300': 'credit', 'RE-BF': 'credit' };
-
-// The breaker's fixture (5200) plus a revenue account (4300, the audit's GL-report case) and capital.
-const journals: Array<[string, Array<[string, number, number]>]> = [
-  ['2024-06-01', [[acct.bank, 5000, 0], [acct.equity, 0, 5000]]],
-  ['2024-10-01', [[acct.labour, 7, 0], [acct.bank, 0, 7]]],
-  ['2025-06-10', [[acct.labour, 1000, 0], [acct.bank, 0, 1000]]],
-  ['2025-12-01', [[acct.bank, 100, 0], [acct.income, 0, 100]]],
-  ['2026-02-20', [[acct.labour, 300, 0], [acct.bank, 0, 300]]],
-  ['2026-04-15', [[acct.labour, 200, 0], [acct.bank, 0, 200]]],
-  ['2026-05-01', [[acct.bank, 40, 0], [acct.income, 0, 40]]],
-  ['2026-09-10', [[acct.labour, 50, 0], [acct.bank, 0, 50]]],
-];
-
-async function withLedger(fy: number | null, run: () => Promise<void>, otherFy: number | null = 3) {
-  assertNotProductionDb('LED-01 ledger agreement');
-  const client = await getPoolForTests().connect();
-  try {
-    await client.query('BEGIN');
-    await als.run({ client, companyId: company, userId: '', claims: {} }, async () => {
-      await sql`CREATE TEMP TABLE companies (id uuid, financial_year_start int) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE fiscal_periods (id uuid, company_id uuid, start_date date, end_date date) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE gl_accounts (id uuid, company_id uuid, account_code text, account_name text,
-        account_type text, normal_balance text, account_subtype text) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE gl_journal_entries (id uuid, company_id uuid, status text, entry_date date,
-        entry_number text, description text, reference text, source text, created_at timestamptz) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE gl_journal_lines (id uuid DEFAULT gen_random_uuid(), company_id uuid,
-        journal_entry_id uuid, gl_account_id uuid, debit numeric, credit numeric, cost_center_id uuid,
-        cc1_id uuid, cc2_id uuid, bu_id uuid, project_id uuid) ON COMMIT DROP`;
-      await sql`INSERT INTO companies VALUES (${company}::uuid, ${fy}), (${other}::uuid, ${otherFy})`;
-      await sql`INSERT INTO fiscal_periods VALUES (${SEPT}::uuid, ${company}::uuid, '2026-09-01', '2026-09-30'),
-        (${FEB}::uuid, ${company}::uuid, '2026-02-01', '2026-02-28')`;
-      for (const [id, code, name, type] of [
-        [acct.bank, '1100', 'Bank', 'asset'], [acct.equity, '3000', 'Capital', 'equity'],
-        [acct.labour, '5200', 'Labour Costs', 'expense'], [acct.income, '4300', 'Other Income', 'revenue'],
-      ] as const) {
-        await sql`INSERT INTO gl_accounts VALUES (${id}::uuid, ${company}::uuid, ${code}, ${name}, ${type},
-          ${NORMAL[code]!}, NULL)`;
-      }
-      for (const [n, [date, lines]] of journals.entries()) {
-        const je = `40000000-0000-4000-8000-${String(n + 1).padStart(12, '0')}`;
-        await sql`INSERT INTO gl_journal_entries VALUES (${je}::uuid, ${company}::uuid, 'posted', ${date}::date,
-          ${String(n + 1)}, 'Fixture', '', 'manual', ${date}::timestamptz)`;
-        for (const [account, debit, credit] of lines) {
-          await sql`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit)
-            VALUES (${company}::uuid, ${je}::uuid, ${account}::uuid, ${debit}, ${credit})`;
-        }
-      }
-      await run();
-    });
-  } finally {
-    try { await client.query('ROLLBACK'); } finally { client.release(); }
-  }
-}
-
-function tbClosing(rows: TrialBalanceRow[], code: string): number {
-  const row = rows.find(r => r.accountCode === code);
-  if (!row) throw new Error(`TB has no row for ${code}`);
-  return row.normalBalance === 'debit' ? row.debitBalance - row.creditBalance : row.creditBalance - row.debitBalance;
-}
 const ledger = (code: string, from: string, to = '2026-09-30') =>
   getAccountLedger({ companyId: company, accountCode: code, fromDate: from, toDate: to });
 const glReport = async (code: string, from: string, to = '2026-09-30') =>
@@ -117,6 +44,48 @@ describe('ledger listings agree with the trial balance (Postgres)', async () => 
       expect(jan.rows.find(r => r.entryDate === '2026-04-15')?.runningBalance).toBe(200);
       expect(jan).toMatchObject({ openingBalance: 1000, periodNet: 550, closedToRetainedEarnings: -1300, total: 4 });
     });
+  });
+
+  // D4 (R1 on PR #595): a Jan–Dec period on a March-FY company starts in one fiscal year and ends in the
+  // next. The TB floors income-statement accounts at the fiscal year containing the period END, as every
+  // ledger view does: 5200 is 250 (Mar–Dec 2026), not 1550 (from 1 Mar 2025).
+  it.skipIf(!reachable)('D4: a period crossing an FY start — TB opening, movement, derived close and closing agree with every listing', async () => {
+    const YEAR = '20000000-0000-4000-8000-0000000000b3';
+    await withLedger(3, async () => {
+      const tbReport = await getTrialBalanceReport(company, YEAR);
+      const tb = tbReport.rows;
+      expect(tbReport.fiscalYearEndsClosed).toEqual(['2026-02-28']);
+      expect(tbClosing(tb, '5200')).toBe(250);
+      expect(tbClosing(tb, '4300')).toBe(40);
+      // Profit before 1 Mar 2026: 100 income − 1307 labour.
+      expect(tbClosing(tb, 'RE-BF')).toBe(-1207);
+      // 5200 closes 1300 (Mar 2025–Feb 2026) and 4300 100; RE-BF takes the 1200 net loss.
+      expect(['5200', '4300', 'RE-BF', '1100'].map(c => tb.find(r => r.accountCode === c)?.closedToRetainedEarnings))
+        .toEqual([-1300, -100, -1200, 0]);
+      const report = await getGeneralLedgerReport(company, '2026-01-01', '2026-12-31');
+      const signed = (r: (typeof tb)[number], side: 'opening' | 'closing') => {
+        const [dr, cr] = side === 'opening' ? [r.openingDebit ?? 0, r.openingCredit ?? 0] : [r.debitBalance, r.creditBalance];
+        return r.normalBalance === 'debit' ? dr - cr : cr - dr;
+      };
+      for (const row of tb) {
+        const gl = report.find(a => a.accountCode === row.accountCode);
+        expect([signed(row, 'opening'), signed(row, 'closing')], row.accountCode)
+          .toEqual([gl?.openingBalance, gl?.closingBalance]);
+        // The GL report's derived close rows, on the account's normal side.
+        const glClosed = (gl?.transactions ?? []).filter(t => t.derived)
+          .reduce((s, t) => s + (row.normalBalance === 'debit' ? t.debit - t.credit : t.credit - t.debit), 0);
+        expect(row.closedToRetainedEarnings, row.accountCode).toBe(glClosed);
+        if (row.accountCode === 'RE-BF') continue;
+        const detail = await ledger(row.accountCode, '2026-01-01', '2026-12-31');
+        const inline = await getAccountTransactions(company, row.accountCode, '2026-01-01', '2026-12-31');
+        const movement = row.normalBalance === 'debit'
+          ? (row.periodDebit ?? 0) - (row.periodCredit ?? 0) : (row.periodCredit ?? 0) - (row.periodDebit ?? 0);
+        expect([signed(row, 'opening'), movement, row.closedToRetainedEarnings, signed(row, 'closing')], row.accountCode)
+          .toEqual([detail.openingBalance, detail.periodNet, detail.closedToRetainedEarnings, detail.periodClosingBalance]);
+        expect([inline.openingBalance, inline.periodNet, inline.closingBalance], row.accountCode)
+          .toEqual([detail.openingBalance, detail.periodNet, detail.periodClosingBalance]);
+      }
+    }, 3, [[YEAR, '2026-01-01', '2026-12-31']]);
   });
 
   it.skipIf(!reachable)('REPRO2: TB, account detail, inline panel and GL report agree on one account and range', async () => {

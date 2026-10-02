@@ -10,7 +10,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, ArrowRight, FileText, Loader2, AlertCircle, Pencil } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { startPayNowCheckout } from '@/modules/accounting/utils/payNowCheckout';
 import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
@@ -48,22 +49,29 @@ export default function CustomerInvoiceDetailPage() {
   const loadAdjacent = useCallback(async (id: string) => {
     try {
       const res = await apiFetch(`/api/accounting/customer-invoices-adjacent?id=${id}`);
+      await assertOk(res, 'Could not load the neighbouring invoices');
       const json = await res.json() as { data: { prevId: string | null; nextId: string | null } };
       setPrevId(json.data?.prevId ?? null);
       setNextId(json.data?.nextId ?? null);
-    } catch {
+    } catch (err) {
       // non-critical — navigation stays disabled
+      setPrevId(null);
+      setNextId(null);
+      log.warn('Adjacent invoices unavailable', { error: err }, 'customer-invoice-detail');
     }
   }, []);
 
   const loadInvoice = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const res = await apiFetch(`/api/accounting/customer-invoices-detail?id=${invoiceId}`);
+      await assertOk(res, 'Could not load the invoice - try again');
       const json = await res.json();
       setInvoice(json.data || json);
-    } catch {
-      setError('Failed to load invoice');
+    } catch (err) {
+      setInvoice(null); setPrevId(null); setNextId(null);
+      setError(apiErrorMessage(err, 'Could not load the invoice - try again'));
     } finally {
       setLoading(false);
     }
@@ -84,10 +92,10 @@ export default function CustomerInvoiceDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: invoiceId, action }),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || 'Failed'); }
+      await assertOk(res, 'Could not complete that action - try again');
       await loadInvoice();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Action failed');
+      setError(apiErrorMessage(e, 'Could not complete that action - try again'));
     } finally {
       setActionLoading('');
     }
@@ -103,12 +111,12 @@ export default function CustomerInvoiceDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoiceId, recipientEmail: emailTo.trim() }),
       });
+      await assertOk(res, 'Could not send the invoice email - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to send');
       setEmailSuccess(json.data?.sent ? 'Invoice emailed successfully!' : (json.message || 'Email could not be sent.'));
       if (json.data?.sent) await loadInvoice();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to send email');
+      setError(apiErrorMessage(e, 'Could not send the invoice email - try again'));
     } finally { setEmailSending(false); }
   };
 
@@ -119,7 +127,7 @@ export default function CustomerInvoiceDetailPage() {
       window.open(await startPayNowCheckout(invoiceId as string), '_blank', 'noopener,noreferrer');
       await loadInvoice();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to start payment');
+      setError(apiErrorMessage(e, 'Could not start the payment - try again'));
     } finally { setPaymentLoading(false); }
   };
 
@@ -129,7 +137,7 @@ export default function CustomerInvoiceDetailPage() {
       await navigator.clipboard.writeText(invoice.payment_url);
       setLinkCopied(true);
       setTimeout(() => setLinkCopied(false), 2000);
-    } catch { setError('Failed to copy link'); }
+    } catch { setError('Could not copy the link - copy it manually'); }
   };
 
   const handleCopyPortalLink = async () => {
@@ -142,14 +150,15 @@ export default function CustomerInvoiceDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoiceId }),
       });
+      await assertOk(res, 'Could not generate the portal link - try again');
       const json = await res.json() as { success: boolean; data?: { portalUrl: string } };
-      if (!res.ok || !json.data?.portalUrl) throw new Error('Failed to generate portal link');
+      if (!json.data?.portalUrl) throw new Error('Could not generate the portal link - try again');
       setPortalUrl(json.data.portalUrl);
       await navigator.clipboard.writeText(json.data.portalUrl);
       setPortalLinkCopied(true);
       setTimeout(() => setPortalLinkCopied(false), 3000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to generate portal link');
+      setError(apiErrorMessage(e, 'Could not generate the portal link - try again'));
     } finally { setPortalLinkLoading(false); }
   };
 

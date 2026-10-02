@@ -9,6 +9,8 @@ import {
 } from 'react';
 import type { AuthRole } from '@/lib/auth/types';
 import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
+import { log } from '@/lib/logger';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { useSessionCheck } from './useSessionCheck';
 
 /**
@@ -161,11 +163,11 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
         credentials: 'include',
       });
 
+      // A 503 is an auth outage, not a wrong password: say so unless the server gave its own sentence
+      await assertOk(res, res.status === 503
+        ? 'Sign-in is temporarily unavailable - please try again shortly'
+        : 'Could not sign in - try again');
       const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error?.message || data.message || 'Login failed');
-      }
 
       // 2FA required — signal caller to show TOTP step
       if (data.data?.requiresTwoFactor || data.data?.requires_2fa) {
@@ -176,9 +178,9 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
       setUser(raw ? mapApiUser(raw) : null);
       return false;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Login failed';
+      const message = apiErrorMessage(err, 'Could not sign in - try again');
       setError(message);
-      throw err;
+      throw new Error(message);
     } finally {
       setLoading(false);
     }
@@ -199,11 +201,12 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
         ? document.cookie.split('; ').find((c) => c.startsWith('isaflow_csrf='))
         : undefined;
       if (csrfMatch) headers['X-CSRF-Token'] = csrfMatch.slice('isaflow_csrf='.length);
-      await fetch('/api/auth/logout', {
+      const res = await fetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include',
         headers,
       });
+      if (!res.ok) log.warn('Logout: the server did not clear the session cookie', { status: res.status }, 'AuthContext');
     } finally {
       setUser(null);
       clearTenantClientState();

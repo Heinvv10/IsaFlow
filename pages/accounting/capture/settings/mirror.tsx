@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   Server, Plus, RefreshCw, AlertCircle, Loader2, Trash2,
   PowerOff, ChevronLeft, ListChecks, CheckCircle2, XCircle,
@@ -93,13 +93,10 @@ export default function MirrorSettingsPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/capture/mirror');
-      const json = await res.json() as { data?: { items?: Connection[] }; error?: { message?: string } | string };
-      if (!res.ok) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Failed to load connections';
-        setError(msg); return;
-      }
+      await assertOk(res, 'Could not load the mirror connections - try again');
+      const json = await res.json() as { data?: { items?: Connection[] } };
       setConnections(json.data?.items ?? []);
-    } catch { setError('Network error loading mirror connections'); }
+    } catch (err) { setConnections([]); setError(apiErrorMessage(err, 'Could not load the mirror connections - try again')); }
     finally { setLoading(false); }
   }, []);
 
@@ -120,17 +117,13 @@ export default function MirrorSettingsPage() {
           allowedSenders: allowedSenders.split(',').map(s => s.trim()).filter(Boolean),
         }),
       });
-      const json = await res.json() as { error?: { message?: string } | string };
-      if (!res.ok) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Create failed';
-        showToast(msg, false); return;
-      }
+      await assertOk(res, 'Could not add the connection - try again');
       showToast('Mirror connection added', true);
       setAddMode(false);
       setDisplayName(''); setAccountEmail(''); setImapHost(''); setImapUsername('');
       setImapPassword(''); setAllowedSenders('');
       void load();
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not add the connection - try again'), false); }
     finally { setSaving(false); }
   }
 
@@ -138,15 +131,12 @@ export default function MirrorSettingsPage() {
     setScanningId(id);
     try {
       const res = await apiFetch(`/api/accounting/capture/mirror/${id}/scan-now`, { method: 'POST', body: '{}' });
-      const json = await res.json() as { data?: { ingested?: number; scanned?: number; errors?: number }; error?: { message?: string } | string };
-      if (!res.ok) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Scan failed';
-        showToast(msg, false); return;
-      }
+      await assertOk(res, 'Could not run the scan - try again');
+      const json = await res.json() as { data?: { ingested?: number; scanned?: number; errors?: number } };
       const d = json.data ?? {};
       showToast(`Scanned ${d.scanned ?? 0}, ingested ${d.ingested ?? 0}${d.errors ? `, ${d.errors} errors` : ''}`, true);
       void load();
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not run the scan - try again'), false); }
     finally { setScanningId(null); }
   }
 
@@ -154,28 +144,20 @@ export default function MirrorSettingsPage() {
     if (!confirm('Disconnect this mirror and wipe stored credentials?')) return;
     try {
       const res = await apiFetch(`/api/accounting/capture/mirror/${id}/disconnect`, { method: 'POST', body: '{}' });
-      const json = await res.json() as { error?: { message?: string } | string };
-      if (!res.ok) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Disconnect failed';
-        showToast(msg, false); return;
-      }
+      await assertOk(res, 'Could not disconnect the connection - try again');
       showToast('Disconnected', true);
       void load();
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not disconnect the connection - try again'), false); }
   }
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this mirror connection entirely? Scan history is also removed.')) return;
     try {
       const res = await apiFetch(`/api/accounting/capture/mirror/${id}`, { method: 'DELETE' });
-      const json = await res.json() as { error?: { message?: string } | string };
-      if (!res.ok) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Delete failed';
-        showToast(msg, false); return;
-      }
+      await assertOk(res, 'Could not remove the connection - try again');
       showToast('Removed', true);
       void load();
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not remove the connection - try again'), false); }
   }
 
   async function openLog(id: string) {
@@ -183,9 +165,9 @@ export default function MirrorSettingsPage() {
     setLogEntries([]);
     try {
       const res = await apiFetch(`/api/accounting/capture/mirror/${id}/log?limit=100`);
-      const json = await res.json() as { data?: { entries?: ScanLogEntry[] } };
+      await assertOk(res, 'Could not load the scan log - try again'); const json = await res.json() as { data?: { entries?: ScanLogEntry[] } };
       setLogEntries(json.data?.entries ?? []);
-    } catch { /* non-fatal */ }
+    } catch (err) { setLogEntries([]); showToast(apiErrorMessage(err, 'Could not load the scan log - try again'), false); }
   }
 
   return (

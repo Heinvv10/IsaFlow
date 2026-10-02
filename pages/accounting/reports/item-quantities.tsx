@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Package, Loader2, Download, AlertTriangle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface Row { id: string; itemCode: string; name: string; category: string; uom: string; qtyOnHand: number; minLevel: number; lowStock: boolean; }
 
@@ -22,10 +22,12 @@ export default function ItemQuantitiesReport() {
     try {
       const params = showLowOnly ? '?low_stock=true' : '';
       const res = await apiFetch(`/api/accounting/reports/item-quantities${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the report - try again');
       const json = await res.json();
       setRows(json.data || []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setRows([]);
+      setError(apiErrorMessage(err, 'Could not load the report - try again'));
     } finally {
       setLoading(false);
     }

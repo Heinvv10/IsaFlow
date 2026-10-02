@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 export type DisplayMode = 'split' | 'net';
@@ -41,6 +41,7 @@ export function useDisplayMode(): {
     const sync = async () => {
       try {
         const res = await apiFetch('/api/auth/preferences');
+        await assertOk(res, 'Could not load your display mode');
         const json = await res.json() as { data?: Record<string, string> };
         const serverMode = json.data?.[PREF_KEY] as DisplayMode | undefined;
         if (serverMode === 'split' || serverMode === 'net') {
@@ -69,7 +70,7 @@ export function useDisplayMode(): {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ preferences: { [PREF_KEY]: mode } }),
-    }).catch(err => {
+    }).then(r => assertOk(r, 'Could not save your display mode')).catch(err => {
       log.warn('Failed to save display mode preference', { error: err }, 'useDisplayMode');
     });
   }, []);

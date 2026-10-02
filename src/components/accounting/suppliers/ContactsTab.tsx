@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Users, User, Plus, Trash2, Star, Loader2, AlertCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface SupplierContact {
@@ -32,12 +32,14 @@ export function ContactsTab({ supplierId }: { supplierId: string }) {
     setError('');
     try {
       const res  = await apiFetch(`/api/accounting/supplier-contacts?supplierId=${supplierId}`);
+      await assertOk(res, 'Could not load contacts - try again');
       const json = await res.json() as { data?: SupplierContact[] } | SupplierContact[];
       const data = (json as { data?: SupplierContact[] }).data ?? (json as SupplierContact[]);
       setContacts(data);
     } catch (err) {
       log.error('Failed to load supplier contacts', { supplierId, error: err }, 'contacts-tab');
-      setError('Failed to load contacts');
+      setContacts([]);
+      setError(apiErrorMessage(err, 'Could not load contacts - try again'));
     } finally {
       setLoading(false);
     }
@@ -50,17 +52,18 @@ export function ContactsTab({ supplierId }: { supplierId: string }) {
     setSaving(true);
     setError('');
     try {
-      await apiFetch('/api/accounting/supplier-contacts', {
+      const res = await apiFetch('/api/accounting/supplier-contacts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ supplierId, ...form }),
       });
+      await assertOk(res, 'Could not save the contact - try again');
       setForm(EMPTY_FORM);
       setShowForm(false);
       void load();
     } catch (err) {
       log.error('Failed to add supplier contact', { supplierId, error: err }, 'contacts-tab');
-      setError('Failed to save contact');
+      setError(apiErrorMessage(err, 'Could not save the contact - try again'));
     } finally {
       setSaving(false);
     }
@@ -69,11 +72,12 @@ export function ContactsTab({ supplierId }: { supplierId: string }) {
   const handleDelete = async (id: string) => {
     setError('');
     try {
-      await apiFetch(`/api/accounting/supplier-contacts?id=${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/accounting/supplier-contacts?id=${id}`, { method: 'DELETE' });
+      await assertOk(res, 'Could not delete the contact - try again');
       void load();
     } catch (err) {
       log.error('Failed to delete supplier contact', { id, error: err }, 'contacts-tab');
-      setError('Failed to delete contact');
+      setError(apiErrorMessage(err, 'Could not delete the contact - try again'));
     }
   };
 

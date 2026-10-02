@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Truck, Loader2, AlertCircle, Plus, Search, CheckCircle, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { KpiStrip } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface Supplier {
   id: string;
@@ -66,13 +66,14 @@ export default function SuppliersPage() {
       params.set('page', String(page));
       params.set('limit', String(LIMIT));
       const res = await apiFetch(`/api/accounting/suppliers-list?${params}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the suppliers - try again');
       const json = await res.json();
       const data = json.data ?? json;
       setSuppliers((data.suppliers ?? data) as Supplier[]);
       setTotal(data.total ?? 0);
-    } catch {
-      setError('Failed to load suppliers');
+    } catch (err) {
+      setSuppliers([]); setTotal(0);
+      setError(apiErrorMessage(err, 'Could not load the suppliers - try again'));
     } finally {
       setIsLoading(false);
     }

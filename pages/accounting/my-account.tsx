@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { User, Lock, Settings2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import toast from 'react-hot-toast';
@@ -59,6 +59,9 @@ export default function MyAccountPage() {
   // Preferences state
   const [prefs, setPrefs] = useState<Preferences>({ rowsPerPage: '20', navMode: 'top' });
   const [prefsSaving, setPrefsSaving] = useState(false);
+  // A failed load leaves blank/default fields: saving them would overwrite the real values
+  const [profileLoadFailed, setProfileLoadFailed] = useState(false);
+  const [prefsLoadFailed, setPrefsLoadFailed] = useState(false);
 
   // ── Effects ───────────────────────────────────────────────────────────────
 
@@ -69,38 +72,43 @@ export default function MyAccountPage() {
 
   async function loadProfile() {
     setProfileLoading(true);
+    setProfileLoadFailed(false);
     try {
       const res = await apiFetch('/api/auth/profile');
+      await assertOk(res, 'Could not load your profile - try again');
       const json = await res.json();
-      if (json.success && json.data) {
-        const d = json.data;
-        setProfile({
-          firstName: d.firstName ?? '',
-          lastName: d.lastName ?? '',
-          email: d.email ?? '',
-          phone: d.phone ?? '',
-          mobile: d.mobile ?? '',
-        });
-      }
-    } catch {
-      toast.error('Failed to load profile');
+      if (!json.success || !json.data) throw new ApiEnvelopeError('Could not load your profile - try again');
+      const d = json.data;
+      setProfile({
+        firstName: d.firstName ?? '',
+        lastName: d.lastName ?? '',
+        email: d.email ?? '',
+        phone: d.phone ?? '',
+        mobile: d.mobile ?? '',
+      });
+    } catch (err) {
+      setProfileLoadFailed(true);
+      toast.error(apiErrorMessage(err, 'Could not load your profile - try again'));
     } finally {
       setProfileLoading(false);
     }
   }
 
   async function loadPreferences() {
+    setPrefsLoadFailed(false);
     try {
       const res = await apiFetch('/api/auth/preferences');
+      await assertOk(res, 'Could not load your preferences - try again');
       const json = await res.json();
-      if (json.success && json.data) {
-        setPrefs(prev => ({
-          rowsPerPage: json.data.rowsPerPage ?? prev.rowsPerPage,
-          navMode: json.data.navMode ?? prev.navMode,
-        }));
-      }
+      if (!json.success || !json.data) throw new ApiEnvelopeError('Could not load your preferences - try again');
+      setPrefs(prev => ({
+        rowsPerPage: json.data.rowsPerPage ?? prev.rowsPerPage,
+        navMode: json.data.navMode ?? prev.navMode,
+      }));
     } catch (e) {
+      setPrefsLoadFailed(true);
       log.warn('Failed to load preferences', { error: e }, 'account');
+      toast.error(apiErrorMessage(e, 'Could not load your preferences - try again'));
     }
   }
 
@@ -109,6 +117,10 @@ export default function MyAccountPage() {
   async function handleProfileSave() {
     if (!profile.firstName.trim() || !profile.lastName.trim()) {
       toast.error('First name and last name are required');
+      return;
+    }
+    if (profileLoadFailed) {
+      toast.error('Your profile could not be loaded - reload the page before saving');
       return;
     }
     setProfileSaving(true);
@@ -123,15 +135,15 @@ export default function MyAccountPage() {
           mobile: profile.mobile,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) {
-        toast.error(json.error?.message ?? json.message ?? 'Failed to save profile');
-        return;
-      }
-      await refreshUser();
+      await assertOk(res, 'Could not save your profile - try again');
       toast.success('Profile updated successfully');
-    } catch {
-      toast.error('Failed to save profile');
+      try {
+        await refreshUser();
+      } catch (e) {
+        log.warn('Profile saved but refreshing the user failed', { error: e }, 'account');
+      }
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not save your profile - try again'));
     } finally {
       setProfileSaving(false);
     }
@@ -153,21 +165,21 @@ export default function MyAccountPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(pwForm),
       });
-      const json = await res.json();
-      if (!res.ok) {
-        toast.error(json.error?.message ?? json.message ?? 'Failed to change password');
-        return;
-      }
+      await assertOk(res, 'Could not change your password - try again');
       setPwForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
       toast.success('Password changed successfully');
-    } catch {
-      toast.error('Failed to change password');
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not change your password - try again'));
     } finally {
       setPwSaving(false);
     }
   }
 
   async function handlePrefsSave() {
+    if (prefsLoadFailed) {
+      toast.error('Your preferences could not be loaded - reload the page before saving');
+      return;
+    }
     setPrefsSaving(true);
     try {
       const res = await apiFetch('/api/auth/preferences', {
@@ -175,14 +187,10 @@ export default function MyAccountPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ preferences: prefs }),
       });
-      const json = await res.json();
-      if (!res.ok) {
-        toast.error(json.error?.message ?? json.message ?? 'Failed to save preferences');
-        return;
-      }
+      await assertOk(res, 'Could not save your preferences - try again');
       toast.success('Preferences saved');
-    } catch {
-      toast.error('Failed to save preferences');
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not save your preferences - try again'));
     } finally {
       setPrefsSaving(false);
     }

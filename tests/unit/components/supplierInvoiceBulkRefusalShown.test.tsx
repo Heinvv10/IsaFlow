@@ -5,7 +5,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async (orig) => ({ ...await orig<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
 
 import { apiFetch } from '@/lib/apiFetch';
 import { BulkActionBar } from '@/components/accounting/supplier-invoices/BulkActionBar';

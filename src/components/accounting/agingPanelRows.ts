@@ -7,7 +7,7 @@
  * sums — including one paid since the as-at date.
  */
 
-import { apiFetch } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { AgingDetailInvoice } from '@/modules/accounting/utils/aging';
 
 export type AgingSide = 'ar' | 'ap';
@@ -17,9 +17,9 @@ export type AgingPanelRow = AgingDetailInvoice;
 export async function loadAgingPanelRows(side: AgingSide, entityId: string, asAtDate: string): Promise<AgingPanelRow[]> {
   const params = new URLSearchParams({ [side === 'ar' ? 'client_id' : 'supplier_id']: entityId, as_at_date: asAtDate });
   const res = await apiFetch(`/api/accounting/${side}-aging?${params}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  await assertOk(res, 'Could not load the invoices - try again');
   const json = await res.json() as { data?: { invoices?: unknown } };
-  if (!json.data || typeof json.data !== 'object') throw new Error('Unexpected response');
+  if (!json.data || typeof json.data !== 'object') throw new ApiEnvelopeError('Could not load the invoices - try again');
   return Array.isArray(json.data.invoices) ? json.data.invoices as AgingPanelRow[] : [];
 }
 

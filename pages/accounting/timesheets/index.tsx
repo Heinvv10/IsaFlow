@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Clock, Plus, ChevronLeft, ChevronRight, FileText, Loader2, X, Check } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { TimeEntryModal } from '@/components/accounting/time-tracking/TimeEntryModal';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -59,7 +59,7 @@ export default function TimesheetsPage() {
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
   useEffect(() => {
-    void apiFetch('/api/accounting/customers').then(r => r.json()).then((res: unknown) => {
+    void apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); }).then((res: unknown) => {
       const d: Record<string, unknown>[] = Array.isArray((res as { data?: unknown }).data)
         ? (res as { data: Record<string, unknown>[] }).data
         : Array.isArray(res) ? (res as Record<string, unknown>[]) : [];
@@ -68,8 +68,10 @@ export default function TimesheetsPage() {
         name: String(c.name ?? c.company_name ?? ''),
         companyName: String(c.name ?? c.company_name ?? ''),
       })));
-    }).catch(() => { /* non-critical */ });
+    }).catch((err: unknown) => setToast({ msg: apiErrorMessage(err, 'Could not load customers - try again'), ok: false }));
   }, []);
+
+  function showToast(msg: string, ok: boolean) { setToast({ msg, ok }); }
 
   const loadEntries = useCallback(async () => {
     setLoading(true);
@@ -79,10 +81,10 @@ export default function TimesheetsPage() {
     if (filterCustomer) p.set('customerId', filterCustomer);
     try {
       const r = await apiFetch(`/api/accounting/time-entries?${p.toString()}`);
+      await assertOk(r, 'Could not load entries - try again');
       const j = await r.json() as { data?: { entries?: TimeEntry[] } };
       setEntries(j.data?.entries ?? []);
-    } catch { showToast('Failed to load entries', false); }
-    setLoading(false);
+    } catch (err) { setEntries([]); setSelected(new Set()); showToast(apiErrorMessage(err, 'Could not load entries - try again'), false); } finally { setLoading(false); }
   }, [weekStart, filterCustomer]);
 
   useEffect(() => { void loadEntries(); }, [loadEntries]);
@@ -92,7 +94,6 @@ export default function TimesheetsPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  function showToast(msg: string, ok: boolean) { setToast({ msg, ok }); }
 
   const weekDates = DAY_LABELS.map((_, i) => addDays(weekStart, i));
   const byDate = entries.reduce<Record<string, TimeEntry[]>>((acc, e) => {
@@ -129,12 +130,10 @@ export default function TimesheetsPage() {
       const res = await apiFetch('/api/accounting/time-entries', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
-      const j = await res.json() as { message?: string };
-      if (!res.ok) throw new Error(j.message ?? 'Failed');
+      await assertOk(res, 'Could not save the time entry - try again');
       showToast('Entry added', true);
       setShowForm(false); setForm({ ...BLANK_FORM }); void loadEntries();
-    } catch (err) { showToast(err instanceof Error ? err.message : 'Save failed', false); }
-    setFormBusy(false);
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not save the time entry - try again'), false); } finally { setFormBusy(false); }
   };
 
   const handleCreateInvoice = async () => {
@@ -148,12 +147,11 @@ export default function TimesheetsPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ timeEntryIds: ids, customerId: first.customerId, invoiceDate: fmtISO(new Date()) }),
       });
+      await assertOk(res, 'Could not create the invoice - try again');
       const j = await res.json() as { data?: { invoiceNumber?: string }; message?: string };
-      if (!res.ok) throw new Error(j.message ?? 'Failed');
       showToast(`Invoice ${j.data?.invoiceNumber ?? ''} created`, true);
       setSelected(new Set()); void loadEntries();
-    } catch (err) { showToast(err instanceof Error ? err.message : 'Invoice failed', false); }
-    setInvoiceBusy(false);
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not create the invoice - try again'), false); } finally { setInvoiceBusy(false); }
   };
 
   return (

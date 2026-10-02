@@ -10,10 +10,12 @@
  */
 import { useEffect, useState } from 'react';
 import { Lock, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { useCompany } from '@/contexts/CompanyContext';
 import { VatGateOverrideBox, type VatGateCounts } from './VatGateOverrideBox';
 
+const COUNT_FAILED = 'Could not check the VAT exceptions for this period - the server will check again when you lock it';
 const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
 
 interface Props {
@@ -30,19 +32,22 @@ export function VatPeriodLockForm({ onLock }: Props) {
   const [counts, setCounts] = useState<VatGateCounts | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [countsError, setCountsError] = useState('');
 
   useEffect(() => {
-    setCounts(null);
+    setCounts(null); setCountsError('');
     if (!periodStart || !periodEnd || periodEnd < periodStart) return;
     let cancelled = false;
     void (async () => {
       try {
         const res = await apiFetch(`/api/accounting/sars/vat-exceptions?from=${periodStart}&to=${periodEnd}`, { credentials: 'include' });
-        if (!res.ok || cancelled) return;
+        await assertOk(res, COUNT_FAILED);
         const json = await res.json();
         if (!cancelled) setCounts(typeof json.data?.totalExceptions === 'number' ? json.data : null);
-      } catch {
-        // Non-fatal: the form still submits, and the server's own gate is authoritative.
+      } catch (e) {
+        // Non-fatal: the form still submits and the server's own gate is authoritative, but the person is told.
+        log.warn('VAT exception count did not load', { error: e }, 'VatPeriodLockForm');
+        if (!cancelled) { setCounts(null); setCountsError(apiErrorMessage(e, COUNT_FAILED)); }
       }
     })();
     return () => { cancelled = true; };
@@ -52,8 +57,14 @@ export function VatPeriodLockForm({ onLock }: Props) {
     e.preventDefault();
     if (!periodStart || !periodEnd) return;
     setSubmitting(true); setError('');
-    const err = await onLock(periodStart, periodEnd, notes.trim(), overrideReason.trim());
-    setSubmitting(false);
+    let err: string | null | undefined;
+    try {
+      err = await onLock(periodStart, periodEnd, notes.trim(), overrideReason.trim());
+    } catch (thrown) {
+      err = apiErrorMessage(thrown, 'Could not lock the period - try again');
+    } finally {
+      setSubmitting(false);
+    }
     if (err) { setError(err); return; }
     setPeriodStart(''); setPeriodEnd(''); setNotes(''); setOverrideReason(''); setCounts(null);
   };
@@ -92,6 +103,7 @@ export function VatPeriodLockForm({ onLock }: Props) {
         </div>
       </div>
 
+      {countsError && <p role="alert" className="mt-3 rounded-lg bg-amber-500/10 p-2 text-sm text-amber-400">{countsError}</p>}
       <VatGateOverrideBox
         counts={counts}
         isOwnerOrAdmin={isOwnerOrAdmin}

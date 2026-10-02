@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, CheckCircle2, AlertCircle, AlertTriangle, Loader2, ShieldCheck, PartyPopper } from 'lucide-react';
-import { apiFetch, apiJson, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, apiJson, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface ValidationCheck {
@@ -30,7 +30,7 @@ export default function ValidatePage() {
 
   const loadSession = useCallback(async () => {
     try {
-      const { session } = await apiJson('/api/accounting/migration/session');
+      const { session } = await apiJson('/api/accounting/migration/session', undefined, 'Could not load the migration session - try again');
       if (!session) {
         setError('No active migration session found — start one from the Migration Hub');
         return;
@@ -40,7 +40,7 @@ export default function ValidatePage() {
       return session.id;
     } catch (err) {
       log.error('Failed to load migration session', { error: err }, 'accounting-ui');
-      setError(apiErrorMessage(err, 'Failed to load session'));
+      setError(apiErrorMessage(err, 'Could not load the migration session - try again'));
     }
     return null;
   }, []);
@@ -49,11 +49,12 @@ export default function ValidatePage() {
     setIsLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/migration/validate?sessionId=${sid}`);
+      await assertOk(res, 'Could not validate the migration data - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Validation failed');
       setValidation(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Validation failed');
+      setValidation(null);
+      setError(apiErrorMessage(err, 'Could not validate the migration data - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -63,10 +64,11 @@ export default function ValidatePage() {
     loadSession().then(sid => {
       if (sid) void runValidation(sid);
       else setIsLoading(false);
-    }).catch(() => {
+    }).catch((err) => {
       // loadSession/runValidation self-handle today; this is the defensive
       // backstop so a future edit can never leave the spinner stuck.
-      setError('Failed to load session');
+      log.error('Migration validation backstop', { error: err }, 'accounting-ui');
+      setError('Could not load the migration session - try again');
       setIsLoading(false);
     });
   }, [loadSession, runValidation]);
@@ -81,11 +83,10 @@ export default function ValidatePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, action: 'complete' }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to complete migration');
+      await assertOk(res, 'Could not complete the migration - try again');
       setCompleted(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to complete migration');
+      setError(apiErrorMessage(err, 'Could not complete the migration - try again'));
     } finally {
       setIsCompleting(false);
     }

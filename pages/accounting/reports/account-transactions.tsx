@@ -7,9 +7,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiErrorMessage, apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { postedTotals } from '@/components/reports/generalLedgerRows';
+import { postableAccounts } from '@/components/reports/postableAccounts';
 
 interface Txn {
   date: string;
@@ -30,7 +31,10 @@ interface Report {
   closingBalance: number;
   transactions: Txn[];
 }
-interface GLAccount { id: string; accountCode: string; accountName: string }
+interface GLAccount {
+  id: string; accountCode: string; accountName: string;
+  parentAccountId: string | null; level: number | null; hasTransactions: boolean;
+}
 interface CostCentre { id: string; code: string; name: string }
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -54,19 +58,24 @@ export default function AccountTransactionsPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    apiFetch('/api/accounting/cost-centres', { credentials: 'include' }).then(r => r.json()).then(res => {
+    const ccFailure = 'Could not load the cost centres - try again';
+    apiFetch('/api/accounting/cost-centres', { credentials: 'include' }).then(async r => { await assertOk(r, ccFailure); return r.json(); }).then(res => {
       const list = res.data?.items || [];
       setCostCentres(list.map((c: Record<string, unknown>) => ({ id: String(c.id), code: String(c.code), name: String(c.name) })));
-    }).catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
-    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
+    }).catch(err => setError(apiErrorMessage(err, ccFailure)));
+    const coaFailure = 'Could not load the chart of accounts - try again';
+    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(async r => { await assertOk(r, coaFailure); return r.json(); }).then(res => {
       const d = res.data || res;
       const list = Array.isArray(d) ? d : d.accounts || d.items || [];
-      setAccounts(list.filter((a: GLAccount & { level?: number }) => (a as { level?: number }).level === undefined || (a as { level?: number }).level! >= 3).map((a: Record<string, unknown>) => ({
+      setAccounts(postableAccounts(list.map((a: Record<string, unknown>) => ({
         id: String(a.id),
         accountCode: String(a.accountCode || a.account_code || ''),
         accountName: String(a.accountName || a.account_name || ''),
-      })));
-    }).catch(() => setError('Failed to load chart of accounts'));
+        parentAccountId: (a.parentAccountId ?? a.parent_account_id ?? null) as string | null,
+        level: a.level == null ? null : Number(a.level),
+        hasTransactions: a.hasTransactions === true || a.has_transactions === true,
+      }))));
+    }).catch(err => setError(apiErrorMessage(err, coaFailure)));
   }, []);
 
   const requestRef = useRef(0);
@@ -89,7 +98,7 @@ export default function AccountTransactionsPage() {
       const params = new URLSearchParams({
         account_code: accountCode, period_start: periodStart, period_end: periodEnd,
       });
-      if (costCentreFilter) params.set('cost_centre', costCentreFilter);
+      if (costCentreFilter) params.set('cost_centre_id', costCentreFilter);
       const result = await apiJson(`/api/accounting/reports-account-transactions?${params}`, { credentials: 'include' }, failure);
       if (latest()) setReport(result);
     } catch (err) { if (latest()) setError(apiErrorMessage(err, failure)); }
@@ -103,6 +112,7 @@ export default function AccountTransactionsPage() {
     params.set('account_code', accountCode);
     params.set('period_start', periodStart ?? '');
     params.set('period_end', periodEnd ?? '');
+    if (costCentreFilter) params.set('cost_centre_id', costCentreFilter);
     window.location.href = `/api/accounting/account-transactions-export?${params}`;
   }
 
@@ -149,7 +159,7 @@ export default function AccountTransactionsPage() {
                 <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
                 <select value={costCentreFilter} onChange={e => setCostCentreFilter(e.target.value)} className="ff-select text-sm">
                   <option value="">All Cost Centres</option>
-                  {costCentres.map(cc => <option key={cc.id} value={cc.code}>{cc.code} — {cc.name}</option>)}
+                  {costCentres.map(cc => <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>)}
                 </select>
               </div>
             )}

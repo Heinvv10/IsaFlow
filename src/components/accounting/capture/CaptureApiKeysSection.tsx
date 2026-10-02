@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Key, Copy, Check, Loader2, AlertCircle, X, ShieldOff, Plus } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface ApiKey {
   id: string;
@@ -53,14 +53,12 @@ export function CaptureApiKeysSection({ showToast }: Props) {
     setLoading(true);
     try {
       const res = await apiFetch('/api/accounting/capture/api-keys');
-      const json = await res.json() as { data?: ApiKey[]; error?: string };
-      if (!res.ok) {
-        showToast(json.error ?? 'Failed to load API keys', false);
-        return;
-      }
+      await assertOk(res, 'Could not load the API keys - try again');
+      const json = await res.json() as { data?: ApiKey[] };
       setKeys(json.data ?? []);
-    } catch {
-      showToast('Network error loading API keys', false);
+    } catch (err) {
+      setKeys([]);
+      showToast(apiErrorMessage(err, 'Could not load the API keys - try again'), false);
     } finally {
       setLoading(false);
     }
@@ -78,13 +76,13 @@ export function CaptureApiKeysSection({ showToast }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label }),
       });
-      const json = await res.json() as { data?: NewKeyResult; error?: string };
-      if (!res.ok) { showToast(json.error ?? 'Failed to generate key', false); return; }
+      await assertOk(res, 'Could not generate the API key - try again');
+      const json = await res.json() as { data?: NewKeyResult };
       setNewKey(json.data ?? null);
       setNewLabel('');
       void loadKeys();
-    } catch {
-      showToast('Network error', false);
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not generate the API key - try again'), false);
     } finally {
       setGenerating(false);
     }
@@ -96,12 +94,11 @@ export function CaptureApiKeysSection({ showToast }: Props) {
       const res = await apiFetch(`/api/accounting/capture/api-keys/${id}/revoke`, {
         method: 'POST',
       });
-      const json = await res.json() as { error?: string };
-      if (!res.ok) { showToast(json.error ?? 'Failed to revoke key', false); return; }
+      await assertOk(res, 'Could not revoke the API key - try again');
       showToast('API key revoked', true);
       void loadKeys();
-    } catch {
-      showToast('Network error', false);
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not revoke the API key - try again'), false);
     } finally {
       setRevoking(null);
     }

@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { ClipboardList, AlertCircle, Clock, Landmark, ArrowRight } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -42,6 +42,12 @@ let cachedTodo: TodoData | null = null;
 let cacheTs = 0;
 let inFlight: Promise<TodoData | null> | null = null;
 
+async function getJson(url: string) {
+  const r = await apiFetch(url);
+  await assertOk(r, 'Unable to load actions');
+  return r.json();
+}
+
 async function fetchTodoData(): Promise<TodoData | null> {
   const now = Date.now();
   if (cachedTodo && now - cacheTs < CACHE_TTL_MS) return cachedTodo;
@@ -50,9 +56,9 @@ async function fetchTodoData(): Promise<TodoData | null> {
   const sevenDays = localISODate(new Date(Date.now() + 7 * 86_400_000));
 
   inFlight = Promise.all([
-    apiFetch(`/api/accounting/customer-invoices-list?status=overdue&limit=6`).then(r => r.json()),
-    apiFetch(`/api/accounting/supplier-invoices?status=pending&limit=6`).then(r => r.json()),
-    apiFetch(`/api/accounting/bank-transactions?status=unreconciled&limit=1`).then(r => r.json()),
+    getJson(`/api/accounting/customer-invoices-list?status=overdue&limit=6`),
+    getJson(`/api/accounting/supplier-invoices?status=pending&limit=6`),
+    getJson(`/api/accounting/bank-transactions?status=unreconciled&limit=1`),
   ]).then(([arJson, apJson, btJson]) => {
     const arItems: TodoItem[] = [];
     const arRows: Record<string, unknown>[] = (arJson?.data?.items ?? arJson?.data ?? []) as Record<string, unknown>[];
@@ -121,7 +127,7 @@ export function TodoWidget() {
     setLoading(true);
     fetchTodoData()
       .then(d => { if (mounted.current) { setData(d); setLoading(false); } })
-      .catch(() => { if (mounted.current) { setError('Unable to load actions'); setLoading(false); } });
+      .catch((err: unknown) => { if (mounted.current) { setError(apiErrorMessage(err, 'Unable to load actions')); setLoading(false); } });
     return () => { mounted.current = false; };
   }, []);
 

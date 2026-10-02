@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowRightLeft, Loader2, Check } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
@@ -34,23 +34,27 @@ export default function DRCVatPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [eligRes, histRes] = await Promise.all([
-      apiFetch('/api/accounting/drc-vat', { credentials: 'include' }),
-      apiFetch('/api/accounting/drc-vat?tab=history', { credentials: 'include' }),
-    ]);
-    const eligJson = await eligRes.json();
-    const histJson = await histRes.json();
-    setEligible(eligJson.data?.items || []);
-    setHistory(histJson.data?.items || []);
-    setLoading(false);
+    try {
+      const [eligRes, histRes] = await Promise.all([
+        apiFetch('/api/accounting/drc-vat', { credentials: 'include' }),
+        apiFetch('/api/accounting/drc-vat?tab=history', { credentials: 'include' }),
+      ]);
+      await assertOk(eligRes, 'Could not load DRC VAT data - try again');
+      await assertOk(histRes, 'Could not load DRC VAT data - try again');
+      const eligJson = await eligRes.json();
+      const histJson = await histRes.json();
+      setEligible(eligJson.data?.items || []);
+      setHistory(histJson.data?.items || []);
+    } catch (err) {
+      setEligible([]);
+      setHistory([]);
+      setError(apiErrorMessage(err, 'Could not load DRC VAT data - try again'));
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => {
-    load().catch((err) => {
-      setLoading(false);
-      setError(err instanceof Error ? err.message : 'Failed to load DRC VAT data');
-    });
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const applyDRC = async (invoiceId: string) => {
     setBusy(invoiceId); setError(''); setSuccess('');
@@ -59,11 +63,11 @@ export default function DRCVatPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ supplierInvoiceId: invoiceId }),
       });
+      await assertOk(res, 'Could not apply DRC VAT - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
       setSuccess(`DRC VAT applied: ${fmt(json.data?.vatAmount || 0)}`);
       await load();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not apply DRC VAT - try again')); }
     finally { setBusy(''); }
   };
 

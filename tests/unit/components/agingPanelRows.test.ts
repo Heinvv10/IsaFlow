@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async (orig) => ({ ...await orig<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
 
 import { apiFetch } from '@/lib/apiFetch';
 import { loadAgingPanelRows, daysOverdueAsAt } from '@/components/accounting/agingPanelRows';
@@ -32,12 +32,12 @@ describe('loadAgingPanelRows', () => {
 
   it('throws on a 4xx instead of rendering an empty list', async () => {
     vi.mocked(apiFetch).mockResolvedValue(new Response('{}', { status: 403 }));
-    await expect(loadAgingPanelRows('ap', SUPPLIER, '2026-06-30')).rejects.toThrow('HTTP 403');
+    await expect(loadAgingPanelRows('ap', SUPPLIER, '2026-06-30')).rejects.toThrow('Could not load the invoices - try again');
   });
 
   it('throws on a response with no data envelope', async () => {
     vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: true }), { status: 200 }));
-    await expect(loadAgingPanelRows('ap', SUPPLIER, '2026-06-30')).rejects.toThrow('Unexpected response');
+    await expect(loadAgingPanelRows('ap', SUPPLIER, '2026-06-30')).rejects.toThrow('Could not load the invoices - try again');
   });
 });
 

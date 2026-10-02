@@ -11,7 +11,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { CheckCircle2, AlertTriangle, Loader2, ArrowRight } from 'lucide-react';
 
 type Status = 'pending' | 'succeeded' | 'failed';
@@ -44,12 +44,8 @@ export default function FlowsReturnPage() {
     const tick = async () => {
       try {
         const res = await apiFetch(`/api/billing/flows/purchase-status?id=${encodeURIComponent(ref)}`);
+        await assertOk(res, 'Could not check your purchase - try again');
         const json = await res.json();
-        if (!res.ok) {
-          setError(json?.error?.message ?? 'Failed to look up purchase');
-          setStatus('error');
-          return;
-        }
         const body = json.data as PurchaseStatusResponse;
         if (cancelled) return;
 
@@ -66,7 +62,7 @@ export default function FlowsReturnPage() {
 
         setTimeout(() => { if (!cancelled) void tick(); }, POLL_INTERVAL_MS);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Network error');
+        setError(apiErrorMessage(err, 'Could not check your purchase - try again'));
         setStatus('error');
       }
     };

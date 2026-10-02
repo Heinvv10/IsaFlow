@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, Plus, ChevronDown, ChevronRight, Upload } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { RateCurve, RatePoint } from '@/components/loans/types';
 import { fmtDate } from '@/components/loans/types';
@@ -22,14 +22,18 @@ export default function RateCurvesPage() {
   const [creating, setCreating] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
 
   const loadCurves = useCallback(async () => {
+    setError('');
     try {
       const res = await apiFetch('/api/accounting/loan-rate-curves', { credentials: 'include' });
+      await assertOk(res, 'Could not load rate curves - try again');
       const json = await res.json();
       setCurves(json.data || []);
     } catch (err) {
       log.error('Failed to load rate curves', { error: err }, 'rate-curves-page');
+      setError(apiErrorMessage(err, 'Could not load rate curves - try again'));
       setCurves([]);
     }
     setLoading(false);
@@ -42,9 +46,13 @@ export default function RateCurvesPage() {
     setPointsLoading(curveId);
     try {
       const res = await apiFetch(`/api/accounting/loan-rate-curves/${curveId}/points`, { credentials: 'include' });
+      await assertOk(res, 'Could not load rate points - try again');
       const json = await res.json();
       setPoints(prev => ({ ...prev, [curveId]: json.data || [] }));
-    } catch { /* ignore */ }
+    } catch (err) {
+      log.error('Failed to load rate points', { error: err }, 'rate-curves-page');
+      setError(apiErrorMessage(err, 'Could not load rate points - try again'));
+    }
     setPointsLoading(null);
   };
 
@@ -57,6 +65,7 @@ export default function RateCurvesPage() {
   const handleCreate = async () => {
     if (!newName.trim()) return;
     setCreating(true);
+    setError('');
     try {
       const res = await apiFetch('/api/accounting/loan-rate-curves', {
         method: 'POST',
@@ -64,11 +73,12 @@ export default function RateCurvesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName.trim() }),
       });
-      if (res.ok) {
-        setNewName('');
-        setShowNewForm(false);
-        await loadCurves();
-      }
+      await assertOk(res, 'Could not create the rate curve - try again');
+      setNewName('');
+      setShowNewForm(false);
+      await loadCurves();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not create the rate curve - try again'));
     } finally { setCreating(false); }
   };
 
@@ -96,15 +106,12 @@ export default function RateCurvesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ points: pts }),
       });
-      if (res.ok) {
-        setUploadStatus(prev => ({ ...prev, [curveId]: `✓ ${pts.length} points uploaded` }));
-        setPoints(prev => ({ ...prev, [curveId]: undefined as unknown as RatePoint[] }));
-        await loadPoints(curveId);
-      } else {
-        setUploadStatus(prev => ({ ...prev, [curveId]: 'Upload failed' }));
-      }
-    } catch {
-      setUploadStatus(prev => ({ ...prev, [curveId]: 'Upload error' }));
+      await assertOk(res, 'Could not upload the rate points - try again');
+      setUploadStatus(prev => ({ ...prev, [curveId]: `✓ ${pts.length} points uploaded` }));
+      setPoints(prev => ({ ...prev, [curveId]: undefined as unknown as RatePoint[] }));
+      await loadPoints(curveId);
+    } catch (err) {
+      setUploadStatus(prev => ({ ...prev, [curveId]: apiErrorMessage(err, 'Could not upload the rate points - try again') }));
     }
   };
 
@@ -150,6 +157,9 @@ export default function RateCurvesPage() {
         </div>
 
         <div className="p-6 space-y-3">
+          {error && (
+            <div role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-500">{error}</div>
+          )}
           {loading && (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
@@ -196,7 +206,7 @@ export default function RateCurvesPage() {
                           const f = e.target.files?.[0];
                           if (f) {
                             handleCsvUpload(curve.id, f).catch(() => {
-                              setUploadStatus(prev => ({ ...prev, [curve.id]: 'Upload error' }));
+                              setUploadStatus(prev => ({ ...prev, [curve.id]: 'Could not read the CSV file - try again' }));
                             });
                           }
                           e.target.value = '';

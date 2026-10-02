@@ -98,6 +98,21 @@ export async function listIntercompanyTransactions(
   return rows.map(mapIntercompanyTx);
 }
 
+/**
+ * The transaction types a caller may record — what the page offers (IntercompanyShared.TX_TYPES)
+ * and what autoGenerateEliminations knows how to eliminate (sale / purchase / mgmt_fee against
+ * revenue / expense, loan / transfer against receivable / payable; dividend is recorded only).
+ */
+export const INTERCOMPANY_TRANSACTION_TYPES = ['sale', 'purchase', 'loan', 'dividend', 'mgmt_fee', 'transfer'] as const;
+
+/** Match named a transaction that is not in this group (missing, or another group's) — a 404, not a 500. */
+export class IntercompanyNotFoundError extends Error {
+  constructor(readonly missing: string[]) {
+    super(`Intercompany transaction not found in this group: ${missing.join(', ')}`);
+    this.name = 'IntercompanyNotFoundError';
+  }
+}
+
 export async function createIntercompanyTransaction(input: {
   groupId: string;
   sourceCompanyId: string;
@@ -148,7 +163,7 @@ export async function matchIntercompanyTransactions(
   const targets = (await sql`SELECT * FROM intercompany_transactions WHERE id = ${targetId}::UUID AND group_id = ${groupId}::UUID`) as Row[];
 
   if (!sources[0] || !targets[0]) {
-    throw new Error('One or both intercompany transactions not found');
+    throw new IntercompanyNotFoundError([...(sources[0] ? [] : [sourceId]), ...(targets[0] ? [] : [targetId])]);
   }
 
   const source = sources[0]!;

@@ -11,7 +11,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, CheckCircle2, Clock, AlertTriangle, Circle, ChevronRight } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { STATUS_TONE_CLASSES, type StatusTone } from '@/lib/statusVocabulary';
 import { CloseAgentPanel } from '@/components/accounting/close-agent/CloseAgentPanel';
 import type {
@@ -95,13 +95,15 @@ export default function MonthEndWorkbenchPage() {
     setError(null);
     try {
       const res = await apiFetch(`/api/accounting/month-end-workbench?period=${encodeURIComponent(p)}`);
+      await assertOk(res, 'Could not load the month-end workbench - try again');
       const json = await res.json() as ApiEnvelope<MonthEndWorkbench>;
-      if (!res.ok || !json.success) {
-        throw new Error(json.error?.message ?? 'Failed to load workbench');
+      if (!json.success) {
+        throw new ApiEnvelopeError(json.error?.message ?? 'Could not load the month-end workbench - try again');
       }
       setData(json.data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load workbench');
+      setData(null);
+      setError(apiErrorMessage(e, 'Could not load the month-end workbench - try again'));
     } finally {
       setLoading(false);
     }

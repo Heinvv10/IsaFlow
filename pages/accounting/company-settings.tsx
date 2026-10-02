@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Save, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { Company, DocumentNumber, CompanyDocument } from '@/components/accounting/settings/settingsTypes';
 import { mapApiCompany } from '@/components/accounting/settings/mapApiCompany';
@@ -53,6 +53,7 @@ export default function CompanySettingsPage() {
   // Document numbers & messages (Documents tab)
   const [docNumbers, setDocNumbers] = useState<DocumentNumber[]>([]);
   const [messages, setMessages] = useState<Record<string, string>>({});
+  const [dispLoadFailed, setDispLoadFailed] = useState(false);
   const [docDisplayFields, setDocDisplayFields] = useState<Record<string, boolean>>({
     registrationNumber: true, vatNumber: true, companyDirectors: false,
     physicalAddress: false, phoneNumber: true, emailAddress: true, website: false, socialMediaLinks: false,
@@ -64,23 +65,36 @@ export default function CompanySettingsPage() {
     setLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/companies?id=${companyId}`);
+      await assertOk(res, 'Could not load company - try again');
       const json = await res.json();
       const c = json.data;
       if (c) setCompany(mapApiCompany(c as Record<string, unknown>));
-    } catch {
-      setError('Failed to load company');
+    } catch (err) {
+      setCompany(null);
+      setError(apiErrorMessage(err, 'Could not load company - try again'));
     } finally {
       setLoading(false);
     }
   }, []);
 
   const fetchSupplementary = useCallback(async (companyId: string) => {
+    const get = async (url: string) => {
+      const r = await apiFetch(url);
+      await assertOk(r, 'Could not load some company settings - try again');
+      return r.json();
+    };
     const [docsRes, numRes, msgRes, dispRes] = await Promise.allSettled([
-      apiFetch(`/api/accounting/company-documents?companyId=${companyId}`).then(r => r.json()),
-      apiFetch('/api/accounting/company-settings?type=document-numbers').then(r => r.json()),
-      apiFetch('/api/accounting/company-settings?type=messages').then(r => r.json()),
-      apiFetch('/api/accounting/accounting-settings?key=document_display_fields').then(r => r.json()),
+      get(`/api/accounting/company-documents?companyId=${companyId}`),
+      get('/api/accounting/company-settings?type=document-numbers'),
+      get('/api/accounting/company-settings?type=messages'),
+      get('/api/accounting/accounting-settings?key=document_display_fields'),
     ]);
+    const failed = [docsRes, numRes, msgRes, dispRes].find((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (failed) setError(apiErrorMessage(failed.reason, 'Could not load some company settings - try again'));
+    if (docsRes.status === 'rejected') setDocuments([]);
+    if (numRes.status === 'rejected') setDocNumbers([]);
+    if (msgRes.status === 'rejected') setMessages({});
+    setDispLoadFailed(dispRes.status === 'rejected'); // never write the default display fields over unread real ones
     if (docsRes.status === 'fulfilled' && docsRes.value.data) setDocuments(docsRes.value.data as CompanyDocument[]);
     if (numRes.status === 'fulfilled' && numRes.value.data) setDocNumbers(numRes.value.data as DocumentNumber[]);
     if (msgRes.status === 'fulfilled' && msgRes.value.data) {
@@ -113,28 +127,23 @@ export default function CompanySettingsPage() {
     if (!company) return;
     setSaving(true); setError(''); setSaved(false);
     try {
-      const res = await apiFetch('/api/accounting/companies', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(company),
-      });
-      if (!res.ok) throw new Error('Failed to save');
+      const put = async (url: string, body: unknown, fallback: string) => {
+        const r = await apiFetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        await assertOk(r, fallback);
+      };
+      await put('/api/accounting/companies', company, 'Could not save the company details - try again');
+      const after = 'Company details saved, but some settings could not be saved - try again';
       await Promise.all([
-        docNumbers.length > 0 && apiFetch('/api/accounting/company-settings?type=document-numbers', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ updates: docNumbers.map(d => ({ documentType: d.documentType, prefix: d.prefix, nextNumber: d.nextNumber })) }),
-        }),
-        Object.keys(messages).length > 0 && apiFetch('/api/accounting/company-settings?type=messages', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: Object.entries(messages).map(([messageType, message]) => ({ messageType, message })) }),
-        }),
-        apiFetch('/api/accounting/accounting-settings', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'document_display_fields', value: JSON.stringify(docDisplayFields) }),
-        }),
+        docNumbers.length > 0 && put('/api/accounting/company-settings?type=document-numbers',
+          { updates: docNumbers.map(d => ({ documentType: d.documentType, prefix: d.prefix, nextNumber: d.nextNumber })) }, after),
+        Object.keys(messages).length > 0 && put('/api/accounting/company-settings?type=messages',
+          { messages: Object.entries(messages).map(([messageType, message]) => ({ messageType, message })) }, after),
+        !dispLoadFailed && put('/api/accounting/accounting-settings', { key: 'document_display_fields', value: JSON.stringify(docDisplayFields) }, after),
       ].filter(Boolean));
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    } catch {
-      setError('Failed to save changes');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the changes - try again'));
     } finally {
       setSaving(false);
     }
