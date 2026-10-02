@@ -2,7 +2,7 @@
 //   practice/clients/:id -> data PracticeClient (404 -> notFound); practice/client-contacts -> data ClientContact[];
 //   reports-vat-return -> data { outputVAT, inputVAT, netVAT, ... }; fiscal-periods?open_period=true -> data FiscalPeriod (camelCase endDate).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, configure, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, configure, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { MSG, empty500, expectNoJargon, ok, on, refuse, serve } from '../helpers/d2R3a6';
@@ -98,19 +98,19 @@ describe('VatSummaryWidget (route data: full-caps outputVAT / inputVAT / netVAT)
     expect(await screen.findByText('VAT Refund Due')).toBeDefined();
     expect(screen.getByText(money('R 677,00'))).toBeDefined();
   });
-  it('a 400 refusal and an empty 500 each show the widget sentence, no figures, no jargon', async () => {
+  it('a 400 refusal shows the server message; an empty 500 a plain sentence; no figures, no jargon', async () => {
     serve(on('GET', 'reports-vat-return', () => refuse()));
     render(<VatSummaryWidget />);
-    expect(await screen.findByText('Unable to load VAT data')).toBeDefined();
+    expect(await screen.findByText(MSG)).toBeDefined();
     cleanup();
     serve(on('GET', 'reports-vat-return', empty500));
     render(<VatSummaryWidget />);
-    expect(await screen.findByText('Unable to load VAT data')).toBeDefined();
+    expect(await screen.findByText('Could not load the VAT summary - try again')).toBeDefined();
     expect(screen.queryByText('Net VAT Payable')).toBeNull(); expectNoJargon();
   });
 });
 
-describe('useBalanceSheetFilters (no error surface by design: a failed period lookup falls back to today)', () => {
+describe('useBalanceSheetFilters (a failed period lookup says so and leaves the date empty: no report on a date nobody chose)', () => {
   const today = localISODate();
   const wait = async (r: { current: ReturnType<typeof useBalanceSheetFilters> }) => { await waitFor(() => expect(r.current.periodResolved).toBe(true)); return r.current; };
   it('success: as-at date is the open period end when that is before today', async () => {
@@ -123,12 +123,18 @@ describe('useBalanceSheetFilters (no error surface by design: a failed period lo
     const { result } = renderHook(() => useBalanceSheetFilters());
     expect((await wait(result)).asAtDate).toBe(today);
   });
-  it('a 400 refusal, an empty 500 and a 404 all resolve to today instead of hanging', async () => {
-    for (const answer of [() => refuse(), empty500, () => refuse('No open fiscal period found', 404)]) {
+  it('a 400 refusal, an empty 500 and a 404 resolve with an error, an EMPTY date, and picking a date clears the error', async () => {
+    const cases: Array<[() => Response, string]> = [[() => refuse(), MSG], [empty500, 'Could not load the open period - try again'], [() => refuse('No open fiscal period found', 404), 'No open fiscal period found']];
+    for (const [answer, text] of cases) {
       cleanup(); vi.mocked(apiFetch).mockReset();
       serve(on('GET', 'fiscal-periods', answer));
       const { result } = renderHook(() => useBalanceSheetFilters());
-      expect((await wait(result)).asAtDate).toBe(today);
+      const r = await wait(result);
+      expect(r.asAtDate).toBe('');
+      expect(r.periodError).toContain(text);
+      act(() => r.setAsAtDate('2024-02-29'));
+      expect(result.current.asAtDate).toBe('2024-02-29');
+      expect(result.current.periodError).toBe('');
     }
   });
   it('the URL filters (as_at_date, cost centre, business unit) are used as given and no period lookup is made', async () => {
