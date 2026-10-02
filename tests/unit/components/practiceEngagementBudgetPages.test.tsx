@@ -114,6 +114,8 @@ describe('job create: Engagement Budget field', () => {
     await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toBe(true));
     const post = vi.mocked(apiFetch).mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')!;
     expect(bodyOf(post)).toMatchObject({ practiceClientId: 'c1', title: 'AFS', budgetAmount: 2500.5 });
+    // The help line reads at 4.5:1+ in both themes (--ff-text-tertiary was 2.54:1 in light).
+    expect(screen.getByText(/Approved value of time on this job/).className).toContain('text-slate-600 dark:text-slate-300');
   });
 
   it('shows the refusal\'s own message', async () => {
