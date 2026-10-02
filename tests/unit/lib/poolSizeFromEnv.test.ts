@@ -7,8 +7,9 @@
  * more connections than pg-pool allowed for it.
  *
  * The reader remembers which (name, value) it has warned about for the life of
- * the module. Each warning case below therefore uses a value no other case in
- * this file uses with the same name, so the assertions do not depend on order.
+ * the module. Each warning case below therefore uses a (name, value) pair no
+ * other case in this file uses (the `_B` and `_C` names exist for that), so the
+ * assertions do not depend on order. Checked with --sequence.shuffle.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -56,10 +57,10 @@ describe('poolSizeFromEnv (R-182)', () => {
   });
 
   it('is never bigger than the default, even when the spelling asks for more', () => {
-    vi.stubEnv(NAME, '0x5');
-    expect(poolSizeFromEnv(NAME, 3)).toBe(3);
-    vi.stubEnv(NAME, 'abc');
-    expect(poolSizeFromEnv(NAME, 5)).toBe(5);
+    vi.stubEnv(`${NAME}_B`, '0x5');
+    expect(poolSizeFromEnv(`${NAME}_B`, 3)).toBe(3);
+    vi.stubEnv(`${NAME}_B`, 'abc');
+    expect(poolSizeFromEnv(`${NAME}_B`, 5)).toBe(5);
   });
 
   it('warns once per (name, value), not on every call', () => {
@@ -128,12 +129,12 @@ describe('poolSizeFromEnv (R-182)', () => {
   });
 
   it('a minimum above the default or above 10 cannot give a pool bigger than either', () => {
-    vi.stubEnv(NAME, '3');
-    expect(poolSizeFromEnv(NAME, 20, 'pool', 50)).toBe(10);
-    expect(poolSizeFromEnv(NAME, 4, 'pool', 50)).toBe(4);
-    vi.stubEnv(NAME, 'abc');
-    expect(poolSizeFromEnv(NAME, 4, 'pool', 50)).toBe(4);
-    expect(poolSizeFromEnv(NAME, 20, 'pool', 50)).toBe(10);
+    vi.stubEnv(`${NAME}_C`, '3');
+    expect(poolSizeFromEnv(`${NAME}_C`, 20, 'pool', 50)).toBe(10);
+    expect(poolSizeFromEnv(`${NAME}_C`, 4, 'pool', 50)).toBe(4);
+    vi.stubEnv(`${NAME}_C`, 'abc');
+    expect(poolSizeFromEnv(`${NAME}_C`, 4, 'pool', 50)).toBe(4);
+    expect(poolSizeFromEnv(`${NAME}_C`, 20, 'pool', 50)).toBe(10);
   });
 
   it('PG_POOL_MAX floor is 2', () => {
