@@ -174,7 +174,7 @@ export async function getConsolidatedTrialBalance(
 
     for (const member of members) {
       const mappings = allMappings.get(member.companyId) ?? new Map<string, MappingEntry>();
-      const fyStart = await memberFiscalYearStart(member.companyId, periodStart);
+      const fyStart = await memberFiscalYearStart(member.companyId, periodEnd);
       fiscalYearStarts[member.companyId] = fyStart;
 
       let unmappedCount = 0;

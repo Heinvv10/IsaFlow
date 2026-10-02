@@ -20,7 +20,10 @@ export interface TrialBalanceRow {
   creditBalance: number;
   priorDebitBalance?: number;
   priorCreditBalance?: number;
-  /** Balance at the start of the reporting range. opening + movement = closing. */
+  /**
+   * Balance at the start of the reporting range. opening + movement = closing, except across a
+   * fiscal-year start, where income-statement rows and RE-BF also carry the derived year-end close.
+   */
   openingDebit?: number;
   openingCredit?: number;
   /** Gross debit / credit turnover within the reporting range. */
@@ -52,9 +55,9 @@ export interface TrialBalanceReport {
   periodStart: string;
   periodEnd: string;
   /**
-   * First day of the fiscal year the income-statement rows are measured from
-   * (`companies.financial_year_start`). Balance-sheet rows ignore it — they are
-   * cumulative from inception.
+   * First day of the fiscal year containing `periodEnd` — the income-statement
+   * rows' closing balances are measured from it (`companies.financial_year_start`).
+   * Balance-sheet rows ignore it — they are cumulative from inception.
    */
   fiscalYearStart: string;
   costCentreId?: string;

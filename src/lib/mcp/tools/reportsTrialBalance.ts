@@ -41,7 +41,8 @@ function sortKey(r: TrialBalanceRow): string {
 
 const DESCRIPTION = [
   'Trial balance for a fiscal period: EVERY account with its opening balance, the period movement and the closing balance, plus the balanced assertion over exactly the accounts returned.',
-  'Balance-sheet accounts are cumulative from inception; income-statement accounts are year-to-date within the fiscal year, taken from companies.financial_year_start (every production company here starts in March, not January).',
+  'Balance-sheet accounts are cumulative from inception; income-statement accounts are year-to-date within the fiscal year containing the period END (fiscalYearStart), taken from companies.financial_year_start (every production company here starts in March, not January) — the same figure general_ledger and search_gl close at.',
+  'The opening is the balance at the period start. For a period that crosses a fiscal-year start, opening + movement differs from closing on income-statement rows and the brought-forward line by the derived year-end close.',
   'debitBalance/creditBalance carry the NET closing balance on the account own side, not gross turnover — do not sum them expecting turnover. periodDebit/periodCredit are the turnover.',
   'accountCount states how many accounts the balanced assertion covers, and you should check it: a trial balance that omits accounts without movement is a period-movement listing wearing a trial balance name, which is how this report once reported 7 of 118 accounts as Balanced.',
   'include_zero_balances separates three states that are NOT the same question. An account carrying a balance but with no movement this period is ALWAYS returned. An account whose postings net to zero is returned only with the flag on. An account never posted to is never returned.',
