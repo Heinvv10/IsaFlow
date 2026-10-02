@@ -27,7 +27,9 @@ vi.mock('@/modules/accounting/services/reports/agingReportService', () => ({
 vi.mock('@/modules/accounting/services/bank/bankAccountStatusService', () => ({
   getBankAccountsStatus: bankSpy,
 }));
-vi.mock('@/modules/accounting/services/reports/unusualJournalsService', () => ({
+vi.mock('@/modules/accounting/services/reports/unusualJournalsService', async (orig) => ({
+  // The real module for the bulk-load thresholds the matter sentence states.
+  ...(await orig<Record<string, unknown>>()),
   getUnusualJournals: journalSpy,
 }));
 vi.mock('@/modules/accounting/services/reports/statutoryFilingsService', async (orig) => ({
@@ -89,7 +91,7 @@ function agingWithConcentration(largestTotal: number, otherTotals: number[]): Ag
 function everySourceEmpty(): void {
   agingSpy.mockResolvedValue(emptyAging());
   bankSpy.mockResolvedValue([]);
-  journalSpy.mockResolvedValue([]);
+  journalSpy.mockResolvedValue({ flags: [], bulkLoaded: null });
   filingSpy.mockResolvedValue([]);
 }
 
@@ -118,7 +120,7 @@ describe('buildMatters', () => {
       { entryId: 'j1', entryNumber: 'JE-1', entryDate: '2026-03-01', description: 'Estimate', amount: 90_000, reason: 'round_number' },
       { entryId: 'j2', entryNumber: 'JE-2', entryDate: '2026-04-01', description: 'Late entry', amount: 5_000, reason: 'backdated' },
     ];
-    journalSpy.mockResolvedValue(journalFlags);
+    journalSpy.mockResolvedValue({ flags: journalFlags, bulkLoaded: null });
     const filings: OverdueFiling[] = [
       { filingType: 'Annual Financial Statements', fiscalYear: 2025, deadline: '2026-03-31', daysOverdue: 10 },
     ];
@@ -140,6 +142,33 @@ describe('buildMatters', () => {
     expect(matters).toHaveLength(1);
     expect(matters[0]?.issue).toMatch(/no matters/i);
     expect(matters[0]?.quantum).toBeNull();
+  });
+
+  it('raises a bulk load as ONE matter, first among the unquantified, beside the journals still flagged', async () => {
+    everySourceEmpty();
+    const bulk = {
+      journals: 19_581, days: 12, firstRecorded: '2026-09-05', lastRecorded: '2026-09-18', oldestEntryDate: '2025-04-01',
+    };
+    const flags: UnusualJournalFlag[] = [
+      { entryId: 'j1', entryNumber: 'JE-1', entryDate: '2026-03-01', description: 'Estimate', amount: 90_000, reason: 'round_number' },
+    ];
+    journalSpy.mockResolvedValue({ flags, bulkLoaded: bulk });
+    const matters = (await buildMatters('c1', window)).matters;
+    const loads = matters.filter((m) => /recorded in bulk/.test(m.issue));
+    expect(loads).toHaveLength(1);
+    expect(loads[0]).toMatchObject({ kind: 'finding', quantum: null, owner: 'Finance' });
+    expect(loads[0]!.issue).toBe(
+      '19\u00a0581 journals dated as far back as 1 April 2025 were recorded in bulk on 12 days between '
+      + '5 September 2026 and 18 September 2026: 10 or more journals dated over 5 days earlier were recorded '
+      + 'on each of those days, so none is listed here one by one for late recording.',
+    );
+    // The journals the source still flags are still there.
+    expect(matters.filter((m) => m.issue.startsWith('Journal ')).length).toBe(1);
+  });
+
+  it('raises no bulk-load matter where the source skipped none', async () => {
+    everySourceEmpty();
+    expect((await buildMatters('c1', window)).matters.map((m) => m.kind)).toEqual(['none']);
   });
 
   it('reports a source that failed rather than silently omitting its matters', async () => {
@@ -318,7 +347,7 @@ describe('buildMatters', () => {
       await touchLedger('bank');
       return [{ suggestedCount: 0, unallocatedCount: 3, unreconciledBalance: 15_000 }];
     });
-    journalSpy.mockImplementation(async () => { await touchLedger('journals'); return []; });
+    journalSpy.mockImplementation(async () => { await touchLedger('journals'); return { flags: [], bulkLoaded: null }; });
     filingSpy.mockImplementation(async () => { await touchLedger('filings'); return []; });
     const tx = fakeRequestTx((statement) =>
       (statement.includes('/* aging */') ? pgError('57014', 'canceling statement due to statement timeout') : null));

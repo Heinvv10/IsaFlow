@@ -3,7 +3,9 @@
  * ratio and day count the pack prints. Split out of `packDefinitions.ts` for
  * the 300-line cap; `buildDefinitions` there places EBITDA among them.
  */
+import { inScale } from '@/lib/format/money';
 import type { PackDefinition } from './packPageModel';
+import { PACK_SCALE } from './packScale';
 
 /**
  * The convention, the two margins, and every ratio and day count the pack
@@ -174,7 +176,11 @@ export const TERMS: PackDefinition[] = [
   },
   {
     term: 'Working capital',
-    definition: 'Current assets less current liabilities, in rand.',
+    // IN THE PACK'S SCALE, NOT "IN RAND". The tile and page 7 print it in
+    // R'000, so Velocity Fibre's (48 746) read as R48 746 to anyone taking
+    // this definition at its word. Taken from the constant every figure is
+    // scaled by, so the two cannot part again.
+    definition: `${inScale('Current assets less current liabilities', PACK_SCALE)}.`,
   },
   {
     term: 'Current ratio',
