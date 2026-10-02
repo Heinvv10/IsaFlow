@@ -19,6 +19,7 @@ import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingCl
 import { refuseReversingSettlementJournal } from '../ap/provisionalSettlementGuards';
 import { refuseReversalAgainstPayRun } from '../payroll/payrollJournalReversalGuard';
 import { postJournalEntry } from './journalEntryPostService';
+import { cleanUpAfter } from './reversalCleanup';
 import {
   LateClaimCompanionReversalError, copyLateClaimBaseToReversal, planLateClaimCompanionReversal,
 } from './vatLateClaimSplit';
@@ -32,20 +33,6 @@ export type { ReversalEntry } from './reversalLines';
 
 type Row = DbRow;
 
-/**
- * A cleanup after a failed step. A Postgres error — a lock timeout on the posting trigger's gl_account_balances row,
- * or the entry-number index, under a flow budget (D8 round 16) — ABORTED the transaction, so the cleanup raises 25P02
- * and would REPLACE that error: a 503 became a 500. The rollback that must follow undoes what the cleanup would;
- * the original failure is re-thrown.
- */
-async function cleanUpAfter<T>(failure: unknown, cleanup: () => Promise<T>): Promise<T> {
-  try {
-    return await cleanup();
-  } catch (cleanupErr) {
-    if ((cleanupErr as { code?: unknown } | null)?.code === '25P02') throw failure;
-    throw cleanupErr;
-  }
-}
 
 import {
   ClosedFiscalPeriodError,
