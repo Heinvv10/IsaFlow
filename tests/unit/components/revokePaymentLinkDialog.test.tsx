@@ -20,6 +20,16 @@ function mount() {
 const reply = (status: number, message?: string) => new Response(
   JSON.stringify(status === 200 ? { success: true, data: { revoked: true, cancelled: 1 } } : { success: false, error: { message } }), { status });
 
+it.each([
+  ['an empty 502', () => new Response('', { status: 502 })],
+  ['a dropped connection', () => { throw new TypeError('Failed to fetch'); }],
+])('%s shows the plain fallback sentence, not the transport text', async (_n, answer) => {
+  vi.mocked(apiFetch).mockImplementation(async () => answer());
+  const calls = mount();
+  fireEvent.click(screen.getByRole('button', { name: 'Revoke link' }));
+  await vi.waitFor(() => expect(calls).toEqual(['done', 'error:Could not revoke the payment link - try again', 'close']));
+});
+
 it('names the cutoff with its timezone', () => {
   mount();
   expect(screen.getByText(/created after 07:00 SAST on 1 October 2026 are not affected/)).toBeTruthy();
