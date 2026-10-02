@@ -139,10 +139,16 @@ describe('lockBankTransactionForUpdate — helper guarantees', () => {
     expect(client.query).not.toHaveBeenCalledWith('SET LOCAL lock_timeout = DEFAULT');
   });
 
-  // The other direction: after a lock timeout the transaction is aborted, so a
-  // restore would itself raise 25P02 and replace the typed error — skipped.
-  it('does not attempt the restore after a lock timeout', async () => {
-    const client = { query: vi.fn(async () => ({ rows: [] })) };
+  // The other direction: after a lock timeout the transaction is aborted, so the
+  // restore (always attempted since D8 round 11) gets 25P02 — which must not
+  // replace the typed error.
+  it('after a lock timeout the restore\'s 25P02 does not replace the typed error', async () => {
+    const client = {
+      query: vi.fn(async (text: string) => {
+        if (text.startsWith('SELECT set_config')) throw Object.assign(new Error('aborted'), { code: '25P02' });
+        return { rows: [] };
+      }),
+    };
     vi.mocked(sql).mockRejectedValueOnce(
       Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }) as never,
     );
@@ -150,7 +156,7 @@ describe('lockBankTransactionForUpdate — helper guarantees', () => {
     await expect(
       runInRequestCtx(() => lockBankTransactionForUpdate(COMPANY_ID, TX_ID), client),
     ).rejects.toBeInstanceOf(BankTransactionLockTimeoutError);
-    expect(client.query).not.toHaveBeenCalledWith("SELECT set_config('lock_timeout', $1, true)", expect.anything());
+    expect(client.query).toHaveBeenCalledWith("SELECT set_config('lock_timeout', $1, true)", expect.anything());
   });
 
   it('turns a 55P03 lock timeout into a readable, retryable error', async () => {

@@ -12,8 +12,8 @@
  *     deadline to all of them, so the total is bounded, not each pass;
  *   · it is set as a transaction-local `lock_timeout` (`set_config(.., true)`)
  *     and the caller's value is RESTORED afterwards on every path that leaves
- *     the transaction usable — never reset to DEFAULT, which silently unbounded
- *     whatever the caller had set;
+ *     the transaction usable (`restoreLockTimeout` always tries) — never reset
+ *     to DEFAULT, which silently unbounded whatever the caller had set;
  *   · a timeout is the caller's own typed, retryable error (`onTimeout`), which
  *     the routes answer 503 + Retry-After (`@/lib/apiDocumentLock`).
  *
@@ -46,12 +46,11 @@ export interface RowLockBudgetOpts {
   isTimeout?: (err: unknown) => boolean;
 }
 
-const isLockNotAvailable = (err: unknown) => (err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE;
-/** A Postgres error aborted the (sub)transaction: its rollback restores the setting, and a statement now would raise 25P02. */
-const isPgError = (err: unknown) => {
-  const code = (err as { code?: unknown } | null)?.code;
-  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code);
-};
+/** Postgres `in_failed_sql_transaction` — the transaction is aborted and refuses every statement. */
+const TX_ABORTED = '25P02';
+
+const codeOf = (err: unknown) => (err as { code?: unknown } | null)?.code;
+const isLockNotAvailable = (err: unknown) => codeOf(err) === LOCK_NOT_AVAILABLE;
 
 interface QueryClient { query: (text: string, params?: unknown[]) => Promise<unknown> }
 
@@ -66,16 +65,21 @@ export async function currentLockTimeout(client: QueryClient): Promise<string> {
 }
 
 /**
- * Put `previous` back, for a helper's `finally`. Skipped after a Postgres error: the transaction (or
- * savepoint) is aborted, its rollback restores the setting, and a statement now would raise 25P02 in place
- * of the real error. A restore that fails after a non-Postgres refusal is logged; the refusal stands.
+ * Put `previous` back, for a helper's `finally`. ALWAYS attempted (D8 round 11, rev-d8-c553cc0f8 F3/F4): whether
+ * a failure left the transaction usable cannot be read off the error — a Postgres error an inner savepoint rolled
+ * back leaves it usable, and a typed refusal a nested helper converted from 55P03 leaves it aborted. On an aborted
+ * one the restore gets 25P02, which is expected (the rollback that ends it restores the setting) and logged at debug.
+ * After a failure, the failure stands whatever the restore does; any other restore error is logged as an error.
  */
 export async function restoreLockTimeout(client: QueryClient, previous: string, failure: unknown = null): Promise<void> {
-  if (isPgError(failure)) return;
   try {
     await client.query("SELECT set_config('lock_timeout', $1, true)", [previous]);
   } catch (restoreErr) {
     if (failure === null) throw restoreErr;
+    if (codeOf(restoreErr) === TX_ABORTED) {
+      log.debug('lock_timeout not restored: the transaction is aborted, its rollback restores it', {}, 'accounting');
+      return;
+    }
     log.error('Failed to restore lock_timeout after a refused row lock', { error: restoreErr }, 'accounting');
   }
 }

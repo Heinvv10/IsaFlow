@@ -4,11 +4,11 @@
  * D8 round 10: the restore puts back the value the claim FOUND (it used to reset to DEFAULT, which unbounded an
  * enclosing core/rowLockBudget budget), from a `finally`.
  *
- * LOW-4: the restore ran on the success path only. A
- * 55P03 must skip it (the transaction is aborted and the restore would raise
- * 25P02, replacing the typed error), but ANY OTHER failure leaves the
- * transaction usable and left the 5s ceiling set for every later statement in
- * the request — the exact leak `reserveNextDocumentNumber` was fixed for.
+ * LOW-4: the restore ran on the success path only. ANY failure that leaves the
+ * transaction usable left the 5s ceiling set for every later statement in the
+ * request — the exact leak `reserveNextDocumentNumber` was fixed for. D8 round 11:
+ * the restore is always attempted; on an aborted transaction (55P03, 23505) its
+ * 25P02 must not replace the real error.
  *
  * LOW-5: outside a request transaction the claim autocommits and cannot be
  * rolled back with the posting that follows it, so it refuses rather than
@@ -54,8 +54,8 @@ describe('claimUnderLockTimeout', () => {
   it('reports the constraint that fired, not the 25P02 a restore would raise on the aborted tx', async () => {
     // r9 LOW-1. A SQL failure out of the claim ABORTS the transaction, so a
     // restore statement rejects with 25P02 on a REAL connection. Unguarded, that
-    // rejection replaces the 23505 and the operator loses the cause. D8 round 10:
-    // after a Postgres error the restore is skipped (the rollback restores it).
+    // rejection replaces the 23505 and the operator loses the cause. D8 round 11:
+    // the restore is attempted and its 25P02 swallowed (the rollback restores it).
     const aborted = Object.assign(
       new Error('current transaction is aborted, commands ignored until end of transaction block'),
       { code: '25P02' },
@@ -67,20 +67,23 @@ describe('claimUnderLockTimeout', () => {
       .then(() => null, (e: unknown) => e);
     expect.soft(err).toBe(boom);
     expect.soft((err as { code?: string } | null)?.code).toBe('23505');
-    // Not attempted: the transaction is aborted.
     expect(query.mock.calls.map((c) => c[0])).toEqual([
       "SELECT current_setting('lock_timeout') AS v", "SET LOCAL lock_timeout = '5s'",
+      "SELECT set_config('lock_timeout', $1, true)",
     ]);
   });
 
-  it('does NOT touch the aborted transaction after a 55P03, and types the error', async () => {
-    const query = vi.fn().mockResolvedValue(undefined);
+  it('types a 55P03, and the restore\'s 25P02 on the aborted transaction does not replace it', async () => {
+    const aborted = Object.assign(new Error('current transaction is aborted'), { code: '25P02' });
+    const query = vi.fn().mockImplementation((text: string) =>
+      (text.startsWith('SELECT set_config') ? Promise.reject(aborted) : Promise.resolve(undefined)));
     const timeout = Object.assign(new Error('lock timeout'), { code: '55P03' });
     const err = await als.run(ctxWith(query), () => claimUnderLockTimeout('quote', async () => { throw timeout; }))
       .then(() => null, (e: unknown) => e);
     expect.soft(err).toBeInstanceOf(DocumentClaimLockTimeoutError);
     expect(query.mock.calls.map((c) => c[0])).toEqual([
       "SELECT current_setting('lock_timeout') AS v", "SET LOCAL lock_timeout = '5s'",
+      "SELECT set_config('lock_timeout', $1, true)",
     ]);
   });
 });
