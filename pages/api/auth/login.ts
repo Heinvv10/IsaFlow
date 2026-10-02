@@ -1,11 +1,11 @@
 // pages/api/auth/login.ts
 import type { NextApiHandler } from 'next';
 import { signIn } from '@/lib/auth/gotrue';
-import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
+import { respondToAuthOutage } from '@/lib/auth/authUpstream';
 import { listFactors, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { setAuthCookies, setActiveCompanyCookie, setOnboardingDoneCookie, setPendingMfaCookie, setPendingRememberCookie } from '@/lib/auth/cookies';
 import { checkLockout, recordFailure, clearLockout } from '@/lib/auth/accountLockout';
-import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
+import { chargeRateLimit, refundRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, type UserAccountRow } from '@/lib/auth/userAccountStatus';
 import { log } from '@/lib/logger';
@@ -34,8 +34,8 @@ const handler: NextApiHandler = async (req, res) => {
     });
   }
 
-  const emailAllowed = await checkRateLimit(`login:email:${cleanEmail}`, { max: 10, windowSecs: 900 });
-  if (!emailAllowed) {
+  const emailCharge = await chargeRateLimit(`login:email:${cleanEmail}`, { max: 10, windowSecs: 900 });
+  if (!emailCharge.admitted) {
     log.warn('login rate limit (email)', { email: cleanEmail, ip }, 'Auth');
     return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' } });
   }
@@ -44,8 +44,9 @@ const handler: NextApiHandler = async (req, res) => {
   try {
     token = await signIn(cleanEmail, password);
   } catch (err) {
-    // D9: GoTrue could not answer, so the password was never judged. Not a failed attempt.
-    if (respondIfAuthUnavailable(res, err, 'login')) return;
+    // D9: GoTrue could not answer, so the password was never judged: not a failed attempt, and the per-email
+    // attempt is handed back. (An outage AFTER a successful signIn, at listFactors, keeps its charge.)
+    if (await respondToAuthOutage(res, err, 'login', () => refundRateLimit(`login:email:${cleanEmail}`, 1, emailCharge.windowStart))) return;
     const failure = await recordFailure(cleanEmail, ip);
     log.info('login failed', { email, message: err instanceof Error ? err.message : 'unknown', locked: failure.locked }, 'Auth');
     if (failure.locked) {

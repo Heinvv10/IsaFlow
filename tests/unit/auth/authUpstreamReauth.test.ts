@@ -163,6 +163,35 @@ describe('POST /api/invitations/[token]/accept', () => {
     expectOutage(await accept({}));
     expect(db.queries.some((q) => /INSERT INTO company_users/.test(q))).toBe(false);
   });
+  it.each(OUTAGES)('new account, %s while setting the password (step 2) → 503, not 500; signIn never runs', async (_l, outage) => {
+    db.established = false;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/admin/users/')) return outage(url, init);
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    expectOutage(await accept({}));
+    expect(fetch.mock.calls.some(([u]) => String(u).includes('/token'))).toBe(false);
+    expect(db.queries.some((q) => /INSERT INTO company_users/.test(q))).toBe(false);
+  });
+  it('new account: a retry after a partial run (password set, then a signIn outage) sets the same password again and completes', async () => {
+    db.established = false;
+    const session = { access_token: 'a', refresh_token: 'r', expires_in: 3600, token_type: 'bearer', user: { id: 'gt-1', email: 'invitee@example.test' } };
+    let signIns = 0;
+    const fetch = vi.fn(async (url: string) => {
+      if (url.includes('/admin/users/')) return Response.json({ id: 'gt-1', email: 'invitee@example.test' });
+      if (url.includes('/token?grant_type=password')) return ++signIns === 1 ? new Response('', { status: 503 }) : Response.json(session);
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    expectOutage(await accept({}));
+    expect(db.queries.some((q) => /INSERT INTO company_users/.test(q))).toBe(false);
+    expect((await accept({})).status).toBe(200);
+    const passwordSets = fetch.mock.calls.filter(([u]) => String(u).includes('/admin/users/'));
+    expect(passwordSets).toHaveLength(2);
+    expect((passwordSets[0]![1] as RequestInit).body).toBe((passwordSets[1]![1] as RequestInit).body);
+    expect(db.queries.filter((q) => /INSERT INTO company_users/.test(q))).toHaveLength(1);
+  });
   it('established account, wrong password → still 401 SIGN_IN_REQUIRED', async () => {
     vi.stubGlobal('fetch', gotrue(WRONG_PASSWORD));
     const answer = await accept({});

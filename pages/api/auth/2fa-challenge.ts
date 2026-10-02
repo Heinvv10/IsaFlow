@@ -13,10 +13,10 @@ import {
   PENDING_REMEMBER_COOKIE,
 } from '@/lib/auth/cookies';
 import { challengeFactor, verifyFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
-import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
+import { respondToAuthOutage } from '@/lib/auth/authUpstream';
 import { verifyTokenSignature } from '@/lib/auth/gotrue';
 import { checkLockout, recordFailure, clearLockout } from '@/lib/auth/accountLockout';
-import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
+import { chargeRateLimit, refundRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { requireActiveAccount } from '@/lib/auth/requireActiveAccount';
 import { log } from '@/lib/logger';
@@ -42,8 +42,8 @@ const handler: NextApiHandler = async (req, res) => {
 
   // Per-factor brute-force guard — 5 attempts / 15 min per factor_id beats
   // IP-rotating attackers holding a valid pending_token.
-  const factorAllowed = await checkRateLimit(`2fa:factor:${factor_id}`, { max: 5, windowSecs: 900 });
-  if (!factorAllowed) {
+  const factorCharge = await chargeRateLimit(`2fa:factor:${factor_id}`, { max: 5, windowSecs: 900 });
+  if (!factorCharge.admitted) {
     log.warn('2fa rate limit (factor)', { factor_id, ip: getClientIp(req) }, 'Auth');
     return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' } });
   }
@@ -117,7 +117,7 @@ const handler: NextApiHandler = async (req, res) => {
     });
   } catch (err) {
     // D9: GoTrue could not answer, so the code was never judged: 503, no lockout charge.
-    if (respondIfAuthUnavailable(res, err, '2fa-challenge')) return;
+    if (await respondToAuthOutage(res, err, '2fa-challenge', () => refundRateLimit(`2fa:factor:${factor_id}`, 1, factorCharge.windowStart))) return;
     if (err instanceof GotrueMfaError) {
       // TOTP brute-force attempt counts as a failed auth. Only record when
       // it's a credential-class failure (422 invalid code / 401 unauthorized);

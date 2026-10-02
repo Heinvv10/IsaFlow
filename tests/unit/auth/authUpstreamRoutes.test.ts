@@ -13,6 +13,8 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/lib/rateLimit', () => ({
   withRateLimit: (h: unknown) => h,
   checkRateLimit: vi.fn(async () => true),
+  chargeRateLimit: vi.fn(async () => ({ admitted: true, windowStart: null })),
+  refundRateLimit: vi.fn(async () => undefined),
   getClientIp: () => '127.0.0.1',
 }));
 vi.mock('@/lib/auth/requireActiveAccount', () => ({ requireActiveAccount: vi.fn(async () => null) }));
