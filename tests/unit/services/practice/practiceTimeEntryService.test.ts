@@ -13,7 +13,8 @@ vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
   assertNotImpersonating: async () => undefined,
 }));
-vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+// The entry writes (and each bulk date) run in a savepoint (mig 851 race); outside a request tx the real one just calls fn.
+vi.mock('@/lib/neon', () => ({ sql: sqlMock, withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn() }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

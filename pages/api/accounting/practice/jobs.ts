@@ -16,6 +16,7 @@ import {
   listJobs,
   createJob,
   type PracticeJob,
+  type PracticeJobInput,
 } from '@/modules/accounting/services/practice/practiceJobService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -34,9 +35,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    if (!isJsonObjectBody(req.body)) return apiResponse.badRequest(res, 'Request body must be a JSON object');
+    const input = req.body as PracticeJobInput;
+    if (!isJsonObjectBody(input)) return apiResponse.badRequest(res, 'Request body must be a JSON object');
     try {
-      const job = await createJob(companyId, req.user.id, req.body);
+      const job = await createJob(companyId, req.user.id, input);
       return apiResponse.created(res, job);
     } catch (err) {
       if (err instanceof JobBudgetInvalidError) {

@@ -1,4 +1,4 @@
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { resolveRate } from './practiceStaffRateService';
@@ -16,10 +16,13 @@ import type {
   PracticeTimeEntryUpdateInput,
 } from './practiceTimeEntryTypes';
 import { roundHours, lineTotalFor } from './practiceTimeEntryTypes';
-import { assertJobForPracticeClient } from './practiceClientFence';
+import { assertJobForPracticeClient, rethrowJobFkAsRefusal } from './practiceClientFence';
 import { mapEntry } from './practiceTimeEntryMap';
 
 export { listPracticeEntries } from './practiceTimeEntryList';
+
+/** Sequenced: Postgres shadows a re-declared savepoint name. */
+let writeSeq = 0;
 
 /** @internal used by practiceTimeEntryWorkflow — do not import elsewhere */
 export async function validateClientCategoryWorkItem(
@@ -83,7 +86,8 @@ export async function createPracticeEntry(
   const origin = input.origin ?? 'manual';
   const billable = input.billable !== false;
 
-  const rows = (await sql`
+  // Savepointed: a job moved since the fence read reaches 851's FK as a 23503 (see rethrowJobFkAsRefusal).
+  const rows = await withSavepoint(`te_ins_${++writeSeq}`, async () => (await sql`
     INSERT INTO time_entries (
       company_id, user_id, entry_date, hours,
       practice_client_id, job_category_id, work_item_id,
@@ -97,7 +101,7 @@ export async function createPracticeEntry(
       ${appliedRate}, ${lineTotal}, ${appliedRate}, ${lineTotal},
       ${origin}, 'draft', ${jobId}::UUID
     ) RETURNING *
-  `) as DbRow[];
+  `) as DbRow[]).catch((err: unknown) => rethrowJobFkAsRefusal(err, jobId));
   if (!rows[0]) throw new Error('database returned no row after insert/update');
 
   log.info('Created practice time entry', {
@@ -162,7 +166,7 @@ export async function updatePracticeEntry(
   const keptJob = row.job_id ? String(row.job_id) : null;
   const jobId = updateJob || changingClient
     ? await assertJobForPracticeClient(companyId, clientId, updateJob ? input.jobId : keptJob,
-      { newLink: updateJob && input.jobId !== keptJob })
+      { newLink: updateJob && !sameJobId(input.jobId, keptJob) })
     : null;
 
   const appliedRate = await resolveRate(companyId, userId, clientId, entryDate);
@@ -173,7 +177,7 @@ export async function updatePracticeEntry(
   const updateNotes = 'notes' in input;
   const notesValue = input.notes ?? null;
 
-  const rows = (await sql`
+  const rows = await withSavepoint(`te_upd_${++writeSeq}`, async () => (await sql`
     UPDATE time_entries SET
       entry_date         = COALESCE(${input.entryDate ?? null}::DATE, entry_date),
       hours              = COALESCE(${input.hours !== undefined ? effectiveHours : null}, hours),
@@ -191,7 +195,7 @@ export async function updatePracticeEntry(
       updated_at         = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
     RETURNING *
-  `) as DbRow[];
+  `) as DbRow[]).catch((err: unknown) => rethrowJobFkAsRefusal(err, jobId ?? keptJob));
   if (!rows[0]) throw new Error('database returned no row after insert/update');
 
   log.info('Updated practice time entry', { id, companyId }, 'practice');
@@ -252,4 +256,9 @@ export async function getEntryStatusesByIds(
       AND (${scopedUserId}::UUID IS NULL OR user_id = ${scopedUserId}::UUID)
   `) as DbRow[];
   return new Map(rows.map((r) => [String(r.id), String(r.status) as PracticeTimeEntry['status']]));
+}
+
+/** Ids compare case-insensitively (Postgres stores a uuid lowercase): an uppercase copy of the kept job is not a new link. */
+function sameJobId(next: unknown, kept: string | null): boolean {
+  return typeof next === 'string' && kept !== null && next.toLowerCase() === kept.toLowerCase();
 }

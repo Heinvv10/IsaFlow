@@ -97,7 +97,7 @@ export const logTimeEntryTool: McpTool = {
       task_description: { type: 'string', description: 'What was actually done. Max 500 characters.' },
       notes: { type: 'string' },
       billable: { type: 'boolean', description: 'Defaults to true.' },
-      job_id: { type: 'string', description: 'Optional job (engagement) to book the time against: an open job of practice_client_id. Its Engagement Budget is spent by this entry.' },
+      job_id: { type: ['string', 'null'], description: 'Optional job (engagement) to book the time against: an open job of practice_client_id. Its Engagement Budget is spent by this entry.' },
       allow_backdating: {
         type: 'boolean',
         description: 'Required to book into any month before the previous calendar month. Such a period has usually been invoiced and reported on; the entry would restate those reports, and it carries the rate effective on that date rather than today\'s.',
@@ -152,7 +152,8 @@ export const logTimeEntryTool: McpTool = {
     }
 
     const billable = args.billable === undefined ? true : args.billable === true;
-    if (args.job_id !== undefined && typeof args.job_id !== 'string') return toolError('job_id must be a string');
+    // null means "no job", as on the REST routes.
+    if (args.job_id != null && typeof args.job_id !== 'string') return toolError('job_id must be a string or null');
     const jobId = args.job_id ?? null;
 
     // dry_run parity: every guard the live path runs, run here too. A dry run

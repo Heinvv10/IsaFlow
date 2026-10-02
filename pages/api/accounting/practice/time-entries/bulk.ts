@@ -15,6 +15,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { isJobFenceRefusal } from '@/modules/accounting/services/practice/practiceClientFence';
+import { isJsonObjectBody } from '@/lib/validation';
 import {
   bulkCreateFromTemplate,
   type BulkFromTemplateInput,
@@ -26,6 +27,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+  if (!isJsonObjectBody(req.body)) return apiResponse.badRequest(res, 'Request body must be a JSON object');
   const body = req.body as Partial<BulkFromTemplateInput>;
 
   if (!body.templateId || typeof body.templateId !== 'string') {

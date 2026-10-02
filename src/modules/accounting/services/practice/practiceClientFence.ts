@@ -28,6 +28,7 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
+import { CLOSED_JOB_STATUSES } from './practiceJobBudget';
 
 /** Refusal raised when a practice client id is not this company's. Routes answer 400. */
 export class PracticeClientNotInCompanyError extends Error {
@@ -70,8 +71,20 @@ export function isJobFenceRefusal(err: unknown): err is PracticeJobNotForClientE
   return err instanceof PracticeJobNotForClientError || err instanceof PracticeJobClosedError;
 }
 
-/** A job time may no longer be newly captured against. */
-export const CLOSED_JOB_STATUSES: readonly string[] = ['complete', 'cancelled', 'billed'];
+/**
+ * The fence reads the job without a lock, so a job moved to another client
+ * between that read and the write reaches migration 851's FK as a 23503.
+ * Callers run the write in a savepoint and pass its error through here: that
+ * 23503 becomes the same refusal the fence would have raised; anything else is
+ * re-thrown as it is.
+ */
+export function rethrowJobFkAsRefusal(err: unknown, jobId: string | null): never {
+  const e = err as { code?: string; constraint?: string };
+  if (e.code === '23503' && e.constraint === 'time_entries_job_same_client_fkey') {
+    throw new PracticeJobNotForClientError(jobId ?? 'unknown');
+  }
+  throw err;
+}
 
 /** Sequenced: Postgres shadows a re-declared savepoint name. */
 let fenceSeq = 0;

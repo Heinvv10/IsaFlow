@@ -109,6 +109,6 @@ export const NUL_MESSAGE = 'text must not contain a NUL (\\u0000) character, and
  * number). Services that test `'field' in input` throw TypeError on anything
  * else, which would surface as a 500 rather than a 400.
  */
-export function isJsonObjectBody(value: unknown): boolean {
+export function isJsonObjectBody(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

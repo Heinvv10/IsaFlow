@@ -50,6 +50,8 @@ describeIfDb('Engagement budgets — consumption and the report', () => {
     // Company B's entry on A's job (pre-851 shape) and an A entry for CLIENT2 on CLIENT's job: neither counts.
     await f.plantLegacy({ company: f.B, client: f.CLIENT_B, cat: f.CAT_B, item: f.ITEM_B, job: J.main!, hours: 3, rate: 1000, desc: 'EBC planted B' });
     await f.plantLegacy({ company: f.A, client: f.CLIENT2, cat: f.CAT, item: f.ITEM, job: J.main!, hours: 4, rate: 1000, desc: 'EBC planted client2' });
+    // Company B's entry carrying A's OWN client id: only the te.company_id = pj.company_id clause keeps it out.
+    await f.plantLegacy({ company: f.B, client: f.CLIENT, cat: f.CAT_B, item: f.ITEM_B, job: J.main!, hours: 6, rate: 1000, desc: 'EBC planted B same client' });
     await f.entry({ job: J.none!, hours: 2, rate: 1000, status: 'submitted' });
     await f.entry({ job: J.warn!, hours: 0.8, rate: 1000, status: 'approved' });
     await f.entry({ job: J.over!, hours: 1, rate: 1000, status: 'approved' });
