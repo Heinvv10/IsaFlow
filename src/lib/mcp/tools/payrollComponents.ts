@@ -52,6 +52,7 @@ export const listEmployeeComponentsTool: McpTool = {
     + 'check this before costing a run rather than after wondering why gross is zero. '
     + 'Closed assignments are included: an ended component explains a past run.',
   scope: 'read:payroll',
+  requiresWriteRole: true,
   write: false,
   inputSchema: {
     type: 'object',
@@ -94,6 +95,7 @@ export const getEmployeeTool: McpTool = {
     'One payroll employee by id. Use after create_employee or update_employee to read the '
     + 'record back, and before assign_employee_component to confirm you have the right person.',
   scope: 'read:payroll',
+  requiresWriteRole: true,
   write: false,
   inputSchema: {
     type: 'object',

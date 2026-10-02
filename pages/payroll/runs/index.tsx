@@ -8,6 +8,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { CalendarDays, Loader2, AlertCircle, Plus } from 'lucide-react';
+import { useCompany } from '@/contexts/CompanyContext';
+import { canWrite } from '@/lib/auth/writeRoles';
 
 interface RunRow {
   id: string;
@@ -40,6 +42,8 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function PayrollRunsListPage() {
+  const { companyRole } = useCompany();
+  const mayWrite = canWrite(companyRole); // new runs and per-employee detail are for write roles; a viewer keeps the totals
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -75,9 +79,11 @@ export default function PayrollRunsListPage() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">Monthly payroll cycles</p>
               </div>
             </div>
-            <Link href="/payroll/runs/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
-              <Plus className="h-4 w-4" /> New Payroll Run
-            </Link>
+            {mayWrite && (
+              <Link href="/payroll/runs/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
+                <Plus className="h-4 w-4" /> New Payroll Run
+              </Link>
+            )}
           </div>
         </div>
 
@@ -94,9 +100,11 @@ export default function PayrollRunsListPage() {
             <div className="text-center py-16">
               <CalendarDays className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)] font-medium">No payroll runs yet</p>
-              <Link href="/payroll/runs/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
-                <Plus className="h-4 w-4" /> New Payroll Run
-              </Link>
+              {mayWrite && (
+                <Link href="/payroll/runs/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
+                  <Plus className="h-4 w-4" /> New Payroll Run
+                </Link>
+              )}
             </div>
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
@@ -131,9 +139,11 @@ export default function PayrollRunsListPage() {
                         ) : <span className="text-[var(--ff-text-tertiary)]">—</span>}
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <Link href={`/payroll/runs/${r.id}`} className="text-teal-400 hover:text-teal-300 text-xs font-medium">
-                          View
-                        </Link>
+                        {mayWrite && (
+                          <Link href={`/payroll/runs/${r.id}`} className="text-teal-400 hover:text-teal-300 text-xs font-medium">
+                            View
+                          </Link>
+                        )}
                       </td>
                     </tr>
                   ))}

@@ -70,6 +70,7 @@ const ctx: McpToolContext = {
   scopes: ['read:payroll', 'write:payroll', 'write:post'],
   tokenJti: 'j',
   oauthAppId: null,
+  companyRole: 'manager',
 };
 
 const json = (r: { content: Array<{ text: string }> }) => JSON.parse(r.content[0]!.text);

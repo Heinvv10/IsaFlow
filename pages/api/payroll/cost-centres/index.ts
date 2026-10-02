@@ -17,6 +17,7 @@ import {
   createCostCentre,
   listCostCentres,
 } from '@/modules/accounting/services/core/costCentreService';
+import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 
 const CreateBody = z
   .object({
@@ -57,4 +58,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

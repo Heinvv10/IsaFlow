@@ -19,6 +19,7 @@ import {
   EmptyUpdateError,
   EmptyFilterError,
 } from '@/modules/accounting/services/payroll/payrollBulkEmployeeService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 const Filter = z
   .object({
@@ -54,4 +55,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

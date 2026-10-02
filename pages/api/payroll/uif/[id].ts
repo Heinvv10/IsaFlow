@@ -9,12 +9,12 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import {
   getUifDeclaration,
   markUifSubmitted,
 } from '@/modules/accounting/services/payroll/uifDeclarationService';
 import { markUifDeclarationPaid } from '@/modules/accounting/services/payroll/uifPaymentService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -65,4 +65,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PATCH']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

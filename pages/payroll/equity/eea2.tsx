@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface Cell { race: string; gender: string; count: number }
 interface Level {
@@ -42,7 +43,7 @@ export default function EEA2Page() {
       const res = await apiFetch(`/api/payroll/equity/eea2?asOf=${asOf}`);
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? `HTTP ${res.status}`);
+        setError(payrollLoadMessage(res.status, j.error?.message ?? j.message ?? `HTTP ${res.status}`));
         return;
       }
       const json = await res.json();

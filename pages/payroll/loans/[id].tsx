@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Banknote, Loader2, AlertCircle, ArrowLeft, CheckCircle2, XCircle } from 'lucide-react';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface ScheduleRow {
   id: string;
@@ -70,7 +71,7 @@ export default function LoanDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/loans/${id}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) { setError(payrollLoadMessage(res.status, 'Failed to load loan')); return; }
       const json = await res.json();
       const payload = (json.data ?? json) as { loan: Loan; schedule: ScheduleRow[]; payments: PaymentRow[] };
       setLoan(payload.loan);
