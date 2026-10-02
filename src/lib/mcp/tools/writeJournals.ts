@@ -12,6 +12,7 @@ import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartO
 import type { JournalLineInput, VatType } from '@/modules/accounting/types/gl.types';
 import { mcpPostingOpts } from '../mcpActor';
 import { ALLOW_LATE_INPUT_CLAIM_PROP, allowLateInputClaim } from './lateClaimArg';
+import { resolveLineVatCode } from './allocationVatGuard';
 import { NOT_FOUND, guardCastableArgs, guardUuidList, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 /**
@@ -111,6 +112,24 @@ export const createDraftJournalTool: McpTool = {
     // this company's own trial balance via the RLS-hidden joined row).
     if (!(await accountsBelongToCompany(ctx.companyId, lines.map((l) => l.glAccountId)))) {
       return toolError('One or more account_id values are not GL accounts in your company.');
+    }
+    // A coded line is a VAT claim the agent is asserting, unattended: run it
+    // through the same s17(2)(a) / non-supply / bank-transfer funnel every MCP
+    // allocation goes through. REFUSE rather than coerce — the journal carries
+    // its VAT amount on an explicit line, so silently relabelling the code
+    // would leave that amount describing a claim the code now denies.
+    for (const [i, line] of lines.entries()) {
+      if (!line.vatType) continue;
+      const guarded = await resolveLineVatCode(
+        ctx.companyId, '', { allocType: 'account', contraAccountId: line.glAccountId, vatCode: line.vatType },
+        'create_draft_journal',
+      );
+      if (guarded.vatCoerced) {
+        return toolError(
+          `lines[${i}].vat_type ${line.vatType} is not claimable on that account `
+          + `(${guarded.vatCoerced.reason}) — use no vat_type, or book it to a supply account.`,
+        );
+      }
     }
     try {
       // Stamp the agent. Without meta, createJournalEntry falls back to
