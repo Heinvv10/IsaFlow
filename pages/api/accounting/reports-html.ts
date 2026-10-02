@@ -13,11 +13,9 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
-import {
-  getFinancialFigures,
-  totalEquity,
-  unclassifiedWarning,
-} from '@/modules/accounting/services/gl/financialFiguresService';
+import { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
+import { readReportPackInput } from '@/modules/accounting/services/reports/reportPackDataService';
+import { cashFlowPackRows, ratioPackRows } from '@/modules/accounting/services/reports/packUnstatedRows';
 import { buildDataQualityNotices } from '@/modules/accounting/services/reports/dataQualityNotices';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
@@ -25,9 +23,9 @@ import {
   buildReportPack,
   type PackType,
   type PackSection,
-  type ReportPackInput,
 } from '@/modules/accounting/services/reports/reportPackService';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
+import { kpiStatusLabel, scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -60,37 +58,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'from and to must be ISO dates (YYYY-MM-DD)');
   }
 
-  const [figures, companyRow] = await Promise.all([
-    getFinancialFigures(companyId, from, to),
-    getCompanyName(companyId),
-  ]);
-
-  const { period, cumulative } = figures;
-  const netProfit = period.netProfit;
-
-  const data: ReportPackInput = {
-    companyName: companyRow?.name || 'Company',
-    period: `${from} to ${to}`,
-    revenue: period.revenue,
-    costOfSales: period.costOfSales,
-    operatingExpenses: period.operatingExpenses,
-    netProfit,
-    totalAssets: cumulative.totalAssets,
-    totalLiabilities: cumulative.totalLiabilities,
-    totalEquity: totalEquity(figures),
-    currentAssets: cumulative.currentAssets,
-    currentLiabilities: cumulative.currentLiabilities,
-    cash: cumulative.cash,
-    accountsReceivable: cumulative.accountsReceivable,
-    accountsPayable: cumulative.accountsPayable,
-    inventory: cumulative.inventory,
-  };
+  // THE SAME INPUT THE PDF, THE DECK, THE SCREEN AND A SHARED LINK ARE BUILT
+  // FROM. It was assembled here by hand without other income, other expenses
+  // or the cash flows, so this document's income statement did not foot to
+  // net profit and printed a different operating profit from the PDF of the
+  // same period. One read after the other: both run on the request's one
+  // connection, and the producer takes a savepoint around its cash-flow read.
+  const companyRow = await getCompanyName(companyId);
+  const { input: data, figures } = await readReportPackInput(
+    companyId, companyRow?.name || 'Company', from, to,
+  );
 
   const pack = buildReportPack(type as PackType, data, from, to);
   // This endpoint returns a document, not JSON — the caveat has to be IN the
   // document or nobody sees it.
   const notices = buildDataQualityNotices({
-    unclassifiedAccounts: unclassifiedWarning(cumulative),
+    unclassifiedAccounts: unclassifiedWarning(figures.cumulative),
   });
   const html = buildReportHtml(pack, type as PackType, from, to, notices);
 
@@ -164,29 +147,41 @@ export function renderSectionHtml(section: PackSection): string {
       return tableHtml(['Item', 'Amount'], rows);
 
     case 'cash_flow':
-      rows = [
-        ['Operating Cash Flow', fmtZAR(d.operatingCashFlow)],
-        ['Investing Cash Flow', fmtZAR(d.investingCashFlow)],
-        ['Financing Cash Flow', fmtZAR(d.financingCashFlow)],
-        ['Net Cash Flow', fmtZAR(d.netCashFlow)],
-        ['Opening Cash', fmtZAR(d.openingCash)],
-        ['Closing Cash', fmtZAR(d.closingCash)],
-      ].map(([l, v]) => `<tr><td>${l}</td><td class="num">${v}</td></tr>`).join('');
+      // One row list, shared with the PDF pack. A line the section marks
+      // unavailable prints its reason: the number still in the blob for it is
+      // a stand-in (net profit, where no operating cash flow was read).
+      rows = cashFlowPackRows(d as Record<string, unknown>)
+        .map(r => `<tr><td>${r.label}</td><td class="num">${r.value === null ? escapeHtml(r.reason) : fmtZAR(r.value)}</td></tr>`)
+        .join('');
       return tableHtml(['Item', 'Amount'], rows);
 
     case 'ratios':
-      rows = Object.entries(d as Record<string, unknown>)
-        .filter(([, v]) => v !== null && v !== undefined)
-        .slice(0, 20)
-        .map(([k, v]) => `<tr><td>${k.replace(/([A-Z])/g, ' $1').trim()}</td><td class="num">${typeof v === 'number' ? v.toFixed(2) : String(v)}</td></tr>`)
-        .join('');
+      // The first twenty ratios that HAVE figures, as before, then every
+      // ratio that has none, with its reason. Taken as two lists: filtering
+      // one list by `index < 20 || no figure` counts a reasoned row among the
+      // twenty, so each ratio that lost its figure pushed one that had a
+      // figure off the end of the table.
+      {
+        const all = ratioPackRows(d as Record<string, unknown>);
+        const withFigures = all.filter(r => r.stated).slice(0, 20);
+        const withReasons = all.filter(r => !r.stated);
+        rows = [...withFigures, ...withReasons]
+          .map(r => `<tr><td>${escapeHtml(r.label)}</td><td class="num">${escapeHtml(r.text)}</td></tr>`)
+          .join('');
+      }
       return tableHtml(['Ratio', 'Value'], rows);
 
     case 'kpis': {
       const items = (d.scorecard as KPIScorecardItem[]) ?? [];
       rows = items.map(item => {
-        const cls = item.status === 'green' ? 'status-green' : item.status === 'amber' ? 'status-amber' : 'status-red';
-        return `<tr><td>${escapeHtml(item.name)}</td><td class="num">${typeof item.value === 'number' ? item.value.toFixed(2) : escapeHtml(String(item.value))}</td><td class="num">${typeof item.target === 'number' ? item.target.toFixed(2) : '—'}</td><td><span class="${cls}">${escapeHtml(item.status.toUpperCase())}</span></td></tr>`;
+        // Unscored is not failed: its own neutral pill, as the screen's tile.
+        const cls = item.status === 'green' ? 'status-green' : item.status === 'amber' ? 'status-amber'
+          : item.status === 'red' ? 'status-red' : 'status-neutral';
+        // The tile's own decision: value and target in the ratio's unit, and
+        // the reason — not "null" — where the ratio has no value.
+        const figure = scorecardFigure(item);
+        const actual = figure.scored ? figure.value : figure.reason;
+        return `<tr><td>${escapeHtml(item.name)}</td><td class="num">${escapeHtml(actual)}</td><td class="num">${escapeHtml(figure.target)}</td><td><span class="${cls}">${escapeHtml(kpiStatusLabel(item.status))}</span></td></tr>`;
       }).join('');
       return tableHtml(['KPI', 'Actual', 'Target', 'Status'], rows);
     }
@@ -256,6 +251,7 @@ function buildReportHtml(
     .status-green { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #dcfce7; color: #16a34a; font-size: 11px; font-weight: 600; }
     .status-amber { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #fef9c3; color: #ca8a04; font-size: 11px; font-weight: 600; }
     .status-red   { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #fee2e2; color: #dc2626; font-size: 11px; font-weight: 600; }
+    .status-neutral { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #f3f4f6; color: #4b5563; font-size: 11px; font-weight: 600; }
     .footer { border-top: 1px solid #e5e7eb; padding: 12px 32px; font-size: 11px; color: #9ca3af; display: flex; justify-content: space-between; }
     @media print {
       .header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }

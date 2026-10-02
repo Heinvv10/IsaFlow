@@ -15,7 +15,7 @@ import { apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { buildPackDocument, type PackDocument } from '@/modules/accounting/services/packs/packDocument';
 import { PACK_DATA_API, packTrendApiPath } from '@/modules/accounting/services/packs/packSections';
-import type { PackType, ReportPack } from '@/modules/accounting/services/reports/reportPackService';
+import type { PackType } from '@/modules/accounting/services/reports/reportPackService';
 
 export interface PackPrintData {
   document: PackDocument | null;
@@ -30,15 +30,12 @@ export function usePackPrintData(packType: PackType, from: string, to: string): 
     let cancelled = false;
     void (async () => {
       try {
-        // `reports-pack` is not in the route registry and its GET returns
-        // three fields; registering the shared path would have to hold for
-        // every method on it, so the payload is narrowed with one cast here.
-        const packPayload = (await apiJson(
-          `${PACK_DATA_API}?type=${packType}&from=${from}&to=${to}`,
-        )) as { pack: ReportPack };
+        // Typed by the route registry (`/api/accounting/reports-pack`), so a
+        // renamed or removed field is a compile error here.
+        const packPayload = await apiJson(`${PACK_DATA_API}?type=${packType}&from=${from}&to=${to}`);
         const trend = await apiJson(`${packTrendApiPath(packType)}?to=${to}&months=12`);
         if (cancelled) return;
-        setDocument(buildPackDocument(packPayload.pack, trend));
+        setDocument(buildPackDocument(packPayload.pack, trend, packPayload.draft === true));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.error('usePackPrintData: failed', { packType, from, to, error: message });

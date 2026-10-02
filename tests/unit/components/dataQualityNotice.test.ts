@@ -34,9 +34,9 @@ describe('buildDataQualityNotices', () => {
       unclassifiedAccounts: { accounts: 13, amount: 117_139_882.5, message: 'ignored' },
     });
     expect(notice).toContain('13 accounts');
-    // en-ZA: NON-BREAKING space (U+00A0) thousands separator, comma decimal.
-    // \s matches U+00A0, so this asserts the grouping without hard-coding it.
-    expect(notice).toMatch(/117\s139\s882,50/);
+    // The app's formatter, as every table on the screen prints it: ASCII-space
+    // thousands, decimal point (`dataQualityNoticeMoney.test.ts` pins the rest).
+    expect(notice).toContain('R 117 139 882.50');
     expect(notice).toMatch(/default was applied/i);
   });
 
@@ -53,7 +53,8 @@ describe('buildDataQualityNotices', () => {
     const [notice] = buildDataQualityNotices({
       unclassifiedAccounts: { accounts: 4, amount: -119_735.72, message: 'ignored' },
     });
-    expect(notice).toMatch(/-119\s735,72/);
+    // A negative balance in brackets, the statement convention, not a minus.
+    expect(notice).toContain('(R 119 735.72)');
   });
 
   it('passes the inventory message through verbatim', () => {
@@ -144,7 +145,7 @@ describe('per-type unclassified wording', () => {
     });
     expect(notices).toHaveLength(2);
     expect(notices[0]).toContain('39 expense accounts');
-    expect(notices[0]).toMatch(/114\s177\s043,06/);
+    expect(notices[0]).toMatch(/114 177 043\.06/);
     expect(notices[0]).toContain('operating expenses rather than cost of sales');
     expect(notices[1]).toContain('4 revenue accounts');
     expect(notices[1]).toContain('revenue rather than other income');

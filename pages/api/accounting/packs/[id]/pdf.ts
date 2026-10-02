@@ -2,10 +2,52 @@
  * GET /api/accounting/packs/[id]/pdf?from=YYYY-MM-DD&to=YYYY-MM-DD
  *
  * Streams the pack as a PDF. The pack is not re-assembled here: the renderer
- * loads the same React page the user saw (?print=1) and photographs it, so a
- * figure can never differ between the screen and the document. The print
- * token that authorises the renderer's own headless-browser requests is
- * minted inside renderPagePdf and never leaves this process.
+ * loads the same React PAGE (?print=1) and photographs it, so no figure is
+ * computed twice. The print token that authorises the renderer's own
+ * headless-browser requests is minted inside renderPagePdf and never leaves
+ * this process.
+ *
+ * IT IS NOT THE SAME DOCUMENT THE USER PREVIEWED, and this comment used to
+ * claim it was. `?print=1` dispatches the BOARD pack to `PackPagesPrintPage`
+ * — the twelve-page fixed-layout document — while the interactive screen
+ * still renders the legacy five-section accordion for every pack type. A
+ * reader previews one document and downloads another, and the two do not
+ * even fail alike: the interactive board view renders Brightsphere happily
+ * while this route refuses it on the integrity gate. Moving the interactive
+ * screen onto the page model is its own piece of work; until then, do not
+ * reason about this route as if the screen and the PDF agreed.
+ *
+ * WHEN THE RENDER FAILS, THE REASON HAS TO REACH A HUMAN. The figure
+ * integrity gate (spec §7.2) refuses a pack whose balance sheet does not
+ * foot, and it is right to: Brightsphere's is out by R450 and that sentence
+ * is the entire value of the gate. But the refusal happens INSIDE the
+ * headless browser — the print page renders the message on screen and
+ * deliberately never sets `data-print-ready` — so all the transport could see
+ * was its own 30-second `waitForSelector` timeout, and the user received a
+ * corrupt download named `.pdf` or a message naming no cause at all. So a
+ * failed render is DIAGNOSED here, by composing the same document in this
+ * process. Only on the failure path: the happy path composes nothing extra.
+ *
+ * WHAT THAT DIAGNOSIS ANSWERS. A `PackRefusal` thrown by the compose is a 422
+ * carrying the refusal's `userMessage` — the sentence written for a reader —
+ * with its diagnostic logged. Anything else the compose throws is NOT a
+ * refusal: it is re-thrown and becomes a 500, after the render error has been
+ * logged. If the compose succeeds, the render error itself is re-thrown. So a
+ * gate reaches the user in its own words only where it throws a
+ * `PackRefusal`; a gate that throws a bare `Error` is a 500.
+ *
+ * THE FOOTER AND THE PDF METADATA COME FROM `buildPackFurniture`, which the
+ * proof script `scripts/pdf/render-pack.ts` calls too. They were derived
+ * inline here, and the script passed neither — so every clean-room render in
+ * `evidence/` printed Chromium's bare `n / m` and reported `Creator:
+ * Chromium`, and the sheets a reviewer read carried no company, no period and
+ * no confidentiality mark. Neither can be CSS: Blink implements neither
+ * `@bottom-center` margin boxes nor `position: running()`, and both would
+ * draw nothing silently.
+ *
+ * `landscape` is deliberately NOT passed. It turns the WHOLE document
+ * sideways; page 10 alone is landscape, through the named `@page` rule in
+ * `styles/print.css` that keys off the page's own `data-print-landscape`.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -13,9 +55,13 @@ import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
+import { isRealCalendarDate } from '@/lib/validation';
 import { renderPagePdf } from '@/lib/pdf/renderPagePdf';
 import { withRenderSlot } from '@/lib/pdf/withRenderSlot';
-import { sql, type DbRow } from '@/lib/neon';
+import { buildFooterHtml, buildPdfMetadata } from '@/lib/pdf/printFurniture';
+import { buildBoardPackDocument } from '@/modules/accounting/services/packs/pages/boardPackDocument';
+import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
+import { buildPackFurniture } from '@/modules/accounting/services/packs/pages/packFurniture';
 import { packDownloadFilename } from '@/modules/accounting/services/packs/packDownloadName';
 import { packPrintApiPaths } from '@/modules/accounting/services/packs/packSections';
 import type { PackType } from '@/modules/accounting/services/reports/reportPackService';
@@ -35,9 +81,50 @@ function hasUsablePrintSecret(): boolean {
   return typeof secret === 'string' && secret.length >= MIN_SECRET_LEN;
 }
 
-async function getCompanyName(companyId: string): Promise<string> {
-  const rows = (await sql`SELECT name FROM companies WHERE id = ${companyId}::uuid LIMIT 1`) as DbRow[];
-  return rows[0]?.name ? String(rows[0].name) : '';
+/** The one pack type composed as a page model, and so the only one whose
+ *  refusal this route can reproduce. See `packs/[id]/pages.ts`. */
+const PAGES_PACK_TYPE = 'board';
+
+/**
+ * Why a failed render refused, where the pack itself refused — or null when
+ * composing the document succeeds and the failure was the renderer's own.
+ *
+ * ONLY A `PackRefusal` IS A REFUSAL. This used to turn ANYTHING the compose
+ * threw into a 422 with a fixed sentence: a driver error or a `TypeError`
+ * from a composition module was reported to the user as a rule their own
+ * pack had broken, answered 4xx so nothing alerted, and the render error
+ * that led here was dropped. Anything that is not a refusal is re-thrown and
+ * becomes a 500 — after the render error has been logged, because the throw
+ * replaces it.
+ *
+ * Composing is READ-ONLY, like `pages.ts`, which matters: `withAuth` COMMITs
+ * before the response flushes and only rolls back on a 5xx, so a 422 returned
+ * after a write would COMMIT that write. Nothing here writes.
+ */
+async function packRefusalReason(
+  packType: string,
+  request: { companyId: string; from: string; to: string; preparedBy: string },
+  renderError: unknown,
+): Promise<PackRefusal | null> {
+  if (packType !== PAGES_PACK_TYPE) return null;
+  try {
+    await buildBoardPackDocument({ ...request, generatedAt: new Date().toISOString() });
+    return null;
+  } catch (error) {
+    if (error instanceof PackRefusal) return error;
+    log.error(
+      'Pack PDF render failed, and composing the pack to find out why failed too',
+      {
+        companyId: request.companyId,
+        packType,
+        from: request.from,
+        to: request.to,
+        renderError: renderError instanceof Error ? renderError.message : String(renderError),
+      },
+      'packs',
+    );
+    throw error;
+  }
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -55,6 +142,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!ISO_DATE.test(from) || !ISO_DATE.test(to)) {
     return apiResponse.badRequest(res, 'from and to must be YYYY-MM-DD dates');
   }
+  // AND VALIDATED AS DATES, NOT AS SHAPES, BEFORE ANY RENDER IS ATTEMPTED.
+  //
+  // `ISO_DATE` matches ten digits in the right places, so `2026-02-31` and
+  // `2026-13-01` reached `${from}::date` in the trend query and Postgres
+  // raised 22008 — a driver error whose text was then returned to the caller
+  // in the 422 body (see `packRefusalMessages`). And the cost of getting
+  // there was not a millisecond: the renderer was already admitted, the print
+  // page's own fetch answered 400, `data-print-ready` was therefore never
+  // set, and `waitForSelector` ran its full 30 seconds. `withRenderSlot`'s
+  // bound of three is PER PROCESS and shared by every tenant, so one tenant's
+  // 25-per-15-minutes of knowingly-invalid requests could push other tenants'
+  // exports onto the 503 path. Both checks are cheap and both are here, above
+  // the rate-limit and the render, so an invalid window costs a 400.
+  //
+  // The backwards-window check is the one `pages.ts` has already had: a
+  // reversed window composes a pack with no ledger in it, which reads as a
+  // dormant company rather than as a mistyped URL.
+  if (!isRealCalendarDate(from) || !isRealCalendarDate(to)) {
+    return apiResponse.badRequest(res, 'from and to must be real calendar dates');
+  }
+  if (from > to) return apiResponse.badRequest(res, 'from must not be after to');
 
   if (!(await checkReportRateLimit(companyId, 'packs-pdf'))) {
     log.warn('Pack PDF rate limit exceeded', { companyId }, 'rateLimit');
@@ -70,20 +178,44 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // OUTSIDE (see the export below), so a request that had to queue for one was
   // not holding a pool connection or an open transaction while it waited. By
   // the time this handler runs, the process has decided it has capacity.
-  const [pdf, companyName] = await Promise.all([
-    renderPagePdf({
+  const preparedBy = user.email ?? 'IsaFlow';
+
+  // The running footer and the Info dictionary, built where the proof script
+  // builds them too — see `packFurniture.ts` for why that is one function.
+  const furniture = await buildPackFurniture(companyId, id as PackType, from, to);
+
+  let pdf: Buffer;
+  try {
+    pdf = await renderPagePdf({
       companyId,
       userId: user.id,
       path: PACK_PAGE,
       query: { pack: id, from, to },
       apiPaths: packPrintApiPaths(id as PackType),
-    }),
-    getCompanyName(companyId),
-  ]);
+      footerHtml: buildFooterHtml(furniture),
+      metadata: buildPdfMetadata(furniture),
+    });
+  } catch (error) {
+    const refusal = await packRefusalReason(id, { companyId, from, to, preparedBy }, error);
+    if (refusal === null) throw error;
+    log.warn(
+      'Pack PDF refused by a compose-time gate',
+      { companyId, userId: user.id, packType: id, from, to, refusal: refusal.message },
+      'packs',
+    );
+    // 422, not 500: the pack is unrenderable because of something about this
+    // company's own pack rather than a fault in the renderer.
+    //
+    // TWO SENTENCES, NOT ONE — see `PackRefusal`. `fitPageToBox` names itself
+    // and quotes millimetres, which is what diagnoses a layout refusal and not
+    // what a person reading a failed download can act on. The reader gets
+    // `userMessage`; the full text is logged above.
+    return apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, refusal.userMessage);
+  }
 
   log.info('Pack PDF downloaded', { companyId, userId: user.id, packType: id, from, to, bytes: pdf.length }, 'packs');
 
-  const filename = packDownloadFilename(companyName, id, from, to, 'pdf');
+  const filename = packDownloadFilename(furniture.companyName, id, from, to, 'pdf');
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.setHeader('Content-Length', pdf.length);

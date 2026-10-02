@@ -4,6 +4,11 @@
  */
 
 import type { ExtendedRatioResult } from './reportingEngineService';
+import { ratioLabel } from './ratioPresentation';
+
+/** The ratios a scorecard is built from: the engine's result, in which any
+ *  ratio may be null with its reason in `notMeaningful`. */
+export type ScorableRatios = ExtendedRatioResult;
 
 export interface KPITargetConfig {
   ratioKey: string;
@@ -25,55 +30,11 @@ export interface KPIScorecardItem {
   percentOfTarget: number;
 }
 
-// Human-readable names for ratio keys
-const RATIO_NAMES: Record<string, string> = {
-  grossProfitMargin: 'Gross Profit Margin',
-  netProfitMargin: 'Net Profit Margin',
-  operatingProfitMargin: 'Operating Profit Margin',
-  currentRatio: 'Current Ratio',
-  quickRatio: 'Quick Ratio',
-  debtToEquity: 'Debt-to-Equity',
-  returnOnAssets: 'Return on Assets',
-  returnOnEquity: 'Return on Equity',
-  debtorDays: 'Debtor Days',
-  creditorDays: 'Creditor Days',
-  inventoryTurnover: 'Inventory Turnover',
-  ebitdaMargin: 'EBITDA Margin',
-  roce: 'ROCE',
-  interestCoverage: 'Interest Coverage',
-  debtRatio: 'Debt Ratio',
-  equityMultiplier: 'Equity Multiplier',
-  cashRatio: 'Cash Ratio',
-  workingCapital: 'Working Capital',
-  operatingCashFlowRatio: 'Operating CF Ratio',
-  assetTurnover: 'Asset Turnover',
-  receivablesTurnover: 'Receivables Turnover',
-  payablesTurnover: 'Payables Turnover',
-  inventoryDays: 'Inventory Days',
-  cashConversionCycle: 'Cash Conversion Cycle',
-  freeCashFlow: 'Free Cash Flow',
-  revenuePerEmployee: 'Revenue per Employee',
-  // AFS Master v15 additions
-  pbitMargin: 'PBIT Margin',
-  directMaterialMargin: 'Direct Material Margin',
-  netOperatingAssetTurnover: 'Net Operating Asset Turnover',
-  ebitdaToNetInterest: 'EBITDA / Net Interest',
-  pbtToNetInterest: 'PBT / Net Interest',
-  netProfitToNetInterest: 'Net Profit / Net Interest',
-  pbitPerEmployee: 'PBIT per Employee',
-  ebitdaPerEmployee: 'EBITDA per Employee',
-  employeeCostToRevenue: 'Employee Cost / Revenue',
-  employeeCostPerHead: 'Employee Cost per Head',
-  dividendCover: 'Dividend Cover',
-  retentionRate: 'Retention Rate',
-  effectiveTaxRate: 'Effective Tax Rate',
-};
-
 /**
  * Build a KPI scorecard from ratio results and target configuration.
  */
 export function buildKPIScorecard(
-  ratios: ExtendedRatioResult,
+  ratios: ScorableRatios,
   targets: KPITargetConfig[],
 ): KPIScorecardItem[] {
   return targets.map(config => {
@@ -85,7 +46,7 @@ export function buildKPIScorecard(
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       return {
         ratioKey: config.ratioKey,
-        name: RATIO_NAMES[config.ratioKey] || config.ratioKey,
+        name: ratioLabel(config.ratioKey),
         value: null,
         target: config.target,
         percentOfTarget: 0,
@@ -103,7 +64,7 @@ export function buildKPIScorecard(
 
     return {
       ratioKey: config.ratioKey,
-      name: RATIO_NAMES[config.ratioKey] || config.ratioKey,
+      name: ratioLabel(config.ratioKey),
       value: numValue,
       target: config.target,
       status,

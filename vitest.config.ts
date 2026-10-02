@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import { loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -21,6 +21,13 @@ export default defineConfig(({ mode }) => {
         DATABASE_URL: env['DATABASE_URL'] ?? 'postgresql://dummy:dummy@dummy/test',
       },
       include: ['tests/unit/**/*.test.ts'],
+      // `tests/unit/print/` launches real Chromium (the sheet-count, ruler and
+      // printed-file tests), which is timeout-prone beside ~800 files running in
+      // parallel. It runs as its own serial `browser-tests` step in
+      // scripts/ci/run-ci.sh (`bun run test:print`, vitest.print.config.ts) —
+      // excluded HERE so it is not run twice, and required THERE so it is not
+      // optional. Anything added to that directory moves with it.
+      exclude: [...configDefaults.exclude, 'tests/unit/print/**'],
       testTimeout: 10000,
       coverage: {
         provider: 'v8',

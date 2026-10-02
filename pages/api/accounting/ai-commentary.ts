@@ -77,10 +77,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const currentLiabilities = cumulative.currentLiabilities;
   const inventory = cumulative.inventory;
 
-  const currentRatio = currentLiabilities > 0 ? currentAssets / currentLiabilities : 0;
+  // NULL, NOT 0, WHERE THE BASE IS NOT POSITIVE. A 0 here is a measurement:
+  // it fired "Current ratio 0.00 is below 1.0 — unable to cover short-term
+  // obligations" for a company with no current liabilities at all, and "Gross
+  // margin 0.0% is below 20%" for one with no revenue to take a margin on.
+  const currentRatio = currentLiabilities > 0 ? currentAssets / currentLiabilities : null;
   const debtEquityRatio = equity > 0 ? totalLiabilities / equity : 0;
-  const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
-  const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+  const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : null;
+  const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : null;
 
   const priorRevenue = prior.period.revenue;
   const priorCostOfSales = prior.period.costOfSales;
@@ -94,7 +98,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     incomeStatement: { revenue, costOfSales, grossProfit, operatingExpenses, netProfit },
     balanceSheet: { totalAssets, totalLiabilities, equity, currentRatio, debtEquityRatio },
     priorPeriod: { revenue: priorRevenue, costOfSales: priorCostOfSales, grossProfit: priorGrossProfit, operatingExpenses: priorOperatingExpenses, netProfit: priorNetProfit },
-    ratios: { grossMargin, netMargin, currentRatio, quickRatio: currentLiabilities > 0 ? (currentAssets - inventory) / currentLiabilities : 0 },
+    ratios: { grossMargin, netMargin, currentRatio, quickRatio: currentLiabilities > 0 ? (currentAssets - inventory) / currentLiabilities : null },
   };
 
   const keyDrivers = identifyKeyDrivers(packData.incomeStatement, packData.priorPeriod!);
