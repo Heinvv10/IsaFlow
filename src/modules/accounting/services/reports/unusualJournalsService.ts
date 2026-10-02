@@ -187,13 +187,16 @@ export async function getUnusualJournals(
     const entryDate = toDateOnly(row.entry_date);
     const createdAt = toDate(row.created_at);
     const amount = Number(row.amount);
+    // `created_at` is nullable: a journal with no recording time cannot be
+    // shown to be late, and must not throw — that would take the pack down.
+    const recorded = row.created_at !== null && !Number.isNaN(createdAt.getTime());
     return {
       row,
       entryDate,
       amount,
-      recordedOn: recordedOn(createdAt),
+      recordedOn: recorded ? recordedOn(createdAt) : '',
       isRoundNumber: amount >= ROUND_NUMBER_FLOOR && amount % 1000 === 0,
-      isBackdated: isBackdated(entryDate, createdAt),
+      isBackdated: recorded && isBackdated(entryDate, createdAt),
     };
   });
 

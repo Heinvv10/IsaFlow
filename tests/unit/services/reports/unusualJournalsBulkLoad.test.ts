@@ -196,3 +196,20 @@ describe('the second read', () => {
     expect(values).toContainEqual(['2026-09-05', '2026-09-06']);
   });
 });
+
+describe('a journal with no recording time', () => {
+  // `created_at` is nullable (migration 200 gives a default, not NOT NULL).
+  // Such a journal cannot be shown to be late, and must not throw: a throw
+  // here is not a failed read, so it would take the whole pack down.
+  it('is not backdated, does not throw, and is still tested as a round number', async () => {
+    sqlSpy.mockResolvedValueOnce([
+      { id: 'n', entry_number: 'JE-n', entry_date: '2026-03-31', description: null, created_at: null, amount: 12_345.67 },
+      { id: 'r', entry_number: 'JE-r', entry_date: '2026-03-31', description: null, created_at: null, amount: 50_000 },
+    ]);
+    const result = await getUnusualJournals(COMPANY, WINDOW);
+    expect(result.flags.map((f) => [f.entryId, f.reason])).toEqual([['r', 'round_number']]);
+    expect(result.bulkLoaded).toBeNull();
+    expect(sqlSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
