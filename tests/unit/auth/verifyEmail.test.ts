@@ -35,6 +35,7 @@ vi.mock('pg', () => ({
     Pool: class {
       connect = async () => ({ query: clientQueryMock, release: releaseMock });
       end = endMock;
+      on = vi.fn(); // the route listens for pool errors (R-176)
     },
   },
 }));
@@ -226,6 +227,52 @@ describe('verify-email — failure and recovery', () => {
     await handler(req(), res);
 
     expect(res.statusCode).toBe(410);
+  });
+});
+
+describe('verify-email — a ROLLBACK that fails destroys the connection (R-176)', () => {
+  const refuseRollback = () => clientQueryMock.mockImplementation(async (text: string) => {
+    if (text === 'ROLLBACK') throw new Error('R-176 forced: ROLLBACK never reached the server');
+    return { rows: [] };
+  });
+
+  it('provisioning throws, its ROLLBACK fails: released with true, the pool still ended, the error rethrown', async () => {
+    provisionMock.mockRejectedValue(new Error('db down'));
+    refuseRollback();
+    await expect(handler(req(), mockRes())).rejects.toThrow('db down');
+    expect(releaseMock.mock.calls).toEqual([[true]]);
+    expect(endMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('an unknown token whose ROLLBACK fails: still 410, released with true, the pool still ended', async () => {
+    consumeMock.mockResolvedValue(null);
+    refuseRollback();
+    const res = mockRes();
+    await handler(req(), res);
+    expect(res.statusCode).toBe(410);
+    expect(releaseMock.mock.calls).toEqual([[true]]);
+    expect(endMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('an unknown token whose ROLLBACK fails, then a throw: the stuck client is not rolled back a second time', async () => {
+    consumeMock.mockResolvedValue(null);
+    findConsumedMock.mockRejectedValue(new Error('db down')); // throws after the early ROLLBACK, into the catch
+    refuseRollback();
+    await expect(handler(req(), mockRes())).rejects.toThrow('db down');
+    expect(clientStatements().filter((t) => t === 'ROLLBACK')).toHaveLength(1);
+    expect(releaseMock.mock.calls).toEqual([[true]]);
+    expect(endMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['provisioning throws, ROLLBACK succeeds', () => provisionMock.mockRejectedValue(new Error('db down'))],
+    ['an unknown token, ROLLBACK succeeds', () => consumeMock.mockResolvedValue(null)],
+    ['success', () => undefined],
+  ])('%s: released with false (the connection is reused)', async (_what, arrange) => {
+    arrange();
+    await handler(req(), mockRes()).catch(() => undefined);
+    expect(releaseMock.mock.calls).toEqual([[false]]);
+    expect(endMock).toHaveBeenCalledTimes(1);
   });
 });
 

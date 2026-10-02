@@ -30,6 +30,7 @@
 import type { PoolClient } from 'pg';
 import { runOwnedContext } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 import { getPlatformAdminPool } from '@/lib/auth/withPlatformAdmin.pools';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
 import { getMonthEndWorkbench, type WorkbenchCard, type CardStatus } from './monthEndWorkbenchService';
@@ -108,39 +109,36 @@ async function buildOneClientRow(
   // RLS-aware sub-query inside getMonthEndWorkbench inherits the right
   // tenant context. Also gives us transactional rollback if mid-iteration
   // queries fail.
+  // No ROLLBACK here: any throw, a failed BEGIN included, is rolled back by the caller, which
+  // also releases the connection and so needs the outcome (R-176).
   await client.query('BEGIN READ ONLY');
-  try {
-    await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [cu.companyId]);
+  await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [cu.companyId]);
 
-    // Run the workbench for this company under an ALS context that points at
-    // this iteration's client, so the inner sql tagged template routes through
-    // the right transaction.
-    const wb = await runOwnedContext(
-      { client, userId, companyId: cu.companyId, claims: {} },
-      () => getMonthEndWorkbench(cu.companyId, period),
-    );
+  // Run the workbench for this company under an ALS context that points at
+  // this iteration's client, so the inner sql tagged template routes through
+  // the right transaction.
+  const wb = await runOwnedContext(
+    { client, userId, companyId: cu.companyId, claims: {} },
+    () => getMonthEndWorkbench(cu.companyId, period),
+  );
 
-    await client.query('COMMIT');
+  await client.query('COMMIT');
 
-    const readyCount = wb.cards.filter(c => c.status === 'ready').length;
-    const attentionCount = wb.cards.filter(c => c.status === 'attention').length;
-    const blockedCount = wb.cards.filter(c => c.status === 'blocked').length;
-    return {
-      companyId: cu.companyId,
-      companyName: cu.companyName,
-      isDefault: cu.isDefault,
-      role: cu.role,
-      trialBalanceBalanced: wb.trialBalanceBalanced,
-      cards: wb.cards,
-      readyCount,
-      attentionCount,
-      blockedCount,
-      failed: false,
-    };
-  } catch (err) {
-    try { await client.query('ROLLBACK'); } catch { /* secondary */ }
-    throw err;
-  }
+  const readyCount = wb.cards.filter(c => c.status === 'ready').length;
+  const attentionCount = wb.cards.filter(c => c.status === 'attention').length;
+  const blockedCount = wb.cards.filter(c => c.status === 'blocked').length;
+  return {
+    companyId: cu.companyId,
+    companyName: cu.companyName,
+    isDefault: cu.isDefault,
+    role: cu.role,
+    trialBalanceBalanced: wb.trialBalanceBalanced,
+    cards: wb.cards,
+    readyCount,
+    attentionCount,
+    blockedCount,
+    failed: false,
+  };
 }
 
 function classifyError(err: unknown): string {
@@ -178,9 +176,11 @@ export async function getPortfolioWorkbench(
     memberships,
     async (cu): Promise<PortfolioRow> => {
       const client = await adminPool.connect();
+      let unusable = false;
       try {
         return await buildOneClientRow(client, cu, userId, period);
       } catch (err) {
+        unusable = await rollbackFailed(client, 'portfolioWorkbench');
         log.error('Portfolio workbench: client failed',
           { error: err, userId, companyId: cu.companyId, period }, 'workbench');
         return {
@@ -197,7 +197,7 @@ export async function getPortfolioWorkbench(
           failedReason: classifyError(err),
         };
       } finally {
-        client.release();
+        client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
       }
     },
     PARALLEL_LIMIT,

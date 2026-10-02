@@ -24,7 +24,7 @@
 import { getDbPool } from '@/lib/neon';
 import { als, type RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
-import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 
 export async function withPublicRouteTransaction<T>(
   label: string,
@@ -43,7 +43,7 @@ export async function withPublicRouteTransaction<T>(
   // Set ONLY when the ROLLBACK itself fails. A business-logic throw that rolls
   // back cleanly leaves a perfectly reusable connection; destroying it on every
   // failed webhook would churn the pool for nothing.
-  let unusable: Error | undefined;
+  let unusable = false;
   try {
     await client.query('BEGIN');
     const ctx: RequestContext = { client, userId: '', claims: {}, afterCommit: [] };
@@ -52,15 +52,10 @@ export async function withPublicRouteTransaction<T>(
     drainAfterCommit(ctx);
     return result;
   } catch (err) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (rollbackErr) {
-      // The connection is in an unknown state. Keep the rollback failure so the
-      // release below DESTROYS it rather than handing an aborted or still-open
-      // transaction to the next unrelated request.
-      unusable = rollbackErr instanceof Error ? rollbackErr : new Error(String(rollbackErr));
-      log.warn('Public route ROLLBACK failed', { label }, 'PublicRouteTx');
-    }
+    // The connection is in an unknown state when this fails. The release below then
+    // DESTROYS it rather than handing an aborted or still-open transaction to the
+    // next unrelated request.
+    unusable = await rollbackFailed(client, `withPublicRouteTransaction(${label})`);
     throw err;
   } finally {
     client.release(unusable);
