@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle } from 'lucide-react';
 
 interface Level { id: string; code: string; name: string; displayOrder: number }
@@ -26,7 +26,7 @@ export function OccupationalLevelCard({ employeeId, currentLevelId, onChange }: 
         setLevels(((json.data ?? json) as Level[]) ?? []);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load occupational levels');
+      setError(apiErrorMessage(err, 'Could not load occupational levels - try again'));
     } finally {
       setLoading(false);
     }

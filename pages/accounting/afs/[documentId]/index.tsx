@@ -7,7 +7,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   Clock, CheckCircle, Lock, ChevronRight, FileText,
@@ -60,8 +60,8 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
   const loadDoc = useCallback(async () => {
     try {
       const res = await apiFetch(`/api/accounting/afs/${documentId}`, { credentials: 'include' });
-      const json = await res.json() as { data?: { document?: AfsDocument }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the document - try again');
+      const json = await res.json() as { data?: { document?: AfsDocument } };
       if (json.data?.document) setDoc(json.data.document);
     } catch (err) {
       log.error('Failed to load AFS document', { error: err, documentId }, 'afs-document-page');
@@ -78,11 +78,11 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'submit_for_review' }),
       });
-      const json = await res.json() as { data?: { document?: AfsDocument }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to submit');
+      await assertOk(res, 'Could not submit the document for review - try again');
+      const json = await res.json() as { data?: { document?: AfsDocument } };
       if (json.data?.document) setDoc(json.data.document);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Action failed');
+      setActionError(apiErrorMessage(err, 'Could not submit the document for review - try again'));
       log.error('Workflow action failed', { error: err }, 'afs-document-page');
     } finally { setSubmitting(false); }
   }
@@ -95,11 +95,11 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'sign_off' }),
       });
-      const json = await res.json() as { data?: { document?: AfsDocument }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to sign off');
+      await assertOk(res, 'Could not sign off the document - try again');
+      const json = await res.json() as { data?: { document?: AfsDocument } };
       if (json.data?.document) setDoc(json.data.document);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Action failed');
+      setActionError(apiErrorMessage(err, 'Could not sign off the document - try again'));
       log.error('Sign off failed', { error: err }, 'afs-document-page');
     } finally { setSubmitting(false); }
   }

@@ -47,7 +47,7 @@ export default function CustomerReportsPage() {
       await assertOk(res, 'Could not load the customer report - try again');
       const json = await res.json();
       setRows(json.data || []);
-    } catch (err) { setError(apiErrorMessage(err, 'Could not load the customer report - try again')); }
+    } catch (err) { setRows([]); setError(apiErrorMessage(err, 'Could not load the customer report - try again')); }
     finally { setLoading(false); }
   }, [periodStart, periodEnd]);
 
@@ -113,7 +113,7 @@ export default function CustomerReportsPage() {
                   <th className="px-4 py-3 text-right">Balance at {periodEnd}</th>
                 </tr></thead>
                 <tbody>
-                  {rows.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No data for period</td></tr>}
+                  {rows.length === 0 && !error && <tr><td colSpan={5} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No data for period</td></tr>}
                   {rows.map(r => (
                     <tr key={r.clientId} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.clientName}</td>

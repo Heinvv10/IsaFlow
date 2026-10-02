@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, ShieldCheck, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import type { ComplianceRow } from '@/modules/accounting/services/practice/practiceReportsService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import { PeriodPicker } from '@/components/practice/PeriodPicker';
@@ -69,11 +69,12 @@ export default function CompliancePage() {
     const qs = new URLSearchParams({ periodStart: period.dateFrom, periodEnd: period.dateTo });
     apiFetch(`/api/accounting/practice/reports/compliance?${qs.toString()}`)
       .then(async (res) => {
+        await assertOk(res, 'Could not load the compliance report - try again');
         const json = (await res.json()) as { data?: ComplianceRow[] } | ComplianceRow[];
         const data = (json && typeof json === 'object' && 'data' in json ? (json as { data: ComplianceRow[] }).data : json) as ComplianceRow[];
         setRows(data ?? []);
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
+      .catch((e: unknown) => { setRows([]); setError(apiErrorMessage(e, 'Could not load the compliance report - try again')); })
       .finally(() => setLoading(false));
   }, [period.dateFrom, period.dateTo]);
 

@@ -97,13 +97,12 @@ export default function CustomerLedgerPage() {
     if (customersLoaded) return;
     try {
       const res = await apiFetch('/api/accounting/customers', { credentials: 'include' });
+      await assertOk(res, 'Could not load customers - try again');
       const json = await res.json();
-      if (res.ok) {
-        setCustomers((json.data as Customer[]) || []);
-        setCustomersLoaded(true);
-      }
-    } catch {
-      // non-fatal — user can still type
+      setCustomers((json.data as Customer[]) || []);
+      setCustomersLoaded(true);
+    } catch (err) {
+      setCustomers([]); setError(apiErrorMessage(err, 'Could not load customers - try again'));
     }
   }, [customersLoaded]);
 

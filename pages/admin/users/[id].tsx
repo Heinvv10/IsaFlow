@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
   ArrowLeft, AlertCircle, Loader2, User, CheckCircle2,
@@ -79,14 +79,14 @@ export default function AdminUserDetailPage() {
     setLoading(true); setError('');
     try {
       const res  = await apiFetch(`/api/admin/users/${id}`);
-      await assertOk(res, 'Failed to load user');
+      await assertOk(res, 'Could not load this user - try again');
       const json = await res.json();
       const u = json.data as UserDetail;
       setUser(u);
       setEditState({ firstName: u.first_name, lastName: u.last_name, phone: u.phone ?? '', role: u.role });
     } catch (err) {
       log.error('AdminUserDetail load failed', { userId: id, error: err }, 'admin-ui');
-      setError(err instanceof Error ? err.message : 'Failed to load user');
+      setError(apiErrorMessage(err, 'Could not load user - try again'));
     } finally { setLoading(false); }
   }, [id]);
 
@@ -96,8 +96,9 @@ export default function AdminUserDetailPage() {
     void (async () => {
       try {
         const res  = await apiFetch('/api/admin/companies?limit=100');
+        await assertOk(res, 'Could not load the company list');
         const json = await res.json();
-        if (res.ok) setAllCompanies((json.data?.items ?? []) as CompanyOption[]);
+        setAllCompanies((json.data?.items ?? []) as CompanyOption[]);
       } catch (err) { log.error('Failed to load companies', { error: err }, 'admin-ui'); }
     })();
   }, []);
@@ -108,11 +109,10 @@ export default function AdminUserDetailPage() {
     try {
       const url = endpoint ? `/api/admin/users/${id}/${endpoint}` : `/api/admin/users/${id}`;
       const res  = await apiFetch(url, { method, headers: { 'X-Admin-Request': 'true', ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
+      await assertOk(res, 'Something went wrong - try again');
       return true;
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed');
+      setActionError(apiErrorMessage(err, 'Something went wrong - try again'));
       return false;
     } finally { setActionLoading(false); }
   }
@@ -134,14 +134,14 @@ export default function AdminUserDetailPage() {
     setActionLoading(true); setActionError('');
     try {
       const res  = await apiFetch(`/api/admin/companies/${defaultCompany.company_id}/impersonate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
-      await assertOk(res, 'Failed to create impersonation token');
+      await assertOk(res, 'Could not start impersonation - try again');
       const json = await res.json();
       const token = (json.data as { token: string }).token;
       window.open(`/accounting?impersonate=${encodeURIComponent(token)}`, '_blank');
       showToast('Impersonation session opened');
     } catch (err) {
       log.error('Impersonation failed', { userId: user.id, error: err }, 'admin-ui');
-      setActionError(err instanceof Error ? err.message : 'Failed to impersonate');
+      setActionError(apiErrorMessage(err, 'Could not impersonate - try again'));
     } finally { setActionLoading(false); }
   }
 
@@ -161,7 +161,7 @@ export default function AdminUserDetailPage() {
       setLoginAsModalOpen(true);
     } catch (err) {
       log.error('Login-as impersonation failed', { userId: user.id, error: err }, 'admin-ui');
-      setActionError(err instanceof Error ? err.message : 'Failed to create impersonation session');
+      setActionError(apiErrorMessage(err, 'Could not create impersonation session - try again'));
     } finally { setActionLoading(false); }
   }
 

@@ -63,6 +63,7 @@ export async function flushQueue(): Promise<void> {
       const files = await Promise.all(
         item.files.filter(f => f.dataUrl.startsWith('data:')).map(async f => {
           const r = await fetch(f.dataUrl);
+          if (!r.ok) throw new Error('queued file unreadable'); // caught below: the item stays queued
           const blob = await r.blob();
           return new File([blob], f.name, { type: f.type });
         })

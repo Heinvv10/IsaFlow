@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { fetchAllSuppliers } from '@/lib/fetchAllSuppliers';
 import { log } from '@/lib/logger';
 
@@ -62,9 +62,8 @@ async function loadWithLog<T>(
   try {
     return await loader();
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error('Bank rules ref-data fetch failed', { resource, error: msg }, 'bankRules');
-    onError(`${resource} (${msg})`);
+    log.error('Bank rules ref-data fetch failed', { resource, error: err instanceof Error ? err.message : String(err) }, 'bankRules');
+    onError(`${resource}: ${apiErrorMessage(err, 'could not be loaded - try again')}`);
     return null;
   }
 }
@@ -81,9 +80,9 @@ export function useBankRuleRefData(): BankRuleRefData {
   useEffect(() => {
     const pushErr = (msg: string) => setErrors(prev => [...prev, msg]);
 
-    void loadWithLog('chart-of-accounts', async () => {
+    void loadWithLog('Chart of accounts', async () => {
       const res = await apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'could not be loaded - try again');
       const json = await res.json();
       const d = json.data || json;
       const list = Array.isArray(d) ? d : d.accounts || d.items || [];
@@ -97,7 +96,7 @@ export function useBankRuleRefData(): BankRuleRefData {
       })));
     }, pushErr);
 
-    void loadWithLog('bank-accounts', async () => {
+    void loadWithLog('Bank accounts', async () => {
       const data = await apiJson('/api/accounting/bank-accounts');
       const list = Array.isArray(data) ? data : [];
       const mapped: RefBankAccount[] = list.map((a) => ({
@@ -109,15 +108,15 @@ export function useBankRuleRefData(): BankRuleRefData {
       if (mapped[0]) setDefaultBankId(mapped[0].id);
     }, pushErr);
 
-    void loadWithLog('suppliers', async () => {
+    void loadWithLog('Suppliers', async () => {
       const { suppliers: list, truncated } = await fetchAllSuppliers();
       setSuppliers(list.map(s => ({ id: String(s.id), name: s.name })));
       setSuppliersTruncated(truncated);
     }, pushErr);
 
-    void loadWithLog('customers', async () => {
+    void loadWithLog('Customers', async () => {
       const res = await apiFetch('/api/accounting/customers', { credentials: 'include' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'could not be loaded - try again');
       const json = await res.json();
       const list = Array.isArray(json.data) ? json.data : [];
       setClients(list.map((c: { id: string; name?: string; company_name?: string; companyName?: string }) => ({

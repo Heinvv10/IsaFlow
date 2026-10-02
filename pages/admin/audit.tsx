@@ -172,7 +172,7 @@ export default function AdminAuditPage() {
       setRows(d.items);
       setTotal(d.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Something went wrong - try again'));
     } finally {
       setLoading(false);
     }

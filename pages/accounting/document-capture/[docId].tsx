@@ -88,7 +88,7 @@ export default function DocumentCaptureDetailPage() {
       setDocumentType(found.documentType || ext?.documentType || 'unknown');
       setNotes(found.notes || '');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load document');
+      setError(apiErrorMessage(err, 'Could not load document - try again'));
     } finally {
       setIsLoading(false);
     }

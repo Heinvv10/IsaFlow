@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Layers, Loader2, CheckCircle2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { useCompany } from '@/contexts/CompanyContext';
 
@@ -57,14 +57,11 @@ export function CoaSeedEmptyState({ onSeeded }: { onSeeded: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ template: selected }),
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(body.error?.message || 'Failed to seed chart of accounts');
-      }
+      await assertOk(res, 'Could not set up the chart of accounts - try again');
       onSeeded();
     } catch (err) {
       log.error('Failed to seed COA', { error: err }, 'coa-empty-state');
-      setError(err instanceof Error ? err.message : 'Failed to seed chart of accounts');
+      setError(apiErrorMessage(err, 'Could not set up the chart of accounts - try again'));
       setSeeding(false);
     }
   }

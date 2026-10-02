@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, Mail, MessageSquare, X, CheckCircle2, Clock, Search, FileQuestion, Zap } from 'lucide-react';
 import { MissingInvoiceModals, type ExpectedAlert } from '@/components/accounting/suppliers/MissingInvoiceModals';
 
@@ -59,11 +59,11 @@ export default function MissingInvoicesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       });
-      const json = await res.json() as { data?: ChaseSettings; error?: string };
-      if (!res.ok) { setToast({ msg: json.error ?? 'Failed to save settings', kind: 'err' }); return; }
+      await assertOk(res, 'Could not save the chase settings - try again');
+      const json = await res.json() as { data?: ChaseSettings };
       if (json.data) setChaseSettings(json.data);
       setToast({ msg: 'Chase settings saved', kind: 'ok' });
-    } catch { setToast({ msg: 'Network error saving settings', kind: 'err' }); }
+    } catch (err) { setToast({ msg: apiErrorMessage(err, 'Could not save the chase settings - try again'), kind: 'err' }); }
     finally { setSavingSettings(false); }
   }, []);
 
@@ -71,10 +71,10 @@ export default function MissingInvoicesPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch(`/api/accounting/expected-invoice-alerts?status=${statusFilter}`);
-      const json = await res.json() as { data?: ExpectedAlert[]; error?: string };
-      if (!res.ok) { setError(json.error ?? 'Failed to load alerts'); return; }
+      await assertOk(res, 'Could not load the missing invoice alerts - try again');
+      const json = await res.json() as { data?: ExpectedAlert[] };
       setAlerts(Array.isArray(json.data) ? json.data : []);
-    } catch { setError('Network error loading missing invoice alerts'); }
+    } catch (err) { setAlerts([]); setError(apiErrorMessage(err, 'Could not load the missing invoice alerts - try again')); }
     finally { setLoading(false); }
   }, [statusFilter]);
 
@@ -92,11 +92,10 @@ export default function MissingInvoicesPage() {
       const res = await apiFetch('/api/accounting/expected-invoice-alerts/detect-gaps', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
       });
-      const json = await res.json() as { error?: string };
-      if (!res.ok) { setToast({ msg: json.error ?? 'Gap detection failed', kind: 'err' }); return; }
+      await assertOk(res, 'Could not run gap detection - try again');
       setToast({ msg: 'Gap detection complete', kind: 'ok' });
       void load();
-    } catch { setToast({ msg: 'Network error during gap detection', kind: 'err' }); }
+    } catch (err) { setToast({ msg: apiErrorMessage(err, 'Could not run gap detection - try again'), kind: 'err' }); }
     finally { setDetectingGaps(false); }
   }, [load]);
 

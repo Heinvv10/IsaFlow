@@ -185,12 +185,11 @@ export default function CustomerQuotesPage() {
     setConvertingToSO(q.id);
     try {
       const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id, action: 'convert-to-order' }) });
+      if (!res.ok && res.status !== 409) await assertOk(res, 'Could not convert the quote - try again');
       const json = await res.json().catch(() => ({})) as { data?: { salesOrderId?: string }; salesOrderId?: string; error?: { message?: string; details?: { salesOrderId?: string | null } } };
       // A 409 with an order id is a double-click: the order exists, so open it.
-      const existingOrderId = json.error?.details?.salesOrderId;
-      if (res.ok) await router.push(`/accounting/customer-sales-orders/${json.data?.salesOrderId || json.salesOrderId}`);
-      else if (res.status === 409 && existingOrderId) await router.push(`/accounting/customer-sales-orders/${existingOrderId}`);
-      else window.alert(json?.error?.message || 'Could not convert the quote - try again');
+      const orderId = res.ok ? json.data?.salesOrderId || json.salesOrderId : json.error?.details?.salesOrderId;
+      if (orderId) await router.push(`/accounting/customer-sales-orders/${orderId}`); else window.alert(json.error?.message || 'Could not convert the quote - try again');
     } catch (err) { window.alert(apiErrorMessage(err, 'Could not convert the quote - try again')); }
     finally { setConvertingToSO(null); }
   };

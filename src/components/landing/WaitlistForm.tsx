@@ -10,6 +10,7 @@ import {
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { WaitlistPageShell } from './WaitlistPageShell';
 import { WaitlistSuccessCard } from './WaitlistSuccessCard';
+import { assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 
 type ApiEnvelope = { success: boolean; message?: string; error?: { message?: string } };
 type SignupType = 'direct' | 'accountant';
@@ -55,16 +56,13 @@ export function WaitlistForm() {
         }),
       });
 
+      await assertOk(res, 'Something went wrong. Please try again.');
       const json = (await res.json()) as ApiEnvelope;
-
-      if (!res.ok || !json.success) {
-        setError(json.error?.message ?? json.message ?? 'Something went wrong. Please try again.');
-        return;
-      }
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? json.message ?? 'Something went wrong. Please try again.');
 
       setDone(true);
-    } catch {
-      setError('Network error. Please try again.');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Something went wrong. Please try again.'));
     } finally {
       setSubmitting(false);
     }

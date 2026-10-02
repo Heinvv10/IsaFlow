@@ -15,7 +15,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Search, Link2, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface BankTxOption {
   id: string;
@@ -54,17 +54,14 @@ export function AttachToTransactionSheet({ documentIds, onDone }: AttachToTransa
       const params = new URLSearchParams({ limit: '20' });
       if (q.trim()) params.set('search', q.trim());
       const res = await apiFetch(`/api/accounting/bank-transactions?${params.toString()}`);
-      const json = await res.json() as {
-        data?: { transactions?: BankTxOption[] };
-        error?: { message?: string };
-        message?: string;
-      };
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed to load transactions');
+      await assertOk(res, 'Could not load the transactions - try again');
+      const json = await res.json() as { data?: { transactions?: BankTxOption[] } };
       if (seq !== loadSeqRef.current) return;
       setTxs(json.data?.transactions ?? []);
     } catch (err) {
       if (seq !== loadSeqRef.current) return;
-      setError(err instanceof Error ? err.message : 'Failed to load transactions');
+      setTxs([]);
+      setError(apiErrorMessage(err, 'Could not load the transactions - try again'));
     } finally {
       if (seq === loadSeqRef.current) setLoading(false);
     }
@@ -83,6 +80,7 @@ export function AttachToTransactionSheet({ documentIds, onDone }: AttachToTransa
 
   const attach = useCallback(async (txId: string) => {
     setAttaching(txId);
+    let attached = 0;
     try {
       for (const docId of documentIds) {
         const res = await apiFetch('/api/accounting/document-capture-action', {
@@ -90,13 +88,14 @@ export function AttachToTransactionSheet({ documentIds, onDone }: AttachToTransa
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: docId, action: 'match_bank_tx', data: { bankTxId: txId } }),
         });
-        const json = await res.json() as { error?: { message?: string }; message?: string };
-        if (!res.ok) throw new Error(json.error?.message || json.message || 'Attach failed');
+        await assertOk(res, 'Could not attach the document - try again');
+        attached++;
       }
       toast.success(documentIds.length > 1 ? `${documentIds.length} documents attached` : 'Attached to transaction');
       onDone();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Attach failed');
+      const why = apiErrorMessage(err, 'Could not attach the document - try again');
+      toast.error(attached > 0 ? `${attached} of ${documentIds.length} documents attached. ${why}` : why);
     } finally {
       setAttaching(null);
     }

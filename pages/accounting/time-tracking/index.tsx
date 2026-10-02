@@ -123,10 +123,10 @@ export default function TimeTrackingPage() {
         ? await apiFetch('/api/accounting/time-entries', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editId, ...body }) })
         : await apiFetch('/api/accounting/time-entries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       // R-120: the error envelope is { error: { message } }; json.message showed "Failed".
-      await assertOk(res, 'Save failed');
+      await assertOk(res, 'Could not save the time entry - try again');
       setSuccess(editId ? 'Entry updated' : 'Entry created');
       setShowForm(false); resetForm(); await loadEntries();
-    } catch (err) { setError(apiErrorMessage(err, 'Save failed')); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not save the time entry - try again')); }
     finally { setBusy(''); }
   };
 
@@ -135,9 +135,9 @@ export default function TimeTrackingPage() {
     setBusy(id);
     try {
       const res = await apiFetch(`/api/accounting/time-entries?id=${id}`, { method: 'DELETE' });
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not delete the time entry - try again');
       setSuccess('Entry deleted'); await loadEntries();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Delete failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not delete the time entry - try again')); }
     finally { setBusy(''); }
   };
 
@@ -160,11 +160,11 @@ export default function TimeTrackingPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, ids }),
       });
-      await assertOk(res, 'Failed');
+      await assertOk(res, `Could not ${action} the time entries - try again`);
       const json = await res.json();
       setSuccess(`${action === 'submit' ? 'Submitted' : 'Approved'} ${json.data?.count || 0} entries`);
       setSelected(new Set()); await loadEntries();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Action failed'); }
+    } catch (err) { setError(apiErrorMessage(err, `Could not ${action} the time entries - try again`)); }
     finally { setBusy(''); }
   };
 

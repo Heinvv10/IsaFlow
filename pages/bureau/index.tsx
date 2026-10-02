@@ -14,7 +14,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   Briefcase, AlertCircle, Loader2,
   Building2, Filter,
@@ -67,11 +67,12 @@ export default function BureauDashboardPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch('/api/bureau');
-      await assertOk(res, 'Failed to load');
+      await assertOk(res, 'Could not load - try again');
       const json = await res.json() as { data?: DashboardData; message?: string };
       setData(json.data ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      setData(null);
+      setError(apiErrorMessage(err, 'Could not load - try again'));
     } finally {
       setLoading(false);
     }
@@ -102,7 +103,7 @@ export default function BureauDashboardPage() {
   const handleOpen = async (item: WorkItem) => {
     if (activeCompany?.id !== item.companyId) {
       try { await switchCompany(item.companyId); }
-      catch (e) { notify.error(e instanceof Error ? e.message : 'Could not switch company - try again'); return; }   // still on the old company: do not navigate
+      catch (e) { notify.error(apiErrorMessage(e, 'Could not switch company - try again')); return; }   // still on the old company: do not navigate
     }
     void router.push(item.href);
   };

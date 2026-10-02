@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle } from 'lucide-react';
 
 interface PayScale {
@@ -35,7 +35,7 @@ export function PayScaleCard({ employeeId, currentPayScaleId, onChange }: Props)
         setScales(((json.data ?? json) as PayScale[]) ?? []);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load pay scales');
+      setError(apiErrorMessage(err, 'Could not load pay scales - try again'));
     } finally {
       setLoading(false);
     }

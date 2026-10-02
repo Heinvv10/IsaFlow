@@ -4,7 +4,7 @@
  * and all derived handler functions.
  */
 
-import { apiFetch, assertOk, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { log } from '@/lib/logger';
 import { extractPattern } from '@/components/accounting/CreateRuleModal';
@@ -49,7 +49,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     });
     await assertOk(res, 'Could not complete the action - try again');
     const json = await res.json();
-    if (json.success === false) throw new Error(json.error?.message || 'Could not complete the action - try again');
+    if (json.success === false) throw new ApiEnvelopeError(json.error?.message || 'Could not complete the action - try again');
     return json;
   };
 
@@ -90,7 +90,7 @@ export function buildBankTxActions(deps: ActionDeps) {
         apiFetch('/api/accounting/smart-categorize', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ action: 'learn', txId, glAccountId: sel.entityId, category: sel.label, vatCode: sel.vatCode }),
-        }).catch(() => { /* fire-and-forget */ });
+        }).then(r => assertOk(r, 'Could not record the categorisation')).catch(e => log.warn('Smart-categorize learn failed', { error: e }, 'banking'));  // best-effort: the allocation already posted
       }
       if (tx?.description && selectedBank) {
         const pattern = extractPattern(tx.description);
@@ -105,7 +105,7 @@ export function buildBankTxActions(deps: ActionDeps) {
           } catch (e) { log.warn('Bank rule prompt check failed', { error: e }, 'banking'); }
         }
       }
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed'); }
+    } catch (e) { notify.error(apiErrorMessage(e, 'Something went wrong - try again')); }
   };
 
   const handleExclude = (txId: string) => setExcludingTxId(txId);
@@ -116,11 +116,11 @@ export function buildBankTxActions(deps: ActionDeps) {
     try {
       await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
       notify.success('Transaction excluded'); loadTransactions(); refreshBankAccounts();
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to exclude'); }
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not exclude - try again')); }
   };
   const handleUnmatch = async (txId: string) => {
     try { await callAction({ action: 'unmatch', bankTransactionId: txId }); notify.success('Allocation undone'); loadTransactions(); refreshBankAccounts(); }
-    catch (e) { notify.error(e instanceof Error ? e.message : 'Failed'); }
+    catch (e) { notify.error(apiErrorMessage(e, 'Something went wrong - try again')); }
   };
   const handleUpdateNotes = async (txId: string, notes: string) => {
     setTransactions(prev => prev.map(tx => tx.id === txId ? { ...tx, notes: notes || undefined } : tx));
@@ -129,10 +129,10 @@ export function buildBankTxActions(deps: ActionDeps) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'update_notes', bankTransactionId: txId, notes }),
       });
-      await assertOk(res, 'Failed to save note');
+      await assertOk(res, 'Could not save the note - try again');
       const json = await res.json();
-      if (json.success === false) throw new Error(json.error?.message || 'Failed to save note');
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to save note'); loadTransactions(); }
+      if (json.success === false) throw new ApiEnvelopeError(json.error?.message || 'Could not save the note - try again');
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not save the note - try again')); loadTransactions(); }
   };
   const handleBatchAccept = async () => {
     const actionable = actionableIds(transactions, Array.from(selectedIds));
@@ -142,7 +142,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       return;
     }
     if (toAccept.length === 0) { notify.error('Select transactions with accounts assigned'); return; }
-    let ok = 0, fail = 0;
+    let ok = 0, fail = 0, firstReason = '';
     const late: unknown[] = [];
     for (const txId of toAccept) {
       try {
@@ -155,9 +155,11 @@ export function buildBankTxActions(deps: ActionDeps) {
         if (sel.cc2Id) body.cc2Id = sel.cc2Id;
         if (sel.buId) body.buId = sel.buId;
         late.push((await callAction(body))?.data?.lateClaim); ok++;
-      } catch { fail++; }
+      } catch (e) { fail++; firstReason ||= apiErrorMessage(e, 'Could not allocate the transaction - try again'); }
     }
-    notify.success(`${ok} allocated${fail ? `, ${fail} failed` : ''}`);
+    if (ok === 0) notify.error(`No transactions were allocated: ${firstReason}`);
+    else if (fail) notify.warning(`${ok} allocated, ${fail} could not be allocated`, firstReason);
+    else notify.success(`${ok} allocated`);
     notifyLateClaims({ data: { results: late.map((lateClaim) => ({ lateClaim })) } });
     setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
   };
@@ -170,7 +172,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       await callAction({ action: 'delete', bankTransactionIds: toDelete } as unknown as Record<string, string>);
       notify.success(`${toDelete.length} transaction(s) deleted`);
       setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Delete failed'); }
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not delete the transactions - try again')); }
   };
   const handleBulkAccept = async () => {
     if (selectedIds.size === 0) return;
@@ -184,13 +186,10 @@ export function buildBankTxActions(deps: ActionDeps) {
       await assertOk(res, 'Could not mark the transactions as reviewed - try again');
       const json = await res.json();
       const accepted: number = json.data?.accepted ?? toAccept.length;
-      if (accepted < toAccept.length) {
-        notify.warning(`${accepted} of ${toAccept.length} transaction(s) marked as reviewed`, `${toAccept.length - accepted} were already reviewed or no longer eligible`);
-      } else {
-        notify.success(`${accepted} transaction(s) marked as reviewed`);
-      }
+      if (accepted < toAccept.length) notify.warning(`${accepted} of ${toAccept.length} transaction(s) marked as reviewed`, `${toAccept.length - accepted} were already reviewed or no longer eligible`);
+      else notify.success(`${accepted} transaction(s) marked as reviewed`);
       setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to mark as reviewed'); }
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not mark as reviewed - try again')); }
   };
   const handleApplyRules = async () => {
     if (!selectedBank) { notify.error('Select a bank account first'); return; }
@@ -202,8 +201,7 @@ export function buildBankTxActions(deps: ActionDeps) {
         body: JSON.stringify({ action: 'apply', bankAccountId: selectedBank }),
       });
       await assertOk(rulesRes, 'Could not apply the rules - try again');
-      const rulesJson = await rulesRes.json();
-      const rulesApplied = rulesJson.data?.applied ?? 0;
+      const rulesApplied = (await rulesRes.json()).data?.applied ?? 0;
       let smartCategorized = 0, totalSkipped = 0, smartFailed = false;
       try {
         const controller = new AbortController();
@@ -219,12 +217,13 @@ export function buildBankTxActions(deps: ActionDeps) {
         totalSkipped = smartJson.data?.skipped ?? 0;
         const residualCount: number = smartJson.data?.residualCount ?? 0;
         if (residualCount > 0) onLlmResidual?.(residualCount);
-      } catch (e) { if (e instanceof ApiRequestError) { smartFailed = true; notify.error(apiErrorMessage(e, 'Smart categorisation could not run - try again')); } /* else: AI categorization timed out */ }
-      if (!smartFailed) notify.success(rulesApplied + smartCategorized > 0
+      } catch (e) { if ((e as { name?: string })?.name !== 'AbortError') { smartFailed = true; notify.error(apiErrorMessage(e, 'Smart categorisation could not run - try again')); } /* else: AI categorization timed out */ }
+      if (smartFailed) { if (rulesApplied > 0) notify.success(`${rulesApplied} rules applied`); }
+      else notify.success(rulesApplied + smartCategorized > 0
         ? `${rulesApplied} rules applied, ${smartCategorized} smart-categorised, ${totalSkipped} skipped`
         : 'No new categorisations found');
       setRowSelections(() => ({})); loadTransactions(); refreshBankAccounts();   // the rules DID apply
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to apply rules'); }
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not apply rules - try again')); }
     finally { setSmartRunning(false); }
   };
   const handleReverse = async (txId: string) => {
@@ -237,7 +236,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       await callAction({ action: 'reverse', bankTransactionId: txId });
       notify.success(tx?.status === 'allocated' ? 'Allocation undone' : 'Transaction reversed');
       loadTransactions(); refreshBankAccounts();
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Reverse failed'); }
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not reverse the transaction - try again')); }
   };
   const handleExport = (bankAccountCode: string | undefined) => {
     const rows = transactions.map(tx => ({

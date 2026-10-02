@@ -80,7 +80,7 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
       if (fileType === 'customers') setCustomers(json.data.parsed);
       if (fileType === 'suppliers') setSuppliers(json.data.parsed);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to parse file');
+      setError(apiErrorMessage(err, 'Could not parse file - try again'));
     } finally {
       setParsing('');
     }
@@ -97,8 +97,7 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
       form.append('source', source);
       form.append('fileType', 'accounts');
       const res = await apiFetch('/api/accounting/migration-parse', { method: 'POST', body: form });
-      const json = await res.json();
-      if (res.ok) setAccounts(json.data.parsed);
+      if (res.ok) setAccounts((await res.json()).data.parsed);
     } catch (e) {
       log.warn('AI auto-mapping failed', { error: e }, 'migration');
     } finally {
@@ -138,7 +137,7 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
       const json = await res.json();
       setVerifyResults(json.data.results);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Verification failed');
+      setError(apiErrorMessage(err, 'Could not complete: verification - try again'));
     } finally {
       setVerifying(false);
     }

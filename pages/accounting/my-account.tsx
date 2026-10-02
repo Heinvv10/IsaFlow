@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { User, Lock, Settings2 } from 'lucide-react';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import toast from 'react-hot-toast';
@@ -77,16 +77,15 @@ export default function MyAccountPage() {
       const res = await apiFetch('/api/auth/profile');
       await assertOk(res, 'Could not load your profile - try again');
       const json = await res.json();
-      if (json.success && json.data) {
-        const d = json.data;
-        setProfile({
-          firstName: d.firstName ?? '',
-          lastName: d.lastName ?? '',
-          email: d.email ?? '',
-          phone: d.phone ?? '',
-          mobile: d.mobile ?? '',
-        });
-      }
+      if (!json.success || !json.data) throw new ApiEnvelopeError('Could not load your profile - try again');
+      const d = json.data;
+      setProfile({
+        firstName: d.firstName ?? '',
+        lastName: d.lastName ?? '',
+        email: d.email ?? '',
+        phone: d.phone ?? '',
+        mobile: d.mobile ?? '',
+      });
     } catch (err) {
       setProfileLoadFailed(true);
       toast.error(apiErrorMessage(err, 'Could not load your profile - try again'));
@@ -101,12 +100,11 @@ export default function MyAccountPage() {
       const res = await apiFetch('/api/auth/preferences');
       await assertOk(res, 'Could not load your preferences - try again');
       const json = await res.json();
-      if (json.success && json.data) {
-        setPrefs(prev => ({
-          rowsPerPage: json.data.rowsPerPage ?? prev.rowsPerPage,
-          navMode: json.data.navMode ?? prev.navMode,
-        }));
-      }
+      if (!json.success || !json.data) throw new ApiEnvelopeError('Could not load your preferences - try again');
+      setPrefs(prev => ({
+        rowsPerPage: json.data.rowsPerPage ?? prev.rowsPerPage,
+        navMode: json.data.navMode ?? prev.navMode,
+      }));
     } catch (e) {
       setPrefsLoadFailed(true);
       log.warn('Failed to load preferences', { error: e }, 'account');

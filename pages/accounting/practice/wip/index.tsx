@@ -160,11 +160,11 @@ export default function WipBoardPage() {
     setLoading(true); setLoadError(null);
     try {
       const res = await apiFetch('/api/accounting/practice/wip');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the WIP data - try again');
       const json = (await res.json()) as { data?: WipClientRow[] } | WipClientRow[];
       setGroups(Array.isArray(json) ? json : (json.data ?? []));
       setSelected({});
-    } catch (err) { setLoadError(err instanceof Error ? err.message : 'Failed to load WIP data'); }
+    } catch (err) { setGroups([]); setLoadError(apiErrorMessage(err, 'Could not load the WIP data - try again')); }
     finally { setLoading(false); }
   }, []);
 

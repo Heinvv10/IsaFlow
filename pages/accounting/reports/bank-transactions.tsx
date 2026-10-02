@@ -88,7 +88,7 @@ export default function BankTransactionsPage() {
       await assertOk(res, 'Could not load the bank transactions report - try again');
       const json = await res.json();
       setReport(json.data || null);
-    } catch (err) { setError(apiErrorMessage(err, 'Could not load the bank transactions report - try again')); }
+    } catch (err) { setReport(null); setError(apiErrorMessage(err, 'Could not load the bank transactions report - try again')); }
     finally { setLoading(false); }
   }, [periodStart, periodEnd, accountCode]);
 

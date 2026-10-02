@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Send, ShieldCheck, ShieldAlert, RefreshCw } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 interface Props {
   /** Saved draft submission id — '' until the user saves a draft. */
@@ -40,8 +40,8 @@ export function VAT201SarsSubmit({ submissionId, exceptionsReady, exceptionsClea
     void (async () => {
       try {
         const res = await apiFetch('/api/accounting/sars/efiling-status', { credentials: 'include' });
-        const json = await res.json();
-        if (!cancelled.current) setConfigured(res.ok ? Boolean(json.data?.configured) : false);
+        const json = res.ok ? await res.json() : null;
+        if (!cancelled.current) setConfigured(Boolean(json?.data?.configured));
       } catch {
         if (!cancelled.current) setConfigured(false);
       }
@@ -64,11 +64,11 @@ export function VAT201SarsSubmit({ submissionId, exceptionsReady, exceptionsClea
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ submissionId, action }),
       });
+      await assertOk(res, 'Something went wrong - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       setResult(json.data as SubmitResult);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'SARS eFiling failed');
+      setError(apiErrorMessage(err, 'Could not complete: sars efiling - try again'));
     } finally {
       setBusy(false);
     }

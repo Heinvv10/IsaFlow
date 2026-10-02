@@ -26,7 +26,7 @@ export default function AuditPortalPage() {
         } else if (res.status === 401) {
           setError('Session invalid or expired. Please contact the company that issued this link.');
         } else {
-          setError(`Pack unavailable (HTTP ${res.status})`);
+          setError('The audit pack is unavailable right now - please try again shortly');
         }
       } catch {
         setError('Network error — try again.');

@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage } from '@/lib/apiFetch';
 import { Package, ArrowLeft, Loader2, AlertCircle, Plus, X, Save } from 'lucide-react';
 
 interface Component {
@@ -79,7 +79,7 @@ export default function PayPackageEditPage() {
   }, [packageId]);
   useEffect(() => {
     load().catch((err) => {
-      setError(err instanceof Error ? err.message : 'Failed to load package');
+      setError(apiErrorMessage(err, 'Could not load package - try again'));
     });
   }, [load]);
 

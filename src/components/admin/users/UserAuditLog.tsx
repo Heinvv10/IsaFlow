@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { log } from '@/lib/logger';
@@ -37,7 +37,7 @@ export function UserAuditLog({ userId }: Props) {
       const json = await res.json();
       setEntries((json.data?.items ?? []) as AuditEntry[]);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to load audit log';
+      const msg = apiErrorMessage(err, 'Could not load audit log - try again');
       log.error('UserAuditLog load failed', { userId, error: err }, 'admin-ui');
       setError(msg);
     } finally {

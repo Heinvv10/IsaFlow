@@ -35,12 +35,16 @@ export default function ExchangeRatesSettingsPage() {
         apiFetch('/api/accounting/currencies'),
         apiFetch('/api/accounting/exchange-rates'),
       ]);
+      await assertOk(currRes, 'Could not load exchange rate data - try again');
+      await assertOk(ratesRes, 'Could not load exchange rate data - try again');
       const currJson = await currRes.json();
       const ratesJson = await ratesRes.json();
       setCurrencies(currJson.data?.currencies ?? []);
       setRates(ratesJson.data?.rates ?? []);
-    } catch {
-      setError('Failed to load exchange rate data');
+    } catch (err) {
+      setCurrencies([]);
+      setRates([]);
+      setError(apiErrorMessage(err, 'Could not load exchange rate data - try again'));
     } finally {
       setLoading(false);
     }
@@ -54,11 +58,11 @@ export default function ExchangeRatesSettingsPage() {
       const res = await apiFetch(`/api/accounting/exchange-rates?id=${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
-      await assertOk(res, 'Failed to delete rate');
+      await assertOk(res, 'Could not delete the exchange rate - try again');
       notify.success('Exchange rate deleted');
       setRates(prev => prev.filter(r => r.id !== id));
     } catch (err) {
-      notify.error(apiErrorMessage(err, 'Failed to delete exchange rate'));
+      notify.error(apiErrorMessage(err, 'Could not delete the exchange rate - try again'));
     } finally {
       setDeleting(null);
     }

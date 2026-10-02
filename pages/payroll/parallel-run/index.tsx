@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { GitCompareArrows, Loader2, AlertCircle, Download, Trash2 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ParallelRunUploadCard } from '@/components/payroll/parallelRun/ParallelRunUploadCard';
 import { ParallelRunReportView } from '@/components/payroll/parallelRun/ParallelRunReportView';
 import type { ParallelRunComparisonReport } from '@/modules/accounting/services/payroll/payrollParallelRunTypes';
@@ -46,11 +46,12 @@ export default function ParallelRunPage() {
     setIsLoading(true);
     try {
       const res = await apiFetch('/api/payroll/parallel-run/imports');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the imports - try again');
       const json = await res.json() as { data?: { imports?: ImportSummary[] } };
       setImports(json.data?.imports ?? []);
-    } catch {
-      setError('Failed to load imports');
+    } catch (err) {
+      setImports([]);
+      setError(apiErrorMessage(err, 'Could not load the imports - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -64,11 +65,11 @@ export default function ParallelRunPage() {
     setReport(null);
     try {
       const res = await apiFetch(`/api/payroll/parallel-run/compare?importId=${importId}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the comparison - try again');
       const json = await res.json() as { data?: ReportPayload };
       setReport(json.data ?? null);
-    } catch {
-      setError('Failed to load comparison');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the comparison - try again'));
     } finally {
       setIsComparing(false);
     }
@@ -88,27 +89,34 @@ export default function ParallelRunPage() {
     const imp = imports.find((i) => i.id === importId);
     const label = imp ? `${periodLabel(imp.periodMonth, imp.periodYear)} (${imp.payslipCount} payslips)` : 'this import';
     if (!window.confirm(`Delete the ${label} import? This cannot be undone.`)) return;
-    const res = await apiFetch(`/api/payroll/parallel-run/imports/${importId}`, { method: 'DELETE' });
-    if (res.ok) {
-      if (selectedId === importId) { setSelectedId(null); setReport(null); }
-      void loadImports();
-    } else {
-      setError('Failed to delete import');
+    setError('');
+    try {
+      const res = await apiFetch(`/api/payroll/parallel-run/imports/${importId}`, { method: 'DELETE' });
+      await assertOk(res, 'Could not delete the import - try again');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not delete the import - try again'));
+      return;
     }
+    if (selectedId === importId) { setSelectedId(null); setReport(null); }
+    void loadImports();
   };
 
   const handleExport = async (importId: string) => {
     setError('');
-    const res = await apiFetch(`/api/payroll/parallel-run/export?importId=${importId}`);
-    if (!res.ok) { setError('Export failed'); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const imp = imports.find((i) => i.id === importId);
-    a.download = imp ? `parallel-run_${imp.periodYear}-${String(imp.periodMonth).padStart(2, '0')}.csv` : 'parallel-run.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const res = await apiFetch(`/api/payroll/parallel-run/export?importId=${importId}`);
+      await assertOk(res, 'Could not export the comparison - try again');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const imp = imports.find((i) => i.id === importId);
+      a.download = imp ? `parallel-run_${imp.periodYear}-${String(imp.periodMonth).padStart(2, '0')}.csv` : 'parallel-run.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not export the comparison - try again'));
+    }
   };
 
   return (
@@ -182,14 +190,14 @@ export default function ParallelRunPage() {
                   <td className="px-4 py-2 text-right tabular-nums">{imp.payslipCount}</td>
                   <td className="px-4 py-2 text-right">
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleExport(imp.id).catch((err) => setError(err instanceof Error ? err.message : 'Export failed')); }}
+                      onClick={(e) => { e.stopPropagation(); void handleExport(imp.id); }}
                       title="Export comparison CSV"
                       className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)]"
                     >
                       <Download className="h-4 w-4" />
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(imp.id).catch((err) => setError(err instanceof Error ? err.message : 'Failed to delete import')); }}
+                      onClick={(e) => { e.stopPropagation(); void handleDelete(imp.id); }}
                       title="Delete import"
                       className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-red-400 hover:bg-[var(--ff-bg-primary)]"
                     >

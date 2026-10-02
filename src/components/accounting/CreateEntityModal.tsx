@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, X, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { AllocType, SelectOption } from './BankTxTable';
 import { AccountForm } from './createEntity/AccountForm';
 import { SupplierForm } from './createEntity/SupplierForm';
@@ -125,8 +125,8 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
             accountType: acctType, normalBalance: nb,
           }),
         });
+        await assertOk(res, 'Could not create the account - try again');
         const json = await res.json();
-        if (!res.ok) throw new Error(json?.error?.message || 'Failed to create account');
         const d = json.data;
         entity = { id: d.id, code: d.accountCode, name: d.accountName };
       } else if (type === 'supplier') {
@@ -138,8 +138,8 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
             phone: supPhone.trim() || undefined,
           }}),
         });
+        await assertOk(res, 'Could not create the supplier - try again');
         const json = await res.json();
-        if (!res.ok) throw new Error(json?.error?.message || 'Failed to create supplier');
         const d = json.data;
         entity = { id: String(d.id), code: d.code, name: supName.trim() };
       } else {
@@ -151,8 +151,8 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
             phone: custPhone.trim() || undefined,
           }),
         });
+        await assertOk(res, 'Could not create the customer - try again');
         const json = await res.json();
-        if (!res.ok) throw new Error(json?.error?.message || 'Failed to create customer');
         const d = json.data;
         entity = { id: d.id, name: custName.trim() };
       }
@@ -160,7 +160,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
       notify.success(`${title.replace('New ', '')} created`);
       onCreated(entity);
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : 'Failed to create');
+      notify.error(apiErrorMessage(e, `Could not create the ${title.replace('New ', '').toLowerCase()} - try again`));
     } finally {
       setSaving(false);
     }

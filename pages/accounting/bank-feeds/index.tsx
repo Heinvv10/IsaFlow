@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Wifi, WifiOff, Loader2, Plus } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { BankFeedCard } from '@/components/accounting/bankFeeds/BankFeedCard';
 import { AddConnectionModal } from '@/components/accounting/bankFeeds/AddConnectionModal';
@@ -26,19 +26,20 @@ export default function BankFeedsPage() {
   const fetchConnections = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/bank-feeds');
+      await assertOk(res, 'Could not load the bank feed connections - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed');
       setConnections(json.data?.items ?? []);
-    } catch {
-      notify.error('Failed to load bank feed connections');
+    } catch (err) {
+      setConnections([]);
+      notify.error(apiErrorMessage(err, 'Could not load the bank feed connections - try again'));
     }
   }, []);
 
   const fetchBankAccounts = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/bank-accounts');
-      const json = await res.json();
       if (res.ok) {
+        const json = await res.json();
         // The bank-accounts endpoint returns the rows directly under `data`
         // as an array, not under `data.items`. Tolerate both shapes so this
         // doesn't regress when the API is normalised.
@@ -107,8 +108,8 @@ export default function BankFeedsPage() {
         notify.success(`Sync done: ${r.imported} imported, ${r.duplicate} duplicates`);
       } else {
         const res = await apiFetch(`/api/accounting/bank-feeds/${connectionId}/sync`, { method: 'POST' });
+        await assertOk(res, 'Could not sync the connection - try again');
         const json = await res.json();
-        if (!res.ok) throw new Error(json?.error?.message || 'Sync failed');
         const r = json.data as { imported?: number; duplicate?: number; instructions?: string };
         if (r.instructions) notify.info(r.instructions);
         else notify.success(`Sync done: ${r.imported ?? 0} imported, ${r.duplicate ?? 0} duplicates`);
@@ -116,7 +117,7 @@ export default function BankFeedsPage() {
       await fetchConnections();
       if (expandedLogs === connectionId) await loadSyncLogs(connectionId);
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Sync failed');
+      notify.error(apiErrorMessage(err, 'Could not sync the connection - try again'));
     } finally {
       setSyncing(null);
     }
@@ -127,12 +128,11 @@ export default function BankFeedsPage() {
     setDeleting(connectionId);
     try {
       const res = await apiFetch(`/api/accounting/bank-feeds/${connectionId}`, { method: 'DELETE' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Delete failed');
+      await assertOk(res, 'Could not delete the connection - try again');
       notify.success('Connection deleted');
       await fetchConnections();
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Delete failed');
+      notify.error(apiErrorMessage(err, 'Could not delete the connection - try again'));
     } finally {
       setDeleting(null);
     }
@@ -142,9 +142,10 @@ export default function BankFeedsPage() {
     setLogsLoading(connectionId);
     try {
       const res = await apiFetch(`/api/accounting/bank-feeds/${connectionId}/logs`);
+      await assertOk(res, 'Could not load the sync history - try again');
       const json = await res.json();
-      if (res.ok) setSyncLogs(prev => ({ ...prev, [connectionId]: json.data?.items ?? [] }));
-    } catch { /* fail silently */ }
+      setSyncLogs(prev => ({ ...prev, [connectionId]: json.data?.items ?? [] }));
+    } catch (err) { notify.error(apiErrorMessage(err, 'Could not load the sync history - try again')); }
     finally { setLogsLoading(null); }
   };
 

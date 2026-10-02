@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 
 type Active = { address: string; isActive: boolean };
 type Pending = { address: string; expiresAt: string; verificationUrl?: string };
@@ -12,13 +12,15 @@ export function WhatsAppVerificationSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [copied, setCopied] = useState(false);
   const load = useCallback(async () => {
     setBusy(true);
     try {
       const response = await apiFetch('/api/accounting/capture/whatsapp-inbox');
-      const json = await response.json() as { data?: State; error?: string };
-      if (!response.ok || !json.data) throw new Error(json.error ?? 'Unable to load WhatsApp status');
+      await assertOk(response, 'Could not load the WhatsApp status - try again');
+      const json = await response.json() as { data?: State };
+      if (!json.data) throw new ApiEnvelopeError('Could not load the WhatsApp status - try again');
       const next = json.data;
       setState(previous => ({ ...next, pending: next.pending && {
         ...next.pending,
@@ -26,9 +28,10 @@ export function WhatsAppVerificationSection() {
           && previous.pending.expiresAt === next.pending.expiresAt ? previous.pending.verificationUrl : undefined,
       } }));
       setAddress(current => current || next.pending?.address || next.active?.address || '');
-      setError('');
+      setError(''); setLoadFailed(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load WhatsApp status');
+      setState({ active: null, pending: null }); setLoadFailed(true);
+      setError(apiErrorMessage(err, 'Could not load the WhatsApp status - try again'));
     } finally { setLoaded(true); setBusy(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -39,12 +42,13 @@ export function WhatsAppVerificationSection() {
       const response = await apiFetch('/api/accounting/capture/whatsapp-inbox', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: address.trim() }),
       });
-      const json = await response.json() as { data?: Pending; error?: string };
-      if (!response.ok || !json.data) throw new Error(json.error ?? 'Unable to start verification');
+      await assertOk(response, 'Could not start the verification - try again');
+      const json = await response.json() as { data?: Pending };
+      if (!json.data) throw new ApiEnvelopeError('Could not start the verification - try again');
       const pending = json.data;
       setState(previous => ({ ...previous, pending })); setError('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to start verification');
+      setError(apiErrorMessage(err, 'Could not start the verification - try again'));
     } finally { setBusy(false); }
   }
   async function copy() {
@@ -60,7 +64,7 @@ export function WhatsAppVerificationSection() {
       {state.active.isActive ? 'Verified number: ' : 'Verification required for existing number: '}
       <span className="font-mono">{state.active.address}</span>
     </p>}
-    {loaded && !state.active && !state.pending && <p className="text-sm text-slate-500">No verified WhatsApp number.</p>}
+    {loaded && !loadFailed && !state.active && !state.pending && <p className="text-sm text-slate-500">No verified WhatsApp number.</p>}
     <div className="flex gap-2">
       <input aria-label="WhatsApp Business number" type="tel" inputMode="tel" value={address}
         onChange={event => setAddress(event.target.value)} placeholder="+27821234567"

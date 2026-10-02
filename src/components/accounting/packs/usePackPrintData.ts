@@ -11,11 +11,13 @@
  * compile error rather than a document full of zeros.
  */
 import { useEffect, useState } from 'react';
-import { apiJson } from '@/lib/apiFetch';
+import { apiJson, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { buildPackDocument, type PackDocument } from '@/modules/accounting/services/packs/packDocument';
 import { PACK_DATA_API, packTrendApiPath } from '@/modules/accounting/services/packs/packSections';
 import type { PackType, ReportPack } from '@/modules/accounting/services/reports/reportPackService';
+
+const PACK_FAILED = 'Could not load the pack - try again';
 
 export interface PackPrintData {
   document: PackDocument | null;
@@ -34,15 +36,14 @@ export function usePackPrintData(packType: PackType, from: string, to: string): 
         // three fields; registering the shared path would have to hold for
         // every method on it, so the payload is narrowed with one cast here.
         const packPayload = (await apiJson(
-          `${PACK_DATA_API}?type=${packType}&from=${from}&to=${to}`,
+          `${PACK_DATA_API}?type=${packType}&from=${from}&to=${to}`, undefined, PACK_FAILED,
         )) as { pack: ReportPack };
-        const trend = await apiJson(`${packTrendApiPath(packType)}?to=${to}&months=12`);
+        const trend = await apiJson(`${packTrendApiPath(packType)}?to=${to}&months=12`, undefined, PACK_FAILED);
         if (cancelled) return;
         setDocument(buildPackDocument(packPayload.pack, trend));
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        log.error('usePackPrintData: failed', { packType, from, to, error: message });
-        if (!cancelled) setError(message);
+        log.error('usePackPrintData: failed', { packType, from, to, error: err instanceof Error ? err.message : String(err) });
+        if (!cancelled) setError(apiErrorMessage(err, PACK_FAILED));
       }
     })();
     return () => { cancelled = true; };

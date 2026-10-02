@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { ArrowLeft, Loader2, AlertCircle, Check, X } from 'lucide-react';
 
 interface Supplier { id: string; name: string; company_name: string | null }
@@ -80,7 +80,7 @@ export default function SupplierRulesPage() {
 
   const loadAll = useCallback(async () => {
     if (!sid) return;
-    setLoading(true);
+    setLoading(true); setError('');
     try {
       const [supRes, ruleRes, glRes, ccRes] = await Promise.all([
         apiFetch(`/api/accounting/suppliers-list?id=${sid}`),
@@ -89,11 +89,13 @@ export default function SupplierRulesPage() {
         apiFetch('/api/accounting/cost-centres'),
       ]);
 
+      await assertOk(supRes, 'Could not load the supplier - try again');
       const supJson = await supRes.json() as { data?: Supplier; success?: boolean };
       if (!supJson.success || !supJson.data) { setError('Supplier not found'); return; }
       setSupplier(supJson.data);
 
       if (ruleRes.status !== 404) {
+        await assertOk(ruleRes, 'Could not load the coding rule - try again');
         const ruleJson = await ruleRes.json() as { data?: SupplierRule };
         if (ruleJson.data) {
           const r = ruleJson.data;
@@ -110,16 +112,13 @@ export default function SupplierRulesPage() {
         }
       }
 
-      if (glRes.ok) {
-        const glJson = await glRes.json() as { data?: GlAccount[] };
-        setGlAccounts(glJson.data ?? []);
-      }
-      if (ccRes.ok) {
-        const ccJson = await ccRes.json() as { data?: CostCentre[] };
-        setCostCentres(ccJson.data ?? []);
-      }
-    } catch {
-      setError('Failed to load data');
+      await assertOk(glRes, 'Could not load the accounts - try again');
+      await assertOk(ccRes, 'Could not load the cost centres - try again');
+      const [glJson, ccJson] = await Promise.all([glRes.json() as Promise<{ data?: GlAccount[] }>, ccRes.json() as Promise<{ data?: CostCentre[] }>]);
+      setGlAccounts(glJson.data ?? []);
+      setCostCentres(ccJson.data ?? []);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the coding rule - try again'));
     } finally {
       setLoading(false);
     }
@@ -150,13 +149,13 @@ export default function SupplierRulesPage() {
         isNew ? '/api/accounting/supplier-rules' : `/api/accounting/supplier-rules/${sid}`,
         { method: isNew ? 'POST' : 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
       );
-      const json = await res.json() as { data?: SupplierRule; error?: string };
-      if (!res.ok) { showToast(json.error ?? 'Save failed', false); return; }
+      await assertOk(res, 'Could not save the coding rule - try again');
+      const json = await res.json() as { data?: SupplierRule };
       setRule(json.data ?? null);
       setIsDirty(false);
       showToast('Coding rule saved', true);
-    } catch {
-      showToast('Network error', false);
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not save the coding rule - try again'), false);
     } finally {
       setSaving(false);
     }
@@ -167,10 +166,10 @@ export default function SupplierRulesPage() {
     setDeleting(true);
     try {
       const res = await apiFetch(`/api/accounting/supplier-rules/${sid}`, { method: 'DELETE' });
-      if (!res.ok && res.status !== 204) { showToast('Delete failed', false); return; }
+      await assertOk(res, 'Could not delete the coding rule - try again');
       void router.push(`/accounting/suppliers/${sid}`);
-    } catch {
-      showToast('Network error', false);
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not delete the coding rule - try again'), false);
     } finally {
       setDeleting(false);
     }

@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, ShoppingCart, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { fmtDate } from '@/lib/fmtDate';
 
 interface Row {
@@ -44,10 +44,10 @@ export default function SupplierReportsPage() {
     try {
       const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
       const res = await apiFetch(`/api/accounting/reports-supplier?${params}`, { credentials: 'include' });
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not load the supplier report - try again');
       const json = await res.json();
       setRows(json.data || []);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setRows([]); setError(apiErrorMessage(err, 'Could not load the supplier report - try again')); }
     finally { setLoading(false); }
   }, [periodStart, periodEnd]);
 

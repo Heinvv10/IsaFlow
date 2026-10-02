@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { Zap, Plus, Loader2 } from 'lucide-react';
 import { TopUpModal } from './TopUpModal';
 import { UpgradeNudgeBanner, type NudgeLevel } from './UpgradeNudgeBanner';
@@ -19,22 +19,23 @@ interface WalletResp {
 export function FlowWalletWidget() {
   const [wallet, setWallet] = useState<WalletResp | null>(null);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
   const [show403, setShow403] = useState(false);
   const [showModal, setShowModal] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    setLoading(true); setFailed(false);
     try {
       const res = await apiFetch('/api/billing/flows/wallet');
       if (res.status === 403) {
         setShow403(true);
         return;
       }
+      await assertOk(res, 'Could not load the Flow balance - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message ?? 'Failed');
       setWallet(json.data as WalletResp);
     } catch {
-      // Silent — widget just won't render
+      setWallet(null); setFailed(true); // never show a made-up zero balance
     } finally {
       setLoading(false);
     }
@@ -58,12 +59,14 @@ export function FlowWalletWidget() {
             <div className="text-xs text-gray-500 uppercase tracking-wide">Flow balance</div>
             {loading ? (
               <Loader2 className="w-4 h-4 animate-spin mt-1" />
+            ) : failed ? (
+              <div className="text-sm text-red-500 mt-1">Could not load the Flow balance - try again</div>
             ) : (
               <div className="text-2xl font-semibold">{wallet?.balance ?? 0}</div>
             )}
-            <div className="text-xs text-gray-500 mt-0.5">
+            {!failed && <div className="text-xs text-gray-500 mt-0.5">
               {wallet?.monthFlowsUsed ?? 0} used this month
-            </div>
+            </div>}
           </div>
         </div>
         <button

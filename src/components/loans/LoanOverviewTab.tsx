@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loan, fmt, fmtDate, fmtPct, PRODUCT_LABELS } from './types';
 import { LoanStatusBadge } from './LoanStatusBadge';
 
@@ -33,7 +33,7 @@ export function LoanOverviewTab({ loan, onRefresh }: Props) {
       setStatus(newStatus);
       onRefresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update status');
+      setError(apiErrorMessage(err, 'Could not update status - try again'));
       setStatus(loan.status);
     } finally {
       setBusy(false);

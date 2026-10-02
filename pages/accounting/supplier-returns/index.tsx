@@ -56,12 +56,11 @@ export default function SupplierReturnsPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ supplierId: form.supplierId, originalInvoiceNumber: form.originalInvoiceNumber || undefined, amount: Number(form.amount), reason: form.reason || undefined }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed to create return');
+      await assertOk(res, 'Could not create return - try again');
       notify.success('Supplier return created');
       setShowModal(false); setForm(EMPTY);
       await loadReturns();
-    } catch (err) { notify.error(err instanceof Error ? err.message : 'Failed to create return'); }
+    } catch (err) { notify.error(apiErrorMessage(err, 'Could not create return - try again')); }
     finally { setSubmitting(false); }
   }
 

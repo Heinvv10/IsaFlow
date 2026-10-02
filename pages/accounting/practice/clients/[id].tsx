@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, Loader2, AlertCircle, ArrowLeft, User, Phone, Mail, Sparkles } from 'lucide-react';
 import Link from 'next/link';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { ClientRateOverrides } from '@/components/practice/ClientRateOverrides';
 
 type ClientStatus = 'prospect' | 'onboarding' | 'active' | 'inactive' | 'archived';
@@ -101,7 +101,7 @@ export default function PracticeClientDetailPage() {
         setNotFound(true);
         return;
       }
-      if (!clientRes.ok) throw new Error(`HTTP ${clientRes.status}`);
+      await assertOk(clientRes, 'Could not load the client - try again');
       const clientJson = await clientRes.json() as { data?: PracticeClient } | PracticeClient;
       setClient(('data' in clientJson ? clientJson.data : clientJson) as PracticeClient);
 
@@ -109,8 +109,8 @@ export default function PracticeClientDetailPage() {
         const contactsJson = await contactsRes.json() as { data?: ClientContact[] } | ClientContact[];
         setContacts(('data' in contactsJson ? contactsJson.data : contactsJson) as ClientContact[] ?? []);
       }
-    } catch {
-      setError('Failed to load client');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the client - try again'));
     } finally {
       setLoading(false);
     }

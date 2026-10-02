@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import { CalendarClock, Loader2, Save } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { INPUT_CLS, LABEL_CLS, SECTION_CLS } from './settingsTypes';
 
 interface Obligations {
@@ -53,8 +53,8 @@ export function ComplianceTab() {
     void (async () => {
       try {
         const res = await apiFetch('/api/accounting/compliance-obligations');
+        await assertOk(res, 'Could not load - try again');
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed to load');
         if (!cancelled && json.data) {
           setConfig(json.data as Obligations);
           setExists(true);
@@ -75,13 +75,13 @@ export function ComplianceTab() {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
       });
+      await assertOk(res, 'Could not save - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed to save');
       setConfig(json.data as Obligations);
       setExists(true);
       setMessage({ kind: 'ok', text: 'Compliance obligations saved' });
     } catch (err) {
-      setMessage({ kind: 'err', text: err instanceof Error ? err.message : 'Failed to save' });
+      setMessage({ kind: 'err', text: apiErrorMessage(err, 'Could not save - try again') });
     } finally {
       setSaving(false);
     }

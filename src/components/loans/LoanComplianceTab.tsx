@@ -74,7 +74,7 @@ export function LoanComplianceTab({ loanId }: Props) {
         await load();
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Assessment failed');
+      setError(apiErrorMessage(e, 'Could not complete: assessment - try again'));
     }
     setRunning(false);
   };

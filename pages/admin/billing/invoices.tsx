@@ -77,12 +77,13 @@ export default function InvoicesPage() {
       if (from) params.set('date_from', from);
       if (to)   params.set('date_to',   to);
       const res  = await apiFetch(`/api/admin/billing/invoices?${params}`);
-      await assertOk(res, 'Failed to load invoices');
+      await assertOk(res, 'Could not load invoices - try again');
       const json = await res.json();
       const d = json.data as PagedResponse;
       setRows(d.items);
       setTotal(d.total);
     } catch (err) {
+      setRows([]); setTotal(0);
       setError(apiErrorMessage(err, 'Could not load invoices - try again'));
     } finally {
       setLoading(false);
@@ -116,7 +117,7 @@ export default function InvoicesPage() {
       await assertOk(res, 'Could not complete the invoice action - try again');
       void load(search, status, dateFrom, dateTo, page);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+      setError(apiErrorMessage(err, 'Could not complete the invoice action - try again'));
     } finally {
       setActionId(null);
     }
@@ -141,7 +142,7 @@ export default function InvoicesPage() {
           notes:          form.notes || null,
         }),
       });
-      await assertOk(res, 'Failed to create invoice');
+      await assertOk(res, 'Could not create the invoice - try again');
       setShowForm(false);
       setForm(EMPTY_FORM);
       void load(search, status, dateFrom, dateTo, 1);

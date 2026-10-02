@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 
 interface BalanceRow {
   accountCode: string;
@@ -63,7 +63,7 @@ export default function OpeningBalancesPage() {
       // yielded undefined, so this flow always failed with "No active session."
       const { session } = await apiJson('/api/accounting/migration/session');
       const sessionId = session?.id;
-      if (!sessionId) throw new Error('No active migration session');
+      if (!sessionId) throw new ApiEnvelopeError('No active migration session');
 
       const res = await apiFetch('/api/accounting/migration/opening-balances', {
         method: 'POST',
@@ -74,11 +74,11 @@ export default function OpeningBalancesPage() {
           balances: rows.map(r => ({ accountCode: r.accountCode, debit: r.debit, credit: r.credit })),
         }),
       });
-      await assertOk(res, 'Import failed');
+      await assertOk(res, 'Could not import the opening balances - try again');
       const json = await res.json();
       setImportResult(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import failed');
+      setError(apiErrorMessage(err, 'Could not import the opening balances - try again'));
     } finally {
       setIsImporting(false);
     }
@@ -128,7 +128,7 @@ export default function OpeningBalancesPage() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">2. Upload Trial Balance CSV</h2>
             <p className="text-xs text-[var(--ff-text-secondary)] mb-3">Required columns: account_code, debit_balance, credit_balance</p>
-            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]).catch(err => setError(err instanceof Error ? err.message : 'Failed to parse CSV file')); }} />
+            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]).catch(() => setError('Could not read the CSV file - try again')); }} />
             <button
               onClick={() => fileRef.current?.click()}
               className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-secondary)] hover:border-blue-500 hover:text-blue-500 text-sm transition-colors"

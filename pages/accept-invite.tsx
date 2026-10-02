@@ -22,7 +22,9 @@ export default function AcceptInvitePage() {
     if (!token) return;
     (async () => {
       const r = await fetch(`/api/invitations/${token}`);
-      const body = await r.json();
+      // An outage answers 5xx with an empty or HTML body: say so, never a JSON parse error.
+      const body = r.status >= 500 ? null : await r.json().catch(() => null);
+      if (!body) { setError('Could not load the invitation - try again shortly'); setLoading(false); return; }
       // An invitation created by the other invitation system has no GoTrue user
       // to set a password on. It is accepted at /invite/<token> by a signed-in
       // user; /register?invite= and /login?invite= both land here, so forward.
@@ -34,7 +36,7 @@ export default function AcceptInvitePage() {
         void router.replace(`/invite/${encodeURIComponent(token)}`);
         return;
       }
-      if (!body.success) { setError(body.error?.message ?? 'Invalid invitation'); setLoading(false); return; }
+      if (!body.success) { setError(body.error?.message ?? 'This invitation is invalid or has expired'); setLoading(false); return; }
       setInvite(body.data);
       setLoading(false);
     })().catch(() => {
@@ -56,10 +58,11 @@ export default function AcceptInvitePage() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ password, firstName, lastName }),
       });
-      const body = await r.json();
+      const body = r.status >= 500 ? null : await r.json().catch(() => null);
+      if (!body) { setError('Could not accept the invitation - try again shortly'); setSubmitting(false); return; }
       if (!body.success) {
         if (body.error?.code === 'SIGN_IN_REQUIRED') setNeedsExistingPassword(true);
-        setError(body.error?.message ?? 'Failed to accept'); setSubmitting(false); return;
+        setError(body.error?.message ?? 'Could not accept the invitation - try again'); setSubmitting(false); return;
       }
       // Not awaited: a router abort would land in the catch below and show
       // "could not submit" for an accept that already succeeded server-side.

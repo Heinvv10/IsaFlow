@@ -3,7 +3,7 @@
  * Shows remaining task count badge. Pulses for new users (first 3 days).
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { CheckSquare } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -58,6 +58,10 @@ export function SetupGuideButton() {
   const [loaded, setLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [saveError, setSaveError] = useState('');
+  // The ticks as the person made them, read at send time: a closed-over copy would let two quick ticks write
+  // a smaller set. `saveQueue` sends one write after another, so a later write can never land before an earlier one.
+  const manualRef = useRef<Set<string>>(new Set());
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
 
   // Load both auto-detected status and manual completions
   useEffect(() => {
@@ -85,7 +89,8 @@ export function SetupGuideButton() {
         {
           const prefJson = (await prefRes.json()) as { data: PreferencesApiResponse };
           const prefs = prefJson.data;
-          setManualDone(parseManualDone(prefs[PREF_MANUAL_KEY]));
+          manualRef.current = parseManualDone(prefs[PREF_MANUAL_KEY]);
+          setManualDone(manualRef.current);
           setPulse(isNewUser(prefs[PREF_CREATED_AT_KEY]));
 
           // Record first-seen timestamp if not already set
@@ -97,7 +102,7 @@ export function SetupGuideButton() {
               body: JSON.stringify({
                 preferences: { [PREF_CREATED_AT_KEY]: new Date().toISOString() },
               }),
-            }).catch((err: unknown) => log.warn('setup guide first-seen write failed', { err }));
+            }).then((r) => assertOk(r, 'Could not record the first visit')).catch((err: unknown) => log.warn('setup guide first-seen write failed', { err }));
           }
         }
       } catch (err) {
@@ -115,23 +120,29 @@ export function SetupGuideButton() {
   const completedTasks = new Set([...autoCompleted, ...manualDone]);
   const remainingCount = TOTAL_TASK_COUNT - completedTasks.size;
 
-  const handleMarkDone = useCallback(async (taskId: string) => {
-    const next = new Set(manualDone).add(taskId);
-    setManualDone(next);
+  const handleMarkDone = useCallback((taskId: string): Promise<void> => {
+    manualRef.current = new Set(manualRef.current).add(taskId);
+    setManualDone(manualRef.current);
     setSaveError('');
-    try {
-      const res = await apiFetch('/api/auth/preferences', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preferences: { [PREF_MANUAL_KEY]: JSON.stringify([...next]) } }),
-      });
-      await assertOk(res, 'Could not save that task - try again');
-    } catch (err) {
-      // Not saved: take the tick back so the guide never shows a task done that will be undone on reload
-      setManualDone(prev => { const r = new Set(prev); r.delete(taskId); return r; });
-      setSaveError(apiErrorMessage(err, 'Could not save that task - try again'));
-    }
-  }, [manualDone]);
+    const save = async () => {
+      try {
+        const res = await apiFetch('/api/auth/preferences', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ preferences: { [PREF_MANUAL_KEY]: JSON.stringify([...manualRef.current]) } }),
+        });
+        await assertOk(res, 'Could not save that task - try again');
+      } catch (err) {
+        // Not saved: take back only THIS tick so the guide never shows a task done that will be undone on reload
+        const rest = new Set(manualRef.current); rest.delete(taskId);
+        manualRef.current = rest;
+        setManualDone(rest);
+        setSaveError(apiErrorMessage(err, 'Could not save that task - try again'));
+      }
+    };
+    saveQueue.current = saveQueue.current.then(save);
+    return saveQueue.current;
+  }, []);
 
   if (!loaded || loadFailed) return null;
 

@@ -16,7 +16,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 import { prevMonthRange } from '@/lib/dateUtils';
@@ -134,7 +134,7 @@ export default function VATReturnPage() {
       const json = await res.json();
       setReport(json.data || json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load VAT return');
+      setError(apiErrorMessage(err, 'Could not load VAT return - try again'));
     } finally {
       setIsLoading(false);
     }

@@ -7,7 +7,7 @@ import {
   Building2,
 } from 'lucide-react';
 import SessionIssues, { type SessionIssue } from '@/components/accounting/migration/SessionIssues';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { log } from '@/lib/logger';
 
@@ -79,8 +79,9 @@ export default function MigrationHubPage() {
   const loadSession = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/migration/session');
+      await assertOk(res, 'Could not load your migration - try again');
       const json = await res.json();
-      if (res.ok && json.data) {
+      if (json.data) {
         const raw = (json.data.session ?? json.data) as Partial<MigrationSession> | null;
         if (raw && typeof raw === 'object' && 'id' in raw) {
           setSession({ ...raw, stepsCompleted: raw.stepsCompleted ?? {} } as MigrationSession);
@@ -88,6 +89,7 @@ export default function MigrationHubPage() {
       }
     } catch (e) {
       log.warn('Failed to load migration session', { error: e }, 'migration');
+      setError(apiErrorMessage(e, 'Could not load your migration - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -104,12 +106,12 @@ export default function MigrationHubPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sourceSystem }),
       });
-      await assertOk(res, 'Failed to create session');
+      await assertOk(res, 'Could not start migration - try again');
       const json = await res.json();
       const raw = (json.data.session ?? json.data) as Partial<MigrationSession>;
       setSession({ ...raw, stepsCompleted: raw.stepsCompleted ?? {} } as MigrationSession);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start migration');
+      setError(apiErrorMessage(err, 'Could not start migration - try again'));
     } finally {
       setSelecting(false);
     }

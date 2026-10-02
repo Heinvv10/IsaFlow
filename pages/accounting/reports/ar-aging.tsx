@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Users, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatOverdueDaysCompact } from '@/lib/format/aging';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -92,7 +92,7 @@ export default function ARAgingPage() {
       setData(json.data ?? null);
       setHasMore(Boolean((json as { meta?: { hasMore?: boolean } }).meta?.hasMore));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      setError(apiErrorMessage(err, 'Could not load - try again'));
     } finally {
       setLoading(false);
     }

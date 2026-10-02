@@ -4,7 +4,7 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Tags, Loader2, Plus } from 'lucide-react';
 
 type ComponentType = 'earning' | 'deduction' | 'employer_contribution';
@@ -47,11 +47,12 @@ export default function PayComponentsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/payroll/components');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the components - try again');
       const json = await res.json();
       setComponents((json.data ?? json) as Component[]);
-    } catch {
-      setError('Failed to load components');
+    } catch (err) {
+      setComponents([]);
+      setError(apiErrorMessage(err, 'Could not load the components - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -72,15 +73,12 @@ export default function PayComponentsPage() {
           isTaxable, isUifApplicable, isSdlApplicable,
         }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not create the component - try again');
       setName(''); setSarsCode('3601'); setType('earning');
       setIsTaxable(true); setIsUifApplicable(true); setIsSdlApplicable(true);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Create failed');
+      setError(apiErrorMessage(err, 'Could not create the component - try again'));
     } finally {
       setCreating(false);
     }

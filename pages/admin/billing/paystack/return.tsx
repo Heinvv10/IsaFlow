@@ -9,7 +9,7 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
 import { CheckCircle2, XCircle, Loader2, AlertTriangle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 type State = 'verifying' | 'active' | 'failed' | 'cancelled' | 'error';
 
@@ -52,7 +52,7 @@ export default function PaystackMandateReturn() {
         const res = await apiFetch(
           `/api/billing/paystack/mandate/verify?ref=${encodeURIComponent(r)}`,
         );
-        if (!res.ok) throw new Error(`Verify failed (${res.status})`);
+        await assertOk(res, 'Could not verify the mandate - try again');
         const json = (await res.json()) as { data: VerifyResponse };
         if (cancelled) return;
         setData(json.data);
@@ -63,7 +63,7 @@ export default function PaystackMandateReturn() {
       } catch (err) {
         if (cancelled) return;
         setState('error');
-        setErrorMsg(err instanceof Error ? err.message : 'Verify failed');
+        setErrorMsg(apiErrorMessage(err, 'Could not verify the mandate - try again'));
       }
     };
     void tick();

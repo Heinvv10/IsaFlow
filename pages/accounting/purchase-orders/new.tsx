@@ -7,7 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeft, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -61,8 +61,8 @@ export default function NewPurchaseOrderPage() {
           items: items.map(i => ({ ...i, quantity: Number(i.quantity), unitPrice: Number(i.unitPrice), taxRate: Number(i.taxRate) })),
         }),
       });
+      await assertOk(res, 'Something went wrong - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Failed');
       if (andNew) {
         setForm({ supplierId: '', orderDate: localISODate(), expectedDeliveryDate: '', notes: '', reference: '' });
         setItems([{ key: '1', description: '', quantity: '1', unitPrice: '0', taxRate: '15' }]);
@@ -71,7 +71,7 @@ export default function NewPurchaseOrderPage() {
         await router.push(`/accounting/purchase-orders/${json.data?.id ?? ''}`);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Something went wrong - try again'));
     } finally {
       setSaving(false);
     }

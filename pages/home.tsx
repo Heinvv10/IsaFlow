@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { ClientHomeView } from '@/components/bureau/ClientHomeView';
 import { OwnerCashPanel } from '@/components/home/OwnerCashPanel';
@@ -46,7 +46,7 @@ export default function HomePage() {
       const json = await res.json() as { data?: HomeData; message?: string };
       setData(json.data ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      setError(apiErrorMessage(err, 'Could not load - try again'));
     } finally {
       setLoading(false);
     }

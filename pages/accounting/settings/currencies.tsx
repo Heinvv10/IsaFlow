@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiJson } from '@/lib/apiFetch';
+import { apiJson, apiErrorMessage } from '@/lib/apiFetch';
 import { DollarSign, Loader2, AlertCircle } from 'lucide-react';
 
 interface Currency {
@@ -31,7 +31,7 @@ export default function CurrenciesPage() {
       // `apiJson` throws ApiRequestError carrying the server's own message.
       // Surface it — collapsing every cause into one generic string would lose
       // the detail the previous hand-rolled unwrapping used to show.
-      setError(err instanceof Error ? err.message : 'Failed to load currencies');
+      setError(apiErrorMessage(err, 'Could not load currencies - try again'));
     } finally {
       setLoading(false);
     }

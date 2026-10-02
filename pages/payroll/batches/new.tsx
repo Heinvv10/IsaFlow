@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Layers, Save, Loader2 } from 'lucide-react';
 
 interface Component {
@@ -33,12 +33,12 @@ export default function NewBatchPage() {
   useEffect(() => {
     (async () => {
       const res = await apiFetch('/api/payroll/components');
-      if (res.ok) {
-        const json = await res.json();
-        setComponents((json.data ?? json) as Component[]);
-      }
+      await assertOk(res, 'Could not load the pay components - try again');
+      const json = await res.json();
+      setComponents((json.data ?? json) as Component[]);
     })().catch((err) => {
-      setError(err instanceof Error ? err.message : 'Failed to load components');
+      setComponents([]);
+      setError(apiErrorMessage(err, 'Could not load the pay components - try again'));
     });
   }, []);
 
@@ -67,15 +67,12 @@ export default function NewBatchPage() {
           isRecurring,
         }),
       });
+      await assertOk(res, 'Could not create the batch - try again');
       const json = await res.json();
-      if (!res.ok) {
-        setError(json.error?.message ?? json.message ?? 'Create failed');
-        return;
-      }
       const id = (json.data ?? json).id as string;
       await router.push(`/payroll/batches/${id}`);
-    } catch {
-      setError('Create failed');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not create the batch - try again'));
     } finally {
       setSaving(false);
     }

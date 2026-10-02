@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { Calendar, Loader2, X } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 export function CreateYearModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const currentYear = new Date().getFullYear();
@@ -19,11 +19,10 @@ export function CreateYearModal({ onClose, onCreated }: { onClose: () => void; o
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ year }),
       });
-      const json = await res.json() as { error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to create fiscal year');
+      await assertOk(res, 'Could not create fiscal year - try again');
       onCreated(); onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed');
+      setError(apiErrorMessage(e, 'Something went wrong - try again'));
     } finally { setSaving(false); }
   };
 

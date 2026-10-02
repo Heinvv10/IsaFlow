@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Banknote, Loader2, AlertCircle, ArrowLeft, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -70,14 +70,15 @@ export default function LoanDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/loans/${id}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the loan - try again');
       const json = await res.json();
       const payload = (json.data ?? json) as { loan: Loan; schedule: ScheduleRow[]; payments: PaymentRow[] };
       setLoan(payload.loan);
       setSchedule(payload.schedule);
       setPayments(payload.payments);
-    } catch {
-      setError('Failed to load loan');
+    } catch (err) {
+      setLoan(null); setSchedule([]); setPayments([]);
+      setError(apiErrorMessage(err, 'Could not load the loan - try again'));
     } finally {
       setLoading(false);
     }
@@ -95,12 +96,10 @@ export default function LoanDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        setError(json.error?.message ?? json.message ?? 'Close failed');
-        return;
-      }
+      await assertOk(res, `Could not ${label} the loan - try again`);
       await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, `Could not ${label} the loan - try again`));
     } finally {
       setBusy(false);
     }

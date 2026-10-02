@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
 import { TrafficTimeseriesChart, type TimeseriesPoint } from '@/components/admin/charts/TrafficTimeseriesChart';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { Activity, Loader2, Globe, Download, Bot } from 'lucide-react';
 
 type Range = '24h' | '7d' | '30d' | '90d';
@@ -146,15 +146,13 @@ export default function AdminWebAnalytics() {
     try {
       const bots = includeBots ? '&include_bots=1' : '';
       const res = await apiFetch(`/api/admin/analytics/web/summary?website_id=${websiteId}&range=${range}${bots}`);
+      await assertOk(res, 'Could not load the analytics summary - try again');
       const json = await res.json();
-      if (!res.ok || !json.success) {
-        setError(json?.error?.message || 'Failed to load summary');
-        setSummary(null);
-      } else {
-        setSummary(json.data as Summary);
-      }
-    } catch {
-      setError('Network error');
+      if (!json.success) throw new ApiEnvelopeError('Could not load the analytics summary - try again');
+      setSummary(json.data as Summary);
+    } catch (err) {
+      setSummary(null);
+      setError(apiErrorMessage(err, 'Could not load the analytics summary - try again'));
     } finally {
       setLoading(false);
     }
@@ -169,8 +167,9 @@ export default function AdminWebAnalytics() {
     if (!websiteId) return;
     try {
       const res = await apiFetch(`/api/admin/analytics/web/realtime?website_id=${websiteId}`);
+      if (!res.ok) return; // polled every 5s: a failed tick keeps the last reading
       const json = await res.json();
-      if (res.ok && json.success) setRealtime(json.data as Realtime);
+      if (json.success) setRealtime(json.data as Realtime);
     } catch { /* silent */ }
   }, [websiteId]);
 

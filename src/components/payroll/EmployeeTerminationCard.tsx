@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { AlertCircle, AlertTriangle, ArrowRight, CheckCircle2, Loader2, LogOut, Save } from 'lucide-react';
 
@@ -65,24 +65,29 @@ export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
   const [preview, setPreview] = useState<TerminationPreview | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);   // Save stays off until the stored values were read: never write blank defaults back
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await apiFetch(`/api/payroll/employees/${employeeId}/termination`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the termination details - try again');
       const json = await res.json() as {
         data?: { details: TerminationDetails; context: TerminationContext; preview: TerminationPreview | null };
       };
       const d = json.data;
-      if (d) {
-        setDetails({ ...details, ...d.details });
-        setContext(d.context);
-        setPreview(d.preview);
-      }
-    } catch {
-      setMsg({ kind: 'err', text: 'Failed to load termination details' });
+      if (!d) throw new ApiEnvelopeError('Could not load the termination details - try again');
+      setDetails({ ...details, ...d.details });
+      setContext(d.context);
+      setPreview(d.preview);
+      setLoaded(true);
+    } catch (err) {
+      setContext(null); setPreview(null);
+      // A refresh after a good save keeps the save's message and says the refresh failed.
+      setMsg(prev => prev?.kind === 'ok'
+        ? { kind: 'ok', text: `${prev.text}, but the details could not be refreshed - reload the page` }
+        : { kind: 'err', text: apiErrorMessage(err, 'Could not load the termination details - try again') });
     } finally {
       setLoading(false);
     }
@@ -99,14 +104,11 @@ export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
         method: 'PUT',
         body: JSON.stringify(details),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({})) as { error?: { message?: string } };
-        throw new Error(j.error?.message ?? `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not save the termination details - try again');
       setMsg({ kind: 'ok', text: 'Termination details saved' });
       await load();
     } catch (err) {
-      setMsg({ kind: 'err', text: err instanceof Error ? err.message : 'Save failed' });
+      setMsg({ kind: 'err', text: apiErrorMessage(err, 'Could not save the termination details - try again') });
     } finally {
       setSaving(false);
     }
@@ -250,7 +252,7 @@ export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
             <button
               type="button"
               onClick={() => void save()}
-              disabled={saving || !endDate}
+              disabled={saving || !endDate || !loaded}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-sm text-white font-medium"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}

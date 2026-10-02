@@ -11,7 +11,7 @@ import { Truck, Loader2, ArrowLeft, Save } from 'lucide-react';
 import Link from 'next/link';
 import { notify } from '@/utils/toast';
 import { SupplierForm, type SupplierFormData, INITIAL_SUPPLIER_FORM } from '@/components/accounting/SupplierForm';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 export default function NewSupplierPage() {
   const router = useRouter();
@@ -57,19 +57,19 @@ export default function NewSupplierPage() {
         }),
       });
 
+      await assertOk(res, 'Could not create the supplier - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
 
       notify.success('Supplier created successfully');
       if (andNew) {
         setForm(INITIAL_SUPPLIER_FORM);
         setFieldErrors({});
-        await router.push('/accounting/suppliers/new');
+        void router.push('/accounting/suppliers/new');
       } else {
-        await router.push(`/accounting/suppliers/${json.data?.id ?? ''}`);
+        void router.push(`/accounting/suppliers/${json.data?.id ?? ''}`);
       }
     } catch (err: unknown) {
-      notify.error(err instanceof Error ? err.message : 'Failed to create supplier');
+      notify.error(apiErrorMessage(err, 'Could not create the supplier - try again'));
     } finally {
       setIsSubmitting(false);
     }

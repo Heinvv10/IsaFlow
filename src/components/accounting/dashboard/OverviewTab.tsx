@@ -105,7 +105,7 @@ export function OverviewTab() {
   const loadQuickActions = async () => {
     try {
       const res = await apiFetch('/api/accounting/page-visits?limit=6', { credentials: 'include' });
-      const json = await res.json();
+      await assertOk(res, 'Could not load quick actions'); const json = await res.json();
       const rows = (json.data || []) as { page_path: string }[];
       const tracked = rows.map(r => PAGE_REGISTRY[r.page_path]).filter((p): p is PageMeta => !!p);
       if (tracked.length >= 6) {

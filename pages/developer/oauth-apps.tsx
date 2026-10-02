@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   AlertCircle, Check, Copy, Loader2, Plus, Settings, Trash2, X,
 } from 'lucide-react';
@@ -74,11 +74,12 @@ export default function OauthAppsPage() {
     setLoading(true);
     try {
       const res = await apiFetch('/api/developer/oauth-apps');
-      const json = (await res.json()) as { data?: OauthApp[]; error?: { message?: string } };
-      if (!res.ok) { showToast(json.error?.message ?? 'Failed to load apps', false); return; }
+      await assertOk(res, 'Could not load your apps - try again');
+      const json = (await res.json()) as { data?: OauthApp[] };
       setApps(json.data ?? []);
-    } catch {
-      showToast('Network error', false);
+    } catch (err) {
+      setApps([]);
+      showToast(apiErrorMessage(err, 'Could not load your apps - try again'), false);
     } finally {
       setLoading(false);
     }
@@ -104,17 +105,18 @@ export default function OauthAppsPage() {
           redirectUris: uris,
         }),
       });
-      const json = (await res.json()) as { data?: NewApp; error?: { message?: string } };
-      if (!res.ok || !json.data) {
-        showToast(json.error?.message ?? 'Failed to register app', false);
+      await assertOk(res, 'Could not register the app - try again');
+      const json = (await res.json()) as { data?: NewApp };
+      if (!json.data) {
+        showToast('Could not register the app - try again', false);
         return;
       }
       setNewApp(json.data);
       setName(''); setDescription(''); setLogoUrl(''); setHomepageUrl(''); setRedirectUris('');
       setShowForm(false);
       void load();
-    } catch {
-      showToast('Network error', false);
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not register the app - try again'), false);
     } finally {
       setCreating(false);
     }
@@ -125,12 +127,11 @@ export default function OauthAppsPage() {
     setRevoking(id);
     try {
       const res = await apiFetch(`/api/developer/oauth-apps/${id}`, { method: 'DELETE' });
-      const json = (await res.json()) as { error?: { message?: string } };
-      if (!res.ok) { showToast(json.error?.message ?? 'Failed to revoke', false); return; }
+      await assertOk(res, 'Could not revoke the app - try again');
       showToast('App revoked', true);
       void load();
-    } catch {
-      showToast('Network error', false);
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not revoke the app - try again'), false);
     } finally {
       setRevoking(null);
     }

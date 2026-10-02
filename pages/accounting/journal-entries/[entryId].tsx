@@ -21,7 +21,7 @@ import {
   Hash,
 } from 'lucide-react';
 import type { JournalEntry } from '@/modules/accounting/types/gl.types';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { LinkTaxInvoiceButton } from '@/components/accounting/gl/LinkTaxInvoiceButton';
 
@@ -44,7 +44,8 @@ export default function JournalEntryDetailPage() {
       const data = await res.json();
       setEntry(data.data || data);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to load journal entry';
+      const msg = apiErrorMessage(err, 'Could not load journal entry - try again');
+      setEntry(null);
       setError(msg);
       log.error('Failed to load journal entry', { entryId, error: err }, 'accounting-ui');
     } finally {
@@ -67,12 +68,12 @@ export default function JournalEntryDetailPage() {
         body: JSON.stringify({ id: entry.id, action }),
       });
       if (!res.ok) {
-        await assertOk(res, `Failed to ${action} entry`);
+        await assertOk(res, `Could not ${action} the entry - try again`);
       }
-      notifyLateClaims(await res.json()); // post: VAT claimed in a later period (s16(3))
+      notifyLateClaims(await res.json().catch(() => null)); // post: VAT claimed in a later period (s16(3))
       await loadEntry();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : `Failed to ${action} entry`;
+      const msg = apiErrorMessage(err, `Could not ${action} the entry - try again`);
       setError(msg);
       log.error('Journal entry action failed', { entryId, action, error: err }, 'accounting-ui');
     } finally {

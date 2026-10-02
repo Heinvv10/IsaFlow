@@ -115,7 +115,7 @@ describe('two-factor panel', () => {
     expect(await screen.findByText(/Two-factor authentication is enabled/)).toBeTruthy();
     expect(screen.queryByText(/Could not load your two-factor status/)).toBeNull();
   });
-  it('confirm succeeds then the status refresh fails: still shown as enabled, never the Enable panel', async () => {
+  it('confirm succeeds then the status refresh fails: enabled, no load error painted over it, never the Enable panel', async () => {
     let statuses = 0;
     route((url) => {
       if (url.includes('2fa-status')) return ++statuses === 1 ? disabled() : empty500();
@@ -127,7 +127,9 @@ describe('two-factor panel', () => {
     fireEvent.change(await screen.findByLabelText('TOTP code'), { target: { value: '123456' } });
     fireEvent.click(screen.getByRole('button', { name: /Enable 2FA/ }));
     expect(await screen.findByText(/Two-factor authentication is enabled/)).toBeTruthy();
-    expect(await screen.findByText(/Could not load your two-factor status - try again/)).toBeTruthy();
+    await waitFor(() => expect(statuses).toBeGreaterThanOrEqual(2));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText(/Could not load your two-factor status/)).toBeNull();
     noEnable();
   });
   it('a refused disable keeps the enabled view and shows the server message', async () => {

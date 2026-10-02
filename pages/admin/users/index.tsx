@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { Search, Building2, AlertCircle, Loader2, ChevronLeft, ChevronRight, Download } from 'lucide-react';
@@ -101,7 +101,7 @@ export default function AdminUsersPage() {
       setRows(d.items);
       setTotal(d.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Something went wrong - try again'));
     } finally {
       setLoading(false);
     }
@@ -133,7 +133,7 @@ export default function AdminUsersPage() {
       setConfirmDeleteId(null);
       void load(search, company, role, status, page);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete user');
+      setError(apiErrorMessage(err, 'Could not delete user - try again'));
     } finally {
       setDeleting(null);
     }

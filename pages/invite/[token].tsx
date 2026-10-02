@@ -48,10 +48,11 @@ export default function InvitePage() {
           fetch('/api/auth/me'),
         ]);
 
-        if (!inviteRes.ok) {
+        if (inviteRes.status === 404) {
           setPageState('invalid');
           return;
         }
+        if (!inviteRes.ok) throw new Error('invitation lookup refused');
 
         const inviteJson = await inviteRes.json() as { data: InviteData };
         setInviteData(inviteJson.data);
@@ -64,7 +65,7 @@ export default function InvitePage() {
         setPageState('valid');
       } catch {
         setPageState('error');
-        setErrorMsg('Failed to load invitation. Please try again.');
+        setErrorMsg('Could not load the invitation - please try again');
       }
     }
 
@@ -77,10 +78,10 @@ export default function InvitePage() {
 
     try {
       const res = await fetch(`/api/invite/${token}`, { method: 'POST' });
-      const json = await res.json() as { success: boolean; error?: { message: string } };
 
       if (!res.ok) {
-        setErrorMsg(json.error?.message ?? 'Failed to accept invitation');
+        const failure = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        setErrorMsg(failure?.error?.message ?? 'Could not accept the invitation - please try again');
         setPageState('error');
         return;
       }

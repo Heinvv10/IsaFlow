@@ -103,7 +103,7 @@ export default function NewLoanPage() {
       const json = await res.json();
       await router.push(`/accounting/loans/${json.data.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create loan');
+      setError(apiErrorMessage(err, 'Could not create loan - try again'));
     } finally {
       setBusy(false);
     }

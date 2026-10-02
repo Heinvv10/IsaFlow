@@ -57,6 +57,7 @@ export default function BankAccountsPage() {
     try {
       const qs = new URLSearchParams({ accountType: 'asset', accountSubtype: 'bank' });
       const res = await apiFetch(`/api/accounting/chart-of-accounts-next-code?${qs}`);
+      await assertOk(res, 'Could not suggest an account code');
       const json = await res.json();
       const code = json?.data?.code ?? json?.code;
       if (code) setForm(f => ({ ...f, accountCode: String(code) }));

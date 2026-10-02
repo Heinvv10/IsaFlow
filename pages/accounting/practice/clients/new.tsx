@@ -9,7 +9,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, Loader2, ArrowLeft, Save, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 type BillingModel = 'hourly' | 'fixed' | 'retainer';
 type ClientStatus = 'prospect' | 'onboarding' | 'active' | 'inactive';
@@ -71,10 +71,7 @@ export default function NewPracticeClientPage() {
         method: 'POST',
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(json.error ?? `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not create the client - try again');
       // Land the user on the new client's detail page with ?welcome=1 so the
       // detail page surfaces the next-step actions (add contact, link
       // accounting customer, create job, set staff-rate override) — addresses
@@ -87,7 +84,7 @@ export default function NewPracticeClientPage() {
         await router.push('/accounting/practice/clients');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create client');
+      setError(apiErrorMessage(err, 'Could not create the client - try again'));
     } finally {
       setIsSubmitting(false);
     }

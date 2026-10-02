@@ -58,7 +58,9 @@ export default function StatementsPage() {
         // Overdue as at the same date as the balance beside it (R-116).
         apiFetch(`/api/accounting/ar-aging?as_at_date=${asAtDate}`),
       ]);
-      for (const r of [stmtRes, custRes, agingRes]) await assertOk(r, 'Failed to load customer data');
+      await assertOk(stmtRes, 'Failed to load customer data');
+      await assertOk(custRes, 'Failed to load customer data');
+      await assertOk(agingRes, 'Failed to load customer data');
       const [stmtJson, custJson, agingJson] = await Promise.all([
         stmtRes.json() as Promise<Record<string, unknown>>,
         custRes.json() as Promise<Record<string, unknown>>,
@@ -102,6 +104,7 @@ export default function StatementsPage() {
       setCustomers(rows);
       setSelected(new Set(rows.filter(r => r.balance > 0 && r.email).map(r => r.client_id)));
     } catch (err) {
+      setCustomers([]);
       setError(apiErrorMessage(err, 'Failed to load customer data'));
     } finally {
       setIsLoading(false);

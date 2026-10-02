@@ -7,7 +7,7 @@ import { useRouter } from 'next/router';
 import { CalendarOff, Loader2, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface EmployeeOption { id: string; firstName: string; lastName: string; employeeNumber: string }
 interface LeaveTypeOption { id: string; name: string; isPaid: boolean }
@@ -50,12 +50,15 @@ export default function NewLeaveRequestPage() {
         apiFetch('/api/payroll/employees'),
         apiFetch('/api/payroll/leave/types'),
       ]);
+      await assertOk(empRes, 'Could not load the leave form options - try again');
+      await assertOk(typeRes, 'Could not load the leave form options - try again');
       const empJson = await empRes.json() as { data?: EmployeeOption[] };
       const typeJson = await typeRes.json() as { data?: LeaveTypeOption[] };
       setEmployees((empJson.data ?? []) as EmployeeOption[]);
       setLeaveTypes((typeJson.data ?? []) as LeaveTypeOption[]);
-    } catch {
-      setError('Failed to load options');
+    } catch (err) {
+      setEmployees([]); setLeaveTypes([]);
+      setError(apiErrorMessage(err, 'Could not load the leave form options - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -84,7 +87,7 @@ export default function NewLeaveRequestPage() {
       await assertOk(res, 'Could not save the leave request - try again');
       await router.push('/payroll/leave');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
+      setError(apiErrorMessage(err, 'Could not save - try again'));
     } finally {
       setIsSaving(false);
     }

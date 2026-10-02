@@ -44,13 +44,11 @@ export default function NewExpenseClaim() {
         method: 'POST',
         body: JSON.stringify({ employeeId, claimDate, title: title || null, description: description || null }),
       });
-      const json = await res.json() as { data?: { claim?: { id: string } }; error?: { message?: string } | string };
-      if (!res.ok || !json.data?.claim) {
-        setError(typeof json.error === 'string' ? json.error : json.error?.message ?? 'Create failed');
-        return;
-      }
+      await assertOk(res, 'Could not create the claim - try again');
+      const json = await res.json() as { data?: { claim?: { id: string } } };
+      if (!json.data?.claim) { setError('Could not create the claim - try again'); return; }
       await router.push(`/accounting/expenses/${json.data.claim.id}`);
-    } catch { setError('Network error'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not create the claim - try again')); }
     finally { setSaving(false); }
   }
 

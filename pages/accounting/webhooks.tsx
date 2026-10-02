@@ -35,7 +35,7 @@ export default function WebhooksPage() {
 
   useEffect(() => { setIsMounted(true); }, []);
 
-  const fetchWebhooks = useCallback(async () => {
+  const fetchWebhooks = useCallback(async (savedNotice?: string) => {
     if (!activeCompany) return;
     setLoading(true);
     setError(null);
@@ -46,7 +46,9 @@ export default function WebhooksPage() {
       setWebhooks(json.data);
     } catch (err) {
       log.error('Failed to fetch webhooks', { error: err }, 'webhooks-page');
-      setError(apiErrorMessage(err, 'Could not load the webhooks - try again'));
+      setWebhooks([]);
+      // After a good write, say so: the write is not undone by a failed refresh.
+      setError(savedNotice ? `${savedNotice}, but the list could not be refreshed - reload the page` : apiErrorMessage(err, 'Could not load the webhooks - try again'));
     } finally {
       setLoading(false);
     }
@@ -98,7 +100,7 @@ export default function WebhooksPage() {
       setShowForm(false);
       setEditId(null);
       setForm(DEFAULT_FORM);
-      await fetchWebhooks();
+      await fetchWebhooks(editId ? 'The webhook was saved' : 'The webhook was added');
     } catch (err) {
       log.error('Failed to save webhook', { error: err }, 'webhooks-page');
       setError(apiErrorMessage(err, 'Could not save the webhook - try again'));
@@ -112,7 +114,7 @@ export default function WebhooksPage() {
     try {
       const res = await apiFetch(`/api/accounting/webhooks?id=${id}`, { method: 'DELETE' });
       await assertOk(res, 'Could not delete the webhook - try again');
-      await fetchWebhooks();
+      await fetchWebhooks('The webhook was deleted');
     } catch (err) {
       log.error('Failed to delete webhook', { error: err }, 'webhooks-page');
       setError(apiErrorMessage(err, 'Could not delete the webhook - try again'));
@@ -188,7 +190,7 @@ export default function WebhooksPage() {
 
           {loading ? (
             <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-500" /></div>
-          ) : webhooks.length === 0 ? (
+          ) : webhooks.length === 0 && !error ? (
             <div className="text-center py-16 text-[var(--ff-text-secondary)]">
               <Webhook className="h-12 w-12 mx-auto mb-3 opacity-30" />
               <p className="font-medium">No webhooks configured</p>

@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { CompanyBillingTab } from '@/components/admin/companies/CompanyBillingTab';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { CompanyEffectiveFeature } from '@/modules/admin/types/admin-billing.types';
 import { formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
@@ -129,7 +129,7 @@ export default function AdminCompanyDetailPage() {
     setLoading(true); setError('');
     try {
       const res  = await apiFetch(`/api/admin/companies/${id}`);
-      await assertOk(res, 'Failed to load company');
+      await assertOk(res, 'Could not load the company - try again');
       const json = await res.json();
       setCompany(json.data as CompanyDetail);
     } catch (err) { setError(apiErrorMessage(err, 'Could not load the company - try again')); }
@@ -141,9 +141,10 @@ export default function AdminCompanyDetailPage() {
     setUsersLoading(true);
     try {
       const res  = await apiFetch(`/api/admin/companies/${id}/users`);
+      await assertOk(res, 'Could not load the company users - try again');
       const json = await res.json();
-      if (res.ok) setUsers((json.data as CompanyUser[]) || []);
-    } catch { /* non-critical */ }
+      setUsers((json.data as CompanyUser[]) || []);
+    } catch (err) { setUsers([]); setActionError(apiErrorMessage(err, 'Could not load the company users - try again')); }
     finally { setUsersLoading(false); }
   }, [id]);
 
@@ -152,9 +153,10 @@ export default function AdminCompanyDetailPage() {
     setFeaturesLoading(true);
     try {
       const res  = await apiFetch(`/api/admin/companies/${id}/features`);
+      await assertOk(res, 'Could not load the company features - try again');
       const json = await res.json();
-      if (res.ok) setFeatures((json.data as CompanyFeature[]) || []);
-    } catch { /* non-critical */ }
+      setFeatures((json.data as CompanyFeature[]) || []);
+    } catch (err) { setFeatures([]); setActionError(apiErrorMessage(err, 'Could not load the company features - try again')); }
     finally { setFeaturesLoading(false); }
   }, [id]);
 
@@ -235,7 +237,7 @@ export default function AdminCompanyDetailPage() {
       setEditMode(false);
       setEditForm(null);
     } catch (err) {
-      setEditError(err instanceof Error ? err.message : 'Save failed');
+      setEditError(apiErrorMessage(err, 'Could not complete: save - try again'));
     } finally {
       setEditSaving(false);
     }
@@ -246,18 +248,13 @@ export default function AdminCompanyDetailPage() {
     setActionLoading(true); setActionError('');
     try {
       const res = await apiFetch(`/api/admin/companies/${id}/export-data`);
-      if (!res.ok) {
-        const text = await res.text();
-        let message = 'Export failed';
-        try { const json = JSON.parse(text) as { message?: string; error?: { message?: string } }; message = json.message || json.error?.message || message; } catch { /* non-JSON error body — keep default */ }
-        throw new Error(message);
-      }
+      await assertOk(res, 'Could not export the company data - try again');
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href = url; a.download = `company-${id}-export.json`; a.click();
       URL.revokeObjectURL(url);
-    } catch (err) { setActionError(err instanceof Error ? err.message : 'Export failed'); }
+    } catch (err) { setActionError(apiErrorMessage(err, 'Could not export the company data - try again')); }
     finally { setActionLoading(false); }
   }
 
@@ -266,17 +263,16 @@ export default function AdminCompanyDetailPage() {
     setActionLoading(true); setActionError('');
     try {
       const res  = await apiFetch(`/api/admin/companies/${id}/impersonate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      await assertOk(res, res.status === 429 ? 'Too many attempts - please wait a moment and try again' : 'Could not start impersonation - try again');
       const json = await res.json();
-      if (res.status === 429) throw new Error(json.error?.message || 'Rate limited — please wait a moment and try again');
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Impersonation failed');
       const token = (json.data as { token: string })?.token;
       if (token) {
         const appBase = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
         window.open(`${appBase}/accounting?impersonate=${encodeURIComponent(token)}`, '_blank');
       } else {
-        throw new Error('No token returned — impersonation failed');
+        throw new ApiEnvelopeError('No token was returned, so impersonation could not start');
       }
-    } catch (err) { setActionError(err instanceof Error ? err.message : 'Impersonation failed'); }
+    } catch (err) { setActionError(apiErrorMessage(err, 'Could not start impersonation - try again')); }
     finally { setActionLoading(false); }
   }
 
@@ -289,10 +285,10 @@ export default function AdminCompanyDetailPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ feature_id: feature.id, enabled: !feature.enabled, reason: 'Toggled via admin' }),
       });
-      await assertOk(res, `Failed to toggle ${feature.name}`);
+      await assertOk(res, `Could not change ${feature.name} - try again`);
       void loadFeatures();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : `Failed to toggle ${feature.name}`);
+      setActionError(apiErrorMessage(err, `Could not change ${feature.name} - try again`));
     }
     finally { setFeatureActionId(null); }
   }
@@ -306,10 +302,10 @@ export default function AdminCompanyDetailPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ feature_id: feature.id }),
       });
-      await assertOk(res, `Failed to reset ${feature.name}`);
+      await assertOk(res, `Could not reset ${feature.name} - try again`);
       void loadFeatures();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : `Failed to reset ${feature.name}`);
+      setActionError(apiErrorMessage(err, `Could not reset ${feature.name} - try again`));
     }
     finally { setFeatureActionId(null); }
   }

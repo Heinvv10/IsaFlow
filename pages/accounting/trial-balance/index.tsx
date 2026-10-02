@@ -15,6 +15,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 import { useTrialBalanceFilters } from '@/components/reports/useTrialBalanceFilters';
 import { localISODate } from '@/lib/dateUtils';
+import { log } from '@/lib/logger';
 
 interface CostCentre { id: string; code: string; name: string }
 interface BusinessUnit { id: string; code: string; name: string }
@@ -45,19 +46,16 @@ export default function TrialBalancePage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the cost centres'); return r.json(); })
       .then(json => setCostCentres(json.data?.items || json.data || []))
-      .catch(() => { /* reference data load failure — non-critical */ });
+      .catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'trial-balance'); });
     apiFetch('/api/accounting/business-units?active=true', { credentials: 'include' })
-      .then(r => {
-        if (!r.ok) throw new Error('Failed to load business units');
-        return r.json();
-      })
+      .then(async r => { await assertOk(r, 'Could not load the business units'); return r.json(); })
       .then(json => {
         const items = json.data?.items || json.data || [];
         setBusinessUnits(Array.isArray(items) ? items : []);
       })
-      .catch(() => { /* reference data load failure — non-critical */ });
+      .catch(err => { setBusinessUnits([]); log.warn('Failed to load business units', { err }, 'trial-balance'); });
   }, []);
 
   const loadTB = useCallback(async () => {

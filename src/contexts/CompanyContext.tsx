@@ -9,7 +9,7 @@ import {
   ReactNode,
 } from 'react';
 import { useAuth } from './AuthContext';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   mapCompanyRow, mapCompanyUsers, readStoredCompany, readStoredCompanyId,
@@ -210,17 +210,18 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
       // Still on the old company: keep its role, and tell the caller so it does not carry on as if switched
       log.warn('switch-company failed', { error: e }, 'context');
       setLoading(false);
-      throw new Error(apiErrorMessage(e, 'Could not switch company - try again'));
+      throw new ApiEnvelopeError(apiErrorMessage(e, 'Could not switch company - try again'));   // a plain, user-facing sentence; callers show it via apiErrorMessage
     }
     if (match) setCompanyRole(match.role);
 
     // Best-effort: persist as user's default company for next login.
     try {
-      await apiFetch('/api/accounting/companies', {
+      const defaultRes = await apiFetch('/api/accounting/companies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'set-default', companyId }),
       });
+      await assertOk(defaultRes, 'Could not remember this company as your default');
     } catch (e) {
       log.warn('Failed to persist default company switch', { error: e }, 'context');
     }

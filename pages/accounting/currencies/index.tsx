@@ -10,7 +10,7 @@ import { DollarSign, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { CurrencyList } from '@/components/accounting/currencies/CurrencyList';
 import { ExchangeRatesPanel } from '@/components/accounting/currencies/ExchangeRatesPanel';
 import type { Currency, ExchangeRate } from '@/modules/accounting/services/core/currencyService';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 type ActiveTab = 'currencies' | 'exchange-rates';
 
@@ -35,6 +35,9 @@ export default function CurrenciesPage() {
         apiFetch('/api/accounting/accounting-settings?key=reporting_currency', { credentials: 'include' }),
       ]);
 
+      await assertOk(activeCurrRes, 'Could not load the currencies - try again');
+      await assertOk(allCurrRes, 'Could not load the currencies - try again');
+      await assertOk(ratesRes, 'Could not load the exchange rates - try again');
       const activeCurrJson = await activeCurrRes.json();
       const allCurrJson = await allCurrRes.json();
       const ratesJson = await ratesRes.json();
@@ -48,8 +51,9 @@ export default function CurrenciesPage() {
         const settingJson = await settingRes.json();
         if (settingJson.data?.value) setReportingCurrency(settingJson.data.value);
       }
-    } catch {
-      setError('Failed to load currency data');
+    } catch (err) {
+      setCurrencies([]); setAllCurrencies([]); setExchangeRates([]);
+      setError(apiErrorMessage(err, 'Could not load the currency data - try again'));
     } finally {
       setIsLoading(false);
     }

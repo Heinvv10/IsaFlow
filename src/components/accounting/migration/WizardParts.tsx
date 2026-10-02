@@ -5,7 +5,7 @@
 
 import { useState, useRef } from 'react';
 import { CheckCircle2, Upload, Loader2, RotateCcw } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { MigrationSource } from '@/modules/accounting/services/core/migrationParserService';
 import type { RollbackResult } from '@/modules/accounting/services/core/migrationExecuteService';
 
@@ -163,7 +163,7 @@ export function RollbackButton({ source }: { source: MigrationSource }) {
       setResult(prev => ({ ...data, deleted: (prev?.deleted ?? 0) + data.deleted, retained: (prev?.retained ?? 0) + data.retained,
         retainedCodes: [...(prev?.retainedCodes ?? []), ...data.retainedCodes], runs: (prev?.runs ?? 0) + 1 }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Rollback failed');
+      setError(apiErrorMessage(err, 'Could not complete: rollback - try again'));
     } finally {
       setLoading(false);
     }

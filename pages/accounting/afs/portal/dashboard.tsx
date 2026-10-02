@@ -36,8 +36,11 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
     const res = await fetch(`${baseUrl}/api/accounting/portal/documents`, {
       headers: { Cookie: `portal_session=${cookie}` },
     });
-    const json = (await res.json().catch(() => ({}))) as { data?: { documents: AfsDocument[] }; error?: { message?: string } };
-    if (!res.ok) return { props: { session, documents: [], loadError: json.error?.message || LOAD_ERROR } };
+    if (!res.ok) {
+      const failure = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+      return { props: { session, documents: [], loadError: failure.error?.message || LOAD_ERROR } };
+    }
+    const json = (await res.json()) as { data?: { documents: AfsDocument[] } };
     const documents: AfsDocument[] = json.data?.documents ?? [];
     return { props: { session, documents, loadError: '' } };
   } catch {

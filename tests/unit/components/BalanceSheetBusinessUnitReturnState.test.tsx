@@ -85,7 +85,7 @@ it('clears a previous report when the selected BU request fails', async () => {
 
   route.query = {business_unit_id:'malformed'};
   view.rerender(<BalanceSheetPage />);
-  expect(await screen.findByText('Failed to load')).toBeInTheDocument();
+  expect(await screen.findByText('Could not load the balance sheet - try again')).toBeInTheDocument();
   expect(screen.queryByTestId('total-assets')).not.toBeInTheDocument();
   expect(screen.getByRole('button', {name:'Export CSV'})).toBeDisabled();
   expect(screen.getByRole('button', {name:'Export Excel'})).toBeDisabled();

@@ -9,7 +9,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Briefcase, Loader2, AlertCircle, Plus, List, Columns } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { JobStatusBadge } from '@/components/practice/JobStatusBadge';
 import { KanbanBoard } from '@/components/practice/KanbanBoard';
 import type { PracticeJob } from '@/modules/accounting/services/practice/practiceJobService';
@@ -66,12 +66,13 @@ export default function PracticeJobsPage() {
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (clientFilter) params.set('practiceClientId', clientFilter);
       const res = await apiFetch(`/api/accounting/practice/jobs?${params}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the jobs - try again');
       const json = await res.json() as { data?: { jobs: PracticeJob[] }; jobs?: PracticeJob[] };
       const payload = json.data ?? json;
       setJobs((payload as { jobs: PracticeJob[] }).jobs ?? []);
-    } catch {
-      setError('Failed to load jobs');
+    } catch (err) {
+      setJobs([]);
+      setError(apiErrorMessage(err, 'Could not load the jobs - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -106,15 +107,12 @@ export default function PracticeJobsPage() {
         method: 'POST',
         body: JSON.stringify({ id: jobId, newStatus }),
       });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(json.error ?? `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not change the job status - try again');
       setToast('Status updated');
       setTimeout(() => setToast(''), 3000);
       await loadJobs();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to transition job');
+      setError(apiErrorMessage(err, 'Could not change the job status - try again'));
     }
   }
 

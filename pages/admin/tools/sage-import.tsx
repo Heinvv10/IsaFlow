@@ -137,14 +137,8 @@ export default function AdminSageImportPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ companyId: selectedCompanyId, sageCookie }),
       });
+      await assertOk(res, 'Could not pull the data from Sage - try again');
       const json = await res.json();
-      if (!res.ok) {
-        const msg =
-          (typeof json.error === 'string' && json.error) ||
-          json.error?.message ||
-          `Pull failed (${res.status})`;
-        throw new Error(msg);
-      }
 
       const pulled = json.data?.pulled ?? {};
       pulledData.current = pulled;
@@ -155,7 +149,7 @@ export default function AdminSageImportPage() {
       })));
       setPulledAt(new Date());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Pull failed');
+      setError(apiErrorMessage(err, 'Could not pull the data from Sage - try again'));
     } finally {
       setPulling(false);
     }
@@ -188,11 +182,11 @@ export default function AdminSageImportPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ companyId: selectedCompanyId, pulled: payload }),
       });
+      await assertOk(res, 'Could not complete: commit - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message ?? json.message ?? 'Commit failed');
       setCommitSummary(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Commit failed');
+      setError(apiErrorMessage(err, 'Could not complete: commit - try again'));
     } finally {
       setCommitting(false);
     }

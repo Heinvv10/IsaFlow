@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { AlertCircle, ArrowLeft, Loader2, Check, Zap } from 'lucide-react';
 
 interface Wallet {
@@ -67,14 +67,14 @@ export default function ComparePlansPage() {
           setNotPayg(true);
           return;
         }
+        await assertOk(wRes, 'Could not load your wallet - try again');
+        await assertOk(pRes, 'Could not load the plans - try again');
         const [wJson, pJson] = await Promise.all([wRes.json(), pRes.json()]);
-        if (!wRes.ok) throw new Error(wJson?.error?.message ?? 'Failed to load wallet');
-        if (!pRes.ok) throw new Error(pJson?.error?.message ?? 'Failed to load plans');
 
         setWallet(wJson.data as Wallet);
         setPlans(pJson.data as Plan[]);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load');
+        setError(apiErrorMessage(err, 'Could not load the plan comparison - try again'));
       } finally {
         setLoading(false);
       }

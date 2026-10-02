@@ -5,7 +5,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Banknote, Save, Loader2 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
@@ -106,12 +106,12 @@ export default function NewLoanPage() {
   useEffect(() => {
     (async () => {
       const res = await apiFetch('/api/payroll/employees');
-      if (res.ok) {
-        const json = await res.json();
-        setEmployees((json.data ?? json) as Employee[]);
-      }
+      await assertOk(res, 'Could not load employees - try again');
+      const json = await res.json();
+      setEmployees((json.data ?? json) as Employee[]);
     })().catch((err) => {
-      setError(err instanceof Error ? err.message : 'Failed to load employees');
+      setEmployees([]);
+      setError(apiErrorMessage(err, 'Could not load employees - try again'));
     });
   }, []);
 
@@ -145,15 +145,12 @@ export default function NewLoanPage() {
           startDate, firstPeriodYear, firstPeriodMonth,
         }),
       });
+      await assertOk(res, 'Could not create the loan - try again');
       const json = await res.json();
-      if (!res.ok) {
-        setError(json.error?.message ?? json.message ?? 'Create failed');
-        return;
-      }
       const id = (json.data ?? json).id as string;
       await router.push(`/payroll/loans/${id}`);
-    } catch {
-      setError('Create failed');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not create the loan - try again'));
     } finally {
       setSaving(false);
     }

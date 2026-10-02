@@ -103,7 +103,7 @@ export default function NewJournalEntryPage() {
       setSuccess(true);
       setTimeout(() => { void router.push(`/accounting/journal-entries/${entry.id}`); }, 1000);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to create journal entry';
+      const msg = apiErrorMessage(err, 'Could not create journal entry - try again');
       setError(msg);
       log.error('Failed to create journal entry', { error: err }, 'journal-new');
     } finally {

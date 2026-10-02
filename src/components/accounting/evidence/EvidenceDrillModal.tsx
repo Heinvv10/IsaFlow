@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { X, Loader2, AlertCircle, FileText, ExternalLink } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 
 import type { AccountEvidenceRow, JeEvidenceDetail } from '@/modules/accounting/services/core/evidenceGraphService';
 
@@ -54,8 +54,8 @@ function JEDetailPanel({ jeId, onBack }: { jeId: string; onBack: () => void }) {
     setLoading(true);
     apiFetch(`/api/accounting/evidence/je/${jeId}`)
       .then(async r => {
+        await assertOk(r, 'Could not load JE detail - try again');
         const json = await r.json();
-        if (!r.ok) throw new Error('Failed to load JE detail');
         return json;
       })
       .then(json => { if (json.data) setDetail(json.data); else setErr('Not found'); })
@@ -120,12 +120,13 @@ export function EvidenceDrillModal({ accountId, accountName, periodStart, period
     if (businessUnitId) params.set('business_unit_id', businessUnitId);
     apiFetch(`/api/accounting/evidence/trial-balance/${accountId}?${params}`)
       .then(async r => {
+        await assertOk(r, 'Failed to load evidence');
         const json = await r.json();
-        if (!r.ok || !Array.isArray(json.data?.rows)) throw new Error('Failed to load evidence');
+        if (!Array.isArray(json.data?.rows)) throw new ApiEnvelopeError('Failed to load evidence');
         return json.data.rows as AccountEvidenceRow[];
       })
       .then(nextRows => { if (!cancelled) setRows(nextRows); })
-      .catch(() => { if (!cancelled) setErr('Failed to load evidence'); })
+      .catch(e => { if (!cancelled) { setRows([]); setErr(apiErrorMessage(e, 'Failed to load evidence')); } })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [accountId, periodStart, periodEnd, costCentreId, businessUnitId]);

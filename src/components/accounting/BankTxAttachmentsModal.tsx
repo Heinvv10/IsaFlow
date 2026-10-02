@@ -14,7 +14,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Paperclip, Trash2, Upload, FileImage, FileText, AlertCircle, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -93,11 +93,11 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       const res = await apiFetch(
         `/api/accounting/bank-tx-attachments?bankTransactionId=${encodeURIComponent(bankTransactionId)}`,
       );
+      await assertOk(res, 'Could not load attachments');
       const json = await res.json() as { success: boolean; data: Attachment[] };
-      if (!res.ok || !json.success) throw new Error('Failed to load attachments');
-      setAttachments(json.data);
+      if (!json.success) throw new ApiEnvelopeError('Could not load attachments'); setAttachments(json.data);
     } catch {
-      notify.error('Could not load attachments');
+      setAttachments([]); notify.error('Could not load attachments');
     } finally {
       setLoading(false);
     }
@@ -129,13 +129,13 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
           fileSize: file.size,
         }),
       });
-      await assertOk(res, 'Upload failed');
+      await assertOk(res, 'Could not upload the file - try again');
       const json = await res.json() as { success: boolean; error?: { message?: string } };
-      if (!json.success) throw new Error(json.error?.message ?? 'Upload failed');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Could not upload the file - try again');
       notify.success(`${file.name} uploaded`);
       await fetchAttachments();
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Upload failed');
+      notify.error(apiErrorMessage(err, 'Could not upload the file - try again'));
     } finally {
       setUploading(false);
     }
@@ -164,13 +164,13 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
         `/api/accounting/bank-tx-attachments?id=${encodeURIComponent(id)}`,
         { method: 'DELETE' },
       );
-      await assertOk(res, 'Delete failed');
+      await assertOk(res, 'Could not remove the attachment - try again');
       const json = await res.json() as { success: boolean; error?: { message?: string } };
-      if (!json.success) throw new Error(json.error?.message ?? 'Delete failed');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Could not remove the attachment - try again');
       notify.success(`${name} removed`);
       setAttachments(prev => prev.filter(a => a.id !== id));
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Delete failed');
+      notify.error(apiErrorMessage(err, 'Could not remove the attachment - try again'));
     } finally {
       setDeletingId(null);
     }
