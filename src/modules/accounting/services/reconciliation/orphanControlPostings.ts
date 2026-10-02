@@ -8,7 +8,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { deletedDocumentReversalChainIds } from '../shared/softDeleteLedgerPresence';
+import { deletedDocumentChainLinkFragment } from '../shared/softDeleteLedgerPresence';
 
 /**
  * @returns one row per unclaimed journal: `id`, `reversal_of_id`,
@@ -80,7 +80,7 @@ export async function readOrphanControlPostings(
         AND NOT EXISTS (SELECT 1 FROM customer_write_offs d
                         WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
                           AND COALESCE(d.status, '') <> 'cancelled')
-        AND je.id NOT IN ${deletedDocumentReversalChainIds(companyId)}
+        AND NOT ${deletedDocumentChainLinkFragment('je', companyId)}
       GROUP BY je.id, je.reversal_of_id, je.entry_number, je.entry_date, je.created_at
       HAVING COALESCE(SUM(jl.credit - jl.debit), 0) <> 0
       ORDER BY je.entry_date, je.id
@@ -108,7 +108,7 @@ export async function readOrphanControlPostings(
         AND NOT EXISTS (SELECT 1 FROM credit_notes d
                         WHERE d.company_id = ${companyId}::UUID AND d.gl_journal_entry_id = je.id
                           AND COALESCE(d.status, '') <> 'cancelled')
-        AND je.id NOT IN ${deletedDocumentReversalChainIds(companyId)}
+        AND NOT ${deletedDocumentChainLinkFragment('je', companyId)}
       GROUP BY je.id, je.reversal_of_id, je.entry_number, je.entry_date, je.created_at
       HAVING COALESCE(SUM(jl.debit - jl.credit), 0) <> 0
       ORDER BY je.entry_date, je.id
