@@ -96,11 +96,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ allocations: [] }),
         });
-        if (!r.ok) {
-          const j = await r.json().catch(() => ({}));
-          setError(j.error?.message ?? j.message ?? 'Could not clear allocations');
-          return;
-        }
+        await assertOk(r, 'Could not clear the allocations - try again');
         setBaseline([]);
         setAllocations([]);
       }
@@ -110,12 +106,10 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ costCentreId }),
       });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        setError(json.error?.message ?? json.message ?? 'Could not save the cost centre - try again');
-        return;
-      }
+      await assertOk(res, 'Could not save the cost centre - try again');
       onChange(costCentreId);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the cost centre - try again'));
     } finally {
       setSaving(false);
     }
@@ -132,15 +126,13 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
           allocations: allocations.map(a => ({ costCentreId: a.costCentreId, percentage: a.percentage })),
         }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? 'Could not save the allocations - try again');
-        return;
-      }
+      await assertOk(res, 'Could not save the allocations - try again');
       const json = await res.json();
       const saved = ((json.data ?? json) as Allocation[]) ?? [];
       setAllocations(saved);
       setBaseline(saved);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the allocations - try again'));
     } finally {
       setSaving(false);
     }

@@ -6,6 +6,7 @@ import { WhatsAppVerificationSection } from '@/components/accounting/capture/Wha
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { log } from '@/lib/logger';
 import { apiFetch, apiJson, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import {
   Mail, Smartphone, Server,
@@ -78,9 +79,14 @@ export default function CaptureSettingsPage() {
 
   async function handleCopy() {
     if (!inboxAddr?.address) return;
-    await navigator.clipboard.writeText(inboxAddr.address);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(inboxAddr.address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      log.warn('Copying the inbox address failed', { error: err }, 'capture-settings');
+      showToast('Could not copy the address - select it and copy it by hand', false);
+    }
   }
 
   async function handleRegenerate() {
