@@ -11,6 +11,7 @@ import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
 import { roundHours, lineTotalFor } from './practiceTimeEntryTypes';
 import { getEntryTemplate } from './practiceEntryTemplateService';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { assertJobForPracticeClient } from './practiceClientFence';
 
 export interface BulkFromTemplateInput {
   templateId: string;
@@ -124,6 +125,7 @@ export async function duplicatePracticeEntry(
     String(src.job_category_id),
     String(src.work_item_id),
   );
+  const jobId = await assertJobForPracticeClient(companyId, String(src.practice_client_id), src.job_id);
 
   const appliedRate = await resolveRate(
     companyId,
@@ -140,13 +142,13 @@ export async function duplicatePracticeEntry(
       practice_client_id, job_category_id, work_item_id,
       task_description, notes, billable,
       applied_rate, line_total, rate, amount,
-      origin, status
+      origin, status, job_id
     ) VALUES (
       ${companyId}::UUID, ${String(src.user_id)}::UUID, ${newDate}::DATE, ${hours},
       ${String(src.practice_client_id)}::UUID, ${String(src.job_category_id)}::UUID, ${String(src.work_item_id)}::UUID,
       ${String(src.task_description)}, ${src.notes ? String(src.notes) : null}, ${Boolean(src.billable)},
       ${appliedRate}, ${lineTotal}, ${appliedRate}, ${lineTotal},
-      'recurring', 'draft'
+      'recurring', 'draft', ${jobId}::UUID
     ) RETURNING *
   `) as DbRow[];
   if (!rows[0]) throw new Error('database returned no row after insert/update');

@@ -10,6 +10,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
+import { PracticeJobNotForClientError } from '@/modules/accounting/services/practice/practiceClientFence';
 import type { PracticeTimeEntry } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
 import {
   listPracticeEntries,
@@ -38,6 +39,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.created(res, entry);
     } catch (err) {
       log.error('Practice time entry create failed', { error: err }, 'practice-api');
+      if (err instanceof PracticeJobNotForClientError) return apiResponse.badRequest(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
   }
