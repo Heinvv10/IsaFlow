@@ -46,12 +46,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // `confirm` and `cancel` take the receipt's row lock first, so nothing has
     // been written when this fires, and `customer-allocations` answers the same
     // event 409 already.
+    // Any row-lock timeout — the receipt or its bank line too (D8 round 16), the chain head, a document row (round 9) —
+    // is 503 + Retry-After, checked first; the 409 below answers only the retryable state conflicts.
+    if (respondIfLockTimeout(res, err)) return;
     if (isRetryableContention(err)) {
       log.info('Customer payment action hit a contended row', { error: err }, 'accounting-api');
       return apiResponse.conflict(res, (err as Error).message);
     }
-    // Any row-lock timeout (D8 round 9: the reversal chain's head, a document row) is 503 + Retry-After.
-    if (respondIfLockTimeout(res, err)) return;
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Customer payment action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);
