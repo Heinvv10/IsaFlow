@@ -6,7 +6,7 @@
  * negative. A NULL budget is "No budget", never R0.
  */
 import { describe, it, expect } from 'vitest';
-import { budgetFigures, normaliseBudgetAmount } from '@/modules/accounting/services/practice/practiceJobBudget';
+import { budgetFigures, normaliseBudgetAmount, JobBudgetInvalidError, MAX_BUDGET } from '@/modules/accounting/services/practice/practiceJobBudget';
 
 describe('budgetFigures', () => {
   it('a job with no budget has state none and no balance or percentage', () => {
@@ -46,6 +46,17 @@ describe('budgetFigures', () => {
     expect(budgetFigures(0, 0)).toEqual({ balance: 0, percentUsed: null, state: 'warning' });
   });
 
+  it('rounds the percentage to one decimal: a third used is 33.3%', () => {
+    expect(budgetFigures(300, 100).percentUsed).toBe(33.3);
+    expect(budgetFigures(300, 200).percentUsed).toBe(66.7);
+  });
+
+  it('keeps cents exact at the largest accepted budget, and one cent over is over', () => {
+    const max = 9999999999999.99;
+    expect(budgetFigures(max, 0)).toEqual({ balance: max, percentUsed: 0, state: 'ok' });
+    expect(budgetFigures(max, max + 0.01)).toMatchObject({ balance: -0.01, state: 'over' });
+  });
+
   it('a zero budget with time on it is over', () => {
     expect(budgetFigures(0, 50)).toEqual({ balance: -50, percentUsed: null, state: 'over' });
   });
@@ -57,14 +68,17 @@ describe('normaliseBudgetAmount', () => {
     expect(normaliseBudgetAmount('')).toBeNull();
   });
 
-  it('accepts zero and a positive amount', () => {
+  it('accepts zero, a positive amount and the largest amount below MAX_BUDGET', () => {
     expect(normaliseBudgetAmount(0)).toBe(0);
     expect(normaliseBudgetAmount(25000.5)).toBe(25000.5);
+    expect(MAX_BUDGET).toBe(1e13);
+    expect(normaliseBudgetAmount(9999999999999.99)).toBe(9999999999999.99);
   });
 
-  it.each([-0.01, Number.NaN, Number.POSITIVE_INFINITY, 1e16, '5000', [5000], {}])(
-    'refuses %s', (v) => {
-      expect(() => normaliseBudgetAmount(v)).toThrow(/Engagement budget/);
+  it.each([-0.01, Number.NaN, Number.POSITIVE_INFINITY, 1e13, 1e16, '5000', [5000], {}, true, undefined])(
+    'refuses %s with a typed JobBudgetInvalidError', (v) => {
+      expect(() => normaliseBudgetAmount(v)).toThrow(JobBudgetInvalidError);
+      expect(() => normaliseBudgetAmount(v)).toThrow(/Engagement budget must be an amount/);
     },
   );
 });

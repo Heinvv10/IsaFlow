@@ -14,6 +14,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
+import { isJobFenceRefusal } from '@/modules/accounting/services/practice/practiceClientFence';
 import {
   bulkCreateFromTemplate,
   type BulkFromTemplateInput,
@@ -45,10 +46,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       weekdays: body.weekdays,
       hoursOverride: body.hoursOverride,
       taskOverride: body.taskOverride,
+      jobId: body.jobId,
     });
     // 201 even when some failed — the UI shows the partial summary
     return res.status(201).json({ data: result });
   } catch (err) {
+    if (isJobFenceRefusal(err)) {
+      log.warn('Practice bulk create refused', { code: err.code, message: err.message }, 'practice-api');
+      return apiResponse.badRequest(res, err.message);
+    }
     log.error('Practice bulk create from template failed', { error: err }, 'practice-api');
     return apiResponse.badRequestFromError(res, err, 'Bulk create failed');
   }

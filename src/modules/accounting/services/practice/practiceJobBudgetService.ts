@@ -12,7 +12,11 @@
  *
  * Both joins are company-scoped (`te.company_id = pj.company_id`, likewise the
  * client): `time_entries.job_id` is a tenant-agnostic FK, so another company's
- * entry can point at this job.
+ * entry can point at this job. The entry must also be the job's own client's
+ * (`te.practice_client_id = pj.practice_client_id`): migration 851 enforces
+ * that for new rows, and this keeps a legacy mismatched row out of the sum.
+ * The client name is `trading_name` falling back to `legal_name`, as the
+ * client pickers show it.
  */
 
 import { sql } from '@/lib/neon';
@@ -62,7 +66,7 @@ export async function listJobBudgetStatuses(
   const jobId = filters.jobId ?? null;
   const rows = (await sql`
     SELECT pj.id, pj.title, pj.status, pj.practice_client_id, pj.budget_amount, pj.budgeted_hours,
-           pc.legal_name AS practice_client_name,
+           COALESCE(pc.trading_name, pc.legal_name) AS practice_client_name,
            COALESCE(SUM(ROUND(te.hours * te.applied_rate, 2)), 0) AS consumed_amount,
            COALESCE(SUM(te.hours), 0) AS hours_used
     FROM practice_jobs pj
@@ -71,22 +75,16 @@ export async function listJobBudgetStatuses(
     LEFT JOIN time_entries te
       ON te.job_id = pj.id
      AND te.company_id = pj.company_id
+     AND te.practice_client_id = pj.practice_client_id
      AND te.status IS DISTINCT FROM 'leave'
     WHERE pj.company_id = ${companyId}::UUID
       AND (${clientId}::UUID IS NULL OR pj.practice_client_id = ${clientId}::UUID)
       AND (${jobId}::UUID IS NULL OR pj.id = ${jobId}::UUID)
-    GROUP BY pj.id, pc.legal_name
+    GROUP BY pj.id, pc.trading_name, pc.legal_name
   `) as DbRow[];
 
   return rows.map(mapRow).sort((a, b) =>
     STATE_ORDER[a.state] - STATE_ORDER[b.state]
     || (b.percentUsed ?? 0) - (a.percentUsed ?? 0)
     || a.title.localeCompare(b.title));
-}
-
-export async function getJobBudgetStatus(companyId: string, jobId: string): Promise<JobBudgetStatus | null> {
-  const [row] = await listJobBudgetStatuses(companyId, { jobId });
-  if (!row) return null;
-  const { jobId: id, budgetAmount, consumedAmount, balance, budgetedHours, hoursUsed, percentUsed, state } = row;
-  return { jobId: id, budgetAmount, consumedAmount, balance, budgetedHours, hoursUsed, percentUsed, state };
 }

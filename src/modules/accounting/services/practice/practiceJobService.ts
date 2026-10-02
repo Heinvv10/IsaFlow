@@ -1,4 +1,4 @@
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
@@ -7,6 +7,18 @@ import { normaliseBudgetAmount } from './practiceJobBudget';
 
 export type { PracticeJob, PracticeJobInput, JobFilters } from './practiceJobTypes';
 import type { PracticeJob, PracticeJobInput, JobFilters } from './practiceJobTypes';
+
+/** Moving a job to another client while it has time entries for its current one (mig 851). Routes answer 400. */
+export class JobClientHasEntriesError extends Error {
+  readonly code = 'JOB_CLIENT_HAS_ENTRIES';
+  constructor() {
+    super('This job has time entries for its current client, so it cannot be moved to another client');
+    this.name = 'JobClientHasEntriesError';
+  }
+}
+
+/** Sequenced: Postgres shadows a re-declared savepoint name. */
+let updateSeq = 0;
 
 const ALLOWED: Record<string, string[]> = {
   new:         ['in_progress', 'cancelled'],
@@ -167,8 +179,8 @@ export async function updateJob(
   await assertPracticeClientInCompany(companyId, input.practiceClientId);
 
   if (input.title !== undefined && !input.title.trim()) throw new Error('job title is required');
-  // COALESCE cannot clear a column, so the budget is three-state (R-170 pattern).
-  const updateBudget = 'budgetAmount' in input;
+  // COALESCE cannot clear a column, so the budget is three-state (R-170 pattern): undefined = unchanged.
+  const updateBudget = input.budgetAmount !== undefined;
   const budgetAmount = updateBudget ? normaliseBudgetAmount(input.budgetAmount) : null;
 
   if (input.jobCategoryId) {
@@ -181,7 +193,8 @@ export async function updateJob(
     if (!cat.length) throw new Error('job category not found or not active');
   }
 
-  const rows = (await sql`
+  // Savepointed so mig 851's FK refusal (job moved away from its entries' client) leaves the tx usable.
+  const rows = await withSavepoint(`job_upd_${++updateSeq}`, async () => (await sql`
     UPDATE practice_jobs SET
       practice_client_id = COALESCE(${input.practiceClientId ?? null}::UUID, practice_client_id),
       job_category_id    = COALESCE(${input.jobCategoryId ?? null}::UUID, job_category_id),
@@ -200,7 +213,12 @@ export async function updateJob(
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
     RETURNING *,
       (SELECT legal_name FROM practice_clients WHERE id = practice_client_id) AS practice_client_name,
-      (SELECT name FROM practice_job_categories WHERE id = job_category_id) AS job_category_name`) as DbRow[];
+      (SELECT name FROM practice_job_categories WHERE id = job_category_id) AS job_category_name`) as DbRow[])
+    .catch((err: unknown) => {
+      const e = err as { code?: string; constraint?: string };
+      if (e.code === '23503' && e.constraint === 'time_entries_job_same_client_fkey') throw new JobClientHasEntriesError();
+      throw err;
+    });
   if (!rows[0]) throw new Error('database returned no row after insert/update');
   log.info('Updated practice job', { id }, 'practice');
   return mapJob(rows[0]);

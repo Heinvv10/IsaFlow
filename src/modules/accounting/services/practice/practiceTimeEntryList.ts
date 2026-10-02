@@ -1,7 +1,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
 import type { PracticeTimeEntry, PracticeEntryFilters } from './practiceTimeEntryTypes';
-import { mapEntry } from './practiceTimeEntryService';
+import { mapEntry } from './practiceTimeEntryMap';
 
 /** Moved out of practiceTimeEntryService (300-line limit); re-exported from there. */
 export async function listPracticeEntries(

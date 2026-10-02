@@ -24,6 +24,7 @@ import {
   validateClientCategoryWorkItem,
 } from '@/modules/accounting/services/practice/practiceTimeEntryService';
 import { submitPracticeEntries } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
+import { assertJobForPracticeClient } from '@/modules/accounting/services/practice/practiceClientFence';
 import { resolveRate } from '@/modules/accounting/services/practice/practiceStaffRateService';
 import { UUID_RE } from '@/lib/validation';
 import { roundHours, lineTotalFor } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
@@ -96,6 +97,7 @@ export const logTimeEntryTool: McpTool = {
       task_description: { type: 'string', description: 'What was actually done. Max 500 characters.' },
       notes: { type: 'string' },
       billable: { type: 'boolean', description: 'Defaults to true.' },
+      job_id: { type: 'string', description: 'Optional job (engagement) to book the time against: an open job of practice_client_id. Its Engagement Budget is spent by this entry.' },
       allow_backdating: {
         type: 'boolean',
         description: 'Required to book into any month before the previous calendar month. Such a period has usually been invoiced and reported on; the entry would restate those reports, and it carries the rate effective on that date rather than today\'s.',
@@ -150,6 +152,8 @@ export const logTimeEntryTool: McpTool = {
     }
 
     const billable = args.billable === undefined ? true : args.billable === true;
+    if (args.job_id !== undefined && typeof args.job_id !== 'string') return toolError('job_id must be a string');
+    const jobId = args.job_id ?? null;
 
     // dry_run parity: every guard the live path runs, run here too. A dry run
     // that skips the ownership/active checks would greenlight a call the real
@@ -159,8 +163,9 @@ export const logTimeEntryTool: McpTool = {
         await validateClientCategoryWorkItem(
           ctx.companyId, practiceClientId, jobCategoryId, workItemId,
         );
+        await assertJobForPracticeClient(ctx.companyId, practiceClientId, jobId, { newLink: true });
       } catch (err) {
-        return toolError(safeErrorText(err, 'The client, category or work item is not usable.'));
+        return toolError(safeErrorText(err, 'The client, category, work item or job is not usable.'));
       }
       const rate = await resolveRate(ctx.companyId, ctx.userId, practiceClientId, entryDate);
       return {
@@ -191,6 +196,7 @@ export const logTimeEntryTool: McpTool = {
         billable,
         // Never from args — see the file header.
         origin: 'assisted',
+        jobId,
       });
       return ok({
         id: entry.id,

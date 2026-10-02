@@ -103,3 +103,12 @@ export function hasNul(value: unknown): boolean {
 }
 
 export const NUL_MESSAGE = 'text must not contain a NUL (\\u0000) character, and arguments must not nest deeper than 8 levels or hold more than 100000 values';
+
+/**
+ * A JSON request body that is an object (not null, an array, a string or a
+ * number). Services that test `'field' in input` throw TypeError on anything
+ * else, which would surface as a 500 rather than a 400.
+ */
+export function isJsonObjectBody(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
