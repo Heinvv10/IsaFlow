@@ -99,7 +99,7 @@ describeIfDb('reconciled cash is locked on every caller of bank reverse', () => 
     const state = await f.paymentAction('void', a.paymentId);
     expect(state.statusCode, text(state)).toBe(400);
     expect(text(state)).toContain(`is on the completed reconciliation of R068 Bank to ${today}`);
-    expect(text(state)).toContain("can't be reopened yet");
+    expect(text(state)).toContain("must be reopened before this can be reversed");
     await untouched(a, 'reconciled');
   });
 
