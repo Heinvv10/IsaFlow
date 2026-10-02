@@ -50,8 +50,10 @@ export function legacyTrendChartOption(points: readonly PackTrendPoint[], scale:
     series: Array<Record<string, unknown>>;
   };
   const labelled = (index: number) => drawn.length <= LABEL_EVERY_BAR_UP_TO || index === drawn.length - 1;
-  // The last figure is centred on the last bar, flush with the plot's right
-  // edge: half of it, and its halo, needs room beyond the plot.
+  // The last figure is centred on the last bar, half a band inside the plot's
+  // right edge — at twelve months on 718px about 25px, less than half a
+  // nine-digit figure. Room for half the figure and its halo is kept beyond
+  // the plot, not counting that half band: it depends on the width drawn at.
   const last = drawn[drawn.length - 1];
   const reach = last === undefined ? 0 : Math.ceil(packFigureWidthPx(formatMoney(last.revenue, { scale }), FIGURE_PX) / 2 + 2);
   return {
