@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, AlertCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import type { DebtorInvoice } from '@/modules/accounting/services/ar/debtorsManagerService';
 import { buildInvoiceHref } from './invoiceReturnContext';
@@ -33,13 +33,13 @@ export function DebtorInvoicesPanel({ clientId, clientName }: { clientId: string
     setError('');
     apiFetch(`/api/accounting/debtors-manager?customerId=${encodeURIComponent(clientId)}`)
       .then(async r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        await assertOk(r, 'Could not load the invoices - try again');
         const json = await r.json() as { data?: unknown };
         setInvoices(Array.isArray(json.data) ? json.data as DebtorInvoice[] : []);
       })
       .catch((e: unknown) => {
         setInvoices([]);
-        setError(e instanceof Error ? e.message : 'request failed');
+        setError(apiErrorMessage(e, 'Could not load the invoices - try again'));
       })
       .finally(() => setLoading(false));
   }, [clientId]);

@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useCallback } from 'react';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 import { fetchAllSuppliers } from '@/lib/fetchAllSuppliers';
 import { log } from '@/lib/logger';
 import { notify } from '@/utils/toast';
@@ -44,7 +44,7 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
   } = setters;
 
   const refreshBankAccounts = useCallback(() => {
-    apiJson('/api/accounting/bank-accounts').then(data => {
+    apiJson('/api/accounting/bank-accounts', undefined, 'Could not load the bank accounts - try again').then(data => {
       const bankList: BankAcct[] = Array.isArray(data) ? data : [];
       setBankAccounts(bankList);
     }).catch((err) => {
@@ -74,10 +74,21 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
     // cost-centres when its schema is mid-migration) used to short-circuit
     // the whole chain and leave the page stuck on "Loading…" with no bank
     // accounts surfaced. Each fetch is now unwrapped independently.
-    const json = (r: PromiseSettledResult<Response>) =>
-      r.status === 'fulfilled' && r.value.ok
-        ? r.value.json().catch(() => null)
-        : Promise.resolve(null);
+    const LISTS_FAILED = 'Could not load some lists - reload the page';
+    const json = async (r: PromiseSettledResult<Response>) => {
+      if (r.status !== 'fulfilled') {
+        log.warn('A bank-transactions reference list did not load', { error: r.reason }, 'accounting-ui');
+        return null;
+      }
+      const res = r.value;
+      try {
+        await assertOk(res, LISTS_FAILED);
+        return await res.json();
+      } catch (err) {
+        log.warn('A bank-transactions reference list did not load', { error: err }, 'accounting-ui');
+        return null;
+      }
+    };
 
     Promise.allSettled([
       apiFetch('/api/accounting/bank-accounts'),
@@ -90,6 +101,8 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
       const [bankJson, coaJson, clientJson, cc1Json, cc2Json, deptJson] = await Promise.all([
         json(bankRes), json(coaRes), json(clientRes), json(cc1Res), json(cc2Res), json(deptRes),
       ]);
+
+      if ([bankJson, coaJson, clientJson, cc1Json, cc2Json, deptJson].some(j => j === null)) notify.error(LISTS_FAILED);
 
       const bankRaw = bankJson?.data ?? bankJson;
       const bankList: BankAcct[] = Array.isArray(bankRaw) ? bankRaw : [];
@@ -119,6 +132,7 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
         .map((d: { id: string; name: string; code?: string }) => ({ id: d.id, name: d.name, code: d.code })));
     }).catch((err) => {
       log.error('Failed to load bank transaction reference data', { error: err }, 'accounting-ui');
+      notify.error(LISTS_FAILED);
     }).finally(() => { setRefDataLoaded?.(true); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

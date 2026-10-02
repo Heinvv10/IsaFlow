@@ -5,7 +5,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Package, Loader2, AlertCircle, Plus, ChevronRight } from 'lucide-react';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
 
@@ -28,19 +28,17 @@ export default function PayPackagesPage() {
     setLoading(true);
     try {
       const res = await apiFetch('/api/payroll/pay-packages');
-      if (res.ok) {
-        const json = await res.json();
-        setPackages(((json.data ?? json) as PayPackage[]) ?? []);
-      }
+      await assertOk(res, 'Could not load packages - try again');
+      const json = await res.json();
+      setPackages(((json.data ?? json) as PayPackage[]) ?? []);
+    } catch (err) {
+      setPackages([]);
+      setError(apiErrorMessage(err, 'Could not load packages - try again'));
     } finally {
       setLoading(false);
     }
   }, []);
-  useEffect(() => {
-    load().catch((err) => {
-      setError(err instanceof Error ? err.message : 'Failed to load packages');
-    });
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   async function handleCreate(): Promise<void> {
     setCreating(true);
@@ -53,13 +51,11 @@ export default function PayPackagesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? 'Create failed');
-        return;
-      }
+      await assertOk(res, 'Could not create the package - try again');
       setForm({ code: '', name: '', description: '' });
       await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not create the package - try again'));
     } finally {
       setCreating(false);
     }

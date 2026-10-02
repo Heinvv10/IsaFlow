@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Percent, Plus, Check, Loader2 } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 import { localISODate } from '@/lib/dateUtils';
@@ -40,15 +40,18 @@ export default function VATAdjustmentsPage() {
   const [dateTo, setDateTo] = useState('');
 
   const load = useCallback(async () => {
-    const res = await apiFetch('/api/accounting/vat-adjustments', { credentials: 'include' });
-    const json = await res.json();
-    setItems(json.data?.items || []);
-    setLoading(false);
+    try {
+      const res = await apiFetch('/api/accounting/vat-adjustments', { credentials: 'include' });
+      await assertOk(res, 'Could not load VAT adjustments - try again');
+      const json = await res.json();
+      setItems(json.data?.items || []);
+    } catch (err) {
+      setItems([]);
+      setError(apiErrorMessage(err, 'Could not load VAT adjustments - try again'));
+    } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => {
-    load().catch(() => { setLoading(false); setError('Failed to load VAT adjustments'); });
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -65,12 +68,11 @@ export default function VATAdjustmentsPage() {
           reason: form.reason,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      await assertOk(res, 'Could not save the VAT adjustment - try again');
       setShowForm(false);
       setForm({ adjustmentDate: localISODate(), vatPeriod: '', adjustmentType: 'input', amount: '', reason: '' });
       await load();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not save the VAT adjustment - try again')); }
     finally { setBusy(''); }
   };
 
@@ -82,12 +84,16 @@ export default function VATAdjustmentsPage() {
   });
 
   const approve = async (id: string) => {
-    setBusy(id);
-    await apiFetch('/api/accounting/vat-adjustments-action', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ action: 'approve', id }),
-    });
-    await load(); setBusy('');
+    setBusy(id); setError('');
+    try {
+      const res = await apiFetch('/api/accounting/vat-adjustments-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ action: 'approve', id }),
+      });
+      await assertOk(res, 'Could not approve the VAT adjustment - try again');
+      await load();
+    } catch (err) { setError(apiErrorMessage(err, 'Could not approve the VAT adjustment - try again'));
+    } finally { setBusy(''); }
   };
 
   // Non-vendors never file VAT — show why instead of an empty VAT surface.

@@ -5,7 +5,7 @@ import {
   Settings, History, Plus, Send, Eye, AlertCircle, CheckCircle,
   Clock, Loader2, BarChart3,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ManagementPackConfigTab } from '@/components/accounting/management-packs/ManagementPackConfigTab';
 import type { ManagementPackConfig } from '@/modules/accounting/services/afs/afsTypes';
 
@@ -51,13 +51,13 @@ export default function ManagementPacksPage() {
         apiFetch('/api/accounting/afs/management-pack-config', { credentials: 'include' }),
         apiFetch('/api/accounting/afs/management-packs', { credentials: 'include' }),
       ]);
-      const cfgJson = await cfgRes.json() as { data?: { config?: ManagementPackConfig }; error?: { message?: string } };
-      const packsJson = await packsRes.json() as { data?: { documents?: PackDoc[] }; error?: { message?: string } };
-      if (!cfgRes.ok) throw new Error(cfgJson.error?.message ?? 'Failed to load config');
-      if (!packsRes.ok) throw new Error(packsJson.error?.message ?? 'Failed to load packs');
+      await assertOk(cfgRes, 'Could not load the pack settings - try again');
+      await assertOk(packsRes, 'Could not load the management packs - try again');
+      const cfgJson = await cfgRes.json() as { data?: { config?: ManagementPackConfig } };
+      const packsJson = await packsRes.json() as { data?: { documents?: PackDoc[] } };
       setConfig(cfgJson.data?.config ?? null);
       setPacks(packsJson.data?.documents ?? []);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Load failed'); }
+    } catch (e) { setConfig(null); setPacks([]); setError(apiErrorMessage(e, 'Could not load the management packs - try again')); }
     finally { setLoading(false); }
   }, []);
 
@@ -69,8 +69,8 @@ export default function ManagementPacksPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),
     });
-    const json = await res.json() as { data?: { config?: ManagementPackConfig }; error?: { message?: string } };
-    if (!res.ok) throw new Error(json.error?.message ?? 'Save failed');
+    await assertOk(res, 'Could not save the pack settings - try again');
+    const json = await res.json() as { data?: { config?: ManagementPackConfig } };
     setConfig(json.data?.config ?? updated);
   }
 
@@ -83,13 +83,10 @@ export default function ManagementPacksPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ period: genPeriod }),
       });
-      if (!res.ok) {
-        const j = await res.json() as { error?: { message?: string } };
-        throw new Error(j.error?.message ?? 'Generate failed');
-      }
+      await assertOk(res, 'Could not generate the pack - try again');
       await load();
       setGenPeriod('');
-    } catch (e) { setError(e instanceof Error ? e.message : 'Generate failed'); }
+    } catch (e) { setError(apiErrorMessage(e, 'Could not generate the pack - try again')); }
     finally { setGenerating(false); }
   }
 
@@ -99,12 +96,9 @@ export default function ManagementPacksPage() {
       const res = await apiFetch(`/api/accounting/afs/management-packs/${packId}/deliver`, {
         method: 'POST', credentials: 'include',
       });
-      if (!res.ok) {
-        const j = await res.json() as { error?: { message?: string } };
-        throw new Error(j.error?.message ?? 'Deliver failed');
-      }
+      await assertOk(res, 'Could not deliver the pack - try again');
       await load();
-    } catch (e) { setError(e instanceof Error ? e.message : 'Deliver failed'); }
+    } catch (e) { setError(apiErrorMessage(e, 'Could not deliver the pack - try again')); }
     finally { setDeliveringId(''); }
   }
 

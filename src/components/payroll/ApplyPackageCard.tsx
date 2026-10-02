@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Package, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -21,18 +21,22 @@ export function ApplyPackageCard({ employeeId }: Props) {
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
   const [result, setResult] = useState<{ inserted: number; ended: number } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
+    setLoadFailed(false);
     try {
       const res = await apiFetch('/api/payroll/pay-packages?activeOnly=1');
-      if (res.ok) {
-        const json = await res.json();
-        setPackages(((json.data ?? json) as Pkg[]) ?? []);
-      }
+      await assertOk(res, 'Could not load packages - try again');
+      const json = await res.json();
+      setPackages(((json.data ?? json) as Pkg[]) ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load packages');
+      setPackages([]);
+      setLoadFailed(true);
+      setError(apiErrorMessage(err, 'Could not load packages - try again'));
     } finally {
       setLoading(false);
     }
@@ -50,13 +54,11 @@ export function ApplyPackageCard({ employeeId }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ packageId: selected, effectiveFrom }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? 'Apply failed');
-        return;
-      }
+      await assertOk(res, 'Could not apply the package - try again');
       const json = await res.json();
       setResult((json.data ?? json) as { inserted: number; ended: number });
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not apply the package - try again'));
     } finally {
       setApplying(false);
     }
@@ -72,7 +74,7 @@ export function ApplyPackageCard({ employeeId }: Props) {
         <div className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)]">
           <Loader2 className="h-4 w-4 animate-spin" />Loading...
         </div>
-      ) : packages.length === 0 ? (
+      ) : loadFailed ? null : packages.length === 0 ? (
         <div className="text-sm text-[var(--ff-text-secondary)]">
           No active packages. Create one under Setup → Pay Packages.
         </div>
@@ -98,6 +100,12 @@ export function ApplyPackageCard({ employeeId }: Props) {
             with the chosen effective date. Prior runs remain unchanged.
           </p>
         </>
+      )}
+      {loadFailed && !loading && (
+        <button type="button" onClick={() => void load()}
+          className="mt-3 px-3 py-1.5 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-primary)]">
+          Retry
+        </button>
       )}
       {result && (
         <div className="mt-3 flex items-center gap-2 text-sm text-green-400">

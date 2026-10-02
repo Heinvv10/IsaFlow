@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tag, Plus, Pencil, Trash2, Loader2, X, Check } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface Category { id: string; name: string; description: string; }
 
@@ -23,10 +23,12 @@ export default function ItemCategoriesPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/item-categories', { credentials: 'include' });
+      await assertOk(res, 'Could not load categories - try again');
       const json = await res.json();
       setItems(json.data || []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load categories');
+      setItems([]);
+      setError(apiErrorMessage(err, 'Could not load categories - try again'));
     } finally {
       setLoading(false);
     }
@@ -45,13 +47,12 @@ export default function ItemCategoriesPage() {
         method, headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify(body),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to save');
+      await assertOk(res, 'Could not save the category - try again');
       setForm({ name: '', description: '' });
       setEditing(null); setAdding(false);
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
+      setError(apiErrorMessage(err, 'Could not save the category - try again'));
     } finally {
       setBusy(false);
     }
@@ -65,11 +66,10 @@ export default function ItemCategoriesPage() {
         method: 'DELETE', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ id }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to delete');
+      await assertOk(res, 'Could not delete the category - try again');
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to delete');
+      setError(apiErrorMessage(err, 'Could not delete the category - try again'));
     }
   };
 

@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { emitApplyToast } from './applyToast';
 import type { BankRuleFormState } from './BankRuleForm';
 import type { BankRuleRowData, VatCode } from './BankRuleRow';
@@ -92,23 +92,20 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [form, setForm] = useState<BankRuleFormState>(BLANK_FORM);
 
+  const fail = (err: unknown, fb: string) => { const msg = apiErrorMessage(err, fb); setError(msg); notify.error(msg); };
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const res = await apiFetch('/api/accounting/bank-rules', { credentials: 'include' });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({} as Record<string, unknown>));
-        const msg = (body as { error?: { message?: string }; message?: string }).error?.message
-          ?? (body as { message?: string }).message
-          ?? `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
+      await assertOk(res, 'Could not load the rules - try again');
       const json = await res.json();
       setRules((json.data?.items as BankRule[]) || []);
       setSelected(new Set());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load rules');
+      setRules([]); setSelected(new Set());   // never an empty-but-valid list or bulk actions on stale rows
+      setError(apiErrorMessage(err, 'Could not load the rules - try again'));
     } finally {
       setLoading(false);
     }
@@ -202,8 +199,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
           credentials: 'include',
           body: JSON.stringify({ action: 'update', id: editingRule.id, ...payload }),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.message || 'Failed to update rule');
+        await assertOk(res, 'Could not update the rule - try again');
         notify.success(`Rule "${payload.ruleName}" updated`);
       } else {
         const res = await apiFetch('/api/accounting/bank-rules', {
@@ -214,8 +210,8 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
             ...(selectedBankId ? { bankAccountId: selectedBankId } : {}),
           }),
         });
+        await assertOk(res, 'Could not create the rule - try again');
         const json = await res.json();
-        if (!res.ok) throw new Error(json.message || 'Failed to create rule');
         const parts = {
           applied: Number(json.data?.applied ?? 0),
           autoPostSkippedClosedPeriod: Number(json.data?.autoPostSkippedClosedPeriod ?? 0),
@@ -240,9 +236,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
       resetForm();
       await load();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed';
-      setError(msg);
-      notify.error(msg);
+      fail(err, editingRule ? 'Could not update the rule - try again' : 'Could not create the rule - try again');
     } finally {
       setBusy('');
     }
@@ -253,13 +247,14 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
     setError('');
     // Clear stale apply banner before non-apply actions.
     if (action !== 'apply') setApplyResult(null);
+    const failure = `Could not ${action === 'toggle' ? 'change' : action === 'delete' ? 'delete' : action === 'apply' ? 'apply' : 'update'} the ${action === 'apply' ? 'rules' : 'rule'} - try again`;
     try {
       const res = await apiFetch('/api/accounting/bank-rules-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action, id, ...extra }),
       });
+      await assertOk(res, failure);
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || `${action} failed`);
       if (action === 'apply') {
         const data = json.data;
         // Guard against partial server responses.
@@ -276,9 +271,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
       }
       await load();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : `${action} failed`;
-      setError(msg);
-      notify.error(msg);
+      fail(err, failure);
     } finally {
       setBusy('');
     }
@@ -294,14 +287,11 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action: 'deleteMany', ids: [...selected] }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Bulk delete failed');
+      await assertOk(res, 'Could not delete the selected rules - try again');
       notify.success(`${count} rule${count !== 1 ? 's' : ''} deleted`);
       await load();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Bulk delete failed';
-      setError(msg);
-      notify.error(msg);
+      fail(err, 'Could not delete the selected rules - try again');
     } finally {
       setBulkDeleting(false);
     }

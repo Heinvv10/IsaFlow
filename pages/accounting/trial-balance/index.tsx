@@ -10,11 +10,13 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Scale, Loader2, AlertCircle, Download, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { TrialBalanceRow } from '@/components/reports/TrialBalanceRow';
 import type { TBRowData } from '@/components/reports/TrialBalanceRow';
+import { TrialBalanceYearEndNote } from '@/components/reports/TrialBalanceYearEndNote';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 import { useTrialBalanceFilters } from '@/components/reports/useTrialBalanceFilters';
 import { localISODate } from '@/lib/dateUtils';
+import { log } from '@/lib/logger';
 
 interface CostCentre { id: string; code: string; name: string }
 interface BusinessUnit { id: string; code: string; name: string }
@@ -25,7 +27,7 @@ const fmt = (n: number) =>
 
 export default function TrialBalancePage() {
   const [rows, setRows] = useState<TBRowData[]>([]);
-  const { periods, selectedPeriod, setSelectedPeriod, costCentreId, setCostCentreId,
+  const { periods, periodsError, selectedPeriod, setSelectedPeriod, costCentreId, setCostCentreId,
     businessUnitId, setBusinessUnitId, comparePeriodId, setComparePeriodId,
     showMovement, setShowMovement, returnTo, filtersReady } = useTrialBalanceFilters();
   const [totalDebit, setTotalDebit] = useState(0);
@@ -36,6 +38,7 @@ export default function TrialBalancePage() {
   const [balanced, setBalanced] = useState(true);
   const [accountCount, setAccountCount] = useState(0);
   const [fiscalYearStart, setFiscalYearStart] = useState('');
+  const [fiscalYearEnds, setFiscalYearEnds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
@@ -45,19 +48,16 @@ export default function TrialBalancePage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the cost centres'); return r.json(); })
       .then(json => setCostCentres(json.data?.items || json.data || []))
-      .catch(() => { /* reference data load failure — non-critical */ });
+      .catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'trial-balance'); });
     apiFetch('/api/accounting/business-units?active=true', { credentials: 'include' })
-      .then(r => {
-        if (!r.ok) throw new Error('Failed to load business units');
-        return r.json();
-      })
+      .then(async r => { await assertOk(r, 'Could not load the business units'); return r.json(); })
       .then(json => {
         const items = json.data?.items || json.data || [];
         setBusinessUnits(Array.isArray(items) ? items : []);
       })
-      .catch(() => { /* reference data load failure — non-critical */ });
+      .catch(err => { setBusinessUnits([]); log.warn('Failed to load business units', { err }, 'trial-balance'); });
   }, []);
 
   const loadTB = useCallback(async () => {
@@ -69,7 +69,7 @@ export default function TrialBalancePage() {
       if (businessUnitId) params.set('business_unit_id', businessUnitId);
       if (comparePeriodId) params.set('compare_period_id', comparePeriodId);
       const res = await apiFetch(`/api/accounting/reports-trial-balance?${params}`, { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to load');
+      await assertOk(res, 'Could not load the trial balance - try again');
       const json = await res.json();
       const data = json.data || json;
       setRows(data.rows || []);
@@ -79,7 +79,8 @@ export default function TrialBalancePage() {
       setBalanced(data.balanced === true);
       setAccountCount(Number(data.accountCount || 0));
       setFiscalYearStart(String(data.fiscalYearStart || ''));
-    } catch { setError('Failed to load trial balance'); }
+      setFiscalYearEnds(Array.isArray(data.fiscalYearEndsClosed) ? data.fiscalYearEndsClosed.map(String) : []);
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load the trial balance - try again')); }
     finally { setLoading(false); }
   }, [selectedPeriod, costCentreId, businessUnitId, comparePeriodId, filtersReady]);
 
@@ -190,10 +191,10 @@ export default function TrialBalancePage() {
             </div>
           )}
 
-          {loading ? (
+          {loading && !periodsError ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-indigo-500" /></div>
-          ) : error ? (
-            <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
+          ) : error || periodsError ? (
+            <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error || periodsError}</span></div>
           ) : rows.length === 0 ? (
             <div className="text-center py-12">
               <Scale className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
@@ -273,6 +274,7 @@ export default function TrialBalancePage() {
                   </tr>
                 </tfoot>
               </table>
+              <TrialBalanceYearEndNote fiscalYearEnds={fiscalYearEnds} broughtForwardClosed={rows.find(r => r.derived)?.closedToRetainedEarnings ?? 0} />
             </div>
           )}
         </div>

@@ -191,28 +191,29 @@ export async function autoGenerateGroupCOA(groupId: string, sourceCompanyId: str
 
 // ── COA Mappings ─────────────────────────────────────────────────────────────
 
+/**
+ * Mappings of a group — all of them, or one company's. Each row is bound to its own tenant: the
+ * group account must be THIS group's, the company account that company's, and the company a
+ * CURRENT member (left_date IS NULL). So a row forged before the write guard, or left behind by
+ * a company that has since left the group, returns nothing — no foreign code or name.
+ */
 export async function getCoaMappings(groupId: string, companyId?: string): Promise<CoaMapping[]> {
-  const rows = companyId
-    ? (await sql`
-        SELECT m.*,
-               ga.account_code AS group_account_code, ga.account_name AS group_account_name,
-               ca.account_code AS company_account_code, ca.account_name AS company_account_name
-        FROM group_coa_mappings m
-        JOIN group_accounts ga ON ga.id = m.group_account_id
-        JOIN gl_accounts ca ON ca.id = m.company_account_id
-        WHERE m.group_id = ${groupId}::UUID AND m.company_id = ${companyId}::UUID
-        ORDER BY ga.account_code
-      `) as Row[]
-    : (await sql`
-        SELECT m.*,
-               ga.account_code AS group_account_code, ga.account_name AS group_account_name,
-               ca.account_code AS company_account_code, ca.account_name AS company_account_name
-        FROM group_coa_mappings m
-        JOIN group_accounts ga ON ga.id = m.group_account_id
-        JOIN gl_accounts ca ON ca.id = m.company_account_id
-        WHERE m.group_id = ${groupId}::UUID
-        ORDER BY m.company_id, ga.account_code
-      `) as Row[];
+  const only = companyId ?? null;
+  const rows = (await sql`
+    SELECT m.*,
+           ga.account_code AS group_account_code, ga.account_name AS group_account_name,
+           ca.account_code AS company_account_code, ca.account_name AS company_account_name
+    FROM group_coa_mappings m
+    JOIN group_accounts ga ON ga.id = m.group_account_id AND ga.group_id = m.group_id
+    JOIN gl_accounts ca ON ca.id = m.company_account_id AND ca.company_id = m.company_id
+    WHERE m.group_id = ${groupId}::UUID
+      AND (${only}::UUID IS NULL OR m.company_id = ${only}::UUID)
+      AND EXISTS (
+        SELECT 1 FROM company_group_members cgm
+        WHERE cgm.group_id = m.group_id AND cgm.company_id = m.company_id AND cgm.left_date IS NULL
+      )
+    ORDER BY m.company_id, ga.account_code
+  `) as Row[];
   return rows.map(mapCoaMapping);
 }
 

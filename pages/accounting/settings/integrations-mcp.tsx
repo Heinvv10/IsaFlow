@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Plug, Copy, Check, KeyRound, ShieldOff, Bot, Loader2 } from 'lucide-react';
 import { MCP_PROD_ENDPOINT, CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
 
@@ -43,17 +43,20 @@ function CodeLine({ children }: { children: string }) {
 
 export default function IntegrationsMcpPage() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     apiFetch('/api/features/check?code=mcp_connector')
-      .then((r) => r.json())
+      .then(async (r) => { await assertOk(r, 'Could not check whether the MCP Connector is available - try again'); return r.json(); })
       .then((d: { data?: { enabled?: boolean }; enabled?: boolean }) => {
         // apiResponse wraps in { data }, but tolerate a flat shape too.
         if (!cancelled) setEnabled(d.data?.enabled ?? d.enabled ?? false);
       })
-      .catch(() => {
-        if (!cancelled) setEnabled(false);
+      .catch((err) => {
+        if (cancelled) return;
+        setError(apiErrorMessage(err, 'Could not check whether the MCP Connector is available - try again'));
+        setEnabled(false);
       });
     return () => { cancelled = true; };
   }, []);
@@ -79,7 +82,9 @@ export default function IntegrationsMcpPage() {
           </div>
         )}
 
-        {enabled === false && (
+        {error && <div className="rounded-xl border border-red-900/50 bg-red-950/40 p-4 text-sm text-red-300">{error}</div>}
+
+        {enabled === false && !error && (
           <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-300">
             The MCP Connector is not enabled for this company yet. Contact your IsaFlow administrator
             to join the pilot.

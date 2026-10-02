@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, AlertCircle } from 'lucide-react';
+import { apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { buildInvoiceHref } from './invoiceReturnContext';
 import { ViewAllInvoicesFooter } from './ViewAllInvoicesLink';
@@ -34,7 +35,7 @@ export function AgingInvoicesPanel({ side, entityId, entityName, asAtDate, colSp
       .catch((e: unknown) => {
         if (!live) return;
         setRows([]);
-        setError(e instanceof Error ? e.message : 'request failed');
+        setError(apiErrorMessage(e, 'Could not load the invoices - try again'));
       })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
@@ -44,7 +45,7 @@ export function AgingInvoicesPanel({ side, entityId, entityName, asAtDate, colSp
     <tr><td colSpan={colSpan} className="px-6 py-4 bg-[var(--ff-bg-primary)]">
       <div className={`flex items-center gap-2 text-sm ${error ? 'text-red-400' : 'text-[var(--ff-text-secondary)]'}`}>
         {error
-          ? <><AlertCircle className="h-4 w-4" /> Could not load invoices for {entityName} ({error})</>
+          ? <><AlertCircle className="h-4 w-4" /> {error}</>
           : <><Loader2 className="h-4 w-4 animate-spin" /> Loading invoices for {entityName}...</>}
       </div>
     </td></tr>

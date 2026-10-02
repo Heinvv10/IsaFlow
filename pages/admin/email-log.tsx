@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, RefreshCw, Mail, AlertCircle, CheckCircle, Clock, Send } from 'lucide-react';
 import type { EmailLogItem, EmailLogStats } from '../api/admin/email-log';
 
@@ -103,14 +103,14 @@ export default function EmailLogPage() {
       if (dateTo)       params.set('date_to', dateTo);
       if (search)       params.set('search', search);
 
-      const res  = await apiFetch(`/api/admin/email-log?${params}`, { credentials: 'include' });
+      const res  = await apiFetch(`/api/admin/email-log?${params}`, { credentials: 'include' }); await assertOk(res, 'Could not load the email log - try again');
       const json = await res.json() as { data?: { items: EmailLogItem[]; total: number; stats: EmailLogStats } };
       const data = json.data;
       setItems(data?.items ?? []);
       setTotal(data?.total ?? 0);
       if (data?.stats) setStats(data.stats);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load email log');
+      setError(apiErrorMessage(e, 'Could not load the email log - try again'));
       setItems([]);
     } finally {
       setLoading(false);
@@ -123,8 +123,7 @@ export default function EmailLogPage() {
     setResendingId(logId);
     try {
       const res  = await apiFetch('/api/admin/email-log/resend', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify({ logId }), credentials: 'include' });
-      const json = await res.json() as { message?: string };
-      if (!res.ok) throw new Error(json.message ?? 'Resend failed');
+      await assertOk(res, 'Could not resend the email - try again');
       setResendStatus(prev => ({ ...prev, [logId]: 'ok' }));
       setTimeout(() => setResendStatus(prev => { const n = { ...prev }; delete n[logId]; return n; }), 4000);
     } catch {

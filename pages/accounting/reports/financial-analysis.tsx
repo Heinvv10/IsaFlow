@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { ArrowLeft, BarChart3, TrendingUp, TrendingDown, Minus, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   DataQualityNotice,
   type UnclassifiedWarning,
@@ -76,17 +76,24 @@ export default function FinancialAnalysisPage() {
   const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
   const [loading, setLoading] = useState(true);
   const [months, setMonths] = useState(6);
+  const [error, setError] = useState('');
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setError('');
+    const getJson = async (url: string) => {
+      const res = await apiFetch(url);
+      await assertOk(res, 'Could not load the financial analysis - try again');
+      return res.json();
+    };
     try {
       const now = new Date();
       const to = localISODate(now);
       const fromDate = new Date(now.getFullYear(), now.getMonth() - months, 1);
       const from = localISODate(fromDate);
       const [scRes, trRes] = await Promise.all([
-        apiFetch(`/api/accounting/reports-kpi-scorecard?from=${from}&to=${to}`).then(r => r.json()),
-        apiFetch(`/api/accounting/reports-ratio-trends?months=${months}`).then(r => r.json()),
+        getJson(`/api/accounting/reports-kpi-scorecard?from=${from}&to=${to}`),
+        getJson(`/api/accounting/reports-ratio-trends?months=${months}`),
       ]);
       if (scRes.data) {
         setScorecard(scRes.data.scorecard || []);
@@ -98,14 +105,16 @@ export default function FinancialAnalysisPage() {
       if (trRes.data) {
         setTrends(trRes.data.trends || []);
       }
-      const ratioRes = await apiFetch(`/api/accounting/reports-extended-ratios?from=${from}&to=${to}`).then(r => r.json());
+      const ratioRes = await getJson(`/api/accounting/reports-extended-ratios?from=${from}&to=${to}`);
       if (ratioRes.data?.ratios) {
         const { notMeaningful, ...values } = ratioRes.data.ratios;
         setRatios(values);
         setRatioReasons(notMeaningful ?? {});
       }
       if (ratioRes.data) setUnclassified(ratioRes.data.unclassifiedAccounts ?? null);
-    } catch (err) { log.error('Failed to load financial analysis data', { error: err }, 'FinancialAnalysisPage'); }
+    } catch (err) {
+      setScorecard([]); setTrends([]); setSummary(null); setRatios({}); setInventoryWarning(null); setUnclassified(null);
+      log.error('Failed to load financial analysis data', { error: err }, 'FinancialAnalysisPage'); setError(apiErrorMessage(err, 'Could not load the financial analysis - try again')); }
     finally { setLoading(false); }
   }, [months]);
 
@@ -128,6 +137,7 @@ export default function FinancialAnalysisPage() {
         </div>
 
         <div className="p-6 space-y-6 max-w-7xl">
+          {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
           {loading ? (
             <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 text-teal-500 animate-spin" /></div>
           ) : (

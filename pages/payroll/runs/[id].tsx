@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, apiJson, ApiRequestError } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, apiJson, ApiRequestError } from '@/lib/apiFetch';
 import { CalendarDays, ArrowLeft, Loader2, AlertCircle, Calculator, CheckCircle2, Lock, Unlock, GitCompare, BookOpen, ShieldCheck } from 'lucide-react';
 import { PayrollApproveDialog, type ApproveResult } from '@/components/payroll/PayrollApproveDialog';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -50,6 +50,8 @@ interface RunDetail {
   lines: Line[];
 }
 
+const LOAD_FAILED = 'Could not load the payroll run - try again';
+
 export default function PayrollRunDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -74,7 +76,7 @@ export default function PayrollRunDetailPage() {
     setIsLoading(true);
     setError('');
     try {
-      setRun((await apiJson(`/api/payroll/runs/${runId}`)) as RunDetail);
+      setRun((await apiJson(`/api/payroll/runs/${runId}`, undefined, 'Could not load the payroll run - try again')) as RunDetail);
       hasRun.current = true;
       if (!keepNotice) setApprovedNow(null);
     } catch (err) {
@@ -82,7 +84,7 @@ export default function PayrollRunDetailPage() {
       setError(hasRun.current
         ? 'Could not refresh this run — reload the page to see its latest state.'
         : status === 404 ? 'Pay run not found'
-        : payrollLoadMessage(status, 'Failed to load run'));
+        : payrollLoadMessage(status, status >= 500 ? LOAD_FAILED : apiErrorMessage(err, LOAD_FAILED)));
     } finally {
       setIsLoading(false);
     }
@@ -101,13 +103,10 @@ export default function PayrollRunDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/runs/${runId}/calculate`, { method: 'POST' });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error((j as { error?: { message?: string }; message?: string }).error?.message || (j as { message?: string }).message || `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not calculate the payroll run - try again');
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Calculate failed');
+      setError(apiErrorMessage(err, 'Could not calculate the payroll run - try again'));
     } finally {
       setCalculating(false);
     }
@@ -138,13 +137,10 @@ export default function PayrollRunDetailPage() {
         method: 'POST',
         body: JSON.stringify({ reason: reason.trim() }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error((j as { error?: { message?: string }; message?: string }).error?.message || (j as { message?: string }).message || `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not reopen the payroll run - try again');
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Reopen failed');
+      setError(apiErrorMessage(err, 'Could not reopen the payroll run - try again'));
     } finally {
       setReopening(false);
     }

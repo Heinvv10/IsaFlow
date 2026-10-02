@@ -6,7 +6,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { Loader2, AlertCircle, Upload, X, CheckCircle2, FileText } from 'lucide-react';
 
@@ -91,10 +92,10 @@ export default function SupplierStatementsIndexPage() {
     try {
       const qs = filterSupplier ? `?supplierId=${encodeURIComponent(filterSupplier)}` : '';
       const res = await apiFetch(`/api/accounting/supplier-statements${qs}`);
-      const json = await res.json() as { data?: SupplierStatementReconciliation[]; error?: string };
-      if (!res.ok) { setError(json.error ?? 'Failed to load supplier statements'); return; }
+      await assertOk(res, 'Could not load the supplier statements - try again');
+      const json = await res.json() as { data?: SupplierStatementReconciliation[] };
       setStatements(Array.isArray(json.data) ? json.data : []);
-    } catch { setError('Network error loading supplier statements'); }
+    } catch (err) { setStatements([]); setError(apiErrorMessage(err, 'Could not load the supplier statements - try again')); }
     finally { setLoading(false); }
   }, [filterSupplier]);
 
@@ -114,11 +115,11 @@ export default function SupplierStatementsIndexPage() {
       const cid = readCompanyId(); if (cid) headers.set('X-Company-Id', cid);
       const csrf = readCsrf(); if (csrf) headers.set('X-CSRF-Token', csrf);
       const res = await fetch('/api/accounting/supplier-statements', { method: 'POST', body: form, headers, credentials: 'include' });
-      const json = await res.json() as { data?: SupplierStatementReconciliation; error?: string };
-      if (!res.ok) { showToast(json.error ?? 'Upload failed', 'err'); return; }
+      await assertOk(res, 'Could not upload the statement - try again');
+      const json = await res.json() as { data?: SupplierStatementReconciliation };
       setModalOpen(false); setModalFile(null); setModalSupplier('');
-      if (json.data?.id) void router.push(`/accounting/ap/supplier-statements/${json.data.id}`);
-    } catch { showToast('Network error during upload', 'err'); }
+      if (json.data?.id) try { await router.push(`/accounting/ap/supplier-statements/${json.data.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'ap-supplier-statements-index'); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not upload the statement - try again'), 'err'); }
     finally { setUploading(false); }
   }, [modalFile, modalSupplier, router, showToast]);
 

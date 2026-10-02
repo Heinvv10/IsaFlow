@@ -4,10 +4,12 @@
  * predicate actually matched, so selecting 10 and moving 7 must not read as a
  * plain success — the operator has to be told 3 were skipped.
  */
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/utils/toast', () => ({ notify: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 vi.mock('@/components/accounting/CreateRuleModal', () => ({ extractPattern: () => '' }));
 
 import { notify } from '@/utils/toast';
@@ -53,9 +55,7 @@ describe('bulk accept toast', () => {
   it('surfaces the API refusal from the nested error envelope', async () => {
     // review round 3 LOW-5: apiResponse.error() nests at json.error.message, so
     // reading json.message alone reported a generic failure over the real reason.
-    fetchMock.mockResolvedValue({
-      ok: false, json: async () => ({ success: false, error: { message: 'Bank account is locked' } }),
-    } as unknown as Response);
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ success: false, error: { code: 'LOCKED', message: 'Bank account is locked' } }), { status: 409 }));
     await actionsFor(['a', 'b']).handleBulkAccept();
     expect(vi.mocked(notify.error)).toHaveBeenCalledWith('Bank account is locked');
   });

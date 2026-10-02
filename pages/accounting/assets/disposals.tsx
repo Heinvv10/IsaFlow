@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Trash2, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface Disposal {
   id: string;
@@ -36,12 +36,13 @@ const methodLabels: Record<string, string> = {
 export default function AssetDisposalsPage() {
   const [disposals, setDisposals] = useState<Disposal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     apiFetch('/api/accounting/assets-disposals', { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load asset disposals - try again'); return r.json(); })
       .then(j => { setDisposals(j.data || []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch(err => { setError(apiErrorMessage(err, 'Could not load asset disposals - try again')); setLoading(false); });
   }, []);
 
   return (
@@ -62,6 +63,9 @@ export default function AssetDisposalsPage() {
         </div>
 
         <div className="p-6">
+          {error && (
+            <div role="alert" className="mb-4 p-3 rounded-lg border border-red-500/30 bg-red-500/10 text-sm text-red-400">{error}</div>
+          )}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             <table className="w-full text-sm">
               <thead>
@@ -83,7 +87,7 @@ export default function AssetDisposalsPage() {
                     </td>
                   </tr>
                 )}
-                {!loading && disposals.length === 0 && (
+                {!loading && !error && disposals.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
                       No disposals recorded yet

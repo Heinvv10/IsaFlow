@@ -7,8 +7,10 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Download, Loader2, Presentation } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { PackNotices } from '@/components/accounting/packs/PackNotices';
+import { retryAfterSeconds } from '@/components/accounting/packs/retryAfterSeconds';
 import {
   DataQualityNotice,
   type UnclassifiedWarning,
@@ -34,25 +36,13 @@ const PACK_CONFIGS: Array<{ type: PackType; label: string; description: string; 
   { type: 'monthly', label: 'Monthly Pack', description: 'P&L, Balance Sheet, Cash Flow & Ratios', sections: '4 sections' },
 ];
 
+const PACK_LOAD_FAILED = 'Could not load the report pack - try again';
+
 /** What `?print=1` means with no `pack` named. Bookmarks predating the
  *  parameter rely on it, and the download route always names one. */
 const DEFAULT_PRINT_PACK = 'management';
 
-/**
- * How long the server told us to wait, in whole seconds.
- *
- * `Retry-After` is optional and `apiResponse.tooManyRequests` does not
- * currently set one, so the absent case is the NORMAL case rather than an
- * error path — the message just drops the countdown. The header's HTTP-date
- * form is not read: this endpoint's limiter is a fixed window in seconds, and
- * guessing at a date form nothing sends would be untested code.
- */
-export function retryAfterSeconds(headers: { get(name: string): string | null }): number | null {
-  const raw = headers.get('Retry-After');
-  if (raw === null) return null;
-  const seconds = Number(raw.trim());
-  return Number.isInteger(seconds) && seconds > 0 ? seconds : null;
-}
+export { retryAfterSeconds };
 
 /**
  * The page has two entirely separate lives: the interactive screen below, and
@@ -113,6 +103,7 @@ function ReportPacksScreen() {
    *  is null when the server sent no Retry-After, which it currently never
    *  does — the notice then says to wait a moment rather than name a number. */
   const [rateLimited, setRateLimited] = useState<{ seconds: number | null } | null>(null);
+  const [loadError, setLoadError] = useState('');
   // `localISODate`, never `toISOString()`: in SAST the ISO form of midnight
   // on 1 January is 31 December of the previous year, so the screen opened on
   // a window a day wider than the year it names.
@@ -149,6 +140,7 @@ function ReportPacksScreen() {
   useEffect(() => {
     let stale = false;
     setLoading(true);
+    setLoadError('');
 
     void (async () => {
       try {
@@ -162,10 +154,14 @@ function ReportPacksScreen() {
         // every other report, so a reader who exported a few packs hits it
         // without doing anything unusual.
         if (res.status === 429) {
+          setPack(null);
+          setUnclassified(null);
           setRateLimited({ seconds: retryAfterSeconds(res.headers) });
           return;
         }
         setRateLimited(null);
+        // Any other refusal (403, a 500 envelope, a proxy's 502 page) used to reach .json() and leave the screen blank.
+        await assertOk(res, PACK_LOAD_FAILED);
 
         const body = await res.json();
         if (stale) return;
@@ -174,6 +170,9 @@ function ReportPacksScreen() {
       } catch (err) {
         if (stale) return;
         log.error('Failed to load report pack', { error: err instanceof Error ? err.message : String(err) });
+        setPack(null);
+        setUnclassified(null);
+        setLoadError(apiErrorMessage(err, PACK_LOAD_FAILED));
       } finally {
         if (!stale) setLoading(false);
       }
@@ -219,30 +218,7 @@ function ReportPacksScreen() {
 
         <div className="p-6 space-y-6 max-w-7xl">
           <DataQualityNotice unclassifiedAccounts={unclassified} />
-          {downloadError && (
-            <div
-              role="alert"
-              className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
-            >
-              {/* `whitespace-pre-line`: the integrity gate reports every
-                  problem it found, one per line. Collapsed onto one line a
-                  three-problem refusal is unreadable, and the reader needs
-                  all three — a pack that has drifted has usually drifted in
-                  more than one place. */}
-              <p className="font-medium">This pack could not be downloaded.</p>
-              <p className="mt-1 whitespace-pre-line">{downloadError}</p>
-            </div>
-          )}
-          {rateLimited && (
-            <div
-              role="status"
-              className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400"
-            >
-              Too many report requests. {rateLimited.seconds === null
-                ? 'Please try again in a moment.'
-                : `Please try again in ${rateLimited.seconds} seconds.`}
-            </div>
-          )}
+          <PackNotices downloadError={downloadError} loadError={loadError} rateLimited={rateLimited} />
           {/* Pack Type Selector */}
           <div className="grid grid-cols-3 gap-4">
             {PACK_CONFIGS.map(cfg => (

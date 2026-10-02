@@ -77,7 +77,7 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
     if (!trend || !asOf) return;
     let cancelled = false;
     setTrendLoading(true);
-    apiJson(`/api/accounting/reports-account-trends?as_of=${asOf}&basis=${basis}`)
+    apiJson(`/api/accounting/reports-account-trends?as_of=${asOf}&basis=${basis}`, undefined, 'Could not load the trend comparison - try again')
       .then((data) => { if (!cancelled) setTrends(data); })
       .catch((err) => {
         log.warn('Failed to load account trends', { error: err }, 'useStatementComparators');
@@ -93,7 +93,7 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
     if (!budget || !periodStart || !periodEnd) return;
     let cancelled = false;
     setBudgetLoading(true);
-    apiJson(`/api/accounting/reports-budget-comparator?period_start=${periodStart}&period_end=${periodEnd}`)
+    apiJson(`/api/accounting/reports-budget-comparator?period_start=${periodStart}&period_end=${periodEnd}`, undefined, 'Could not load the budget comparison - try again')
       .then((data) => {
         if (!cancelled) setBudgetData({ lines: data.lines, budgetedCount: data.budgetedCount });
       })

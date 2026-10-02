@@ -13,7 +13,8 @@ import {
 } from 'lucide-react';
 import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
 import { BalanceSheetBody } from '@/components/accounting/BalanceSheetBody';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
 import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
@@ -29,7 +30,7 @@ interface BusinessUnit { id: string; code: string; name: string }
 
 export default function BalanceSheetPage() {
   const { asAtDate, setAsAtDate, costCentreId, setCostCentreId,
-    businessUnitId, setBusinessUnitId, queryKey, periodResolved } = useBalanceSheetFilters();
+    businessUnitId, setBusinessUnitId, queryKey, periodResolved, periodError } = useBalanceSheetFilters();
   const restoredColumns = useRef('');
   const [columnsReadyKey, setColumnsReadyKey] = useState('');
   const reportRequestRef = useRef(0);
@@ -40,6 +41,7 @@ export default function BalanceSheetPage() {
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
+  const [refError, setRefError] = useState<Record<string, string>>({});
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
   // No Budget checkbox here: a budget is a P&L figure, and its account codes
   // match nothing on a balance sheet. The trend series is `balance`, not
@@ -69,16 +71,16 @@ export default function BalanceSheetPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the cost centres - try again'); return r.json(); })
       .then(json => setCostCentres(json.data?.items || json.data || []))
-      .catch(() => { /* reference data load failure — non-critical */ });
+      .catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'balance-sheet'); setRefError(p => ({ ...p, cc: apiErrorMessage(err, 'Could not load the cost centres - try again') })); });
     apiFetch('/api/accounting/business-units?active=true', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed to load business units')))
+      .then(async r => { await assertOk(r, 'Could not load the business units - try again'); return r.json(); })
       .then(json => {
         const items = json.data?.items || json.data || [];
         setBusinessUnits(Array.isArray(items) ? items : []);
       })
-      .catch(() => { /* selected BU remains visible as unavailable */ });
+      .catch(err => { setBusinessUnits([]); log.warn('Failed to load business units', { err }, 'balance-sheet'); setRefError(p => ({ ...p, bu: apiErrorMessage(err, 'Could not load the business units - try again') })); });
   }, []);
 
   const loadReport = useCallback(async () => {
@@ -94,12 +96,14 @@ export default function BalanceSheetPage() {
         params.set('compare_date', shiftYearISO(asAtDate, -1));
       }
       const res = await apiFetch(`/api/accounting/reports-balance-sheet?${params}`);
+      await assertOk(res, 'Could not load the balance sheet - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load');
       if (requestId === reportRequestRef.current) setReport(json.data || json);
     } catch (err) {
-      if (requestId === reportRequestRef.current)
-        setError(err instanceof Error ? err.message : 'Failed to load balance sheet');
+      if (requestId === reportRequestRef.current) {
+        setReport(null);
+        setError(apiErrorMessage(err, 'Could not load balance sheet - try again'));
+      }
     } finally {
       if (requestId === reportRequestRef.current) setIsLoading(false);
     }
@@ -200,9 +204,10 @@ export default function BalanceSheetPage() {
           <ComparatorNotices budgetState={budgetState} trendFailed={trendFailed}
             companyWideUnavailable={companyWideUnavailable} />
 
-          {error && (
+          {Object.keys(refError).length > 0 && <p role="alert" className="text-xs text-amber-500">{Object.values(refError).join(' ')}</p>}
+          {(error || periodError) && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
-              <AlertCircle className="h-4 w-4" /> {error}
+              <AlertCircle className="h-4 w-4" /> {error || periodError}
             </div>
           )}
 

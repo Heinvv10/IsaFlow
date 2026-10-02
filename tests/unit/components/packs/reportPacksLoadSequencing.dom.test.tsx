@@ -53,6 +53,8 @@ function deferredResponse(marker: string, type: string) {
   let settle!: () => void;
   const gate = new Promise<void>((r) => { settle = r; });
   const response = gate.then(() => ({
+    ok: true,
+    status: 200,
     json: async () => ({ data: { pack: pack(marker, type), unclassifiedAccounts: null } }),
   }));
   return { response, settle };
@@ -117,6 +119,8 @@ describe('Report Packs screen — only the newest request may paint', () => {
 
   it('still paints the newest request when it is the one that resolves', async () => {
     apiFetchMock.mockImplementation(async (url: string) => ({
+      ok: true,
+      status: 200,
       json: async () => ({
         data: {
           pack: pack(url.includes('type=management') ? 'MANAGEMENT' : 'BOARD',

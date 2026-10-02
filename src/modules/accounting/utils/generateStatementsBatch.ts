@@ -4,13 +4,14 @@
  */
 
 import { log } from '@/lib/logger';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { CustomerBalance } from '@/components/accounting/CustomerStatementTable';
 import type { StatementData } from '@/modules/accounting/utils/statementPdf';
 
 export async function fetchCompanyMeta(): Promise<Partial<StatementData>> {
   try {
     const res = await apiFetch('/api/accounting/company-details');
+    await assertOk(res, 'Could not load the company details');
     const json = await res.json();
     const c = json.data || json;
     const parts = [c.address_line1, c.city, c.province, c.postal_code].filter(Boolean);
@@ -67,12 +68,15 @@ export async function generateStatementsBatch(
     const detailRes = await apiFetch(
       `/api/accounting/customer-statement-detail?client_id=${clientId}&as_at_date=${asAtDate}`
     );
-    const detailJson = await detailRes.json();
-    if (!detailRes.ok) {
-      skipped.push({ name: cust.client_name, reason: detailJson.error?.message || `HTTP ${detailRes.status}` });
+    let detail;
+    try {
+      await assertOk(detailRes, 'the statement could not be loaded');
+      const detailJson = await detailRes.json();
+      detail = detailJson.data || detailJson;
+    } catch (err) {
+      skipped.push({ name: cust.client_name, reason: apiErrorMessage(err, 'the statement could not be loaded') });
       continue;
     }
-    const detail = detailJson.data || detailJson;
 
     const stmtData: StatementData = {
       ...companyMeta,

@@ -10,12 +10,14 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
 vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 vi.mock('@/components/shared/ExportCSVButton', () => ({ ExportCSVButton: () => null }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
 import YearEndPage from '@/../pages/accounting/year-end';
@@ -93,7 +95,7 @@ describe('year-end page success message', () => {
   it('still shows the API message on a refusal', async () => {
     vi.mocked(apiFetch).mockImplementation(async (_url, init) =>
       (init?.method === 'POST'
-        ? new Response(JSON.stringify({ message: 'This year already has a closing journal (YE-2025) and it is reversed, not posted.' }), { status: 409 })
+        ? new Response(JSON.stringify({ success: false, error: { code: 'BAD_REQUEST', message: 'This year already has a closing journal (YE-2025) and it is reversed, not posted.' } }), { status: 409 })
         : new Response(JSON.stringify({ data: { years: [YEAR] } }), { status: 200 })));
     await clickClose();
     expect(await screen.findByText(/reversed, not posted/i)).toBeTruthy();

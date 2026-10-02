@@ -16,6 +16,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
 vi.mock('@/components/layout/AppLayout', () => ({
   // next/font cannot resolve outside a Next runtime and would make every
@@ -26,8 +27,10 @@ vi.mock('@/components/shared/ExportCSVButton', () => ({
   ExportCSVButton: () => <button type="button">Export CSV</button>,
 }));
 
-const apiFetch = vi.fn();
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
+import { apiFetch as apiFetchSpy } from '@/lib/apiFetch';
+const apiFetch = vi.mocked(apiFetchSpy);
 
 const EXPIRED_NOTE =
   'Its 5-year life ended before 2026-09-30 with 60000.00 of policy book value still '

@@ -68,7 +68,9 @@ export async function createCompanyRelationship(
  *
  * Authorisation is the `parent_company_id = ${companyId}` predicate. `companyId`
  * is the caller's authenticated company, so a caller can only withdraw grants
- * their own company made. Membership of the CHILD is deliberately not required:
+ * their own company made. The route also calls it from the CHILD side (the
+ * active company as `childCompanyId`), so a child's own owners can withdraw a
+ * grant that exposes it (D4 round 10). Membership of the CHILD is deliberately not required:
  * removal only revokes access, and demanding child access to revoke would strand
  * a mistaken link forever.
  *

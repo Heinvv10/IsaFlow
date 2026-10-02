@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -41,18 +41,25 @@ export default function AssetRegisterPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [asOf, setAsOf] = useState(localISODate());
 
   useEffect(() => {
     setLoading(true);
+    setError('');
     apiFetch(`/api/accounting/assets-register?asOf=${asOf}`, { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the asset register - try again'); return r.json(); })
       .then(j => {
         setAssets(j.data?.assets || []);
         setSummary(j.data?.summary || null);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err: unknown) => {
+        setError(apiErrorMessage(err, 'Could not load the asset register - try again'));
+        setAssets([]);
+        setSummary(null);
+        setLoading(false);
+      });
   }, [asOf]);
 
   return (
@@ -80,6 +87,8 @@ export default function AssetRegisterPage() {
             <label className="text-sm text-[var(--ff-text-secondary)]">As of:</label>
             <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} className="ff-input text-sm" />
           </div>
+
+          {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</div>}
 
           {/* Summary */}
           {summary && (
@@ -126,7 +135,7 @@ export default function AssetRegisterPage() {
                     </td>
                   </tr>
                 )}
-                {!loading && assets.length === 0 && (
+                {!loading && !error && assets.length === 0 && (
                   <tr>
                     <td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
                       No assets found for this period

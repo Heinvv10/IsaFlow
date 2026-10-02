@@ -5,7 +5,7 @@
 
 import { useState, useRef } from 'react';
 import { CheckCircle2, Upload, Loader2, RotateCcw } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { MigrationSource } from '@/modules/accounting/services/core/migrationParserService';
 import type { RollbackResult } from '@/modules/accounting/services/core/migrationExecuteService';
 
@@ -156,14 +156,14 @@ export function RollbackButton({ source }: { source: MigrationSource }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source }),
       });
-      await assertOk(res, 'Rollback failed');
+      await assertOk(res, 'Could not roll back the import - try again');
       const { data } = await res.json() as { data: RollbackResult };
       // Totals across "Continue rollback" passes: an account kept in an earlier
       // pass is untagged, so no later answer mentions it — only this can.
       setResult(prev => ({ ...data, deleted: (prev?.deleted ?? 0) + data.deleted, retained: (prev?.retained ?? 0) + data.retained,
         retainedCodes: [...(prev?.retainedCodes ?? []), ...data.retainedCodes], runs: (prev?.runs ?? 0) + 1 }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Rollback failed');
+      setError(apiErrorMessage(err, 'Could not roll back the import - try again'));
     } finally {
       setLoading(false);
     }

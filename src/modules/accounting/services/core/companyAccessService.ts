@@ -16,6 +16,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { DEFAULT_WRITE_ROLES } from '@/lib/auth/writeRoles';
 
 /**
  * True when the user is a member of the given company.
@@ -86,6 +87,48 @@ export async function userBelongsToGroup(userId: string, groupId: string): Promi
     WHERE  cgm.group_id  = ${groupId}::UUID
       AND  cgm.left_date IS NULL
       AND  cu.user_id    = ${userId}
+    LIMIT  1
+  `) as Record<string, unknown>[];
+
+  return rows.length > 0;
+}
+
+/**
+ * True when the user holds a write role (owner / admin / manager — DEFAULT_WRITE_ROLES, the
+ * list withWriteAccess enforces) in a company that is a CURRENT member of the group.
+ *
+ * Group WRITES (elimination adjustments) need this; group READS need only
+ * `userBelongsToGroup`. A viewer of one member company could otherwise post eliminations
+ * that change every consolidated figure. Same `left_date IS NULL` rule as the read guard.
+ */
+export async function userCanWriteGroup(userId: string, groupId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1
+    FROM   company_group_members cgm
+    JOIN   company_users cu ON cu.company_id = cgm.company_id
+    WHERE  cgm.group_id  = ${groupId}::UUID
+      AND  cgm.left_date IS NULL
+      AND  cu.user_id    = ${userId}
+      AND  cu.role = ANY(${[...DEFAULT_WRITE_ROLES]}::TEXT[])
+    LIMIT  1
+  `) as Record<string, unknown>[];
+
+  return rows.length > 0;
+}
+
+/**
+ * True when the user holds a write role (owner / admin / manager — DEFAULT_WRITE_ROLES) in the
+ * company itself. Putting a company INTO a group (add-member, holding company, a consolidation
+ * subsidiary) exposes its whole ledger to every member of that group, so it needs this, not
+ * plain membership: a viewer of a company must not be able to publish its books.
+ */
+export async function userCanWriteCompany(userId: string, companyId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1
+    FROM   company_users
+    WHERE  company_id = ${companyId}::UUID
+      AND  user_id    = ${userId}
+      AND  role = ANY(${[...DEFAULT_WRITE_ROLES]}::TEXT[])
     LIMIT  1
   `) as Record<string, unknown>[];
 

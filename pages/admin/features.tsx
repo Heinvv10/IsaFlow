@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, ToggleLeft, ToggleRight } from 'lucide-react';
 import {
   FeatureFlagRow,
@@ -30,11 +30,12 @@ export default function AdminFeaturesPage() {
     setError('');
     try {
       const res  = await apiFetch('/api/admin/features');
+      await assertOk(res, 'Could not load the feature flags - try again');
       const json = await res.json() as { data?: FeatureFlag[]; message?: string };
-      if (!res.ok) throw new Error(json.message || 'Failed to load features');
       setFlags(json.data ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load features');
+      setFlags([]);
+      setError(apiErrorMessage(err, 'Could not load the feature flags - try again'));
     } finally {
       setLoading(false);
     }
@@ -63,12 +64,12 @@ export default function AdminFeaturesPage() {
           is_global: editState.is_global,
         }),
       });
+      await assertOk(res, 'Could not save the feature flag - try again');
       const json = await res.json() as { data?: FeatureFlag; message?: string };
-      if (!res.ok) throw new Error(json.message || 'Failed to save');
       setFlags((prev) => prev.map((f) => (f.id === id && json.data ? json.data : f)));
       setEditing(null);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to save');
+      setSaveError(apiErrorMessage(err, 'Could not save the feature flag - try again'));
     } finally {
       setSaving(false);
     }
@@ -87,7 +88,7 @@ export default function AdminFeaturesPage() {
             headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
             body: JSON.stringify({ is_global: isGlobal }),
           });
-          await assertOk(res, 'Bulk update failed');
+          await assertOk(res, 'Could not update a feature flag - try again');
         })
       );
       setSelected(new Set());
@@ -97,9 +98,7 @@ export default function AdminFeaturesPage() {
       // before it would wipe the very failure this block exists to report.
       // load() never throws — it owns its try/catch — so this order is safe.
       await load();
-      setError(err instanceof Error
-        ? `Bulk update failed — some flags may not have updated (${err.message})`
-        : 'Bulk update failed — some flags may not have updated');
+      setError(`Some flags may not have been updated (${apiErrorMessage(err, 'Could not update a feature flag - try again')})`);
     } finally {
       setBulkWorking(false);
     }

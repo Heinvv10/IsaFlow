@@ -4,7 +4,7 @@
  * and all derived handler functions.
  */
 
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { log } from '@/lib/logger';
 import { extractPattern } from '@/components/accounting/CreateRuleModal';
@@ -47,10 +47,9 @@ export function buildBankTxActions(deps: ActionDeps) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify(body),
     });
+    await assertOk(res, 'Could not complete the action - try again');
     const json = await res.json();
-    if (!res.ok || json.success === false) {
-      throw new Error(json.error?.message || json.message || (typeof json.error === 'string' ? json.error : 'Action failed'));
-    }
+    if (json.success === false) throw new ApiEnvelopeError(json.error?.message || 'Could not complete the action - try again');
     return json;
   };
 
@@ -58,14 +57,14 @@ export function buildBankTxActions(deps: ActionDeps) {
     apiFetch('/api/accounting/bank-transactions-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ action: 'save_selection', bankTransactionId: txId, selectionType: type, selectionEntityId: entityId || undefined, vatCode: vatCode || undefined }),
-    }).catch(() => { notify.error('Failed to save selection — please try again'); });
+    }).then(r => assertOk(r, 'Could not save the selection - try again')).catch(e => notify.error(apiErrorMessage(e, 'Could not save the selection - try again')));
   };
 
   const saveDimensions = (txId: string, cc1Id: string, cc2Id: string, buId: string) => {
     apiFetch('/api/accounting/bank-transactions-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ action: 'save_dimensions', bankTransactionId: txId, cc1Id: cc1Id || null, cc2Id: cc2Id || null, buId: buId || null }),
-    }).catch(() => { /* fire-and-forget */ });
+    }).then(r => assertOk(r, 'Could not save the cost centres - try again')).catch(e => notify.error(apiErrorMessage(e, 'Could not save the cost centres - try again')));
   };
 
   const handleAccept = async (txId: string) => {
@@ -91,7 +90,7 @@ export function buildBankTxActions(deps: ActionDeps) {
         apiFetch('/api/accounting/smart-categorize', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ action: 'learn', txId, glAccountId: sel.entityId, category: sel.label, vatCode: sel.vatCode }),
-        }).catch(() => { /* fire-and-forget */ });
+        }).then(r => assertOk(r, 'Could not record the categorisation')).catch(e => log.warn('Smart-categorize learn failed', { error: e }, 'banking'));  // best-effort: the allocation already posted
       }
       if (tx?.description && selectedBank) {
         const pattern = extractPattern(tx.description);
@@ -99,13 +98,14 @@ export function buildBankTxActions(deps: ActionDeps) {
           try {
             const params = new URLSearchParams({ pattern, matchType: 'contains', bankAccountId: selectedBank });
             const res = await apiFetch(`/api/accounting/bank-rules-preview?${params}`);
+            await assertOk(res, 'Could not preview the matching rule - try again');
             const json = await res.json();
             const matchCount = json.data?.matchCount ?? 0;
             if (matchCount > 0) setRulePrompt({ tx, matchCount });
           } catch (e) { log.warn('Bank rule prompt check failed', { error: e }, 'banking'); }
         }
       }
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed'); }
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not allocate the transaction - try again')); }
   };
 
   const handleExclude = (txId: string) => setExcludingTxId(txId);
@@ -116,11 +116,11 @@ export function buildBankTxActions(deps: ActionDeps) {
     try {
       await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
       notify.success('Transaction excluded'); loadTransactions(); refreshBankAccounts();
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to exclude'); }
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not exclude - try again')); }
   };
   const handleUnmatch = async (txId: string) => {
     try { await callAction({ action: 'unmatch', bankTransactionId: txId }); notify.success('Allocation undone'); loadTransactions(); refreshBankAccounts(); }
-    catch (e) { notify.error(e instanceof Error ? e.message : 'Failed'); }
+    catch (e) { notify.error(apiErrorMessage(e, 'Could not undo the allocation - try again')); }
   };
   const handleUpdateNotes = async (txId: string, notes: string) => {
     setTransactions(prev => prev.map(tx => tx.id === txId ? { ...tx, notes: notes || undefined } : tx));
@@ -129,9 +129,10 @@ export function buildBankTxActions(deps: ActionDeps) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'update_notes', bankTransactionId: txId, notes }),
       });
+      await assertOk(res, 'Could not save the note - try again');
       const json = await res.json();
-      if (!res.ok || json.success === false) throw new Error(json.message || 'Failed to save note');
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to save note'); loadTransactions(); }
+      if (json.success === false) throw new ApiEnvelopeError(json.error?.message || 'Could not save the note - try again');
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not save the note - try again')); loadTransactions(); }
   };
   const handleBatchAccept = async () => {
     const actionable = actionableIds(transactions, Array.from(selectedIds));
@@ -141,7 +142,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       return;
     }
     if (toAccept.length === 0) { notify.error('Select transactions with accounts assigned'); return; }
-    let ok = 0, fail = 0;
+    let ok = 0, fail = 0, firstReason = '';
     const late: unknown[] = [];
     for (const txId of toAccept) {
       try {
@@ -154,9 +155,11 @@ export function buildBankTxActions(deps: ActionDeps) {
         if (sel.cc2Id) body.cc2Id = sel.cc2Id;
         if (sel.buId) body.buId = sel.buId;
         late.push((await callAction(body))?.data?.lateClaim); ok++;
-      } catch { fail++; }
+      } catch (e) { fail++; firstReason ||= apiErrorMessage(e, 'Could not allocate the transaction - try again'); }
     }
-    notify.success(`${ok} allocated${fail ? `, ${fail} failed` : ''}`);
+    if (ok === 0) notify.error(`No transactions were allocated: ${firstReason}`);
+    else if (fail) notify.warning(`${ok} allocated, ${fail} could not be allocated`, firstReason);
+    else notify.success(`${ok} allocated`);
     notifyLateClaims({ data: { results: late.map((lateClaim) => ({ lateClaim })) } });
     setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
   };
@@ -169,7 +172,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       await callAction({ action: 'delete', bankTransactionIds: toDelete } as unknown as Record<string, string>);
       notify.success(`${toDelete.length} transaction(s) deleted`);
       setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Delete failed'); }
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not delete the transactions - try again')); }
   };
   const handleBulkAccept = async () => {
     if (selectedIds.size === 0) return;
@@ -180,16 +183,13 @@ export function buildBankTxActions(deps: ActionDeps) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'bulk_accept', bankTransactionIds: toAccept }),
       });
+      await assertOk(res, 'Could not mark the transactions as reviewed - try again');
       const json = await res.json();
-      if (!res.ok || json.success === false) throw new Error(json.error?.message || json.message || 'Failed to mark as reviewed');
       const accepted: number = json.data?.accepted ?? toAccept.length;
-      if (accepted < toAccept.length) {
-        notify.warning(`${accepted} of ${toAccept.length} transaction(s) marked as reviewed`, `${toAccept.length - accepted} were already reviewed or no longer eligible`);
-      } else {
-        notify.success(`${accepted} transaction(s) marked as reviewed`);
-      }
+      if (accepted < toAccept.length) notify.warning(`${accepted} of ${toAccept.length} transaction(s) marked as reviewed`, `${toAccept.length - accepted} were already reviewed or no longer eligible`);
+      else notify.success(`${accepted} transaction(s) marked as reviewed`);
       setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to mark as reviewed'); }
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not mark as reviewed - try again')); }
   };
   const handleApplyRules = async () => {
     if (!selectedBank) { notify.error('Select a bank account first'); return; }
@@ -200,10 +200,9 @@ export function buildBankTxActions(deps: ActionDeps) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'apply', bankAccountId: selectedBank }),
       });
-      const rulesJson = await rulesRes.json();
-      if (!rulesRes.ok || rulesJson.success === false) throw new Error(rulesJson.error?.message || rulesJson.message || 'Apply rules failed');
-      const rulesApplied = rulesJson.data?.applied ?? 0;
-      let smartCategorized = 0, totalSkipped = 0;
+      await assertOk(rulesRes, 'Could not apply the rules - try again');
+      const rulesApplied = (await rulesRes.json()).data?.applied ?? 0;
+      let smartCategorized = 0, totalSkipped = 0, smartFailed = false;
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 15000);
@@ -212,18 +211,19 @@ export function buildBankTxActions(deps: ActionDeps) {
           body: JSON.stringify({ action: 'categorize', bankAccountId: selectedBank }),
           signal: controller.signal,
         });
-        clearTimeout(timeout);
+        clearTimeout(timeout); await assertOk(smartRes, 'Smart categorisation could not run - try again');
         const smartJson = await smartRes.json();
         smartCategorized = smartJson.data?.categorized ?? 0;
         totalSkipped = smartJson.data?.skipped ?? 0;
         const residualCount: number = smartJson.data?.residualCount ?? 0;
         if (residualCount > 0) onLlmResidual?.(residualCount);
-      } catch { /* AI categorization timed out */ }
-      notify.success(rulesApplied + smartCategorized > 0
+      } catch (e) { if ((e as { name?: string })?.name !== 'AbortError') { smartFailed = true; notify.error(apiErrorMessage(e, 'Smart categorisation could not run - try again')); } /* else: AI categorization timed out */ }
+      if (smartFailed) { if (rulesApplied > 0) notify.success(`${rulesApplied} rules applied`); }
+      else notify.success(rulesApplied + smartCategorized > 0
         ? `${rulesApplied} rules applied, ${smartCategorized} smart-categorised, ${totalSkipped} skipped`
         : 'No new categorisations found');
-      setRowSelections(() => ({})); loadTransactions(); refreshBankAccounts();
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to apply rules'); }
+      setRowSelections(() => ({})); loadTransactions(); refreshBankAccounts();   // the rules DID apply
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not apply rules - try again')); }
     finally { setSmartRunning(false); }
   };
   const handleReverse = async (txId: string) => {
@@ -236,7 +236,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       await callAction({ action: 'reverse', bankTransactionId: txId });
       notify.success(tx?.status === 'allocated' ? 'Allocation undone' : 'Transaction reversed');
       loadTransactions(); refreshBankAccounts();
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Reverse failed'); }
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not reverse the transaction - try again')); }
   };
   const handleExport = (bankAccountCode: string | undefined) => {
     const rows = transactions.map(tx => ({
@@ -256,8 +256,8 @@ export function buildBankTxActions(deps: ActionDeps) {
     if (!selectedBank) return;
     try {
       const res = await apiFetch(`/api/accounting/bank-reconciliation-report?bankAccountId=${selectedBank}`);
+      await assertOk(res, 'Could not build the reconciliation report - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
       const { generateReconReport } = await import('@/modules/accounting/utils/reconReportPdf');
       const blob = await generateReconReport(json.data || json);
       const url = URL.createObjectURL(blob);
@@ -265,7 +265,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       a.href = url; a.download = `recon-report-${bankAccountCode || 'bank'}.pdf`;
       a.click(); URL.revokeObjectURL(url);
       notify.success('Report downloaded');
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Report failed'); }
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not build the reconciliation report - try again')); }
   };
   const handleApplyBatchEdit = (entityId: string, label: string) => {
     const updates: Record<string, RowSelection> = { ...rowSelections };

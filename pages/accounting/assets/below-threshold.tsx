@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { AlertTriangle, Loader2, CheckCircle2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface BelowThresholdAsset {
   id: string;
@@ -37,10 +37,12 @@ export default function BelowThresholdPage() {
 
   const load = useCallback(() => {
     setLoading(true);
+    setError(null);
     apiFetch('/api/accounting/assets/below-threshold', { credentials: 'include' })
-      .then(r => r.json())
-      .then(j => { setAssets(j.data || []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .then(async r => { await assertOk(r, 'Could not load assets - try again'); return r.json(); })
+      .then(j => setAssets(j.data || []))
+      .catch(err => { setAssets([]); setError(apiErrorMessage(err, 'Could not load assets - try again')); })
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -55,11 +57,9 @@ export default function BelowThresholdPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ assetId }),
       });
-      const json = await res.json();
-      // apiResponse nests the message: { success: false, error: { code, message } }.
-      if (!res.ok) { setError(json.error?.message || 'Failed to post expense'); }
-      else { setDone(prev => new Set([...prev, assetId])); }
-    } catch { setError('Network error'); }
+      await assertOk(res, 'Could not post the expense - try again');
+      setDone(prev => new Set([...prev, assetId]));
+    } catch (err) { setError(apiErrorMessage(err, 'Could not post the expense - try again')); }
     setPosting(null);
   };
 
@@ -109,7 +109,7 @@ export default function BelowThresholdPage() {
                     </td>
                   </tr>
                 )}
-                {!loading && assets.length === 0 && (
+                {!loading && !error && assets.length === 0 && (
                   <tr>
                     <td colSpan={8} className="px-4 py-10 text-center text-[var(--ff-text-tertiary)]">
                       <CheckCircle2 className="h-6 w-6 inline mr-2 text-teal-400" />

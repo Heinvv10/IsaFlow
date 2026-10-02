@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Users, Plus, Trash2, AlertCircle, Loader2, X } from 'lucide-react';
 import { PageHeader } from '@/components/ui';
@@ -49,11 +49,12 @@ export default function PortalContactsPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/afs/portal-contacts', { credentials: 'include' });
-      const json = await res.json() as { data?: { contacts?: PortalContact[] }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to load portal contacts');
+      await assertOk(res, 'Could not load the portal contacts - try again');
+      const json = await res.json() as { data?: { contacts?: PortalContact[] } };
       setContacts(json.data?.contacts ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load portal contacts');
+      setContacts([]);
+      setError(apiErrorMessage(err, 'Could not load the portal contacts - try again'));
       log.error('Failed to load portal contacts', { error: err }, 'portal-contacts-page');
     } finally {
       setLoading(false);
@@ -74,13 +75,13 @@ export default function PortalContactsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: form.name.trim(), email: form.email.trim().toLowerCase(), role: form.role }),
       });
-      const json = await res.json() as { data?: { contact?: PortalContact }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to add contact');
+      await assertOk(res, 'Could not add the contact - try again');
+      const json = await res.json() as { data?: { contact?: PortalContact } };
       if (json.data?.contact) setContacts(prev => [json.data!.contact!, ...prev]);
       setShowModal(false);
       setForm(EMPTY_FORM);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to add contact');
+      setSaveError(apiErrorMessage(err, 'Could not add the contact - try again'));
       log.error('Failed to add portal contact', { error: err }, 'portal-contacts-page');
     } finally {
       setSaving(false);
@@ -95,13 +96,10 @@ export default function PortalContactsPage() {
       const res = await apiFetch(`/api/accounting/afs/portal-contacts/${contactId}`, {
         method: 'DELETE', credentials: 'include',
       });
-      if (!res.ok && res.status !== 204) {
-        const json = await res.json() as { error?: { message?: string } };
-        throw new Error(json.error?.message ?? `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not delete the contact - try again');
     } catch (err) {
       setContacts(prev);
-      setError(err instanceof Error ? err.message : 'Delete failed');
+      setError(apiErrorMessage(err, 'Could not delete the contact - try again'));
       log.error('Failed to delete portal contact', { error: err, contactId }, 'portal-contacts-page');
     } finally {
       setDeletingId('');

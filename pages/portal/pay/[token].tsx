@@ -6,8 +6,12 @@
 import { useCallback, useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
+import { assertOk, apiErrorMessage, ApiEnvelopeError, ApiRequestError } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+
+const LOAD_FALLBACK = 'Could not load the payment details - try again';
+const NOT_FOUND_MESSAGE = 'This payment link was not found or has expired.';
 
 interface PaymentLinkData {
   invoiceId: string;
@@ -35,14 +39,17 @@ export default function PortalPayPage() {
   const fetchPaymentLink = useCallback(async () => {
     try {
       const res = await fetch(`/api/portal/payment-link?token=${token}`);
+      await assertOk(res, LOAD_FALLBACK);
       const json = await res.json();
-      if (!res.ok || !json.data) {
-        setError(json.error?.message || json.message || 'Payment link not found or expired');
+      if (!json.data) {
+        setError(NOT_FOUND_MESSAGE);
         return;
       }
       setData(json.data);
-    } catch {
-      setError('Failed to load payment details');
+    } catch (err) {
+      setData(null);
+      const gone = err instanceof ApiRequestError && (err.status === 404 || err.status === 410);
+      setError(gone && err.message === LOAD_FALLBACK ? NOT_FOUND_MESSAGE : apiErrorMessage(err, LOAD_FALLBACK));
     } finally {
       setLoading(false);
     }
@@ -66,13 +73,12 @@ export default function PortalPayPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),
       });
+      await assertOk(res, 'Could not start the payment - try again');
       const json = await res.json();
-      if (!res.ok || !json.data?.checkoutUrl) {
-        throw new Error(json.error?.message ?? json.message ?? 'Failed to start payment');
-      }
+      if (!json.data?.checkoutUrl) throw new ApiEnvelopeError('Could not start the payment - try again');
       window.location.href = json.data.checkoutUrl as string;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start payment');
+      setError(apiErrorMessage(err, 'Could not start the payment - try again'));
       setSubmitting(false);
     }
   };

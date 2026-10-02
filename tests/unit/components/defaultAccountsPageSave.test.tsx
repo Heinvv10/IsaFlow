@@ -9,7 +9,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import DefaultAccountsPage from '@/../pages/accounting/default-accounts';
 import { apiFetch } from '@/lib/apiFetch';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => ({ ...(await vi.importActual<typeof import('@/lib/apiFetch')>('@/lib/apiFetch')), apiFetch: vi.fn() }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 
 // The fields the chart API returns and the page's per-role options read (defaultAccountRoles.roleCandidates).
@@ -72,7 +72,7 @@ it('when the reload after a save fails, says so instead of leaving "saved" over 
     return answered(url, init);
   });
   fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
-  expect(await screen.findByText('Failed to load configuration')).toBeTruthy();
+  expect(await screen.findByText('Could not load the default accounts - try again')).toBeTruthy();
   expect(screen.queryByText('Default accounts saved')).toBeNull();
 });
 
@@ -80,14 +80,14 @@ it('when the page cannot load, shows the error and a retry — not twelve select
   vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => (
     String(url).startsWith('/api/accounting/chart-of-accounts') ? json({ data: ACCOUNTS }) : json({ success: false }, 500)));
   render(<DefaultAccountsPage />);
-  expect(await screen.findByText('Failed to load configuration')).toBeTruthy();
+  expect(await screen.findByText('Could not load the default accounts - try again')).toBeTruthy();
   expect(screen.queryAllByRole('combobox')).toEqual([]);
   expect((screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement).disabled).toBe(true);
   // Retry: the load now succeeds and the form appears.
   answer();
   fireEvent.click(screen.getByRole('button', { name: /try again/i }));
   expect(await screen.findByRole('combobox', { name: 'Accounts Receivable' })).toBeTruthy();
-  expect(screen.queryByText('Failed to load configuration')).toBeNull();
+  expect(screen.queryByText('Could not load the default accounts - try again')).toBeNull();
 });
 
 it('after a refused save (400) puts the row back to the holder it loaded and keeps the refusal on screen', async () => {

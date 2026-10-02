@@ -6,7 +6,7 @@
  */
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { apiFetch, ApiRequestError, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { log } from '@/lib/logger';
 import { InlineReasonForm } from '@/components/shared/InlineReasonForm';
@@ -42,7 +42,7 @@ export default function VatDeclaredElsewhereSection({ report, onChanged }: {
       onChanged();
     } catch (err) {
       log.warn('VatDeclaredElsewhereSection: unmark failed', { error: err }, 'VatDeclaredElsewhereSection');
-      setError(err instanceof ApiRequestError ? err.message : 'Could not unmark this document');
+      setError(apiErrorMessage(err, 'Could not unmark this document'));
     } finally {
       setBusyId(null);
     }
