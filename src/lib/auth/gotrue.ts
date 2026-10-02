@@ -148,11 +148,12 @@ export type LogoutScope = 'global' | 'local' | 'others';
  * GoTrue actually revokes it here.
  */
 export async function logout(accessToken: string, scope: LogoutScope = 'global'): Promise<void> {
-  const res = await gotrueFetch(
+  // Bounded and classified (D9): an outage throws AuthUpstreamUnavailableError, still a throw for every caller.
+  const res = await callAuthUpstream('gotrue logout', (signal) => gotrueFetch(
     `/logout?scope=${scope}`,
-    { method: 'POST' },
+    { method: 'POST', signal },
     { apikey: getEnv('SUPABASE_ANON_KEY'), Authorization: `Bearer ${accessToken}` }
-  );
+  ));
   if (!res.ok) {
     throw new Error(`gotrue logout failed: ${res.status} ${await res.text().catch(() => '')}`);
   }

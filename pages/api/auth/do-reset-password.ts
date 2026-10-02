@@ -2,7 +2,8 @@
 import type { NextApiHandler } from 'next';
 import { adminUpdateUser } from '@/lib/auth/gotrue';
 import { revokeAllSessions } from '@/lib/auth/sessionRevocation';
-import { consumePasswordResetToken } from '@/lib/auth/passwordResetService';
+import { consumePasswordResetToken, releasePasswordResetToken } from '@/lib/auth/passwordResetService';
+import { AuthUpstreamUnavailableError, respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import { withRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 
@@ -17,6 +18,7 @@ const handler: NextApiHandler = async (req, res) => {
   if (newPassword.length < 10 || newPassword.length > 200) {
     return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be between 10 and 200 characters' } });
   }
+  let spent = false;
   try {
     // Self-owned single-use token (see passwordResetService). Consuming it both
     // validates the reset and binds it to exactly one account. These tokens are
@@ -29,7 +31,10 @@ const handler: NextApiHandler = async (req, res) => {
     }
     // Token was valid and is now spent. A failure here is a server-side problem
     // (DB / GoTrue), NOT a bad token — surface it as 500 so the user retries the
-    // whole flow rather than being told their fresh link was "invalid".
+    // whole flow rather than being told their fresh link was "invalid". A GoTrue
+    // OUTAGE instead hands the link back (below): retrying it re-applies the
+    // password and finishes the revocation.
+    spent = true;
     const updated = await adminUpdateUser(consumed.userId, { password: newPassword });
     // SECURITY: a reset is compromise recovery. adminUpdateUser only rotates the
     // password hash — GoTrue's stateless HS256 refresh tokens survive it, so a
@@ -40,6 +45,17 @@ const handler: NextApiHandler = async (req, res) => {
     await revokeAllSessions(updated.email, newPassword);
     return res.status(200).json({ success: true, data: null });
   } catch (err) {
+    if (spent && err instanceof AuthUpstreamUnavailableError) {
+      try {
+        await releasePasswordResetToken(recoveryToken);
+      } catch (releaseErr) {
+        log.error('reset-password: could not hand the link back after an auth outage', {
+          message: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+        }, 'Auth');
+      }
+      respondIfAuthUnavailable(res, err, 'do-reset-password');
+      return;
+    }
     log.error('reset-password failed after token validation', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
     return res.status(500).json({ success: false, error: { code: 'RESET_FAILED', message: 'Could not update password. Please request a new reset link.' } });
   }
