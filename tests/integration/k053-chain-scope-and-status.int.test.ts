@@ -24,8 +24,7 @@ import { findUnpostedInvoiceVat } from '@/modules/accounting/services/reports/va
 import { reconcileSubledger } from '@/modules/accounting/services/reconciliation/subledgerReconciliationService';
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
 import { softDelete } from '@/modules/accounting/services/core/softDeleteService';
-import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { type Co, makeCompany, cleanup, inTx, arInvoice, journalOf, reverseTip } from './k053-chain.helpers';
+import { type Co, makeCompany, cleanupAll, assertChainFixtureDb, inTx, arInvoice, journalOf, reverseTip } from './k053-chain.helpers';
 
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 const JULY_END = '2026-07-31';
@@ -58,8 +57,8 @@ async function deletedInvoiceLinkedTo(co: Co, suffix: string, journal: string, s
 
 describeIfDb('D7 chain walks: one tenant, posted entries only', () => {
   const cos: Co[] = [];
-  beforeAll(() => { assertDisposable(); });
-  afterAll(async () => { for (const c of cos) await cleanup(c); }, 120000);
+  beforeAll(() => { assertChainFixtureDb(); });
+  afterAll(() => cleanupAll(cos), 120000);
 
   it('T1: a deleted invoice in another tenant pointing at this tenant\'s journal moves neither side', async () => {
     const a = await makeCompany('D7T1A'); cos.push(a);

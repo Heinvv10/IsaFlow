@@ -20,8 +20,7 @@ import { findUnpostedInvoiceVat } from '@/modules/accounting/services/reports/va
 import { reconcileSubledger } from '@/modules/accounting/services/reconciliation/subledgerReconciliationService';
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
 import { softDelete } from '@/modules/accounting/services/core/softDeleteService';
-import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { type Co, makeCompany, cleanup, inTx, arInvoice, journalOf, reverseTip } from './k053-chain.helpers';
+import { type Co, makeCompany, cleanupAll, assertChainFixtureDb, inTx, arInvoice, journalOf, reverseTip } from './k053-chain.helpers';
 
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 const BOUND_MS = 5000;
@@ -44,16 +43,26 @@ async function reversalOf(co: Co, journal: string): Promise<string> {
     WHERE company_id = ${co.id}::UUID AND reversal_of_id = ${journal}::UUID`) as { id: string }[])[0]!.id;
 }
 
-/** Forge `journal` into reversing `target`, closing a loop. */
+/**
+ * Forge `journal` into reversing `target`, closing a loop. `ux_gl_je_reversal_of`
+ * allows one reverser per entry, so every forge here targets an entry nothing
+ * else reverses — asserted, so a fixture that breaks it fails on that premise
+ * rather than on a 23505 halfway through a case.
+ */
 async function forgeLink(co: Co, journal: string, target: string | null): Promise<void> {
+  if (target !== null) {
+    const taken = await sql`SELECT id FROM gl_journal_entries WHERE company_id = ${co.id}::UUID
+      AND reversal_of_id = ${target}::UUID AND id <> ${journal}::UUID`;
+    expect(taken, `premise: ${target} is already reversed by another entry`).toEqual([]);
+  }
   await sql`UPDATE gl_journal_entries SET reversal_of_id = ${target}::UUID
             WHERE company_id = ${co.id}::UUID AND id = ${journal}::UUID`;
 }
 
 describeIfDb('D7 reversal-chain walks: cycle guard and tenant scope', () => {
   const cos: Co[] = [];
-  beforeAll(() => { assertDisposable(); });
-  afterAll(async () => { for (const c of cos) await cleanup(c); }, 120000);
+  beforeAll(() => { assertChainFixtureDb(); });
+  afterAll(() => cleanupAll(cos), 120000);
 
   it('S1: a forged loop on a DELETED invoice — VAT recon, VAT201, AR recon and aging all finish', async () => {
     const co = await makeCompany('D7S1'); cos.push(co);

@@ -122,6 +122,51 @@ export async function reverseTip(co: Co, root: string, reversalDate?: string): P
   return r.id;
 }
 
+/**
+ * The DB guard for the chain suites. They forge corrupt reversal chains, so
+ * they run only against a disposable LOCAL database: `isaflow_schema_fixture`
+ * or `isaflow_test` on localhost. The dev/production server (isaflow,
+ * isaflow_dev, isaflow_staging) carries neither name, and it is not reached
+ * through localhost from a fixture URL. Unlike `assertDisposable` (the route
+ * suites), these suites never call GoTrue or the platform-admin pool, so they
+ * do not need those URLs, and they do not need the fixture's NAME.
+ */
+export function assertChainFixtureDb(): void {
+  if (process.env.ISAFLOW_DISPOSABLE_AUTH_TEST !== '1') {
+    throw new Error('Disposable opt-in required: ISAFLOW_DISPOSABLE_AUTH_TEST=1');
+  }
+  const url = new URL(process.env.DATABASE_URL ?? 'http://missing.invalid');
+  if (!['localhost', '127.0.0.1'].includes(url.hostname)) throw new Error('DATABASE_URL must be localhost');
+  if (!['/isaflow_schema_fixture', '/isaflow_test'].includes(url.pathname)) {
+    throw new Error('DATABASE_URL must name isaflow_schema_fixture or isaflow_test');
+  }
+}
+
+/**
+ * Clean every company even when one fails, then report every failure. Forged
+ * links are undone across the WHOLE set first: a case that fails before it
+ * un-forges a cross-tenant link (one company's entry reversing another's)
+ * otherwise leaves a `reversal_of_id` foreign key that blocks deleting the
+ * other company's journals, and every company after it was stranded.
+ */
+export async function cleanupAll(cos: readonly Co[]): Promise<void> {
+  const failures: string[] = [];
+  const ids = cos.map((co) => co.id);
+  try {
+    await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = ANY(${ids}::uuid[])`;
+  } catch (err) {
+    failures.push(`unlink: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  for (const co of cos) {
+    try {
+      await cleanup(co);
+    } catch (err) {
+      failures.push(`${co.tag}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  if (failures.length > 0) throw new Error(`cleanup failed for ${failures.length} company(ies): ${failures.join('; ')}`);
+}
+
 export async function cleanup(co: Co): Promise<void> {
   const c = co.id;
   await sql`DELETE FROM soft_delete_journal_reversals WHERE company_id = ${c}::UUID`;
