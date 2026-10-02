@@ -6,10 +6,9 @@
  */
 import { useEffect, useState } from 'react';
 import { fetchJobBudgets, type JobBudgetRow } from './practiceApi';
-import { EngagementBudgetSummary } from './EngagementBudgetSummary';
+import { EngagementBudgetSummary, BUDGET_STATE_TEXT } from './EngagementBudgetSummary';
+import { CLOSED_JOB_STATUSES } from '@/modules/accounting/services/practice/practiceJobBudget';
 
-/** A job time can still be captured against. */
-const CLOSED = new Set<JobBudgetRow['jobStatus']>(['complete', 'cancelled', 'billed']);
 
 interface Props {
   practiceClientId: string;
@@ -31,7 +30,7 @@ export function JobBudgetPicker({ practiceClientId, jobId, onChange, refreshKey,
     void (async () => {
       try {
         const rows = await fetchJobBudgets(practiceClientId);
-        if (!cancelled) setJobs(rows.filter((j) => !CLOSED.has(j.jobStatus)).sort((a, b) => a.title.localeCompare(b.title)));
+        if (!cancelled) setJobs(rows.filter((j) => !CLOSED_JOB_STATUSES.includes(j.jobStatus)).sort((a, b) => a.title.localeCompare(b.title)));
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load jobs');
       }
@@ -49,7 +48,7 @@ export function JobBudgetPicker({ practiceClientId, jobId, onChange, refreshKey,
         <option value="">{placeholder}</option>
         {jobs.map((j) => <option key={j.jobId} value={j.jobId}>{j.title}</option>)}
       </select>
-      {error && <p className="text-xs text-red-400">Could not load jobs: {error}</p>}
+      {error && <p className={`text-xs ${BUDGET_STATE_TEXT.over}`}>Could not load jobs: {error}</p>}
       {selected && <EngagementBudgetSummary status={selected} />}
     </div>
   );
