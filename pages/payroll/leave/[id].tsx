@@ -4,6 +4,7 @@
  */
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
 import Link from 'next/link';
 import { CalendarOff, Loader2, AlertCircle, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -152,31 +153,33 @@ export default function LeaveDetailPage() {
               </dl>
 
               {request.status === 'pending' && (
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    onClick={() => handleAction('approved')}
-                    disabled={!!actionLoading}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium"
-                  >
-                    {actionLoading === 'approved' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-                    Approve
-                  </button>
-                  <button
-                    onClick={() => handleAction('rejected')}
-                    disabled={!!actionLoading}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium"
-                  >
-                    {actionLoading === 'rejected' ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-                    Reject
-                  </button>
-                  <button
-                    onClick={handleDelete}
-                    disabled={!!actionLoading}
-                    className="px-4 py-2 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 disabled:opacity-50 text-sm"
-                  >
-                    Delete
-                  </button>
-                </div>
+                <WriteOnly>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={() => handleAction('approved')}
+                      disabled={!!actionLoading}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium"
+                    >
+                      {actionLoading === 'approved' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => handleAction('rejected')}
+                      disabled={!!actionLoading}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium"
+                    >
+                      {actionLoading === 'rejected' ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+                      Reject
+                    </button>
+                    <button
+                      onClick={handleDelete}
+                      disabled={!!actionLoading}
+                      className="px-4 py-2 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 disabled:opacity-50 text-sm"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </WriteOnly>
               )}
             </>
           )}
