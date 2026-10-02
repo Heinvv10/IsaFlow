@@ -51,16 +51,20 @@ describe('negatives: the correct shape stays quiet', () => {
 
 describe('fail-closed CLI', { timeout: 300_000 }, () => {
   const cli = resolve('scripts/ci/check-client-responses.ts');
+  // Inside a git hook (pre-push runs `bun run ci`) git exports GIT_DIR and friends. Inherited, they point the
+  // throwaway repo's `git init` and the gate's `git ls-files` at the REAL repository, so the gate lists the real
+  // files and reads them from the temp dir (ENOENT). Every git-touching child here runs without them.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
   /** 0 = clean, 1 = the gate reported a violation. A crash or a timeout is NOT 1: it throws with the child's stderr. */
   const run = (dir: string) => {
-    const r = spawnSync('bun', [cli], { cwd: dir, encoding: 'utf8', timeout: 120_000, killSignal: 'SIGKILL' });
+    const r = spawnSync('bun', [cli], { cwd: dir, env, encoding: 'utf8', timeout: 120_000, killSignal: 'SIGKILL' });
     if (r.error || r.signal) throw new Error(`gate child did not finish (${r.error?.message ?? r.signal}); stderr: ${r.stderr}`);
     if (r.status !== 0 && !/(unpinned hit|no client files|stale pin|pin without|syntax errors|not part of the program)/.test(r.stderr + r.stdout)) throw new Error(`gate child exited ${r.status} without a verdict; stderr: ${r.stderr}`);
     return r.status;
   };
   const repo = (files: Record<string, string>, pins = '[]') => {
     const dir = mkdtempSync(join(tmpdir(), 'crg-'));
-    execFileSync('git', ['init', '-q'], { cwd: dir });
+    execFileSync('git', ['init', '-q'], { cwd: dir, env });
     mkdirSync(join(dir, 'scripts/ci'), { recursive: true });
     writeFileSync(join(dir, 'scripts/ci/client-responses.pins.json'), pins);
     writeFileSync(join(dir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2020', lib: ['dom', 'esnext'], jsx: 'preserve', strict: true } }));
