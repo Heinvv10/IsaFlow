@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Clock, AlertCircle, Loader2, Paperclip, X, ChevronUp, ChevronDown, CheckCircle2 } from 'lucide-react';
 
@@ -57,10 +57,10 @@ export default function ProvisionalEntriesPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/provisional/outstanding');
-      const json = await res.json() as { data?: { outstanding?: ProvisionalEntry[] }; error?: string };
-      if (!res.ok) { setError(json.error ?? 'Failed to load provisional entries'); return; }
+      await assertOk(res, 'Could not load the provisional entries - try again.');
+      const json = await res.json() as { data?: { outstanding?: ProvisionalEntry[] } };
       setEntries(json.data?.outstanding ?? []);
-    } catch { setError('Network error loading provisional entries'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load the provisional entries - try again.')); }
     finally { setLoading(false); }
   }, []);
 
@@ -81,9 +81,14 @@ export default function ProvisionalEntriesPage() {
     setAttachJeId(jeId); setDocsLoading(true);
     try {
       const res = await apiFetch('/api/accounting/document-capture?status=extracted&pageSize=50');
+      await assertOk(res, 'Could not load the captured documents - try again.');
       const json = await res.json() as { data?: CapturedDoc[] };
       setDocs(json.data ?? []);
-    } catch { log.error('Failed to load captured documents', {}, 'provisional-ui'); setDocs([]); }
+    } catch (err) {
+      log.error('Failed to load captured documents', { error: err }, 'provisional-ui');
+      setDocs([]);
+      setToast({ msg: apiErrorMessage(err, 'Could not load the captured documents - try again.'), kind: 'err' });
+    }
     finally { setDocsLoading(false); }
   }, []);
 
@@ -95,11 +100,10 @@ export default function ProvisionalEntriesPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ capturedDocumentId }),
       });
-      const json = await res.json() as { error?: string };
-      if (!res.ok) { setToast({ msg: json.error ?? 'Attach failed', kind: 'err' }); return; }
+      await assertOk(res, 'Could not attach the evidence - try again.');
       setToast({ msg: 'Evidence attached successfully', kind: 'ok' });
       setAttachJeId(null); void load();
-    } catch { setToast({ msg: 'Network error attaching evidence', kind: 'err' }); }
+    } catch (err) { setToast({ msg: apiErrorMessage(err, 'Could not attach the evidence - try again.'), kind: 'err' }); }
     finally { setSubmitting(false); }
   }, [attachJeId, submitting, load]);
 
@@ -242,14 +246,14 @@ export default function ProvisionalEntriesPage() {
                 setDismissJeId(null);
                 apiFetch(`/api/accounting/provisional/${jeId}/dismiss`, { method: 'POST' })
                   .then(async (res) => {
+                    await assertOk(res, 'Could not dismiss the provisional entry - try again.');
                     const json = await res.json();
-                    if (!res.ok || !json.success) throw new Error(json.error?.message ?? 'Failed to dismiss');
                     // The route says whether a contra was posted: a journal whose chain was already out (D8) is only dismissed.
                     const freed = Number(json.data?.bankTransactionsReset ?? 0) > 0;
                     setToast({ msg: `${json.message ?? 'Provisional entry dismissed'}${freed ? ' — linked bank transaction returned to the review queue.' : '.'}`, kind: 'ok' });
                     void load();
                   })
-                  .catch((err: unknown) => setToast({ msg: err instanceof Error ? err.message : 'Failed to dismiss entry', kind: 'err' }));
+                  .catch((err: unknown) => setToast({ msg: apiErrorMessage(err, 'Could not dismiss the provisional entry - try again.'), kind: 'err' }));
               }}
                 className="px-4 py-2 rounded-lg text-sm bg-red-600 hover:bg-red-700 text-white font-medium">Dismiss &amp; reverse</button>
             </div>
