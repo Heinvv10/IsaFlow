@@ -8,8 +8,24 @@
 -- client's (23503).
 --
 -- NOT VALID: enforced for every new or changed row; existing rows are not
--- re-checked here (VALIDATE CONSTRAINT is a separate, deliberate step).
+-- re-checked here. VALIDATE CONSTRAINT is a separate, deliberate step after
+-- this ships. Before it, count the rows it would refuse (must be 0):
+--
+--   SELECT count(*) FROM time_entries te
+--   LEFT JOIN practice_jobs pj ON pj.id = te.job_id
+--   WHERE te.job_id IS NOT NULL
+--     AND (pj.id IS NULL
+--          OR te.company_id IS DISTINCT FROM pj.company_id
+--          OR te.practice_client_id IS DISTINCT FROM pj.practice_client_id);
+--
+-- then: ALTER TABLE time_entries VALIDATE CONSTRAINT time_entries_job_same_client_fkey;
+--
 -- MATCH SIMPLE: an entry with no job (job_id NULL) is not constrained.
+--
+-- The UNIQUE index build and both ALTERs take strong locks on practice_jobs and
+-- time_entries; queued behind a long transaction they would block every
+-- timesheet read, so fail instead (as 649, 717, 718).
+SET LOCAL lock_timeout = '5s';
 
 DO $$
 BEGIN
