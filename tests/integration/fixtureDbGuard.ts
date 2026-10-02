@@ -14,6 +14,7 @@
  *
  *   - no query parameter except `sslmode` (host, port, options, … all refused);
  *   - the host pg will use is 127.0.0.1 or localhost (no unix socket);
+ *   - an explicit port in the URL: without one pg falls back to PGPORT;
  *   - not the IsaFlow Supabase stack's own ports on this machine (7770-7776),
  *     which publish the server holding isaflow, isaflow_dev and
  *     isaflow_staging on localhost too;
@@ -35,7 +36,13 @@ export function fixtureDbUrlProblem(raw: string | undefined, allowedDbs: readonl
   if (!pg.host || !['localhost', '127.0.0.1'].includes(pg.host)) {
     return `must connect to localhost (pg reads host ${pg.host ?? 'none'})`;
   }
-  if (pg.port && SUPABASE_STACK_PORTS.has(String(pg.port))) {
+  // An explicit port, always. With none — `localhost/db`, or the empty
+  // `localhost:/db` — pg takes PGPORT, which this string cannot show, so
+  // PGPORT=7772 reached the Supabase server past the check (rev-d7-cc487eb4b).
+  if (!pg.port || !/^\d+$/.test(String(pg.port))) {
+    return 'must name its port explicitly (without one pg falls back to PGPORT)';
+  }
+  if (SUPABASE_STACK_PORTS.has(String(pg.port))) {
     return `port ${pg.port} is the IsaFlow Supabase server, not a fixture`;
   }
   if (!pg.database || !allowedDbs.includes(pg.database)) {
