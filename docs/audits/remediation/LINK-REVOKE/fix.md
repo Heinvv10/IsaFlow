@@ -23,7 +23,7 @@ the only way to stop it was SQL.
   `No active payment link` (no active standing link and no `payment_url`; a second call is this
   404), 400 on lock timeout. Every refusal precedes the first write. A success is logged
   (`Standing payment link revoked`: company, invoice, user, count).
-- Invoice page: overflow action "Revoke payment link" (while `payment_url` is set) opens
+- Invoice page: overflow action "Revoke payment link" (while `payment_url` is set or the detail read's `has_standing_link` is true) opens
   `RevokePaymentLinkDialog`; the invoice is reloaded after any attempt, a failure shows the
   server's message.
 
@@ -36,8 +36,8 @@ the only way to stop it was SQL.
 
 ## Evidence (fixture `isaflow_schema_fixture`)
 
-Final counts at the head: integration `link-revoke.int.test.ts` 22/22 (first run on unchanged code:
-11/11 red); hook unit tests 6/6; dialog component test 4/4. Mutant tables are per round below
+Final counts at the head: integration 22 (`link-revoke.int.test.ts`) + 2 (`link-revoke-locking.int.test.ts`) (first run on unchanged code:
+11/11 red); hook unit tests 8; dialog component test 4/4. Mutant tables are per round below
 (each restored after its run). Not verified by a test: a concurrent Pay Now racing a revoke
 (lock-timeout and lock-dropped mutants cover the lock itself).
 
@@ -123,7 +123,7 @@ POST before that deploy carry `charges_balance` true and are cancelled.
 - L3 the live-link SELECT carries the same company `EXISTS` as the cancel UPDATE. Equivalent for
   behaviour (the locking SELECT already refuses another company's invoice), so no test can go red
   on it; it is there so each statement is scoped on its own.
-- L4 the integration suite is split: `link-revoke.int.test.ts` (functional, 23 tests incl. the new
+- L4 the integration suite is split: `link-revoke.int.test.ts` (functional, 22 tests incl. the new
   flag test), `link-revoke-locking.int.test.ts` (race + 5s lock timeout, 2 tests) and
   `link-revoke.helpers.ts`. Both pass against the fixture.
 
