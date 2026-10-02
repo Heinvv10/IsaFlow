@@ -1,9 +1,9 @@
 // src/lib/limits/poolLimits.ts
 //
-// The auth pool's size and acquire timeout, as plain numbers with no runtime
-// behind them. Deliberately its OWN module rather than exports on
-// authPool.ts: src/lib/pdf/renderSemaphore.ts derives its ceilings from these,
-// and importing them from authPool.ts would pull `pg` (and the pgTypes
+// The auth pool's size and acquire timeout, plus the one validated reader every
+// pool size comes through (R-182). No `pg` behind it. Deliberately its OWN
+// module rather than exports on authPool.ts: src/lib/pdf/renderSemaphore.ts
+// derives its ceilings from these, and importing them from authPool.ts would pull `pg` (and the pgTypes
 // side-effect import) into the PDF library's module graph for two constants.
 //
 // It sits under lib/limits/ rather than lib/auth/ because both sides read it.
@@ -23,12 +23,38 @@
 // Change a value here and the semaphore's ceilings move with it. These numbers
 // are not restated anywhere else.
 
+import { log } from '@/lib/logger';
+
 export const AUTH_POOL_CONNECTION_TIMEOUT_MS = 15_000;
 export const AUTH_POOL_IDLE_TIMEOUT_MS = 30_000;
 export const DEFAULT_AUTH_POOL_MAX = 20;
 
+const LARGEST_POOL = 100;
+
+/**
+ * A pool's size from the environment (R-182): a whole number from 1 to 100
+ * written as plain decimal digits, else `fallback` with one warning. Unset or
+ * blank is `fallback`, silently. A plain `Number(...)` turned a typo into NaN,
+ * and pg treats a NaN `max` as no limit, so the pool became unbounded on a
+ * Postgres that is shared and capped at 100 connections. Digits only, so
+ * `0x10` and `1e1` are refused rather than read as 16 and 10.
+ */
+export function poolSizeFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const text = raw.trim();
+  if (/^[0-9]+$/.test(text)) {
+    const n = Number(text);
+    if (n >= 1 && n <= LARGEST_POOL) return n;
+  }
+  log.warn(`${name} is not a whole number from 1 to ${LARGEST_POOL}; using the default`, {
+    name, value: raw, default: fallback,
+  }, 'pool');
+  return fallback;
+}
+
 /** The pool's configured size. Read per call, the same way the pool itself
  *  reads it, so the semaphore and the pool can never disagree. */
 export function authPoolMax(): number {
-  return Number(process.env.AUTH_POOL_MAX ?? DEFAULT_AUTH_POOL_MAX);
+  return poolSizeFromEnv('AUTH_POOL_MAX', DEFAULT_AUTH_POOL_MAX);
 }
