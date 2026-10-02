@@ -156,7 +156,7 @@ export default function AdminUserDetailPage() {
       const { redirect } = await apiJson(`/api/admin/users/${id}/impersonate`, {
         method:  'POST',
         headers: { 'X-Admin-Request': 'true' },
-      });
+      }, 'Could not start impersonation - try again');
       setLoginAsRedirect(redirect);
       setLoginAsModalOpen(true);
     } catch (err) {

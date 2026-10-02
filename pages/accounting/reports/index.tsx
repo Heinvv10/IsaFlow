@@ -146,7 +146,7 @@ function useShowDescriptions() {
     void (async () => {
       try {
         const res = await apiFetch('/api/auth/preferences');
-        if (!res.ok) return;
+        if (!res.ok) { log.warn('Could not load the show-descriptions pref', { status: res.status }, 'ReportsHub'); return; }
         const json = (await res.json()) as { data?: Record<string, string> };
         if (json.data?.[SHOW_DESC_PREF] === 'true') setShowDesc(true);
       } catch (err) {

@@ -54,6 +54,7 @@ export default function PracticeJobsPage() {
   const [clients, setClients] = useState<PracticeClientOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [filterError, setFilterError] = useState('');
   const [toast, setToast] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [clientFilter, setClientFilter] = useState('');
@@ -86,7 +87,7 @@ export default function PracticeJobsPage() {
     async function loadClients() {
       try {
         const res = await apiFetch('/api/accounting/practice/clients?status=active');
-        if (!res.ok) return;
+        await assertOk(res, 'Could not load the client filter - try again');
         const json = await res.json() as unknown;
         const payload = (json && typeof json === 'object' && 'data' in json ? (json as { data: unknown }).data : json) as unknown;
         const arr = Array.isArray(payload)
@@ -95,7 +96,7 @@ export default function PracticeJobsPage() {
             ? (payload as { clients: PracticeClientOption[] }).clients
             : [];
         setClients(arr as PracticeClientOption[]);
-      } catch { /* non-critical */ }
+      } catch (err) { setClients([]); setFilterError(apiErrorMessage(err, 'Could not load the client filter - try again')); }
     }
     void loadClients();
   }, []);
@@ -150,6 +151,12 @@ export default function PracticeJobsPage() {
             <div className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{error}</span>
+            </div>
+          )}
+          {filterError && (
+            <div className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{filterError}</span>
             </div>
           )}
           {toast && (

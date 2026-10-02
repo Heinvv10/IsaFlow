@@ -98,10 +98,7 @@ export default function OnboardingWizard() {
         if (cancelled || redirectingRef.current) return;
         if (!completeRes.ok) {
           log.warn('onboarding/complete POST failed on already-completed check', { status: completeRes.status }, 'onboarding');
-          if (!cancelled) {
-            setError('Could not restore your session. Please try again.');
-            setAuthChecked(true);
-          }
+          if (!cancelled) { setError('Could not restore your session. Please try again.'); setAuthChecked(true); }
           return;
         }
         redirectToAccounting();
@@ -147,7 +144,7 @@ export default function OnboardingWizard() {
             redirectToAccounting();
             return;
           }
-        }
+        } else log.warn('Could not load the user companies during onboarding', { status: compRes.status }, 'onboarding');
       } catch (err) {
         log.warn('Failed to check user companies during onboarding', { error: err }, 'onboarding');
         // Non-fatal — fall through to show the wizard

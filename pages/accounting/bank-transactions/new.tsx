@@ -73,7 +73,7 @@ export default function NewBankTransactionPage() {
   useEffect(() => {
     let mounted = true;
     const promises = [
-      apiJson('/api/accounting/bank-accounts').then(data => {
+      apiJson('/api/accounting/bank-accounts', undefined, 'Could not load the bank accounts - try again').then(data => {
         if (!mounted) return;
         const list: BankAcct[] = Array.isArray(data) ? data : [];
         setBankAccounts(list);

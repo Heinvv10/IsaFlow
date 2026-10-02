@@ -9,13 +9,15 @@
  *   a  a response body read (`.json()` / `.text()` / `.blob()`) on a fetch /
  *      apiFetch result with no status check before it in the same function
  *      (`assertOk(res)`, `res.ok`, `res.status`), including `.then(r => r.json())`
- *   b  a user-visible fallback that is a bare "Failed" / "Error" or `HTTP ${...}`
+ *   b  a user-visible fallback that is a bare "Failed" / "Error" or `HTTP ${...}`,
+ *      or an apiJson call with no failure sentence (it would read "Request to /api/x failed")
  *   c  `err.message` / `String(err)` taken from a catch in a file that talks to
  *      the API, instead of `apiErrorMessage(err, '<sentence>')` (log calls exempt)
  *   d  a mutating fetch / apiFetch call (method POST|PUT|PATCH|DELETE) whose
  *      result is never checked
  *   e  a busy flag (setXLoading/Saving/Busy/...(true)) in an async function with
  *      no `finally` that sets it false again: a thrown error leaves it set
+ *   g  `if (!res.ok) return;` or `if (res.ok) {...}` with no else: a failed response silently dropped
  *   f  a load whose catch shows an error but does not clear the state the try
  *      filled from the response: the old rows stay under the new error
  *
@@ -32,7 +34,7 @@
  */
 import ts from 'typescript';
 
-export type HitKind = 'a' | 'b' | 'c' | 'd' | 'e' | 'f';
+export type HitKind = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g';
 export interface Hit { file: string; line: number; kind: HitKind; reason: string; lineText: string }
 
 const FETCHERS = new Set(['apiFetch', 'fetch']);
@@ -273,6 +275,28 @@ export function analyzeFile(file: string, text: string): Hit[] {
     ts.forEachChild(n, visitG);
   };
   visitG(sf);
+
+  // ── (g) a failed response swallowed: `if (!res.ok) return;` and nothing said ─
+  const visitS = (n: ts.Node) => {
+    if (ts.isIfStatement(n) && !n.elseStatement) {
+      const c = n.expression;
+      const neg = ts.isPrefixUnaryExpression(c) && c.operator === ts.SyntaxKind.ExclamationToken && ts.isPropertyAccessExpression(c.operand) && c.operand.name.text === 'ok';
+      const pos = ts.isPropertyAccessExpression(c) && c.name.text === 'ok' && ts.isIdentifier(c.expression);
+      const last = ts.isBlock(n.parent) ? n.parent.statements[n.parent.statements.length - 1] === n : true;   // anything after it may handle the failure
+      if (pos && last) add(n, 'g', 'only the success branch is handled (`if (res.ok) {...}` with no else): a failed response is dropped without a word');
+      const only = ts.isBlock(n.thenStatement) ? (n.thenStatement.statements.length === 1 ? n.thenStatement.statements[0]! : undefined) : n.thenStatement;
+      if (neg && only && ((ts.isReturnStatement(only) && (!only.expression || only.expression.kind === ts.SyntaxKind.NullKeyword || only.expression.getText(sf) === 'undefined')) || ts.isContinueStatement(only))) {
+        add(n, 'g', 'a failed response is dropped without a word: show the error (or log it, for a polled tick)');
+      }
+    }
+    ts.forEachChild(n, visitS);
+  };
+  visitS(sf);
+
+  // ── (b) apiJson with no failure sentence: an empty 5xx would read "Request to /api/... failed" ──
+  for (const c of calls(sf, (x) => ts.isIdentifier(x.expression) && x.expression.text === 'apiJson')) {
+    if (c.arguments.length < 3) add(c, 'b', 'apiJson without a failure sentence (3rd argument): a failed request would read "Request to /api/... failed"');
+  }
 
   const seen = new Set<string>();
   return hits.filter((h) => { const k = `${h.line}:${h.kind}:${h.reason}`; if (seen.has(k)) return false; seen.add(k); return true; });

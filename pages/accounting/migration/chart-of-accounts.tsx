@@ -46,13 +46,14 @@ export default function ChartOfAccountsPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/migration/session').then(async res => {
-      if (!res.ok) return;
-      const json = await res.json();
-      if (json.data) {
-        setSessionId(json.data.id);
-        setSourceSystem(json.data.sourceSystem ?? 'other');
+      await assertOk(res, 'Could not load the migration session - try again');
+      const json = await res.json() as { data?: { session?: { id: string; sourceSystem?: string } | null } };
+      const session = json.data?.session;
+      if (session) {
+        setSessionId(session.id);
+        setSourceSystem(session.sourceSystem ?? 'other');
       }
-    }).catch(() => {});
+    }).catch(err => setError(apiErrorMessage(err, 'Could not load the migration session - try again')));
   }, []);
 
   const applyAutoDetect = useCallback((parsedRows: ParsedRow[], mapping: FieldMapping) => {
@@ -116,7 +117,7 @@ export default function ChartOfAccountsPage() {
   };
 
   const handleImport = async () => {
-    if (!sessionId) { setError('No active migration session'); return; }
+    if (!sessionId) { setError('No active migration session - start one from the migration hub'); return; }
     setIsImporting(true);
     setError('');
     try {
@@ -134,25 +135,30 @@ export default function ChartOfAccountsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, accounts, systemAccountMap: systemMap }),
       });
-      await assertOk(res, 'Import failed');
+      await assertOk(res, 'Could not import the chart of accounts - try again');
       setImportResult((await res.json()).data);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Import failed'));
+      setError(apiErrorMessage(err, 'Could not import the chart of accounts - try again'));
     } finally {
       setIsImporting(false);
     }
   };
 
   const downloadTemplate = async () => {
-    const res = await apiFetch(`/api/accounting/migration/templates?sourceSystem=${sourceSystem}&step=chart-of-accounts`);
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `coa-template-${sourceSystem}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    setError('');
+    try {
+      const res = await apiFetch(`/api/accounting/migration/templates?sourceSystem=${sourceSystem}&step=chart-of-accounts`);
+      await assertOk(res, 'Could not download the template - try again');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `coa-template-${sourceSystem}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not download the template - try again'));
+    }
   };
 
   return (

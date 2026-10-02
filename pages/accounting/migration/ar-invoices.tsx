@@ -109,7 +109,7 @@ export default function ArInvoicesPage() {
     try {
       // The envelope is { session: {...} | null } — reading `data.id` always
       // yielded undefined, so this flow always failed with "No active session."
-      const { session } = await apiJson('/api/accounting/migration/session');
+      const { session } = await apiJson('/api/accounting/migration/session', undefined, 'Could not load the migration session - try again');
       const sessionId = session?.id;
       if (!sessionId) throw new ApiEnvelopeError('No active migration session');
 
@@ -142,15 +142,19 @@ export default function ArInvoicesPage() {
   };
 
   const downloadTemplate = async () => {
-    const res = await apiFetch('/api/accounting/migration/templates?step=ar-invoices');
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'ar-invoices-template.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const res = await apiFetch('/api/accounting/migration/templates?step=ar-invoices');
+      await assertOk(res, 'Could not download the template - try again');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ar-invoices-template.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not download the template - try again'));
+    }
   };
 
   const confidenceColor = (c: MatchConfidence) => ({

@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, ShieldCheck, Download } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import type { ComplianceRow } from '@/modules/accounting/services/practice/practiceReportsService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import { PeriodPicker } from '@/components/practice/PeriodPicker';
@@ -56,10 +57,10 @@ export default function CompliancePage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/practice/users').then(async (res) => {
-      if (!res.ok) return;
+      await assertOk(res, 'Could not load the user names');
       const json = (await res.json()) as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
       setUsers(Array.isArray(json) ? json : ((json as { data?: CompanyUserSummary[] }).data ?? []));
-    }).catch(() => { /* non-critical */ });
+    }).catch((e: unknown) => { log.warn('compliance: user names not loaded, showing user ids', { err: e }); });
   }, []);
 
   useEffect(() => {

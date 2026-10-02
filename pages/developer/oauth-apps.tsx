@@ -70,16 +70,21 @@ export default function OauthAppsPage() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const load = useCallback(async () => {
+  // `wrote` names a write that just succeeded: a failed reload must still report it
+  // (one toast slot), and `announce` shows it once the reload also worked.
+  const load = useCallback(async (wrote?: string, announce = false) => {
     setLoading(true);
     try {
       const res = await apiFetch('/api/developer/oauth-apps');
       await assertOk(res, 'Could not load your apps - try again');
       const json = (await res.json()) as { data?: OauthApp[] };
       setApps(json.data ?? []);
+      if (wrote && announce) showToast(wrote, true);
     } catch (err) {
       setApps([]);
-      showToast(apiErrorMessage(err, 'Could not load your apps - try again'), false);
+      showToast(wrote
+        ? `${wrote}, but the list could not be refreshed - reload the page`
+        : apiErrorMessage(err, 'Could not load your apps - try again'), false);
     } finally {
       setLoading(false);
     }
@@ -114,7 +119,7 @@ export default function OauthAppsPage() {
       setNewApp(json.data);
       setName(''); setDescription(''); setLogoUrl(''); setHomepageUrl(''); setRedirectUris('');
       setShowForm(false);
-      void load();
+      await load('App registered');
     } catch (err) {
       showToast(apiErrorMessage(err, 'Could not register the app - try again'), false);
     } finally {
@@ -128,8 +133,7 @@ export default function OauthAppsPage() {
     try {
       const res = await apiFetch(`/api/developer/oauth-apps/${id}`, { method: 'DELETE' });
       await assertOk(res, 'Could not revoke the app - try again');
-      showToast('App revoked', true);
-      void load();
+      await load('App revoked', true);
     } catch (err) {
       showToast(apiErrorMessage(err, 'Could not revoke the app - try again'), false);
     } finally {

@@ -38,6 +38,7 @@ export default function CurrenciesPage() {
       await assertOk(activeCurrRes, 'Could not load the currencies - try again');
       await assertOk(allCurrRes, 'Could not load the currencies - try again');
       await assertOk(ratesRes, 'Could not load the exchange rates - try again');
+      await assertOk(settingRes, 'Could not load the reporting currency - try again');
       const activeCurrJson = await activeCurrRes.json();
       const allCurrJson = await allCurrRes.json();
       const ratesJson = await ratesRes.json();
@@ -46,13 +47,10 @@ export default function CurrenciesPage() {
       setAllCurrencies(Array.isArray(allCurrJson.data) ? allCurrJson.data : []);
       setExchangeRates(Array.isArray(ratesJson.data) ? ratesJson.data : []);
 
-      // Settings endpoint may not exist yet — fallback gracefully
-      if (settingRes.ok) {
-        const settingJson = await settingRes.json();
-        if (settingJson.data?.value) setReportingCurrency(settingJson.data.value);
-      }
+      const settingJson = await settingRes.json();
+      if (settingJson.data?.value) setReportingCurrency(settingJson.data.value);
     } catch (err) {
-      setCurrencies([]); setAllCurrencies([]); setExchangeRates([]); setReportingCurrency('ZAR');
+      setCurrencies([]); setAllCurrencies([]); setExchangeRates([]); setReportingCurrency('');
       setError(apiErrorMessage(err, 'Could not load the currency data - try again'));
     } finally {
       setIsLoading(false);

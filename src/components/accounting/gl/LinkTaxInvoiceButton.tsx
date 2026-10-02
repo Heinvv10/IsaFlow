@@ -41,6 +41,7 @@ export function LinkTaxInvoiceButton({ journalEntryId, onChanged }: Props) {
   const [confirmingUnlinkId, setConfirmingUnlinkId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setError(null);
     try {
       const res = await apiFetch(`/api/accounting/journal-document-links?journal_entry_id=${journalEntryId}`);
       await assertOk(res, 'Could not load the linked documents - try again');

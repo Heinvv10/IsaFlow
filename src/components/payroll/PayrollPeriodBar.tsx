@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   Calendar, Lock, Pencil, CircleDot, CheckCircle2, AlertCircle, Loader2,
@@ -44,7 +44,7 @@ export function PayrollPeriodBar() {
     void (async () => {
       try {
         const res = await apiFetch('/api/payroll/period-context');
-        if (!res.ok) return;
+        await assertOk(res, 'Could not load the payroll period');
         const json = await res.json() as { data?: PeriodContext };
         if (!cancelled && json.data) setCtx(json.data);
       } catch (err) {

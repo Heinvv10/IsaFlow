@@ -51,7 +51,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
     let cancelled = false;
     setPreview(null);
     setLoadError('');
-    apiJson(`/api/payroll/runs/${runId}/journal-plan`)
+    apiJson(`/api/payroll/runs/${runId}/journal-plan`, undefined, 'Could not load the journal plan - try again')
       .then((p) => { if (!cancelled) setPreview(p); })
       .catch((err: unknown) => { if (!cancelled) setLoadError(apiErrorMessage(err, 'Could not load the journal this run would post')); });
     return () => { cancelled = true; };
@@ -67,7 +67,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
       const result = await apiJson(`/api/payroll/runs/${runId}/approve`, {
         method: 'POST',
         body: JSON.stringify({ expectedPlanHash: preview.planHash }),
-      });
+      }, 'Could not approve the payroll run - try again');
       onApproved(result, !preview.posted);
     } catch (err) {
       if (err instanceof ApiRequestError && err.status < 500) {

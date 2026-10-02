@@ -33,7 +33,7 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
     setLoading(true);
     setListError(null);
     try {
-      const r = await apiJson('/api/accounting/share/links');
+      const r = await apiJson('/api/accounting/share/links', undefined, 'Could not load the share links - try again');
       // NOT `: []`. The route's type is a union of the GET and POST envelopes,
       // and an empty array for the wrong arm is indistinguishable from a
       // company with no live links — so a broken response would show a person
@@ -61,7 +61,7 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
       const r = await apiJson('/api/accounting/share/links', {
         method: 'POST',
         body: JSON.stringify({ params, label: label.trim() || undefined, ttlDays }),
-      });
+      }, 'Could not load the share links - try again');
       // The raw token is returned ONCE and never again. Silently skipping this
       // block on the wrong arm would leave a live link minted against the
       // company's cap with a URL nobody can ever recover.
@@ -79,7 +79,7 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
 
   async function handleRevoke(id: string) {
     try {
-      await apiJson(`/api/accounting/share/links/${id}/revoke`, { method: 'POST' });
+      await apiJson(`/api/accounting/share/links/${id}/revoke`, { method: 'POST' }, 'Could not revoke the share link - try again');
       await refresh();
     } catch (err) {
       setListError(apiErrorMessage(err, 'Could not revoke that link.'));

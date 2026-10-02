@@ -74,7 +74,7 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
       form.append('source', source);
       form.append('fileType', fileType);
       const res = await apiFetch('/api/accounting/migration-parse', { method: 'POST', body: form });
-      await assertOk(res, 'Parse failed');
+      await assertOk(res, 'Could not parse file - try again');
       const json = await res.json();
       if (fileType === 'accounts') setAccounts(json.data.parsed);
       if (fileType === 'customers') setCustomers(json.data.parsed);
@@ -89,6 +89,7 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
   const runAutoMap = async () => {
     if (accounts.length === 0) return;
     setAutoMapping(true);
+    setError('');
     // Re-submit to parser to re-apply auto-mapping
     try {
       const blob = new Blob([JSON.stringify(accounts)], { type: 'text/plain' });
@@ -97,9 +98,11 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
       form.append('source', source);
       form.append('fileType', 'accounts');
       const res = await apiFetch('/api/accounting/migration-parse', { method: 'POST', body: form });
-      if (res.ok) setAccounts((await res.json()).data.parsed);
+      await assertOk(res, 'Could not auto-map the accounts - try again');
+      setAccounts((await res.json()).data.parsed);
     } catch (e) {
       log.warn('AI auto-mapping failed', { error: e }, 'migration');
+      setError(apiErrorMessage(e, 'Could not auto-map the accounts - try again'));
     } finally {
       setAutoMapping(false);
     }
@@ -114,11 +117,11 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source, accounts, customers, suppliers }),
       });
-      await assertOk(res, 'Import failed');
+      await assertOk(res, 'Could not import the data - try again');
       setImportResult((await res.json()).data);
       setStep('verify');
     } catch (err) {
-      setError(apiErrorMessage(err, 'Import failed'));
+      setError(apiErrorMessage(err, 'Could not import the data - try again'));
     } finally {
       setImporting(false);
     }
@@ -133,11 +136,11 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sourceAccounts: accounts.filter(a => a.openingBalance !== 0) }),
       });
-      await assertOk(res, 'Verify failed');
+      await assertOk(res, 'Could not verify the import - try again');
       const json = await res.json();
       setVerifyResults(json.data.results);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not complete: verification - try again'));
+      setError(apiErrorMessage(err, 'Could not verify the import - try again'));
     } finally {
       setVerifying(false);
     }

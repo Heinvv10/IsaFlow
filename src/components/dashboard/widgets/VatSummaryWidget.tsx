@@ -51,7 +51,7 @@ export function VatSummaryWidget() {
         // which matched, so the widget silently rendered R0.00 for every
         // tenant. The field names are now checked against the service type.
         const d = await apiJson(
-          `/api/accounting/reports-vat-return?period_start=${start}&period_end=${end}`
+          `/api/accounting/reports-vat-return?period_start=${start}&period_end=${end}`, undefined, 'Could not load the VAT summary - try again'
         );
         setData({
           outputVat: d.outputVAT,

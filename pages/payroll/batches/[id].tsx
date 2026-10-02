@@ -97,10 +97,8 @@ export default function BatchGridPage() {
       const payload = (batchJson.data ?? batchJson) as { batch: Batch; lines: BatchLine[] };
       setBatch(payload.batch);
       setLines(payload.lines);
-      if (empRes.ok) {
-        const empJson = await empRes.json();
-        setEmployees((empJson.data ?? empJson) as Employee[]);
-      }
+      try { await assertOk(empRes, 'Could not load the employee list - try again'); const empJson = await empRes.json(); setEmployees((empJson.data ?? empJson) as Employee[]); }
+      catch (err) { setEmployees([]); setError(apiErrorMessage(err, 'Could not load the employee list - try again')); }
     } catch (err) {
       setBatch(null);
       setLines([]);

@@ -85,30 +85,29 @@ export default function PracticeClientDetailPage() {
   const [contacts, setContacts] = useState<ClientContact[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [contactsError, setContactsError] = useState('');
   const [notFound, setNotFound] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>('details');
 
   const loadData = useCallback(async () => {
     if (!clientId) return;
     setLoading(true);
-    setError('');
+    setError(''); setContactsError('');
     try {
       const [clientRes, contactsRes] = await Promise.all([
         apiFetch(`/api/accounting/practice/clients/${clientId}`),
         apiFetch(`/api/accounting/practice/client-contacts?clientId=${clientId}`),
       ]);
-      if (clientRes.status === 404) {
-        setNotFound(true);
-        return;
-      }
+      if (clientRes.status === 404) { setNotFound(true); return; }
       await assertOk(clientRes, 'Could not load the client - try again');
       const clientJson = await clientRes.json() as { data?: PracticeClient } | PracticeClient;
       setClient(('data' in clientJson ? clientJson.data : clientJson) as PracticeClient);
 
-      if (contactsRes.ok) {
+      try {
+        await assertOk(contactsRes, 'Could not load the contacts - try again');
         const contactsJson = await contactsRes.json() as { data?: ClientContact[] } | ClientContact[];
         setContacts(('data' in contactsJson ? contactsJson.data : contactsJson) as ClientContact[] ?? []);
-      }
+      } catch (err) { setContacts([]); setContactsError(apiErrorMessage(err, 'Could not load the contacts - try again')); }
     } catch (err) {
       setClient(null); setContacts([]); setError(apiErrorMessage(err, 'Could not load the client - try again'));
     } finally {
@@ -116,9 +115,7 @@ export default function PracticeClientDetailPage() {
     }
   }, [clientId]);
 
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   if (loading) {
     return (
@@ -287,7 +284,7 @@ export default function PracticeClientDetailPage() {
 
           {activeTab === 'contacts' && (
             <div>
-              {contacts.length === 0 ? (
+              {contactsError ? <p className="text-center py-16 text-sm text-red-400">{contactsError}</p> : contacts.length === 0 ? (
                 <div className="text-center py-16">
                   <User className="h-10 w-10 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
                   <p className="text-[var(--ff-text-secondary)] font-medium">No contacts yet</p>

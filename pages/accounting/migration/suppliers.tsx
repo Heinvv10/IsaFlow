@@ -80,7 +80,7 @@ export default function SuppliersImportPage() {
       const sessionRes = await apiFetch('/api/accounting/migration/session');
       await assertOk(sessionRes, 'Could not load the migration session - try again');
       const sessionJson = await sessionRes.json();
-      const sessionId = (sessionJson.data?.session ?? sessionJson.data)?.id;
+      const sessionId = (sessionJson.data as { session: { id: string } | null }).session?.id;
       if (!sessionId) { setError('No active migration session - start one from the migration hub'); return; }
 
       const suppliers = rows.map(r => ({

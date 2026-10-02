@@ -22,7 +22,8 @@ import { AfsExportTab } from '@/components/accounting/afs/AfsExportTab';
 
 type TabId = 'overview' | 'notes' | 'statements' | 'review' | 'compliance' | 'export';
 
-interface PageProps { documentId: string; periodStart: string; periodEnd: string; }
+interface PageProps { documentId: string; periodStart: string; periodEnd: string; periodError: string | null; }
+const PERIOD_ERROR = 'Could not work out the reporting period for this document - reload the page to try again';
 
 const STATUS_CONFIG: Record<DocumentStatus, { label: string; colour: string; icon: React.ReactNode }> = {
   draft:          { label: 'Draft',          colour: 'bg-zinc-700 text-zinc-200',     icon: <Clock className="w-3 h-3" /> },
@@ -50,7 +51,7 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   { id: 'export',      label: 'Export',      icon: <Download className="w-4 h-4" /> },
 ];
 
-const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodEnd }) => {
+const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodEnd, periodError }) => {
   const router = useRouter();
   const [doc, setDoc] = useState<AfsDocument | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
@@ -102,6 +103,16 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
       setActionError(apiErrorMessage(err, 'Could not sign off the document - try again'));
       log.error('Sign off failed', { error: err }, 'afs-document-page');
     } finally { setSubmitting(false); }
+  }
+
+  if (periodError) {
+    return (
+      <AppLayout>
+        <div role="alert" className="max-w-xl mx-auto mt-16 p-4 rounded-lg bg-red-900/20 border border-red-800 text-sm text-red-400">
+          {periodError} <Link href="/accounting/afs" className="underline">Back to AFS</Link>
+        </div>
+      </AppLayout>
+    );
   }
 
   const title = doc
@@ -224,6 +235,7 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query,
 
   let periodStart: string | null = null;
   let periodEnd: string | null = null;
+  let periodError: string | null = null;
 
   // Otherwise derive the period from the API route — keeps DB access
   // out of the page layer and ensures company_id scoping.
@@ -234,13 +246,18 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query,
         `${baseUrl}/api/accounting/afs/${documentId}/period`,
         { headers: { cookie: req.headers.cookie ?? '' } },
       );
+      if (apiRes.status === 404) return { notFound: true };
       if (apiRes.ok) {
         const json = (await apiRes.json()) as { data?: { periodStart?: string; periodEnd?: string } };
         periodStart = json.data?.periodStart ?? null;
         periodEnd   = json.data?.periodEnd   ?? null;
+      } else {
+        periodError = PERIOD_ERROR;
       }
-    } catch {
-      // Fall through to the safe default below
+    } catch (err) {
+      // Never fall back to the current year for a document whose period is unknown: the page would show the wrong period.
+      log.error('Could not resolve the AFS period', { error: err, documentId }, 'afs-document-page');
+      periodError = PERIOD_ERROR;
     }
   }
 
@@ -251,6 +268,7 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query,
       documentId,
       periodStart: queryStart ?? periodStart ?? `${fallbackYear}-01-01`,
       periodEnd:   queryEnd   ?? periodEnd   ?? `${fallbackYear}-12-31`,
+      periodError,
     },
   };
 };

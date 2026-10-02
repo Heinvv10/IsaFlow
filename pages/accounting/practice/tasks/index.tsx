@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { CheckSquare, Loader2, AlertCircle, Plus } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { useAuth } from '@/contexts/AuthContext';
 import type { PracticeTask, PracticeTaskInput } from '@/modules/accounting/services/practice/practiceTaskService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
@@ -85,15 +86,15 @@ export default function PracticeTasksPage() {
   useEffect(() => { void loadTasks(); }, [loadTasks]);
   useEffect(() => {
     apiFetch('/api/accounting/practice/jobs').then(async r => {
-      if (!r.ok) return;
+      await assertOk(r, 'Could not load the jobs list - tasks cannot be linked to a job until it loads');
       const j = await r.json() as { data?: { jobs: JobOption[] }; jobs?: JobOption[] };
       setJobs(((j.data ?? j) as { jobs: JobOption[] }).jobs ?? []);
-    }).catch(() => { /* non-critical */ });
+    }).catch((e: unknown) => { setJobs([]); setError(apiErrorMessage(e, 'Could not load the jobs list - tasks cannot be linked to a job until it loads')); });
     apiFetch('/api/accounting/practice/users').then(async r => {
-      if (!r.ok) return;
+      await assertOk(r, 'Could not load the user names');
       const j = await r.json() as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
       setUsers(Array.isArray(j) ? j : ((j as { data?: CompanyUserSummary[] }).data ?? []));
-    }).catch(() => { /* non-critical */ });
+    }).catch((e: unknown) => { log.warn('tasks: user names not loaded, showing user ids', { err: e }); });
   }, []);
   useEffect(() => {
     if (!popover) return;

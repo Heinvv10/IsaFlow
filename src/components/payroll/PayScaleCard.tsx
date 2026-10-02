@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { apiFetch, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle } from 'lucide-react';
 
 interface PayScale {
@@ -28,12 +28,12 @@ export function PayScaleCard({ employeeId, currentPayScaleId, onChange }: Props)
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const res = await apiFetch('/api/payroll/pay-scales?activeOnly=1');
-      if (res.ok) {
-        const json = await res.json();
-        setScales(((json.data ?? json) as PayScale[]) ?? []);
-      }
+      await assertOk(res, 'Could not load pay scales - try again');
+      const json = await res.json();
+      setScales(((json.data ?? json) as PayScale[]) ?? []);
     } catch (err) {
       setScales([]);
       setError(apiErrorMessage(err, 'Could not load pay scales - try again'));
@@ -54,12 +54,10 @@ export function PayScaleCard({ employeeId, currentPayScaleId, onChange }: Props)
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ payScaleId }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? 'Save failed');
-        return;
-      }
+      await assertOk(res, 'Could not save the pay scale - try again');
       onChange(payScaleId);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the pay scale - try again'));
     } finally {
       setSaving(false);
     }
@@ -78,7 +76,7 @@ export function PayScaleCard({ employeeId, currentPayScaleId, onChange }: Props)
         <div className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)]">
           <Loader2 className="h-4 w-4 animate-spin" />Loading...
         </div>
-      ) : scales.length === 0 ? (
+      ) : scales.length === 0 ? (error ? null :
         <div className="text-sm text-[var(--ff-text-secondary)]">
           No active pay scales. Create one under Setup → Pay Scales.
         </div>

@@ -68,11 +68,11 @@ export default function MyReportsPage() {
       const res = await apiFetch(`/api/accounting/custom-reports?id=${id}`, {
         method: 'DELETE', credentials: 'include',
       });
-      if (!res.ok) { showToast('Failed to delete'); return; }
+      await assertOk(res, 'Could not delete the report - try again');
       setTemplates(prev => prev.filter(t => t.id !== id));
       showToast('Report deleted');
-    } catch {
-      showToast('Failed to delete');
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not delete the report - try again'));
     } finally {
       setDeleting(null);
     }
