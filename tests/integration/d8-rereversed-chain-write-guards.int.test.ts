@@ -26,6 +26,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierInvoiceDraftUpdateGuards';
 import { linkDocumentToJournal } from '@/modules/accounting/services/gl/journalDocumentLinkService';
 import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
+import { attachDocumentToProvisional } from '@/modules/accounting/services/capture/provisionalEvidenceAttach';
 import { findReclassCandidates } from '@/modules/accounting/services/gl/reclassification/candidates';
 import { targetPriorSources } from '@/modules/accounting/services/gl/reclassification/warnings';
 import { fmtDate } from '@/lib/fmtDate';
@@ -242,6 +243,28 @@ describeIfDb('D8: a re-reversed journal still carries what it carried', () => {
     await reverseTwice(x);
     const out = await inTx(fx, () => attachEvidenceToProvisional(fx.companyId, doc, fx.supplierId, 100, '2026-05-10'));
     expect(out.attachedJeId).toBe(x);
+  });
+
+  it('manual evidence attach: evidences a re-reversed provisional, still refuses one that is out (D8 round 5)', async () => {
+    const provisional = async () => {
+      const x = await postedJournal({
+        patch: (id) => sql`UPDATE gl_journal_entries SET needs_evidence = true WHERE id = ${id}::UUID`,
+      });
+      await sql`
+        INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status, provisional_je_id)
+        VALUES (${fx.companyId}::UUID, ${fx.bankAccountId}::UUID, '2026-05-10', -100, ${`D8 MAN ${++seq} ${fx.tag}`},
+          'provisional', ${x}::UUID)`;
+      return x;
+    };
+    const standing = await provisional();
+    await reverseTwice(standing);
+    expect(await inTx(fx, async () => attachDocumentToProvisional(fx.companyId, standing, await document())))
+      .toMatchObject({ kind: 'attached' });
+
+    const out = await provisional();
+    await inTx(fx, () => reverseJournalEntry(fx.companyId, out, fx.userId));
+    expect(await inTx(fx, async () => attachDocumentToProvisional(fx.companyId, out, await document())))
+      .toEqual({ kind: 'refused', message: 'Journal entry has been reversed' });
   });
 
   it('bill cancel: refuses while a re-reversed journal sourced from the bill still stands', async () => {

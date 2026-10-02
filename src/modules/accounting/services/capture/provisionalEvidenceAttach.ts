@@ -47,6 +47,7 @@ import {
   DocumentAlreadyPostedRefusal,
   DocumentAlreadyLinkedRefusal,
 } from '@/modules/accounting/services/gl/documentJournalClaimGuard';
+import { journalStandsFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
 
 export type ProvisionalAttachResult =
   | { kind: 'attached'; bankTxId: string | null }
@@ -72,12 +73,15 @@ export async function attachDocumentToProvisional(
     for (const line of lines) await lockBankTransactionForUpdate(companyId, String(line.id));
 
     // (2) The journal, under the same bounded wait as the document.
+    // Standing by its reversal chain, not its stamp (D8, as the automatic attach):
+    // a provisional reversed and re-reversed books the bank line again.
     const je = await lockWithTimeout(jeId, async () => (await sql`
-      SELECT needs_evidence, reversed_at FROM gl_journal_entries
-      WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
-      FOR UPDATE`) as DbRow[]);
+      SELECT je.needs_evidence, ${journalStandsFragment('je.id', companyId)} AS stands
+      FROM gl_journal_entries je
+      WHERE je.id = ${jeId}::UUID AND je.company_id = ${companyId}::UUID
+      FOR UPDATE OF je`) as DbRow[]);
     if (!je) return { kind: 'not_found', what: 'Journal entry', id: jeId };
-    if (je.reversed_at != null) return { kind: 'refused', message: 'Journal entry has been reversed' };
+    if (je.stands !== true) return { kind: 'refused', message: 'Journal entry has been reversed' };
     if (!je.needs_evidence) return { kind: 'refused', message: 'Journal entry is already evidenced' };
 
     // (3) The document, under a bounded wait (the claim UPDATE alone would wait unbounded).

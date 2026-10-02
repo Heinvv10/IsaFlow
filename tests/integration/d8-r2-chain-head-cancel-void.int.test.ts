@@ -23,6 +23,8 @@ import { voidPaymentDocument } from '@/modules/accounting/services/core/paymentV
 import { importOpeningBalances } from '@/modules/accounting/services/core/migrationImportService';
 import { findJournalChainHead, JournalChainBrokenError } from '@/modules/accounting/services/shared/journalChainHead';
 import { journalInForceAsAtFragment, journalStandsFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
+import { softDelete } from '@/modules/accounting/services/core/softDeleteService';
+import { SoftDeleteRefusalError } from '@/modules/accounting/services/core/softDeleteErrors';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { dropFixture, inTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
 
@@ -194,6 +196,34 @@ describeIfDb('D8 round 2: a re-reversed journal is taken out of the ledger at it
     expect(typeof read!.asat).toBe('boolean');
     await expect(bounded(() => cancelCustomerInvoice(fx.companyId, invoice, fx.userId))).rejects.toThrow(JournalChainBrokenError);
     expect(await net(acct.ar!)).toBeCloseTo(before, 2);
+  });
+
+  // brk-d7 pass 2, F1 (P8): softDeleteJournalService.chainHead was an unguarded
+  // recursive walk. A looped chain on a LIVE invoice made the delete spin, holding
+  // its FOR UPDATE locks, until something cancelled the backend. It now walks
+  // through shared/journalChainHead, which stops at the first repeat.
+  it('soft delete of an invoice whose journal chain loops is refused at once, books nothing, holds no lock', async () => {
+    const invoice = await postedInvoice();
+    const o = await journalOf('customer_invoices', invoice);
+    const m = (await inTx(fx, () => reverseJournalEntry(fx.companyId, o, fx.userId))).id; // the hand reversal
+    await sql`UPDATE gl_journal_entries SET reversal_of_id = ${m}::UUID WHERE id = ${o}::UUID AND company_id = ${fx.companyId}::UUID`;
+    const before = await net(acct.ar!);
+    const started = Date.now();
+
+    await expect(inTx(fx, async () => {
+      await sql`SET LOCAL statement_timeout = '5s'`;
+      return softDelete(fx.companyId, 'customer_invoice', invoice, fx.userId);
+    })).rejects.toThrow(SoftDeleteRefusalError);
+
+    expect(Date.now() - started).toBeLessThan(4000);
+    expect(await net(acct.ar!)).toBeCloseTo(before, 2);
+    const [row] = (await sql`SELECT deleted_at FROM customer_invoices WHERE id = ${invoice}::UUID`) as Row[];
+    expect(row!.deleted_at).toBeNull();
+    // The refused request's row locks are gone: both rows lock at once from another transaction.
+    const locked = await inTx(fx, async () => (await sql`
+      SELECT id FROM gl_journal_entries WHERE id IN (${o}::UUID, ${m}::UUID) AND company_id = ${fx.companyId}::UUID
+      FOR UPDATE NOWAIT`) as Row[]);
+    expect(locked).toHaveLength(2);
   });
 
   it('opening-balance re-import: a standing re-reversed take-on is reversed at its head, not posted on top of', async () => {
