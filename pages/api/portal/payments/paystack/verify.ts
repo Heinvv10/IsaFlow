@@ -70,9 +70,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   let status = pr.status;
   let paystackSaidSuccess = false;
+  let paystackAnswered = false;
   if (pr.purpose === 'customer_invoice' && (status === 'pending' || status === 'failed')) {
     try {
       const live = await verifyTransaction(pr.paystack_reference, { timeoutMs: GATEWAY_TIMEOUT_MS });
+      paystackAnswered = true;
       paystackSaidSuccess = live.status === 'success';
       let mapped: 'completed' | 'failed' | 'cancelled' | 'pending' = 'pending';
       if (live.status === 'success') mapped = 'completed';
@@ -146,8 +148,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         'PaystackPortal',
       );
       // Paystack took the money and only our settlement failed (it rolled back; the webhook
-      // settles it): a payer must never be told "failed" and invited to pay again.
-      if (paystackSaidSuccess) status = 'pending';
+      // settles it), or Paystack never answered (timeout, 5xx) on a request stored 'failed':
+      // a possibly charged payer must never be told "failed" and invited to pay again.
+      if (paystackSaidSuccess || (!paystackAnswered && status === 'failed')) status = 'pending';
     }
   }
 

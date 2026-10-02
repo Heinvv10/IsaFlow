@@ -167,3 +167,17 @@ C4 a one-cent overpayment not overpaid [src/modules/accounting/services/ar/gatew
 C5 a one-cent clamp not flagged [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 86 passed (87) -> KILLED; red: a clamp that bites by one cent
 C6 verify: one cent applied is not applied [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 86 passed (87) -> KILLED; red: one cent applied is applied
 AFTER unit: 87 passed (87) | component: 5 passed (5)
+
+REVIEW AT 47c581ac0 — decideGatewayAllocation (M1), flagged reasons (L1), verify unanswered (L2); env -u DATABASE_URL
+BASELINE unit: 97 passed (97) | component: 5 passed (5)
+A1 locked status ignored [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 1 failed | 96 passed (97) -> KILLED; red: a draft invoice takes nothing: invoice_draft
+A2 locked deleted_at ignored [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 1 failed | 96 passed (97) -> KILLED; red: a soft-deleted invoice takes nothing: invoice_deleted
+A3 draft receipts ignored [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 1 failed | 96 passed (97) -> KILLED; red: draft receipts already claim R20 of R115: a R115 receipt allocates R95, overpaid
+A4 hold dropped [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 1 failed | 96 passed (97) -> KILLED; red: the caller's hold (unapplied_currency) allocates nothing
+A5 clientId not returned [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 1 failed | 96 passed (97) -> KILLED; red: returns the customer as read under the lock
+A6 the invoice read not FOR UPDATE [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 1 failed | 96 passed (97) -> KILLED; red: reads the invoice FOR UPDATE, scoped by company, inside the invoice lock
+B1 dedupe drops its own charge.reviews [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 96 passed (97) -> KILLED; red: dedupe: the second report flags its own reasons (a USD report after a ZAR receipt)
+B2 overpaid_unapplied dropped [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 96 passed (97) -> KILLED; red: an overpayment banked unapplied is flagged overpaid_unapplied
+B3 main-path fee.reviews dropped [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 96 passed (97) -> KILLED; red: the first report flags the fee leg's own reasons (a fee above the receipt)
+B4 verify: an unanswered check on a failed request says failed [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 96 passed (97) -> KILLED; red: a request stored failed whose live check throws (timeout, 5xx) answers pending, not failed
+AFTER unit: 97 passed (97) | component: 5 passed (5)

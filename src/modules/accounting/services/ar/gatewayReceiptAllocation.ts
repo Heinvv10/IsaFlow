@@ -18,7 +18,10 @@
  * `pending` and leaves the request as stored for the webhook. The DEDUPE path
  * (receipt already banked) never reaches here: spend link, then fee journal, then
  * the request row FOR UPDATE last (the review note), with no lock_timeout and no
- * cycle, because the request is already completed.
+ * cycle, because the request is already completed. The one exception to "no
+ * payment lock while holding an invoice lock" (customerInvoiceLock.ts):
+ * confirmCustomerPayment locks the settlement's OWN new, uncommitted payment row
+ * while this invoice is held, which is safe because no other transaction can see it.
  */
 
 import { sql } from '@/lib/neon';

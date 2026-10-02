@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({
   allocated: null as null | number,
   block: null as null | string,
   clientId: null as null | string,
+  overpaid: false,
 }));
 vi.mock('@/lib/neon', () => ({
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -35,7 +36,7 @@ vi.mock('@/modules/accounting/services/ar/gatewayFeeService', () => ({ postGatew
 vi.mock('@/modules/accounting/services/ar/portalLinkCharge', () => ({ spendPaymentLinkOfRequest: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/ar/gatewayReceiptAllocation', () => ({
   decideGatewayAllocation: vi.fn(async (_c: string, _i: string, amountRand: number, _r: string, hold: string | null) => ({
-    allocated: hold || h.block ? 0 : (h.allocated ?? Math.min(amountRand, 115)), invoiceBlock: hold ?? h.block, overpaid: false,
+    allocated: hold || h.block ? 0 : (h.allocated ?? Math.min(amountRand, 115)), invoiceBlock: hold ?? h.block, overpaid: h.overpaid,
     clientId: h.clientId ?? CUSTOMER, status: 'sent', deleted: false,
   })),
 }));
@@ -63,7 +64,7 @@ const base = { companyId: '33333333-3333-4333-8333-333333333333', invoiceId: '44
 const allocationInsert = () => h.calls.find((c) => c.text.includes('INSERT INTO customer_payment_allocations'));
 
 beforeEach(() => {
-  h.calls.length = 0; h.already = null; h.allocated = null; h.block = null; h.clientId = null;
+  h.calls.length = 0; h.already = null; h.allocated = null; h.block = null; h.clientId = null; h.overpaid = false;
   fee.mockClear(); allocate.mockClear(); flag.mockClear();
 });
 
@@ -148,6 +149,24 @@ describe('recordGatewayInvoiceReceipt wiring', () => {
     await recordGatewayInvoiceReceipt({ ...base, requestedCents: 200, feeRand: null,
       reported: { amountCents: 205, currency: 'ZAR', requestedAmountCents: 200, feeCents: 5 } });
     expect(reasons()).toEqual([['amount_disagrees_with_first_report']]);
+  });
+
+  it('dedupe: the second report flags its own reasons (a USD report after a ZAR receipt)', async () => {
+    h.already = { id: 'p-1', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+      total_amount: '115.00', description: 'Paystack card payment r181_wiring' };
+    await recordGatewayInvoiceReceipt({ ...base, feeRand: null, reported: { amountCents: 11500, currency: 'USD' } });
+    expect(reasons()).toEqual([['currency_mismatch']]);
+  });
+
+  it('an overpayment banked unapplied is flagged overpaid_unapplied', async () => {
+    h.overpaid = true;
+    await recordGatewayInvoiceReceipt({ ...base, feeRand: null, reported: { amountCents: 11500, currency: 'ZAR' } });
+    expect(reasons()).toEqual([['overpaid_unapplied']]);
+  });
+
+  it("the first report flags the fee leg's own reasons (a fee above the receipt)", async () => {
+    await recordGatewayInvoiceReceipt({ ...base, requestedCents: 10000, feeRand: 200, reported: { amountCents: 10000, currency: 'ZAR' } });
+    expect(reasons()).toEqual([['fee_exceeds_receipt']]);
   });
 
   it('the receipt INSERT carries receiptDescription (the first report amount tag)', async () => {
