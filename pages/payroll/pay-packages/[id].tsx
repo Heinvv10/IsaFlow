@@ -179,7 +179,7 @@ export default function PayPackageEditPage() {
                     Recurring
                   </label>
                   <WriteOnly>
-                    <button onClick={() => setRows(rows.filter((_, i) => i !== idx))} aria-label="Remove component"
+                    <button onClick={() => setRows(rows.filter((_, i) => i !== idx))} aria-label={`Remove ${allComponents.find(c => c.id === r.componentId)?.name ?? 'component'}`}
                       className="p-2 text-[var(--ff-text-secondary)] hover:text-red-400">
                       <X className="h-4 w-4" />
                     </button>
