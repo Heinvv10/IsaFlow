@@ -85,6 +85,14 @@ describe('MEDIUM: requested_amount is trusted only when the excess is a fee the 
     expect(await ledger(A, ref)).toMatchObject({ bankNet: '115.00', feeExpense: '3.50', balanced: true });
   });
 
+  it('verify with requested_amount equal to amount needs no fee figure: R115 banked, no review', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    paystackSays(11500, { requestedAmountCents: 11500, feesCents: null });
+    expect((await verify(ref)).body.data?.status).toBe('completed');
+    expect(await settlement(A, ref, id)).toMatchObject({ payments: [{ total: '115.00', allocated: '115.00' }], review: null });
+  });
+
   it('verify with the fee figure trusts requested_amount: R115 banked, no review', async () => {
     const id = await invoice(A);
     const ref = await checkout(A, id);
