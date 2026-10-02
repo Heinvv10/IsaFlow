@@ -46,6 +46,7 @@ Clients, staff rates, time entries, WIP, jobs/tasks, billing, reports. All servi
 - `GET /api/accounting/practice/wip` — WIP board by client (read-only, viewer-accessible)
 - `POST /api/accounting/practice/wip/invoice` — `{ practiceClientId, timeEntryIds, taxRate? }`; requires practice client `link_customer_id`
 - `GET /api/accounting/practice/reports/utilisation|profitability|wip-aging|revenue-pipeline|compliance|service-mix`
+- `GET /api/accounting/practice/reports/engagement-budgets` — `?practiceClientId=&jobId=` (both optional, malformed → 400); per-job Engagement Budget status, over first. The time entry form reads it per client, the job page per job
 - `GET|POST /api/accounting/practice/report-recipients`; `GET|PUT|DELETE /report-recipients/[id]`
 - `GET /api/accounting/practice/users` — company users for dropdowns
 
@@ -60,6 +61,8 @@ Clients, staff rates, time entries, WIP, jobs/tasks, billing, reports. All servi
 - `clients` POST and `clients/[id]` PUT answer 400 when `clientGroupId` is not this company's group or is malformed (R-161, `ClientGroupNotInCompanyError`), before any write. An absent group is unchanged.
 - `clients/[id]/rate-overrides` answers a malformed client id with 400 (`isUuidParam`) and another company's or an unknown client with 404, through `assertPracticeClientInCompany` (R-163). Its old local check had no savepoint, so a malformed id was a 500.
 - `''` for `clientGroupId` or `linkCustomerId` means "none", same as omitting the field on create; on `clients/[id]` PUT it CLEARS the field (R-170) — both are normalised to `null` before the fence and the `::UUID` cast, which is not savepointed and 500'd on `''`. PUT distinguishes "field absent from the body" (unchanged) from `''`/null (clear) from a real id (set, after the fence): `'clientGroupId' in input` / `'linkCustomerId' in input` gate a `CASE WHEN … THEN … ELSE column END`, since `COALESCE` cannot express "clear". `clients/[id]` (GET/PUT/DELETE) also gained a top-of-handler `isUuidParam` guard — a malformed id reached the same unsavepointed cast on the first read and 500'd.
+- `time-entries` POST, `time-entries/[id]` PUT and `time-entries/duplicate` answer 400 with the message when `jobId` is not this company's job for the entry's practice client (`PracticeJobNotForClientError`), before any write. `''`/null = no job.
+- `jobs` POST / `jobs/[id]` PUT take `budgetAmount` (Engagement Budget); on PUT absent keeps, null/'' clears; a negative or non-number is a 400.
 - `rate-resolve` precedence: client-specific staff rate → default staff rate → category default
 - `wip/invoice` answers a `WipInvoiceRefusal` with 400 **and its own message**. That covers: no `link_customer_id` or a link to another company's customer, nothing eligible, a `taxRate` outside 0–100 or with more than 2 decimals, a negative, NULL or inconsistent entry, and a concurrent billing. A `201` result carries `skippedEntryCount`. A body that fails the schema is a 400 naming the field. Lock contention is 503; any other error is 500 (R-120).
 
@@ -67,6 +70,7 @@ Clients, staff rates, time entries, WIP, jobs/tasks, billing, reports. All servi
 - `src/modules/accounting/services/practice/*` — clients, contacts, jobs, tasks, time-entries, rates, wip, invoice, reports, cron
 
 ## Recent changes
+- 2026-10-02: Engagement Budgets — `reports/engagement-budgets`; `jobId` on time entries is now written and fenced (400 on a foreign/other-client job); `budgetAmount` on jobs
 - 2026-09-30: R-170 — `''` for `clientGroupId`/`linkCustomerId` no longer 500s on the `::UUID` cast (create stores NULL, update clears); `clients/[id]` gained an `isUuidParam` guard so a malformed route id is 400, not 500
 - 2026-09-30: R-161 — client group ownership fence on the clients POST / `[id]` PUT; R-163 — rate-overrides route uses the R-073 fence, malformed id → 400
 - 2026-09-29 (R-123): `clients/[id]/rate-overrides` and `clients/[id]/staff` no longer 500 where app_user cannot read `auth.users`: staff names come from migrations 715/716 (company-bound SECURITY DEFINER). The staff list follows `cu_select` — owner/admin see every member, a manager only themselves.
