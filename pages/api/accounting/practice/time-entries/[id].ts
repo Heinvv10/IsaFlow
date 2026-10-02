@@ -11,6 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
+import { PracticeJobNotForClientError } from '@/modules/accounting/services/practice/practiceClientFence';
 import {
   getPracticeEntry,
   updatePracticeEntry,
@@ -35,6 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, entry);
     } catch (err) {
       log.error('Practice time entry update failed', { error: err, id }, 'practice-api');
+      if (err instanceof PracticeJobNotForClientError) return apiResponse.badRequest(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Update failed');
     }
   }

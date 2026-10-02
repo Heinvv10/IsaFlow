@@ -17,6 +17,10 @@
  *
  * `assertClientGroupInCompany` (R-161) is the same fence for
  * `practice_clients.client_group_id` → `practice_client_groups`.
+ *
+ * `assertJobForPracticeClient` fences `time_entries.job_id` → `practice_jobs`
+ * (also tenant-agnostic): the job must be this company's AND the entry's own
+ * practice client's, since the Engagement Budget is spent by the job's time.
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
@@ -37,6 +41,15 @@ export class ClientGroupNotInCompanyError extends Error {
   constructor(groupId: string) {
     super(`Client group ${groupId} was not found for this company`);
     this.name = 'ClientGroupNotInCompanyError';
+  }
+}
+
+/** Refusal raised when a job id is not this company's job for this practice client. Routes answer 400. */
+export class PracticeJobNotForClientError extends Error {
+  readonly code = 'PRACTICE_JOB_NOT_FOUND';
+  constructor(jobId: string) {
+    super(`Job ${jobId} was not found for this client`);
+    this.name = 'PracticeJobNotForClientError';
   }
 }
 
@@ -63,6 +76,28 @@ export async function assertClientGroupInCompany(
     SELECT 1 FROM practice_client_groups WHERE id = ${groupId}::uuid AND company_id = ${companyId}::uuid LIMIT 1
   `) as DbRow[]);
   if (!owned) throw new ClientGroupNotInCompanyError(groupId);
+}
+
+/**
+ * Returns the job id to store: null for an absent/null/'' id ("no job"), else
+ * the id once it is proven to be this company's job for `practiceClientId`.
+ * A non-string id is refused, never coerced.
+ */
+export async function assertJobForPracticeClient(
+  companyId: string,
+  practiceClientId: string,
+  jobId: unknown,
+): Promise<string | null> {
+  if (jobId === undefined || jobId === null || jobId === '') return null;
+  if (typeof jobId !== 'string') throw new PracticeJobNotForClientError(String(jobId));
+  const owned = await savepointedExists(async () => (await sql`
+    SELECT 1 FROM practice_jobs
+    WHERE id = ${jobId}::uuid AND company_id = ${companyId}::uuid
+      AND practice_client_id = ${practiceClientId}::uuid
+    LIMIT 1
+  `) as DbRow[]);
+  if (!owned) throw new PracticeJobNotForClientError(jobId);
+  return jobId;
 }
 
 async function savepointedExists(read: () => Promise<DbRow[]>): Promise<boolean> {

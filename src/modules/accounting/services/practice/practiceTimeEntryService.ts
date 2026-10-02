@@ -15,11 +15,13 @@ import type {
   PracticeTimeEntry,
   PracticeTimeEntryInput,
   PracticeTimeEntryUpdateInput,
-  PracticeEntryFilters,
 } from './practiceTimeEntryTypes';
 import { roundHours, lineTotalFor } from './practiceTimeEntryTypes';
+import { assertJobForPracticeClient } from './practiceClientFence';
 
-/** @internal used by practiceTimeEntryWorkflow — do not import elsewhere */
+export { listPracticeEntries } from './practiceTimeEntryList';
+
+/** @internal used by practiceTimeEntryWorkflow and practiceTimeEntryList — do not import elsewhere */
 export function mapEntry(r: DbRow): PracticeTimeEntry {
   return {
     id: String(r.id),
@@ -107,6 +109,7 @@ export async function createPracticeEntry(
     input.jobCategoryId,
     input.workItemId,
   );
+  const jobId = await assertJobForPracticeClient(companyId, input.practiceClientId, input.jobId);
 
   const appliedRate = await resolveRate(companyId, userId, input.practiceClientId, input.entryDate);
   const lineTotal = lineTotalFor(hours, appliedRate);
@@ -120,13 +123,13 @@ export async function createPracticeEntry(
       practice_client_id, job_category_id, work_item_id,
       task_description, notes, billable,
       applied_rate, line_total, rate, amount,
-      origin, status
+      origin, status, job_id
     ) VALUES (
       ${companyId}::UUID, ${userId}::UUID, ${input.entryDate}::DATE, ${hours},
       ${input.practiceClientId}::UUID, ${input.jobCategoryId}::UUID, ${input.workItemId}::UUID,
       ${input.taskDescription}, ${input.notes ?? null}, ${billable},
       ${appliedRate}, ${lineTotal}, ${appliedRate}, ${lineTotal},
-      ${origin}, 'draft'
+      ${origin}, 'draft', ${jobId}::UUID
     ) RETURNING *
   `) as DbRow[];
   if (!rows[0]) throw new Error('database returned no row after insert/update');
@@ -143,7 +146,7 @@ export async function updatePracticeEntry(
   input: PracticeTimeEntryUpdateInput,
 ): Promise<PracticeTimeEntry> {
   const existing = (await sql`
-    SELECT status, practice_client_id, entry_date, user_id, hours, job_category_id, work_item_id
+    SELECT status, practice_client_id, entry_date, user_id, hours, job_category_id, work_item_id, job_id
     FROM time_entries
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
@@ -187,6 +190,12 @@ export async function updatePracticeEntry(
   const entryDate = String(input.entryDate ?? row.entry_date);
   const userId = String(row.user_id);
 
+  // The job (absent = unchanged, null/'' = clear) must be the entry's client's — re-checked when the client moves.
+  const updateJob = 'jobId' in input;
+  const jobId = updateJob || changingClient
+    ? await assertJobForPracticeClient(companyId, clientId, updateJob ? input.jobId : row.job_id)
+    : null;
+
   const appliedRate = await resolveRate(companyId, userId, clientId, entryDate);
   const effectiveHours = roundHours(input.hours ?? Number(row.hours));
   const lineTotal = lineTotalFor(effectiveHours, appliedRate);
@@ -205,6 +214,7 @@ export async function updatePracticeEntry(
       task_description   = COALESCE(${input.taskDescription ?? null}, task_description),
       notes              = CASE WHEN ${updateNotes}::boolean THEN ${notesValue} ELSE notes END,
       billable           = COALESCE(${input.billable ?? null}, billable),
+      job_id             = CASE WHEN ${updateJob}::boolean THEN ${jobId}::UUID ELSE job_id END,
       applied_rate       = ${appliedRate},
       line_total         = ${lineTotal},
       rate               = ${appliedRate},
@@ -274,58 +284,3 @@ export async function getEntryStatusesByIds(
   `) as DbRow[];
   return new Map(rows.map((r) => [String(r.id), String(r.status) as PracticeTimeEntry['status']]));
 }
-
-export async function listPracticeEntries(
-  companyId: string,
-  filters: PracticeEntryFilters = {},
-): Promise<{ entries: PracticeTimeEntry[]; total: number }> {
-  const userId = filters.userId ?? null;
-  const practiceClientId = filters.practiceClientId ?? null;
-  const dateFrom = filters.dateFrom ?? null;
-  const dateTo = filters.dateTo ?? null;
-  const status = filters.status ?? null;
-  const jobId = filters.jobId ?? null;
-  const limit = filters.limit ?? null;
-  const offset = filters.offset ?? null;
-
-  const countRows = (await sql`
-    SELECT COUNT(*)::int AS cnt
-    FROM time_entries te
-    WHERE te.company_id = ${companyId}::UUID
-      AND (${userId}::UUID IS NULL       OR te.user_id            = ${userId}::UUID)
-      AND (${practiceClientId}::UUID IS NULL OR te.practice_client_id = ${practiceClientId}::UUID)
-      AND (${dateFrom}::DATE IS NULL     OR te.entry_date        >= ${dateFrom}::DATE)
-      AND (${dateTo}::DATE IS NULL       OR te.entry_date        <= ${dateTo}::DATE)
-      AND (${status}::TEXT IS NULL       OR te.status             = ${status}::TEXT)
-      AND (${jobId}::UUID IS NULL        OR te.job_id             = ${jobId}::UUID)
-      -- Scope to practice-side entries only; legacy time_entries without a practice_client_id belong to the old project timesheets
-      AND te.practice_client_id IS NOT NULL
-  `) as DbRow[];
-
-  const rows = (await sql`
-    SELECT
-      te.*,
-      pc.legal_name AS practice_client_name,
-      pjc.name      AS job_category_name,
-      pwi.name      AS work_item_name
-    FROM time_entries te
-    LEFT JOIN practice_clients        pc  ON pc.id  = te.practice_client_id
-    LEFT JOIN practice_job_categories pjc ON pjc.id = te.job_category_id
-    LEFT JOIN practice_work_items     pwi ON pwi.id = te.work_item_id
-    WHERE te.company_id = ${companyId}::UUID
-      AND (${userId}::UUID IS NULL       OR te.user_id            = ${userId}::UUID)
-      AND (${practiceClientId}::UUID IS NULL OR te.practice_client_id = ${practiceClientId}::UUID)
-      AND (${dateFrom}::DATE IS NULL     OR te.entry_date        >= ${dateFrom}::DATE)
-      AND (${dateTo}::DATE IS NULL       OR te.entry_date        <= ${dateTo}::DATE)
-      AND (${status}::TEXT IS NULL       OR te.status             = ${status}::TEXT)
-      AND (${jobId}::UUID IS NULL        OR te.job_id             = ${jobId}::UUID)
-      -- Scope to practice-side entries only; legacy time_entries without a practice_client_id belong to the old project timesheets
-      AND te.practice_client_id IS NOT NULL
-    ORDER BY te.entry_date DESC, te.created_at DESC
-    LIMIT ${limit}::INT OFFSET ${offset}::INT
-  `) as DbRow[];
-
-  return { entries: rows.map(mapEntry), total: Number(countRows[0]?.cnt ?? 0) };
-}
-
-
