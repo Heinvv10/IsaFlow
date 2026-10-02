@@ -81,6 +81,17 @@ describe('R-181: the reported amount is what is banked', () => {
       expect.objectContaining({ companyId: A.id, reference: ref, reportedCurrency: 'USD' }), expect.any(String));
   });
 
+  it('no reported amount (or a malformed one) banks the request amount, flagged', async () => {
+    for (const cents of [null, 0, 115.5]) {
+      const id = await invoice(A);
+      const ref = await checkout(A, id);
+      expect((await deliver(ref, cents)).statusCode).toBe(200);
+      expect(await settlement(A, ref, id)).toEqual({
+        payments: [{ total: '115.00', allocated: '115.00', status: 'confirmed' }],
+        bankDebit: '115.00', invoicePaid: '115.00', review: 'review:amount_not_reported' });
+    }
+  });
+
   it('verify banks the amount Paystack verified, not the request amount', async () => {
     const id = await invoice(A);
     const ref = await checkout(A, id);
