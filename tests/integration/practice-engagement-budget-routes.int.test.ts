@@ -77,10 +77,22 @@ describeIfDb('Engagement budgets — routes, bulk and MCP refuse a foreign or cl
       expect(await f.entriesNamed(`EBR bad date ${entryDate}`)).toBe(0);
     }
     const id = await f.entry({ job: null, hours: 1, rate: 1000, desc: 'EBR date put' });
-    const r = await f.call(entryRoute, 'PUT', { entryDate: '10000-01-05' }, { id });
+    const dateOf = async () => (await f.pool.query(
+      "SELECT to_char(entry_date, 'YYYY-MM-DD') AS d FROM time_entries WHERE id = $1", [id])).rows[0].d;
+    expect((await f.call(entryRoute, 'PUT', { entryDate: '10000-01-05' }, { id })).statusCode).toBe(400);
+    expect(await dateOf()).toBe('2026-01-10');
+    // null keeps meaning "unchanged".
+    const kept = await f.call(entryRoute, 'PUT', { entryDate: null, hours: 2 }, { id });
+    expect(kept.statusCode, JSON.stringify(kept.body)).toBe(200);
+    expect(await dateOf()).toBe('2026-01-10');
+  });
+
+  it('POST /duplicate refuses an impossible newDate with 400 before any SQL, writing nothing', async () => {
+    const id = await f.entry({ job: null, hours: 1, rate: 1000, desc: 'EBR dup date' });
+    const r = await f.call(duplicateRoute, 'POST', { id, newDate: '2026-02-31' });
     expect(r.statusCode).toBe(400);
-    expect((await f.pool.query("SELECT to_char(entry_date, 'YYYY-MM-DD') AS d FROM time_entries WHERE id = $1", [id])).rows[0].d)
-      .toBe('2026-01-10');
+    expect(r.body.error?.message).toBe('newDate must be a real date (YYYY-MM-DD)');
+    expect(await f.entriesNamed('EBR dup date')).toBe(1);
   });
 
   it('GET /time-entries answers a malformed jobId with 400, a real one with 200', async () => {
@@ -171,6 +183,9 @@ describeIfDb('Engagement budgets — routes, bulk and MCP refuse a foreign or cl
       ...[['abc', '2026-01-07'], ['2026-13-45', '2026-01-07']].map(([dateFrom, dateTo]) => [`dateFrom ${dateFrom}`,
         () => ({ templateId, dateFrom, dateTo }), 'dateFrom is required (YYYY-MM-DD)'] as const),
       ['dateTo 2026-02-31', () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-02-31' }), 'dateTo is required (YYYY-MM-DD)'],
+      ['a year before 1900 (Date.UTC maps 0050 to 1950)', () => ({ templateId, dateFrom: '0050-01-05', dateTo: '0050-01-07' }),
+        'dateFrom and dateTo must be in or after 1900'],
+      ['dateTo before 1900', () => ({ templateId, dateFrom: '2026-01-05', dateTo: '1899-12-31' }), 'dateFrom and dateTo must be in or after 1900'],
       ...[true, '2', {}].map((hoursOverride) => [`hoursOverride ${JSON.stringify(hoursOverride)}`,
         () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', hoursOverride }), 'hoursOverride must be a number'] as const),
       ['a NUL in taskOverride', () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', taskOverride: 'a\u0000b' }),

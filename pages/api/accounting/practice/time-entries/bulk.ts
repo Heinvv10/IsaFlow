@@ -49,6 +49,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (typeof body.dateTo !== 'string' || !isRealCalendarDate(body.dateTo)) {
     return apiResponse.badRequest(res, 'dateTo is required (YYYY-MM-DD)');
   }
+  // The range is built with Date.UTC, which maps years 0-99 to 1900-1999: '0050-01-05' filled 1950.
+  if (Number(body.dateFrom.slice(0, 4)) < 1900 || Number(body.dateTo.slice(0, 4)) < 1900) {
+    return apiResponse.badRequest(res, 'dateFrom and dateTo must be in or after 1900');
+  }
   // `true` used to be read as 1 hour. The form sends a number.
   if (body.hoursOverride != null && (typeof body.hoursOverride !== 'number' || !Number.isFinite(body.hoursOverride))) {
     return apiResponse.badRequest(res, 'hoursOverride must be a number');

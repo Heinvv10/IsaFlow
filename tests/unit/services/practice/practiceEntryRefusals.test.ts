@@ -108,11 +108,18 @@ describe('bulkCreateFromTemplate refusals are PracticeEntryRefusal', () => {
   });
 });
 
-describe('updatePracticeEntry refuses an entry date that is not a real date', () => {
-  it.each(['10000-01-05', '2026-02-31'])('%s', async (entryDate) => {
-    sqlMock.mockResolvedValueOnce([{ status: 'draft', practice_client_id: CLIENT, entry_date: '2026-04-13', user_id: USER,
-      hours: 1, job_category_id: CATEGORY, work_item_id: WORK_ITEM, job_id: null }]);
+describe('updatePracticeEntry date refusals are PracticeEntryRefusal', () => {
+  const draftRow = () => sqlMock.mockResolvedValueOnce([{ status: 'draft', practice_client_id: CLIENT, entry_date: '2026-04-13',
+    user_id: USER, hours: 1, job_category_id: CATEGORY, work_item_id: WORK_ITEM, job_id: null }]);
+
+  it.each(['10000-01-05', '2026-02-31'])('an entry date that is not a real date: %s', async (entryDate) => {
+    draftRow();
     await refusal(updatePracticeEntry(COMPANY, 'e1', { entryDate }), /entry date must be a real date/);
     expect(sqlMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a future entry date', async () => {
+    draftRow();
+    await refusal(updatePracticeEntry(COMPANY, 'e1', { entryDate: '2999-01-01' }), /entry date cannot be in the future/);
   });
 });
