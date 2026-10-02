@@ -50,7 +50,10 @@ const HEADER_ADVICE = {
 export function roleTargetRefusal(
   role: string, setting: string, target: RoleTarget, caller: keyof typeof HEADER_ADVICE = 'save',
 ): string | null {
-  const { code, subtype } = target;
+  const { code } = target;
+  // '' is no subtype: migration 674's trigger stores it as NULL, and the chart
+  // API (mapRow) shows it as none — so the page's options and the save agree.
+  const subtype = target.subtype === '' ? null : target.subtype;
   if (!typeFitsSubtype(target.type, role)) {
     const allowed = Object.entries(GL_ACCOUNT_SUBTYPES_BY_TYPE)
       .filter(([, subtypes]) => (subtypes as readonly string[]).includes(role)).map(([type]) => type);

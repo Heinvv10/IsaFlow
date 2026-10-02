@@ -90,6 +90,13 @@ describeIfDb('D5: an income-statement role may be assigned to a header; a balanc
         .toEqual({ bank: ['1110'], receivable: ['1120'], payable: ['2110'] });
     });
 
+    it('moves the bank role onto an account written with an empty-string subtype (stored NULL by migration 674): 200, resolves to it', async () => {
+      const blank = randomUUID();
+      await ins(blank, '1195', 'asset', '', false);
+      expect({ save: await save('primary_bank', blank, BANK), holders: await holders('bank'), resolves: await resolve('bank') })
+        .toEqual({ save: { status: 200, message: '' }, holders: ['1195'], resolves: '1195' });
+    });
+
     it('still refuses the EQUITY roles (retained earnings, opening balance equity) on an equity header; nothing moves', async () => {
       const out = { re: await save('retained_earnings', QH, RE), obe: await save('opening_balance_equity', QH, OBE) };
       expect(out).toEqual({
