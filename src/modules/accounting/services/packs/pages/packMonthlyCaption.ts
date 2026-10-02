@@ -175,7 +175,7 @@ export function largestContraryFigureSentence(trend: PackTrendPoint[], scale: Mo
   }
   if (biggest === null) return '';
   const money = (n: number) => inProse(formatMoney(n, { scale }));
-  return ` The largest figure among the months above the wrong side of its band is `
+  return ` Of the months above, the largest figure on the wrong side of its band is `
     + `${monthLabel(biggest.point)}'s ${biggest.measure.prose} of ${money(biggest.value)}: more `
     + 'was reversed out of those accounts than was posted into them.';
 }

@@ -233,7 +233,10 @@ describe("page 5 remarks on page 5's largest figure", () => {
       expect(biggest, 'this fixture has no monthly figures').toBeGreaterThan(0);
 
       const caption = proseOf(pageNamed(input, 'Monthly results'));
-      expect(caption).toContain('The largest figure among the months above the wrong side of its band is');
+      // A sentence, not "the largest figure among the months above the wrong
+      // side of its band", which v79 printed on every pack's page 5.
+      expect(caption).toMatch(/ Of the months above, the largest figure on the wrong side of its band is [A-Z][a-z]{2} \d{4}(?: \(part\))?'s [a-z ]+ of \(?[\d\s]+\)?: more was reversed/);
+      expect(caption).not.toContain('among the months above the wrong side');
       expect(caption).toContain(money(-biggest));
       expect(caption).toContain('more was reversed out of those accounts than was posted into them');
     });
