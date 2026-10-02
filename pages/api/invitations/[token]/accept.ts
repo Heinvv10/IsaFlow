@@ -8,7 +8,7 @@ import '@/lib/pgTypes';
 import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteToken';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/gotrue';
-import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
+import { AuthUpstreamUnavailableError, respondToAuthOutage } from '@/lib/auth/authUpstream';
 import { sql } from '@/lib/neon';
 import { chargeRateLimit, refundRateLimit } from '@/lib/rateLimit';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
@@ -117,9 +117,10 @@ const handler: NextApiHandler = async (req, res) => {
   // GoTrue call, which is what the cap exists to bound.
   //
   // The limiter writes on its own pool (K-103), never on the invite-token
-  // transaction: a thrown path below (a GoTrue outage) ROLLBACKs that
-  // transaction and the attempt is still counted, and the counter's row lock is
-  // not held across the two GoTrue round-trips.
+  // transaction: a thrown path below ROLLBACKs that transaction and the attempt
+  // is still counted, and the counter's row lock is not held across the two
+  // GoTrue round-trips. The exception is a classified GoTrue outage, which
+  // judged no password: it is refunded after the fact (D9, outer catch below).
   const ATTEMPT_COST = 2;
   const ATTEMPTS_PER_HOUR = 10;
   const charge = await chargeRateLimit(`invite-accept:${tokenHash}`, {
@@ -187,9 +188,9 @@ const handler: NextApiHandler = async (req, res) => {
     try {
       tok = await signIn(inv.email, password);
     } catch (err) {
-      // D9: an outage is not a wrong password. Nothing is written before this point.
-      if (respondIfAuthUnavailable(res, err, 'invite accept')) return;
-      if (!isEstablished) throw err;
+      // D9: an outage is not a wrong password; the outer catch answers it. For a new invitee the GoTrue
+      // password set above has already run; a retry sets it again. No membership or acceptance is written.
+      if (err instanceof AuthUpstreamUnavailableError || !isEstablished) throw err;
       log.warn('invite accept rejected: wrong password for existing account', {
         inviteId: inv.id,
         companyId: inv.company_id,
@@ -269,6 +270,8 @@ const handler: NextApiHandler = async (req, res) => {
     // open transaction only logs `WARNING: there is no transaction in progress`
     // on every GoTrue failure, so ask first.
     if (opened) unusable = await rollbackFailed(client, 'invite accept');
+    // D9: a GoTrue outage at step 2 or 3 (both before BEGIN) judged no password: refund, answer 503.
+    else if (await respondToAuthOutage(res, err, 'invite accept', refund)) return;
     throw err;
   } finally {
     client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it

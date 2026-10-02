@@ -17,6 +17,8 @@ vi.mock('@/lib/logger', () => {
 vi.mock('@/lib/rateLimit', () => ({
   withRateLimit: (h: unknown) => h,
   checkRateLimit: vi.fn(async () => true),
+  chargeRateLimit: vi.fn(async () => ({ admitted: true, windowStart: null })),
+  refundRateLimit: vi.fn(async () => undefined),
   getClientIp: () => '127.0.0.1',
 }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));

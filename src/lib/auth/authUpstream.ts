@@ -70,6 +70,24 @@ export async function readAuthUpstreamJson(what: string, res: Response): Promise
   }
 }
 
+/**
+ * For a route that charged an attempt budget BEFORE calling GoTrue: when, and
+ * only when, the outcome is a classified outage, hand the charge back (no
+ * password or code was judged, so it bounds no guess), then answer 503. A
+ * failed refund is logged, never thrown: the 503 still goes out.
+ */
+export async function respondToAuthOutage(
+  res: NextApiResponse, err: unknown, source: string, refund: () => Promise<unknown>,
+): Promise<boolean> {
+  if (!(err instanceof AuthUpstreamUnavailableError)) return false;
+  try {
+    await refund();
+  } catch (refundErr) {
+    log.warn(`${source}: refund after auth outage failed`, { message: describe(refundErr) }, 'Auth');
+  }
+  return respondIfAuthUnavailable(res, err, source);
+}
+
 /** Answers 503 + Retry-After when `err` is an outage. Never touches a cookie. */
 export function respondIfAuthUnavailable(res: NextApiResponse, err: unknown, source: string): boolean {
   if (!(err instanceof AuthUpstreamUnavailableError)) return false;

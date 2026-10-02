@@ -267,16 +267,17 @@ export async function adminUpdateUser(
     email_confirm?: boolean;
   }
 ): Promise<GoTrueUser> {
-  const res = await gotrueFetch(
+  // Bounded and classified (D9): invitation accept answers an outage here 503, not 500.
+  const res = await callAuthUpstream('gotrue adminUpdateUser', (signal) => gotrueFetch(
     `/admin/users/${userId}`,
-    { method: 'PUT', body: JSON.stringify(patch) },
+    { method: 'PUT', body: JSON.stringify(patch), signal },
     adminHeaders()
-  );
+  ));
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`gotrue adminUpdateUser failed: ${res.status} ${body}`);
   }
-  return res.json() as Promise<GoTrueUser>;
+  return readAuthUpstreamJson('gotrue adminUpdateUser', res) as Promise<GoTrueUser>;
 }
 
 export async function adminDeleteUser(userId: string): Promise<void> {
