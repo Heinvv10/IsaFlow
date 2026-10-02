@@ -176,7 +176,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, {
     status: publicStatus,
     amountCents: banked ? Math.round(Number(banked.total) * 100) : Number(pr.amount_cents),
-    appliedToInvoice: banked ? Number(banked.applied) > 0.005 : false,
+    appliedToInvoice: banked ? Math.round(Number(banked.applied) * 100) > 0 : false,
     // The currency the money was reported in: a non-ZAR receipt's figure is not rand.
     currency: banked ? receiptCurrency(banked.description) : 'ZAR',
     invoiceNumber: pr.invoice_number ?? undefined,

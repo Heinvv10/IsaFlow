@@ -44,8 +44,8 @@ export async function postGatewayFee(
 ): Promise<void> {
   const fee = Number(receipt.feeRand ?? 0);
   // Any whole cent posts (R-181): `fee <= 0.01` dropped a merchant's R0.01 share and left Bank a
-  // cent above the deposit. Below half a cent there is nothing to post.
-  if (!Number.isFinite(fee) || fee < 0.005) return;
+  // cent above the deposit. Less than a whole cent is nothing to post.
+  if (!Number.isFinite(fee) || Math.round(fee * 100) < 1) return;
   if (!bankAccountId) {
     log.warn(
       'Gateway fee not posted — the receipt has no bank account',

@@ -105,13 +105,14 @@ export function merchantFee(
   if (!isBookCurrency(reported)) return { feeRand: null, reviews: ['fee_not_posted_currency'] };
   const amount = positiveCents(reported.amountCents);
   const raw = fee - (amount === null ? 0 : (amount - bankedCents) / 100);
-  const clamped = Math.min(fee, Math.max(0, raw));
+  // Compared in whole cents: float rand differences miss a cent.
+  const rawCents = Math.round(raw * 100);
+  const clampedCents = Math.min(Math.round(fee * 100), Math.max(0, rawCents));
   // Never more than the receipt itself: a fee above it would drive Bank below zero for the charge.
-  const banked = bankedCents / 100;
-  const posted = Math.round(Math.min(clamped, banked) * 100) / 100;
+  const posted = Math.min(clampedCents, bankedCents) / 100;
   const reviews = [
-    ...(Math.abs(clamped - raw) > 0.005 ? ['fee_clamped'] : []),
-    ...(clamped - banked > 0.005 ? ['fee_exceeds_receipt'] : []),
+    ...(clampedCents !== rawCents ? ['fee_clamped'] : []),
+    ...(clampedCents > bankedCents ? ['fee_exceeds_receipt'] : []),
   ];
   return { feeRand: posted, reviews };
 }

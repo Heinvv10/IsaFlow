@@ -13,6 +13,8 @@ const h = vi.hoisted(() => ({
   already: null as null | Record<string, unknown>,
   /** What the invoice-locked allocation decides; null = the default (min of receipt and R115). */
   allocated: null as null | number,
+  block: null as null | string,
+  clientId: null as null | string,
 }));
 vi.mock('@/lib/neon', () => ({
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -33,8 +35,8 @@ vi.mock('@/modules/accounting/services/ar/gatewayFeeService', () => ({ postGatew
 vi.mock('@/modules/accounting/services/ar/portalLinkCharge', () => ({ spendPaymentLinkOfRequest: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/ar/gatewayReceiptAllocation', () => ({
   decideGatewayAllocation: vi.fn(async (_c: string, _i: string, amountRand: number, _r: string, hold: string | null) => ({
-    allocated: hold ? 0 : (h.allocated ?? Math.min(amountRand, 115)), invoiceBlock: hold, overpaid: false,
-    clientId: CUSTOMER, status: 'sent', deleted: false,
+    allocated: hold || h.block ? 0 : (h.allocated ?? Math.min(amountRand, 115)), invoiceBlock: hold ?? h.block, overpaid: false,
+    clientId: h.clientId ?? CUSTOMER, status: 'sent', deleted: false,
   })),
 }));
 vi.mock('@/modules/accounting/services/ar/gatewaySettlementReview', async (importOriginal) => ({
@@ -48,16 +50,22 @@ const USER = '22222222-2222-4222-8222-222222222222';
 import { recordGatewayInvoiceReceipt } from '@/modules/accounting/services/ar/gatewayInvoiceReceiptService';
 import { postGatewayFee } from '@/modules/accounting/services/ar/gatewayFeeService';
 import { decideGatewayAllocation } from '@/modules/accounting/services/ar/gatewayReceiptAllocation';
+import { flagSettlementForReview } from '@/modules/accounting/services/ar/gatewaySettlementReview';
 
 const fee = postGatewayFee as unknown as ReturnType<typeof vi.fn>;
 const allocate = decideGatewayAllocation as unknown as ReturnType<typeof vi.fn>;
+const flag = flagSettlementForReview as unknown as ReturnType<typeof vi.fn>;
+const reasons = () => flag.mock.calls.map((c) => c[2] as string[]);
 const receiptInsert = () => h.calls.find((c) => c.text.includes('INSERT INTO customer_payments ('));
 const base = { companyId: '33333333-3333-4333-8333-333333333333', invoiceId: '44444444-4444-4444-8444-444444444444',
   reference: 'r181_wiring', requestedCents: 11500 };
 
 const allocationInsert = () => h.calls.find((c) => c.text.includes('INSERT INTO customer_payment_allocations'));
 
-beforeEach(() => { h.calls.length = 0; h.already = null; h.allocated = null; fee.mockClear(); allocate.mockClear(); });
+beforeEach(() => {
+  h.calls.length = 0; h.already = null; h.allocated = null; h.block = null; h.clientId = null;
+  fee.mockClear(); allocate.mockClear(); flag.mockClear();
+});
 
 describe('recordGatewayInvoiceReceipt wiring', () => {
   it('pass-on fee: banks requested_amount, hands postGatewayFee no fee (the customer paid it)', async () => {
@@ -106,5 +114,51 @@ describe('recordGatewayInvoiceReceipt wiring', () => {
     await recordGatewayInvoiceReceipt({ ...base, feeRand: null, reported: { amountCents: 11500, currency: 'ZAR' } });
     expect(receiptInsert()!.values[4]).toBe(115);
     expect(allocationInsert()!.values[2]).toBe(50);
+  });
+
+  it('the first report flags its reasons: R50 reported on a R115 request', async () => {
+    await recordGatewayInvoiceReceipt({ ...base, feeRand: null, reported: { amountCents: 5000, currency: 'ZAR' } });
+    expect(reasons()).toEqual([['amount_mismatch']]);
+  });
+
+  it('an invoice outside the ledger is a reason of its own', async () => {
+    h.block = 'invoice_draft';
+    await recordGatewayInvoiceReceipt({ ...base, feeRand: null, reported: { amountCents: 11500, currency: 'ZAR' } });
+    expect(reasons()).toEqual([['invoice_draft']]);
+  });
+
+  it('dedupe: Paystack reporting R103 after a first report of R100 is flagged though both bank R100', async () => {
+    h.already = { id: 'p-1', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+      total_amount: '100.00', description: 'Paystack card payment r181_wiring' };
+    await recordGatewayInvoiceReceipt({ ...base, requestedCents: 10000, feeRand: 3,
+      reported: { amountCents: 10300, currency: 'ZAR', requestedAmountCents: 10000, feeCents: 300 } });
+    expect(reasons()).toEqual([['amount_disagrees_with_first_report']]);
+  });
+
+  it('dedupe: a one-cent difference from the banked figure is flagged (R2.01 banked, R2.00 reported)', async () => {
+    h.already = { id: 'p-1', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+      total_amount: '2.01', description: 'Paystack card payment r181_wiring' };
+    await recordGatewayInvoiceReceipt({ ...base, requestedCents: 200, feeRand: null, reported: { amountCents: 200, currency: 'ZAR' } });
+    expect(reasons()).toEqual([['amount_disagrees_with_first_report']]);
+  });
+
+  it('the receipt INSERT carries receiptDescription (the first report amount tag)', async () => {
+    await recordGatewayInvoiceReceipt({ ...base, feeRand: 3.5,
+      reported: { amountCents: 11850, currency: 'ZAR', requestedAmountCents: 11500, feeCents: 350 } });
+    expect(receiptInsert()!.values[7]).toBe('Paystack card payment r181_wiring [paystack amount 11850 cents]');
+  });
+
+  it('a merge moved the invoice: the receipt is re-pointed to the customer read under the lock', async () => {
+    const SURVIVOR = '55555555-5555-4555-8555-555555555555';
+    h.clientId = SURVIVOR;
+    await recordGatewayInvoiceReceipt({ ...base, feeRand: null, reported: { amountCents: 11500, currency: 'ZAR' } });
+    const repoint = h.calls.find((c) => c.text.includes('UPDATE customer_payments SET client_id'));
+    expect(repoint?.values[0]).toBe(SURVIVOR);
+  });
+
+  it('a one-cent allocation is inserted', async () => {
+    h.allocated = 0.01;
+    await recordGatewayInvoiceReceipt({ ...base, feeRand: null, reported: { amountCents: 11500, currency: 'ZAR' } });
+    expect(allocationInsert()?.values[2]).toBe(0.01);
   });
 });

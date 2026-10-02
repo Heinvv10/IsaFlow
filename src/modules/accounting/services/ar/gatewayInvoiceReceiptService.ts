@@ -40,8 +40,6 @@ import { decideGatewayAllocation } from './gatewayReceiptAllocation';
 /** posting_agent stamp: unattended, so never `human:<userId>`. */
 export const GATEWAY_RECEIPT_AGENT = 'system:paystack-receipt:v1';
 
-/** A cent. Matches confirmCustomerPayment's own settle tolerance. */
-export const EPS = 0.01;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -127,7 +125,8 @@ export async function recordGatewayInvoiceReceipt(
     // Two disagreements: the figure each would bank, and Paystack's own `amount` (PR #618 LOW-5).
     const firstAmountCents = firstReportedAmountCents(already[0].description, Math.round(bankedRand * 100));
     const reportedAmountCents = typeof receipt.reported.amountCents === 'number' ? receipt.reported.amountCents : null;
-    const disagrees = Math.abs(bankedRand - amountRand) > EPS
+    // In whole cents: a float rand difference misses a cent (2.01 - 2.00 > 0.01 is false).
+    const disagrees = Math.round(bankedRand * 100) !== charge.cents
       || (reportedAmountCents !== null && reportedAmountCents !== firstAmountCents);
     const fee = merchantFee(receipt.feeRand, receipt.reported, Math.round(bankedRand * 100));
     await postGatewayFee(
@@ -194,7 +193,7 @@ export async function recordGatewayInvoiceReceipt(
       WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID
     `;
   }
-  if (plan.allocated > EPS) {
+  if (Math.round(plan.allocated * 100) > 0) {
     await sql`
       INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated)
       VALUES (${paymentId}::UUID, ${invoiceId}::UUID, ${plan.allocated})
