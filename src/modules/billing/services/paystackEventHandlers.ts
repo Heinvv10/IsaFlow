@@ -24,6 +24,8 @@ export interface PaystackWebhookEvent {
     reference?: string;
     status?: string;
     amount?: number;
+    /** The charge before a fee the customer paid (charges passed to the customer). */
+    requested_amount?: number;
     currency?: string;
     channel?: string;
     paid_at?: string;
@@ -92,7 +94,11 @@ async function handleChargeSuccess(
   const auth = event.data.authorization ?? {};
   const customer = event.data.customer ?? {};
   // R-181: what Paystack received is what is banked, not the request's amount_cents.
-  const reported = { amountCents: event.data.amount, currency: event.data.currency };
+  const reported = {
+    amountCents: event.data.amount,
+    currency: event.data.currency,
+    requestedAmountCents: event.data.requested_amount,
+  };
 
   const prRows = await sql<{
     id: string;

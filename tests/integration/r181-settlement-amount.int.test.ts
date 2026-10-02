@@ -17,7 +17,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { A, B, SECRET, checkout, cleanup, deliver, invoice, pool, seed, settlement, verify } from './r181-settlement.helpers';
+import { A, B, SECRET, checkout, cleanup, deliver, invoice, ledger, pool, seed, settlement, verify } from './r181-settlement.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { log } from '@/lib/logger';
 import { getUnappliedReceipts } from '@/modules/accounting/services/ar/unappliedReceiptService';
@@ -83,7 +83,8 @@ describe('R-181: the reported amount is what is banked', () => {
     expect((await deliver(ref, 20000)).statusCode).toBe(200);
     expect(await settlement(A, ref, id)).toEqual({
       payments: [{ total: '200.00', allocated: '115.00', status: 'confirmed' }],
-      bankDebit: '200.00', invoicePaid: '115.00', review: 'review:amount_mismatch' });
+      bankDebit: '200.00', invoicePaid: '115.00', review: 'review:amount_mismatch,overpaid_unapplied' });
+    expect(await ledger(A, ref)).toMatchObject({ bankNet: '200.00', receivableCredit: '200.00', balanced: true });
   });
 
   it('a currency other than ZAR banks the reported amount, flagged and logged', async () => {
@@ -143,6 +144,7 @@ describe('R-181: an invoice outside the ledger is never settled', () => {
       expect(errorLog).toHaveBeenCalledWith(expect.any(String),
         expect.objectContaining({ companyId: A.id, reference: ref }), expect.any(String));
       expect(await unapplied(ref)).toEqual([[A.customer, 115]]);
+      expect(await ledger(A, ref)).toMatchObject({ bankNet: '115.00', receivableCredit: '115.00', balanced: true });
     });
   }
 
@@ -204,12 +206,12 @@ describe('R-181: the review note', () => {
       expect.objectContaining({ reference: ref, previousFailureReason: 'abandoned while starting' }), expect.any(String));
   });
 
-  it('an earlier review note is replaced, not carried as a prior reason', async () => {
+  it('an earlier review note is merged with the new reasons, not carried as a prior reason', async () => {
     const id = await invoice(A);
     const ref = await checkout(A, id);
-    await pool.query("UPDATE paystack_payment_requests SET failure_reason = 'review:currency_mismatch' WHERE paystack_reference = $1", [ref]);
+    await pool.query("UPDATE paystack_payment_requests SET failure_reason = 'review:currency_mismatch | previously: x' WHERE paystack_reference = $1", [ref]);
     expect((await deliver(ref, 5000)).statusCode).toBe(200);
-    expect((await settlement(A, ref, id)).review).toBe('review:amount_mismatch');
+    expect((await settlement(A, ref, id)).review).toBe('review:currency_mismatch,amount_mismatch | previously: x');
   });
 });
 
