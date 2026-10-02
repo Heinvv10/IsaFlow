@@ -5,9 +5,11 @@
  * recording — a day on which the company recorded `BULK_LOAD_MIN` or more
  * journals dated over `BACKDATE_DAYS` days earlier — because Velocity Fibre's
  * September 2026 rebuild made 19 588 "matters" of it. Nor does it drop them:
- * a load that reaches back into a period a board has already been reported
- * on is itself a matter, and one deliberately backdated journal recorded
- * among nine routine ones is inside it. So the load is raised as ONE matter,
+ * a load that rewrites months of the period this pack covers — months an
+ * earlier pack may already have shown a board — is itself a matter, and one
+ * deliberately backdated journal recorded among nine routine ones is inside
+ * it. The oldest date it states is within the window: only the window's
+ * journals are read. So the load is raised as ONE matter,
  * stating how many journals, on which days, and how far back they are dated.
  * It has no single rand amount, so it prints with the unquantified matters.
  */
