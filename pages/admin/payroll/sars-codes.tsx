@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   AlertCircle, Loader2, Upload, CheckCircle2, FileSpreadsheet, X,
   Search, RotateCcw, BadgeCheck, Ban, ExternalLink,
@@ -97,13 +97,13 @@ export default function AdminSarsCodesPage() {
       if (category) params.set('category', category);
       if (statusFilter) params.set('status', statusFilter);
       const res = await apiFetch(`/api/admin/payroll/sars-codes?${params.toString()}`);
+      await assertOk(res, 'Could not load the SARS codes - try again');
       const json = await res.json() as { data?: { releases: ReleaseRow[]; codes: CodeRow[]; taxYear: number | null }; message?: string };
-      if (!res.ok) throw new Error(json.message || 'Failed to load');
       setReleases(json.data?.releases ?? []);
       setCodes(json.data?.codes ?? []);
       setTaxYear(json.data?.taxYear ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      setReleases([]); setCodes([]); setTaxYear(null); setError(apiErrorMessage(err, 'Could not load the SARS codes - try again'));
     } finally {
       setLoading(false);
     }
@@ -119,15 +119,14 @@ export default function AdminSarsCodesPage() {
 
   const onSetCurrent = async (year: number) => {
     if (!confirm(`Mark tax year ${year} as the current SARS release? All new payroll runs will use this year's codes.`)) return;
-    const res = await apiFetch('/api/admin/payroll/sars-codes/release', {
-      method: 'POST',
-      body: JSON.stringify({ taxYear: year }),
-    });
-    if (res.ok) await load(year);
-    else {
-      const j = await res.json().catch(() => ({}));
-      alert(j.message || 'Failed to set current');
-    }
+    try {
+      const res = await apiFetch('/api/admin/payroll/sars-codes/release', {
+        method: 'POST',
+        body: JSON.stringify({ taxYear: year }),
+      });
+      await assertOk(res, 'Could not set the current tax year - try again');
+      await load(year);
+    } catch (err) { alert(apiErrorMessage(err, 'Could not set the current tax year - try again')); }
   };
 
   const onToggleStatus = async (row: CodeRow) => {
@@ -135,16 +134,16 @@ export default function AdminSarsCodesPage() {
     if (next === 'deprecated' && row.used_by_companies > 0) {
       if (!confirm(`Code ${row.code} is used by ${row.used_by_companies} compan${row.used_by_companies === 1 ? 'y' : 'ies'}. Marking deprecated will block new payroll runs that reference it. Continue?`)) return;
     }
-    const res = await apiFetch(`/api/admin/payroll/sars-codes/${row.code}?taxYear=${row.effective_year}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status: next }),
-    });
-    if (res.ok) {
+    try {
+      const res = await apiFetch(`/api/admin/payroll/sars-codes/${row.code}?taxYear=${row.effective_year}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: next }),
+      });
+      await assertOk(res, 'Could not update the code status - try again');
       if (drawerCode?.code === row.code) setDrawerCode({ ...row, status: next });
       await load(taxYear);
-    } else {
-      const j = await res.json().catch(() => ({}));
-      alert(j.message || 'Failed to update');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Could not update the code status - try again'));
     }
   };
 
@@ -406,13 +405,13 @@ function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete
       if (dryRun) fd.append('dryRun', '1');
 
       const res = await apiFetch('/api/admin/payroll/sars-codes/import', { method: 'POST', body: fd });
+      await assertOk(res, 'Could not import the SARS codes - try again');
       const json = await res.json() as { data?: ImportResult; message?: string };
-      if (!res.ok) throw new Error(json.message || 'Import failed');
       setPreview(json.data ?? null);
       setStep(dryRun ? 'preview' : 'done');
       if (!dryRun) setTimeout(onComplete, 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Could not import the SARS codes - try again'));
     } finally {
       setWorking(false);
     }

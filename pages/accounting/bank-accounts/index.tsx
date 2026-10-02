@@ -15,6 +15,7 @@ import {
 } from '@/components/accounting/bank/BankAccountModals';
 import { BankAccountCard, type BankAccountCardData } from '@/components/accounting/bank/BankAccountCard';
 import { notify } from '@/utils/toast';
+import { log } from '@/lib/logger';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 type BankAccount = BankAccountCardData;
@@ -37,11 +38,13 @@ export default function BankAccountsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/bank-accounts');
+      await assertOk(res, 'Could not load bank accounts - try again');
       const json = await res.json();
       const data = json.data || json;
       setAccounts(Array.isArray(data) ? data : []);
-    } catch {
-      setError('Failed to load bank accounts');
+    } catch (err) {
+      setAccounts([]);
+      setError(apiErrorMessage(err, 'Could not load bank accounts - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -55,11 +58,13 @@ export default function BankAccountsPage() {
     try {
       const qs = new URLSearchParams({ accountType: 'asset', accountSubtype: 'bank' });
       const res = await apiFetch(`/api/accounting/chart-of-accounts-next-code?${qs}`);
+      await assertOk(res, 'Could not suggest an account code');
       const json = await res.json();
       const code = json?.data?.code ?? json?.code;
       if (code) setForm(f => ({ ...f, accountCode: String(code) }));
-    } catch {
+    } catch (err) {
       // Suggestion is a convenience — leave blank on failure, user can still type.
+      log.warn('Could not suggest a bank account code', { error: err }, 'bank-accounts');
     }
   }, []);
 
@@ -69,6 +74,7 @@ export default function BankAccountsPage() {
       return;
     }
     setSaving(true);
+    let accountCreated = false;
     try {
       const res = await apiFetch('/api/accounting/chart-of-accounts', {
         method: 'POST',
@@ -84,11 +90,13 @@ export default function BankAccountsPage() {
           normalBalance: 'debit',
         }),
       });
+      await assertOk(res, 'Could not create the bank account - try again');
       const json = await res.json();
-      if (!res.ok || json.success === false) {
-        notify.error(json?.error?.message || 'Failed to create account');
+      if (json.success === false) {
+        notify.error(json?.error?.message || 'Could not create the bank account - try again');
         return;
       }
+      accountCreated = true;
       // If bank account number provided, save it separately
       if (form.bankAccountNumber.trim()) {
         const created = json.data || json;
@@ -99,7 +107,8 @@ export default function BankAccountsPage() {
           body: JSON.stringify({ id: created.id, bankAccountNumber: form.bankAccountNumber.trim() }),
         });
         // apiFetch resolves on a 4xx: unchecked, a refused number read as "Bank account created".
-        const numberError = await assertOk(numberRes, 'try again from Edit').then(() => '', (e: unknown) => apiErrorMessage(e, 'try again from Edit'));
+        let numberError = '';
+        try { await assertOk(numberRes, 'try again from Edit'); } catch (e) { numberError = apiErrorMessage(e, 'try again from Edit'); }
         if (numberError) notify.error(`The account was created, but its bank account number was not saved: ${numberError}`);
         else notify.success('Bank account created');
       } else {
@@ -107,11 +116,15 @@ export default function BankAccountsPage() {
       }
       setShowAddModal(false);
       setForm(EMPTY_ADD);
-      void loadAccounts();
-    } catch {
-      notify.error('Failed to create bank account');
+    } catch (err) {
+      if (accountCreated) {
+        notify.error('The account was created, but its bank account number was not saved - add it from Edit');
+        setShowAddModal(false);
+        setForm(EMPTY_ADD);
+      } else notify.error(apiErrorMessage(err, 'Could not create the bank account - try again'));
     } finally {
       setSaving(false);
+      if (accountCreated) void loadAccounts();
     }
   };
 
@@ -144,11 +157,7 @@ export default function BankAccountsPage() {
           description: editForm.description.trim() || null,
         }),
       });
-      if (!coaRes.ok) {
-        const json = await coaRes.json();
-        notify.error(json?.error?.message || 'Failed to update account');
-        return;
-      }
+      await assertOk(coaRes, 'Could not update the account - try again');
       // Update bank account number + group assignment
       const bankRes = await apiFetch('/api/accounting/bank-accounts', {
         method: 'PUT',
@@ -160,17 +169,14 @@ export default function BankAccountsPage() {
           parentAccountId: editForm.parentAccountId || null,
         }),
       });
-      if (!bankRes.ok) {
-        const json = await bankRes.json();
-        notify.error(json?.error?.message || 'Failed to update bank account');
-        return;
-      }
+      await assertOk(bankRes, 'Could not update the bank account - try again');
       notify.success('Bank account updated');
       setEditingAccount(null);
-      void loadAccounts();
-    } catch {
-      notify.error('Failed to update bank account');
+    } catch (err) {
+      notify.error(apiErrorMessage(err, 'Could not update the bank account - try again'));
     } finally {
+      // Reload either way: the name update may have landed even when the bank-number update failed
+      void loadAccounts();
       setSaving(false);
     }
   };

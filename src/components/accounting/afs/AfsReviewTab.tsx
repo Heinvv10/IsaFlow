@@ -2,7 +2,7 @@
 // Sign-off trail, section-level comments and workflow actions for an AFS document.
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { AfsDocument, AfsSection, AfsSectionComment } from '@/modules/accounting/services/afs/afsTypes';
 import { useAuth } from '@/contexts/AuthContext';
@@ -55,10 +55,13 @@ function SectionCommentsPanel({ documentId, section }: {
         `/api/accounting/afs/${documentId}/sections/${section.id}/comments`,
         { credentials: 'include' }
       );
+      await assertOk(res, 'Could not load comments - try again');
       const json = await res.json() as { data: { items: AfsSectionComment[] } };
       setComments(json.data.items ?? []);
     } catch (err) {
       log.warn('Failed to load comments', { error: err, sectionId: section.id }, 'AfsReviewTab');
+      setComments([]);
+      setPostError(apiErrorMessage(err, 'Could not load comments - try again'));
     } finally {
       setLoading(false);
     }
@@ -78,12 +81,12 @@ function SectionCommentsPanel({ documentId, section }: {
           body: JSON.stringify({ body: body.trim() }),
         }
       );
-      const json = await res.json() as { data?: AfsSectionComment; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
+      await assertOk(res, 'Could not post the comment - try again');
+      const json = await res.json() as { data?: AfsSectionComment };
       if (json.data) setComments(prev => [...prev, json.data as AfsSectionComment]);
       setBody('');
     } catch (err) {
-      setPostError(err instanceof Error ? err.message : 'Failed to post comment');
+      setPostError(apiErrorMessage(err, 'Could not post the comment - try again'));
     } finally {
       setPosting(false);
     }
@@ -160,18 +163,22 @@ export function AfsReviewTab({ documentId, doc, onDocUpdate }: Props) {
   const { user } = useAuth();
   const [sections, setSections] = useState<AfsSection[]>([]);
   const [sectionsLoading, setSectionsLoading] = useState(true);
+  const [sectionsError, setSectionsError] = useState('');
   const [workflowError, setWorkflowError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    setSectionsLoading(true);
+    setSectionsLoading(true); setSectionsError('');
     apiFetch(`/api/accounting/afs/${documentId}`, { credentials: 'include' })
-      .then(r => r.json() as Promise<{ data: { document: AfsDocument & { sections: AfsSection[] } } }>)
+      .then(async r => { await assertOk(r, 'Could not load the sections - try again'); return r.json() as Promise<{ data: { document: AfsDocument & { sections: AfsSection[] } } }>; })
       .then(json => {
         if (!cancelled) setSections(json.data.document.sections ?? []);
       })
-      .catch((err: unknown) => log.warn('Failed to load sections', { error: err }, 'AfsReviewTab'))
+      .catch((err: unknown) => {
+        log.warn('Failed to load sections', { error: err }, 'AfsReviewTab');
+        if (!cancelled) setSectionsError(apiErrorMessage(err, 'Could not load the sections - try again'));
+      })
       .finally(() => { if (!cancelled) setSectionsLoading(false); });
     return () => { cancelled = true; };
   }, [documentId]);
@@ -186,11 +193,11 @@ export function AfsReviewTab({ documentId, doc, onDocUpdate }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       });
-      const json = await res.json() as { data?: { document: AfsDocument }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
+      await assertOk(res, 'Could not complete that action - try again');
+      const json = await res.json() as { data?: { document: AfsDocument } };
       if (json.data?.document) onDocUpdate(json.data.document);
     } catch (err) {
-      setWorkflowError(err instanceof Error ? err.message : 'Action failed');
+      setWorkflowError(apiErrorMessage(err, 'Could not complete that action - try again'));
       log.error('Workflow action failed', { error: err, action }, 'AfsReviewTab');
     } finally {
       setSubmitting(false);
@@ -266,6 +273,8 @@ export function AfsReviewTab({ documentId, doc, onDocUpdate }: Props) {
           <div className="flex items-center gap-2 text-sm text-slate-400">
             <Loader2 className="w-4 h-4 animate-spin" /> Loading sections…
           </div>
+        ) : sectionsError ? (
+          <p role="alert" className="text-sm text-red-400">{sectionsError}</p>
         ) : sections.length === 0 ? (
           <p className="text-sm text-slate-400">No sections found for this document.</p>
         ) : (

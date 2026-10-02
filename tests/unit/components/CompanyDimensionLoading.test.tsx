@@ -1,3 +1,4 @@
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -8,7 +9,8 @@ const context = vi.hoisted(() => ({ activeCompany: { id: 'company-a' }, loading:
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => context }));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: { tab: 'dimensions' } }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => children }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 
 const ccKey = 'enable_cost_centres';
 const buKey = 'enable_business_units';

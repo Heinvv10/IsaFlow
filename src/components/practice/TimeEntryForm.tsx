@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, Save, AlertCircle } from 'lucide-react';
+import { apiErrorMessage } from '@/lib/apiFetch';
 import type { PracticeTimeEntryInput } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
 import {
   fetchWorkItems,
@@ -119,7 +120,7 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
         const items = await fetchWorkItems(jobCategoryId);
         if (!cancelled) setWorkItems(items);
       } catch (err) {
-        if (!cancelled) setWorkItemError(err instanceof Error ? err.message : 'Failed to load work items');
+        if (!cancelled) setWorkItemError(apiErrorMessage(err, 'please try again'));
       }
     })();
     return () => { cancelled = true; };
@@ -170,9 +171,9 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
           });
           await loadTemplates();
           setSaveAsTemplate(false); setTemplateName('');
-        } catch (tErr) { setTemplateWarning(`Entry saved but template save failed: ${tErr instanceof Error ? tErr.message : 'unknown error'}`); }
+        } catch (tErr) { setTemplateWarning(`Entry saved but template save failed: ${apiErrorMessage(tErr, 'please try again')}`); }
       }
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to save entry'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not save the time entry - try again')); }
     finally { setSubmitting(false); }
   }
 

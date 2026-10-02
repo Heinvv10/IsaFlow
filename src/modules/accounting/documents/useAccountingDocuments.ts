@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { LinkedDocument, AccountingDocumentType } from '@/types/procurement/document.types';
 import { log } from '@/lib/logger';
+import { ApiEnvelopeError, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 interface UseAccountingDocumentsReturn {
   documents: LinkedDocument[];
@@ -30,15 +31,14 @@ export function useAccountingDocuments(
       const res = await fetch(
         `/api/accounting/documents?entity_type=${entityType}&entity_id=${entityId}`
       );
+      await assertOk(res, 'Could not load the documents - try again');
       const data = await res.json();
-      if (data.success) {
-        setDocuments(data.data);
-      } else {
-        setError(data.error?.message || 'Failed to fetch documents');
-      }
+      if (!data.success) throw new ApiEnvelopeError(data.error?.message || 'Could not load the documents - try again');
+      setDocuments(data.data);
     } catch (err) {
       log.error('Failed to fetch accounting documents', { error: err });
-      setError('Failed to load documents');
+      setDocuments([]);
+      setError(apiErrorMessage(err, 'Could not load the documents - try again'));
     } finally {
       setLoading(false);
     }
@@ -66,18 +66,13 @@ export function useAccountingDocuments(
           method: 'POST',
           body: formData,
         });
+        await assertOk(res, 'Could not upload the document - try again');
         const data = await res.json();
-
-        if (data.success) {
-          setDocuments((prev) => [data.data, ...prev]);
-        } else {
-          setError(data.error?.message || 'Failed to upload document');
-          throw new Error(data.error?.message || 'Upload failed');
-        }
+        if (!data.success) throw new ApiEnvelopeError(data.error?.message || 'Could not upload the document - try again');
+        setDocuments((prev) => [data.data, ...prev]);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Upload failed';
         log.error('Failed to upload accounting document', { error: err });
-        setError(msg);
+        setError(apiErrorMessage(err, 'Could not upload the document - try again'));
         throw err;
       } finally {
         setUploading(false);
@@ -92,16 +87,13 @@ export function useAccountingDocuments(
       const res = await fetch(`/api/accounting/documents?id=${documentId}`, {
         method: 'DELETE',
       });
+      await assertOk(res, 'Could not delete the document - try again');
       const data = await res.json();
-
-      if (data.success) {
-        setDocuments((prev) => prev.filter((d) => d.id !== documentId));
-      } else {
-        setError(data.error?.message || 'Failed to delete document');
-      }
+      if (!data.success) throw new ApiEnvelopeError(data.error?.message || 'Could not delete the document - try again');
+      setDocuments((prev) => prev.filter((d) => d.id !== documentId));
     } catch (err) {
       log.error('Failed to delete accounting document', { error: err });
-      setError('Failed to delete document');
+      setError(apiErrorMessage(err, 'Could not delete the document - try again'));
     }
   }, []);
 

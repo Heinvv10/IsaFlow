@@ -2,8 +2,8 @@
  * D3 round 2: every payroll page that reads a per-employee route says
  * "You don't have access to payroll detail." when the server answers 403 (the
  * real error envelope through the real apiFetch), never a generic load failure.
- * A 500 on the same page keeps its own failure text, so the 403 branch is not
- * the page's only message.
+ * A 500 on the same page shows the server's own message (D2), so the 403 branch
+ * is not the page's only message.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
@@ -47,20 +47,20 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const pages: Array<[string, () => React.ReactElement, RegExp]> = [
   ['run variance', () => <VariancePage />, /boom/],
   ['cash register', () => <CashRegisterPage />, /boom/],
-  ['loans list', () => <LoansPage />, /Failed to load loans/],
-  ['loan detail', () => <LoanDetailPage />, /Failed to load loan/],
-  ['IRP5 summary', () => <Irp5Page />, /Failed to load IRP5 summary/],
-  ['batch detail', () => <BatchDetailPage />, /Failed to load batch/],
-  ['employee components', () => <EmployeePage />, /Failed to load|HTTP/],
-  ['duplicates', () => <DuplicatesPage />, /Failed to load duplicates/],
+  ['loans list', () => <LoansPage />, /boom/],
+  ['loan detail', () => <LoanDetailPage />, /boom/],
+  ['IRP5 summary', () => <Irp5Page />, /boom/],
+  ['batch detail', () => <BatchDetailPage />, /boom/],
+  ['employee components', () => <EmployeePage />, /boom/],
+  ['duplicates', () => <DuplicatesPage />, /boom/],
   ['EEA2 report', () => <Eea2Page />, /boom/],
-  ['leave balances', () => <LeaveBalancesPage />, /Failed to load leave balances/],
-  ['leave request', () => <LeaveRequestPage />, /Failed to load leave request/],
-  ['leave list', () => <LeaveIndexPage />, /Failed to load leave requests/],
-  ['tax directives', () => <TaxDirectivesPage />, /Failed to load tax directives/],
-  ['training events', () => <TrainingPage />, /Failed to load training events/],
+  ['leave balances', () => <LeaveBalancesPage />, /boom/],
+  ['leave request', () => <LeaveRequestPage />, /boom/],
+  ['leave list', () => <LeaveIndexPage />, /boom/],
+  ['tax directives', () => <TaxDirectivesPage />, /boom/],
+  ['training events', () => <TrainingPage />, /boom/],
   ['WSP/ATR report', () => <WspAtrPage />, /boom/],
-  ['termination preview', () => <EmployeeTerminationCard employeeId={ID} />, /Failed to load termination details/],
+  ['termination preview', () => <EmployeeTerminationCard employeeId={ID} />, /boom/],
 ];
 
 describe('payroll detail pages — 403 says so', () => {
@@ -77,7 +77,7 @@ describe('payroll detail pages — 403 says so', () => {
     expect(await screen.findByText(NO_ACCESS)).toBeTruthy();
   });
 
-  it.each(pages)('%s keeps its own failure text on a 500', async (_name, element, generic) => {
+  it.each(pages)('%s shows the server message on a 500', async (_name, element, generic) => {
     fetchMock.mockImplementation(async () => envelope(500, 'INTERNAL_ERROR', 'boom'));
     render(element());
     await waitFor(() => expect(screen.queryByText(NO_ACCESS)).toBeNull());

@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { BarChart3, Loader2, AlertTriangle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 
 interface StockItem { id: string; code: string; name: string; current_stock: number; reorder_level: number; avg_cost: number; selling_price: number; unit: string; category: string; stock_value: number; }
@@ -17,12 +17,16 @@ export default function StockLevelsPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [showBelowOnly, setShowBelowOnly] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const params = showBelowOnly ? '?belowReorder=true' : '';
+    setError('');
     apiFetch(`/api/accounting/stock-levels${params}`, { credentials: 'include' })
-      .then(r => r.json()).then(j => { setItems(j.data?.items || []); setSummary(j.data?.summary || null); setLoading(false); })
-      .catch(() => setLoading(false));
+      .then(async r => { await assertOk(r, 'Could not load stock levels - try again'); return r.json(); })
+      .then(j => { setItems(j.data?.items || []); setSummary(j.data?.summary || null); })
+      .catch(err => { setItems([]); setSummary(null); setError(apiErrorMessage(err, 'Could not load stock levels - try again')); })
+      .finally(() => setLoading(false));
   }, [showBelowOnly]);
 
   return (
@@ -38,6 +42,7 @@ export default function StockLevelsPage() {
           </div>
         </div>
         <div className="p-6 space-y-4">
+          {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
           {summary && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">

@@ -59,10 +59,12 @@ export default function BatchPaymentDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/batch-payments?id=${batchId}`);
+      await assertOk(res, 'Could not load the batch - try again');
       const json = await res.json();
       setBatch(json.data || null);
-    } catch {
-      setError('Failed to load batch');
+    } catch (err) {
+      setBatch(null);
+      setError(apiErrorMessage(err, 'Could not load the batch - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -81,10 +83,10 @@ export default function BatchPaymentDetailPage() {
       });
       // The body's `error` is an object ({ code, message }); rendering it
       // crashed the page. `assertOk` pulls out the refusal's own message.
-      await assertOk(res, `Failed to ${action} batch`);
+      await assertOk(res, `Could not ${action} the batch - try again`);
       void load();
     } catch (err) {
-      setError(apiErrorMessage(err, `Failed to ${action} batch`));
+      setError(apiErrorMessage(err, `Could not ${action} the batch - try again`));
     } finally {
       setActionBusy('');
     }

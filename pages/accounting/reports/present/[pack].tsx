@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Loader2 } from 'lucide-react';
-import { apiJson } from '@/lib/apiFetch';
+import { apiJson, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { PresentDeck } from '@/components/accounting/present/PresentDeck';
 import { buildSlides, type ReportPack, type Slide } from '@/components/accounting/present/presentSlides';
@@ -52,7 +52,7 @@ export default function PresentPackPage() {
     // invalid pack — a client-side navigation from an unknown pack to a
     // known one must not keep the old "Unknown pack" banner on screen.
     setError('');
-    setSlides(null);
+    setSlides(null); setIncome(null); setTrends(null); setBudget([]); setBudgetedCount(0);
     let live = true;
     setTrendsFailed(false);
     setBudgetFailed(false);
@@ -67,6 +67,8 @@ export default function PresentPackPage() {
       try {
         const packData = await apiJson(
           `/api/accounting/reports-pack?type=${packType}&from=${from}&to=${to}`,
+          undefined,
+          'Could not load the report pack - try again',
         );
         if (!live) return;
         setSlides(buildSlides(packData.pack as ReportPack));
@@ -76,9 +78,9 @@ export default function PresentPackPage() {
         // one slide — PresentSlide renders it without the missing column —
         // it must not blank the whole deck the pack fetch just built.
         const [trendsResult, budgetResult, incomeResult] = await Promise.allSettled([
-          apiJson(`/api/accounting/reports-account-trends?as_of=${to}&basis=movement`),
-          apiJson(`/api/accounting/reports-budget-comparator?period_start=${from}&period_end=${to}`),
-          apiJson(`/api/accounting/reports-income-statement?period_start=${from}&period_end=${to}`),
+          apiJson(`/api/accounting/reports-account-trends?as_of=${to}&basis=movement`, undefined, 'Could not load the trend comparison - try again'),
+          apiJson(`/api/accounting/reports-budget-comparator?period_start=${from}&period_end=${to}`, undefined, 'Could not load the budget comparison - try again'),
+          apiJson(`/api/accounting/reports-income-statement?period_start=${from}&period_end=${to}`, undefined, 'Could not load the income statement - try again'),
         ]);
         if (!live) return;
 
@@ -104,7 +106,7 @@ export default function PresentPackPage() {
         }
         setIncomeLoading(false);
       } catch (err) {
-        if (live) setError(err instanceof Error ? err.message : String(err));
+        if (live) setError(apiErrorMessage(err, 'Try again in a moment.'));
         log.error('Presentation pack failed to load', { error: err }, 'present');
         // The pack fetch threw, so the three comparator fetches were never
         // started. Leaving them "loading" would spin those slides forever

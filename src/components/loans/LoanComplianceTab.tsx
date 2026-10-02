@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, ShieldCheck, Loader2, Play } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { fmt, fmtDate } from '@/components/loans/types';
 
 interface Assessment {
@@ -44,13 +44,15 @@ export function LoanComplianceTab({ loanId }: Props) {
     setLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/loans/${loanId}/compliance`, { credentials: 'include' });
+      await assertOk(res, 'Could not load compliance history - try again');
       const json = await res.json();
       setHistory(json.data ?? []);
     } catch (err) {
       setHistory([]);
-      setError(err instanceof Error ? err.message : 'Failed to load compliance history');
+      setError(apiErrorMessage(err, 'Could not load compliance history - try again'));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [loanId]);
 
 
@@ -66,16 +68,13 @@ export function LoanComplianceTab({ loanId }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: 'Assessment failed' }));
-        setError(err.message ?? 'Assessment failed');
-      } else {
-        await load();
-      }
+      await assertOk(res, 'Could not run the compliance assessment - try again');
+      await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Assessment failed');
+      setError(apiErrorMessage(e, 'Could not run the compliance assessment - try again'));
+    } finally {
+      setRunning(false);
     }
-    setRunning(false);
   };
 
   const latest = history[0];

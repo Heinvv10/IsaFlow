@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, ChevronLeft, ChevronRight, ScrollText, Download } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -146,11 +146,11 @@ export default function AdminAuditPage() {
 
   useEffect(() => {
     void apiFetch('/api/admin/companies?limit=200')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the company list - try again'); return r.json(); })
       .then(j => {
         const items = (j?.data?.items ?? j?.data ?? []) as Array<{ id: string; name: string }>;
         setCompanies(items.map(c => ({ id: c.id, name: c.name })));
-      });
+      }).catch(err => setError(apiErrorMessage(err, 'Could not load the company list - try again')));
   }, []);
 
   const load = useCallback(async (pg: number) => {
@@ -166,13 +166,13 @@ export default function AdminAuditPage() {
       if (entityType) p.set('entity_type', entityType);
       if (search)     p.set('search',      search);
       const res  = await apiFetch(`/api/admin/audit?${p}`);
+      await assertOk(res, 'Could not load the audit log - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message ?? 'Failed to load');
       const d = json.data as PagedResponse;
       setRows(d.items);
       setTotal(d.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Could not load the audit log - try again'));
     } finally {
       setLoading(false);
     }

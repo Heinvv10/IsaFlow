@@ -6,6 +6,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { PAGE_REGISTRY } from '@/modules/accounting/constants/pageRegistry';
 
 export function useTrackPageVisit() {
@@ -19,6 +20,6 @@ export function useTrackPageVisit() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path }),
-    }).catch(() => {});
+    }).catch((err: unknown) => log.debug('page-visit tracking failed', { err }, 'page-visit'));
   }, [path]);
 }

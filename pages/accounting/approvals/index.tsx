@@ -8,7 +8,7 @@ import {
   Shield, CheckCircle2, XCircle, Loader2, Trash2, AlertCircle,
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ApprovalEnforcementPanel } from '@/components/accounting/approvals/ApprovalEnforcementPanel';
 
 function formatCurrency(amount: number): string {
@@ -74,13 +74,15 @@ export default function ApprovalsPage() {
         apiFetch(tab === 'pending' ? '/api/accounting/approval-requests?status=pending' : '/api/accounting/approval-requests'),
         apiFetch('/api/accounting/approval-rules'),
       ]);
-      if (!reqRes.ok || !rulesRes.ok) throw new Error('Failed to load');
+      await assertOk(reqRes, 'Could not load the approvals - try again');
+      await assertOk(rulesRes, 'Could not load the approval rules - try again');
       const reqJson = await reqRes.json();
       const rulesJson = await rulesRes.json();
       setRequests(reqJson.data?.items ?? []);
       setRules(rulesJson.data?.items ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      setRequests([]); setRules([]);
+      setError(apiErrorMessage(err, 'Could not load the approvals - try again'));
     } finally {
       setLoading(false);
     }
@@ -102,27 +104,24 @@ export default function ApprovalsPage() {
           ? { action, requestId, expectedDigest: req.documentDigest }
           : { action, requestId }),
       });
-      if (!res.ok) {
-        // A 403 here is a segregation-of-duties refusal carrying the reason it
-        // was refused. Discarding the body left it indistinguishable from a
-        // network failure, so nobody learned why the button did nothing.
-        const json = await res.json().catch(() => null) as { error?: { message?: string } } | null;
-        throw new Error(json?.error?.message || 'Failed to process decision');
-      }
+      // A 403 here is a segregation-of-duties refusal; assertOk surfaces the reason it carries.
+      await assertOk(res, 'Could not process the decision - try again');
       await fetchData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to process decision');
+      setError(apiErrorMessage(err, 'Could not process the decision - try again'));
     } finally {
       setDeciding(null);
     }
   };
 
   const handleDeleteRule = async (ruleId: string) => {
+    setError('');
     try {
-      await apiFetch(`/api/accounting/approval-rules?id=${ruleId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/accounting/approval-rules?id=${ruleId}`, { method: 'DELETE' });
+      await assertOk(res, 'Could not delete the rule - try again');
       await fetchData();
-    } catch {
-      setError('Failed to delete rule');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not delete the rule - try again'));
     }
   };
 

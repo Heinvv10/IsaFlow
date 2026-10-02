@@ -7,7 +7,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight,
   ExternalLink, ClipboardList, Trash2, Download } from 'lucide-react';
 import { StatusPill, PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 
 interface Quote { id: string; quoteNumber: string; customerName: string; quoteDate: string; expiryDate: string | null; status: string; total: number; invoiceId?: string }
@@ -35,12 +36,11 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId: form.clientId, customerName: form.customerName, quoteDate: form.quoteDate, expiryDate: form.expiryDate, notes: form.notes, lines: lines.filter(l => l.desc).map(l => ({ description: l.desc, quantity: l.qty, unitPrice: l.price, taxRate: 15 })) }),
       });
-      const json = await res.json() as { error?: { message?: string }; message?: string };
-      if (!res.ok) throw new Error(json.error?.message ?? json.message ?? `Create failed (${res.status})`);
+      await assertOk(res, 'Could not create the quote - try again');
       onCreated();
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create quote');
+      setError(apiErrorMessage(e, 'Could not create the quote - try again'));
     } finally {
       setSaving(false);
     }
@@ -135,57 +135,65 @@ export default function CustomerQuotesPage() {
   const [convertingToSO, setConvertingToSO] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<{ text: string; invoiceId: string } | null>(null);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
+  const [loadError, setLoadError] = useState('');
 
   const load = useCallback(async () => {
-    setLoading(true);
+    setLoading(true); setLoadError('');
     const p = new URLSearchParams();
     if (tab !== 'all') p.set('status', tab);
     if (search) p.set('search', search);
-    const res = await apiFetch(`/api/accounting/customer-quotes?${p}`);
-    const json = await res.json() as { data?: { quotes?: Quote[]; total?: number }; quotes?: Quote[]; total?: number };
-    const d = json.data || json;
-    setQuotes(d.quotes || []); setTotal(d.total || 0); setLoading(false);
+    try {
+      const res = await apiFetch(`/api/accounting/customer-quotes?${p}`);
+      await assertOk(res, 'Could not load quotes - try again');
+      const json = await res.json() as { data?: { quotes?: Quote[]; total?: number }; quotes?: Quote[]; total?: number };
+      const d = json.data || json;
+      setQuotes(d.quotes || []); setTotal(d.total || 0);
+    } catch (err) { setQuotes([]); setLoadError(apiErrorMessage(err, 'Could not load quotes - try again')); }
+    finally { setLoading(false); }
   }, [tab, search]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    apiFetch('/api/accounting/customers').then(r => r.json()).then((json: { data?: CustomerOption[] }) => {
+    apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); }).then((json: { data?: CustomerOption[] }) => {
       const list = Array.isArray(json.data) ? json.data : [];
       setCustomers(list.map((c: CustomerOption) => ({ id: String(c.id), name: String(c.name) })));
-    }).catch(() => {/* non-fatal */});
+    }).catch(err => setLoadError(apiErrorMessage(err, 'Could not load customers - try again')));
   }, []);
 
   const handleAction = async (id: string, action: string) => {
-    await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action }) });
-    void load();
+    setLoadError('');
+    try {
+      const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action }) });
+      await assertOk(res, 'Could not update the quote - try again');
+      void load();
+    } catch (err) { setLoadError(apiErrorMessage(err, 'Could not update the quote - try again')); }
   };
 
   const handleConvert = async (q: Quote) => {
     if (!window.confirm(`Convert ${q.quoteNumber} (${fmt(q.total)}) to an invoice?`)) return;
     setConverting(q.id); setSuccessMsg(null);
-    const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id, action: 'convert' }) });
-    const json = await res.json() as { data?: { invoiceId?: string }; invoiceId?: string; error?: { message?: string } };
-    if (res.ok) { setSuccessMsg({ text: `${q.quoteNumber} converted.`, invoiceId: json.data?.invoiceId || json.invoiceId || '' }); void load(); }
-    else window.alert(json?.error?.message || 'Failed to convert');
-    setConverting(null);
+    try {
+      const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id, action: 'convert' }) });
+      await assertOk(res, 'Could not convert the quote - try again');
+      const json = await res.json().catch(() => ({})) as { data?: { invoiceId?: string }; invoiceId?: string };
+      setSuccessMsg({ text: `${q.quoteNumber} converted.`, invoiceId: json.data?.invoiceId || json.invoiceId || '' }); void load();
+    } catch (err) { window.alert(apiErrorMessage(err, 'Could not convert the quote - try again')); }
+    finally { setConverting(null); }
   };
 
   const handleConvertToSO = async (q: Quote) => {
     if (!window.confirm(`Convert ${q.quoteNumber} to a Sales Order?`)) return;
     setConvertingToSO(q.id);
-    const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id, action: 'convert-to-order' }) });
-    const json = await res.json() as {
-      data?: { salesOrderId?: string }; salesOrderId?: string;
-      error?: { message?: string; details?: { salesOrderId?: string | null } };
-    };
-    // A 409 with an order id is the double-click: the first click already made
-    // the order, so open it rather than reporting a failure the user caused by
-    // succeeding twice.
-    const existingOrderId = json.error?.details?.salesOrderId;
-    if (res.ok) await router.push(`/accounting/customer-sales-orders/${json.data?.salesOrderId || json.salesOrderId}`);
-    else if (res.status === 409 && existingOrderId) await router.push(`/accounting/customer-sales-orders/${existingOrderId}`);
-    else window.alert(json?.error?.message || 'Failed');
-    setConvertingToSO(null);
+    try {
+      const res = await apiFetch('/api/accounting/customer-quotes-action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: q.id, action: 'convert-to-order' }) });
+      if (!res.ok && res.status !== 409) await assertOk(res, 'Could not convert the quote - try again');
+      const json = await res.json().catch(() => ({})) as { data?: { salesOrderId?: string }; salesOrderId?: string; error?: { message?: string; details?: { salesOrderId?: string | null } } };
+      // A 409 with an order id is a double-click: the order exists, so open it.
+      const orderId = res.ok ? json.data?.salesOrderId || json.salesOrderId : json.error?.details?.salesOrderId;
+      if (orderId) { try { await router.push(`/accounting/customer-sales-orders/${orderId}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-quotes'); } }
+      else window.alert(res.ok ? 'The quote was converted but the order could not be opened - find it under Sales Orders' : json.error?.message || 'Could not convert the quote - try again');
+    } catch (err) { window.alert(apiErrorMessage(err, 'Could not convert the quote - try again')); }
+    finally { setConvertingToSO(null); }
   };
 
   return (
@@ -224,6 +232,8 @@ export default function CustomerQuotesPage() {
               </div>
             </div>
           )}
+
+          {loadError && <div className="text-sm text-red-600 dark:text-red-400">{loadError}</div>}
 
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
             {loading ? (

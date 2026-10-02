@@ -387,12 +387,12 @@ function DisputeModal({
 
       if (!res.ok) {
         const json = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-        throw new Error(json?.error?.message ?? `Request failed (${res.status})`);
+        setErr(json?.error?.message ?? 'Could not submit the dispute - please try again'); return;
       }
 
       onSubmitted();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Could not submit dispute');
+    } catch {
+      setErr('Could not submit the dispute - please try again');
     } finally {
       setSubmitting(false);
     }

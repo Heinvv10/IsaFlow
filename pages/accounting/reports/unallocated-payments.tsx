@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -23,6 +23,7 @@ export default function UnallocatedPaymentsReport() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/supplier-payments?unallocated=true', { credentials: 'include' });
+      await assertOk(res, 'Could not load unallocated payments - try again');
       const json = await res.json();
       const d = json.data;
       const raw: Payment[] = Array.isArray(d) ? d : d?.items || d?.payments || [];
@@ -30,7 +31,7 @@ export default function UnallocatedPaymentsReport() {
         .map(p => ({ ...p, amount: Number(p.totalAmount ?? p.amount ?? 0), allocatedAmount: Number(p.allocatedAmount ?? 0) }))
         .filter(p => (p.amount - p.allocatedAmount) > 0.01));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setError(apiErrorMessage(err, 'Could not load unallocated payments - try again'));
     } finally {
       setLoading(false);
     }

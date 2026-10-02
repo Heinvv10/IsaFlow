@@ -7,7 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Package, Plus, Search, Loader2, Box, Wrench } from 'lucide-react';
 import Link from 'next/link';
 import { KpiStrip } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { log } from '@/lib/logger';
 
@@ -38,12 +38,15 @@ export default function ItemsListPage() {
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<ItemCategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [catError, setCatError] = useState('');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
 
   const loadItems = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const params = new URLSearchParams();
       if (search) params.set('q', search);
@@ -51,23 +54,29 @@ export default function ItemsListPage() {
       if (categoryFilter) params.set('category_id', categoryFilter);
       params.set('active', 'true');
       const res = await apiFetch(`/api/accounting/items?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load items - try again');
       const json = await res.json();
       setItems(json.data || []);
     } catch (err) {
       log.error('Failed to load items', { error: err }, 'items-list-page');
       setItems([]);
+      setError(apiErrorMessage(err, 'Could not load items - try again'));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [search, typeFilter, categoryFilter]);
 
   const loadCategories = useCallback(async () => {
     try {
+      setCatError('');
       const res = await apiFetch('/api/accounting/item-categories', { credentials: 'include' });
+      await assertOk(res, 'Could not load item categories - try again');
       const json = await res.json();
       setCategories(json.data || []);
     } catch (err) {
       log.error('Failed to load item categories', { error: err }, 'items-list-page');
       setCategories([]);
+      setCatError(apiErrorMessage(err, 'Could not load item categories - try again'));
     }
   }, []);
 
@@ -115,6 +124,9 @@ export default function ItemsListPage() {
             { label: 'Physical', value: physicalCount, icon: Box, tone: 'info' },
             { label: 'Service', value: serviceCount, icon: Wrench, tone: 'success' },
           ]} />
+
+          {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
+          {catError && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{catError}</div>}
 
           {/* Filters */}
           <div className="flex items-center gap-3 flex-wrap">

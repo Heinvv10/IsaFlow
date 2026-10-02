@@ -11,7 +11,7 @@ import {
   ArrowLeft, BarChart3, Loader2, AlertCircle,
   Download, Mail, TrendingUp, Scale, Banknote,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/format/money';
 import { ManagementPandLRows, ManagementBalanceSheetRows, KVRow } from '@/components/accounting/ManagementPandLRows';
 import { ManagementKpiRow } from '@/components/accounting/ManagementKpiRow';
@@ -75,10 +75,13 @@ function EmailModal({ onClose }: { onClose: () => void }) {
   async function handleSend() {
     if (!email) return;
     setSending(true);
-    await new Promise(r => setTimeout(r, 800)); // placeholder — integrate with email API
-    setSent(true);
-    setSending(false);
-    setTimeout(onClose, 1500);
+    try {
+      await new Promise(r => setTimeout(r, 800)); // placeholder — integrate with email API
+      setSent(true);
+      setTimeout(onClose, 1500);
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
@@ -133,11 +136,12 @@ export default function ManagementAccountsPage() {
     try {
       const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
       const res = await apiFetch(`/api/accounting/reports-management-accounts?${params}`);
+      await assertOk(res, 'Could not load report - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load');
       setReport(json.data ?? json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load report');
+      setReport(null);
+      setError(apiErrorMessage(err, 'Could not load report - try again'));
     } finally {
       setLoading(false);
     }

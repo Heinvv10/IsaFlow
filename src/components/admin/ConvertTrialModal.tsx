@@ -3,7 +3,7 @@
  * Used by /admin/trials.
  */
 import { useState, useEffect } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, X } from 'lucide-react';
 
 interface Plan {
@@ -32,11 +32,13 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
     void (async () => {
       try {
         const res  = await apiFetch('/api/admin/billing/plans');
+        await assertOk(res, 'Could not load plans - try again');
         const json = await res.json() as { data?: Plan[] };
         setPlans(json.data ?? []);
         if (json.data && json.data.length > 0) setPlanId(json.data[0]?.id ?? '');
-      } catch {
-        setError('Failed to load plans');
+      } catch (err) {
+        setPlans([]); setPlanId('');
+        setError(apiErrorMessage(err, 'Could not load plans - try again'));
       } finally {
         setLoading(false);
       }
@@ -54,12 +56,11 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
         body: JSON.stringify({ companyId, planId }),
       });
       if (!res.ok) {
-        const json = await res.json() as { message?: string };
-        throw new Error(json.message ?? 'Conversion failed');
+        await assertOk(res, 'Could not convert the trial - try again');
       }
       onConverted();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Conversion failed');
+      setError(apiErrorMessage(err, 'Could not convert the trial - try again'));
     } finally {
       setWorking(false);
     }

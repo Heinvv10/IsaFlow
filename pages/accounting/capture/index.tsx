@@ -8,6 +8,8 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Camera, Upload, X, FileText, Wifi, WifiOff, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import {
   QUEUE_STORAGE_KEY,
   type QueuedItem,
@@ -96,11 +98,11 @@ export default function CapturePage() {
         if (result.documentIds.length > 0) {
           setAttachDocIds(result.documentIds);
         } else {
-          void router.push('/accounting/capture/inbox');
+          try { await router.push('/accounting/capture/inbox'); } catch (e) { log.warn('navigation failed', { error: e }, 'capture-index'); }
         }
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Upload failed');
+      toast.error(apiErrorMessage(err, 'Could not upload the documents - try again'));
     } finally {
       setUploading(false);
     }

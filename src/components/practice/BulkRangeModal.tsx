@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { CalendarRange, Loader2, AlertCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { fetchEntryTemplates, type EntryTemplate } from './practiceApi';
 import type { BulkFromTemplateInput, BulkFromTemplateResult } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 import { addDaysISO, localISODate } from '@/lib/dateUtils';
@@ -52,7 +52,7 @@ export function BulkRangeModal({ onClose, onDone }: BulkRangeModalProps) {
         setTemplates(list);
         if (list[0]) setTemplateId(list[0].id);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load templates');
+        if (!cancelled) setError(apiErrorMessage(err, 'Could not load templates - try again'));
       }
     })();
     return () => { cancelled = true; };
@@ -73,11 +73,12 @@ export function BulkRangeModal({ onClose, onDone }: BulkRangeModalProps) {
         method: 'POST',
         body: JSON.stringify(body),
       });
-      const json = (await res.json()) as { data?: BulkFromTemplateResult; error?: string };
-      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-      onDone(json.data!);
+      await assertOk(res, 'Could not fill the range from the template - try again');
+      const json = (await res.json()) as { data?: BulkFromTemplateResult };
+      if (!json.data) throw new ApiEnvelopeError('Could not fill the range from the template - try again');
+      onDone(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Bulk fill failed');
+      setError(apiErrorMessage(err, 'Could not fill the range from the template - try again'));
     } finally {
       setLoading(false);
     }

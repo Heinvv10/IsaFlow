@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { log } from '@/lib/logger';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, Mail, Copy, Check, ChevronRight, RefreshCw, X } from 'lucide-react';
 import {
   CaptureInboxPanel, StatusBadge, CHANNEL_ICONS, fmtDate, fmtZAR,
@@ -40,12 +40,13 @@ export default function CaptureInboxPage() {
     try {
       const qs = showProcessed ? '' : '?status=received,extracting,extracted,failed';
       const res = await apiFetch(`/api/accounting/capture/inbox${qs}`);
-      const json = await res.json() as { data?: { events?: CaptureEventRow[] }; error?: string };
-      if (!res.ok) { setError(json.error ?? 'Failed to load inbox'); return; }
+      await assertOk(res, 'Could not load the inbox - try again');
+      const json = await res.json() as { data?: { events?: CaptureEventRow[] } };
       setEvents(json.data?.events ?? []);
       setError('');
-    } catch {
-      setError('Network error loading inbox');
+    } catch (err) {
+      setEvents([]);
+      setError(apiErrorMessage(err, 'Could not load the inbox - try again'));
     } finally {
       setLoading(false);
     }
@@ -53,11 +54,12 @@ export default function CaptureInboxPage() {
 
   const loadInboxAddress = useCallback(async () => {
     try {
-      const { inbox } = await apiJson('/api/accounting/capture/inbox-address');
+      const { inbox } = await apiJson('/api/accounting/capture/inbox-address', undefined, 'Could not load the inbox address - try again');
       setInboxAddr(inbox);
     } catch (err) {
       log.error('Failed to load capture inbox address', { error: err }, 'accounting-ui');
-      showToast('Failed to load inbox address', false);
+      setInboxAddr(null);
+      showToast(apiErrorMessage(err, 'Could not load the inbox address - try again'), false);
     }
   }, []);
 
@@ -76,21 +78,15 @@ export default function CaptureInboxPage() {
     setPosting(true);
     try {
       const res = await apiFetch(`/api/accounting/capture/${id}/post`, { method: 'POST', body: '{}' });
-      const json = await res.json() as {
-        data?: { invoice?: { invoiceNumber?: string }; reason?: string };
-        error?: { message?: string } | string;
-      };
-      if (!res.ok) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Post failed';
-        showToast(msg, false); return;
-      }
+      await assertOk(res, 'Could not post the document - try again');
+      const json = await res.json() as { data?: { invoice?: { invoiceNumber?: string }; reason?: string } };
       const inv = json.data?.invoice?.invoiceNumber ?? '';
       const reason = json.data?.reason;
       const note = inv ? `Invoice ${inv} created` : (reason ? `Routed to review: ${reason}` : 'Posted successfully');
       showToast(note, true);
       setSelected(null);
       void loadEvents();
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not post the document - try again'), false); }
     finally { setPosting(false); }
   }
 
@@ -99,15 +95,11 @@ export default function CaptureInboxPage() {
     try {
       const body = reason ? JSON.stringify({ reason }) : '{}';
       const res = await apiFetch(`/api/accounting/capture/${id}/discard`, { method: 'POST', body });
-      const json = await res.json() as { error?: { message?: string } | string };
-      if (!res.ok) {
-        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Discard failed';
-        showToast(msg, false); return;
-      }
+      await assertOk(res, 'Could not discard the document - try again');
       showToast('Discarded', true);
       setSelected(null);
       void loadEvents();
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not discard the document - try again'), false); }
     finally { setDiscarding(false); }
   }
 

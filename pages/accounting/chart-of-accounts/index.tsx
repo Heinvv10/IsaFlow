@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Layers } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { ChartOfAccountsTab } from '@/components/accounting/dashboard/ChartOfAccountsTab';
 
@@ -17,6 +17,7 @@ export default function ChartOfAccountsPage() {
   const loadCount = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/chart-of-accounts');
+      await assertOk(res, 'Could not load the account count');
       const json = await res.json() as { data?: unknown[] } | unknown[];
       const list = Array.isArray(json) ? json : (json as { data?: unknown[] }).data ?? [];
       setAccountCount(list.length);

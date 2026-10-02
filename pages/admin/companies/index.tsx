@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { BulkActionsBar } from '@/components/admin/companies/BulkActionsBar';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
@@ -86,13 +86,13 @@ export default function AdminCompaniesPage() {
       if (q)  params.set('search', q);
       if (st) params.set('status', st);
       const res  = await apiFetch(`/api/admin/companies?${params}`);
+      await assertOk(res, 'Could not load companies - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Failed to load companies');
       const d = (json as { data: PagedResponse }).data;
       setRows(d.items);
       setTotal(d.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setRows([]); setTotal(0); setSelectedIds(new Set()); setError(apiErrorMessage(err, 'Could not load companies - try again'));
     } finally {
       setLoading(false);
     }
@@ -159,14 +159,13 @@ export default function AdminCompaniesPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify(createForm),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Failed to create company');
+      await assertOk(res, 'Could not create the company - try again');
       setShowCreate(false);
       setCreateForm({ name: '', trading_name: '', email: '', phone: '', plan_id: '' });
       setPage(1);
       void load(search, status, 1, sortBy, sortDir);
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : 'Failed');
+      setCreateError(apiErrorMessage(err, 'Could not create the company - try again'));
     } finally {
       setCreating(false);
     }
@@ -184,9 +183,9 @@ export default function AdminCompaniesPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ reason: 'Suspended by admin' }),
       });
-      await assertOk(res, 'Suspend failed');
+      await assertOk(res, 'Could not suspend the company - try again');
       void load(search, status, page, sortBy, sortDir);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Suspend failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not suspend the company - try again')); }
     finally { setActionLoading(null); }
   }
 
@@ -195,9 +194,9 @@ export default function AdminCompaniesPage() {
     setActionLoading(companyId + ':activate'); setError('');
     try {
       const res = await apiFetch(`/api/admin/companies/${companyId}/activate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
-      await assertOk(res, 'Activate failed');
+      await assertOk(res, 'Could not activate the company - try again');
       void load(search, status, page, sortBy, sortDir);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Activate failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not activate the company - try again')); }
     finally { setActionLoading(null); }
   }
 
@@ -215,12 +214,11 @@ export default function AdminCompaniesPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ action: 'suspend', company_ids: [...selectedIds], reason: 'Bulk suspended by admin' }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Bulk suspend failed');
+      await assertOk(res, 'Could not suspend the companies - try again');
       setSelectedIds(new Set());
       void load(search, status, page, sortBy, sortDir);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Bulk suspend failed');
+      setError(apiErrorMessage(err, 'Could not suspend the companies - try again'));
     } finally {
       setBulkLoading(false);
     }
@@ -234,12 +232,11 @@ export default function AdminCompaniesPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ action: 'extend_trial', company_ids: [...selectedIds], days: 7 }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Extend trial failed');
+      await assertOk(res, 'Could not extend the trial - try again');
       setSelectedIds(new Set());
       void load(search, status, page, sortBy, sortDir);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Extend trial failed');
+      setError(apiErrorMessage(err, 'Could not extend the trial - try again'));
     } finally {
       setBulkLoading(false);
     }

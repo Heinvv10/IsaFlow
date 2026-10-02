@@ -5,7 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const h = vi.hoisted(() => ({ apiFetchMock: vi.fn(), role: 'owner' }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: h.apiFetchMock }));
+vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch: h.apiFetchMock }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: h.role }) }));
 const apiFetchMock = h.apiFetchMock;
 

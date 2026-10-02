@@ -8,7 +8,7 @@ import { CreditCard, Plus, Loader2, Search } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { StatusPill, PageHeader } from '@/components/ui';
 import type { CustomerPayment } from '@/modules/accounting/types/ar.types';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 const TABS = ['all', 'draft', 'confirmed', 'reconciled', 'cancelled'] as const;
 
@@ -30,12 +30,13 @@ export default function CustomerPaymentsPage() {
       if (tab !== 'all') params.set('status', tab);
       if (search) params.set('search', search);
       const res = await apiFetch(`/api/accounting/customer-payments?${params}`);
+      await assertOk(res, 'Could not load customer payments - try again');
       const json = await res.json() as { data?: { payments?: CustomerPayment[]; total?: number }; payments?: CustomerPayment[]; total?: number };
       const payload = json.data || json;
       setPayments((payload as { payments?: CustomerPayment[] }).payments || []);
       setTotal((payload as { total?: number }).total || 0);
-    } catch {
-      setError('Failed to load customer payments');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load customer payments - try again'));
     } finally { setLoading(false); }
   }, [tab, search]);
 

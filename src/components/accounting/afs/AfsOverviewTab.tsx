@@ -3,7 +3,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { useState, useEffect } from 'react';
 import type { ChangesInEquityReport } from '@/modules/accounting/services/afs/changesInEquityService';
@@ -197,12 +197,12 @@ function useRemote<T>(url: string): RemoteState<T> {
     let cancelled = false;
     setState({ data: null, error: null, loading: true });
     apiFetch(url, { credentials: 'include' })
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() as Promise<{ data: T }>; })
+      .then(async r => { await assertOk(r, 'Could not load this section - try again'); return r.json() as Promise<{ data: T }>; })
       .then(json => { if (!cancelled) setState({ data: json.data, error: null, loading: false }); })
       .catch((err: unknown) => {
         if (!cancelled) {
           log.warn('Remote fetch failed', { url, error: err }, 'afs-overview');
-          setState({ data: null, error: err instanceof Error ? err.message : String(err), loading: false });
+          setState({ data: null, error: apiErrorMessage(err, 'Could not load this section - try again'), loading: false });
         }
       });
     return () => { cancelled = true; };

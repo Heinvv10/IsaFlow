@@ -4,7 +4,7 @@
  */
 import { useRef, useState } from 'react';
 import { Upload, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -38,17 +38,14 @@ export function ParallelRunUploadCard({ onImported }: Props) {
           fileName: file.name,
         }),
       });
+      await assertOk(res, 'Could not import the payslips - try again');
       const json = await res.json() as {
         data?: { import?: { id: string }; rowErrors?: Array<{ line: number; message: string }> };
-        error?: { message?: string };
-        message?: string;
       };
-      if (!res.ok || !json.data?.import) {
-        throw new Error(json.error?.message ?? json.message ?? `HTTP ${res.status}`);
-      }
+      if (!json.data?.import) throw new ApiEnvelopeError('Could not import the payslips - try again');
       onImported(json.data.import.id, json.data.rowErrors ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed');
+      setError(apiErrorMessage(err, 'Could not import the payslips - try again'));
     } finally {
       setIsUploading(false);
       if (fileRef.current) fileRef.current.value = '';

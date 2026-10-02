@@ -6,7 +6,8 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Plus, Trash2, Loader2, Info, SlidersHorizontal, Receipt } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
@@ -36,12 +37,12 @@ export default function NewCustomerInvoicePage() {
   const [lines, setLines] = useState<LineItem[]>([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0 }]);
 
   useEffect(() => {
-    apiFetch('/api/accounting/customers', { credentials: 'include' }).then(r => r.json()).then(json => {
+    apiFetch('/api/accounting/customers', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load clients - try again'); return r.json(); }).then(json => {
       const d = json.data || json; setClients(Array.isArray(d) ? d : d.clients || []);
-    }).catch(() => {/* non-critical */});
-    apiFetch('/api/accounting/currencies', { credentials: 'include' }).then(r => r.json()).then(json => {
+    }).catch(err => setError(apiErrorMessage(err, 'Could not load clients - try again')));
+    apiFetch('/api/accounting/currencies', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load currencies - try again'); return r.json(); }).then(json => {
       const d = json.data || json; setCurrencies(Array.isArray(d) ? d : []);
-    }).catch(() => {/* non-critical */});
+    }).catch(err => setError(apiErrorMessage(err, 'Could not load currencies - try again')));
   }, []);
 
   const updateLine = (key: string, field: string, value: string | number) =>
@@ -81,18 +82,20 @@ export default function NewCustomerInvoicePage() {
     setSubmitting(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/customer-invoices-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, items: validLines }) });
-      const json = await res.json() as { data?: { id?: string }; id?: string; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to create');
+      await assertOk(res, 'Could not create the invoice - try again');
+      const json = await res.json() as { data?: { id?: string }; id?: string };
       const d = json.data || json;
       if (andNew) {
         const today = localISODate();
         setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1 });
         setLines([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0 }]);
-        await router.push('/accounting/customer-invoices/new');
+        try { await router.push('/accounting/customer-invoices/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
       } else {
-        await router.push(`/accounting/customer-invoices/${d.id}`);
+        if (!d.id) throw new ApiEnvelopeError('The invoice could not be opened - check the invoice list before creating it again');
+        try { await router.push(`/accounting/customer-invoices/${d.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
       }
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); setSubmitting(false); }
+    } catch (e) { setError(apiErrorMessage(e, 'Could not create the invoice - try again')); }
+    finally { setSubmitting(false); }
   };
 
   return (

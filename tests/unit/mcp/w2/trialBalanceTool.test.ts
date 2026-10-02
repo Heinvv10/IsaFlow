@@ -120,7 +120,7 @@ describe('trial_balance v2', () => {
     assertEnvelopeSound(data as never);
     expect(data.as_at).toBe('2026-02-28');
     expect(data.posted_through).toBe('2026-08-31T22:15:00.000Z');
-    expect(data.figureBasis).toBe('gl.trialbalance.v2');
+    expect(data.figureBasis).toBe('gl.trialbalance.v3');
   });
 
   it('pages with a cursor and covers every account across the pages', async () => {

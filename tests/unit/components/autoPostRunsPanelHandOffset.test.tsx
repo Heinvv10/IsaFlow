@@ -8,9 +8,11 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 
 const RUN = { id: 'run-1', source: 'import', postedCount: 1, totalAmount: 100, createdAt: '2026-09-10', undoneAt: null };
 const OFFSET = {

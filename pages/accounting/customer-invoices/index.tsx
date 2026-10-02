@@ -43,7 +43,7 @@ export default function CustomerInvoicesPage() {
     void (async () => {
       try {
         const res = await apiFetch(`/api/accounting/customer-invoices-list?${params}`);
-        await assertOk(res, 'Failed to load customer invoices');
+        await assertOk(res, 'Could not load the customer invoices - try again');
         const json = await res.json() as { data?: { invoices?: CustomerInvoiceRow[]; total?: number } };
         if (!live) return;
         const rows = json.data?.invoices ?? [];
@@ -56,7 +56,7 @@ export default function CustomerInvoicesPage() {
         log.warn('Customer invoice list failed to load', { error: err }, 'customer-invoices');
         setInvoices([]);
         setTotal(0);
-        setError(apiErrorMessage(err, 'Failed to load customer invoices'));
+        setError(apiErrorMessage(err, 'Could not load the customer invoices - try again'));
       } finally {
         if (live) setIsLoading(false);
       }

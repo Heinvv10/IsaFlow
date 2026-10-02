@@ -22,7 +22,7 @@ it('shows gross ageing, on-account credits and the reconciled net balance', asyn
 it('shows loading failures without claiming no balances exist',async()=>{
  vi.mocked(apiFetch).mockImplementation(async () => new Response('{}',{status:500}));
  render(<Page />);
- expect(await screen.findByText('Failed to load supplier balances')).toBeTruthy();
+ expect(await screen.findByText('Could not load the supplier balances - try again')).toBeTruthy();
  expect(screen.queryByText('No supplier balances')).toBeNull();
 });
 
