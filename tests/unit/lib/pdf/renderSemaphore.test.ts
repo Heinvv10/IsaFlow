@@ -186,6 +186,13 @@ describe('bounds derived from the auth pool', () => {
     }
   });
 
+  it('a pool of 1 is raised to 2, so a render keeps one slot and can still re-enter the API', () => {
+    for (const small of ['1', '1.0', '0.5']) {
+      process.env.AUTH_POOL_MAX = small;
+      expect(renderSlotCeilings().maxConcurrent).toBe(1);
+    }
+  });
+
   it('clamps an over-large PDF_MAX_CONCURRENT_RENDERS and says so', async () => {
     process.env.AUTH_POOL_MAX = '20';       // ceiling 5
     process.env.PDF_MAX_CONCURRENT_RENDERS = '50';

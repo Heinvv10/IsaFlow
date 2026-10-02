@@ -29,7 +29,7 @@
 - **Date handling**: `row.some_date` can be `Date` or `string` depending on the column type (`date` → Date via pg, `timestamptz` → Date). Callers normalise via `fmtDate()` or `String(row.col).slice(0, 10)`.
 - **`any` in DbRow**: kept to match the old Neon shape so `row.status` type-checks without casting. Prefer explicit casts at the mapping boundary (`String(row.status) as Loan['status']`). Tighten per-row by parameterising `sql<Row>\`...\``.
 - **SSL**: `DATABASE_SSL=strict` enforces CA verification; `disable` turns SSL off; default is `{ rejectUnauthorized: false }` for self-hosted Supabase's self-signed cert.
-- **Pool lifetime**: Singleton — `_pool` is lazily created on first `getPool()` call and reused. `PG_POOL_MAX` env (default 10) controls size; read through `poolSizeFromEnv` (`@/lib/limits/poolLimits`), so anything but a whole number 1-100 gives 10 with one warning (R-182). Do not call `pool.end()` from app code.
+- **Pool lifetime**: Singleton — `_pool` is lazily created on first `getPool()` call and reused. `PG_POOL_MAX` env (default 10) controls size; read through `poolSizeFromEnv` (`@/lib/limits/poolLimits`), so anything but a whole number 1-100 gives `min(default, 10, ceil(Number(text)))` when `Number(text)` is finite and above 0, else `min(default, 10)` (never below the variable's minimum, 2 for `AUTH_POOL_MAX`), with one warning (R-182). Do not call `pool.end()` from app code.
 - **File is `neon.ts` but is NOT Neon**: don't trust the name. `@neondatabase/serverless` is not on the hot path anymore.
 - `sql.transaction` array-form queries execute sequentially inside one BEGIN; callback-form receives a `tx`-bound `SqlFunction` so you can build the list from earlier row data.
 

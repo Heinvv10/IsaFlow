@@ -28,10 +28,11 @@ import { poolSizeFromEnv } from '@/lib/limits/poolLimits';
  * 250 ms and a thousand on one key hit the connect timeout; with 10, 97 ms and
  * none. Idle connections close after 30 s.
  *
- * A value that is not a whole number from 1 to 100 gives the default with a
- * warning (the shared reader, `poolSizeFromEnv`, which every pool uses). Plain
- * decimal digits only: `1e1`, `10.0` and `+5` are refused, as they are not
- * what a person means by a pool size.
+ * A value that is not a whole number from 1 to 100 gives, with one warning (the
+ * shared reader, `poolSizeFromEnv`, which every pool uses),
+ * min(default, 10, ceil(Number(text))) when Number(text) is finite and above 0,
+ * else min(default, 10). Plain decimal digits only: `5.0` gives 5, `1e1` gives
+ * 10, `2.5` gives 3.
  */
 export const DEFAULT_RATE_LIMIT_POOL_MAX = 10;
 
