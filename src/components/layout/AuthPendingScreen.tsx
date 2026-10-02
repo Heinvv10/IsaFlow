@@ -29,7 +29,8 @@ export function AuthPendingScreen() {
         {authUnavailable ? (
           <div role="alert" className="space-y-3">
             <p className="text-slate-700 dark:text-gray-200 text-sm">
-              IsaFlow can&apos;t reach the sign-in service right now. We&apos;ll keep trying — you&apos;re still signed in.
+              {/* Nothing more: the session cookie is HttpOnly and unverified, so the client cannot vouch for it. */}
+              IsaFlow can&apos;t reach the sign-in service right now. We&apos;ll keep trying.
             </p>
             <button
               type="button"
