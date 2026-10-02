@@ -15,8 +15,9 @@ import type { PackPage } from '@/modules/accounting/services/packs/pages/packPag
 import { brightsphereLiveInput, demoInput } from './fixtures/boardPackInputs';
 import { liveDemoInput, liveDemoRenderedInput } from './fixtures/liveDemoBoardPack';
 
-/** A bracketed figure after the start of a sentence or a clause. */
-const LEADING = /(?:^|[:;,] )\(\d[\d\s]*\)/;
+/** A bracketed figure after the start of a sentence or a clause — a comma,
+ *  a colon, a semicolon, or a conjunction ("…, and (5 535) at its furthest"). */
+const LEADING = /(?:^|[:;,] |\b(?:and|or|but) )\(\d[\d\s]*\)/;
 
 const item = (type: string, amount: number, documents: number) => ({
   bridge: 'subledger_to_control' as const, type, description: 'unused', amount,
@@ -37,6 +38,11 @@ function prose(page: PackPage): string[] {
 }
 
 describe('no clause opens on a bracketed figure', () => {
+  it('the trends title names the furthest month without opening a clause on it', () => {
+    const title = buildBoardPackPages(brightsphereLiveInput).pages.find((p) => p.navLabel === 'Trends')!.title.replace(/[\u00a0\u202f]/g, ' ');
+    expect(title).toMatch(/reaches \(5 535\) at its furthest, in Apr 2026\.$/);
+  });
+
   it('the receivables decomposition does not open a clause on a negative item\'s figure', () => {
     const read: PackReceivablesRead = {
       agedDebtorsTotal: 10_700_000,

@@ -77,5 +77,7 @@ export function trendsTitle(
     return `Revenue is ${money(first.revenue, scale)} in every month of the ${trend.length}-month series.`;
   }
   return `Revenue is ${money(first.revenue, scale)} in both the first and last of the ${trend.length} months, `
-    + `and ${money(extreme.revenue, scale)} at its furthest, in ${monthLabel(extreme)}.`;
+    // "reaches": "…, and (5 535) at its furthest" opened a clause on a
+    // bracketed figure, which reads as a list marker.
+    + `and reaches ${money(extreme.revenue, scale)} at its furthest, in ${monthLabel(extreme)}.`;
 }
