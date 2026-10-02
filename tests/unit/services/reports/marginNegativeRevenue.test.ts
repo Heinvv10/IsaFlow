@@ -195,7 +195,7 @@ describe('reportPackService — trends and commentary on non-positive turnover',
 
   it('the commentary still quotes a real margin when turnover is positive', () => {
     const summary = String(sectionOf(1000, 250, 'commentary').summary);
-    expect(summary).toContain('net profit margin of 25%');
+    expect(summary).toContain('Net profit margin is a positive 25.0%');
     expect(summary).not.toContain(NO_MARGIN_SENTENCE);
   });
 });

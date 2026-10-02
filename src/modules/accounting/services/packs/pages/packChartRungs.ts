@@ -1,0 +1,99 @@
+/**
+ * The boxes the pack's charts are drawn in — the one chart measure and spec
+ * §5.6's three height rungs. Split out of `packPageCharts.ts` for the
+ * 300-line cap: the profit bridge, the cash bridge and the composition chart
+ * each take a rung, so the grid is a leaf none of them owns.
+ */
+import { PAGE_WIDTH_MM } from './packTextMetrics';
+import { CHART_HEIGHT_MM } from '@/lib/charts/ssrSvg';
+
+/**
+ * THE CHART MEASURE IS THE TABLE MEASURE.
+ *
+ * Every box here was 170mm against a text measure of 174, so no chart in the
+ * pack sat on the grid its own page's tables sit on — a 2mm step down each
+ * side, invisible in isolation and plain in a stack. The gate measured the
+ * consequence at the plot rather than the box: three different chart measures
+ * on one document, none of them the table's, none centred on it.
+ *
+ * `PAGE_WIDTH_MM.portrait` rather than a literal, so the two cannot drift:
+ * the tables take the same constant through `packMattersColumns` and
+ * `packScorecardColumns`.
+ */
+export const CHART_MEASURE_MM = PAGE_WIDTH_MM.portrait;
+
+export const FULL = { widthMm: CHART_MEASURE_MM, heightMm: CHART_HEIGHT_MM.full };
+
+/**
+ * Page 8's bridge is the INLINE rung, not half and not full.
+ *
+ * Its page is the busiest in the pack — a cash table, this bridge, a
+ * multi-period cash line and up to two disclosures — and at full height it
+ * was 60mm taller than an A4 content box, so it printed on two sheets with
+ * the closing-cash chart stranded alone on the second. Half height was still
+ * 17mm too tall once the page titles became visible on paper (they had been
+ * hidden by a `header` rule in styles/print.css), and on the live demo
+ * company, whose cash table carries four footnotes, 35mm too tall. Spec
+ * §5.6's height grid is 48/72/110mm and this is the bottom rung — the same
+ * rung the closing-cash line beside it already uses, so the two charts on
+ * the page are now the same height as each other. Nothing is dropped from
+ * the page to buy the space.
+ */
+export const HALF = { widthMm: CHART_MEASURE_MM, heightMm: CHART_HEIGHT_MM.inline };
+
+/**
+ * Spec §5.6's MIDDLE rung, which is what page 7 steps down to.
+ *
+ * It stepped down to `HALF` — the bottom rung, 48mm — to make room for the
+ * negative-assets disclosure, and the callout is right, but at 48mm the
+ * composition chart's plot band is about 77px for a 3 000 to (4 000) range
+ * and `(1 000)`, `(2 000)` and `(3 000)` printed ON TOP OF ONE ANOTHER.
+ * Overlapping axis labels are the visual signature of an unfinished chart,
+ * and the room was never needed from the chart: the sheet still ended with
+ * ~36mm of white below the last disclosure. 72mm spends 24 of those 36 and
+ * leaves the axis 168px to put eight ticks in.
+ */
+export const MID = { widthMm: CHART_MEASURE_MM, heightMm: CHART_HEIGHT_MM.half };
+
+export type ChartBox = { widthMm: number; heightMm: number };
+
+/** Spec §5.6's height grid, tallest first — the only heights a bridge takes. */
+export const BRIDGE_RUNGS: ChartBox[] = [FULL, MID, HALF];
+
+/** How large a bridge is drawn in a box — see `waterfallDrawnSize`. */
+export interface DrawnSize { plotPx: number; tallestBarPx: number }
+
+/**
+ * THE HEIGHT A BRIDGE GROWN INTO SPARE PAPER IS DRAWN AT: of every whole
+ * millimetre from the one it has to the room the page has, the one whose
+ * TALLEST BAR is drawn tallest — then the larger plot, then the smaller box.
+ *
+ * A taller box is not a bigger picture by itself: it can redraw the axis
+ * coarser, and every bar is then smaller in more paper. Taking the best of
+ * every height up to the room, rather than judging the tallest one, makes it
+ * monotonic by construction — a millimetre more room only adds a candidate,
+ * so the picture can never get smaller.
+ *
+ * AND A COMPACT BOX NEVER OUT-DRAWS THE HALF RUNG. Below 72mm a bridge takes
+ * the compact chrome; the 72mm rung takes the full one with 12px names, 28-44px
+ * more margin. A compact candidate is therefore taken only while its plot is
+ * still smaller than the rung's, and its tallest bar no taller.
+ *
+ * `sizeAt` is a layout, not a render — the caller renders once, at the
+ * height returned.
+ */
+export function grownHeightMm(fromMm: number, roomMm: number, sizeAt: (heightMm: number) => DrawnSize): number {
+  const top = Math.floor(Math.min(CHART_HEIGHT_MM.full, roomMm));
+  let rung: DrawnSize | undefined;
+  const rungSize = () => (rung ??= sizeAt(CHART_HEIGHT_MM.half));
+  let best = fromMm;
+  let bestSize = sizeAt(fromMm);
+  for (let heightMm = fromMm + 1; heightMm <= top; heightMm += 1) {
+    const size = sizeAt(heightMm);
+    if (heightMm < CHART_HEIGHT_MM.half && (size.plotPx >= rungSize().plotPx || size.tallestBarPx > rungSize().tallestBarPx)) continue;
+    const better = size.tallestBarPx > bestSize.tallestBarPx
+      || (size.tallestBarPx === bestSize.tallestBarPx && size.plotPx > bestSize.plotPx);
+    if (better) { best = heightMm; bestSize = size; }
+  }
+  return best;
+}
