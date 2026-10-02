@@ -129,6 +129,9 @@ interface StaticRoutes {
   '/api/accounting/reports-income-statement': Awaited<ReturnType<typeof getIncomeStatement>>;
   '/api/accounting/reports-pack': {
     pack: ReturnType<typeof buildReportPack>;
+    /** Whether the pack is a draft (`readPackDraftState`) — what the print view's
+     *  DRAFT mark reads, the same answer the footer and PDF metadata carry. */
+    draft: boolean;
     period: { from: string; to: string };
     unclassifiedAccounts: ReturnType<typeof unclassifiedWarning>;
   };

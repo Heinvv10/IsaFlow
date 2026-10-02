@@ -58,7 +58,7 @@
   /* No forced break between report sections: the legacy pack's short portrait
      sections share a sheet (a landscape section starts its own through its
      named page, below). A heading stays with its first rows and a label with
-     its value — see `.pack-legacy-*` in packPrintPage.css. */
+     its value — see `.pack-legacy-*` in packPrintTablesAndProse.css. */
 
   /* Never split a table row across a page boundary. */
   html.print-mode tr {

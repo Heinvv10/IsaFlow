@@ -170,7 +170,7 @@ html.print-mode .pack-legacy-heading { break-after: avoid; }
   font-size: 96pt; font-weight: 600; color: var(--pack-ink);
   opacity: 0.06; pointer-events: none; white-space: nowrap; z-index: 0;
 }
-html.print-mode [data-pack-toc] { margin-bottom: calc(var(--pack-baseline) * 2); }
+html.print-mode .pack-legacy-toc { margin-bottom: calc(var(--pack-baseline) * 2); }
 /* A section that follows another on the same sheet is set off from it by twice
  * the board pack's block spacing (`--pack-baseline`), so its heading plainly
  * belongs to its own block rather than to the one above. */
