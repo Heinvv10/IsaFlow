@@ -1341,3 +1341,315 @@ int: Tests  75 passed (75)
 unit: Tests  347 passed (347)
 
 DONE BASELINE RT1 RT2 AN2 AN5 Y6 A1 A2 BASELINE
+
+==================================================================
+### After merging origin/master f68bc0487 (R-176, #602/#603); merge commit 5d5eadcaf
+Conflicts resolved keeping both sides: withAuth.ts (owned + unusable declared together; the shared auto-limit check with rollbackFailed on its 429; release(unusable) then the quota settle in the finally), bearerPipeline.ts (the shared auto-limit check with rollbackFailed on its 429), backlog.json (462 items: R-176 and master's R-177..R-180 edits, this branch's R-175 and K-103 edit). accept.ts auto-merged: master's rollbackFailed, pool error listener, early opened and release(unusable) all present; this branch's chargeRateLimit, window-bound refund and removed als.exit all present.
+tsc clean; eslint clean on the three files and the limiter.
+R-176 suites (r176 x6, r159 x2, public-route-tx): 9 files, 144 passed, 2 skipped.
+Censuses (release, rollback, poolErrorListener, deferredEnd, rate-limit key, quota caller): 6 files, 159 passed.
+Limiter integration set:
+ Test Files  6 passed (6)
+      Tests  59 passed (59)
+Invite suites with GOTRUE_URL at the origin (as R-176 runs them; earlier rounds here used /auth/v1 and so never ran them): k-041 x3, k-042: 4 files, 24 passed. This is the first run of the route-level invite-accept limiter and refund tests (k-041 L4, L7) on this branch: they pass.
+Other limiter-related integration files: the same 15 failures as origin/master (no GoTrue at /auth/v1, a database-name guard, a function owner).
+Whole unit suite:
+ Test Files  1142 passed (1142)
+      Tests  15335 passed | 6 skipped (15341)
+
+Mutants on the merge head touching withAuth.ts, bearerPipeline.ts, accept.ts: R-176's (A1-A8, B1-B5, C1-C3, defined from the names in R-176/mutations.log), the merged 429 hunks (H1-H6), and this branch's (Q15-Q18, U1-U3, J1-J3). Run against 13 integration files, the 4 invite files and the unit dirs lib, auth, security plus the quota route tests. Baseline green before and after. 31 of 32 RED. J2 (re-wrap the invite-accept charge in als.exit) survives: it is an equivalent mutant, the wrapper is dead now that the limiter writes on its own pool (K-103 tests prove that).
+
+BASELINE (git status of src and pages: '')
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+DONE BASELINE
+A1 | src/lib/auth/withAuth.ts | A: release bare again
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1076ms
+int: × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1062ms
+int: × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 1056ms
+int: × an early return (403) whose ROLLBACK fails: still 403, and the connection is destroyed 1068ms
+int: × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 1059ms
+int: × a company cookie that is not a UUID (the membership lookup throws), ROLLBACK fails: still answered, connection destroyed 1049ms
+int: × the per-company rate limit, ROLLBACK fails: still answered, connection destroyed 1049ms
+int: × the wait is bounded: 500 is sent, the query in flight is cancelled, the connection is destroyed 4502ms
+int: × a real client-side query_timeout: COMMIT and ROLLBACK both time out in the queue; cancelled and destroyed 4775ms
+int: Tests  9 failed | 183 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × every bare release is one of the pinned ones 6ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+A2 | src/lib/auth/withAuth.ts | A: 5xx-path ROLLBACK failure not recorded
+int: × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 1057ms
+int: Tests  1 failed | 191 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+A3 | src/lib/auth/withAuth.ts | A: COMMIT-path ROLLBACK failure not recorded
+int: × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1115ms
+int: × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 1061ms
+int: × a real client-side query_timeout: COMMIT and ROLLBACK both time out in the queue; cancelled and destroyed 4798ms
+int: Tests  3 failed | 189 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+A4 | src/lib/auth/withAuth.ts | A: catch-path ROLLBACK failure not recorded
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1139ms
+int: × the wait is bounded: 500 is sent, the query in flight is cancelled, the connection is destroyed 4630ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+A5 | src/lib/auth/withAuth.ts | A: every release destroys
+int: × a COMMIT that fails after the headers were flushed is aborted as a COMMIT failure, not answered as a throw 1055ms
+int: × a throw whose ROLLBACK succeeds: the connection goes back to the pool and is reused 1081ms
+int: × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 1113ms
+int: × a 200: committed, and the connection is reused 1088ms
+int: Tests  4 failed | 188 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × nothing reaches .release indirectly, and every argument is a ROLLBACK outcome 6ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+A6 | src/lib/auth/withAuth.ts | A: connectionDestroyed always false
+int: × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 50ms
+int: Tests  1 failed | 191 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+A7 | src/lib/auth/withAuth.ts | A: rolledBack always true
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 40ms
+int: Tests  1 failed | 191 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+A8 | src/lib/auth/withAuth.ts | A: failed COMMIT not answered
+int: × a failed COMMIT still replaces the buffered 200 with 500 COMMIT_FAILED (unchanged) 7ms
+int: × a failed COMMIT after the headers were flushed aborts the response instead of completing it 7ms
+int: × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 33ms
+int: × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 52ms
+int: × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 11ms
+int: × a COMMIT that fails after the headers were flushed is aborted as a COMMIT failure, not answered as a throw 11ms
+int: × a real client-side query_timeout: COMMIT and ROLLBACK both time out in the queue; cancelled and destroyed 606ms
+int: Tests  7 failed | 185 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × turns a failed COMMIT after a 2xx into a 500 (no silent lie) 23ms
+unit: × settles when the COMMIT fails after a 2xx: the work was done, the use stands 10ms
+unit: Tests  2 failed | 1558 passed | 3 skipped (1563)
+
+B1 | src/lib/auth/bearerPipeline.ts | B: release bare again
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1064ms
+int: × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 1050ms
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1049ms
+int: × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 1052ms
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1082ms
+int: × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1062ms
+int: × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 1058ms
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1064ms
+int: × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1095ms
+int: × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 1078ms
+int: Tests  10 failed | 182 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × every bare release is one of the pinned ones 9ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+B2 | src/lib/auth/bearerPipeline.ts | B: 5xx-path ROLLBACK failure not recorded
+int: × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 1140ms
+int: × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 1150ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+B3 | src/lib/auth/bearerPipeline.ts | B: catch-path ROLLBACK failure not recorded
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1120ms
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1084ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+B4 | src/lib/auth/bearerPipeline.ts | B: every release destroys
+int: × a COMMIT that fails after the headers were flushed is aborted as a COMMIT failure, not answered as a throw 1079ms
+int: × a COMMIT that fails after the headers were flushed is aborted as a COMMIT failure, not answered as a throw 1084ms
+int: × a throw whose ROLLBACK succeeds: the connection goes back to the pool and is reused 1089ms
+int: × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 1117ms
+int: × a 200: committed, and the connection is reused 1134ms
+int: × a throw whose ROLLBACK succeeds: the connection goes back to the pool and is reused 1129ms
+int: × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 1157ms
+int: × a 200: committed, and the connection is reused 1390ms
+int: Tests  8 failed | 184 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × nothing reaches .release indirectly, and every argument is a ROLLBACK outcome 8ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+B5 | src/lib/auth/bearerPipeline.ts | B: rolledBack always true
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 114ms
+int: × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 39ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+C1 | pages/api/invitations/[token]/accept.ts | C invite accept: release bare again
+int: × EMAIL_IN_USE whose ROLLBACK fails: still 409, the connection is destroyed and the next invitee is served 1316ms
+int: × a COMMIT that fails, and then its ROLLBACK: the next accept cannot commit the failed membership 1207ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × every bare release is one of the pinned ones 7ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+C2 | pages/api/invitations/[token]/accept.ts | C invite accept: ROLLBACK failure not recorded
+int: × a COMMIT that fails, and then its ROLLBACK: the next accept cannot commit the failed membership 1186ms
+int: Tests  1 failed | 191 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+C3 | pages/api/invitations/[token]/accept.ts | C invite accept: every release destroys
+int: × EMAIL_IN_USE whose ROLLBACK succeeds: 409, and the connection is reused 1122ms
+int: × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 1094ms
+int: × an accepted invitation: committed, and the connection is reused 1106ms
+int: × a BEGIN that fails after it reached the server: rolled back, not pooled inside the open transaction 1068ms
+int: Tests  4 failed | 188 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × nothing reaches .release indirectly, and every argument is a ROLLBACK outcome 5ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+DONE A1 A2 A3 A4 A5 A6 A7 A8 B1 B2 B3 B4 B5 C1 C2 C3
+H1 | src/lib/auth/withAuth.ts | withAuth 429: ROLLBACK failure not recorded
+int: × the per-company rate limit, ROLLBACK fails: still answered, connection destroyed 1074ms
+int: Tests  1 failed | 191 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+H2 | src/lib/auth/withAuth.ts | withAuth 429: bare ROLLBACK again
+int: × the per-company rate limit, ROLLBACK fails: still answered, connection destroyed 14ms
+int: Tests  1 failed | 191 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × every bare ROLLBACK and unreadable query is a pinned one 2019ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+H3 | src/lib/auth/bearerPipeline.ts | bearer 429: ROLLBACK failure not recorded
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1178ms
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1163ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+H4 | src/lib/auth/bearerPipeline.ts | bearer 429: bare ROLLBACK again
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 63ms
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 39ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × every bare ROLLBACK and unreadable query is a pinned one 1360ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+H5 | src/lib/auth/withAuth.ts | withAuth 429: auto limit never applied
+int: × a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow 10ms
+int: × the per-company rate limit, ROLLBACK fails: still answered, connection destroyed 1062ms
+int: Tests  2 failed | 190 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × is the only table: both wrappers call it and neither keeps a copy 24ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+H6 | src/lib/auth/bearerPipeline.ts | bearer 429: auto limit never applied
+int: × a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow 15ms
+int: × a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow 12ms
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1111ms
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1135ms
+int: Tests  4 failed | 188 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × reports-* route with exhausted bucket → 429 + ROLLBACK, handler never runs 13ms
+unit: × is the only table: both wrappers call it and neither keeps a copy 13ms
+unit: Tests  2 failed | 1558 passed | 3 skipped (1563)
+
+Q15 | src/lib/auth/withAuth.ts | withAuth settles only on a 5xx
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × settles the usage quota after a 200, with the use the request recorded 30ms
+unit: × settles the usage quota after a 400, with the use the request recorded 17ms
+unit: × settles the usage quota after a 429, with the use the request recorded 9ms
+unit: Tests  3 failed | 1557 passed | 3 skipped (1563)
+
+Q16 | src/lib/auth/withAuth.ts | withAuth settles only below 500
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × settles the usage quota after a 500, with the use the request recorded 14ms
+unit: × settles the usage quota after a 503, with the use the request recorded 9ms
+unit: × settles when the handler throws, keeping what was used before the throw 7ms
+unit: × settles when the COMMIT fails after a 2xx: the work was done, the use stands 9ms
+unit: Tests  4 failed | 1556 passed | 3 skipped (1563)
+
+Q17 | src/lib/auth/withAuth.ts | withAuth never hands its context to the settle
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × settles the usage quota after a 200, with the use the request recorded 19ms
+unit: × settles the usage quota after a 400, with the use the request recorded 7ms
+unit: × settles the usage quota after a 429, with the use the request recorded 7ms
+unit: × settles the usage quota after a 500, with the use the request recorded 8ms
+unit: × settles the usage quota after a 503, with the use the request recorded 9ms
+unit: × settles when the handler throws, keeping what was used before the throw 6ms
+unit: × settles when the COMMIT fails after a 2xx: the work was done, the use stands 6ms
+unit: Tests  7 failed | 1553 passed | 3 skipped (1563)
+
+Q18 | src/lib/auth/withAuth.ts | withAuth context keeps no quota list
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × settles the usage quota after a 200, with the use the request recorded 14ms
+unit: × settles the usage quota after a 400, with the use the request recorded 13ms
+unit: × settles the usage quota after a 429, with the use the request recorded 8ms
+unit: × settles the usage quota after a 500, with the use the request recorded 6ms
+unit: × settles the usage quota after a 503, with the use the request recorded 8ms
+unit: × settles when the handler throws, keeping what was used before the throw 10ms
+unit: × settles when the COMMIT fails after a 2xx: the work was done, the use stands 7ms
+unit: Tests  7 failed | 1553 passed | 3 skipped (1563)
+
+U1 | src/lib/auth/autoRateLimit.ts | wrapper bucket never applied
+int: × a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow 12ms
+int: × a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow 4ms
+int: × a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow 6ms
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1054ms
+int: × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 1053ms
+int: × the per-company rate limit, ROLLBACK fails: still answered, connection destroyed 1041ms
+int: Tests  6 failed | 186 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × reports-* route with exhausted bucket → 429 + ROLLBACK, handler never runs 6ms
+unit: × charges the company bucket for a reports route, with or without a query string 7ms
+unit: × answers false when the bucket refuses 1ms
+unit: Tests  3 failed | 1557 passed | 3 skipped (1563)
+
+U2 | src/lib/auth/autoRateLimit.ts | wrapper bucket keyed without the company
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × charges the company bucket for a reports route, with or without a query string 11ms
+unit: × reports-* route with exhausted bucket → 429 + ROLLBACK, handler never runs 7ms
+unit: Tests  2 failed | 1558 passed | 3 skipped (1563)
+
+U3 | src/lib/auth/bearerPipeline.ts | bearer pipeline keeps its own copy of the table again
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × is the only table: both wrappers call it and neither keeps a copy 12ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+J1 | pages/api/invitations/[token]/accept.ts | invite-accept refunds without its window
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: × every refund names the window it was charged in 5ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+J2 | pages/api/invitations/[token]/accept.ts | invite-accept charges under als.exit again (dead wrapper)
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+J3 | pages/api/invitations/[token]/accept.ts | invite-accept never refunds
+int: Tests  192 passed | 2 skipped (194)
+int(invite): × L3: an address already held by another users row is refused, not 500ed 47ms
+int(invite): × L7: a signed-in identity that does not match the invitation is refunded too 9ms
+int(invite): Tests  2 failed | 22 passed (24)
+unit: × every refund is on a key that some call site charges 4ms
+unit: Tests  1 failed | 1559 passed | 3 skipped (1563)
+
+BASELINE (git status of src and pages: '')
+int: Tests  192 passed | 2 skipped (194)
+int(invite): Tests  24 passed (24)
+unit: Tests  1560 passed | 3 skipped (1563)
+
+DONE H1 H2 H3 H4 H5 H6 Q15 Q16 Q17 Q18 U1 U2 U3 J1 J2 J3 BASELINE
