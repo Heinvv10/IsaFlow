@@ -193,12 +193,14 @@ export async function resolveStaffRate(
 /** Every job (optionally one client's) with its Engagement Budget status. */
 export async function fetchJobBudgets(practiceClientId?: string): Promise<JobBudgetRow[]> {
   const qs = practiceClientId ? `?practiceClientId=${encodeURIComponent(practiceClientId)}` : '';
-  const data = await apiJson(`/api/accounting/practice/reports/engagement-budgets${qs}`);
+  const data = await apiJson(`/api/accounting/practice/reports/engagement-budgets${qs}`, undefined,
+    'Could not load the jobs and their budgets - try again');
   return asArray<JobBudgetRow>(data, 'engagement budgets');
 }
 
 /** One job's Engagement Budget status; null when the job is not this company's. */
 export async function fetchJobBudget(jobId: string): Promise<JobBudgetRow | null> {
-  const data = await apiJson(`/api/accounting/practice/reports/engagement-budgets?jobId=${encodeURIComponent(jobId)}`);
+  const data = await apiJson(`/api/accounting/practice/reports/engagement-budgets?jobId=${encodeURIComponent(jobId)}`, undefined,
+    'Could not load the engagement budget - try again');
   return asArray<JobBudgetRow>(data, 'engagement budget')[0] ?? null;
 }

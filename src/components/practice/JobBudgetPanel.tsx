@@ -4,6 +4,7 @@
  */
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { apiErrorMessage } from '@/lib/apiFetch';
 import { fetchJobBudget, type JobBudgetRow } from './practiceApi';
 import { EngagementBudgetSummary, BUDGET_STATE_TEXT } from './EngagementBudgetSummary';
 
@@ -20,13 +21,13 @@ export function JobBudgetPanel({ jobId, refreshKey }: { jobId: string; refreshKe
         const row = await fetchJobBudget(jobId);
         if (!cancelled) setStatus(row);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load the engagement budget');
+        if (!cancelled) setError(apiErrorMessage(err, 'Could not load the engagement budget - try again'));
       }
     })();
     return () => { cancelled = true; };
   }, [jobId, refreshKey]);
 
-  if (error) return <p className={`text-sm ${BUDGET_STATE_TEXT.over}`}>Could not load the engagement budget: {error}</p>;
+  if (error) return <p className={`text-sm ${BUDGET_STATE_TEXT.over}`}>{error}</p>;
   if (status === null) return null;
   if (status === undefined) return <div className="flex items-center gap-2 text-sm text-[var(--ff-text-tertiary)]"><Loader2 className="h-4 w-4 animate-spin" />Loading engagement budget…</div>;
   return <EngagementBudgetSummary status={status} />;

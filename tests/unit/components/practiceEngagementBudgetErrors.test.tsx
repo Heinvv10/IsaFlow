@@ -114,7 +114,48 @@ describe('JobBudgetPicker load error', () => {
   it('uses the light/dark red pair', async () => {
     vi.mocked(apiFetch).mockResolvedValue(new Response('{}', { status: 500 }));
     render(<JobBudgetPicker practiceClientId="c1" jobId="" onChange={vi.fn()} refreshKey={0} selectClassName="" labelClassName="" />);
-    const err = await screen.findByText(/Could not load jobs/);
+    const err = await screen.findByText('Could not load the jobs and their budgets - try again');
     expect(err.className).toContain('text-red-700 dark:text-red-400');
+  });
+
+  it('drops a chosen job that is no longer open once the list reloads', async () => {
+    const row = (jobStatus: string) => ({ jobId: 'j1', title: 'AFS', jobStatus, practiceClientId: 'c1', practiceClientName: 'X',
+      budgetAmount: 1, consumedAmount: 0, balance: 1, budgetedHours: null, hoursUsed: 0, percentUsed: 0, state: 'ok' });
+    let status = 'in_progress';
+    vi.mocked(apiFetch).mockImplementation(async () => ok([row(status)]));
+    const onChange = vi.fn();
+    const view = (key: number) => <JobBudgetPicker practiceClientId="c1" jobId="j1" onChange={onChange} refreshKey={key} selectClassName="" labelClassName="" />;
+    const { rerender } = render(view(0));
+    await screen.findByTestId('engagement-budget');
+    expect(onChange).not.toHaveBeenCalled();
+    status = 'complete';
+    rerender(view(1));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(''));
+  });
+});
+
+describe('Engagement Budgets report: a failed load', () => {
+  it('clears the previous rows, shows the failure sentence, and the CSV button is off while loading', async () => {
+    let fail = false;
+    let release: (() => void) | null = null;
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
+      if (String(url).includes('/clients')) return ok({ clients: [{ id: 'c1', legalName: 'One' }] });
+      if (!fail) {
+        return ok([{ jobId: 'j', title: 'Old row', jobStatus: 'in_progress', practiceClientId: 'c', practiceClientName: 'X',
+          budgetAmount: 1, consumedAmount: 0, balance: 1, budgetedHours: null, hoursUsed: 0, percentUsed: 0, state: 'ok' }]);
+      }
+      await new Promise<void>((r) => { release = r; });
+      return new Response('{}', { status: 500 });
+    });
+    render(<EngagementBudgetsPage />);
+    await screen.findByText('Old row');
+    await screen.findByRole('option', { name: 'One' });
+    fail = true;
+    fireEvent.change(screen.getByLabelText('Client'), { target: { value: 'c1' } });
+    await waitFor(() => expect(release).not.toBeNull());
+    expect((screen.getByRole('button', { name: /Download CSV/ }) as HTMLButtonElement).disabled).toBe(true);
+    release!();
+    expect(await screen.findByText('Could not load the jobs and their budgets - try again')).toBeTruthy();
+    expect(screen.queryByText('Old row')).toBeNull();
   });
 });
