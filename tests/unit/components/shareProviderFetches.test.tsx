@@ -15,7 +15,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, waitFor } from '@testing-library/react';
+import { render, waitFor, screen, act } from '@testing-library/react';
 
 let pathname = '/accounting/reports/report-packs';
 
@@ -62,8 +62,10 @@ describe('pages/_app.tsx — provider fetches on the public share page', () => {
   it('fetches neither the session nor the companies on a share route', async () => {
     pathname = '/share/[token]';
     await mount();
-    // Given a tick to be wrong in: both fetches live in mount effects.
-    await new Promise(r => setTimeout(r, 0));
+    // App has mounted (its page text is on screen), and both fetches, which live in mount effects, get
+    // 400 ms to be wrong in: a bare setTimeout(0) after a slow import would pass without checking anything.
+    expect(await screen.findByText('shared pack')).toBeTruthy();
+    await act(async () => { await new Promise(r => setTimeout(r, 400)); });
     expect(asked().some(u => u.includes('/api/auth/me'))).toBe(false);
     expect(asked().some(u => u.includes('/api/accounting/companies'))).toBe(false);
   }, LOAD_TIMEOUT);

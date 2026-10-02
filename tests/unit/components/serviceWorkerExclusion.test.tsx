@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, waitFor } from '@testing-library/react';
+import { render, waitFor, screen, act } from '@testing-library/react';
 
 const register = vi.fn(() => Promise.resolve());
 const getRegistrations = vi.fn(() => Promise.resolve([]));
@@ -67,8 +67,10 @@ describe('pages/_app.tsx — service worker registration', () => {
   it('does not touch it at all on the public share page', async () => {
     pathname = '/share/[token]';
     await mount();
-    // Given a tick to be wrong in.
-    await new Promise(r => setTimeout(r, 0));
+    // App has mounted (its page text is on screen), and the effects get 400 ms to be wrong in: a bare
+    // setTimeout(0) after a slow import would pass without checking anything.
+    expect(await screen.findByText('page')).toBeTruthy();
+    await act(async () => { await new Promise(r => setTimeout(r, 400)); });
     expect(register).not.toHaveBeenCalled();
     expect(getRegistrations).not.toHaveBeenCalled();
   }, LOAD_TIMEOUT);
