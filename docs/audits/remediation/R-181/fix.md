@@ -313,6 +313,10 @@ orchestrator. Every other R-181 evidence log (red, green, mutations, regression)
   behaviour in `tests/unit/services/ar/gatewaySettlementRules.test.ts`.
 - **`paystackClient.ts` is 432 lines** (over the 300-line limit; 425 before R-181): R-183, not
   split here.
+- **On a pass-on account the return page shows what the merchant received**, not the card charge:
+  a R118.50 charge with `requested_amount` R115 reads "R 115,00 has been received". Deliberate: the
+  figure is the receipt booked against the customer; the payer's card statement shows the full
+  R118.50, which includes Paystack's fee.
 - **The fee journal has no unique constraint (R-185, pre-existing).** `postGatewayFee` guards with a
   SELECT on (company, reference, posting agent) and then inserts; two dedupe-path settlements for
   one reference at the same moment (for example two different webhook bodies arriving together)
@@ -427,3 +431,23 @@ pre-existing k061 contention case above). All on `isaflow-fixture-r181`, 127.0.0
 Red: unit 1 of 59 (`red.r10.unit.log`), component 1 of 5 (`red.r10.component.log`), int 3 of 11
 (`red.r10.int.log`); the wiring tests pin existing behaviour and are proven by their mutants.
 Green: R-181 integration 61/61 on 55563.
+
+## Review at 6a46d8417 (FIX: 2 MEDIUM test gaps + 2 LOWs)
+
+- **M1. Two wiring mutants survived the unit suite.** `gatewayReceiptWiring.test.ts` gains a dedupe
+  case where verify trusted `requested_amount` (R115 banked, `amount` R118.50 tagged): the webhook's
+  customer-paid R3.50 must reach `postGatewayFee` as R0 (the raw R3.50 would net Bank R111.50
+  against a R115 deposit), and a case where the locked invoice takes R50 of a R115 receipt: the
+  allocation INSERT must carry R50. Mutants X1 (raw receipt on dedupe) and X2 (whole receipt in the
+  allocation INSERT) now go red without a database.
+- **M2. verify's payer-facing answers were untested in CI.** `tests/unit/services/billing/paystackVerifyRoute.test.ts`
+  runs the route with its dependencies mocked: a request stored `failed` that Paystack says
+  succeeded, whose settlement throws, answers `pending`; a settled payment answers its banked
+  `amountCents`, `appliedToInvoice` and `currency` (ZAR applied, USD held, nothing banked yet).
+  Mutants X3..X6 go red.
+- **L1.** The pass-on figure on the return page is recorded above as deliberate.
+- **L2.** `ar/.claude.md` now states the allocation as `min(banked, total - amount_paid - draft
+  receipts' open allocations)`; mirror regenerated.
+
+Evidence: unit 73/73 and component 5/5 under `env -u DATABASE_URL`; X1..X6 all killed
+(`mutations.log`). No database run this round.

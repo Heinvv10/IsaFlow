@@ -142,3 +142,13 @@ L1 the old one-cent floor [src/modules/accounting/services/ar/gatewayFeeService.
 L2a the receipt currency always ZAR [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 65 passed (66) -> KILLED; red: names a non-ZAR currency, tags an amount that differs from the receipt, and reads it back
 L2b the page shows a rand figure for any currency [pages/portal/payments/paystack/return.tsx]: 1 failed | 4 passed (5) -> KILLED; red: completed in a foreign currency: no rand figure, a plain "received"
 AFTER unit: 66 passed (66) | component: 5 passed (5)
+
+REVIEW AT 6a46d8417 — surviving wiring mutants (M1) and the verify payer answers (M2); env -u DATABASE_URL
+BASELINE unit: 73 passed (73) | component: 5 passed (5)
+X1 dedupe hands postGatewayFee the raw receipt (:134) [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 72 passed (73) -> KILLED; red: dedupe after verify trusted requested_amount (R115 banked, amount R118.50 tagged): the customer-paid fee posts nothing
+X2 allocation INSERT carries the whole receipt (:200) [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 72 passed (73) -> KILLED; red: the allocation INSERT carries what the locked invoice can take (R50), not the whole receipt (R115)
+X3 verify drops the pending-after-success answer (:150) [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 72 passed (73) -> KILLED; red: a request stored failed, Paystack success, the settlement throws: pending
+X4 verify answers the checkout amount [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 72 passed (73) -> KILLED; red: R50 banked and applied, in ZAR
+X5 verify says applied whatever was allocated [pages/api/portal/payments/paystack/verify.ts]: 2 failed | 71 passed (73) -> KILLED; red: banked in USD and held unapplied; nothing banked yet: the checkout amount, not applied, ZAR
+X6 verify always says ZAR [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 72 passed (73) -> KILLED; red: banked in USD and held unapplied
+AFTER unit: 73 passed (73) | component: 5 passed (5)
