@@ -21,6 +21,9 @@
  * `assertJobForPracticeClient` fences `time_entries.job_id` → `practice_jobs`
  * (also tenant-agnostic): the job must be this company's AND the entry's own
  * practice client's, since the Engagement Budget is spent by the job's time.
+ * Migration 851's composite FK holds the same pair in the database. A NEW link
+ * to a closed job (complete/cancelled/billed) is refused too; an entry that
+ * keeps the job it already has is not.
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
@@ -53,6 +56,23 @@ export class PracticeJobNotForClientError extends Error {
   }
 }
 
+/** Refusal raised when time is newly linked to a closed job. Routes answer 400. */
+export class PracticeJobClosedError extends Error {
+  readonly code = 'PRACTICE_JOB_CLOSED';
+  constructor(jobId: string, status: string) {
+    super(`Job ${jobId} is ${status}: time can no longer be captured against it`);
+    this.name = 'PracticeJobClosedError';
+  }
+}
+
+/** Either job-fence refusal: the routes answer both with 400 and the message. */
+export function isJobFenceRefusal(err: unknown): err is PracticeJobNotForClientError | PracticeJobClosedError {
+  return err instanceof PracticeJobNotForClientError || err instanceof PracticeJobClosedError;
+}
+
+/** A job time may no longer be newly captured against. */
+export const CLOSED_JOB_STATUSES: readonly string[] = ['complete', 'cancelled', 'billed'];
+
 /** Sequenced: Postgres shadows a re-declared savepoint name. */
 let fenceSeq = 0;
 
@@ -81,30 +101,38 @@ export async function assertClientGroupInCompany(
 /**
  * Returns the job id to store: null for an absent/null/'' id ("no job"), else
  * the id once it is proven to be this company's job for `practiceClientId`.
- * A non-string id is refused, never coerced.
+ * A non-string id is refused, never coerced. `newLink` (the entry did not
+ * already point at this job) also refuses a closed job.
  */
 export async function assertJobForPracticeClient(
   companyId: string,
   practiceClientId: string,
   jobId: unknown,
+  { newLink }: { newLink: boolean },
 ): Promise<string | null> {
   if (jobId === undefined || jobId === null || jobId === '') return null;
   if (typeof jobId !== 'string') throw new PracticeJobNotForClientError(String(jobId));
-  const owned = await savepointedExists(async () => (await sql`
-    SELECT 1 FROM practice_jobs
+  const rows = await savepointedRows(async () => (await sql`
+    SELECT status FROM practice_jobs
     WHERE id = ${jobId}::uuid AND company_id = ${companyId}::uuid
       AND practice_client_id = ${practiceClientId}::uuid
     LIMIT 1
   `) as DbRow[]);
-  if (!owned) throw new PracticeJobNotForClientError(jobId);
+  if (!rows[0]) throw new PracticeJobNotForClientError(jobId);
+  const status = String(rows[0].status);
+  if (newLink && CLOSED_JOB_STATUSES.includes(status)) throw new PracticeJobClosedError(jobId, status);
   return jobId;
 }
 
 async function savepointedExists(read: () => Promise<DbRow[]>): Promise<boolean> {
-  return withSavepoint(`pc_own_${++fenceSeq}`, async () => (await read()).length > 0)
+  return (await savepointedRows(read)).length > 0;
+}
+
+async function savepointedRows(read: () => Promise<DbRow[]>): Promise<DbRow[]> {
+  return withSavepoint(`pc_own_${++fenceSeq}`, read)
     .catch((err: unknown) => {
       // 22P02 invalid_text_representation — the id is not even a UUID.
-      if ((err as { code?: string }).code === '22P02') return false;
+      if ((err as { code?: string }).code === '22P02') return [];
       throw err;
     });
 }

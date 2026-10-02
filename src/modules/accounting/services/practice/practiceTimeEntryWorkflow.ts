@@ -3,10 +3,10 @@ import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { resolveRate } from './practiceStaffRateService';
 import {
-  mapEntry,
   validateClientCategoryWorkItem,
   createPracticeEntry,
 } from './practiceTimeEntryService';
+import { mapEntry } from './practiceTimeEntryMap';
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
 import { roundHours, lineTotalFor } from './practiceTimeEntryTypes';
 import { getEntryTemplate } from './practiceEntryTemplateService';
@@ -20,6 +20,7 @@ export interface BulkFromTemplateInput {
   weekdays?: number[];         // 0=Sun..6=Sat; default [1,2,3,4,5] (Mon-Fri)
   hoursOverride?: number;      // falls back to template.default_hours
   taskOverride?: string;       // falls back to template.task_description
+  jobId?: string | null;       // optional; must be an open job of the template's client
 }
 
 export interface BulkFromTemplateResult {
@@ -46,6 +47,8 @@ export async function bulkCreateFromTemplate(
   }
 
   const taskDescription = input.taskOverride ?? template.taskDescription ?? template.name;
+  // Refused once, up front, rather than as one failure per date.
+  const jobId = await assertJobForPracticeClient(companyId, template.practiceClientId, input.jobId, { newLink: true });
 
   if (input.dateFrom > input.dateTo) {
     throw new Error('dateFrom must be on or before dateTo');
@@ -90,6 +93,7 @@ export async function bulkCreateFromTemplate(
         notes: template.notes ?? undefined,
         billable: template.billable,
         origin: 'recurring',
+        jobId,
       });
       created++;
     } catch (err) {
@@ -125,7 +129,7 @@ export async function duplicatePracticeEntry(
     String(src.job_category_id),
     String(src.work_item_id),
   );
-  const jobId = await assertJobForPracticeClient(companyId, String(src.practice_client_id), src.job_id);
+  const jobId = await assertJobForPracticeClient(companyId, String(src.practice_client_id), src.job_id, { newLink: true });
 
   const appliedRate = await resolveRate(
     companyId,

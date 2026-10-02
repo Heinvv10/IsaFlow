@@ -4,7 +4,7 @@ import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { markEntriesBilled } from './practiceTimeEntryWorkflow';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
-import { mapEntry } from './practiceTimeEntryService';
+import { mapEntry } from './practiceTimeEntryMap';
 import { lockEligibleWipEntries } from './wipEntryLock';
 import { WipInvoiceRefusal, assertWipTaxRate, assertWipEntryLines } from './wipInvoiceGuards';
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';

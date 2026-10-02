@@ -15,7 +15,10 @@ import {
   getJob,
   updateJob,
   deleteJob,
+  JobClientHasEntriesError,
 } from '@/modules/accounting/services/practice/practiceJobService';
+import { JobBudgetInvalidError } from '@/modules/accounting/services/practice/practiceJobBudget';
+import { isJsonObjectBody } from '@/lib/validation';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -28,10 +31,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'PUT') {
+    if (!isJsonObjectBody(req.body)) return apiResponse.badRequest(res, 'Request body must be a JSON object');
     try {
       const job = await updateJob(companyId, id, req.body);
       return apiResponse.success(res, job);
     } catch (err) {
+      if (err instanceof JobBudgetInvalidError || err instanceof JobClientHasEntriesError) {
+        log.warn('Job update refused', { id, code: err.code }, 'practice-api');
+        return apiResponse.badRequest(res, err.message);
+      }
       log.error('Job update failed', { error: err, id }, 'practice-api');
       return apiResponse.badRequestFromError(res, err, 'Update failed');
     }

@@ -44,18 +44,31 @@ export function budgetFigures(
   };
 }
 
-/** NUMERIC(18,2): anything at or above 10^16 overflows the column. */
-const MAX_BUDGET = 1e16;
+/** Refusal raised for an Engagement Budget that is not a non-negative amount. Routes answer 400. */
+export class JobBudgetInvalidError extends Error {
+  readonly code = 'JOB_BUDGET_INVALID';
+  constructor() {
+    super('Engagement budget must be an amount from 0 up to R9,999,999,999,999.99');
+    this.name = 'JobBudgetInvalidError';
+  }
+}
+
+/**
+ * Below 10^13 rand, so budget and consumption in cents stay well inside
+ * Number's exact-integer range (2^53 ≈ 9.007e15): at 10^15 a stored
+ * 123456789012345.67 already reads back a few cents off.
+ */
+export const MAX_BUDGET = 1e13;
 
 /**
  * The Engagement Budget a caller sent: `null`/`''` mean "no budget"; otherwise
- * a finite, non-negative number. A string is refused rather than coerced — the
- * form sends a number.
+ * a finite number from 0 to below MAX_BUDGET. A string is refused rather than
+ * coerced — the form sends a number. (`undefined` is the caller's "unchanged".)
  */
 export function normaliseBudgetAmount(value: unknown): number | null {
   if (value === null || value === '') return null;
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value >= MAX_BUDGET) {
-    throw new Error('Engagement budget must be a non-negative amount');
+    throw new JobBudgetInvalidError();
   }
   return value;
 }

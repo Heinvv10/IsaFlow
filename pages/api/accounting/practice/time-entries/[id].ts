@@ -11,7 +11,8 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
-import { PracticeJobNotForClientError } from '@/modules/accounting/services/practice/practiceClientFence';
+import { isJobFenceRefusal } from '@/modules/accounting/services/practice/practiceClientFence';
+import { isJsonObjectBody } from '@/lib/validation';
 import {
   getPracticeEntry,
   updatePracticeEntry,
@@ -31,12 +32,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'PUT') {
+    if (!isJsonObjectBody(req.body)) return apiResponse.badRequest(res, 'Request body must be a JSON object');
     try {
       const entry = await updatePracticeEntry(companyId, id, req.body);
       return apiResponse.success(res, entry);
     } catch (err) {
+      if (isJobFenceRefusal(err)) {
+        log.warn('Practice time entry update refused', { id, code: err.code, message: err.message }, 'practice-api');
+        return apiResponse.badRequest(res, err.message);
+      }
       log.error('Practice time entry update failed', { error: err, id }, 'practice-api');
-      if (err instanceof PracticeJobNotForClientError) return apiResponse.badRequest(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Update failed');
     }
   }

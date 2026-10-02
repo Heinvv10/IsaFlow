@@ -10,6 +10,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { isJsonObjectBody } from '@/lib/validation';
+import { JobBudgetInvalidError } from '@/modules/accounting/services/practice/practiceJobBudget';
 import {
   listJobs,
   createJob,
@@ -32,10 +34,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
+    if (!isJsonObjectBody(req.body)) return apiResponse.badRequest(res, 'Request body must be a JSON object');
     try {
       const job = await createJob(companyId, req.user.id, req.body);
       return apiResponse.created(res, job);
     } catch (err) {
+      if (err instanceof JobBudgetInvalidError) {
+        log.warn('Job create refused', { code: err.code }, 'practice-api');
+        return apiResponse.badRequest(res, err.message);
+      }
       log.error('Job create failed', { error: err }, 'practice-api');
       return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
