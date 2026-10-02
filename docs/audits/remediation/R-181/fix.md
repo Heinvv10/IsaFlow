@@ -26,9 +26,13 @@ per company and type, and `fraud_alerts` needs a supplier.
 
 The closest existing marker is used: `paystack_payment_requests.failure_reason` on the COMPLETED
 request. `noteAuthorisationNotAttached` already writes it on a completed request to mean "the card
-was charged and nothing could be attached". The value is `review:<reasons>`, comma-joined:
-`amount_mismatch`, `amount_not_reported`, `currency_mismatch`, `invoice_draft`,
-`invoice_pending_approval`, `invoice_cancelled`, `invoice_deleted`. The receipt is found from the
+was charged and nothing could be attached". The value is `review:<reasons>`, comma-joined. The
+reasons, as they stand after every review round: `amount_not_reported`, `amount_mismatch`,
+`amount_below_requested_amount`, `requested_amount_exceeds_fee`, `requested_amount_unverified`,
+`currency_mismatch`, `unapplied_currency`, `invoice_<status>` (`invoice_draft`,
+`invoice_pending_approval`, `invoice_cancelled`), `invoice_deleted`, `invoice_balance_invalid`,
+`overpaid_unapplied`, `fee_not_posted_currency`, `fee_clamped`, `fee_exceeds_receipt`,
+`amount_disagrees_with_first_report` (15, counting `invoice_<status>` once). The receipt is found from the
 request by `customer_payments.bank_reference = paystack_reference`. No migration: Hein approved
 this marker over one on 2026-10-02, on three conditions, each tested:
 
@@ -71,7 +75,8 @@ leaves an unapplied receipt on the customer, and that does show in the unapplied
     currency, the prior reason, the invoice and what was banked and allocated. See the three
     conditions above.
 - **`gatewayInvoiceReceiptService.recordGatewayInvoiceReceipt`** now takes `requestedCents` and
-  `reported` instead of `amountRand`. It reads the invoice's `status` and `deleted_at`. An invoice
+  `reported` instead of `amountRand`. The invoice's `status`, `deleted_at`, balance and customer
+  are read UNDER the invoice row lock (`decideGatewayAllocation`, since review round 1). An invoice
   outside the ledger is allocated 0, so the whole receipt is banked unapplied on the customer
   through the existing over-settlement path. The flag is written in the same transaction as the
   receipt. A second delivery banks nothing; since review round 1 it compares its amount with
@@ -297,6 +302,14 @@ orchestrator. Every other R-181 evidence log (red, green, mutations, regression)
   person to offset. Accepted: the alternative leaves Bank wrong whenever `requested_amount` is
   wrong, and Bank is the figure the statement reconciles against.
 - **The review flag has no UI**; the log line and `failure_reason` are what surface it (Hein).
+- **Two fee skips warn and do not flag (pre-existing, unchanged).** Where Bank cannot reach the
+  settlement, the request is flagged, with two exceptions in `postGatewayFee`: a receipt with no
+  bank account (the fee leg is skipped with `log.warn`), and no resolvable `admin_expense` system
+  account (skipped with `log.warn`). In both, Bank stays above the deposit by the fee and the request
+  carries no review reason; only the warning records it.
+- **Evidence logs and the commit they ran at.** `green.int.log` before this round ran on the tree
+  committed as fa0d98e9f. From this round every evidence log starts with a `HEAD:` line naming the
+  commit it ran at.
 - **The first report's `amount` lives in a free-text tag** (`[paystack amount N cents]` in
   `customer_payments.description`), the kind of free-text match `gatewayFeeService` rejects for its
   own idempotency. If the tag were edited or renamed between verify and the webhook, a spurious
@@ -516,3 +529,18 @@ Evidence: unit 87/87 and component 5/5 under `env -u DATABASE_URL`; Y1..Y5 and C
   (`confirmCustomerPayment` locks the settlement's own uncommitted payment row while the invoice is
   held; safe because no other transaction can see it) is stated in `ar/.claude.md`,
   `gatewayReceiptAllocation.ts` and `customerInvoiceLock.ts`. "about 30s" is now "10 polls, 3 s apart".
+
+## Review at fa0d98e9f (SHIP, 3 LOWs)
+
+- **L1. A request stored `failed` that Paystack still reports `pending`** told the payer "Payment
+  failed. No money has left your account". verify now answers `pending` in that case; only
+  Paystack's own `failed`, `abandoned` or `reversed` (`paystackClient.mapStatus`; anything else is
+  `pending`) keeps a stored `failed`. Unit tests: pending → `pending`, reversed → `failed`; mutant D1
+  (the new line removed) red.
+- **L2. The draft-receipt deduction's conditions are asserted**: `gatewayAllocationLocked.test.ts`
+  reads the recorded SQL and values (`cp.status = 'draft'`, `cpa.invoice_id` and `cp.company_id`
+  bound to this invoice and company). Mutants D2 (status filter removed) and D3 (company scope
+  removed) red.
+- **L3.** The review-reason list above is complete; the "Fix" section says the invoice is read under
+  the lock; the two warn-only fee skips are named as the exceptions to "flagged wherever Bank cannot
+  reach the settlement" (here and in `ar/.claude.md`); evidence logs now carry a `HEAD:` line.

@@ -54,6 +54,18 @@ describe('verify: a charged payer is never told "failed"', () => {
     expect((await call()).body.data).toMatchObject({ status: 'pending' });
   });
 
+  it('a request stored failed that Paystack still reports pending answers pending', async () => {
+    h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, status: 'failed' }]);
+    verify.mockResolvedValue({ status: 'pending', id: 1, amountCents: 11500, currency: 'ZAR', paidAt: null, channel: 'card', authorization: null });
+    expect((await call()).body.data).toMatchObject({ status: 'pending' });
+  });
+
+  it('a request stored failed that Paystack reports reversed stays failed', async () => {
+    h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, status: 'failed' }]);
+    verify.mockResolvedValue({ status: 'reversed', id: 1, amountCents: 11500, currency: 'ZAR', paidAt: null, channel: 'card', authorization: null });
+    expect((await call()).body.data).toMatchObject({ status: 'failed' });
+  });
+
   it('a request stored failed that Paystack also says failed stays failed', async () => {
     h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, status: 'failed' }]);
     verify.mockResolvedValue({ status: 'failed', id: 1, amountCents: 11500, currency: 'ZAR', paidAt: null, channel: 'card', authorization: null });
