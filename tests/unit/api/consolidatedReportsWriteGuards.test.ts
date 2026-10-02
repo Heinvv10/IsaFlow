@@ -24,6 +24,8 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/modules/accounting/services/core/companyAccessService', () => access);
 vi.mock('@/modules/accounting/services/reports/consolidatedReportingService', () => svc);
+const groupAccounts = vi.hoisted(() => ({ getGroupAccounts: vi.fn() }));
+vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => groupAccounts);
 
 import handler from '../../../pages/api/accounting/consolidated-reports';
 
@@ -43,6 +45,7 @@ beforeEach(() => {
   for (const fn of Object.values(svc)) fn.mockReset().mockResolvedValue([]);
   access.userBelongsToGroup.mockReset().mockResolvedValue(true);
   access.userCanWriteGroup.mockReset().mockResolvedValue(true);
+  groupAccounts.getGroupAccounts.mockReset().mockResolvedValue([{ id: ACCT, groupId: GROUP }]);
 });
 
 const VALID_CREATE = { action: 'create-elimination', adjustmentType: 'interco_revenue', description: 'x',
@@ -104,6 +107,20 @@ describe('LOW-2: elimination writes need a write role in the group', () => {
     access.userCanWriteGroup.mockResolvedValue(false);
     const res = await call('GET', { group_id: GROUP, action: 'eliminations' });
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+});
+
+// Round 8 (security LOW): lines is JSONB with no FK, so an id from another group (or a random
+// UUID) used to be stored and then silently dropped by the reports — a one-sided elimination.
+describe('create-elimination lines must be active accounts of THIS group', () => {
+  it('refuses another group\'s account id with 400, nothing written', async () => {
+    const OTHER = '81000000-0000-4000-8000-0000000000ff';
+    const res = await call('POST', { group_id: GROUP }, { ...VALID_CREATE,
+      lines: [{ groupAccountId: ACCT, debit: 10, credit: 0 }, { groupAccountId: OTHER, debit: 0, credit: 10 }] });
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(message(res)).toContain('active account of this group');
+    expect(groupAccounts.getGroupAccounts).toHaveBeenCalledWith(GROUP);
+    expect(svc.createEliminationAdjustment).not.toHaveBeenCalled();
   });
 });
 

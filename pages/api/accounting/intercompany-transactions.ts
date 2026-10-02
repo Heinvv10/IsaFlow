@@ -16,7 +16,7 @@ import {
   matchIntercompanyTransactions,
   getIntercompanyReconciliation,
 } from '@/modules/accounting/services/reports/groupCompanyService';
-import { userBelongsToGroup } from '@/modules/accounting/services/core/companyAccessService';
+import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
 
 // Uses withAuth (not withCompany) because intercompany transactions cross company
 // boundaries. Security is provided by verifyGroupAccess() which ensures the user
@@ -54,6 +54,10 @@ async function journalEntryBelongsToCompany(journalEntryId: string, companyId: s
   return rows.length > 0;
 }
 
+// Both POST branches WRITE: a matched transaction becomes an elimination on the next
+// auto-eliminate, so membership (any role) reads and a group write role writes.
+const WRITE_REFUSED = 'Your role in this group does not allow this change.';
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const action = (req.query.action || req.body?.action) as string | undefined;
@@ -87,6 +91,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!sourceId || !targetId) return apiResponse.badRequest(res, 'sourceId and targetId required');
       if (!matchGroupId) return apiResponse.badRequest(res, 'groupId required');
       if (!(await verifyGroupAccess(matchGroupId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
+      if (!(await userCanWriteGroup(userId, matchGroupId as string))) return apiResponse.forbidden(res, WRITE_REFUSED);
       await matchIntercompanyTransactions(sourceId, targetId, matchGroupId as string);
       return apiResponse.success(res, { matched: true });
     }
@@ -97,6 +102,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'groupId, sourceCompanyId, targetCompanyId, transactionType, amount, transactionDate required');
     }
     if (!(await verifyGroupAccess(gId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
+    if (!(await userCanWriteGroup(userId, gId as string))) return apiResponse.forbidden(res, WRITE_REFUSED);
 
     // Both source and target companies must be active members of the group — reject
     // forged/foreign companyIds before they reach the INSERT (cross-tenant forgery).
