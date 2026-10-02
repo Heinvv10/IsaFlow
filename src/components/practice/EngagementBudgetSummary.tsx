@@ -13,12 +13,13 @@ export const fmtRand = (v: number) => (v < 0 ? `-${formatCurrencyAmount(-v, 'ZAR
 /**
  * Text colour per state, in both themes (the repo's light/dark status pairs).
  * Every pair is at least 4.5:1 on the panel and table backgrounds; the bare
- * -400 shades read 1.5–2.7:1 on white.
+ * -400 shades read 1.5–2.7:1 on white. Amber is -800 in light: -700 measured
+ * 4.47:1 on the amber panel inside a modal.
  */
 export const BUDGET_STATE_TEXT: Record<JobBudgetState, string> = {
   none: 'text-slate-600 dark:text-slate-300',
   ok: 'text-teal-700 dark:text-teal-400',
-  warning: 'text-amber-700 dark:text-amber-400',
+  warning: 'text-amber-800 dark:text-amber-400',
   over: 'text-red-700 dark:text-red-400',
 };
 

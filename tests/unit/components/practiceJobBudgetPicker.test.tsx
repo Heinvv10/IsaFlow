@@ -64,7 +64,7 @@ describe('JobBudgetPicker', () => {
     expect(within(box).getByText('Engagement Budget')).toBeTruthy();
     expect(within(box).getByText('Engagement Budget Balance')).toBeTruthy();
     const balance = within(box).getByText(/200\.00/);
-    expect(balance.className).toContain('text-amber-700');
+    expect(balance.className).toContain('text-amber-800');
     expect(balance.className).toContain('dark:text-amber-400');
     expect(within(box).getByText(/80% or more/)).toBeTruthy();
     expect(box.querySelectorAll('input').length).toBe(0);
