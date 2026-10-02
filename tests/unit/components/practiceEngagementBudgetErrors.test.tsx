@@ -155,7 +155,8 @@ describe('Engagement Budgets report: a failed load', () => {
     await waitFor(() => expect(release).not.toBeNull());
     expect((screen.getByRole('button', { name: /Download CSV/ }) as HTMLButtonElement).disabled).toBe(true);
     release!();
-    expect(await screen.findByText('Could not load the jobs and their budgets - try again')).toBeTruthy();
+    const banner = await screen.findByText('Could not load the jobs and their budgets - try again');
+    expect(banner.className).toContain('text-red-700 dark:text-red-400');
     expect(screen.queryByText('Old row')).toBeNull();
   });
 });
