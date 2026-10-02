@@ -16,8 +16,6 @@ interface Props {
   onError: (message: string) => void;
 }
 
-const REVOKE_FAILED = 'Could not revoke the payment link - try again';
-
 export function RevokePaymentLinkDialog({ open, invoiceId, invoiceNumber, onClose, onDone, onError }: Props) {
   const [revoking, setRevoking] = useState(false);
 
@@ -26,12 +24,12 @@ export function RevokePaymentLinkDialog({ open, invoiceId, invoiceNumber, onClos
     try {
       await assertOk(
         await apiFetch(`/api/accounting/customer-invoices/${invoiceId}/payment-link/revoke`, { method: 'POST' }),
-        REVOKE_FAILED,
+        'Could not revoke the payment link - try again',
       );
       onDone();
     } catch (e) {
       onDone();
-      onError(apiErrorMessage(e, REVOKE_FAILED));
+      onError(apiErrorMessage(e, 'Could not revoke the payment link - try again'));
     } finally {
       setRevoking(false);
       onClose();
