@@ -21,14 +21,20 @@ export interface TrialBalanceRow {
   priorDebitBalance?: number;
   priorCreditBalance?: number;
   /**
-   * Balance at the start of the reporting range. opening + movement = closing, except across a
-   * fiscal-year start, where income-statement rows and RE-BF also carry the derived year-end close.
+   * Balance at the start of the reporting range (the account ledger's opening).
+   * opening + movement + closedToRetainedEarnings = closing.
    */
   openingDebit?: number;
   openingCredit?: number;
   /** Gross debit / credit turnover within the reporting range. */
   periodDebit?: number;
   periodCredit?: number;
+  /**
+   * Derived year-end close (not posted) on the account's normal side — the account ledger's
+   * `closedToRetainedEarnings`. opening + movement + this = closing. 0 unless the period crosses
+   * a fiscal-year start; on RE-BF it is what the closed years added to retained earnings.
+   */
+  closedToRetainedEarnings?: number;
   /**
    * True for a COMPUTED line with no journal behind it — currently only the
    * retained-earnings brought-forward row. Anything tying this report to the
@@ -60,6 +66,8 @@ export interface TrialBalanceReport {
    * Balance-sheet rows ignore it — they are cumulative from inception.
    */
   fiscalYearStart: string;
+  /** Fiscal years that end inside the period (their last day); empty when it sits in one year. */
+  fiscalYearEndsClosed: string[];
   costCentreId?: string;
   businessUnitId?: string;
   /** Canonical key for account lines — always `rows`, never `accounts`. */
