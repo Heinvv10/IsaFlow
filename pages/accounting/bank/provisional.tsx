@@ -50,6 +50,7 @@ export default function ProvisionalEntriesPage() {
   const [dismissJeId, setDismissJeId] = useState<string | null>(null);
   const [docs, setDocs] = useState<CapturedDoc[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
+  const [docsError, setDocsError] = useState('');
   const [toast, setToast] = useState<Toast>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -78,7 +79,7 @@ export default function ProvisionalEntriesPage() {
   }, [toast]);
 
   const openAttach = useCallback(async (jeId: string) => {
-    setAttachJeId(jeId); setDocsLoading(true);
+    setAttachJeId(jeId); setDocsLoading(true); setDocsError('');
     try {
       const res = await apiFetch('/api/accounting/document-capture?status=extracted&pageSize=50');
       await assertOk(res, 'Could not load documents - try again');
@@ -87,7 +88,8 @@ export default function ProvisionalEntriesPage() {
     } catch (err) {
       log.error('Failed to load captured documents', { error: err }, 'provisional-ui');
       setDocs([]);
-      setToast({ msg: apiErrorMessage(err, 'Could not load documents - try again'), kind: 'err' });
+      // Shown in the modal in place of its empty state (D8 round 14): a failed load is not "no documents".
+      setDocsError(apiErrorMessage(err, 'Could not load documents - try again'));
     }
     finally { setDocsLoading(false); }
   }, []);
@@ -155,7 +157,7 @@ export default function ProvisionalEntriesPage() {
           {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-900/30 text-red-400 text-sm mb-4"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
           {loading ? (
             <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-amber-400" /></div>
-          ) : filtered.length === 0 ? (
+          ) : error ? null : filtered.length === 0 ? (
             <div className="text-center py-20 px-8 max-w-2xl mx-auto">
               <Clock className="h-10 w-10 text-[var(--ff-text-tertiary)] mx-auto mb-3 opacity-40" />
               <p className="text-[var(--ff-text-secondary)] text-sm leading-relaxed">No provisional entries awaiting evidence — the system posts bank transactions here when a supplier match is confident but no slip is attached yet. Connect a bank feed or import a statement to see this in action.</p>
@@ -215,6 +217,7 @@ export default function ProvisionalEntriesPage() {
             </div>
             <div className="px-5 py-3 max-h-96 overflow-y-auto">
               {docsLoading ? <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-teal-400" /></div>
+                : docsError ? <p className="flex items-center justify-center gap-2 text-sm text-red-400 py-8"><AlertCircle className="h-4 w-4 shrink-0" />{docsError}</p>
                 : docs.length === 0 ? <p className="text-sm text-[var(--ff-text-secondary)] text-center py-8">No extracted documents found. Upload and extract a document via the Capture Inbox first.</p>
                 : docs.map(d => (
                   <button key={d.id} onClick={() => handleAttach(d.id)} disabled={submitting}
