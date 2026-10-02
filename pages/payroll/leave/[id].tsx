@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { CalendarOff, Loader2, AlertCircle, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface LeaveRequest {
   id: string;
@@ -60,7 +61,7 @@ export default function LeaveDetailPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/leave/${id}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) { setError(payrollLoadMessage(res.status, 'Failed to load leave request')); return; }
       const json = await res.json() as { data?: LeaveRequest };
       setRequest((json.data ?? null) as LeaveRequest | null);
     } catch {

@@ -110,6 +110,9 @@ describe('list_employees — names only for a viewer', () => {
     expect(r.isError).toBeFalsy();
     const text = r.content[0]!.text;
     expect(text).toContain('Thandi');
+    // The same fields the HTTP list gives a viewer (id, number, names, employment type): no status either.
+    const row = (JSON.parse(text) as { rows: Array<Record<string, unknown>> }).rows[0]!;
+    expect(Object.keys(row).sort()).toEqual(['employee_number', 'employment_type', 'first_name', 'id', 'last_name']);
     expect(text).not.toMatch(/8001015009087|0123456789|9087|id_number|tax_number|start_date|cost_centre/);
   });
   it('viewer asking to reveal identity numbers is refused', async () => {

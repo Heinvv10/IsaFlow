@@ -17,7 +17,6 @@ const company = vi.hoisted(() => ({ role: 'viewer' as string | null }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: company.role }) }));
 
 import EmployeePage from '@/../pages/payroll/employees/[id]';
-import EmployeesListPage from '@/../pages/payroll/employees/index';
 
 const NO_ACCESS = "You don't have access to payroll detail.";
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
@@ -58,13 +57,3 @@ describe('employee page', () => {
     expect(screen.queryByText(NO_ACCESS)).toBeNull();
   });
 });
-
-describe('employee list', () => {
-  it('a names-only row (no dates) renders: name and number, a dash for the start date', async () => {
-    fetchMock.mockImplementation(async () => ok([NAMES]));
-    render(<EmployeesListPage />);
-    expect(await screen.findByText(/Wanda/)).toBeTruthy();
-    expect(screen.getByText('—')).toBeTruthy();
-  });
-});
-

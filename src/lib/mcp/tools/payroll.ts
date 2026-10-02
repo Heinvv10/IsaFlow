@@ -113,7 +113,6 @@ export const listEmployeesTool: McpTool = {
         employee_number: e.employeeNumber,
         first_name: e.firstName,
         last_name: e.lastName,
-        status: e.status,
         employment_type: e.employmentType,
       } : ({
         id: e.id,

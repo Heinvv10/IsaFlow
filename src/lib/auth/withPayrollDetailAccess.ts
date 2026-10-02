@@ -20,10 +20,8 @@ export function withPayrollDetailAccess(handler: Handler): NextApiHandler {
     const role = (req as CompanyAuthedRequest).companyRole;
     // No role means withAuth did not run first: fail closed, same as withWriteAccess.
     if (!canWrite(role)) {
-      return apiResponse.forbidden(
-        res,
-        `Your role (${role ?? 'unknown'}) does not allow viewing payroll detail.`,
-      );
+      const what = req.method === 'GET' || req.method === 'HEAD' ? 'viewing payroll detail' : 'this action';
+      return apiResponse.forbidden(res, `Your role (${role ?? 'unknown'}) does not allow ${what}.`);
     }
     return handler(req, res);
   };

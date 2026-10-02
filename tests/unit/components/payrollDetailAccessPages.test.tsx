@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, screen, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 
 vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -23,6 +23,14 @@ import LoanDetailPage from '@/../pages/payroll/loans/[id]';
 import Irp5Page from '@/../pages/payroll/irp5/index';
 import BatchDetailPage from '@/../pages/payroll/batches/[id]';
 import EmployeePage from '@/../pages/payroll/employees/[id]';
+import DuplicatesPage from '@/../pages/payroll/duplicates';
+import Eea2Page from '@/../pages/payroll/equity/eea2';
+import LeaveBalancesPage from '@/../pages/payroll/leave/balances';
+import LeaveRequestPage from '@/../pages/payroll/leave/[id]';
+import LeaveIndexPage from '@/../pages/payroll/leave/index';
+import TaxDirectivesPage from '@/../pages/payroll/tax-directives/index';
+import TrainingPage from '@/../pages/payroll/training/index';
+import WspAtrPage from '@/../pages/payroll/training/wsp-atr';
 import { EmployeeTerminationCard } from '@/components/payroll/EmployeeTerminationCard';
 
 const NO_ACCESS = "You don't have access to payroll detail.";
@@ -42,6 +50,14 @@ const pages: Array<[string, () => React.ReactElement, RegExp]> = [
   ['IRP5 summary', () => <Irp5Page />, /Failed to load IRP5 summary/],
   ['batch detail', () => <BatchDetailPage />, /Failed to load batch/],
   ['employee components', () => <EmployeePage />, /Failed to load|HTTP/],
+  ['duplicates', () => <DuplicatesPage />, /Failed to load duplicates/],
+  ['EEA2 report', () => <Eea2Page />, /boom/],
+  ['leave balances', () => <LeaveBalancesPage />, /Failed to load leave balances/],
+  ['leave request', () => <LeaveRequestPage />, /Failed to load leave request/],
+  ['leave list', () => <LeaveIndexPage />, /Failed to load leave requests/],
+  ['tax directives', () => <TaxDirectivesPage />, /Failed to load tax directives/],
+  ['training events', () => <TrainingPage />, /Failed to load training events/],
+  ['WSP/ATR report', () => <WspAtrPage />, /boom/],
   ['termination preview', () => <EmployeeTerminationCard employeeId={ID} />, /Failed to load termination details/],
 ];
 
@@ -66,3 +82,14 @@ describe('payroll detail pages — 403 says so', () => {
     expect(await screen.findAllByText(generic)).toBeTruthy();
   });
 });
+
+describe('bulk update — the preview (a POST read) says so on 403', () => {
+  it('shows the no-access message', async () => {
+    const BulkPage = (await import('@/../pages/payroll/employees/bulk-update')).default;
+    fetchMock.mockImplementation(async () => forbidden());
+    render(<BulkPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /^preview/i }));
+    expect(await screen.findByText(NO_ACCESS)).toBeTruthy();
+  });
+});
+

@@ -92,6 +92,7 @@ const gated: Array<[string, Route, string, () => Record<string, unknown>, unknow
   ['training-events/wsp-atr', wspAtr as Route, 'GET', () => ({ year: '2026' })],
   ['runs/[id]/cost-centre-summary', costCentreSummary as Route, 'GET', () => ({ id: runId })],
   ['accounting/tax-directives', taxDirectives as Route, 'GET', () => ({})],
+  ['equity/eea2 (small cells identify a person)', eea2 as Route, 'GET', () => ({})],
 ];
 
 describe('per-employee personal data — viewer 403, write role served', () => {
@@ -145,7 +146,6 @@ describe('aggregate-only routes — a viewer may read them and they carry no per
     ['emp501/reconciliation', reconciliation as Route, { taxYear: '2027' }],
     ['uif (list)', uifIndex as Route, { year: '2026' }],
     ['year-end/status', yearEnd as Route, { taxYear: '2027' }],
-    ['equity/eea2', eea2 as Route, {}],
   ];
   it.each(agg)('%s: 200 for a viewer, no name / ID / tax number', async (_n, route, query) => {
     const r = await raw(route, 'GET', query, viewer);

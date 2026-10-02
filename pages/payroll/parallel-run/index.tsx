@@ -14,6 +14,7 @@ import { ParallelRunUploadCard } from '@/components/payroll/parallelRun/Parallel
 import { ParallelRunReportView } from '@/components/payroll/parallelRun/ParallelRunReportView';
 import type { ParallelRunComparisonReport } from '@/modules/accounting/services/payroll/payrollParallelRunTypes';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
 
 interface ImportSummary {
   id: string;
@@ -127,7 +128,9 @@ export default function ParallelRunPage() {
           </div>
         </div>
 
-        <ParallelRunUploadCard onImported={handleImported} />
+        <WriteOnly>
+          <ParallelRunUploadCard onImported={handleImported} />
+        </WriteOnly>
 
         {rowWarnings.length > 0 && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-400">
@@ -189,13 +192,15 @@ export default function ParallelRunPage() {
                     >
                       <Download className="h-4 w-4" />
                     </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(imp.id).catch((err) => setError(err instanceof Error ? err.message : 'Failed to delete import')); }}
-                      title="Delete import"
-                      className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-red-400 hover:bg-[var(--ff-bg-primary)]"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <WriteOnly>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDelete(imp.id).catch((err) => setError(err instanceof Error ? err.message : 'Failed to delete import')); }}
+                        title="Delete import"
+                        className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-red-400 hover:bg-[var(--ff-bg-primary)]"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </WriteOnly>
                   </td>
                 </tr>
               ))}
