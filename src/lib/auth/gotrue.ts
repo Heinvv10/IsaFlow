@@ -107,6 +107,18 @@ function adminHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${key}`, apikey: key };
 }
 
+/** A non-OK verdict from the password grant. `credentialsRejected`: GoTrue's definite "wrong email or password". */
+export class GoTrueSignInError extends Error {
+  readonly credentialsRejected: boolean;
+  constructor(readonly status: number, body: string) {
+    super(`gotrue signIn failed: ${status} ${body}`);
+    this.name = 'GoTrueSignInError';
+    let parsed: { error_code?: unknown } | null = null;
+    try { parsed = JSON.parse(body) as { error_code?: unknown }; } catch { parsed = null; /* not JSON: not a definite verdict */ }
+    this.credentialsRejected = status === 400 && parsed?.error_code === 'invalid_credentials';
+  }
+}
+
 /** An outage throws AuthUpstreamUnavailableError: login must not count it as a wrong password. */
 export async function signIn(email: string, password: string): Promise<GoTrueTokenResponse> {
   const res = await callAuthUpstream('gotrue signIn', (signal) => gotrueFetch(
@@ -116,7 +128,7 @@ export async function signIn(email: string, password: string): Promise<GoTrueTok
   ));
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`gotrue signIn failed: ${res.status} ${body}`);
+    throw new GoTrueSignInError(res.status, body);
   }
   return readAuthUpstreamJson('gotrue signIn', res) as Promise<GoTrueTokenResponse>;
 }
