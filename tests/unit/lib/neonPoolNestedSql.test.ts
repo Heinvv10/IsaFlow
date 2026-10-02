@@ -47,7 +47,7 @@ async function nestedSqlInsideWithTransaction() {
 }
 
 describe('a bare sql inside withTransaction outside a request (R-182)', () => {
-  it('needs a second connection: a pool of 1 times out while holding the first', async () => {
+  it('pg-pool premise: with its one connection held, a size-1 pool times out on a second acquire', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     // A requested size of 1 is raised to the floor, so build a size-1 pool the
     // way the old Number() reader did, to show the mechanism the floor prevents.

@@ -28,7 +28,7 @@ vi.mock('@/lib/auth/oauth', () => ({ validateOauthAccessToken: async () => null 
 
 // [spelling, ceiling it gives before the pool's own default is applied]
 const BAD: Array<[string, number]> = [
-  ['abc', 10], ['0', 10], ['-3', 10], ['2.5', 3], ['500', 500], ['0x10', 16], ['1e1', 10], ['5.0', 5], ['+4', 4],
+  ['abc', 10], ['0', 10], ['-3', 10], ['2.5', 3], ['2.2', 3], ['500', 500], ['0x10', 16], ['1e1', 10], ['5.0', 5], ['+4', 4],
   ['20.0', 20], ['+20', 20], ['2e1', 20],
 ];
 // The AUTH_POOL_MAX and PG_POOL_MAX sites never go below 2, whatever the spelling asks for.

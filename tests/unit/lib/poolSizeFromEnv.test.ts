@@ -5,7 +5,7 @@
  * min(default, ceil(Number(text))) when Number(text) is finite and > 0, else
  * min(default, 10) (pg-pool made NaN and 0 into 10), never below the floor, so
  * no spelling the old Number() accepted gives a pool with more connections than
- * pg-pool allowed for it.
+ * pg-pool allowed for it, except where the floor of 2 raises a pool of 1.
  *
  * The reader remembers which (name, value) it has warned about for the life of
  * the module. Each warning case below therefore uses a (name, value) pair no
@@ -46,7 +46,7 @@ describe('poolSizeFromEnv (R-182)', () => {
   // [spelling, size with a default of 20]. A spelling Number() read as a usable
   // size gives min(20, ceil(that size)); anything else gives 10.
   it.each([
-    ['5.0', 5], ['+5', 5], ['0x5', 5], ['1.0', 1], ['2.5', 3], ['0.5', 1], ['0o7', 7], ['0b11', 3],
+    ['5.0', 5], ['+5', 5], ['0x5', 5], ['1.0', 1], ['2.5', 3], ['2.2', 3], ['0.2', 1], ['0.5', 1], ['0o7', 7], ['0b11', 3],
     ['1e1', 10], ['10.0', 10], ['0x10', 16], ['1E2', 20], ['101', 20], ['1000000', 20],
     ['20.0', 20], ['+20', 20], ['2e1', 20], ['0x14', 20], ['19.5', 20], ['15.0', 15],
     ['0', 10], ['-2', 10], ['-0', 10], ['abc', 10], ['12abc', 10], ['NaN', 10], ['Infinity', 10],
