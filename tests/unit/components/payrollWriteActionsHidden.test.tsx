@@ -33,61 +33,94 @@ import PayPackagePage from '@/../pages/payroll/pay-packages/[id]';
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
 const fetchMock = vi.fn();
 const PACKAGE = { id: 'p1', code: 'EXEC', name: 'Executive', description: null, isActive: true, components: [{ id: 'pc1', componentId: 'c1', componentName: 'Basic', sarsSourceCode: '3601', componentType: 'earning', amount: 100, isRecurring: true }] };
-const COMPONENTS = [{ id: 'c1', name: 'Basic', sarsSourceCode: '3601', componentType: 'earning', isTaxable: true, isUifApplicable: true, isSdlApplicable: true, isActive: true }];
+const comp = (id: string, name: string) => ({ id, name, sarsSourceCode: '3601', componentType: 'earning', isTaxable: true, isUifApplicable: true, isSdlApplicable: true, isActive: true });
 const LEAVE = { id: '11111111-1111-4111-8111-111111111111', employeeName: 'Wanda Test', employeeNumber: 'E-1', leaveTypeName: 'Annual', startDate: '2026-11-02', endDate: '2026-11-03', days: 2, reason: null, status: 'pending', approvedAt: null, createdAt: '2026-10-01T00:00:00Z' };
-beforeEach(() => { fetchMock.mockReset(); fetchMock.mockImplementation(async (url: string) => String(url).includes('/api/payroll/pay-packages/') ? ok(PACKAGE) : String(url).includes('/api/payroll/leave/') ? ok(LEAVE) : String(url).includes('/api/payroll/components') ? ok(COMPONENTS) : ok([])); vi.stubGlobal('fetch', fetchMock); });
+/** Every list answers one row carrying a unique marker text, so each page has a real "my data arrived" signal. */
+const ANSWERS: Array<[RegExp, unknown]> = [
+  [/\/employees$/, [{ id: 'e1', employeeNumber: 'E-1', firstName: 'Marker', lastName: 'employee', employmentType: 'permanent', startDate: '2020-01-01T00:00:00Z' }]],
+  [/\/pay-packages\/[^/]+$/, PACKAGE],
+  [/\/pay-packages$/, [{ id: 'pk1', code: 'MK', name: 'Marker package', description: null, isActive: true }]],
+  [/\/leave\/balances$/, [{ employeeId: 'e1', employeeName: 'Marker balance', leaveTypeId: 't1', leaveTypeName: 'Annual', accrued: 10, taken: 1, pending: 0, balance: 9 }]],
+  [/\/leave\/[^/]+$/, LEAVE],
+  [/\/leave$/, [{ ...LEAVE, employeeName: 'Marker leave' }]],
+  [/\/loans$/, [{ id: 'l1', employeeId: 'e1', loanNumber: 'L-1', description: 'Marker loan', principal: 1000, outstandingBalance: 900, annualInterestRate: 0, termMonths: 10, method: 'interest_free', status: 'active', startDate: '2026-01-01' }]],
+  [/\/batches$/, [{ id: 'b1', batchType: 'component_values', description: 'Marker batch', periodYear: 2026, periodMonth: 9, status: 'draft', lineCount: 1, totalAmount: 10, isRecurring: false, createdAt: '2026-09-01' }]],
+  [/\/pay-scales$/, [{ id: 's1', code: 'G1', name: 'Marker scale', gradeLevel: 1, minSalary: 1, midSalary: 2, maxSalary: 3, currency: 'ZAR', isActive: true, notes: null }]],
+  [/\/components$/, [comp('c1', 'Basic'), comp('c2', 'Marker component')]],
+  [/\/cost-centres$/, [{ id: 'cc1', code: 'MKCC', name: 'Marker centre', parentId: null, isActive: true, notes: null }]],
+  [/\/parallel-run\/imports$/, { imports: [{ id: 'i1', periodMonth: 9, periodYear: 2026, source: 'Marker source', fileName: null, payslipCount: 1, createdAt: '2026-09-01' }] }],
+  [/\/uif$/, [{ id: 'u1', periodYear: 2026, periodMonth: 9, totalEmployees: 7777, totalLeviableSalary: 1, totalEmployeeContribution: 1, totalEmployerContribution: 1, totalUif: 2, status: 'draft', submittedAt: null }]],
+  [/\/training-events$/, [{ id: 'ev1', employeeId: 'e1', category: 'Safety', description: 'Marker training', provider: null, nqfLevel: null, plannedStart: null, plannedEnd: null, actualStart: null, actualEnd: null, costPlanned: 1, costActual: 1, status: 'planned' }]],
+];
+let inFlight = 0;
+beforeEach(() => {
+  fetchMock.mockReset();
+  inFlight = 0;
+  fetchMock.mockImplementation(async (url: string) => {
+    inFlight += 1;
+    try {
+      await (String(url).includes('/slow') ? new Promise((r) => setTimeout(r, 150)) : Promise.resolve());
+      const path = String(url).split('?')[0]!;
+      const hit = ANSWERS.find(([re]) => re.test(path));
+      return ok(hit ? hit[1] : []);
+    } finally { inFlight -= 1; }
+  });
+  vi.stubGlobal('fetch', fetchMock);
+});
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); company.role = 'viewer'; });
+
+const sleep = (ms: number) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
+/**
+ * After the page's own marker is on screen: nothing in flight, every timer shorter than the wait fired, and
+ * no further fetch started — checked until two consecutive passes see the same call count. Only then is a
+ * "not there" claim about a control worth anything.
+ */
+async function quiet(): Promise<void> {
+  let seen = -1;
+  while (seen !== fetchMock.mock.calls.length || inFlight > 0) {
+    seen = fetchMock.mock.calls.length;
+    await sleep(350);
+  }
+}
 
 const hrefs = () => Array.from(document.querySelectorAll('a')).map((a) => a.getAttribute('href'));
 
-/**
- * The page has loaded: every fetch it made has answered and none has been made for 60 ms. A count taken before
- * this proves nothing (0 buttons before load is "hidden" for the wrong reason), so every count waits for it.
- */
-async function settled(): Promise<void> {
-  await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(0));
-  let seen = -1;
-  while (seen !== fetchMock.mock.calls.length) {
-    seen = fetchMock.mock.calls.length;
-    await act(async () => { await new Promise((r) => setTimeout(r, 60)); });
-  }
-}
 const button = (re: RegExp) => screen.queryAllByRole('button', { name: re }).length;
 
-type Probe = [string, () => React.ReactElement, () => number];
+type Probe = [string, () => React.ReactElement, () => number, string | RegExp];
 const probes: Probe[] = [
-  ['employees: New Employee', () => <EmployeesPage />, () => hrefs().filter((h) => h === '/payroll/employees/new').length],
-  ['loans: New Loan', () => <LoansPage />, () => hrefs().filter((h) => h === '/payroll/loans/new').length],
-  ['leave: New request', () => <LeavePage />, () => hrefs().filter((h) => h === '/payroll/leave/new').length],
-  ['batches: New batch', () => <BatchesPage />, () => hrefs().filter((h) => h === '/payroll/batches/new').length],
-  ['pay packages: Create package', () => <PayPackagesPage />, () => button(/create package/i)],
-  ['pay scales: Create', () => <PayScalesPage />, () => button(/^create$/i)],
-  ['components: Add component', () => <ComponentsPage />, () => button(/add component/i)],
-  ['cost centres: Add', () => <CostCentresPage />, () => button(/^add$/i)],
-  ['parallel run: upload card', () => <ParallelRunPage />, () => button(/choose csv/i)],
-  ['UIF: Generate Declaration', () => <UifPage />, () => button(/generate declaration/i)],
-  ['training: New event', () => <TrainingPage />, () => button(/new event/i)],
-  ['pay package: Add component', () => <PayPackagePage />, () => button(/add component/i)],
-  ['pay package: per-row Remove', () => <PayPackagePage />, () => button(/^remove basic$/i)],
-  ['leave request: Approve', () => <LeaveRequestPage />, () => button(/^approve$/i)],
-  ['leave request: Reject', () => <LeaveRequestPage />, () => button(/^reject$/i)],
-  ['leave request: Delete', () => <LeaveRequestPage />, () => button(/^delete$/i)],
-  ['pay package: Save components', () => <PayPackagePage />, () => button(/save components/i)],
-  ['leave balances: Run Monthly Accrual', () => <LeaveBalancesPage />, () => button(/run monthly accrual/i)],
+  ['employees: New Employee', () => <EmployeesPage />, () => hrefs().filter((h) => h === '/payroll/employees/new').length, 'Marker employee'],
+  ['loans: New Loan', () => <LoansPage />, () => hrefs().filter((h) => h === '/payroll/loans/new').length, 'Marker loan'],
+  ['leave: New request', () => <LeavePage />, () => hrefs().filter((h) => h === '/payroll/leave/new').length, /Marker leave/],
+  ['batches: New batch', () => <BatchesPage />, () => hrefs().filter((h) => h === '/payroll/batches/new').length, 'Marker batch'],
+  ['pay packages: Create package', () => <PayPackagesPage />, () => button(/create package/i), 'Marker package'],
+  ['pay scales: Create', () => <PayScalesPage />, () => button(/^create$/i), 'Marker scale'],
+  ['components: Add component', () => <ComponentsPage />, () => button(/add component/i), 'Marker component'],
+  ['cost centres: Add', () => <CostCentresPage />, () => button(/^add$/i), 'Marker centre'],
+  ['parallel run: upload card', () => <ParallelRunPage />, () => button(/choose csv/i), 'Marker source'],
+  ['UIF: Generate Declaration', () => <UifPage />, () => button(/generate declaration/i), '7777'],
+  ['training: New event', () => <TrainingPage />, () => button(/new event/i), 'Marker training'],
+  ['pay package: Add component', () => <PayPackagePage />, () => button(/add component/i), 'Executive'],
+  ['pay package: per-row Remove', () => <PayPackagePage />, () => button(/^remove basic$/i), 'Executive'],
+  ['leave request: Approve', () => <LeaveRequestPage />, () => button(/^approve$/i), 'Wanda Test (E-1)'],
+  ['leave request: Reject', () => <LeaveRequestPage />, () => button(/^reject$/i), 'Wanda Test (E-1)'],
+  ['leave request: Delete', () => <LeaveRequestPage />, () => button(/^delete$/i), 'Wanda Test (E-1)'],
+  ['pay package: Save components', () => <PayPackagePage />, () => button(/save components/i), 'Executive'],
+  ['leave balances: Run Monthly Accrual', () => <LeaveBalancesPage />, () => button(/run monthly accrual/i), 'Marker balance'],
 ];
 
 describe('write-only actions', () => {
-  it.each(probes)('%s: hidden from a viewer, shown to a manager', async (_n, element, count) => {
-    // Manager first: proves the page really renders the control once loaded, so the viewer's 0 is not vacuous.
+  it.each(probes)('%s: hidden from a viewer, shown to a manager', async (_n, element, count, marker) => {
+    // Manager first: proves the page renders the control once its data is on screen, so the viewer's 0 means "hidden".
     company.role = 'manager';
     render(element());
-    await settled();
+    await screen.findByText(marker);
     await waitFor(() => expect(count(), 'manager sees it').toBeGreaterThan(0));
     cleanup();
-    fetchMock.mockClear();
     company.role = 'viewer';
     render(element());
-    await settled();
+    await screen.findByText(marker);
+    await quiet();
     expect(count(), 'viewer sees it').toBe(0);
   });
 
@@ -118,7 +151,7 @@ describe('pay package inputs', () => {
     company.role = 'viewer';
     render(<PayPackagePage />);
     await screen.findByText('Executive');
-    await settled();
+    await quiet();
     expect(editable()).toBe(0);
   });
 });
