@@ -11,11 +11,13 @@ const h = vi.hoisted(() => ({
   pending: '0',
   inLock: false,
   locked: [] as { text: string; values: unknown[] }[],
+  all: [] as { text: string; values: unknown[] }[],
 }));
 vi.mock('@/lib/neon', () => ({
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?');
     if (h.inLock) h.locked.push({ text, values });
+    h.all.push({ text, values });
     if (text.includes('FROM customer_invoices')) return Promise.resolve([h.row]);
     if (text.includes('customer_payment_allocations')) return Promise.resolve([{ pending: h.pending }]);
     return Promise.resolve([]);
@@ -37,7 +39,7 @@ const CUSTOMER = '11111111-1111-4111-8111-111111111111';
 const row = (change: Record<string, unknown> = {}) =>
   ({ locked_total: '115.00', amount_paid: '0', status: 'sent', deleted_at: null, client_id: CUSTOMER, ...change });
 
-beforeEach(() => { h.row = row(); h.pending = '0'; h.locked.length = 0; });
+beforeEach(() => { h.row = row(); h.pending = '0'; h.locked.length = 0; h.all.length = 0; });
 
 describe('decideGatewayAllocation', () => {
   it('reads the invoice FOR UPDATE, scoped by company, inside the invoice lock', async () => {
@@ -45,6 +47,14 @@ describe('decideGatewayAllocation', () => {
     expect(h.locked).toHaveLength(1);
     expect(h.locked[0]!.text).toMatch(/FROM customer_invoices[\s\S]*company_id = \?::UUID[\s\S]*FOR UPDATE/);
     expect(h.locked[0]!.values).toEqual([INV, CO]);
+  });
+
+  it("the draft-receipt deduction counts only DRAFT receipts, of this company, against this invoice", async () => {
+    await decideGatewayAllocation(CO, INV, 115, 'r181_alloc');
+    const pendingRead = h.all.find((c) => c.text.includes('customer_payment_allocations'))!;
+    expect(pendingRead.text).toMatch(/cp\.status = 'draft'/);
+    expect(pendingRead.text).toMatch(/cpa\.invoice_id = \?::UUID[\s\S]*cp\.company_id = \?::UUID/);
+    expect(pendingRead.values).toEqual([INV, CO]);
   });
 
   it('a draft invoice takes nothing: invoice_draft', async () => {

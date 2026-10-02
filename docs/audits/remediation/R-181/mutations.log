@@ -181,3 +181,10 @@ B2 overpaid_unapplied dropped [src/modules/accounting/services/ar/gatewayInvoice
 B3 main-path fee.reviews dropped [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 96 passed (97) -> KILLED; red: the first report flags the fee leg's own reasons (a fee above the receipt)
 B4 verify: an unanswered check on a failed request says failed [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 96 passed (97) -> KILLED; red: a request stored failed whose live check throws (timeout, 5xx) answers pending, not failed
 AFTER unit: 97 passed (97) | component: 5 passed (5)
+
+REVIEW AT fa0d98e9f (SHIP) — verify pending (L1), the draft-receipt deduction (L2); env -u DATABASE_URL
+BASELINE unit: 100 passed (100) | component: 5 passed (5)
+D1 verify: a failed request Paystack still reports pending says failed [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 99 passed (100) -> KILLED; red: a request stored failed that Paystack still reports pending answers pending
+D2 draft-receipt deduction counts every receipt status [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 1 failed | 99 passed (100) -> KILLED; red: the draft-receipt deduction counts only DRAFT receipts, of this company, against this invoice
+D3 draft-receipt deduction not scoped by company [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 1 failed | 99 passed (100) -> KILLED; red: the draft-receipt deduction counts only DRAFT receipts, of this company, against this invoice
+AFTER unit: 100 passed (100) | component: 5 passed (5)

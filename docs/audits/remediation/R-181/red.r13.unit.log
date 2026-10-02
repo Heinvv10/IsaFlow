@@ -1,0 +1,66 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r181-settlement
+
+{"level":"warn","message":"Gateway receipt exceeds the invoice balance — the excess is banked as an unapplied receipt","timestamp":"2026-10-02T20:41:02.939Z","component":"accounting","data":{"reference":"r181_alloc","invoiceId":"44444444-4444-4444-8444-444444444444","amountRand":115,"pending":20,"unallocated":20}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-02T20:41:03.089Z","component":"API","requestId":"01M3Z5JNVG4QEM4KMDACF824M2","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"warn","message":"Paystack live verify failed","timestamp":"2026-10-02T20:41:03.090Z","component":"PaystackPortal","requestId":"01M3Z5JNVG4QEM4KMDACF824M2","data":{"prId":"pr-1","err":"Invoice inv-1 is being processed by another request — retry in a moment."}}
+{"level":"info","message":"API Response: GET  - 200 (1ms)","timestamp":"2026-10-02T20:41:03.090Z","component":"API","requestId":"01M3Z5JNVG4QEM4KMDACF824M2","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T20:41:03.090Z","component":"http","requestId":"01M3Z5JNVG4QEM4KMDACF824M2","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":1,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-02T20:41:03.091Z","component":"API","requestId":"01M3Z5JNVKGPQV27DNRXKM7K60","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"warn","message":"Paystack live verify failed","timestamp":"2026-10-02T20:41:03.091Z","component":"PaystackPortal","requestId":"01M3Z5JNVKGPQV27DNRXKM7K60","data":{"prId":"pr-1","err":"The operation was aborted due to timeout"}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-02T20:41:03.091Z","component":"API","requestId":"01M3Z5JNVKGPQV27DNRXKM7K60","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T20:41:03.091Z","component":"http","requestId":"01M3Z5JNVKGPQV27DNRXKM7K60","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-02T20:41:03.091Z","component":"API","requestId":"01M3Z5JNVKGBB2K26BMNG3HXYA","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-02T20:41:03.091Z","component":"API","requestId":"01M3Z5JNVKGBB2K26BMNG3HXYA","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T20:41:03.091Z","component":"http","requestId":"01M3Z5JNVKGBB2K26BMNG3HXYA","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-02T20:41:03.095Z","component":"API","requestId":"01M3Z5JNVQNRGKDB9Z46EHB7TF","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-02T20:41:03.095Z","component":"API","requestId":"01M3Z5JNVQNRGKDB9Z46EHB7TF","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T20:41:03.095Z","component":"http","requestId":"01M3Z5JNVQNRGKDB9Z46EHB7TF","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-02T20:41:03.095Z","component":"API","requestId":"01M3Z5JNVQFFPSZMFY5V304CTX","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-02T20:41:03.095Z","component":"API","requestId":"01M3Z5JNVQFFPSZMFY5V304CTX","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T20:41:03.095Z","component":"http","requestId":"01M3Z5JNVQFFPSZMFY5V304CTX","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-02T20:41:03.096Z","component":"API","requestId":"01M3Z5JNVRBH6K66RM04PMTS2V","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-02T20:41:03.096Z","component":"API","requestId":"01M3Z5JNVRBH6K66RM04PMTS2V","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T20:41:03.096Z","component":"http","requestId":"01M3Z5JNVRBH6K66RM04PMTS2V","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-02T20:41:03.096Z","component":"API","requestId":"01M3Z5JNVRN6RFXK8BYCY3MWGK","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-02T20:41:03.096Z","component":"API","requestId":"01M3Z5JNVRN6RFXK8BYCY3MWGK","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T20:41:03.096Z","component":"http","requestId":"01M3Z5JNVRN6RFXK8BYCY3MWGK","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-02T20:41:03.096Z","component":"API","requestId":"01M3Z5JNVR801Z5DW35Y880XH8","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-02T20:41:03.096Z","component":"API","requestId":"01M3Z5JNVR801Z5DW35Y880XH8","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T20:41:03.097Z","component":"http","requestId":"01M3Z5JNVR801Z5DW35Y880XH8","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-02T20:41:03.097Z","component":"API","requestId":"01M3Z5JNVS7N9W5XBE9D761E6A","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-02T20:41:03.097Z","component":"API","requestId":"01M3Z5JNVS7N9W5XBE9D761E6A","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T20:41:03.097Z","component":"http","requestId":"01M3Z5JNVS7N9W5XBE9D761E6A","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+ ❯ tests/unit/services/billing/paystackVerifyRoute.test.ts (9 tests | 1 failed) 10ms
+     × a request stored failed that Paystack still reports pending answers pending 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/billing/paystackVerifyRoute.test.ts > verify: a charged payer is never told "failed" > a request stored failed that Paystack still reports pending answers pending
+AssertionError: expected { status: 'failed', …(5) } to match object { status: 'pending' }
+(5 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "status": "pending",
++   "status": "failed",
+  }
+
+ ❯ tests/unit/services/billing/paystackVerifyRoute.test.ts:60:38
+     58|     h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, status: …
+     59|     verify.mockResolvedValue({ status: 'pending', id: 1, amountCents: …
+     60|     expect((await call()).body.data).toMatchObject({ status: 'pending'…
+       |                                      ^
+     61|   });
+     62|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 15 passed (16)
+   Start at  22:41:02
+   Duration  313ms (transform 102ms, setup 0ms, import 263ms, tests 15ms, environment 0ms)
+

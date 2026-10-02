@@ -89,6 +89,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         `;
         status = current[0]?.status === 'pending' ? 'cancelled' : (current[0]?.status ?? status);
       }
+      // Paystack has not settled it either way: a request swept to 'failed' is reported pending,
+      // never "failed" (R-181). Only Paystack's own failed/abandoned/reversed keeps the stored failed.
+      else if (live.status === 'pending' && status === 'failed') status = 'pending';
       const isTerminal = mapped !== 'pending';
       if (mapped !== status && isTerminal) {
         // One transaction: the status change and the ledger posting stand or
