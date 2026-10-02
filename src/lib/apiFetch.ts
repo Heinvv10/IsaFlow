@@ -8,6 +8,7 @@
  */
 
 import { clearTenantClientState } from './auth/clearTenantClientState';
+import { isAuthUnavailableStatus, AUTH_RETRY_AFTER_SECS, AUTH_UNAVAILABLE_ERROR } from './auth/authUpstream';
 import type { ResponseFor } from './apiRoutes';
 
 const COMPANY_STORAGE_KEY = 'isaflow_active_company';
@@ -21,20 +22,24 @@ function readCsrfCookie(): string | null {
   return match ? match.slice(CSRF_COOKIE.length + 1) : null;
 }
 
-let inFlightRefresh: Promise<boolean> | null = null;
+export { isAuthUnavailableStatus };
+
+/** 'unavailable': the server could not judge the session (D9), so it is not a sign-out. */
+type RefreshOutcome = 'refreshed' | 'rejected' | 'unavailable';
+let inFlightRefresh: Promise<RefreshOutcome> | null = null;
 
 /**
  * Calls /api/auth/refresh exactly once even if N concurrent 401s race in.
- * Resolves true if the refresh succeeded (cookies rotated), false otherwise.
  */
-function refreshSession(): Promise<boolean> {
+function refreshSession(): Promise<RefreshOutcome> {
   if (inFlightRefresh) return inFlightRefresh;
-  inFlightRefresh = (async () => {
+  inFlightRefresh = (async (): Promise<RefreshOutcome> => {
     try {
       const r = await fetch(REFRESH_URL, { method: 'POST', credentials: 'include' });
-      return r.ok;
+      if (r.ok) return 'refreshed';
+      return isAuthUnavailableStatus(r.status) ? 'unavailable' : 'rejected';
     } catch {
-      return false;
+      return 'unavailable'; // never reached the server: no verdict on the session
     } finally {
       // Reset on next tick so retries triggered by this refresh don't share the
       // resolved promise with a fresh round of 401s that arrive later.
@@ -124,8 +129,15 @@ export async function apiFetch(url: string, options?: RequestInit): Promise<Resp
   // endpoint itself (preventing redirect/refresh loops).
   if (res.status !== 401 || isRefreshUrl(url)) return res;
 
-  const refreshed = await refreshSession();
-  if (!refreshed) {
+  const outcome = await refreshSession();
+  if (outcome === 'unavailable') {
+    // Stay on the page: answer 503 so the caller shows "try again", not "signed out".
+    return new Response(JSON.stringify({ success: false, error: AUTH_UNAVAILABLE_ERROR }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json', 'Retry-After': String(AUTH_RETRY_AFTER_SECS) },
+    });
+  }
+  if (outcome === 'rejected') {
     if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
       // Wipe tenant-scoped client state before bouncing so the next login on
       // this browser does not inherit the previous user's active company.
