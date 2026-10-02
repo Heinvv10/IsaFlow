@@ -32,6 +32,21 @@ export type { ReversalEntry } from './reversalLines';
 
 type Row = DbRow;
 
+/**
+ * A cleanup after a failed step. A Postgres error — a lock timeout on the posting trigger's gl_account_balances row,
+ * or the entry-number index, under a flow budget (D8 round 16) — ABORTED the transaction, so the cleanup raises 25P02
+ * and would REPLACE that error: a 503 became a 500. The rollback that must follow undoes what the cleanup would;
+ * the original failure is re-thrown.
+ */
+async function cleanUpAfter<T>(failure: unknown, cleanup: () => Promise<T>): Promise<T> {
+  try {
+    return await cleanup();
+  } catch (cleanupErr) {
+    if ((cleanupErr as { code?: unknown } | null)?.code === '25P02') throw failure;
+    throw cleanupErr;
+  }
+}
+
 import {
   ClosedFiscalPeriodError,
   InactiveAccountError,
@@ -156,7 +171,7 @@ async function reverseJournalEntryInner(
       // Nothing exists yet, but the claim does. Inside a request transaction the
       // rollback undoes it; outside one (cron, scripts) this is what stops a
       // failed attempt from leaving the entry permanently un-reversible.
-      await releaseJournalReversalClaim(companyId, id);
+      await cleanUpAfter(err, () => releaseJournalReversalClaim(companyId, id));
       throw err;
     }
 
@@ -176,13 +191,14 @@ async function reverseJournalEntryInner(
       // matches nothing. gl_journal_lines cascades from this row
       // (gl_journal_lines_journal_entry_id_fkey ON DELETE CASCADE), so the draft's
       // lines go with it and no posted line is ever reachable from here.
-      const deleted = (await sql`
+      // On an aborted transaction (a lock timeout in the post) `cleanUpAfter` re-throws the post's error.
+      const deleted = await cleanUpAfter(err, async () => (await sql`
         DELETE FROM gl_journal_entries
         WHERE id         = ${reversalEntry.id}::UUID
           AND company_id = ${companyId}::UUID
           AND status     = 'draft'
         RETURNING id
-      `) as Row[];
+      `) as Row[]);
 
       // Release the claim ONLY when the contra is genuinely gone. If
       // postJournalEntry threw AFTER its status UPDATE landed, the DELETE above
