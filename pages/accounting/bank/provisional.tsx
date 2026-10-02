@@ -244,7 +244,9 @@ export default function ProvisionalEntriesPage() {
                   .then(async (res) => {
                     const json = await res.json();
                     if (!res.ok || !json.success) throw new Error(json.error?.message ?? 'Failed to dismiss');
-                    setToast({ msg: 'Provisional entry reversed — linked bank transaction returned to the review queue.', kind: 'ok' });
+                    // The route says whether a contra was posted: a journal whose chain was already out (D8) is only dismissed.
+                    const freed = Number(json.data?.bankTransactionsReset ?? 0) > 0;
+                    setToast({ msg: `${json.message ?? 'Provisional entry dismissed'}${freed ? ' — linked bank transaction returned to the review queue.' : '.'}`, kind: 'ok' });
                     void load();
                   })
                   .catch((err: unknown) => setToast({ msg: err instanceof Error ? err.message : 'Failed to dismiss entry', kind: 'err' }));

@@ -97,4 +97,41 @@ describeIfDb('D8 round 2 — a re-reversed batch journal is reversed at its chai
     // A second click is still the double-click's loser.
     expect((await f.batchAction('reverse', batchId)).statusCode).toBe(409);
   });
+
+  // D8 round 6 (review finding 1): the out-chain branch still frees and guards the batch journal's bank line.
+  async function outBatchWithLine(status: 'matched' | 'reconciled') {
+    const x = await bill(fx.pool, { supplier: ids.SUP_A, status: 'approved' });
+    const batchId = await f.approvedBatch([{ billId: x, amount: 150 }]);
+    expect((await f.batchAction('process', batchId)).statusCode).toBe(200);
+    const journal = String((await q('SELECT gl_journal_entry_id AS j FROM supplier_payment_batches WHERE id = $1',
+      [batchId])).rows[0].j);
+    const leg = String((await q('SELECT id FROM gl_journal_lines WHERE journal_entry_id = $1 AND gl_account_id = $2',
+      [journal, ids.BANK_GL])).rows[0].id);
+    const bt = String((await q(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
+      description, status, matched_journal_line_id) VALUES ($1, $2, CURRENT_DATE, -150, 'D8R6 batch line', $3, $4) RETURNING id`,
+    [ids.A, ids.BANK_GL, status, leg])).rows[0].id);
+    await reverse(journal);
+    return { x, batchId, bt };
+  }
+  const lineOf = async (bt: string) => (await q('SELECT status, matched_journal_line_id FROM bank_transactions WHERE id = $1', [bt])).rows[0];
+
+  it('an OUT batch journal with a matched bank line: reversed, the line freed, nothing posted', async () => {
+    const { batchId, bt } = await outBatchWithLine('matched');
+    const before = { ap: await net(ids.AP_GL), bank: await net(ids.BANK_GL) };
+    const state = await f.batchAction('reverse', batchId);
+    expect(state.statusCode, text(state)).toBe(200);
+    expect(await lineOf(bt)).toEqual({ status: 'imported', matched_journal_line_id: null });
+    expect({ ap: await net(ids.AP_GL), bank: await net(ids.BANK_GL) }).toEqual(before);
+    await q('UPDATE bank_transactions SET matched_journal_line_id = NULL WHERE id = $1', [bt]);
+  });
+
+  it('an OUT batch journal with a RECONCILED bank line: refused naming it, nothing changed', async () => {
+    const { batchId, bt } = await outBatchWithLine('reconciled');
+    const state = await f.batchAction('reverse', batchId);
+    expect(state.statusCode, text(state)).toBe(400);
+    expect(text(state)).toMatch(/reconciled in the Sage import/);
+    expect((await lineOf(bt)).status).toBe('reconciled');
+    expect(await f.batchStatus(batchId)).toBe('processed');
+    await q('UPDATE bank_transactions SET matched_journal_line_id = NULL WHERE id = $1', [bt]);
+  });
 });

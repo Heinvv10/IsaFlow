@@ -13,6 +13,7 @@ import { DocumentNumberLockTimeoutError } from '@/modules/accounting/services/co
 import { TimeEntryLockTimeoutError } from '@/modules/accounting/services/practice/timeEntryLock';
 import { DocumentClaimLockTimeoutError } from '@/modules/accounting/services/core/documentClaimLock';
 import { RecurringTemplateLockTimeoutError } from '@/modules/accounting/services/core/recurringTemplateLock';
+import { JournalReversalLockTimeoutError } from '@/modules/accounting/services/gl/journalEntryReversalClaim';
 
 function mockRes() {
   const res = {
@@ -34,6 +35,8 @@ describe('respondIfLockTimeout', () => {
     // r9 LOW-2: raised from the same 55P03, but the execute route answered it
     // 409 — no `Retry-After`, and a client retrying on 503 skipped it.
     ['RecurringTemplateLockTimeoutError', new RecurringTemplateLockTimeoutError('t1')],
+    // D8 round 6: lockChainHead raises it on every cancel / void / dismiss.
+    ['JournalReversalLockTimeoutError', new JournalReversalLockTimeoutError('je-1')],
   ];
 
   it.each(cases)('answers %s with a 503 the caller can retry', (_name, err) => {

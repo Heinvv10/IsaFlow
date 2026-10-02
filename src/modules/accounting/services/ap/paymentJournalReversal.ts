@@ -31,7 +31,7 @@ import { ReversalBeforeOriginalError, resolveReversalDate } from '../gl/journalE
 import { loadJournalVatLines } from '../gl/journalVatLockGuard';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
-import { brokenChainMessage, findJournalChainHead } from '../shared/journalChainHead';
+import { brokenChainMessage, findJournalChainHead, lockChainHead } from '../shared/journalChainHead';
 
 export interface BankLeg {
   /** The journal's reversal chain is out of the ledger; the caller decides what that means. */
@@ -96,7 +96,12 @@ export async function lockBankLegOf(companyId: string, journalId: string, label:
     const chain = await findJournalChainHead(companyId, journalId);
     if (chain?.kind === 'broken') throw new SupplierPaymentRefusal(brokenChainMessage(journalId, chain));
     if (!chain || !chain.standing) {
-      return { alreadyReversed: true, reverseId: journalId, bankLineIds: [], seenLineIds: [], allocatedLineIds: [] };
+      // Nothing to reverse, but its bank lines still matter (D8 round 6): a GL
+      // reversal does not unmatch them, so a line matched to it would stay
+      // 'matched' against cash the ledger no longer holds — and reconciled cash
+      // must still refuse the void.
+      const lines = await lockMatchedLines(companyId, [journalId], label);
+      return { alreadyReversed: true, reverseId: journalId, ...lines };
     }
     const [head] = (await sql`
       SELECT entry_date FROM gl_journal_entries WHERE id = ${chain.id}::UUID AND company_id = ${companyId}::UUID
@@ -125,7 +130,15 @@ export async function lockBankLegOf(companyId: string, journalId: string, label:
       + 'fiscal period — re-open it or create the fiscal year first.');
   }
 
-  const ids = await matchedBankLines(companyId, [...new Set([journalId, target.id])]);
+  const lines = await lockMatchedLines(companyId, [...new Set([journalId, target.id])], label);
+  return { alreadyReversed: false, reverseId: target.id, ...lines };
+}
+
+/** Lock every bank line matched to `journalIds`, refuse reconciled cash, and sort them: unmatch vs allocated. */
+async function lockMatchedLines(
+  companyId: string, journalIds: string[], label: string,
+): Promise<Pick<BankLeg, 'bankLineIds' | 'seenLineIds' | 'allocatedLineIds'>> {
+  const ids = await matchedBankLines(companyId, journalIds);
   const toUnmatch: string[] = [];
   const allocated: string[] = [];
   for (const id of ids) {
@@ -137,7 +150,7 @@ export async function lockBankLegOf(companyId: string, journalId: string, label:
     if (row.status === 'allocated') allocated.push(id);
     else toUnmatch.push(id);
   }
-  return { alreadyReversed: false, reverseId: target.id, bankLineIds: toUnmatch, seenLineIds: ids, allocatedLineIds: allocated };
+  return { bankLineIds: toUnmatch, seenLineIds: ids, allocatedLineIds: allocated };
 }
 
 /**
@@ -156,6 +169,18 @@ export async function lockJournalAndUnmatch(
     ORDER BY id
     FOR UPDATE
   `;
+  // The head the leg named, re-read under lock (D8 round 6): lockBankLegOf walked
+  // the chain unlocked, and a reversal landing since makes reverseId stale — or
+  // flips the chain in or out. Contention, retryable, never an untyped
+  // "already reversed" from reverseJournalEntry.
+  const head = await lockChainHead(companyId, journalId, (m) => new SupplierPaymentRefusal(m));
+  const standing = head?.standing === true;
+  if (standing === leg.alreadyReversed || (standing && head!.id !== leg.reverseId)) {
+    throw new SupplierPaymentRefusal(
+      `${label}'s journal was reversed by another request while this was in progress — retry in a moment.`,
+      { retryable: true },
+    );
+  }
   const now = await matchedBankLines(companyId, journals);
   if (now.some((id) => !leg.seenLineIds.includes(id))) {
     throw new SupplierPaymentRefusal(

@@ -25,6 +25,7 @@
  *                  the reclass is dated with the provisional and nets its claim there.
  */
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { fmtDate } from '@/lib/fmtDate';
@@ -34,6 +35,7 @@ import type { JournalLine } from '../../types/gl.types';
 import { round2 } from './supplierAllocationLines';
 import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import { lockStandingChainHead } from '../shared/journalChainHead';
+import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 
 const CENT = 0.005;
@@ -85,12 +87,20 @@ async function lockCandidates(companyId: string, documentId: string): Promise<Db
     await client.query('SET LOCAL lock_timeout = DEFAULT');
     return standing;
   } catch (err) {
-    if ((err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE) {
+    // A lock timeout (raw, or lockChainHead's typed one) aborts the transaction: nothing to restore.
+    if ((err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE || err instanceof JournalReversalLockTimeoutError) {
       throw new SupplierPaymentRefusal(
         'The bank-first provisional journal behind this slip is being settled by another request — retry in a moment.',
         { retryable: true },
       );
     }
+    // Any other throw — the broken-chain refusal above is one — leaves the
+    // transaction usable, and withAuth COMMITs the 4xx it becomes: restore the
+    // default so the rest of the request does not run under a 5 s lock_timeout
+    // (D8 round 6). Guarded, so a failed restore cannot replace the real error.
+    await client.query('SET LOCAL lock_timeout = DEFAULT').catch((restoreErr: unknown) => {
+      log.error('Failed to restore lock_timeout after a provisional claim refusal', { error: restoreErr }, 'accounting');
+    });
     throw err;
   }
 }
