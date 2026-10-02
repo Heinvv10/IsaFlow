@@ -97,7 +97,8 @@ export default function EngagementBudgetsPage() {
             </select>
           </div>
 
-          <div className="text-xs text-[var(--ff-text-tertiary)] px-1">
+          {/* --ff-text-tertiary read 2.54:1 on the light page; slate-600 / slate-300 clear 4.5:1 in both themes. */}
+          <div className={`text-xs px-1 ${BUDGET_STATE_TEXT.none}`} data-testid="eb-report-note">
             <span className="font-medium">Includes:</span> all time captured against each job — draft, submitted, approved, billed, non-billable and written-off — valued at hours &times; staff rate. Leave is excluded; an entry with no rate counts its hours only. Amber from 80% used, red once over budget. Over-budget jobs are listed first.
           </div>
 
