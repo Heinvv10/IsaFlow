@@ -129,6 +129,8 @@ export const reverseBankAllocationTool: McpTool = {
     + 'Use to correct a wrong allocation — the original and its reversal both remain in the audit trail. '
     + "By default the reversing journal carries the ORIGINAL entry's date when that period is still open, "
     + 'and today when it is closed; pass reversal_date to choose it explicitly. '
+    + 'The reply carries original_entry_date, reversal_entry_date and date_moved: date_moved true '
+    + 'means the correction is NOT in the period it corrects. '
     + 'To undo a whole bulk allocation, use reverse_bank_allocation_batch.',
   scope: 'write:bank-tx',
   write: true,
@@ -195,6 +197,18 @@ export const reverseBankAllocationTool: McpTool = {
       },
     );
     // reversal_date_roll: non-null when the contra was dated past a locked VAT period.
-    return ok({ transaction_id: txId, reversed: true, reversal_date_roll: unwound.vatLockRoll ?? null });
+    // date_moved: the contra does NOT carry the original entry's date — a locked
+    // VAT period or a CLOSED fiscal period moved it (the default falls back to
+    // today). reversal_date_roll alone stayed null for the closed-period case,
+    // so a reply read "nothing moved" while the correction landed in another year.
+    const original = unwound.originalEntryDate ?? null;
+    const actual = unwound.reversalEntryDate ?? null;
+    return ok({
+      transaction_id: txId, reversed: true,
+      reversal_date_roll: unwound.vatLockRoll ?? null,
+      original_entry_date: original,
+      reversal_entry_date: actual,
+      date_moved: original !== null && actual !== null && original !== actual,
+    });
   },
 };
