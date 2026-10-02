@@ -21,6 +21,7 @@ import { getVatReconciliation, type VatReconMonth } from '@/modules/accounting/s
 import { submitVATReturn } from '@/modules/accounting/services/reports/vatSubmissionService';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import { softDelete } from '@/modules/accounting/services/core/softDeleteService';
+import { sql } from '@/lib/neon';
 import { type Co, makeCompany, cleanupAll, assertChainFixtureDb, inTx, arInvoice, apBill, journalOf, reverseTip } from './k053-chain.helpers';
 
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
@@ -87,10 +88,10 @@ describeIfDb('D7 VAT recon: each GL arm against its own source', () => {
     expect(recon.issues.filter((i) => /variance/i.test(i.message))).toEqual([]);
   }, 120000);
 
-  it('V3: the effective VAT rate divides the ledger\'s VAT by the ledger\'s revenue', async () => {
+  it('V3: the effective VAT rate is trade VAT over trade revenue, both without the chain', async () => {
     // August carries a live sale AND a deleted document's R2. The revenue arm
-    // leaves R2 out (the invoice leg never had it); its VAT is in the ledger.
-    // Rated on the revenue arm, August read 30% and raised a false issue.
+    // leaves R2 out (the invoice leg never had it), so the rate's VAT must
+    // leave it out too: the ledger's VAT over the revenue arm read 30%.
     const co = await makeCompany('D7V3'); cos.push(co);
     const del = await arInvoice(co, '-DEL', '2026-06-15', 1000, 150);
     await inTx(co, () => softDelete(co.id, 'customer_invoice', del, co.user));
@@ -102,4 +103,27 @@ describeIfDb('D7 VAT recon: each GL arm against its own source', () => {
       .toEqual([['2026-08', 1000, 300, 0, 15]]);
     expect(recon.issues.filter((i) => /Effective VAT rate|variance/i.test(i.message))).toEqual([]);
   }, 120000);
+
+  it('V4 (brk-d7 pass 2, P4): a deleted MIXED-rate invoice\'s reversal does not move the month\'s rate', async () => {
+    // June: R500 at 15% + R500 zero-rated, filed and LOCKED, so the delete's
+    // reversal rolls into July. July's own trade is R2000 at 15%. On the
+    // ledger, July reads R225 of output VAT over R1000 of revenue — 22.5% and a
+    // "possible misclassification" issue for a month whose supplies are all
+    // standard-rated. The rate is a question about the month's trade, so it
+    // divides the revenue arm by the output VAT on the same rows.
+    const co = await makeCompany('D7V4'); cos.push(co);
+    const mixed = await arInvoice(co, '-MIX', '2026-06-15', 1000, 75);
+    await arInvoice(co, '-LIVE', '2026-07-20', 2000, 300);
+    await file(co, '06');
+    await sql`INSERT INTO vat_period_locks (company_id, period_start, period_end, output_tax, input_tax, net_vat,
+        posted_through, locked_by, actor_type)
+      VALUES (${co.id}::UUID, '2026-06-01'::date, '2026-06-30'::date, 0, 0, 0, NOW(), ${co.user}, 'human')`;
+    await inTx(co, () => softDelete(co.id, 'customer_invoice', mixed, co.user));
+    await file(co, '07');
+
+    const recon = await getVatReconciliation(co.id, '2026-06-01', '2026-07-31');
+    expect(recon.months.map((m) => [m.month, m.glRevenue, m.glOutputVat, m.outputVatVariance, m.effectiveVatRate]))
+      .toEqual([['2026-06', 1000, 75, 0, 7.5], ['2026-07', 2000, 225, 0, 15]]);
+    expect(recon.issues.filter((i) => /Effective VAT rate/.test(i.message) && i.month === '2026-07')).toEqual([]);
+  }, 180000);
 });

@@ -84,26 +84,29 @@ export async function getVatReconciliation(
         -- NET. ABS inside the SUM added a credit note to GL revenue, then
         -- reconciled it against invoiced revenue - already net of them - so
         -- the reconciliation invented the variance and blamed the ledger.
-        --
         -- EACH ARM IS READ THE WAY THE SOURCE IT IS COMPARED WITH READS (D7):
         --   gl_revenue     vs the invoice leg (query 2), which is undated: it
         --                  keeps a deleted invoice in the month it was raised.
         --                  So a soft-deleted document's reversal chain past its
         --                  own journal (the delete's reversal, a hand reversal
-        --                  of it, or one made before the delete) is left out —
-        --                  else it lands as revenue the invoice leg never had,
-        --                  in a month no operator can reconcile away.
+        --                  of it, or one made before the delete) is left out,
+        --                  else it lands as revenue the invoice leg never had.
         --   gl_output_vat  vs vat_returns, which submitVATReturn fills from the
         --   gl_input_vat   LEDGER by entry date, chain and all. Leaving the chain
         --                  out here reported a variance against a return that
         --                  matched the ledger exactly (round 3).
-        --   ledger_revenue the effective-rate denominator, on the VAT's basis.
+        --   trade_output_vat  the rate's numerator, on gl_revenue's basis: the
+        --                  rate is about the MONTH'S supplies, and a chain link
+        --                  undoes another month's at ITS rates (a mixed-rate
+        --                  reversal read July at 22.5% on the ledger: P4).
         COALESCE(SUM(CASE WHEN ga.account_type = 'revenue'
           THEN CASE WHEN ${deletedDocumentChainLinkFragment('gje', companyId)} THEN 0
                     ELSE gjl.credit - gjl.debit END
           ELSE 0 END), 0) AS gl_revenue,
-        COALESCE(SUM(CASE WHEN ga.account_type = 'revenue'
-          THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS ledger_revenue,
+        COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_output'
+          THEN CASE WHEN ${deletedDocumentChainLinkFragment('gje', companyId)} THEN 0
+                    ELSE gjl.credit - gjl.debit END
+          ELSE 0 END), 0) AS trade_output_vat,
         COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_output'
           THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS gl_output_vat,
         COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_input'
@@ -242,10 +245,9 @@ export async function getVatReconciliation(
     const revenueVariance = r2(glRevenue - invoiceRevenue);
     const outputVatVariance = returnOutputVat !== null ? r2(glOutputVat - returnOutputVat) : 0;
     const inputVatVariance = returnInputVat !== null ? r2(glInputVat - returnInputVat) : 0;
-    // On the ledger's revenue: gl_revenue leaves a deleted document's chain out
-    // and the VAT does not, so dividing one by the other mixes two bases.
-    const ledgerRevenue = toNum(gl?.ledger_revenue);
-    const effectiveVatRate = ledgerRevenue > 0 ? r2((glOutputVat / ledgerRevenue) * 100) : 0;
+    // Trade over trade: both leave a deleted document's chain out (query 1).
+    const tradeOutputVat = toNum(gl?.trade_output_vat);
+    const effectiveVatRate = glRevenue > 0 ? r2((tradeOutputVat / glRevenue) * 100) : 0;
 
     // Flag issues
     if (Math.abs(revenueVariance) > 100) {
