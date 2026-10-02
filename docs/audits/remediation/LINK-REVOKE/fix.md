@@ -143,3 +143,13 @@ behind. The expiry on the read only decides whether the button is shown.
 Mutant for the expired-link pin: `AND COALESCE(expires_at > NOW(), true)` added to both the live-link
 check and the cancel UPDATE of `revokeStandingLink` -> killed (the expired-link revoke test goes red;
 1 failed, the rest green). Reverted.
+
+## has_standing_link and the named-link exception (adversarial LOW at 6e7a72117)
+
+A pre-R-177 link past its stored expiry that `payment_url` names is still live and payable
+(`resolveLinkCharge`), but the plain expiry predicate reported false. The expiry rule is now one
+exported fragment, `linkExpiredSql()` in `portalLinkCharge.ts`, used by `resolveLinkCharge` and by
+`has_standing_link` (`AND NOT linkExpiredSql()`), so what the page shows as live is what can be paid.
+Test: a named link with a past `expires_at` gives true (red before). Mutant: the plain
+`COALESCE(l.expires_at >= NOW(), true)` back in the read -> killed. The type comment now says the link
+payment_url names never expires.
