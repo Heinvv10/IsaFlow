@@ -203,6 +203,14 @@ describe('R-181: the review note', () => {
     expect(errorLog).toHaveBeenCalledWith(expect.any(String),
       expect.objectContaining({ reference: ref, previousFailureReason: 'abandoned while starting' }), expect.any(String));
   });
+
+  it('an earlier review note is replaced, not carried as a prior reason', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    await pool.query("UPDATE paystack_payment_requests SET failure_reason = 'review:currency_mismatch' WHERE paystack_reference = $1", [ref]);
+    expect((await deliver(ref, 5000)).statusCode).toBe(200);
+    expect((await settlement(A, ref, id)).review).toBe('review:amount_mismatch');
+  });
 });
 
 describe('R-181: tenant isolation', () => {
