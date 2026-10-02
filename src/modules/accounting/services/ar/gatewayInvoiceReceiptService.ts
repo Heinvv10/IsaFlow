@@ -97,7 +97,6 @@ export async function recordGatewayInvoiceReceipt(
   await spendPaymentLinkOfRequest(companyId, reference);
   const charge = settledCharge(receipt.requestedCents, receipt.reported);
   const amountRand = charge.cents / 100;
-  const fee = merchantFee(receipt.feeRand, receipt.reported);
 
   const already = await sql<{
     id: string;
@@ -121,15 +120,20 @@ export async function recordGatewayInvoiceReceipt(
     // for every customer who reached the return page. Post it against the
     // receipt that already exists, in that receipt's period.
     log.info('Gateway receipt already recorded', { reference, invoiceId }, 'accounting');
+    const bankedRand = Number(already[0].total_amount);
+    const fee = merchantFee(receipt.feeRand, receipt.reported, Math.round(bankedRand * 100));
     await postGatewayFee(
       { ...receipt, feeRand: fee.feeRand },
       already[0].created_by,
       already[0].bank_account_id,
       already[0].payment_date,
     );
-    const bankedRand = Number(already[0].total_amount);
-    const reviews = Math.abs(bankedRand - amountRand) > EPS
-      ? ['amount_disagrees_with_first_report', ...fee.reviews] : fee.reviews;
+    // This report's own reasons too (a currency or a missing amount the first report did not have).
+    const reviews = [
+      ...charge.reviews,
+      ...(Math.abs(bankedRand - amountRand) > EPS ? ['amount_disagrees_with_first_report'] : []),
+      ...fee.reviews,
+    ];
     if (reviews.length > 0) {
       await flagSettlementForReview(companyId, reference, reviews, {
         paymentId: already[0].id, invoiceId, bankedRand, reportedRand: amountRand,
@@ -181,6 +185,7 @@ export async function recordGatewayInvoiceReceipt(
     `;
   }
 
+  const fee = merchantFee(receipt.feeRand, receipt.reported, charge.cents);
   const confirmed = await confirmCustomerPayment(companyId, paymentId, actorId, {
     postingAgent: GATEWAY_RECEIPT_AGENT,
   });
