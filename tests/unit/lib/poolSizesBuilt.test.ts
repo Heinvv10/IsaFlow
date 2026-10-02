@@ -1,7 +1,8 @@
 /**
  * R-182: each pool is built with the VALIDATED size. pg.Pool is mocked and the
  * options it was constructed with are read back. A bad value must give the
- * pool's default capped at 10 (what pg-pool made of NaN/0), never a bigger pool than before.
+ * pool's default capped at 10 and at ceil(Number(text)) when that is a usable
+ * positive number: never more connections than pg-pool allowed for the spelling.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -24,7 +25,10 @@ vi.mock('@/lib/auth/personalAccessTokens', () => ({
 }));
 vi.mock('@/lib/auth/oauth', () => ({ validateOauthAccessToken: async () => null }));
 
-const BAD = ['abc', '0', '-3', '2.5', '500', '0x10', '1e1'];
+// [spelling, ceiling it gives before the pool's own default is applied]
+const BAD: Array<[string, number]> = [
+  ['abc', 10], ['0', 10], ['-3', 10], ['2.5', 3], ['500', 10], ['0x10', 10], ['1e1', 10], ['5.0', 5], ['+4', 4],
+];
 
 async function lastMax(build: () => Promise<unknown>): Promise<number | undefined> {
   built.length = 0;
@@ -97,8 +101,8 @@ describe.each(Object.entries(sites))('%s pool size (R-182)', (_name, site) => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it.each(BAD)('is min(default, 10) for %j, never bigger than before', async (raw) => {
+  it.each(BAD)('is bounded for %j, never bigger than before', async (raw, ceiling) => {
     vi.stubEnv(site.env, raw);
-    expect(await site.max()).toBe(Math.min(site.fallback, 10));
+    expect(await site.max()).toBe(Math.min(site.fallback, ceiling));
   });
 });

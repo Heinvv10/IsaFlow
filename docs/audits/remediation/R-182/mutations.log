@@ -29,3 +29,13 @@ N4-no-truncate | src/lib/limits/poolLimits.ts | 'LOGGED_VALUE_LENGTH = 40' -> 'L
 N5-category-dropped | src/lib/rateLimitPool.ts | ', 'rateLimit')' -> ')' | Tests  8 failed | 119 passed (127)
 N6-category-ignored | src/lib/limits/poolLimits.ts | '}, category);' -> '}, 'pool');' | Tests  9 failed | 118 passed (127)
 N7-semaphore-divisor | src/lib/pdf/renderSemaphore.ts | 'poolMax / POOL_SHARE_DIVISOR' -> 'Math.max(poolMax, 12) / POOL_SHARE_DIVISOR' | Tests  2 failed | 125 passed (127)
+
+## Round 2 (files: tests/unit/lib/poolSizeFromEnv.test.ts tests/unit/lib/poolSizesBuilt.test.ts tests/unit/lib/pgPoolMaxPremise.test.ts tests/unit/lib/rateLimitPoolMax.test.ts tests/unit/lib/pdf/renderSemaphore.test.ts)
+baseline (unmutated): Tests  149 passed (149)
+P1-no-honoured | src/lib/limits/poolLimits.ts | 'asNumber > 0 ? Math.ceil(asNumber) : Infinity' -> 'Infinity' | Tests  54 failed | 95 passed (149)
+P2-floor-not-ceil | src/lib/limits/poolLimits.ts | 'Math.ceil(asNumber)' -> 'Math.floor(asNumber)' | Tests  10 failed | 139 passed (149)
+P3-zero-honoured | src/lib/limits/poolLimits.ts | 'asNumber > 0 ?' -> 'asNumber >= 0 ?' | Tests  12 failed | 137 passed (149)
+P4-text-logged | src/lib/limits/poolLimits.ts | 'name, length: raw.length' -> 'name, text, length: raw.length' | Tests  1 failed | 148 passed (149)
+P5-digitsOnly-wrong | src/lib/limits/poolLimits.ts | 'name, length: raw.length, digitsOnly,' -> 'name, length: raw.length, digitsOnly: false,' | Tests  1 failed | 148 passed (149)
+P6-dedupe-by-name | src/lib/limits/poolLimits.ts | 'const key = `${name}=${text}`;' -> 'const key = name;' | Tests  33 failed | 116 passed (149)
+P7-ceiling-ignored | src/lib/limits/poolLimits.ts | 'Math.min(fallback, INVALID_VALUE_CEILING, honoured)' -> 'Math.min(fallback, honoured)' | Tests  38 failed | 111 passed (149)
