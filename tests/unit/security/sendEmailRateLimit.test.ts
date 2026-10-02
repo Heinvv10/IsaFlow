@@ -21,7 +21,8 @@ vi.mock('@/lib/api-error-handler', () => ({
   withErrorHandler: (h: (req: NextApiRequest, res: NextApiResponse) => unknown) => h,
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+// The invoice-email ownership check (R-175) finds the invoice.
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => [{ ok: 1 }]) }));
 
 const { checkSendRateLimitMock } = vi.hoisted(() => ({ checkSendRateLimitMock: vi.fn() }));
 vi.mock('@/lib/rateLimit', () => ({
@@ -72,7 +73,7 @@ describe('email endpoints H9 — checkSendRateLimit gate', () => {
     checkSendRateLimitMock.mockResolvedValue(false);
     const req = {
       method: 'POST', query: {},
-      body: { invoiceId: 'inv1', recipientEmail: 'a@b.com' },
+      body: { invoiceId: '33333333-3333-4333-9333-333333333333', recipientEmail: 'a@b.com' },
       companyId: COMPANY, user: { id: 'u1' },
     } as unknown as NextApiRequest;
     await (invoiceEmail as Handler)(req, makeRes());

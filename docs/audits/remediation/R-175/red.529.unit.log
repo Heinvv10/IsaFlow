@@ -1,0 +1,8 @@
+### Anthropic 529 tests run against 8912699be's sources (5 files swapped back)
+     × answers 200 with its fallback after a provider 529, and uses 0 unit 3ms
+     × answers 200 with its fallback after a provider 529, and uses 0 unit 0ms
+     × after an Anthropic 529 answer, uses 0 unit (a 4xx or 529 refused it; a 5xx may follow the work) 3ms
+       × records nothing on an Anthropic 529 (overloaded): the request was turned away 4ms
+     × the Anthropic rule differs from the general one only at 529 1ms
+ Test Files  3 failed (3)
+      Tests  5 failed | 56 passed (61)
