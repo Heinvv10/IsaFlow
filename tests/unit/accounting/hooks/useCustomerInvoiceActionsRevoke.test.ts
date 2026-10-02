@@ -1,6 +1,6 @@
 /**
- * LINK-REVOKE: "Revoke payment link" is offered (overflow menu) only while the invoice names a
- * standing link in payment_url, and asks the page to confirm rather than revoking at once.
+ * LINK-REVOKE: "Revoke payment link" is offered (overflow menu) only while the invoice has a
+ * payment_url, and asks the page to confirm rather than revoking at once.
  */
 import { describe, expect, it, vi } from 'vitest';
 
