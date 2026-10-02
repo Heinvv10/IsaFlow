@@ -26,6 +26,7 @@
  */
 import { formatMoney, inScale, type MoneyScale } from '@/lib/format/money';
 import { mattersColumnPercents } from '@/modules/accounting/services/packs/pages/packMattersColumns';
+import { groupedCount } from '@/modules/accounting/services/packs/pages/packMatterWords';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMeaningfulNotes';
 import type { PackMatterFigure } from '@/modules/accounting/services/packs/pages/packPageModel';
@@ -162,7 +163,7 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
         * and sixth under a note saying they would come first. */}
       {omitted !== null && (
         <p className="pack-matters-omitted">
-          {omitted.count} further {omitted.count === 1 ? 'matter is' : 'matters are'} not printed.
+          {groupedCount(omitted.count)} further {omitted.count === 1 ? 'matter is' : 'matters are'} not printed.
           A board pack is the same twelve sheets for every company however busy its ledger, so this
           table is held to the paper this page has: matters with no single rand amount are listed
           first, then the largest by exposure.{' '}

@@ -16,7 +16,7 @@ import { formatMoney } from '@/lib/format/money';
  * and this model always knows which.
  */
 export function plural(n: number, one: string, many: string = `${one}s`): string {
-  return `${count(n)} ${n === 1 ? one : many}`;
+  return `${groupedCount(n)} ${n === 1 ? one : many}`;
 }
 
 /**
@@ -24,9 +24,10 @@ export function plural(n: number, one: string, many: string = `${one}s`): string
  * printed "1012 unreconciled bank items" beside a quantum column reading
  * `1 012`: two ways of writing a thousand in one table row. The pack has one
  * whole-number formatter and one separator (`GROUP_SEPARATOR`), and this is
- * that formatter — a count is never nil where it is printed, so the en dash
- * it gives a measured zero is not reachable here.
+ * that formatter. A count of nothing is the digit — "0 of 3 matters" — not
+ * the en dash the money path gives a measured nil, which page 4's title can
+ * reach when its panel names no finding.
  */
-function count(n: number): string {
-  return formatMoney(n, { pack: true });
+export function groupedCount(n: number): string {
+  return n === 0 ? '0' : formatMoney(n, { pack: true });
 }

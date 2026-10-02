@@ -46,6 +46,7 @@
  */
 import { mustDisclose, note } from './packBlockBuilders';
 import type { PackPageBlock } from './packPageModel';
+import { wholeMonthsOf } from './packPartialMonth';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
 /**
@@ -87,8 +88,11 @@ function inWords(names: readonly string[]): string {
  */
 export function shortenedPanelsNote(
   shortened: readonly string[],
-  trend: readonly PackTrendPoint[],
+  series: readonly PackTrendPoint[],
 ): PackPageBlock | null {
+  // The months the panels are drawn over — whole ones, as `buildTrendPanels`
+  // draws them — or the count below names a window no panel covers.
+  const trend = wholeMonthsOf(series);
   if (shortened.length === 0 || trend.length === 0) return null;
   const isOne = shortened.length === 1;
   return mustDisclose(SHORTENED_PANELS_HEADING, [

@@ -128,7 +128,7 @@ export function buildTrendBlocks(
   // `trendWindowNote`. Pushed unconditionally, it printed "Gross margin is
   // printed on this page and on the income statement page" two centimetres
   // above a disclosure saying no gross-margin panel could be drawn.
-  const windowNote = trendWindowNote(drawn, panels.ratiosEndingOnPartMonth, printsComparative);
+  const windowNote = trendWindowNote(drawn, panels.partMonthLeftOut, printsComparative);
   // THE SCALE NOTE FIRST, AND THAT IS A REVERSAL. It used to run second, so
   // that the fitter — which takes a disclosure's LAST note first — would take
   // it before the window note, on the reasoning that the window note explains
