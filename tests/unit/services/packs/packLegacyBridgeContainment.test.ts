@@ -143,4 +143,18 @@ describe('the management pack\'s charts are set in the pack\'s print face', () =
     expect(ticks.length, 'no value ticks were read').toBeGreaterThan(0);
     expect(ticks, ticks.join(' | ')).toEqual([...new Set(ticks)]);
   });
+  // At most about thirty cents even one step asked for rounds out to two,
+  // and printed "– | <1 | <1". Its two ends are a step of their own; under
+  // half a cent both ends print "–", and the zero stands alone.
+  it.each([
+    ['twelve months of eleven cents', Array(12).fill(0.11), ['–', '<1']],
+    ['thirty cents, then ten', [0.3, 0.1], ['–', '<1']],
+    ['a credit of thirty cents', [-0.3], ['(<1)', '–']],
+    ['three tenths of a cent', [0.003], ['–']],
+  ])('the twelve-month trend under a rand prints its ends once each: %s', (_name, revenue, expected) => {
+    const points = (revenue as number[]).map((r, i) => ({ label: `M${i + 1} 2026`, revenue: r }));
+    const svg = renderLegacyOption(legacyTrendOption(points), 718, 320);
+    const ticks = [...svg.matchAll(/text-anchor="end"[^>]*transform="translate\([^>]*>([^<]*)<\/text>/g)].map((m) => m[1]!.replace(/&lt;/g, '<'));
+    expect(ticks).toEqual(expected);
+  });
 });

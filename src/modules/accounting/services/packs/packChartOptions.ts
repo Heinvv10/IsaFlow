@@ -47,6 +47,7 @@ import {
   labelTooltipFormatter,
   moneyValueAxis,
   DEFAULT_CHART_PALETTE,
+  type AxisDomain,
   type ChartPalette,
 } from './packChartAxes';
 import { CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
@@ -158,17 +159,24 @@ export function waterfallOption(
  * with nothing on it prints its zero alone.
  */
 function distinctTicksAxis(values: number[], palette: ChartPalette, scale: MoneyScale) {
-  if (values.every((v) => v === 0)) {
+  const zeroAlone = () => {
     const axis = moneyValueAxis(palette, scale, { min: 0, max: 1, splitNumber: 1, interval: 1 });
     return { ...axis, axisLabel: { ...axis.axisLabel, showMaxLabel: false } };
-  }
-  let domain = axisDomain(values, 6);
-  for (let ask = 6; ask >= 1; ask -= 1) {
-    domain = axisDomain(values, ask);
+  };
+  if (values.every((v) => v === 0)) return zeroAlone();
+  const distinct = (domain: AxisDomain) => {
     const printed = Array.from({ length: domain.splitNumber + 1 }, (_, i) => formatMoney(domain.min + (i * (domain.max - domain.min)) / domain.splitNumber, { scale }));
-    if (new Set(printed).size === printed.length) break;
+    return new Set(printed).size === printed.length;
+  };
+  for (let ask = 6; ask >= 1; ask -= 1) {
+    const domain = axisDomain(values, ask);
+    if (distinct(domain)) return moneyValueAxis(palette, scale, { ...domain, interval: (domain.max - domain.min) / domain.splitNumber });
   }
-  return moneyValueAxis(palette, scale, { ...domain, interval: (domain.max - domain.min) / domain.splitNumber });
+  // Under about thirty cents even one step asked for rounds out to two —
+  // "– | <1 | <1". Its ends, as one step; where they print alike, the zero.
+  const rounded = axisDomain(values, 1);
+  const ends: AxisDomain = { min: rounded.min, max: rounded.max, splitNumber: 1 };
+  return distinct(ends) ? moneyValueAxis(palette, scale, { ...ends, interval: ends.max - ends.min }) : zeroAlone();
 }
 
 export function trendOption(
