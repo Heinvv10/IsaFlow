@@ -179,3 +179,34 @@ turns it red.
 
 Not changed and worth knowing: `paystackClient.ts` was already over 300 lines (425) before this
 change; three lines were added to it.
+
+## Review round 2 (general reviewer, 82fd809d0: FIX, LOW only)
+
+- **LOW-1. The second report dropped its own reasons.** The dedupe path compared amounts only, so
+  verify `{11500, ZAR}` then a webhook in USD, or a webhook with no amount, was never flagged. It now
+  merges the second report's own `settledCharge` reasons with the disagreement and fee reasons. As a
+  result a redelivery of a report that already disagreed with the request logs it again; the note
+  merge makes the stored flag idempotent.
+- **LOW-2. The second report's fee was costed against itself, not against what was banked.**
+  Verify with no `requested_amount` banks R118.50; the webhook then reports `requested_amount`
+  R115 and fees R3.50, and `merchantFee` posted R0, so Bank netted R118.50 against a R115.00
+  deposit. `merchantFee` now takes the receipt as booked (`bankedCents`): on the first report the
+  receipt it is about to bank, on the second what the FIRST report banked. Bank then nets to
+  `amount - fees`, the deposit.
+  Trade-off, explicit: in that case the R118.50 receipt stands (receipts are not rewritten
+  automatically), so R3.50 sits on the customer as unapplied credit while R3.50 is expensed as a fee
+  the customer actually paid. Bank is right; AR and fee expense are each overstated by the
+  customer-paid fee, and the request is flagged (`amount_mismatch`,
+  `amount_disagrees_with_first_report`, `overpaid_unapplied`) for a person to offset the two.
+  The excess is never negative: a second report BELOW what was banked expenses only the reported fee
+  (the gap is the receipt's, flagged), so Bank nets to `banked - fee` there, not the deposit. Tested.
+- **LOW-3. `requested_amount` with no `amount`** banked R115 with no flag. `amount_not_reported`
+  is now raised whenever `amount` is missing; `requested_amount` is still what is banked.
+- **LOW-4.** The R-181 entry in `ar/.claude.md` no longer says the flag is written only on creation;
+  mirror regenerated.
+- **Cosmetic.** `composeReviewNote` treats an empty prior reason as none, so no trailing
+  `| previously: `.
+
+Tests: six cases appended to `r181-review-round1.int.test.ts`; five red on 82fd809d0
+(`red.r4.int.log`), the sixth (second report below what was banked) added to kill mutant N5.
+Green 37/37 over both R-181 suites; mutants N1..N5 on the new guards all killed (`mutations.log`).
