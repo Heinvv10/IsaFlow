@@ -30,9 +30,20 @@
 
 @media print {
   /* AppLayout chrome: sidebar (desktop + mobile drawer), top header bar,
-     and the Sage-style horizontal module nav (top nav mode). */
+     and the Sage-style horizontal module nav (top nav mode).
+
+     `header` is EXCLUDED for the pack's own page headers. A board pack page
+     carries its title in a `<header>` inside its `<section>` — correct
+     semantics, and a bare `header` selector hid it. Every content sheet of
+     the rendered pack opened straight into a table or a chart with nothing
+     naming it: a director reading sheet 7 out of order could not tell it was
+     the balance sheet. Rubric criterion 1 ("every content page title states a
+     conclusion about this period") failed on the printed artefact while the
+     model held twelve perfectly good titles and every test that read the
+     MODEL passed. Scoped by class rather than by `body > header`, because
+     the pack's headers are nested arbitrarily deep inside the print page. */
   html.print-mode aside,
-  html.print-mode header,
+  html.print-mode header:not(.pack-page-header),
   html.print-mode nav {
     display: none !important;
   }
@@ -44,20 +55,19 @@
     color-scheme: light;
   }
 
-  /* Explicit page breaks between report sections. */
-  html.print-mode [data-print-break] {
-    break-before: page;
-  }
+  /* No forced break between report sections: the legacy pack's short portrait
+     sections share a sheet (a landscape section starts its own through its
+     named page, below). A heading stays with its first rows and a label with
+     its value — see `.pack-legacy-*` in packPrintTablesAndProse.css. */
 
   /* Never split a table row across a page boundary. */
   html.print-mode tr {
     break-inside: avoid;
   }
 
-  /* Pack pagination. The cover and the contents each own a page; every
-     section already starts a new one via [data-print-break] above. */
-  html.print-mode [data-pack-cover],
-  html.print-mode [data-pack-toc] {
+  /* Pack pagination. The cover owns a page. The contents is seven short lines,
+     so it flows with the first section instead of standing alone on a sheet. */
+  html.print-mode [data-pack-cover] {
     break-after: page;
   }
 

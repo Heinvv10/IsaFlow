@@ -6,7 +6,7 @@ import {
 import { DEFAULT_PALETTE } from '@/components/accounting/charts/chartTypes';
 import { formatMoney } from '@/lib/format/money';
 
-const STEPS = buildProfitWaterfall({
+const { steps: STEPS } = buildProfitWaterfall({
   revenue: 1_000_000,
   costOfSales: 400_000,
   grossProfit: 600_000,
@@ -19,7 +19,7 @@ const STEPS = buildProfitWaterfall({
 // A running total that dips below zero mid-bridge (Operating Expenses takes
 // Gross Profit of 400,000 down to a Net Loss of -400,000), so a movement AND
 // a subtotal both cross/sit on the wrong side of the axis.
-const LOSS_STEPS = buildProfitWaterfall({
+const { steps: LOSS_STEPS } = buildProfitWaterfall({
   revenue: 1_000_000,
   costOfSales: 600_000,
   grossProfit: 400_000,

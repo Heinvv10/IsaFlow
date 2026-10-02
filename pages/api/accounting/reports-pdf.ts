@@ -28,8 +28,10 @@ import {
   getCompanyDetailsFromCompany,
   type CompanyDetails,
 } from '@/modules/accounting/services/core/pdfShared';
+import { cashFlowPackRows, ratioPackRows } from '@/modules/accounting/services/reports/packUnstatedRows';
 import { getReportPackInput } from '@/modules/accounting/services/reports/reportPackDataService';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
+import { kpiStatusLabel, scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type JsPDFDoc = any;
@@ -54,10 +56,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'from and to dates are required');
   }
 
-  const [company, data] = await Promise.all([
-    getCompanyDetailsFromCompany(companyId),
-    getReportPackInput(companyId, '', from, to),
-  ]);
+  // ONE AFTER THE OTHER, not `Promise.all`. Both run on the request's one pg
+  // client, and `getReportPackInput` takes a savepoint around its cash-flow
+  // read: a sibling query landing inside it is refused with 25P02 when that
+  // read fails, and the route 500s where the pack was built to degrade.
+  const company = await getCompanyDetailsFromCompany(companyId);
+  const data = await getReportPackInput(companyId, '', from, to);
 
   // companyName is resolved after the figures, which do not need it.
   data.companyName = company.name;
@@ -173,36 +177,31 @@ export function renderSection(
         doc,
         autoTable,
         [['Item', 'Amount']],
-        [
-          ['Operating Cash Flow', fmtZAR(n(d.operatingCashFlow))],
-          ['Investing Cash Flow', fmtZAR(n(d.investingCashFlow))],
-          ['Financing Cash Flow', fmtZAR(n(d.financingCashFlow))],
-          ['Net Cash Flow', fmtZAR(n(d.netCashFlow))],
-          ['Opening Cash', fmtZAR(n(d.openingCash))],
-          ['Closing Cash', fmtZAR(n(d.closingCash))],
-        ],
+        // One row list, shared with the HTML pack. A line the section marks
+        // unavailable prints its reason: the number still in the blob for it
+        // is a stand-in (net profit, where no operating cash flow was read).
+        cashFlowPackRows(d as Record<string, unknown>)
+          .map(r => [r.label, r.value === null ? r.reason : fmtZAR(r.value)]),
         y,
         margin,
       );
 
     case 'ratios': {
-      const ratioRows = Object.entries(d as Record<string, unknown>)
-        .filter(([, v]) => v !== null && v !== undefined)
-        .map(([k, v]) => [
-          k.replace(/([A-Z])/g, ' $1').trim(),
-          typeof v === 'number' ? v.toFixed(2) : String(v),
-        ]);
+      // A ratio with no figure keeps its row and prints why — it used to be
+      // dropped without a word, while the reasons map printed as a row.
+      const ratioRows = ratioPackRows(d as Record<string, unknown>)
+        .map(r => [r.label, r.text]);
       return renderTable(doc, autoTable, [['Ratio', 'Value']], ratioRows, y, margin);
     }
 
     case 'kpis': {
       const items = (d.scorecard as KPIScorecardItem[]) ?? [];
-      const kpiRows = items.map(item => [
-        item.name,
-        typeof item.value === 'number' ? item.value.toFixed(2) : String(item.value ?? '—'),
-        typeof item.target === 'number' ? item.target.toFixed(2) : '—',
-        item.status.toUpperCase(),
-      ]);
+      // The tile's own decision (`scorecardFigure`): value and target in the
+      // ratio's unit, and the reason where the ratio has no value.
+      const kpiRows = items.map(item => {
+        const figure = scorecardFigure(item);
+        return [item.name, figure.scored ? figure.value : figure.reason, figure.target, kpiStatusLabel(item.status)];
+      });
       return renderTable(doc, autoTable, [['KPI', 'Actual', 'Target', 'Status']], kpiRows, y, margin);
     }
 

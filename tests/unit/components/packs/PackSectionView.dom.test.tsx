@@ -57,7 +57,7 @@ describe('PackSectionView', () => {
 
   it('renders a percentage KV item as a percentage, not as money', () => {
     render(<PackSectionView section={statementSection} />);
-    expect(screen.getByText('+54.5%')).toBeTruthy();
+    expect(screen.getByText('54.5%')).toBeTruthy();
   });
 
   it('renders a day count in days, not as a bare ratio', () => {
@@ -97,9 +97,9 @@ describe('PackSectionView', () => {
     expect(container.querySelector('[data-print-landscape]')).toBeNull();
   });
 
-  it('breaks the page before every section', () => {
+  it('forces no page break before a portrait section: short sections share a sheet', () => {
     const { container } = render(<PackSectionView section={statementSection} />);
-    expect(container.querySelector('[data-print-break]')).toBeTruthy();
+    expect(container.querySelector('[data-print-break]')).toBeNull();
   });
 });
 
@@ -133,18 +133,24 @@ describe('usePrintReady', () => {
     expect(result.current).toBe(false);
   });
 
-  it('is ready immediately when the document draws no charts', () => {
+  // "Immediately" now means on the next microtask: the gate also waits for
+  // the pack's font faces, and asking about them is a promise even where —
+  // as under happy-dom — there is no font-loading API to ask.
+  it('is ready immediately when the document draws no charts', async () => {
     const { result } = renderHook(() => usePrintReady(true, 1 - 1));
+    await act(async () => {});
     expect(result.current).toBe(true);
   });
 
-  it('refuses to be ready until every chart has actually drawn an svg', () => {
+  it('refuses to be ready until every chart has actually drawn an svg', async () => {
     vi.useFakeTimers();
     const host = document.createElement('div');
     host.setAttribute('data-pack-chart', '');
     document.body.appendChild(host);
 
     const { result } = renderHook(() => usePrintReady(true, 2));
+    // Settles the font side, so what the assertions below vary is the charts.
+    await act(async () => {});
     act(() => { vi.advanceTimersByTime(500); });
     expect(result.current).toBe(false);
 

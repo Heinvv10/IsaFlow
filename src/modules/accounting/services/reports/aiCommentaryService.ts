@@ -2,14 +2,23 @@
  * AI Commentary Service — Key drivers, risk assessment, executive summary.
  * Pure business logic — no database dependencies.
  */
+import { pctWithWord } from '@/lib/format/money';
+import { formatRatioOf } from './ratioPresentation';
 
 export interface ManagementPackData {
   companyName: string;
   period: string;
   incomeStatement: { revenue: number; costOfSales: number; grossProfit: number; operatingExpenses: number; netProfit: number };
-  balanceSheet: { totalAssets: number; totalLiabilities: number; equity: number; currentRatio: number; debtEquityRatio: number };
+  /** `currentRatio` is null where there are no current liabilities to cover. */
+  balanceSheet: { totalAssets: number; totalLiabilities: number; equity: number; currentRatio: number | null; debtEquityRatio: number };
   priorPeriod?: { revenue: number; costOfSales: number; grossProfit: number; operatingExpenses: number; netProfit: number };
-  ratios: { grossMargin: number; netMargin: number; currentRatio: number; quickRatio: number };
+  /**
+   * Null where the ratio has no base: a margin on revenue that is not
+   * positive, a liquidity ratio with no current liabilities. Never 0 standing
+   * in for that — a 0% margin and a 0.00 current ratio are both findings, and
+   * each fired a risk sentence about a figure nobody measured.
+   */
+  ratios: { grossMargin: number | null; netMargin: number | null; currentRatio: number | null; quickRatio: number | null };
 }
 
 export interface KeyDriver {
@@ -29,8 +38,22 @@ export interface RiskArea {
 export interface ExecutiveSummary {
   profitDirection: 'up' | 'down' | 'flat';
   revenueGrowthPercent: number;
-  grossMarginPercent: number;
+  /** null where revenue is not positive — there is no margin to state. */
+  grossMarginPercent: number | null;
   netProfitAmount: number;
+}
+
+/**
+ * A key driver in words. It was `toFixed` — "decreased by 1523.4%", no
+ * grouping — and "remained flat by 0.4%"; on a nil prior every change read
+ * "remained flat by 0.0%". The percentage goes through `pctWithWord`.
+ */
+function driverSentence(
+  label: string, prior: number, change: number, changePercent: number, direction: KeyDriver['direction'],
+): string {
+  if (prior === 0 && direction !== 'flat') return `${label} ${direction === 'up' ? 'increased' : 'decreased'} from nil`;
+  if (direction === 'flat') return `${label} remained flat`;
+  return `${label} ${pctWithWord(changePercent, 'increased by', 'decreased by')}`;
 }
 
 export function identifyKeyDrivers(
@@ -48,44 +71,60 @@ export function identifyKeyDrivers(
   const drivers: KeyDriver[] = metrics.map(m => {
     const change = Math.round((m.current - m.prior) * 100) / 100;
     const changePercent = m.prior !== 0 ? Math.round((change / Math.abs(m.prior)) * 10000) / 100 : 0;
-    const direction: KeyDriver['direction'] = Math.abs(changePercent) < 1 ? 'flat' : change > 0 ? 'up' : 'down';
+    // From nil there is no percentage, but there is a direction: the
+    // structured field says what the sentence says (`driverSentence`).
+    const direction: KeyDriver['direction'] = m.prior === 0
+      ? (change > 0 ? 'up' : change < 0 ? 'down' : 'flat')
+      : Math.abs(changePercent) < 1 ? 'flat' : change > 0 ? 'up' : 'down';
 
     return {
       metric: m.metric,
       change,
       changePercent,
       direction,
-      explanation: `${m.label} ${direction === 'up' ? 'increased' : direction === 'down' ? 'decreased' : 'remained flat'} by ${Math.abs(changePercent).toFixed(1)}%`,
+      explanation: driverSentence(m.label, m.prior, change, changePercent, direction),
     };
   });
 
   return drivers.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
 }
 
+/**
+ * A risk sentence's figures, as the pack writes them. They were `toFixed`:
+ * "Gross margin -1310.8% is below 20%" — a hyphen for a minus and no
+ * grouping. A margin carries its sign in a word; a ratio is in its unit.
+ */
+const level = (pct: number): string => pctWithWord(pct, 'a positive', 'a negative', 'nil');
+const ratio = (key: string, value: number): string => formatRatioOf(key, value);
+
 export function assessRiskAreas(data: ManagementPackData): RiskArea[] {
   const risks: RiskArea[] = [];
 
-  if (data.balanceSheet.currentRatio < 1.0) {
-    risks.push({ area: 'Liquidity Crisis', severity: 'high', description: `Current ratio ${data.balanceSheet.currentRatio.toFixed(2)} is below 1.0 — unable to cover short-term obligations` });
-  } else if (data.balanceSheet.currentRatio < 1.5) {
-    risks.push({ area: 'Liquidity Pressure', severity: 'medium', description: `Current ratio ${data.balanceSheet.currentRatio.toFixed(2)} is below recommended 1.5` });
+  // A ratio that could not be measured raises no risk: a risk sentence quotes
+  // the figure, and there is none. Each rule below is skipped on a null.
+  const currentRatio = data.balanceSheet.currentRatio;
+  if (currentRatio !== null && currentRatio < 1.0) {
+    risks.push({ area: 'Liquidity Crisis', severity: 'high', description: `Current ratio ${ratio('currentRatio', currentRatio)} is below ${ratio('currentRatio', 1)} — unable to cover short-term obligations` });
+  } else if (currentRatio !== null && currentRatio < 1.5) {
+    risks.push({ area: 'Liquidity Pressure', severity: 'medium', description: `Current ratio ${ratio('currentRatio', currentRatio)} is below recommended ${ratio('currentRatio', 1.5)}` });
   }
 
   // Descending. Tested the other way round, `> 2.0` matched first and the
   // high-severity branch below was unreachable for every input — so the worst
   // gearing in the book reported as merely medium.
   if (data.balanceSheet.debtEquityRatio > 3.0) {
-    risks.push({ area: 'Leverage Crisis', severity: 'high', description: `Debt-to-equity ${data.balanceSheet.debtEquityRatio.toFixed(2)} exceeds 3.0` });
+    risks.push({ area: 'Leverage Crisis', severity: 'high', description: `Debt-to-equity ${ratio('debtToEquity', data.balanceSheet.debtEquityRatio)} exceeds ${ratio('debtToEquity', 3)}` });
   } else if (data.balanceSheet.debtEquityRatio > 2.0) {
-    risks.push({ area: 'Leverage Risk', severity: 'medium', description: `Debt-to-equity ${data.balanceSheet.debtEquityRatio.toFixed(2)} exceeds 2.0 — high financial leverage` });
+    risks.push({ area: 'Leverage Risk', severity: 'medium', description: `Debt-to-equity ${ratio('debtToEquity', data.balanceSheet.debtEquityRatio)} exceeds ${ratio('debtToEquity', 2)} — high financial leverage` });
   }
 
-  if (data.ratios.grossMargin < 20) {
-    risks.push({ area: 'Margin Pressure', severity: 'medium', description: `Gross margin ${data.ratios.grossMargin.toFixed(1)}% is below 20%` });
+  const { grossMargin, netMargin } = data.ratios;
+  if (grossMargin !== null && grossMargin < 20) {
+    risks.push({ area: 'Margin Pressure', severity: 'medium', description: `Gross margin is ${level(grossMargin)}, below ${ratio('grossProfitMargin', 20)}` });
   }
 
-  if (data.ratios.netMargin < 5) {
-    risks.push({ area: 'Profitability Risk', severity: 'medium', description: `Net margin ${data.ratios.netMargin.toFixed(1)}% is below 5%` });
+  if (netMargin !== null && netMargin < 5) {
+    risks.push({ area: 'Profitability Risk', severity: 'medium', description: `Net margin is ${level(netMargin)}, below ${ratio('netProfitMargin', 5)}` });
   }
 
   return risks;

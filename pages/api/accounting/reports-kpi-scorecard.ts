@@ -7,15 +7,9 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
-import { sql } from '@/lib/neon';
-import {
-  getFinancialFigures,
-  toFinancialData,
-  inventoryWarning,
-  unclassifiedWarning,
-  type PeriodFigures,
-} from '@/modules/accounting/services/gl/financialFiguresService';
-import { calculateExtendedRatios, type FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
+import { inventoryWarning, unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
+import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
+import { readExtendedRatioInputs } from '@/modules/accounting/services/reports/extendedRatioInputs';
 import { buildKPIScorecard, type KPITargetConfig } from '@/modules/accounting/services/reports/kpiScorecardService';
 
 // Default SA business targets
@@ -41,7 +35,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const from: string = (req.query.from as string) || '2026-01-01';
   const to: string = (req.query.to as string) || new Date().toISOString().split('T')[0]!
 
-  const { data, figures } = await buildFinancialData(companyId, from, to);
+  // The same read the ratio list beside this scorecard uses, so the two
+  // cannot state different things about one ratio.
+  const { data, figures } = await readExtendedRatioInputs(companyId, from, to);
   const ratios = calculateExtendedRatios(data);
   const scorecard = buildKPIScorecard(ratios, DEFAULT_TARGETS);
 
@@ -61,28 +57,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = Record<string, any>;
-
-async function buildFinancialData(
-  companyId: string,
-  from: string,
-  to: string
-): Promise<{ data: FinancialData; figures: PeriodFigures }> {
-  const [figures, [empCount]] = await Promise.all([
-    getFinancialFigures(companyId, from, to),
-    sql`SELECT COUNT(*)::int as count FROM payroll_employees WHERE company_id = ${companyId}::uuid AND (end_date IS NULL OR end_date > NOW())` as Promise<Row[]>,
-  ]);
-
-  // Equity passes through unclamped. It used to be Math.max(1, equity), which
-  // made an insolvent company divide by 1 and score green (AN-07); the ratio
-  // engine now marks equity-divided ratios not meaningful instead.
-  const data: FinancialData = {
-    ...toFinancialData(figures),
-    employeeCount: empCount?.count || 0,
-  };
-  return { data, figures };
-}
-
- 
 export default withAuth(withErrorHandler(withWriteAccess(handler)));

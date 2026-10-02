@@ -42,7 +42,9 @@ describe('the guard fires on every fetch surface', () => {
 
   for (const [what, body] of HOSTILE) {
     it(`refuses ${what}`, () => {
-      expect(() => assertNoExternalReferences(svg(body))).toThrow(/external reference/i);
+      // A comment is refused by the grammar rather than as a reference: it can
+      // hide markup from a scan, so it is not admitted at all.
+      expect(() => assertNoExternalReferences(svg(body))).toThrow(/external reference|outside the grammar/i);
     });
   }
 

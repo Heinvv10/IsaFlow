@@ -2,6 +2,7 @@ import { sql } from '@/lib/neon';
 import { getCashBalance } from '../bank/cashBalanceService';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { failedReadLabel } from '@/modules/accounting/services/packs/packFailedRead';
 import { CASH_SUBTYPES, type AccountType } from '@/modules/accounting/services/gl/accountSubtypes';
 import {
   apportionBankLeg,
@@ -197,7 +198,8 @@ export async function getCashFlowDirect(
       closingCash: openingCash + netChange,
     };
   } catch (err) {
-    log.error('Failed to generate direct cash flow', { error: err }, 'accounting');
+    // Class and SQLSTATE only: the driver's message can carry SQL and values.
+    log.error('Failed to generate direct cash flow', { error: failedReadLabel(err) }, 'accounting');
     throw err;
   }
 }

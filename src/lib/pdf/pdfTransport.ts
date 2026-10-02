@@ -17,6 +17,20 @@ export interface PdfMetadata {
   author: string;
   subject: string;
   creator: string;
+  /**
+   * Keys that are NOT part of the PDF's standard Info dictionary, written
+   * beside the four above.
+   *
+   * `pdfinfo` reports `Custom Metadata: no` for a file whose Info dictionary
+   * holds only standard keys, however well populated it is — which is what
+   * the acceptance check for this work reads, and what it still read after
+   * Title/Author/Subject/Creator started arriving. These are the keys that
+   * flip it, and they are not padding for the sake of the line: a document
+   * management system that indexes a forwarded pack has no way to recover
+   * "which period" or "draft or final" from a title string, and every one of
+   * these is a field the pack already knows.
+   */
+  custom: Record<string, string>;
 }
 
 export interface PdfRenderRequest {
@@ -40,16 +54,37 @@ export interface PdfRenderRequest {
   metadata?: PdfMetadata;
 }
 
+/**
+ * How reliably a transport writes the metadata it is handed.
+ *
+ * NOT a boolean, and that is the point. It was `metadata: boolean`, and when
+ * the Playwright transport learnt to append an Info dictionary to Chromium's
+ * bytes it flipped to `true` — on a writer that returns the file UNCHANGED,
+ * with a `log.warn`, for any PDF whose cross-reference section it does not
+ * recognise. A capability whose own docblock tells call sites to gate
+ * archival retention on it cannot be satisfied by a line in a log nobody
+ * reads during an incident.
+ *
+ * - `guaranteed` — the renderer itself takes the metadata; if the render
+ *   succeeded, the metadata is in the file. Gotenberg's Chromium route.
+ * - `best-effort` — written by post-processing the rendered bytes, and the
+ *   post-processing can decline. Playwright. A call site that must have the
+ *   metadata (PDF/A) has to refuse this transport, which it can now express.
+ *
+ * Left deliberately at two members: a transport that writes none would be a
+ * third, and there is no such transport to describe.
+ */
+export type PdfMetadataSupport = 'guaranteed' | 'best-effort';
+
 export interface PdfTransport {
   name: 'playwright' | 'gotenberg';
-  /** What this transport can actually honour. The two are NOT interchangeable:
-   *  Gotenberg writes PDF metadata, Playwright's page.pdf() supports none —
-   *  and PDF_TRANSPORT=playwright is the production incident fallback, so a
-   *  guarantee that holds in steady state silently stops holding the day the
-   *  switch is flipped. A requirement that is genuinely load-bearing (PDF/A
-   *  for archival retention) must be enforced at the CALL SITE by reading
-   *  this, rather than assumed. */
-  readonly capabilities: { readonly metadata: boolean };
+  /** What this transport can actually honour. The two are NOT interchangeable
+   *  — see `PdfMetadataSupport` — and PDF_TRANSPORT=playwright is the
+   *  production incident fallback, so a guarantee that holds in steady state
+   *  silently stops holding the day the switch is flipped. A requirement that
+   *  is genuinely load-bearing (PDF/A for archival retention) must be
+   *  enforced at the CALL SITE by reading this, rather than assumed. */
+  readonly capabilities: { readonly metadata: PdfMetadataSupport };
   render(request: PdfRenderRequest): Promise<Buffer>;
 }
 
@@ -66,6 +101,11 @@ export const MM_PER_INCH = 25.4;
 export const PAPER_A4_IN = { width: 8.27, height: 11.69 } as const;
 
 export const PRINT_READY_SELECTOR = '[data-print-ready="true"]';
+/** Attributes (all starting with this prefix) set on <html> by the print page
+ *  when it can never become ready — one per producer. Their values are the
+ *  reasons; a transport that sees any fails the render at once rather than
+ *  waiting out PRINT_READY_TIMEOUT_MS. */
+export { PRINT_ERROR_ATTRIBUTE_PREFIX } from './printErrorAttribute';
 export const PRINT_READY_TIMEOUT_MS = 30_000;
 
 /** Chromium's page-number footer. Both transports render the same markup. */

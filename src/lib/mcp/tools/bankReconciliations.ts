@@ -7,6 +7,10 @@
  * deletes the session and releases its transactions. Matches made inside the
  * session are undone; allocated rows keep their status and their journal, so
  * nothing leaves the GL.
+ *
+ * Reopen (R-111) is the way back from a COMPLETED one: the session returns to
+ * in_progress and its reconciled lines to allocated/matched, newest first, so a
+ * wrong allocation inside it can be reversed instead of hand-journalled.
  */
 import type { McpTool } from '../types';
 import { getReconciliations } from '@/modules/accounting/services/bank/bankReconciliationService';
@@ -14,6 +18,10 @@ import {
   cancelReconciliation,
   ReconciliationNotCancellableError,
 } from '@/modules/accounting/services/bank/bankReconciliationCancelService';
+import {
+  reopenReconciliation,
+  ReconciliationNotReopenableError,
+} from '@/modules/accounting/services/bank/bankReconciliationReopenService';
 import { clampLimit, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 export const listBankReconciliationsTool: McpTool = {
@@ -123,6 +131,75 @@ export const cancelBankReconciliationTool: McpTool = {
       // registry's savepoint unwinds on a throw only, and an isError result
       // would commit a partial cancel.
       if (err instanceof ReconciliationNotCancellableError) return toolError(err.message);
+      throw err;
+    }
+  },
+};
+
+export const reopenBankReconciliationTool: McpTool = {
+  name: 'reopen_bank_reconciliation',
+  description:
+    'Reopen a COMPLETED reconciliation so a wrong allocation inside it can be corrected. The '
+    + 'session goes back to in_progress and every line completion marked reconciled returns to '
+    + 'the state it had: allocated lines (they carry an allocation) to "allocated", matched lines to '
+    + '"matched". Nothing is posted and no journal changes. While it is open, an allocated line can '
+    + 'be reversed with reverse_bank_allocation (it leaves the session with its reversal); complete '
+    + 'it again by running perform_bank_reconciliation on the same statement after '
+    + 'cancel_bank_reconciliation, or complete the open session in the app. '
+    + 'NEWEST FIRST: only the latest completed reconciliation on an account can be reopened — a '
+    + 'statement opens at the closing balance of the one before, so reopening an older one under later '
+    + 'sign-offs is refused and the refusal names how many later ones stand. Also refused when a '
+    + 'session is already in progress on the account. reason is stored on the reconciliation as '
+    + 'the audit record. dry_run runs every guard and reports how many lines would be restored, '
+    + 'writing nothing. Requires the write:post permission.',
+  scope: 'write:bank-tx',
+  write: true,
+  requiresPost: true,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      reconciliation_id: {
+        type: 'string',
+        description: 'Id from list_bank_reconciliations. Must be completed and the latest on its account.',
+      },
+      reason: {
+        type: 'string',
+        description: 'Why it is being reopened. Stored on the reconciliation.',
+      },
+      dry_run: { type: 'boolean' },
+      idempotency_key: { type: 'string' },
+    },
+    required: ['reconciliation_id', 'reason', 'idempotency_key'],
+    additionalProperties: false,
+  },
+  handler: async (args, ctx) => {
+    const reconId = strArg(args, 'reconciliation_id');
+    if (!reconId) return toolError('reconciliation_id is required');
+    const reason = strArg(args, 'reason');
+    if (!reason || !reason.trim()) return toolError('reason is required — it is the audit record of the reopen');
+    const bad = guardCastableArgs(args, { uuid: ['reconciliation_id'] });
+    if (bad) return bad;
+    const dryRun = args.dry_run === true;
+
+    try {
+      const result = await reopenReconciliation(ctx.companyId, reconId, ctx.userId, { dryRun, reason });
+      return {
+        ...ok({
+          reconciliation_id: reconId,
+          reopened: !dryRun,
+          dry_run: dryRun,
+          bank_account_id: result.bankAccountId,
+          statement_date: result.statementDate,
+          restored_allocated: result.restoredAllocated,
+          restored_matched: result.restoredMatched,
+        }),
+        ...(dryRun ? { wroteNothing: true, billable: false } : {}),
+      };
+    } catch (err) {
+      // Refusals are raised before any write or after the service's own
+      // transaction rolled back; anything else must rethrow so the registry's
+      // savepoint unwinds a partial reopen.
+      if (err instanceof ReconciliationNotReopenableError) return toolError(err.message);
       throw err;
     }
   },

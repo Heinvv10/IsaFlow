@@ -41,7 +41,7 @@ function slidesForBlock(title: string, block: PackBlock): DeckSlide[] {
           .filter((row) => !NON_FIGURE_KINDS.has(row.kind))
           .map((row) => ({
             label: row.label,
-            value: formatMoney(row.actual, { cents: true }),
+            value: formatMoney(row.actual, { cents: true, pack: true }),
             emphasis: EMPHASIS_KINDS.has(row.kind),
           })),
       }];

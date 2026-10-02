@@ -116,7 +116,7 @@ describeIfDb('K-064 round 8 — voiding applied and bank-allocated supplier paym
     if (recStatus === 'completed') {
       // Names the reconciliation, says there is no reopen, points at no route that does not exist.
       expect(text(state)).toContain(`is on the completed reconciliation of R068 Bank to ${new Date().toISOString().slice(0, 10)}`);
-      expect(text(state)).toContain("A completed reconciliation can't be reopened yet");
+      expect(text(state)).toContain("A completed reconciliation must be reopened before this can be reversed");
     } else {
       expect(text(state)).toContain('open bank reconciliation session');
     }
