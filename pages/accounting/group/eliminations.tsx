@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Loader2, AlertCircle, Plus, Zap } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import {
   fmt,
   selectClass,
@@ -20,6 +20,21 @@ import { EliminationsCreateModal } from '@/components/accounting/group/Eliminati
 import { localISODate } from '@/lib/dateUtils';
 
 interface EntityGroup { id: string; name: string; }
+
+/**
+ * The group's account code → id. Elimination lines are stored by group account ID (the
+ * consolidated reports look them up by id), but the form takes the code a person knows.
+ */
+async function groupAccountIds(groupId: string): Promise<Map<string, string>> {
+  const res = await apiFetch(`/api/accounting/company-groups?action=accounts&group_id=${encodeURIComponent(groupId)}`);
+  await assertOk(res, 'Could not load the group chart of accounts');
+  const json = (await res.json()) as { data?: { items?: Array<{ id?: unknown; accountCode?: unknown }> } };
+  const map = new Map<string, string>();
+  for (const a of json.data?.items ?? []) {
+    if (typeof a.id === 'string' && typeof a.accountCode === 'string') map.set(a.accountCode, a.id);
+  }
+  return map;
+}
 
 const BLANK_LINES: EliminationLine[] = [
   { groupAccountCode: '', debit: 0, credit: 0 },
@@ -79,24 +94,21 @@ export default function EliminationsPage() {
         `/api/accounting/consolidated-reports?group_id=${selectedGroupId}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
       );
-      if (!res.ok) {
-        const json = await res.json();
-        throw new Error(json.message || errMsg);
-      }
+      await assertOk(res, errMsg);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : errMsg);
+      setError(apiErrorMessage(err, errMsg));
     } finally { setActionLoading(null); }
   }, [selectedGroupId, loadData]);
 
   const handleAutoGenerate = () =>
-    postAction('auto-generate', { action: 'auto-eliminate', period_start: periodStart, period_end: periodEnd }, 'Auto-generation failed');
+    postAction('auto-generate', { action: 'auto-eliminate', periodStart, periodEnd }, 'Auto-generation failed');
 
   const handlePost = (id: string) =>
-    postAction(id, { action: 'post-elimination', elimination_id: id }, 'Failed to post elimination');
+    postAction(id, { action: 'post-elimination', adjustmentId: id }, 'Failed to post elimination');
 
   const handleReverse = (id: string) =>
-    postAction(id, { action: 'reverse-elimination', elimination_id: id }, 'Failed to reverse elimination');
+    postAction(id, { action: 'reverse-elimination', adjustmentId: id }, 'Failed to reverse elimination');
 
   function resetForm() {
     setFormType('interco_revenue'); setFormDescription(''); setFormPeriod(localISODate());
@@ -118,24 +130,31 @@ export default function EliminationsPage() {
     }
     setFormSaving(true); setFormError('');
     try {
+      const ids = await groupAccountIds(selectedGroupId);
+      const unknown = formLines.map((l) => l.groupAccountCode.trim()).filter((c) => !ids.has(c));
+      if (unknown.length > 0) {
+        setFormError(`Not a group account code: ${[...new Set(unknown)].join(', ')}`);
+        return;
+      }
       const res = await apiFetch(
         `/api/accounting/consolidated-reports?group_id=${selectedGroupId}`,
         {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            action: 'create-elimination', type: formType,
-            description: formDescription, period: formPeriod,
+            // The field names the route reads; the elimination is dated on the chosen day.
+            action: 'create-elimination', adjustmentType: formType,
+            description: formDescription, periodStart: formPeriod, periodEnd: formPeriod,
             lines: formLines.map((l) => ({
-              group_account_code: l.groupAccountCode,
+              groupAccountId: ids.get(l.groupAccountCode.trim()),
               debit: Number(l.debit || 0), credit: Number(l.credit || 0),
             })),
           }),
         }
       );
-      if (!res.ok) { const json = await res.json(); throw new Error(json.message || 'Failed to create elimination'); }
+      await assertOk(res, 'Failed to create elimination');
       setShowCreateModal(false); resetForm(); await loadData();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to create elimination');
+      setFormError(apiErrorMessage(err, 'Failed to create elimination'));
     } finally { setFormSaving(false); }
   }
 
