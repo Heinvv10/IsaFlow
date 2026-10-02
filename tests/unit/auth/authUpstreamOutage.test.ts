@@ -109,6 +109,9 @@ beforeEach(() => {
   vi.stubEnv('JWT_SECRET', SIGNING_KEY);
   vi.stubEnv('GOTRUE_URL', 'http://gotrue.test.local');
   vi.stubEnv('SUPABASE_ANON_KEY', 'synthetic-anon');
+  // The auth pool is built from DATABASE_URL on first use. GitHub's unit job sets it to an EMPTY string, which
+  // beats vitest's dummy, so the test names its own: the mocked Pool never connects anywhere.
+  vi.stubEnv('DATABASE_URL', 'postgres://127.0.0.1:1/x');
   restoreBound = setAuthUpstreamBoundForTests(50);
 });
 afterEach(() => { restoreBound(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
