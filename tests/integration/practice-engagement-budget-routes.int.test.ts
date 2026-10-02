@@ -148,6 +148,47 @@ describeIfDb('Engagement budgets — routes, bulk and MCP refuse a foreign or cl
       expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
       expect(await onJob(J.own!)).toBe(3);
     });
+
+    it.each([
+      ...['not-a-uuid', 'zz'].map((templateId) => [`templateId ${templateId}`,
+        () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07' }), 'templateId must be a UUID'] as const),
+      ...[3, 5, {}, { 1: true }, [7], [1.5], ['1'], [-1]].map((weekdays) => [`weekdays ${JSON.stringify(weekdays)}`,
+        () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', weekdays }),
+        'weekdays must be an array of whole numbers from 0 (Sunday) to 6 (Saturday)'] as const),
+      ['a NUL in taskOverride', () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', taskOverride: 'a\u0000b' }),
+        'text must not contain a NUL (\\u0000) character, and arguments must not nest deeper than 8 levels or hold more than 100000 values'],
+      ['an inverted range', () => ({ templateId, dateFrom: '2026-01-07', dateTo: '2026-01-05' }), 'dateFrom must be on or before dateTo'],
+      ['a missing template', () => ({ templateId: randomUUID(), dateFrom: '2026-01-05', dateTo: '2026-01-07' }), 'template not found'],
+    ])('answers %s with 400 and its message, writing nothing', async (_l, body, message) => {
+      const before = await f.entriesNamed('EBR bulk');
+      const r = await f.call(bulkRoute, 'POST', body());
+      expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
+      expect(r.body.error?.message).toBe(message);
+      expect(await f.entriesNamed('EBR bulk')).toBe(before);
+    });
+
+    it('a refused date is that date\'s failure with its message; the other dates are written', async () => {
+      const tpl2 = randomUUID();
+      await f.pool.query(
+        `INSERT INTO practice_entry_templates (id, company_id, user_id, name, practice_client_id, job_category_id,
+           work_item_id, default_hours, task_description, billable)
+         VALUES ($1, $2, $3, 'EBR tpl 2', $4, $5, $6, 1, 'EBR bulk partial', true)`,
+        [tpl2, f.A, f.USER, f.CLIENT, f.CAT, f.ITEM]);
+      // Clock-independent: whatever day the service calls "today" (UTC or SAST, either side of midnight),
+      // day(-3)/day(-2) are past and day(+2)/day(+3) are future. Only day(-1)..day(+1) depend on the clock.
+      const day = (offset: number) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+      const r = await f.call(bulkRoute, 'POST',
+        { templateId: tpl2, dateFrom: day(-3), dateTo: day(3), weekdays: [0, 1, 2, 3, 4, 5, 6] });
+      expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
+      const data = r.body.data as { created: number; skipped: number; failed: Array<{ date: string; error: string }> };
+      expect(data.created + data.failed.length).toBe(7);
+      for (const fl of data.failed) expect(fl.error).toBe('entry date cannot be in the future');
+      const failedDates = data.failed.map((x) => x.date);
+      expect(failedDates).toEqual(expect.arrayContaining([day(2), day(3)]));
+      expect(failedDates).not.toContain(day(-3));
+      expect(failedDates).not.toContain(day(-2));
+      expect(await f.entriesNamed('EBR bulk partial')).toBe(data.created);
+    });
   });
 
   describe('MCP log_time_entry job_id', () => {

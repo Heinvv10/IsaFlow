@@ -1,10 +1,11 @@
 /**
- * Bulk fill-from-template: which failures are per-date. A refusal keeps its own
- * message; a data error on one row (SQLSTATE class 22/23) is reported with a
- * fixed sentence — its text can name tables and constraints — and logged at
- * warn. Everything else (a statement timeout, an aborted transaction, a lost
- * connection, a non-Error throw) is a server fault and must propagate, so the
- * route 500s and the request rolls back instead of answering a quiet 201.
+ * Bulk fill-from-template: which failures are per-date. Only a refusal (the
+ * job fence, PracticeEntryRefusal) is that date's failure, reported with its
+ * message and logged at warn. Every database error — even a class 22/23 one,
+ * none of which valid input can reach on this INSERT — and every other throw
+ * (an aborted transaction, a lost connection, a non-Error value) is a fault
+ * and must propagate, so the route 500s and the request rolls back instead of
+ * answering a quiet 201.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -40,6 +41,9 @@ const readsPass = () => {
   sqlMock.mockResolvedValueOnce([{ id: CLIENT }]).mockResolvedValueOnce([{ id: CATEGORY }]).mockResolvedValueOnce([{ id: WORK_ITEM }]);
   resolveRateMock.mockResolvedValueOnce(850);
 };
+const inserted = (date: string) => ({ id: `e-${date}`, company_id: COMPANY, user_id: USER, entry_date: date, hours: 1,
+  practice_client_id: CLIENT, job_category_id: CATEGORY, work_item_id: WORK_ITEM, task_description: 'Work', billable: true,
+  origin: 'recurring', status: 'draft', created_at: '', updated_at: '' });
 const run = () => bulkCreateFromTemplate(COMPANY, USER, { templateId: 't', dateFrom: '2026-04-13', dateTo: '2026-04-15' });
 
 beforeEach(() => {
@@ -49,31 +53,27 @@ beforeEach(() => {
 });
 
 describe('bulkCreateFromTemplate per-date failures', () => {
-  it('keeps a refusal\'s message and replaces a data error\'s text with the fixed sentence, logging each at warn', async () => {
-    // Mon 2026-04-13: the three reads pass, the INSERT fails as Postgres would.
+  it('a refusal is that date\'s failure with its message, logged at warn; the other dates are written', async () => {
     readsPass();
-    sqlMock.mockRejectedValueOnce(pgError('duplicate key value violates unique constraint "time_entries_pkey"', '23505'));
-    // Tue 2026-04-14: the client read finds nothing — the service's own refusal.
-    sqlMock.mockResolvedValueOnce([]);
-    // Wed 2026-04-15: a data exception (22P02) in a read.
-    sqlMock.mockRejectedValueOnce(pgError('invalid input syntax for type uuid: "x"', '22P02'));
+    sqlMock.mockResolvedValueOnce([inserted('2026-04-13')]);
+    sqlMock.mockResolvedValueOnce([]); // 2026-04-14: the client read finds nothing — the service's refusal
+    readsPass();
+    sqlMock.mockResolvedValueOnce([inserted('2026-04-15')]);
 
     const result = await run();
-    expect(result.created).toBe(0);
-    expect(result.failed).toEqual([
-      { date: '2026-04-13', error: 'Could not create this entry' },
-      { date: '2026-04-14', error: 'practice client not found or not active' },
-      { date: '2026-04-15', error: 'Could not create this entry' },
-    ]);
-    const warned = vi.mocked(log.warn).mock.calls.map((c) => c[1] as { date: string; code: unknown });
-    expect(warned).toEqual([
-      expect.objectContaining({ date: '2026-04-13', code: '23505' }),
-      expect.objectContaining({ date: '2026-04-14', code: null }),
-      expect.objectContaining({ date: '2026-04-15', code: '22P02' }),
+    expect(result.created).toBe(2);
+    expect(result.failed).toEqual([{ date: '2026-04-14', error: 'practice client not found or not active' }]);
+    expect(vi.mocked(log.warn).mock.calls.map((c) => c[1])).toEqual([
+      expect.objectContaining({ date: '2026-04-14', error: 'practice client not found or not active' }),
     ]);
   });
 
   it.each([
+    ['a unique violation (23505)', () => pgError('duplicate key value violates unique constraint "time_entries_pkey"', '23505')],
+    ['a check violation (23514)', () => pgError('new row violates check constraint', '23514')],
+    ['a NOT NULL column a deploy added (23502)', () => pgError('null value in column "x" violates not-null constraint', '23502')],
+    ['an FK violation that is not 851\'s (23503)', () => pgError('insert or update violates foreign key constraint "y"', '23503')],
+    ['bad input syntax, a code bug (22P02)', () => pgError('invalid input syntax for type uuid: "null"', '22P02')],
     ['a statement timeout (57014)', () => pgError('canceling statement due to statement timeout', '57014')],
     ['a deadlock (40P01)', () => pgError('deadlock detected', '40P01')],
     ['a missing column after a deploy (42703)', () => pgError('column "x" does not exist', '42703')],
@@ -82,12 +82,10 @@ describe('bulkCreateFromTemplate per-date failures', () => {
     ['a thrown non-Error value', () => 'boom'],
   ])('re-throws %s on the second date instead of reporting it', async (_l, fault) => {
     readsPass();
-    sqlMock.mockResolvedValueOnce([{ id: 'e1', company_id: COMPANY, user_id: USER, entry_date: '2026-04-13', hours: 1,
-      practice_client_id: CLIENT, job_category_id: CATEGORY, work_item_id: WORK_ITEM, task_description: 'Work', billable: true,
-      origin: 'recurring', status: 'draft', created_at: '', updated_at: '' }]);
+    sqlMock.mockResolvedValueOnce([inserted('2026-04-13')]);
     readsPass();
     sqlMock.mockRejectedValueOnce(fault());
-    const thrown = fault();
-    await expect(run()).rejects.toEqual(thrown);
+    await expect(run()).rejects.toEqual(fault());
+    expect(log.warn).not.toHaveBeenCalled();
   });
 });

@@ -16,7 +16,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { isJobFenceRefusal } from '@/modules/accounting/services/practice/practiceClientFence';
 import { PracticeEntryRefusal } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
-import { isJsonObjectBody } from '@/lib/validation';
+import { hasNul, isJsonObjectBody, isUuidParam, NUL_MESSAGE } from '@/lib/validation';
 import {
   bulkCreateFromTemplate,
   type BulkFromTemplateInput,
@@ -34,6 +34,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (!body.templateId || typeof body.templateId !== 'string') {
     return apiResponse.badRequest(res, 'templateId is required');
   }
+  // The template read casts ::UUID with no savepoint: a malformed id would be a 22P02 → 500.
+  if (!isUuidParam(body.templateId)) return apiResponse.badRequest(res, 'templateId must be a UUID');
+  if (body.weekdays !== undefined && !(Array.isArray(body.weekdays)
+    && body.weekdays.every((d: unknown) => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6))) {
+    return apiResponse.badRequest(res, 'weekdays must be an array of whole numbers from 0 (Sunday) to 6 (Saturday)');
+  }
+  // Postgres text cannot hold a NUL (22021): refused here, since bulk treats any database error as a fault.
+  if (hasNul(body.taskOverride)) return apiResponse.badRequest(res, NUL_MESSAGE);
   if (!body.dateFrom || typeof body.dateFrom !== 'string') {
     return apiResponse.badRequest(res, 'dateFrom is required (YYYY-MM-DD)');
   }
