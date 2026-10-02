@@ -43,6 +43,6 @@ Most files below exist only for the 300-line cap and are re-exported from the or
 - `anchorRow`/`anchorColumn` throw when nothing matches: a footnote with no anchor is a defect.
 - Render each chart SVG at `svgBoxFor`'s plot box and pass that same measure to the stylesheet (`--pack-chart-plot-mm`); an SVG whose viewBox mismatches its box is letterboxed (`preserveAspectRatio` meet) and the chart silently shrinks.
 - Tables on one page share one column grid (`packScorecardColumns`, `packMattersColumns`).
-- Draft status comes only from `packDraftState`; a part month is marked only through `packPartialMonth`; the comparative label comes from `comparativePeriod` via `packPeriodLabel`, never re-formatted.
+- Draft status comes only from `packDraftState`; a part month is marked only through `packPartialMonth`, and every first-to-last comparison (page 10 panels and headline, page 3 sparklines) takes the series through `wholeMonthsOf` — the stub is a page-5 row, never an end point; the comparative label comes from `comparativePeriod` via `packPeriodLabel`, never re-formatted.
 - A bridge that foots to the cent draws no plug bar; compare floats with `MONEY_TOLERANCE`. A mid-statement subtotal bar is `kind: 'subtotal'`.
 - Import cycles here fail at first call, not at compile time (an undefined `SOURCES`); keep the leaves leaves.

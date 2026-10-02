@@ -31,6 +31,7 @@ import {
 } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
+import { wholeMonthsOf } from './packPartialMonth';
 import { sharedDomain, sparklineOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import type { PackKpiTile } from './packPageModel';
@@ -205,10 +206,14 @@ function recordRead(
 
 export function buildHighlightTiles(
   set: PackFigureSet,
-  trend: PackTrendPoint[],
+  series: PackTrendPoint[],
   p: PackFigureProvenance,
 ): PackKpiTile[] {
   const { current, prior } = set;
+  // WHOLE MONTHS ONLY. A sparkline IS a first-to-last comparison, and on
+  // Velocity Fibre's pack every one ended in a dive to the two days of
+  // October that had been posted. See `wholeMonthsOf`.
+  const trend = wholeMonthsOf(series);
 
   const revenue = p.figure('packFigureSet.current.revenue', current.revenue, 'money');
   const netProfit = p.figure('packFigureSet.current.netProfit', current.netProfit, 'money');

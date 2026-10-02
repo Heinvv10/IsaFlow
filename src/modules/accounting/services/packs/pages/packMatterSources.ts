@@ -11,6 +11,7 @@ import { formatMoney, inScale } from '@/lib/format/money';
 import { PACK_SCALE } from './packBasis';
 import { getBankAccountsStatus, type BankAccountStatusRow } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getUnusualJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
+import { bulkLoadedMatter } from './packBulkLoadedJournals';
 import { getOverdueStatutoryFilings } from '@/modules/accounting/services/reports/statutoryFilingsService';
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
 import { formatPackDate } from './packPeriodLabel';
@@ -216,9 +217,9 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
 async function unusualJournalMatters(
   companyId: string,
   window: PeriodWindow,
-): Promise<PackMatter[]> {
-  const flags = await getUnusualJournals(companyId, window);
-  return flags.map((f) => ({
+): Promise<SourceResult> {
+  const { flags, bulkLoaded } = await getUnusualJournals(companyId, window);
+  const journals: PackMatter[] = flags.map((f) => ({
     kind: 'finding' as const,
     issue: `Journal ${f.entryNumber ?? f.entryId} (${
       f.reason === 'round_number' ? 'large round-number amount' : 'recorded well after its entry date'
@@ -228,6 +229,8 @@ async function unusualJournalMatters(
     movement: NO_PRIOR_MEETING_RECORD,
     decisionRequired: BOARD_DECISIONS.unusualJournal,
   }));
+  // A bulk load is one matter of its own — see `bulkLoadedMatter`.
+  return { matters: bulkLoaded === null ? journals : [bulkLoadedMatter(bulkLoaded, NO_PRIOR_MEETING_RECORD), ...journals] };
 }
 
 async function overdueFilingMatters(companyId: string, window: PeriodWindow): Promise<PackMatter[]> {
@@ -279,6 +282,6 @@ export const SOURCES: ReadonlyArray<{
 }> = [
   { label: 'aged debtors', check: 'aged debtor concentration', build: agedDebtorConcentrationMatters },
   { label: 'unreconciled bank items', check: 'unreconciled bank items', build: async (companyId) => ({ matters: await unreconciledBankMatters(companyId) }) },
-  { label: 'unusual journals', check: 'unusual journals', build: async (c, w) => ({ matters: await unusualJournalMatters(c, w) }) },
+  { label: 'unusual journals', check: 'unusual journals', build: unusualJournalMatters },
   { label: 'overdue statutory filings', check: 'overdue statutory filings', build: async (c, w) => ({ matters: await overdueFilingMatters(c, w) }) },
 ];

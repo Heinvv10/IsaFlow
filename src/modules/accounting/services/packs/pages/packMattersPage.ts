@@ -12,6 +12,7 @@ import { failedChecksClause } from '@/modules/accounting/services/packs/narrativ
 import { disclose, note } from './packPageBlocks';
 import { mattersExposure, omittedQuantum, type SelectedMatters } from './packMattersPrinted';
 import { matterSourcesInWords } from './packDerivedMatters';
+import { groupedCount } from './packMatterWords';
 import { remainingPageMm } from './packPageFit';
 import { MATTERS_OMITTED_NOTE_MM } from './packPageMetrics';
 import { notMeaningfulNotesMm } from './packBlockHeights';
@@ -69,6 +70,9 @@ export function mattersTitle(matters: PackMatter[], scale: MoneyScale): string {
   // word — exposure — under two conventions. See `mattersExposure`.
   const total = mattersExposure(findings) ?? 0;
   const noun = findings.length === 1 ? 'matter requires' : 'matters require';
+  // GROUPED, like every figure on the sheet: Velocity Fibre's read "19588
+  // matters require a board decision, 19587 of them carrying 579 019".
+  const n = groupedCount;
   // WITH ITS UNIT. It read "26 of them carrying 1 675 of exposure" over a note
   // reading "They come to 658 R'000 in total" — two figures about two
   // different sets, one of which said what it was measured in. A reader with
@@ -80,8 +84,8 @@ export function mattersTitle(matters: PackMatter[], scale: MoneyScale): string {
   // `R'000` trailed a number instead of heading a column.
   const exposure = quantified.length === 0
     ? 'none of them carrying a single rand amount'
-    : `${quantified.length} of them carrying ${inScale(`${formatMoney(total, { scale })}${EXPOSURE_CLAUSE}`, scale)}`;
-  return `${findings.length} ${noun} a board decision, ${exposure}.${failedClause}`;
+    : `${n(quantified.length)} of them carrying ${inScale(`${formatMoney(total, { scale })}${EXPOSURE_CLAUSE}`, scale)}`;
+  return `${n(findings.length)} ${noun} a board decision, ${exposure}.${failedClause}`;
 }
 
 /**

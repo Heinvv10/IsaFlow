@@ -6,7 +6,7 @@
 
 import type { MoneyScale } from '@/lib/format/money';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
-import { monthLabel } from '@/modules/accounting/services/packs/pages/packPartialMonth';
+import { monthLabel, wholeMonthsOf } from '@/modules/accounting/services/packs/pages/packPartialMonth';
 import { money, pctChangeClause } from './derivedProseFigures';
 
 /**
@@ -33,12 +33,16 @@ import { money, pctChangeClause } from './derivedProseFigures';
  * the two figures it prints are money.
  */
 export function trendsTitle(
-  trend: PackTrendPoint[],
+  series: PackTrendPoint[],
   scale: MoneyScale,
   /** How many measures this page tracks. Read ONLY by the empty-series
    *  branch, which has no figure of its own to state. */
   planned: number,
 ): string {
+  // FIRST AND LAST WHOLE MONTH — the panels below draw nothing else, and a
+  // two-day stub as "the last month" headlined Velocity Fibre's page as
+  // "Revenue is down 100.0%". See `wholeMonthsOf`.
+  const trend = wholeMonthsOf(series);
   if (trend.length === 0) {
     return `No monthly series covers this period, so none of the ${planned} measures `
       + 'this page tracks is drawn month by month.';

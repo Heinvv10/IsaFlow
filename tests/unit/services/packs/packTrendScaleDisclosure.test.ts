@@ -38,6 +38,9 @@ function painted(svg: string): string[] {
  */
 const withRatios: PackTrendPoint[] = liveDemoTrend.map((point, i) => ({
   ...point,
+  // WHOLE: these are scale fixtures whose extremes sit in the twelfth month,
+  // and page 10 leaves a part month out (`wholeMonthsOf`).
+  partial: false,
   revenue: 100_000 + i * 10_000,
   grossMarginPct: 40 + i,
   debtorDays: 30 + i * 2,
@@ -54,6 +57,9 @@ const withRatios: PackTrendPoint[] = liveDemoTrend.map((point, i) => ({
  */
 const roundingSplit: PackTrendPoint[] = liveDemoTrend.map((point, i) => ({
   ...point,
+  // WHOLE: these are scale fixtures whose extremes sit in the twelfth month,
+  // and page 10 leaves a part month out (`wholeMonthsOf`).
+  partial: false,
   revenue: 0,
   operatingExpenses: i === 6 ? 58_400 : 4_000 + i * 100,
   netProfit: i === 6 ? 1_908_400 : -100_000 - i * 1_000,
@@ -395,6 +401,8 @@ describe('the share page 10 prints is the share page 10 defines', () => {
    */
   const wholeShare: PackTrendPoint[] = liveDemoTrend.map((point, i) => ({
     ...point,
+    // WHOLE, as above: the twelfth month carries the figures under test.
+    partial: false,
     revenue: i === 11 ? 10_000 : 1_000,
     operatingExpenses: i === 11 ? 16_000 : 1_000,
     netProfit: i === 11 ? 900_000 : 100_000,

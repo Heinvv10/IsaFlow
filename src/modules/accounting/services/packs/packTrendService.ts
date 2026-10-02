@@ -266,7 +266,8 @@ export async function getPackTrend(companyId: string, to: string, months = 12): 
     // month the revenue beside it is `daysCovered` days of sales: seven days'
     // turnover scaled by thirty overstated the stub about fourfold, on the
     // point every debtor-days panel ends on.
-    const debtorPct = marginPct(receivableRunning, revenue);
+    // And none on a net-credit book: `readDebtorDays`' rule, month by month.
+    const debtorPct = receivableRunning < 0 ? null : marginPct(receivableRunning, revenue);
     const debtorDays = debtorPct === null ? null : round2((debtorPct / 100) * daysCovered);
 
     return {
