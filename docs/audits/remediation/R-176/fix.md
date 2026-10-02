@@ -496,6 +496,16 @@ Both reviewers and /review said SHIP on `ed3edf2cf` with four LOWs, all fixed:
 4. The docs named two exceptions where there are three; corrected here and in
    `src/lib/auth/.claude.md`.
 
+## Deployed
+
+- #603 was merged as `f68bc0487` and deployed in `77e184aa4` at 06:45 SAST on 2026-10-02, on Hein's "deploy", with #602, #603 and #604. Master's later #349 was not included (the deploy worktree was pinned to `77e184aa4`).
+- The deploy applied 0 migrations. Golden paths and integrity were green. `RELEASE_SHA` is `77e184aa4`.
+- Fix strings are in the live server chunks.
+- Live checks: health 200; a wrong-password login answers 401, not 500; an unauthenticated pay-now answers 401.
+- Production runs one app process with the limiter pool at its default of 10 (`RATE_LIMIT_POOL_MAX` unset). The shared Postgres has `max_connections` 100; 46 were in use after the deploy.
+- PR #604 was merged with its Golden Paths check red on the first run (a merge guard that could not fail). Re-runs on the PR head and on master were green; the master failure was connection exhaustion on the shared Postgres.
+- The rollback target is `ec6a483fc`, code only.
+
 ## Migration / rollback
 
 There is no migration. To roll back, revert the PR.

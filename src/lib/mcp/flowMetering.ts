@@ -250,6 +250,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Cancelling a session posts nothing and unwinds work the agent may have
   // created for free — pricing the undo of free work is the wrong incentive.
   cancel_bank_reconciliation: null,
+  // Reopening posts nothing; it is a correction, free like reopen_fiscal_period.
+  reopen_bank_reconciliation: null,
   // Closing a period posts nothing and the app meters neither the workbench nor
   // the fiscal-period screen; reopening is a correction, free like every other.
   close_fiscal_period: null,

@@ -31,6 +31,13 @@ const GUARDED_DIRS = [
   'components/accounting/share',
   'components/accounting/annotations',
   'components/accounting/commentary',
+  // The printed pack. Its page model is now composed SERVER-side and adopted
+  // in the browser, so these components sit one import away from
+  // `renderChartSvg` — which pulls `node:crypto` and the whole of ECharts.
+  // That is why the brand and its two guards live in `trustedChartSvg.ts`
+  // rather than in `ssrSvg.ts`: a client file that reached the latter would
+  // not merely ship a chart library it cannot use, it would fail the build.
+  'components/accounting/packs',
 ];
 
 function listSourceFiles(dir: string): string[] {
@@ -118,7 +125,7 @@ function reachesForbidden(entry: string, visited: Set<string>): boolean {
   return false;
 }
 
-describe('WS3 client components never bundle @/lib/neon or node:crypto', () => {
+describe('client components never bundle @/lib/neon or node:crypto', () => {
   for (const dir of GUARDED_DIRS) {
     const absDir = path.join(SRC_ROOT, dir);
     for (const file of listSourceFiles(absDir)) {

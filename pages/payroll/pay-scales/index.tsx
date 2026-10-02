@@ -6,6 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle, Plus } from 'lucide-react';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
 
 interface PayScale {
   id: string;
@@ -84,35 +85,37 @@ export default function PayScalesPage() {
           <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">Pay Scales</h1>
         </div>
 
-        <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-5">
-          <h2 className="text-base font-semibold text-[var(--ff-text-primary)] mb-3">New pay scale</h2>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
-            <input placeholder="Code (G5)" value={form.code}
-              onChange={e => setForm({ ...form, code: e.target.value })}
-              className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
-            <input placeholder="Name" value={form.name}
-              onChange={e => setForm({ ...form, name: e.target.value })}
-              className="col-span-2 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
-            <input type="number" placeholder="Grade" value={form.gradeLevel}
-              onChange={e => setForm({ ...form, gradeLevel: Number(e.target.value) })}
-              className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
-            <input type="number" placeholder="Min" value={form.minSalary}
-              onChange={e => setForm({ ...form, minSalary: Number(e.target.value) })}
-              className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
-            <input type="number" placeholder="Mid" value={form.midSalary}
-              onChange={e => setForm({ ...form, midSalary: Number(e.target.value) })}
-              className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
-          </div>
-          <div className="mt-3 flex items-center gap-3">
-            <input type="number" placeholder="Max" value={form.maxSalary}
-              onChange={e => setForm({ ...form, maxSalary: Number(e.target.value) })}
-              className="w-32 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-sm text-[var(--ff-text-primary)]" />
-            <button onClick={handleCreate} disabled={creating || !form.code.trim() || !form.name.trim()}
-              className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
-              <Plus className="h-4 w-4" /> Create
-            </button>
-          </div>
-        </section>
+        <WriteOnly>
+          <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-5">
+            <h2 className="text-base font-semibold text-[var(--ff-text-primary)] mb-3">New pay scale</h2>
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
+              <input placeholder="Code (G5)" value={form.code}
+                onChange={e => setForm({ ...form, code: e.target.value })}
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+              <input placeholder="Name" value={form.name}
+                onChange={e => setForm({ ...form, name: e.target.value })}
+                className="col-span-2 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+              <input type="number" placeholder="Grade" value={form.gradeLevel}
+                onChange={e => setForm({ ...form, gradeLevel: Number(e.target.value) })}
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+              <input type="number" placeholder="Min" value={form.minSalary}
+                onChange={e => setForm({ ...form, minSalary: Number(e.target.value) })}
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+              <input type="number" placeholder="Mid" value={form.midSalary}
+                onChange={e => setForm({ ...form, midSalary: Number(e.target.value) })}
+                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+            </div>
+            <div className="mt-3 flex items-center gap-3">
+              <input type="number" placeholder="Max" value={form.maxSalary}
+                onChange={e => setForm({ ...form, maxSalary: Number(e.target.value) })}
+                className="w-32 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-sm text-[var(--ff-text-primary)]" />
+              <button onClick={handleCreate} disabled={creating || !form.code.trim() || !form.name.trim()}
+                className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
+                <Plus className="h-4 w-4" /> Create
+              </button>
+            </div>
+          </section>
+        </WriteOnly>
 
         {error && (
           <div className="flex items-center gap-2 text-sm text-red-400">

@@ -4,6 +4,7 @@ import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import { verifyToken } from './gotrue';
+import { respondIfAuthUnavailable } from './authUpstream';
 import { authenticatePrintToken } from './withAuthPrint';
 import { getAuthPool } from './authPool';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
@@ -55,6 +56,8 @@ export function withAuth(handler: Handler): NextApiHandler {
     try {
       claims = await verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]);
     } catch (err) {
+      // D9: GoTrue could not answer. Not a verdict on the token: 503, cookies kept.
+      if (respondIfAuthUnavailable(res, err, 'withAuth')) return;
       // Print-pipeline fallback (src/lib/pdf/renderPagePdf.ts): a headless
       // Chromium request carries a short-lived print token instead of a
       // GoTrue session in the SAME cookie. The whole decision lives in

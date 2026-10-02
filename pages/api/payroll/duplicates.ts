@@ -14,6 +14,7 @@ import {
   type CompanyAuthedRequest,
 } from '@/lib/auth';
 import { findDuplicates } from '@/modules/accounting/services/payroll/payrollDuplicateDetectionService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -28,4 +29,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.success(res, result);
 }
 
-export default withAuth(withErrorHandler(handler));
+export default withAuth(withErrorHandler(withPayrollDetailAccess(handler)));

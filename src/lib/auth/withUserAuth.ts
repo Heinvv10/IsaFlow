@@ -2,6 +2,7 @@ import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 // src/lib/auth/withUserAuth.ts
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import { verifyToken } from './gotrue';
+import { respondIfAuthUnavailable } from './authUpstream';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE } from './cookies';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
@@ -28,6 +29,8 @@ export function withUserAuth(handler: Handler): NextApiHandler {
     try {
       claims = await verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]);
     } catch (err) {
+      // D9: GoTrue could not answer. Not a verdict on the token: 503, cookies kept.
+      if (respondIfAuthUnavailable(res, err, 'withUserAuth')) return;
       log.warn('withUserAuth: invalid token', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
       clearAuthCookies(res);
       return res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });

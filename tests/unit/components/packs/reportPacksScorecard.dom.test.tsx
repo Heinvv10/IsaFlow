@@ -13,6 +13,7 @@
  * The deck and the printed page already went through the shared decision.
  * These cases pin the screen to it too.
  */
+import { useApiJsonOverMock } from '../../helpers/apiJsonOverMock';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
@@ -32,13 +33,13 @@ vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-const apiFetchMock = vi.fn();
-vi.mock('@/lib/apiFetch', () => ({
-  apiFetch: (...a: unknown[]) => apiFetchMock(...a),
-  assertOk: vi.fn(() => Promise.resolve({})),
-}));
+vi.mock('@/lib/apiFetch', async () => (await import('../../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 
+import { apiFetch } from '@/lib/apiFetch';
 import ReportPacksPage from '../../../../pages/accounting/reports/report-packs';
+
+const apiFetchMock = vi.mocked(apiFetch);
 
 /** Exactly what buildKPIScorecard emits for a ratio it could not compute. */
 const UNSCORED: KPIScorecardItem = {
@@ -105,8 +106,8 @@ describe('Report Packs screen — the KPI Scorecard tile', () => {
 
     render(<ReportPacksPage />);
 
-    await waitFor(() => expect(screen.getByText('2.32')).toBeInTheDocument());
-    expect(screen.getByText('/ 1.5')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('2.32×')).toBeInTheDocument());
+    expect(screen.getByText('/ 1.50×')).toBeInTheDocument();
   });
 
   it('shows both kinds side by side, which is what an insolvent company looks like', async () => {
@@ -114,7 +115,7 @@ describe('Report Packs screen — the KPI Scorecard tile', () => {
 
     render(<ReportPacksPage />);
 
-    await waitFor(() => expect(screen.getByText('2.32')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('2.32×')).toBeInTheDocument());
     expect(screen.getByText('Not meaningful: liabilities exceed assets')).toBeInTheDocument();
   });
 

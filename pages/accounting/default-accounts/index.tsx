@@ -8,10 +8,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Settings, Loader2, AlertCircle, Save } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { roleCandidates, type CandidateAccount } from '@/modules/accounting/services/gl/defaultAccountRoles';
 
-interface GLAccount {
-  id: string;
-  accountCode?: string;
+interface GLAccount extends CandidateAccount {
   account_code?: string;
   accountName?: string;
   account_name?: string;
@@ -62,7 +61,9 @@ export default function DefaultAccountsPage() {
     setIsLoading(true);
     try {
       const [acctRes, mapRes] = await Promise.all([
-        apiFetch('/api/accounting/chart-of-accounts?level=3'),
+        // The whole chart, inactive rows included: each row offers what the save
+        // accepts for its role, and an inactive child still makes its parent a header.
+        apiFetch('/api/accounting/chart-of-accounts?includeInactive=true'),
         apiFetch('/api/accounting/default-accounts'),
       ]);
       if (!acctRes.ok || !mapRes.ok) throw new Error('load failed');   // apiFetch resolves on 4xx/5xx
@@ -192,7 +193,7 @@ export default function DefaultAccountsPage() {
                           className="w-80 px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
                         >
                           <option value="">Not configured</option>
-                          {glAccounts.map(a => (
+                          {roleCandidates(mapping.key, glAccounts, loaded[mapping.key]).map(a => (
                             <option key={a.id} value={a.id}>{(a.accountCode ?? a.account_code)} — {(a.accountName ?? a.account_name)}</option>
                           ))}
                         </select>

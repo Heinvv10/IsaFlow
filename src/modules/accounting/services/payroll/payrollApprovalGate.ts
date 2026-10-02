@@ -58,6 +58,20 @@ export interface PayrollApprovalGate {
   planHash: string;
 }
 
+/**
+ * What GET …/journal-plan returns. The plan's own `blockers` list is the poster's
+ * raw view: it still holds run_not_approved and already_posted, which approving
+ * resolves, so it disagrees with `blocker` (the one refusal approval would
+ * raise). Nothing reads it from the response, so it is not sent.
+ */
+export type JournalPlanPreview = Omit<PayrollApprovalGate, 'plan'> & { plan: Omit<PayrollJournalPlan, 'blockers'> };
+
+/** The preview as the route sends it: the gate without the plan's raw blocker list. Hash and `blocker` are unchanged. */
+export function toJournalPlanPreview(gate: PayrollApprovalGate): JournalPlanPreview {
+  const { blockers: _raw, ...plan } = gate.plan;
+  return { ...gate, plan };
+}
+
 const cents = (n: number): number => Math.round(n * 100);
 
 async function readPostedJournal(companyId: string, journalId: string): Promise<PostedPayrollJournal | null> {

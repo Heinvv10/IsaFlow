@@ -24,7 +24,7 @@
 // allow-list is the lever if that ever stops holding — not this field.
 
 import {
-  PAPER_A4_IN, PDF_MARGIN_MM, PRINT_READY_SELECTOR, PRINT_READY_TIMEOUT_MS,
+  PAPER_A4_IN, PDF_MARGIN_MM, PRINT_ERROR_ATTRIBUTE_PREFIX, PRINT_READY_SELECTOR, PRINT_READY_TIMEOUT_MS,
   mmToIn, type PdfRenderRequest,
 } from '../pdfTransport';
 
@@ -76,11 +76,26 @@ export function buildGotenbergFields(
     // Matches the Gotenberg 8 default; set explicitly so the intent survives
     // an upstream default change.
     emulatedMediaType: 'print',
-    // The same gate the Playwright transport waits on. A waitDelay would be a
-    // guess that either truncates a slow pack or wastes seconds on a fast one.
-    // JSON.stringify escapes the selector so a future selector containing a
-    // quote cannot break out of the expression string.
-    waitForExpression: `document.querySelector(${JSON.stringify(PRINT_READY_SELECTOR)}) !== null`,
+    // The same gate the Playwright transport waits on — ready OR failed. A
+    // waitDelay would be a guess that either truncates a slow pack or wastes
+    // seconds on a fast one. JSON.stringify escapes the selector and the
+    // prefix so neither can break out of the expression string.
+    //
+    // AN ERROR ATTRIBUTE MAKES THE EXPRESSION THROW, and that is the whole
+    // mechanism. Measured against gotenberg/gotenberg:8: an expression that
+    // throws is answered `400 … (waitForExpression) returned an exception` in
+    // ~0.2 s with no PDF, while a healthy page resolves normally. An
+    // expression that merely RESOLVED on the attribute would print the unready
+    // page with a 200 (the earlier form of this), and `failOnConsoleExceptions`
+    // is deliberately NOT used as the gate: it would fail every production
+    // pack on any unrelated uncaught exception or unhandled rejection the
+    // print page ever raised, healthy or not.
+    waitForExpression:
+      '(function () {'
+      + ` var bad = Array.from(document.documentElement.attributes).filter(function (a) { return a.name.startsWith(${JSON.stringify(PRINT_ERROR_ATTRIBUTE_PREFIX)}); });`
+      + " if (bad.length > 0) throw new Error('print page cannot render: ' + bad.map(function (a) { return a.value; }).join('; '));"
+      + ` return document.querySelector(${JSON.stringify(PRINT_READY_SELECTOR)}) !== null;`
+      + ' })()',
     // Matches the Gotenberg 8 default (true); set explicitly because the app
     // holds background connections open, so network-idle would never fire if
     // this were ever false.
@@ -91,11 +106,18 @@ export function buildGotenbergFields(
     // so a form snapshot without it never implies "metadata cleared".
     ...(request.metadata
       ? {
+          // The custom keys are sent too, under names that cannot collide
+          // with the standard four — but Gotenberg's exiftool pass IGNORES a
+          // key it has no tag for (measured: `Custom Metadata: no`), so they
+          // arrive in the file only because `gotenbergTransport` writes them
+          // itself afterwards. Kept here so a Gotenberg that learns to write
+          // them needs no change.
           metadata: JSON.stringify({
             Title: request.metadata.title,
             Author: request.metadata.author,
             Subject: request.metadata.subject,
             Creator: request.metadata.creator,
+            ...request.metadata.custom,
           }),
         }
       : {}),

@@ -19,6 +19,7 @@ import {
   type LoanMethod,
   type LoanStatus,
 } from '@/modules/accounting/services/payroll/payrollLoanService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 const CreateBody = z
   .object({
@@ -76,4 +77,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

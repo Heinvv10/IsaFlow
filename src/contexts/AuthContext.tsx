@@ -9,7 +9,7 @@ import {
 } from 'react';
 import type { AuthRole } from '@/lib/auth/types';
 import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
-import { log } from '@/lib/logger';
+import { useSessionCheck } from './useSessionCheck';
 
 /**
  * Authenticated user shape returned from /api/auth/me
@@ -33,6 +33,10 @@ interface AuthContextType {
   user: AuthUser | null;
   /** True while the initial session check is in progress */
   loading: boolean;
+  /** D9: the last /api/auth/me check hit an outage (5xx/408/429/unreachable), not a sign-out */
+  authUnavailable: boolean;
+  /** D9: a /api/auth/me check is in flight (Retry shows "Checking…") */
+  authChecking: boolean;
   /** Last authentication error message */
   error: string | null;
   /** True when a valid user session exists */
@@ -111,38 +115,15 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  /**
-   * Fetch current session from the API
-   */
-  const checkAuth = useCallback(async () => {
-    try {
-      const res = await fetch('/api/auth/me', { credentials: 'include' });
-
-      if (res.ok) {
-        const data = await res.json();
-        // Support both { data: { user } } and { data: user } shapes
-        const raw = data.data?.user ?? data.data ?? data.user;
-        if (raw) {
-          setUser(mapApiUser(raw));
-        } else {
-          setUser(null);
-        }
-      } else {
-        setUser(null);
-      }
-    } catch (err) {
-      setUser(null);
-      log.error('Failed to check auth session', { error: err }, 'auth-context');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const applyUser = useCallback((raw: Record<string, unknown> | null) => setUser(raw ? mapApiUser(raw) : null), []);
+  const { checkAuth, authUnavailable, authChecking, startRetries } = useSessionCheck(applyUser, setLoading);
 
   useEffect(() => {
     if (skipFetch) {
       setLoading(false);
       return;
     }
+    const stopRetries = startRetries();
 
     void checkAuth();
 
@@ -156,8 +137,9 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
     return () => {
       window.removeEventListener('focus', onFocus);
       clearInterval(interval);
+      stopRetries();
     };
-  }, [checkAuth, skipFetch]);
+  }, [checkAuth, skipFetch, startRetries]);
 
   /**
    * Sign in with email/password credentials.
@@ -261,6 +243,8 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
   const value: AuthContextType = useMemo(() => ({
     user,
     loading,
+    authUnavailable,
+    authChecking,
     error,
     isAuthenticated: user !== null,
     login,
@@ -270,7 +254,7 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
     hasPermission,
     hasRole,
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [user, loading, error]);
+  }), [user, loading, authUnavailable, authChecking, error]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

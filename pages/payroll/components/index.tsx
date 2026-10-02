@@ -6,6 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { Tags, Loader2, Plus } from 'lucide-react';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
 
 type ComponentType = 'earning' | 'deduction' | 'employer_contribution';
 
@@ -109,47 +110,49 @@ export default function PayComponentsPage() {
             <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
           )}
 
-          <form onSubmit={create} className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4 space-y-4">
-            <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">New component</h2>
-            <div className="grid grid-cols-4 gap-4">
-              <div className="col-span-2">
-                <label className={label}>Name</label>
-                <input className={field} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Basic Salary" />
+          <WriteOnly>
+            <form onSubmit={create} className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4 space-y-4">
+              <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">New component</h2>
+              <div className="grid grid-cols-4 gap-4">
+                <div className="col-span-2">
+                  <label className={label}>Name</label>
+                  <input className={field} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Basic Salary" />
+                </div>
+                <div>
+                  <label className={label}>SARS code</label>
+                  <input className={field} value={sarsCode} onChange={e => setSarsCode(e.target.value)} />
+                  <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">{SARS_HINTS.join(' · ')}</p>
+                </div>
+                <div>
+                  <label className={label}>Type</label>
+                  <select className={field} value={type} onChange={e => setType(e.target.value as ComponentType)}>
+                    <option value="earning">Earning</option>
+                    <option value="deduction">Deduction</option>
+                    <option value="employer_contribution">Employer contribution</option>
+                  </select>
+                </div>
               </div>
-              <div>
-                <label className={label}>SARS code</label>
-                <input className={field} value={sarsCode} onChange={e => setSarsCode(e.target.value)} />
-                <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">{SARS_HINTS.join(' · ')}</p>
+              <div className="flex items-center gap-6">
+                <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
+                  <input type="checkbox" checked={isTaxable} onChange={e => setIsTaxable(e.target.checked)} />
+                  Taxable
+                </label>
+                <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
+                  <input type="checkbox" checked={isUifApplicable} onChange={e => setIsUifApplicable(e.target.checked)} />
+                  UIF applicable
+                </label>
+                <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
+                  <input type="checkbox" checked={isSdlApplicable} onChange={e => setIsSdlApplicable(e.target.checked)} />
+                  SDL applicable
+                </label>
+                <button type="submit" disabled={creating || !name}
+                  className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium">
+                  {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  Add component
+                </button>
               </div>
-              <div>
-                <label className={label}>Type</label>
-                <select className={field} value={type} onChange={e => setType(e.target.value as ComponentType)}>
-                  <option value="earning">Earning</option>
-                  <option value="deduction">Deduction</option>
-                  <option value="employer_contribution">Employer contribution</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex items-center gap-6">
-              <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
-                <input type="checkbox" checked={isTaxable} onChange={e => setIsTaxable(e.target.checked)} />
-                Taxable
-              </label>
-              <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
-                <input type="checkbox" checked={isUifApplicable} onChange={e => setIsUifApplicable(e.target.checked)} />
-                UIF applicable
-              </label>
-              <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
-                <input type="checkbox" checked={isSdlApplicable} onChange={e => setIsSdlApplicable(e.target.checked)} />
-                SDL applicable
-              </label>
-              <button type="submit" disabled={creating || !name}
-                className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium">
-                {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                Add component
-              </button>
-            </div>
-          </form>
+            </form>
+          </WriteOnly>
 
           {isLoading ? (
             <div className="flex items-center justify-center py-16">

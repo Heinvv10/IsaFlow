@@ -153,7 +153,7 @@ describe('CLAIM 8 — tenant and role', () => {
     await refused('viewer: preview', () => r.call(journalPlan as Route, 'GET', `/api/payroll/runs/${id}/journal-plan`, id, v), [403]);
     await refused('viewer: approve', () => r.api.approveWith(id, hash, v), [403]);
     await refused('viewer: calculate', () => r.api.calculate(id, v), [403]);
-    // 'viewer: create run' is its own test below: a known gap outside this PR.
+    // 'viewer: create run' is its own test below.
     expect((await r.api.approveWith(id, hash)).statusCode).toBe(200);
     await refused('viewer: reopen', () => r.api.reopen(id, v), [403]);
     await refused('viewer: reverse payroll journal', async () => r.api.reverse(String((await r.header(id)).journal_entry_id), v), [403]);
@@ -166,11 +166,12 @@ describe('CLAIM 8 — tenant and role', () => {
     expect(both).toBe(r.admin);
   }, 60000);
 
-  // Outside claim 8 and outside PR #596 (pages/api/payroll/runs/index.ts has no withWriteAccess and
-  // is unchanged by it). Recorded, not fixed: `it.fails` passes while the gap is open and goes red
-  // the day the route is gated, so this note cannot outlive the gap.
-  it.fails('KNOWN GAP (pre-existing): a viewer cannot create a pay run', async () => {
+  // Closed by D3 (POST /api/payroll/runs is withWriteAccess): this was an `it.fails` pinning the gap.
+  it('a viewer cannot create a pay run, and no header is written', async () => {
+    const count = async () => Number((await r.pool.query('SELECT count(*) AS n FROM payroll_run_headers WHERE company_id = $1', [r.company])).rows[0].n);
+    const before = await count();
     const made = await r.api.createRun(9, { user: viewer });
     expect(made.statusCode).toBe(403);
+    expect(await count()).toBe(before);
   });
 });

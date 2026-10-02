@@ -30,8 +30,45 @@ describe('buildGotenbergFields', () => {
   it('waits for the print-ready flag rather than a fixed delay', () => {
     const f = buildGotenbergFields(request, env);
     expect(f.waitForExpression).toContain(JSON.stringify(PRINT_READY_SELECTOR));
-    expect(f.waitForExpression).toBe(`document.querySelector(${JSON.stringify(PRINT_READY_SELECTOR)}) !== null`);
     expect(f.waitDelay).toBeUndefined();
+  });
+
+  /**
+   * READY, WAITING, OR THROWN — evaluated against a stub document rather than
+   * string-matched, so a wrong prefix or selector is a red test. A THROWN
+   * expression is how a print error fails the request (`400`, no PDF): one
+   * that resolved on the attribute would print the unready page with a 200.
+   */
+  describe('the wait expression', () => {
+    const f = buildGotenbergFields(request, env);
+    const run = (ready: boolean, attrs: Array<[string, string]>) => new Function('document', `return ${f.waitForExpression}`)({
+      querySelector: (sel: string) => (ready && sel === PRINT_READY_SELECTOR ? {} : null),
+      documentElement: { attributes: attrs.map(([name, value]) => ({ name, value })) },
+    });
+
+    it('is false while the page is neither ready nor failed, true once ready', () => {
+      expect(run(false, [['lang', 'en'], ['class', 'print-mode']])).toBe(false);
+      expect(run(true, [['lang', 'en']])).toBe(true);
+    });
+
+    it('THROWS, naming every reason, when any print-error attribute is present', () => {
+      expect(() => run(false, [['data-print-error-fonts', 'fonts: x']])).toThrow('print page cannot render: fonts: x');
+      expect(() => run(false, [['data-print-error-pages', 'pages: HTTP 422']])).toThrow(/pages: HTTP 422/);
+      expect(() => run(false, [['data-print-error-fonts', 'fonts: x'], ['data-print-error-pages', 'pages: y']]))
+        .toThrow('fonts: x; pages: y');
+    });
+
+    it('throws even if the page is also ready: an error attribute is never printed', () => {
+      expect(() => run(true, [['data-print-error-pages', 'pages: HTTP 500']])).toThrow();
+    });
+
+    it('does not mistake data-print-ready for an error', () => {
+      expect(run(false, [['data-print-ready', 'false']])).toBe(false);
+    });
+  });
+
+  it('does NOT use failOnConsoleExceptions as the gate: an unrelated uncaught exception must not fail a healthy pack', () => {
+    expect(buildGotenbergFields(request, env)).not.toHaveProperty('failOnConsoleExceptions');
   });
 
   it('emulates print media and prints backgrounds', () => {

@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { CreateTaxDirectiveModal } from '@/components/payroll/TaxDirectiveComponents';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 type DirectiveType = 'lump_sum' | 'retirement' | 'severance' | 'death';
 type DirectiveStatus = 'pending' | 'approved' | 'expired' | 'cancelled';
@@ -91,7 +92,7 @@ export default function TaxDirectivesPage() {
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (debouncedSearch) params.set('search', debouncedSearch);
       const res = await apiFetch(`/api/accounting/tax-directives?${params}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) { setError(payrollLoadMessage(res.status, 'Failed to load tax directives')); return; }
       const json = await res.json();
       const payload = json.data ?? json;
       setDirectives(Array.isArray(payload) ? payload : []);
