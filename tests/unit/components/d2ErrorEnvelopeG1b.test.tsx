@@ -74,7 +74,7 @@ describe('financial years: refusal message reaches the user', () => {
   });
 });
 
-const ELIM = { id: 'e1', number: 'ELM-1', type: 'interco_revenue', description: 'Sales', period: '2026-01-31', status: 'draft', amount: 100 };
+const ELIM = { id: 'e1', adjustmentNumber: 'ELM-1', adjustmentType: 'interco_revenue', description: 'Sales', periodStart: '2026-01-31', periodEnd: '2026-01-31', status: 'draft', lines: [{ debit: 100, credit: 0 }] };
 
 /** Refuses a consolidated-reports POST whose `action` matches, with `message`. */
 function scriptElim(failAction: string, message: string, item = ELIM) {

@@ -32,7 +32,7 @@ describe('D2 success envelope is honoured (group 1b)', () => {
   });
 
   it('success: group eliminations renders the data it received', async () => {
-    const item = { id: 'e1', number: 'ELM-8842', type: 'interco_revenue', description: 'Heron Sales', period: '2026-01-31', status: 'draft', amount: 100 };
+    const item = { id: 'e1', adjustmentNumber: 'ELM-8842', adjustmentType: 'interco_revenue', description: 'Heron Sales', periodStart: '2026-01-31', periodEnd: '2026-01-31', status: 'draft', lines: [{ debit: 100, credit: 0 }] };
     vi.mocked(apiFetch).mockReset().mockImplementation(async (url) =>
       ok(String(url).includes('company-groups') ? { items: [{ id: 'g1', name: 'Group One' }] } : { items: [item] }));
     render(<EliminationsPage />);
