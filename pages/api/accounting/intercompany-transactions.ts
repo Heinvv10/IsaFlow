@@ -18,6 +18,25 @@ import {
 } from '@/modules/accounting/services/reports/groupCompanyService';
 import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
 import { isUuidParam } from '@/lib/validation';
+import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
+import {
+  INTERCOMPANY_TRANSACTION_TYPES, IntercompanyNotFoundError,
+} from '@/modules/accounting/services/reports/intercompanyService';
+
+/**
+ * 400 text for a create body's values, or null — typeof first; each reached SQL unchecked and a
+ * bad one 500'd (blind review of 5446d243c). Ids are checked separately (badUuid).
+ */
+function intercompanyValueError(body: Record<string, unknown>): string | null {
+  if (typeof body.transactionType !== 'string' || !(INTERCOMPANY_TRANSACTION_TYPES as readonly string[]).includes(body.transactionType)) {
+    return `transactionType must be one of ${INTERCOMPANY_TRANSACTION_TYPES.join(', ')}`;
+  }
+  if (typeof body.amount !== 'number' || !Number.isFinite(body.amount) || body.amount <= 0) return 'amount must be a positive number';
+  if (!isLedgerDate(body.transactionDate)) return `transactionDate ${LEDGER_DATE_MESSAGE}`;
+  if (body.currency !== undefined && typeof body.currency !== 'string') return 'currency must be a string';
+  if (body.description !== undefined && typeof body.description !== 'string') return 'description must be a string';
+  return null;
+}
 
 /** First of `fields` (in `body`) that is present-or-required and not a UUID string, or null. typeof first. */
 function badUuid(body: Record<string, unknown>, required: string[], optional: string[] = []): string | null {
@@ -103,7 +122,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (badMatch) return apiResponse.badRequest(res, `${badMatch} must be a valid UUID`);
       if (!(await verifyGroupAccess(matchGroupId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
       if (!(await userCanWriteGroup(userId, matchGroupId as string))) return apiResponse.forbidden(res, WRITE_REFUSED);
-      await matchIntercompanyTransactions(sourceId, targetId, matchGroupId as string);
+      try {
+        await matchIntercompanyTransactions(sourceId, targetId, matchGroupId as string);
+      } catch (err) {
+        if (err instanceof IntercompanyNotFoundError) return apiResponse.notFound(res, 'Intercompany transaction', err.missing.join(', '));
+        throw err;
+      }
       return apiResponse.success(res, { matched: true });
     }
 
@@ -114,6 +138,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     const badCreate = badUuid(req.body, ['groupId', 'sourceCompanyId', 'targetCompanyId'], ['sourceJournalEntryId', 'targetJournalEntryId']);
     if (badCreate) return apiResponse.badRequest(res, `${badCreate} must be a valid UUID`);
+    const badValue = intercompanyValueError(req.body);
+    if (badValue) return apiResponse.badRequest(res, badValue);
     if (!(await verifyGroupAccess(gId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
     if (!(await userCanWriteGroup(userId, gId as string))) return apiResponse.forbidden(res, WRITE_REFUSED);
 
