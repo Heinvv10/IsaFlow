@@ -40,7 +40,7 @@ export function RevokePaymentLinkDialog({ open, invoiceId, invoiceNumber, onClos
     <ConfirmDialog
       open={open}
       title="Revoke payment link?"
-      message={<>Every Pay Now link on <strong>{invoiceNumber}</strong> will stop working for anyone who has it. Fixed-amount links created after 07:00 on 1 October 2026 are not affected, and a payment already started at Paystack can still complete. The next Pay Now creates a new link.</>}
+      message={<>Every Pay Now link on <strong>{invoiceNumber}</strong> will stop working for anyone who has it. Fixed-amount links created after 07:00 SAST on 1 October 2026 are not affected, and a payment already started at Paystack can still complete. The next Pay Now creates a new link.</>}
       acceptLabel={revoking ? 'Revoking...' : 'Revoke link'}
       cancelLabel="Keep link"
       tone="destructive"

@@ -9,9 +9,10 @@ import { randomUUID } from 'crypto';
 import { SignJWT } from 'jose';
 import { request } from './mfa-impersonation-postgres.helpers';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { CO, SECRET, USER, addLink, call, cleanupCompany, create, getLink, pool, requests, seedCompany } from './r167-portal-links.helpers';
+import { CO, SECRET, USER, addLink, call, cleanupCompany, create, deliver, getLink, pool, requests, seedCompany } from './r167-portal-links.helpers';
 import { invoice, links, payNow, signIn, tokenOf } from './r177-portal-followups.helpers';
 import { als } from '@/lib/als';
+import { log } from '@/lib/logger';
 import { revokeStandingLink } from '@/modules/accounting/services/ar/standingPaymentLink';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
@@ -189,7 +190,7 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
     expect(await status(explicit.token)).toBe('active');
   });
 
-  it('leaves a checkout already open at Paystack in place', async () => {
+  it('leaves a checkout already open at Paystack in place, and it still settles after the revoke', async () => {
     const id = await invoice();
     const token = tokenOf(await payNow(id));
     expect((await create(token)).statusCode).toBe(200);
@@ -197,6 +198,40 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
     expect(before).toHaveLength(1);
     expect((await revoke(id)).statusCode).toBe(200);
     expect(await requests(id)).toEqual(before);
+    expect(await status(token)).toBe('cancelled');
+    await deliver(before[0]!.ref, 11500);
+    const banked = await pool.query('SELECT total_amount::text AS t FROM customer_payments WHERE bank_reference = $1', [before[0]!.ref]);
+    expect(banked.rows).toEqual([{ t: '115.00' }]);
+    expect((await pool.query('SELECT amount_paid::text AS p FROM customer_invoices WHERE id = $1', [id])).rows).toEqual([{ p: '115.00' }]);
+  });
+
+  it('logs who revoked which invoice and how many links were cancelled', async () => {
+    const id = await invoice();
+    await payNow(id);
+    const spy = vi.spyOn(log, 'info');
+    try {
+      expect((await revoke(id)).statusCode).toBe(200);
+      expect(spy).toHaveBeenCalledWith('Standing payment link revoked',
+        { companyId: CO, invoiceId: id, userId: USER, cancelled: 1 }, 'PaymentLink');
+    } finally { spy.mockRestore(); }
+  });
+
+  it('two revokes at once: the one that waited on the lock sees the first one\'s commit and answers 404', async () => {
+    const id = await invoice();
+    await payNow(id);
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM customer_invoices WHERE id = $1 FOR UPDATE', [id]);
+      const second = revoke(id); // blocks on the row lock, its statement snapshot already taken
+      await new Promise((r) => setTimeout(r, 700));
+      await holder.query("UPDATE portal_payment_links SET status = 'cancelled' WHERE invoice_id = $1", [id]);
+      await holder.query('UPDATE customer_invoices SET payment_url = NULL, online_payment_enabled = false WHERE id = $1', [id]);
+      await holder.query('COMMIT');
+      const r = await second;
+      expect(r.statusCode).toBe(404);
+      expect(r.body.error?.message).toBe('No active payment link');
+    } finally { holder.release(); }
   });
 
   it('another company\'s invoice is 404 and untouched', async () => {
