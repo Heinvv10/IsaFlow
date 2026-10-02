@@ -79,6 +79,7 @@ Invoked by `withAuth`-wrapped API routes in `pages/api/accounting/capture/**` (a
 - `docs/prd/PRD-05-autonomous-capture-evidence-ledger.md` — spec.
 
 ## Recent changes
+- 2026-10-02 (D8 round 10): this module's row-lock helpers restore the `lock_timeout` they found (not DEFAULT) from a `finally` — see `core/.claude.md`. Test: `tests/integration/d8-r10-nested-lock-budget.int.test.ts`.
 - 2026-10-02 (D8 round 6, brk-d8b F3): both evidence attaches also walk the chain (`findJournalChainHead`) and refuse a broken one — the fragment sees a broken ROOT only, so an orphan stamp on the head of O <- R <- R2, or a loop, passed. The automatic attach treats it as no match. Test: `tests/integration/d8-r6-broken-permit.int.test.ts`.
 - 2026-10-02 (D8 round 5, follow-up): both evidence attaches use `journalStandsUnbrokenFragment`, not the plain stands read: a journal STAMPED reversed with no posted contra (a broken chain) is still refused, as `reversed_at IS NULL` refused it. The full integration run caught the plain read letting one through (`r107-provisional-attach-claim`). Test: `tests/integration/d8-r5-orphan-stamp.int.test.ts`.
 - 2026-10-02 (D8 round 5): the MANUAL evidence attach (`provisionalEvidenceAttach.attachDocumentToProvisional`) reads the journal's reversal chain (`journalStandsFragment`, selected as `stands` under the row lock) like the automatic one: a re-reversed provisional can be evidenced; one whose chain is out is still refused "has been reversed". Test: `tests/integration/d8-rereversed-chain-write-guards.int.test.ts`.

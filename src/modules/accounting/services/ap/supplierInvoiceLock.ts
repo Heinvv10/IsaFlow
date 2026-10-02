@@ -35,6 +35,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
+import { currentLockTimeout, restoreLockTimeout } from '../core/rowLockBudget';
 
 /** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
 const LOCK_NOT_AVAILABLE = '55P03';
@@ -90,33 +91,21 @@ export async function lockSupplierInvoiceForUpdate(
   }
 
   assertTxUsable();
+  const previousLockTimeout = await currentLockTimeout(client);
   await client.query("SET LOCAL lock_timeout = '5s'");
+  let failure: unknown = null;
   try {
     const rows = (await sql`
       SELECT * FROM supplier_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
       FOR UPDATE`) as DbRow[];
-    // Restore the default ON THE SUCCESS PATH ONLY. `SET LOCAL` lasts to the end
-    // of the TRANSACTION, not the statement, so without this the 5s budget
-    // silently governs every lock taken afterwards in the same request — and in
-    // a bulk approve that is the other 99 invoices plus every lock the journal
-    // posting itself takes. Those would fail with a bare 55P03 that nothing maps
-    // to SupplierInvoiceLockTimeoutError, reaching the agent as GENERIC_FAILURE
-    // and failing the whole batch for what should have been one skipped line.
-    //
-    // Deliberately NOT in a `finally`: after a lock timeout the transaction is
-    // aborted, so this statement would itself throw 25P02 and REPLACE the typed
-    // error with an opaque one (creditNoteLock.test.ts pins that mistake).
-    // On the failure path the setting is irrelevant — the transaction is being
-    // rolled back, and in the bulk case the savepoint is what unwinds it.
-    //
-    // The row lock is unaffected either way: it is already held, and locks are
-    // released by COMMIT, not by this setting.
-    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
+    failure = err;
     if (isLockTimeout(err)) throw new SupplierInvoiceLockTimeoutError(invoiceId);
     throw err;
+  } finally {
+    await restoreLockTimeout(client, previousLockTimeout, failure);
   }
 }
 
@@ -142,15 +131,17 @@ export async function withSupplierInvoiceLock<T>(
   }
 
   assertTxUsable();
+  const previousLockTimeout = await currentLockTimeout(client);
   await client.query("SET LOCAL lock_timeout = '5s'");
+  let failure: unknown = null;
   try {
     const result = await run();
-    // Success path only — see lockSupplierInvoiceForUpdate for why not a
-    // `finally` (25P02 would replace the typed error with an opaque one).
-    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return result;
   } catch (err) {
+    failure = err;
     if (isLockTimeout(err)) throw new SupplierInvoiceLockTimeoutError(invoiceId);
     throw err;
+  } finally {
+    await restoreLockTimeout(client, previousLockTimeout, failure);
   }
 }
