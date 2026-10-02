@@ -66,3 +66,8 @@ S6-ratelimit-category | src/lib/rateLimitPool.ts | 'DEFAULT_RATE_LIMIT_POOL_MAX,
 ## Round 7 (files: tests/unit/lib/poolSizeFromEnv.test.ts tests/unit/lib/poolSizesBuilt.test.ts tests/unit/lib/pgPoolMaxPremise.test.ts tests/unit/lib/rateLimitPoolMax.test.ts tests/unit/lib/pdf/renderSemaphore.test.ts tests/unit/lib/neonPoolNestedSql.test.ts)
 baseline (unmutated, new cases added): Tests  224 passed (224)
 T1-ceil-to-round | src/lib/limits/poolLimits.ts | 'Math.ceil(asNumber)' -> 'Math.round(asNumber)' | Tests  8 failed | 216 passed (224)
+
+## Round 8 (files: tests/unit/lib/poolSizeFromEnv.test.ts tests/unit/lib/poolSizesBuilt.test.ts tests/unit/lib/pgPoolMaxPremise.test.ts tests/unit/lib/rateLimitPoolMax.test.ts tests/unit/lib/pdf/renderSemaphore.test.ts tests/unit/lib/neonPoolNestedSql.test.ts)
+baseline (unmutated): Tests  224 passed (224)
+U1-auth-floor-1 | src/lib/limits/poolLimits.ts | 'MIN_AUTH_POOL_MAX = 2' -> 'MIN_AUTH_POOL_MAX = 1' | Tests  17 failed | 207 passed (224)
+renderSemaphore.test.ts alone under the same mutant: Tests  1 failed | 12 passed (13)
