@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, AlertCircle, RefreshCw, CheckCircle2, Clock, XCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 // ─── API shape ────────────────────────────────────────────────────────────────
 
@@ -144,11 +144,12 @@ export function ThreeWayMatchPanel({ invoiceId }: Props) {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/supplier-invoices/${invoiceId}/three-way-match`);
-      const json = await res.json() as { data?: ThreeWayMatchState; error?: string };
-      if (!res.ok) { setError(json.error ?? 'Failed to load match data'); return; }
+      await assertOk(res, 'Could not load the match data - try again');
+      const json = await res.json() as { data?: ThreeWayMatchState };
       setState(json.data ?? null);
-    } catch {
-      setError('Network error loading match data');
+    } catch (err) {
+      setState(null);
+      setError(apiErrorMessage(err, 'Could not load the match data - try again'));
     } finally {
       setLoading(false);
     }
@@ -161,11 +162,11 @@ export function ThreeWayMatchPanel({ invoiceId }: Props) {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/supplier-invoices/${invoiceId}/three-way-match`, { method: 'POST' });
-      const json = await res.json() as { data?: ThreeWayMatchState; error?: string };
-      if (!res.ok) { setError(json.error ?? 'Recompute failed'); return; }
+      await assertOk(res, 'Could not recompute the match - try again');
+      const json = await res.json() as { data?: ThreeWayMatchState };
       setState(json.data ?? null);
-    } catch {
-      setError('Network error recomputing match');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not recompute the match - try again'));
     } finally {
       setRecomputing(false);
     }

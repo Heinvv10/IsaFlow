@@ -8,7 +8,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Package, ArrowLeft, Loader2, Database } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 
 interface Category {
@@ -54,9 +55,9 @@ export default function NewAssetPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/assets-categories', { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load asset categories - try again'); return r.json(); })
       .then(j => setCategories(j.data || []))
-      .catch(() => { setCategories([]); });
+      .catch(err => { setCategories([]); setError(apiErrorMessage(err, 'Could not load asset categories - try again')); });
   }, []);
 
   const handleCategoryChange = (code: string) => {
@@ -88,11 +89,10 @@ export default function NewAssetPage() {
           usefulLifeYears: Number(form.usefulLifeYears),
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to create asset');
-      void router.push('/accounting/assets');
+      await assertOk(res, 'Could not create the asset - try again');
+      try { await router.push('/accounting/assets'); } catch (e) { log.warn('navigation failed', { error: e }, 'assets-new'); }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Could not create the asset - try again'));
     } finally {
       setSaving(false);
     }

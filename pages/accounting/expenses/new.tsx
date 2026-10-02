@@ -7,7 +7,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { ChevronLeft, Loader2 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -27,11 +28,12 @@ export default function NewExpenseClaim() {
     void (async () => {
       try {
         const res = await apiFetch('/api/payroll/employees');
+        await assertOk(res, 'Could not load the employees - try again');
         const json = await res.json() as { data?: Employee[] | { items?: Employee[] } };
         const list = Array.isArray(json.data) ? json.data : json.data?.items ?? [];
         setEmployees(list);
         if (list[0]) setEmployeeId(list[0].id);
-      } catch { /* ignore */ }
+      } catch (err) { setError(apiErrorMessage(err, 'Could not load the employees - try again')); }
     })();
   }, []);
 
@@ -43,13 +45,11 @@ export default function NewExpenseClaim() {
         method: 'POST',
         body: JSON.stringify({ employeeId, claimDate, title: title || null, description: description || null }),
       });
-      const json = await res.json() as { data?: { claim?: { id: string } }; error?: { message?: string } | string };
-      if (!res.ok || !json.data?.claim) {
-        setError(typeof json.error === 'string' ? json.error : json.error?.message ?? 'Create failed');
-        return;
-      }
-      await router.push(`/accounting/expenses/${json.data.claim.id}`);
-    } catch { setError('Network error'); }
+      await assertOk(res, 'Could not create the claim - try again');
+      const json = await res.json() as { data?: { claim?: { id: string } } };
+      if (!json.data?.claim) { setError('Could not create the claim - try again'); return; }
+      try { await router.push(`/accounting/expenses/${json.data.claim.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'expenses-new'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not create the claim - try again')); }
     finally { setSaving(false); }
   }
 

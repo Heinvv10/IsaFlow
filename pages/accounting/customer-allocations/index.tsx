@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle, Check } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -30,6 +30,7 @@ export default function CustomerAllocationsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
+      await assertOk(res, 'Could not load receipts - try again');
       const json = await res.json();
       const d = json.data;
       const raw: (Payment & { totalAmount?: number })[] = Array.isArray(d) ? d : d?.items || d?.payments || [];
@@ -43,7 +44,8 @@ export default function CustomerAllocationsPage() {
       }));
       setPayments(mapped.filter(p => (p.amount - p.allocatedAmount) > 0.01));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setPayments([]);
+      setError(apiErrorMessage(err, 'Could not load receipts - try again'));
     } finally {
       setLoading(false);
     }
@@ -52,12 +54,19 @@ export default function CustomerAllocationsPage() {
   useEffect(() => { void loadPayments(); }, [loadPayments]);
 
   const selectPayment = async (p: Payment) => {
-    setSelected(p); setAllocs({}); setMsg(''); setLoadingInv(true);
-    const res = await apiFetch(`/api/accounting/customer-invoices?client_id=${p.clientId}&status=approved`, { credentials: 'include' });
-    const json = await res.json();
-    const inv: Invoice[] = json.data?.items || json.data || [];
-    setInvoices(inv.map(i => ({ ...i, total: Number(i.total), outstanding: Number(i.outstanding) })));
-    setLoadingInv(false);
+    setSelected(p); setAllocs({}); setMsg(''); setError(''); setLoadingInv(true);
+    try {
+      const res = await apiFetch(`/api/accounting/customer-invoices?client_id=${p.clientId}&status=approved`, { credentials: 'include' });
+      await assertOk(res, 'Could not load invoices for this receipt - try again');
+      const json = await res.json();
+      const inv: Invoice[] = json.data?.items || json.data || [];
+      setInvoices(inv.map(i => ({ ...i, total: Number(i.total), outstanding: Number(i.outstanding) })));
+    } catch (err) {
+      setInvoices([]);
+      setError(apiErrorMessage(err, 'Could not load invoices for this receipt - try again'));
+    } finally {
+      setLoadingInv(false);
+    }
   };
 
   const toggleAlloc = (inv: Invoice) => {
@@ -73,15 +82,18 @@ export default function CustomerAllocationsPage() {
 
   const doAllocate = async () => {
     if (!selected || totalAlloc <= 0) return;
-    setSaving(true);
+    setSaving(true); setMsg(''); setError('');
     const allocations = Object.entries(allocs).filter(([, a]) => a > 0).map(([invoiceId, amount]) => ({ invoiceId, amount }));
-    const res = await apiFetch('/api/accounting/customer-allocations', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ paymentId: selected.id, allocations }),
-    });
-    if (res.ok) { setMsg('Allocated successfully'); setSelected(null); setAllocs({}); await loadPayments(); }
-    else { setMsg('Allocation failed'); }
-    setSaving(false);
+    try {
+      const res = await apiFetch('/api/accounting/customer-allocations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ paymentId: selected.id, allocations }),
+      });
+      await assertOk(res, 'Could not allocate the receipt - try again');
+      setMsg('Allocated successfully'); setSelected(null); setAllocs({});
+      await loadPayments();
+    } catch (err) { setError(apiErrorMessage(err, 'Could not allocate the receipt - try again')); }
+    finally { setSaving(false); }
   };
 
   return (

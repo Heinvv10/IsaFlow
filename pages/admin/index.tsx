@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Building2, Users, ArrowRight, Loader2, Activity, Clock } from 'lucide-react';
@@ -87,15 +87,14 @@ export default function AdminDashboard() {
         apiFetch('/api/admin/analytics/health'),
         apiFetch('/api/admin/trials?within=7'),
       ]);
-      const statsJson  = await statsRes.json();
-      const healthJson = await healthRes.json();
-      const trialsJson = await trialsRes.json();
-      if (!statsRes.ok) throw new Error(statsJson.message || 'Failed to load dashboard');
+      await assertOk(statsRes, 'Could not load the dashboard - try again');
+      const statsJson = await statsRes.json();
       setStats(statsJson.data as DashboardStats);
-      if (healthRes.ok) setHealth(healthJson.data as PlatformHealth);
-      if (trialsRes.ok) setTrials((trialsJson.data ?? []) as TrialRow[]);
+      setHealth(healthRes.ok ? (((await healthRes.json().catch(() => null))?.data ?? null) as PlatformHealth | null) : null);
+      setTrials(trialsRes.ok ? (((await trialsRes.json().catch(() => null))?.data ?? []) as TrialRow[]) : []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load dashboard');
+      setStats(null); setHealth(null); setTrials([]);
+      setError(apiErrorMessage(err, 'Could not load the dashboard - try again'));
     } finally {
       setLoading(false);
     }
@@ -103,13 +102,17 @@ export default function AdminDashboard() {
 
   const extendTrial = useCallback(async (companyId: string) => {
     setExtendingId(companyId);
+    setError('');
     try {
-      await apiFetch('/api/admin/trials', {
+      const res = await apiFetch('/api/admin/trials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ company_id: companyId, days: 7 }),
       });
+      await assertOk(res, 'Could not extend the trial - try again');
       await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not extend the trial - try again'));
     } finally {
       setExtendingId(null);
     }

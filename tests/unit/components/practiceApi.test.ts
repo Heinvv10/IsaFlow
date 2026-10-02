@@ -98,7 +98,7 @@ describe('fetchWorkItems', () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify([WORK_ITEM]), { status: 200 }),
     );
-    await expect(fetchWorkItems('cat-1')).rejects.toThrow(/data.*envelope/);
+    await expect(fetchWorkItems('cat-1')).rejects.toThrow('Could not load the work items - try again');
   });
 
   it('propagates a server error rather than showing an empty list', async () => {

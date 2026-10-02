@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { CalendarOff, Loader2, AlertCircle, Plus, Filter } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
@@ -54,11 +54,13 @@ export default function LeaveIndexPage() {
       if (filterStatus) params.set('status', filterStatus);
       if (filterMonth) params.set('month', filterMonth);
       const res = await apiFetch(`/api/payroll/leave?${params.toString()}`);
-      if (!res.ok) { setError(payrollLoadMessage(res.status, 'Failed to load leave requests')); return; }
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load leave requests - try again'));
+      await assertOk(res, 'Could not load leave requests - try again');
       const json = await res.json() as { data?: LeaveRequestRow[] };
       setRequests((json.data ?? []) as LeaveRequestRow[]);
-    } catch {
-      setError('Failed to load leave requests');
+    } catch (err) {
+      setRequests([]);
+      setError(apiErrorMessage(err, 'Could not load leave requests - try again'));
     } finally {
       setIsLoading(false);
     }

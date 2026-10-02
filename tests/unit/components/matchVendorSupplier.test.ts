@@ -1,7 +1,7 @@
 // OCR vendor -> supplier: token choice and scoring across searches (PUR-01 round 1).
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async (orig) => ({ ...await orig<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 import { apiFetch } from '@/lib/apiFetch';

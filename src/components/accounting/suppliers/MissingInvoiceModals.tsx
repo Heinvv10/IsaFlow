@@ -3,7 +3,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { X, Mail, MessageSquare } from 'lucide-react';
 
 export interface ExpectedAlert {
@@ -63,10 +63,10 @@ export function MissingInvoiceModals({ chaseAlert, resolveAlert, dismissAlert, o
   const [dismissReason, setDismissReason] = useState('');
   const [chaseTab, setChaseTab] = useState<ChaseMethod>('email');
 
-  const wrap = useCallback(async (fn: () => Promise<void>) => {
+  const wrap = useCallback(async (fn: () => Promise<void>, failure: string) => {
     setSubmitting(true);
-    try { await fn(); } finally { setSubmitting(false); }
-  }, []);
+    try { await fn(); } catch (err) { onError(apiErrorMessage(err, failure)); } finally { setSubmitting(false); }
+  }, [onError]);
 
   const doChase = (method: ChaseMethod) => wrap(async () => {
     if (!chaseAlert) return;
@@ -75,11 +75,10 @@ export function MissingInvoiceModals({ chaseAlert, resolveAlert, dismissAlert, o
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ method }),
     });
-    const json = await res.json() as { error?: string };
-    if (!res.ok) { onError(json.error ?? 'Chase failed'); return; }
+    await assertOk(res, 'Could not send the chase - try again');
     onSuccess(method === 'whatsapp' ? 'WhatsApp chase queued' : 'Chase email queued successfully');
     onClose();
-  });
+  }, 'Could not send the chase - try again');
 
   const doResolve = () => wrap(async () => {
     if (!resolveAlert) return;
@@ -87,10 +86,9 @@ export function MissingInvoiceModals({ chaseAlert, resolveAlert, dismissAlert, o
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason: 'Manually resolved by user' }),
     });
-    const json = await res.json() as { error?: string };
-    if (!res.ok) { onError(json.error ?? 'Resolve failed'); return; }
+    await assertOk(res, 'Could not mark the alert as resolved - try again');
     onSuccess('Alert marked resolved'); onClose();
-  });
+  }, 'Could not mark the alert as resolved - try again');
 
   const doDismiss = () => wrap(async () => {
     if (!dismissAlert || !dismissReason.trim()) return;
@@ -98,10 +96,9 @@ export function MissingInvoiceModals({ chaseAlert, resolveAlert, dismissAlert, o
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason: dismissReason.trim() }),
     });
-    const json = await res.json() as { error?: string };
-    if (!res.ok) { onError(json.error ?? 'Dismiss failed'); return; }
+    await assertOk(res, 'Could not dismiss the alert - try again');
     onSuccess('Alert dismissed'); setDismissReason(''); onClose();
-  });
+  }, 'Could not dismiss the alert - try again');
 
   const Overlay = ({ children }: { children: React.ReactNode }) => (
     <div className="fixed inset-0 z-40 bg-black/60 flex items-center justify-center p-4">

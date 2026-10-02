@@ -3,6 +3,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
+import { downloadTemplate as saveTemplate } from '@/components/accounting/migration/downloadTemplate';
 import { CoaImportResult, type CoaImportSummary } from '@/components/accounting/migration/CoaImportResult';
 
 const COA_FIELDS = ['account_code', 'account_name', 'account_type', 'account_subtype', 'normal_balance', 'parent_code', 'description'] as const;
@@ -46,13 +48,14 @@ export default function ChartOfAccountsPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/migration/session').then(async res => {
-      if (!res.ok) return;
-      const json = await res.json();
-      if (json.data) {
-        setSessionId(json.data.id);
-        setSourceSystem(json.data.sourceSystem ?? 'other');
+      await assertOk(res, 'Could not load the migration session - try again');
+      const json = await res.json() as { data?: { session?: { id: string; sourceSystem?: string } | null } };
+      const session = json.data?.session;
+      if (session) {
+        setSessionId(session.id);
+        setSourceSystem(session.sourceSystem ?? 'other');
       }
-    }).catch(() => {});
+    }).catch(err => setError(apiErrorMessage(err, 'Could not load the migration session - try again')));
   }, []);
 
   const applyAutoDetect = useCallback((parsedRows: ParsedRow[], mapping: FieldMapping) => {
@@ -98,7 +101,10 @@ export default function ChartOfAccountsPage() {
         setRows(parsed);
         applyAutoDetect(parsed, autoMapping);
       },
-      error: err => setError(`CSV parse error: ${err.message}`),
+      error: err => {
+        log.warn('CSV parse error', { error: err }, 'migration');
+        setError('Could not read the CSV file - check it is a valid CSV and try again');
+      },
     });
   };
 
@@ -116,7 +122,7 @@ export default function ChartOfAccountsPage() {
   };
 
   const handleImport = async () => {
-    if (!sessionId) { setError('No active migration session'); return; }
+    if (!sessionId) { setError('No active migration session - start one from the migration hub'); return; }
     setIsImporting(true);
     setError('');
     try {
@@ -134,25 +140,22 @@ export default function ChartOfAccountsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, accounts, systemAccountMap: systemMap }),
       });
-      await assertOk(res, 'Import failed');
+      await assertOk(res, 'Could not import the chart of accounts - try again');
       setImportResult((await res.json()).data);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Import failed'));
+      setError(apiErrorMessage(err, 'Could not import the chart of accounts - try again'));
     } finally {
       setIsImporting(false);
     }
   };
 
   const downloadTemplate = async () => {
-    const res = await apiFetch(`/api/accounting/migration/templates?sourceSystem=${sourceSystem}&step=chart-of-accounts`);
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `coa-template-${sourceSystem}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    setError('');
+    try {
+      await saveTemplate(`/api/accounting/migration/templates?sourceSystem=${sourceSystem}&step=chart-of-accounts`, `coa-template-${sourceSystem}.csv`);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not download the template - try again'));
+    }
   };
 
   return (
@@ -184,7 +187,7 @@ export default function ChartOfAccountsPage() {
           {/* Upload */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">2. Upload Your CSV</h2>
-            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]).catch(err => setError(err instanceof Error ? err.message : 'Failed to parse CSV file')); }} />
+            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]).catch(err => setError(apiErrorMessage(err, 'Could not parse CSV file - try again'))); }} />
             <button
               onClick={() => fileRef.current?.click()}
               className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-secondary)] hover:border-blue-500 hover:text-blue-500 text-sm transition-colors"

@@ -8,7 +8,7 @@ import { FileText, Plus, Loader2, Download, ChevronRight } from 'lucide-react';
 import { StatusPill } from '@/components/ui';
 import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 const TABS = ['all', 'draft', 'approved', 'partially_applied', 'applied', 'cancelled'] as const;
@@ -35,11 +35,12 @@ export default function CreditNotesPage() {
       if (tab !== 'all') p.set('status', tab);
       if (typeFilter) p.set('type', typeFilter);
       const res = await apiFetch(`/api/accounting/credit-notes?${p}`);
+      await assertOk(res, 'Could not load credit notes - try again');
       const json = await res.json();
       const payload = json.data || json;
       setCreditNotes(payload.creditNotes || []);
       setTotal(payload.total || 0);
-    } catch { setError('Failed to load credit notes'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load credit notes - try again')); }
     finally { setIsLoading(false); }
   }, [tab, typeFilter]);
 

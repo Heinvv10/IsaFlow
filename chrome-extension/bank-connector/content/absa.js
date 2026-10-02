@@ -19,6 +19,13 @@
   const BASE = 'https://ib.absa.co.za';
   const MAX_RANGE_DAYS = 180;
 
+  // An error whose message is a plain sentence meant for the popup. Anything else
+  // (a dropped connection, a TypeError) is reported with the generic sentence below.
+  class AbsaError extends Error {}
+  const userMessage = (err) => (err instanceof AbsaError
+    ? err.message
+    : 'Could not reach ABSA online banking - make sure you are signed in there and try again');
+
   // Register with the service worker so it knows this tab can scrape ABSA.
   chrome.runtime.sendMessage(
     { source: 'isaflow-bank', type: 'register-scraper', bankId: SCRAPER_ID, version: SCRAPER_VERSION },
@@ -40,7 +47,7 @@
 
     fn().then(
       (value) => sendResponse({ ok: true, value }),
-      (err) => sendResponse({ ok: false, error: err && err.message ? err.message : String(err) }),
+      (err) => sendResponse({ ok: false, error: userMessage(err) }),
     );
     return true; // async
   });
@@ -55,17 +62,17 @@
   async function listAccounts() {
     const json = await callExp('BalanceEnquiryFacade', 'GetAllBalances', {});
     if (!json || !Array.isArray(json.accountList)) {
-      throw new Error('Unexpected BalanceEnquiry response');
+      throw new AbsaError('ABSA did not return your accounts - sign in to ABSA online banking again and try again');
     }
     return json.accountList.map(absaAccountToSummary);
   }
 
   async function fetchTransactions(accountNumber, fromDate, toDate) {
-    if (!accountNumber) throw new Error('accountNumber is required');
-    if (!fromDate || !toDate) throw new Error('fromDate and toDate are required (YYYY-MM-DD)');
+    if (!accountNumber) throw new AbsaError('Choose a bank account to sync first');
+    if (!fromDate || !toDate) throw new AbsaError('Choose a start date and an end date to sync');
 
     if (daysBetween(fromDate, toDate) > MAX_RANGE_DAYS) {
-      throw new Error(`Date range exceeds ABSA's 180-day server-side cap. Sync in chunks.`);
+      throw new AbsaError(`Date range exceeds ABSA's 180-day server-side cap. Sync in chunks.`);
     }
 
     const json = await callExp('TransactionHistoryFacade', 'GetTransactionHistory', {
@@ -79,7 +86,7 @@
     });
 
     if (!json || !json.transactionHistory || !Array.isArray(json.transactionHistory.accountHistoryLines)) {
-      throw new Error('Unexpected TransactionHistory response');
+      throw new AbsaError('ABSA did not return the transactions - try again in a moment');
     }
     const lines = json.transactionHistory.accountHistoryLines;
     return { transactions: lines.map(absaLineToParsed), rawCount: lines.length };
@@ -131,13 +138,13 @@
       body: JSON.stringify(payload),
     });
     if (!resp.ok) {
-      throw new Error(`ABSA ${service}.${operation} returned HTTP ${resp.status}`);
+      throw new AbsaError('ABSA did not accept the request - sign in to ABSA online banking again and try again');
     }
     const json = await resp.json();
     const sc = json && json.header && json.header.statuscode;
     if (sc && sc !== '0') {
       const messages = (json.header.resultMessages || []).map(m => m.responseMessage).join('; ');
-      throw new Error(`ABSA ${service}.${operation} statuscode=${sc} ${messages || ''}`.trim());
+      throw new AbsaError(`ABSA refused the request: ${messages || 'no reason given'}`);
     }
     return json;
   }

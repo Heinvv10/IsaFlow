@@ -11,7 +11,8 @@ import {
   CheckCircle2, RotateCcw, Pencil, Trash2,
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import type { CreditNote } from '@/modules/accounting/types/ar.types';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -48,12 +49,12 @@ export default function SupplierCreditNoteDetailPage() {
     if (!id || typeof id !== 'string') return;
     setLoading(true);
     apiFetch(`/api/accounting/supplier-credit-notes?id=${id}`)
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the supplier credit note - try again'); return r.json(); })
       .then((json: { data?: CreditNote } | CreditNote) => {
         const data = (json as { data?: CreditNote }).data ?? (json as CreditNote);
         setNote(data);
       })
-      .catch(() => setError('Failed to load supplier credit note'))
+      .catch((err: unknown) => { setNote(null); setError(apiErrorMessage(err, 'Could not load the supplier credit note - try again')); })
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -67,11 +68,11 @@ export default function SupplierCreditNoteDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: note.id, action }),
       });
-      const json = await res.json() as { error?: { message?: string }; data?: CreditNote };
-      if (!res.ok) throw new Error(json?.error?.message ?? 'Action failed');
+      await assertOk(res, 'Could not update the credit note - try again');
+      const json = await res.json() as { data?: CreditNote };
       setNote(json.data ?? (json as unknown as CreditNote));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+      setError(apiErrorMessage(err, 'Could not update the credit note - try again'));
     } finally {
       setActionLoading('');
     }
@@ -88,13 +89,11 @@ export default function SupplierCreditNoteDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'cancel', creditNoteId: note.id }),
       });
-      if (!res.ok) {
-        const j = await res.json() as { error?: { message?: string } };
-        throw new Error(j?.error?.message ?? 'Delete failed');
-      }
-      await router.push('/accounting/supplier-credit-notes');
+      await assertOk(res, 'Could not delete the credit note - try again');
+      try { await router.push('/accounting/supplier-credit-notes'); } catch (e) { log.warn('navigation failed', { error: e }, 'supplier-credit-notes-id'); }
+      setActionLoading('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Delete failed');
+      setError(apiErrorMessage(err, 'Could not delete the credit note - try again'));
       setActionLoading('');
     }
   };

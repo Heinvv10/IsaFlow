@@ -7,7 +7,8 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, PackageCheck, Loader2, Receipt } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 
 interface PurchaseOrder {
@@ -49,13 +50,13 @@ export default function NewGRNPage() {
   useEffect(() => {
     Promise.all(['approved', 'partially_received'].map(async (status) => {
       const response = await apiFetch(`/api/accounting/purchase-orders?status=${status}`);
-      if (!response.ok) throw new Error('Failed to load purchase orders');
+      await assertOk(response, 'Could not load the purchase orders - try again');
       const json = await response.json();
       const data = json.data || json;
       return Array.isArray(data) ? data as PurchaseOrder[] : [];
     }))
       .then((orders) => setPos(orders.flat()))
-      .catch(() => setPos([]))
+      .catch((err) => { setPos([]); setError(apiErrorMessage(err, 'Could not load the purchase orders - try again')); })
       .finally(() => setLoadingPOs(false));
   }, []);
 
@@ -66,8 +67,9 @@ export default function NewGRNPage() {
       return;
     }
     setLoadingItems(true);
+    setError('');
     apiFetch(`/api/accounting/purchase-orders/${selectedPO}`)
-      .then((r) => r.json())
+      .then(async (r) => { await assertOk(r, 'Could not load the purchase order - try again'); return r.json(); })
       .then((json) => {
         const d = json.data || json;
         const items: POItem[] = Array.isArray(d.items) ? d.items : [];
@@ -79,7 +81,7 @@ export default function NewGRNPage() {
         }
         setReceivedQtys(qtys);
       })
-      .catch(() => setPoItems([]))
+      .catch((err) => { setPoItems([]); setError(apiErrorMessage(err, 'Could not load the purchase order - try again')); })
       .finally(() => setLoadingItems(false));
   }, [selectedPO]);
 
@@ -99,9 +101,10 @@ export default function NewGRNPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ purchaseOrderId: selectedPO, receivedDate, receivedBy: deliveryNote || null, notes: notes || null, items }),
       });
-      const json = await res.json();
-      if (!res.ok) { setError(json?.error?.message || 'Failed to create GRN'); return; }
-      await router.push('/accounting/goods-received');
+      await assertOk(res, 'Could not create the goods received note - try again');
+      try { await router.push('/accounting/goods-received'); } catch (e) { log.warn('navigation failed', { error: e }, 'goods-received-new'); }
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not create the goods received note - try again'));
     } finally {
       setSaving(false);
     }

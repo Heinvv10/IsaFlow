@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Plus, Loader2, FileSpreadsheet, ChevronRight } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { DisplayModeToggle } from '@/components/accounting/DisplayModeToggle';
 import { useDisplayMode } from '@/hooks/useDisplayMode';
@@ -28,6 +28,7 @@ function StatusBadge({ status }: { status: string }) {
 export function JournalEntriesTab() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const { displayMode, setDisplayMode } = useDisplayMode();
 
@@ -38,15 +39,19 @@ export function JournalEntriesTab() {
 
   const loadEntries = async () => {
     setIsLoading(true);
+    setError('');
     try {
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.set('status', statusFilter);
       const res = await apiFetch(`/api/accounting/journal-entries?${params}`);
+      await assertOk(res, 'Could not load the journal entries - try again');
       const data = await res.json();
       const payload = data.data || data;
       setEntries(payload.entries || payload || []);
     } catch (err) {
       log.error('Failed to load journal entries', { error: err }, 'accounting-ui');
+      setEntries([]);
+      setError(apiErrorMessage(err, 'Could not load the journal entries - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -76,6 +81,8 @@ export function JournalEntriesTab() {
           New Entry
         </Link>
       </div>
+
+      {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</div>}
 
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
         {isLoading ? (

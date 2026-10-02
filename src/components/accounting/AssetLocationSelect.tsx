@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface Location {
   id: string;
@@ -32,12 +32,15 @@ export function AssetLocationSelect({ value, onChange, required, className }: Pr
 
   const loadLocations = useCallback(async () => {
     setLoading(true);
+    setAddError('');
     try {
       const res = await apiFetch('/api/accounting/asset-locations', { credentials: 'include' });
+      await assertOk(res, 'Could not load locations - try again');
       const json = await res.json() as { data?: Location[] };
       setLocations(json.data ?? []);
-    } catch {
-      // silently fall through — users can still type via legacy path
+    } catch (err) {
+      setLocations([]);
+      setAddError(apiErrorMessage(err, 'Could not load locations - try again'));
     } finally {
       setLoading(false);
     }
@@ -61,14 +64,14 @@ export function AssetLocationSelect({ value, onChange, required, className }: Pr
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: trimmed }),
       });
-      const json = await res.json() as { data?: Location; error?: { message: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to add location');
+      await assertOk(res, 'Could not add the location - try again');
+      const json = await res.json() as { data?: Location };
       await loadLocations();
       if (json.data) onChange(json.data.name);
       setNewName('');
       setShowAdd(false);
     } catch (err) {
-      setAddError(err instanceof Error ? err.message : 'Failed');
+      setAddError(apiErrorMessage(err, 'Could not add the location - try again'));
     } finally {
       setSaving(false);
     }

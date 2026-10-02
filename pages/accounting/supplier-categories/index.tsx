@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tags, Plus, Pencil, Trash2, Loader2, X, Check } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface Category { id: string; name: string; description: string; supplierCount: number; }
@@ -18,42 +18,60 @@ export default function SupplierCategoriesPage() {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: '', description: '' });
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   const load = useCallback(async () => {
-    const res = await apiFetch('/api/accounting/supplier-categories', { credentials: 'include' });
-    const json = await res.json();
-    setItems(json.data || []);
-    setLoading(false);
+    setError('');
+    try {
+      const res = await apiFetch('/api/accounting/supplier-categories', { credentials: 'include' });
+      await assertOk(res, 'Could not load supplier categories - try again');
+      const json = await res.json();
+      setItems(json.data || []);
+    } catch (err) {
+      setItems([]);
+      setError(apiErrorMessage(err, 'Could not load supplier categories - try again'));
+      log.error('Failed to load supplier categories', { error: err }, 'SupplierCategoriesPage');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    load().catch((error) => {
-      setLoading(false);
-      log.error('Failed to load supplier categories', { error }, 'SupplierCategoriesPage');
-    });
+    void load();
   }, [load]);
 
   const save = async () => {
     if (!form.name.trim()) return;
-    setBusy(true);
+    setBusy(true); setError(''); setSuccess('');
     const method = editing ? 'PUT' : 'POST';
     const body = editing ? { id: editing, ...form } : form;
-    await apiFetch('/api/accounting/supplier-categories', {
-      method, headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify(body),
-    });
-    setForm({ name: '', description: '' });
-    setEditing(null); setAdding(false); setBusy(false);
-    await load();
+    try {
+      const res = await apiFetch('/api/accounting/supplier-categories', {
+        method, headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify(body),
+      });
+      await assertOk(res, 'Could not save the category - try again');
+      setForm({ name: '', description: '' });
+      setEditing(null); setAdding(false);
+      setSuccess('Category saved');
+      await load();
+    } catch (err) { setError(apiErrorMessage(err, 'Could not save the category - try again')); }
+    finally { setBusy(false); }
   };
 
   const remove = async (id: string) => {
     if (!confirm('Delete this category?')) return;
-    await apiFetch('/api/accounting/supplier-categories', {
-      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ id }),
-    });
-    await load();
+    setError(''); setSuccess('');
+    try {
+      const res = await apiFetch('/api/accounting/supplier-categories', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ id }),
+      });
+      await assertOk(res, 'Could not delete the category - try again');
+      setSuccess('Category deleted');
+      await load();
+    } catch (err) { setError(apiErrorMessage(err, 'Could not delete the category - try again')); }
   };
 
   const startEdit = (cat: Category) => {
@@ -84,6 +102,7 @@ export default function SupplierCategoriesPage() {
         </div>
 
         <div className="p-6">
+          {success && <div className="mb-4 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">{success}</div>}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             <table className="w-full text-sm">
               <thead><tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
@@ -115,7 +134,8 @@ export default function SupplierCategoriesPage() {
                   </tr>
                 )}
                 {loading && <tr><td colSpan={4} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
-                {!loading && items.length === 0 && !adding && (
+                {error && <tr><td colSpan={4} className="px-4 py-3 text-center text-red-400">{error}</td></tr>}
+                {!loading && !error && items.length === 0 && !adding && (
                   <tr><td colSpan={4} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No categories yet</td></tr>
                 )}
                 {items.map(cat => editing === cat.id ? null : (

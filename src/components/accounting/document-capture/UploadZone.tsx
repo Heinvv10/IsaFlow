@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { Upload, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 interface Props {
@@ -37,13 +37,14 @@ export function UploadZone({
       const formData = new FormData();
       formData.append('file', file);
       const res = await apiFetch('/api/accounting/document-capture', { method: 'POST', body: formData });
+      await assertOk(res, 'Could not upload the document - try again');
       const json = await res.json();
-      if (!json.success) throw new Error(json.error?.message || 'Upload failed');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Upload failed');
       onUploadComplete(json.data);
       notify.success('Document uploaded and processed');
       onRefreshList();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Upload failed';
+      const msg = apiErrorMessage(err, 'Could not upload the document - try again');
       notify.error(msg);
       onUploadError(msg);
     }

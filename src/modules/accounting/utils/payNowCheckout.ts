@@ -5,10 +5,13 @@
  * starts from that link through the same public route the customer's own pay page uses, so
  * both get one checkout per click, a bounded gateway call and the live balance.
  */
-import { apiFetch } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiFetch, assertOk } from '@/lib/apiFetch';
 
-interface Envelope { data?: Record<string, unknown>; error?: { message?: string }; message?: string }
-const failure = (json: Envelope) => new Error(json.error?.message || json.message || 'Failed to start payment');
+interface Envelope { data?: Record<string, unknown> }
+const MESSAGE = 'Could not start the payment - try again';
+
+/** The 2xx body, or an empty envelope when it is empty / not JSON (the caller then reports a plain sentence). */
+const emptyEnvelope = (): Envelope => ({});
 
 /** The hosted-checkout URL to open. Throws with the server's message when either call refuses. */
 export async function startPayNowCheckout(invoiceId: string): Promise<string> {
@@ -17,15 +20,17 @@ export async function startPayNowCheckout(invoiceId: string): Promise<string> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   });
-  const linkJson = (await link.json()) as Envelope;
-  if (!link.ok || typeof linkJson.data?.token !== 'string') throw failure(linkJson);
+  await assertOk(link, MESSAGE);
+  const linkJson = await link.json().catch(emptyEnvelope) as Envelope;
+  if (typeof linkJson.data?.token !== 'string') throw new ApiEnvelopeError(MESSAGE);
 
   const checkout = await fetch('/api/portal/payments/paystack/create', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token: linkJson.data.token }),
   });
-  const checkoutJson = (await checkout.json()) as Envelope;
-  if (!checkout.ok || typeof checkoutJson.data?.checkoutUrl !== 'string') throw failure(checkoutJson);
+  await assertOk(checkout, MESSAGE);
+  const checkoutJson = await checkout.json().catch(emptyEnvelope) as Envelope;
+  if (typeof checkoutJson.data?.checkoutUrl !== 'string') throw new ApiEnvelopeError(MESSAGE);
   return checkoutJson.data.checkoutUrl;
 }

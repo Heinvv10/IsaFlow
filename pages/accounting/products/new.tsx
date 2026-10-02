@@ -7,7 +7,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Box, Save, ArrowLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 interface Category { id: string; name: string; code: string; }
 
@@ -24,7 +25,9 @@ export default function NewProductPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/products-categories', { credentials: 'include' })
-      .then(r => r.json()).then(j => setCategories(j.data || [])).catch(() => {});
+      .then(async r => { await assertOk(r, 'Could not load product categories - try again'); return r.json(); })
+      .then(j => setCategories(j.data || []))
+      .catch(err => setError(apiErrorMessage(err, 'Could not load product categories - try again')));
   }, []);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -35,10 +38,9 @@ export default function NewProductPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, costPrice: Number(form.costPrice), sellingPrice: Number(form.sellingPrice), reorderLevel: Number(form.reorderLevel), reorderQuantity: Number(form.reorderQuantity), taxRate: Number(form.taxRate) }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Failed');
-      void router.push('/accounting/products');
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+      await assertOk(res, 'Could not create the product - try again');
+      try { await router.push('/accounting/products'); } catch (e) { log.warn('navigation failed', { error: e }, 'products-new'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not create the product - try again')); }
     finally { setSaving(false); }
   };
 

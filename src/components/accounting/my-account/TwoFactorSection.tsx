@@ -2,10 +2,10 @@
 // GoTrue-backed TOTP 2FA panel. Enroll → confirm → disable. No backup codes,
 // no trusted devices, no SMS.
 import { useCallback, useEffect, useState } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
-type View = 'loading' | 'disabled' | 'enrolling' | 'enabled';
+type View = 'loading' | 'unknown' | 'disabled' | 'enrolling' | 'enabled';
 
 interface StatusData { enabled: boolean; factor_id: string | null }
 interface EnrollData { factor_id: string; qr_code: string; secret: string }
@@ -18,19 +18,26 @@ export function TwoFactorSection() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const refresh = useCallback(async () => {
+  // `quiet`: right after a confirmed enable/disable the view is already correct, so a failed
+  // refresh is only logged — it must not paint a load error over the success view.
+  const refresh = useCallback(async (quiet = false) => {
     try {
       const res = await apiFetch('/api/auth/2fa-status');
+      await assertOk(res, 'Could not load your two-factor status - try again');
       const json = await res.json() as { success: boolean; data?: StatusData };
       if (json.success && json.data) {
         setFactorId(json.data.factor_id);
         setView(json.data.enabled ? 'enabled' : 'disabled');
       } else {
-        setView('disabled');
+        throw new ApiEnvelopeError('Could not load your two-factor status - try again');
       }
     } catch (e) {
       log.warn('2fa-status load failed', { error: e }, 'auth');
-      setView('disabled');
+      if (quiet) return;
+      setFactorId(null);
+      setError(apiErrorMessage(e, 'Could not load your two-factor status - try again'));
+      // Keep a known view; never fall to 'disabled' (the Enable panel) when the status is unknown.
+      setView(v => (v === 'loading' ? 'unknown' : v));
     }
   }, []);
 
@@ -40,12 +47,13 @@ export function TwoFactorSection() {
     setBusy(true); setError(null);
     try {
       const res = await apiFetch('/api/auth/2fa-enroll', { method: 'POST' });
+      await assertOk(res, 'Could not start two-factor setup - try again');
       const json = await res.json() as { success: boolean; data?: EnrollData; error?: { message: string } };
-      if (!json.success || !json.data) throw new Error(json.error?.message ?? 'Enroll failed');
+      if (!json.success || !json.data) throw new ApiEnvelopeError(json.error?.message ?? 'Could not start two-factor setup - try again');
       setEnroll(json.data);
       setView('enrolling');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to start enrollment');
+      setError(apiErrorMessage(e, 'Could not start two-factor setup - try again'));
     } finally {
       setBusy(false);
     }
@@ -59,12 +67,15 @@ export function TwoFactorSection() {
         method: 'POST',
         body: JSON.stringify({ factor_id: enroll.factor_id, code }),
       });
+      await assertOk(res, 'Could not verify the code - try again');
       const json = await res.json() as { success: boolean; error?: { message: string } };
-      if (!json.success) throw new Error(json.error?.message ?? 'Invalid code');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'That code was not accepted - check it and try again');
+      // 2FA is on now; if the status refresh fails the user must not be shown the Enable panel.
+      setFactorId(enroll.factor_id); setView('enabled');
       setEnroll(null); setCode('');
-      await refresh();
+      await refresh(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Invalid code');
+      setError(apiErrorMessage(e, 'Could not verify the code - try again'));
     } finally {
       setBusy(false);
     }
@@ -78,12 +89,14 @@ export function TwoFactorSection() {
         method: 'POST',
         body: JSON.stringify({ factor_id: factorId, code }),
       });
+      await assertOk(res, 'Could not disable two-factor - try again');
       const json = await res.json() as { success: boolean; error?: { message: string } };
-      if (!json.success) throw new Error(json.error?.message ?? 'Invalid code');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'That code was not accepted - check it and try again');
+      setFactorId(null); setView('disabled');
       setCode('');
-      await refresh();
+      await refresh(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Disable failed');
+      setError(apiErrorMessage(e, 'Could not disable two-factor - try again'));
     } finally {
       setBusy(false);
     }
@@ -91,6 +104,18 @@ export function TwoFactorSection() {
 
   if (view === 'loading') {
     return <div className="text-sm text-gray-500">Loading 2FA status…</div>;
+  }
+
+  if (view === 'unknown') {
+    return (
+      <div className="space-y-3">
+        <h3 className="text-base font-semibold">Two-factor authentication</h3>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <button className="px-3 py-1.5 border rounded-md" onClick={() => { setError(null); setView('loading'); void refresh(); }}>
+          Try again
+        </button>
+      </div>
+    );
   }
 
   if (view === 'enrolling' && enroll) {

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState, type DragEvent, type ChangeEvent } from 'react';
 import { Upload, Loader2, CheckCircle2, AlertTriangle, FolderOpen } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import {
   collectFromDataTransfer,
@@ -131,15 +131,13 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
             ...filePayload,
           }),
         });
+        await assertOk(res, 'Could not preview this file - try again');
         const json = await res.json();
         const data = (json?.data ?? json) as BulkPreviewResponse;
         applyPreview(row.id, data);
       },
-      (_idx, settled) => {
-        if (settled.status === 'rejected') {
-          // worker already updates state per-row; keep noise low
-          return;
-        }
+      (idx, settled) => {
+        if (settled.status === 'rejected') markPreviewFailed(newRows[idx]!.id, settled.reason);
       },
     );
 
@@ -165,6 +163,10 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
       };
     }));
     rowHashStore.set(rowId, data.rowHashes ?? []);
+  }
+
+  function markPreviewFailed(rowId: string, err: unknown) {
+    setRows(prev => prev.map(r => r.id === rowId ? { ...r, phase: 'previewed', accountMatch: 'parse_error', errorMessage: apiErrorMessage(err, 'Could not preview this file - try again') } : r));
   }
 
   function annotateCrossFileDedup(currentRows: BulkImportRowState[]): BulkImportRowState[] {
@@ -242,14 +244,12 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           ...filePayload,
         }),
       });
+      await assertOk(res, 'Could not preview this file - try again');
       const json = await res.json();
       applyPreview(id, (json?.data ?? json) as BulkPreviewResponse);
       setRows(prev => annotateCrossFileDedup(prev));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Retry failed';
-      setRows(prev => prev.map(r => r.id === id ? {
-        ...r, phase: 'previewed', accountMatch: 'parse_error', errorMessage: msg,
-      } : r));
+      markPreviewFailed(id, err);
     }
   }, [bankAccountId]);
 
@@ -305,17 +305,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
               ...filePayload,
             }),
           });
-          if (!res.ok) {
-            const errBody = await res.json().catch(() => ({}));
-            const msg = errBody?.error?.message
-              || errBody?.error
-              || `Server returned ${res.status}`;
-            failed++;
-            setRows(prev => prev.map(r => r.id === row.id ? {
-              ...r, phase: 'failed', errorMessage: String(msg),
-            } : r));
-            return;
-          }
+          await assertOk(res, 'Could not import this statement - try again');
           const json = await res.json();
           const data = (json?.data ?? json) as BulkCommitResponse;
           if (data.status === 'imported') {
@@ -332,12 +322,12 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           } else {
             failed++;
             setRows(prev => prev.map(r => r.id === row.id ? {
-              ...r, phase: 'failed', errorMessage: data.reason ?? 'Unknown error',
+              ...r, phase: 'failed', errorMessage: data.reason ?? 'Could not import this statement - try again',
             } : r));
           }
         } catch (err) {
           failed++;
-          const msg = err instanceof Error ? err.message : 'Commit failed';
+          const msg = apiErrorMessage(err, 'Could not import this statement - try again');
           setRows(prev => prev.map(r => r.id === row.id ? {
             ...r, phase: 'failed', errorMessage: msg,
           } : r));

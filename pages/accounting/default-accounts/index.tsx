@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Settings, Loader2, AlertCircle, Save } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { roleCandidates, type CandidateAccount } from '@/modules/accounting/services/gl/defaultAccountRoles';
 
 interface GLAccount extends CandidateAccount {
@@ -66,7 +66,9 @@ export default function DefaultAccountsPage() {
         apiFetch('/api/accounting/chart-of-accounts?includeInactive=true'),
         apiFetch('/api/accounting/default-accounts'),
       ]);
-      if (!acctRes.ok || !mapRes.ok) throw new Error('load failed');   // apiFetch resolves on 4xx/5xx
+      // apiFetch resolves on 4xx/5xx: the refusal's own message (a 403 says why) is what the person reads.
+      await assertOk(acctRes, 'Could not load the default accounts - try again');
+      await assertOk(mapRes, 'Could not load the default accounts - try again');
       const acctJson = await acctRes.json();
       const mapJson = await mapRes.json();
       const acctData = acctJson.data ?? acctJson;
@@ -75,9 +77,9 @@ export default function DefaultAccountsPage() {
       setMappings(shown);
       setLoaded(shown);
       setLoadFailed(false);
-    } catch {
+    } catch (err) {
       setLoadFailed(true);
-      setMessage({ type: 'error', text: 'Failed to load configuration' });
+      setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not load the default accounts - try again') });
     } finally {
       setIsLoading(false);
     }
@@ -107,14 +109,14 @@ export default function DefaultAccountsPage() {
         await loadData();
       } else {
         const json = await res.json();
-        setMessage({ type: 'error', text: json.error?.message || json.message || 'Failed to save' });
+        setMessage({ type: 'error', text: json.error?.message || json.message || 'Could not save the default accounts - try again' });
         if (res.status === 409) await loadData();
         // Refused: nothing was saved, so the rows go back to the holders the page loaded —
         // a select still naming the refused account read as if it had been accepted.
         if (res.status === 400) setMappings((prev) => ({ ...prev, ...pick(loaded) }));
       }
     } catch {
-      setMessage({ type: 'error', text: 'Save request failed' });
+      setMessage({ type: 'error', text: 'Could not save the default accounts - try again' });
     } finally {
       setIsSaving(false);
     }

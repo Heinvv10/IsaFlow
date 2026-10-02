@@ -1,4 +1,3 @@
-import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
@@ -6,41 +5,9 @@ import {
   BookOpen, Users, Truck, Scale, FileText, ClipboardList, ShieldCheck,
   Building2,
 } from 'lucide-react';
-import SessionIssues, { type SessionIssue } from '@/components/accounting/migration/SessionIssues';
-import { apiFetch } from '@/lib/apiFetch';
+import SessionIssues from '@/components/accounting/migration/SessionIssues';
+import { useMigrationSession, type MigrationSession, type StepsCompleted } from '@/components/accounting/migration/useMigrationSession';
 import { useAuth } from '@/contexts/AuthContext';
-import { log } from '@/lib/logger';
-
-interface StepsCompleted {
-  coa?: boolean;
-  customers?: boolean;
-  suppliers?: boolean;
-  opening_balances?: boolean;
-  ar_invoices?: boolean;
-  ap_invoices?: boolean;
-  validated?: boolean;
-}
-
-interface MigrationSession {
-  id: string;
-  sourceSystem: string | null;
-  status: string;
-  stepsCompleted: StepsCompleted;
-  coaRecordsImported: number;
-  customersImported: number;
-  suppliersImported: number;
-  openingBalancesSet: boolean;
-  arInvoicesImported: number;
-  apInvoicesImported: number;
-  /**
-   * Everything the wizard's steps recorded against this session — per-row
-   * failures and, marked `severity: 'warning'`, the rows that DID import with
-   * something to look at (R-002 rounding drift). Written for durability across
-   * a page reload, so this hub is where it is read back.
-   */
-  errors?: SessionIssue[];
-  startedAt: string;
-}
 
 const SOURCE_SYSTEMS = [
   { id: 'sage_cloud', label: 'Sage Business Cloud', icon: '☁️', desc: '3-digit account codes' },
@@ -71,49 +38,7 @@ const STEPS: WizardStep[] = [
 
 export default function MigrationHubPage() {
   const { user } = useAuth();
-  const [session, setSession] = useState<MigrationSession | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [selecting, setSelecting] = useState(false);
-
-  const loadSession = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/accounting/migration/session');
-      const json = await res.json();
-      if (res.ok && json.data) {
-        const raw = (json.data.session ?? json.data) as Partial<MigrationSession> | null;
-        if (raw && typeof raw === 'object' && 'id' in raw) {
-          setSession({ ...raw, stepsCompleted: raw.stepsCompleted ?? {} } as MigrationSession);
-        }
-      }
-    } catch (e) {
-      log.warn('Failed to load migration session', { error: e }, 'migration');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void loadSession(); }, [loadSession]);
-
-  const selectSource = async (sourceSystem: string) => {
-    setSelecting(true);
-    setError('');
-    try {
-      const res = await apiFetch('/api/accounting/migration/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceSystem }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to create session');
-      const raw = (json.data.session ?? json.data) as Partial<MigrationSession>;
-      setSession({ ...raw, stepsCompleted: raw.stepsCompleted ?? {} } as MigrationSession);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start migration');
-    } finally {
-      setSelecting(false);
-    }
-  };
+  const { session, setSession, isLoading, setIsLoading, error, selecting, loadFailed, loadSession, selectSource } = useMigrationSession();
 
   const stepStatus = (id: keyof StepsCompleted): 'completed' | 'not_started' => {
     return session?.stepsCompleted?.[id] ? 'completed' : 'not_started';
@@ -147,6 +72,13 @@ export default function MigrationHubPage() {
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
             </div>
+          ) : loadFailed ? (
+            <button
+              onClick={() => { setIsLoading(true); void loadSession(); }}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"
+            >
+              Retry
+            </button>
           ) : !session ? (
             <SourceSelection onSelect={selectSource} selecting={selecting} isSuperAdmin={user?.role === 'super_admin'} />
           ) : (

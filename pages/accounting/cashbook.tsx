@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { BookOpen, Loader2, AlertCircle, Filter } from 'lucide-react';
 import { log } from '@/lib/logger';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 const fmt = (n: number) =>
@@ -51,7 +51,7 @@ export default function CashbookPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    apiJson('/api/accounting/bank-accounts')
+    apiJson('/api/accounting/bank-accounts', undefined, 'Could not load the bank accounts - try again')
       .then(data => {
         const list = Array.isArray(data) ? data : [];
         setBankAccounts(list);
@@ -59,7 +59,7 @@ export default function CashbookPage() {
       })
       .catch((err) => {
         log.error('Failed to load bank accounts for cashbook', { error: err }, 'accounting-ui');
-        setError('Failed to load bank accounts');
+        setError(apiErrorMessage(err, 'Could not load the bank accounts - try again'));
         setLoading(false);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -77,12 +77,13 @@ export default function CashbookPage() {
         limit: '500',
       });
       const res = await apiFetch(`/api/accounting/bank-transactions?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the cashbook - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to load');
       const data = json.data || json;
       setTransactions(Array.isArray(data) ? data : data.items || data.transactions || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setTransactions([]);
+      setError(apiErrorMessage(err, 'Could not load the cashbook - try again'));
     } finally {
       setLoading(false);
     }

@@ -12,7 +12,8 @@ import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { useVendorSupplierMatch } from '@/components/accounting/supplier-invoices/matchVendorSupplier';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { PoGrnSelector } from '@/components/accounting/suppliers/PoGrnSelector';
 import type { PoLineItem } from '@/components/accounting/suppliers/PoGrnSelector';
 import { BillLineItemsTable } from '@/components/accounting/suppliers/BillLineItemsTable';
@@ -53,9 +54,10 @@ export default function NewSupplierInvoicePage() {
   ]);
 
   useEffect(() => {
+    const okJson = async (r: Response) => { await assertOk(r, 'Could not load the form data - try again'); return r.json(); };
     void Promise.all([
-      apiFetch('/api/accounting/chart-of-accounts').then(r => r.json()),
-      apiFetch('/api/accounting/company-settings?type=document-numbers').then(r => r.json()),
+      apiFetch('/api/accounting/chart-of-accounts').then(okJson),
+      apiFetch('/api/accounting/company-settings?type=document-numbers').then(okJson),
     ]).then(([accRes, settingsRes]) => {
       const accData = accRes.data ?? accRes;
       setGLAccounts(Array.isArray(accData) ? accData.filter((a: GLAccount) => a.accountCode >= '5000') : []);
@@ -70,7 +72,7 @@ export default function NewSupplierInvoicePage() {
         setForm(f => ({ ...f, useSequence: false }));
       }
     }).catch((err: unknown) => {
-      const msg = err instanceof Error ? err.message : 'Failed to load form data';
+      const msg = apiErrorMessage(err, 'Could not load the form data - try again');
       setError(`${msg}. Disable "Use SIV sequence" to enter a custom number, or retry.`);
       setForm(f => ({ ...f, useSequence: false }));
     });
@@ -163,15 +165,12 @@ export default function NewSupplierInvoicePage() {
           })),
         }),
       });
-      if (!res.ok) {
-        const err = await res.json() as { error?: { message?: string } };
-        throw new Error(err.error?.message ?? 'Failed to create invoice');
-      }
+      await assertOk(res, 'Could not create the invoice - try again');
       const json = await res.json() as { data?: { id: string }; id?: string };
       const invoice = json.data ?? json;
-      await router.push(`/accounting/supplier-invoices/${(invoice as { id: string }).id}`);
+      try { await router.push(`/accounting/supplier-invoices/${(invoice as { id: string }).id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'supplier-invoices-new'); }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create invoice');
+      setError(apiErrorMessage(err, 'Could not create the invoice - try again'));
     } finally {
       setIsSubmitting(false);
     }

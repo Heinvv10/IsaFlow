@@ -6,7 +6,7 @@
  * Content-Type unset for FormData bodies (browser sets the multipart boundary).
  */
 
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 
 export const QUEUE_STORAGE_KEY = 'isaflow_capture_queue';
 
@@ -37,13 +37,7 @@ export async function uploadFiles(files: File[]): Promise<UploadResult> {
     method: 'POST',
     body: form,
   });
-  if (!res.ok) {
-    const json = await res.json().catch(() => ({})) as {
-      error?: { message?: string };
-      message?: string;
-    };
-    throw new Error(json.error?.message ?? json.message ?? 'Upload failed');
-  }
+  await assertOk(res, 'Could not upload the documents - try again');
   const json = await res.json();
   const data = (json.data as Partial<UploadResult>) ?? {};
   return { eventIds: data.eventIds ?? [], documentIds: data.documentIds ?? [] };
@@ -63,6 +57,7 @@ export async function flushQueue(): Promise<void> {
       const files = await Promise.all(
         item.files.filter(f => f.dataUrl.startsWith('data:')).map(async f => {
           const r = await fetch(f.dataUrl);
+          if (!r.ok) throw new Error('queued file unreadable'); // caught below: the item stays queued
           const blob = await r.blob();
           return new File([blob], f.name, { type: f.type });
         })

@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tag, Plus, Pencil, Trash2, Loader2, X, Check } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface Category { id: string; name: string; description: string; clientCount: number; }
@@ -18,42 +18,61 @@ export default function CustomerCategoriesPage() {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: '', description: '' });
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    const res = await apiFetch('/api/accounting/customer-categories', { credentials: 'include' });
-    const json = await res.json();
-    setItems(json.data || []);
-    setLoading(false);
+    try {
+      const res = await apiFetch('/api/accounting/customer-categories', { credentials: 'include' });
+      await assertOk(res, 'Could not load categories - try again');
+      const json = await res.json();
+      setError('');
+      setItems(json.data || []);
+    } catch (err) {
+      setItems([]);
+      setError(apiErrorMessage(err, 'Could not load categories - try again'));
+      log.error('Failed to load customer categories', { error: err }, 'customer-categories-page');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => {
-    load().catch((err) => {
-      setLoading(false);
-      log.error('Failed to load customer categories', { error: err }, 'customer-categories-page');
-    });
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const save = async () => {
     if (!form.name.trim()) return;
     setBusy(true);
-    const method = editing ? 'PUT' : 'POST';
-    const body = editing ? { id: editing, ...form } : form;
-    await apiFetch('/api/accounting/customer-categories', {
-      method, headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify(body),
-    });
-    setForm({ name: '', description: '' });
-    setEditing(null); setAdding(false); setBusy(false);
-    await load();
+    setError('');
+    try {
+      const method = editing ? 'PUT' : 'POST';
+      const body = editing ? { id: editing, ...form } : form;
+      const res = await apiFetch('/api/accounting/customer-categories', {
+        method, headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify(body),
+      });
+      await assertOk(res, 'Could not save the category - try again');
+      setForm({ name: '', description: '' });
+      setEditing(null); setAdding(false);
+      await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the category - try again'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const remove = async (id: string) => {
     if (!confirm('Delete this category?')) return;
-    await apiFetch('/api/accounting/customer-categories', {
-      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ id }),
-    });
-    await load();
+    setError('');
+    try {
+      const res = await apiFetch('/api/accounting/customer-categories', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ id }),
+      });
+      await assertOk(res, 'Could not delete the category - try again');
+      await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not delete the category - try again'));
+    }
   };
 
   const startEdit = (cat: Category) => {
@@ -84,6 +103,7 @@ export default function CustomerCategoriesPage() {
         </div>
 
         <div className="p-6">
+          {error && <div className="mb-4 p-3 rounded-lg text-sm bg-red-500/10 text-red-400">{error}</div>}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             <table className="w-full text-sm">
               <thead><tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">

@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { UpgradePrompt } from './UpgradePrompt';
 
 interface FeatureGateProps {
@@ -17,23 +17,25 @@ interface FeatureGateProps {
 
 export function FeatureGate({ feature, children, fallback }: FeatureGateProps) {
   const [allowed, setAllowed] = useState<boolean | null>(null);
+  const [checkFailed, setCheckFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     apiFetch(`/api/features/check?code=${encodeURIComponent(feature)}`)
-      .then((r) => r.json())
-      .then((d: { enabled?: boolean }) => {
-        if (!cancelled) setAllowed(d.enabled ?? false);
+      .then(async (r) => { await assertOk(r, 'Could not check this feature'); return r.json(); })
+      .then((d: { data?: { enabled?: boolean } }) => {
+        if (!cancelled) setAllowed(d.data?.enabled ?? false);
       })
       .catch(() => {
-        if (!cancelled) setAllowed(false);
+        if (!cancelled) { setAllowed(false); setCheckFailed(true); }
       });
 
     return () => { cancelled = true; };
   }, [feature]);
 
-  if (allowed === null) return null;
+  // A failed check is not 'your plan lacks this' - show neither the feature nor an upgrade prompt.
+  if (allowed === null || checkFailed) return null;
   if (!allowed) return <>{fallback ?? <UpgradePrompt feature={feature} />}</>;
   return <>{children}</>;
 }

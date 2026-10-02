@@ -4,7 +4,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Banknote, Loader2, AlertCircle, Plus } from 'lucide-react';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
@@ -41,28 +41,36 @@ export default function LoansListPage() {
   const [statusFilter, setStatusFilter] = useState<'' | LoanRow['status']>('');
 
   const [componentsMissing, setComponentsMissing] = useState(false);
+  const [componentsError, setComponentsError] = useState('');
   const [seeding, setSeeding] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
+    setComponentsError('');
     try {
       const qs = statusFilter ? `?status=${statusFilter}` : '';
       const [loansRes, compRes] = await Promise.all([
         apiFetch(`/api/payroll/loans${qs}`),
         apiFetch('/api/payroll/components'),
       ]);
-      if (!loansRes.ok) { setError(payrollLoadMessage(loansRes.status, 'Failed to load loans')); return; }
+      if (loansRes.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load the loans - try again'));
+      await assertOk(loansRes, 'Could not load the loans - try again');
       const json = await loansRes.json();
       setLoans((json.data ?? json) as LoanRow[]);
-      if (compRes.ok) {
+      try {
+        await assertOk(compRes, 'Could not check the loan payslip components - try again');
         const compJson = await compRes.json();
         const components = (compJson.data ?? compJson) as Array<{ sarsSourceCode: string }>;
         const codes = new Set(components.map(c => c.sarsSourceCode));
         setComponentsMissing(!codes.has('LOAN') || !codes.has('3801'));
+      } catch (compErr) {
+        setComponentsMissing(false);
+        setComponentsError(apiErrorMessage(compErr, 'Could not check the loan payslip components - try again'));
       }
-    } catch {
-      setError('Failed to load loans');
+    } catch (err) {
+      setLoans([]);
+      setError(apiErrorMessage(err, 'Could not load the loans - try again'));
     } finally {
       setLoading(false);
     }
@@ -70,9 +78,13 @@ export default function LoansListPage() {
 
   async function seedComponents(): Promise<void> {
     setSeeding(true);
+    setComponentsError('');
     try {
       const res = await apiFetch('/api/payroll/loans/setup-components', { method: 'POST' });
-      if (res.ok) await load();
+      await assertOk(res, 'Could not set up the loan components - try again');
+      await load();
+    } catch (err) {
+      setComponentsError(apiErrorMessage(err, 'Could not set up the loan components - try again'));
     } finally {
       setSeeding(false);
     }
@@ -112,6 +124,12 @@ export default function LoansListPage() {
                   {seeding ? 'Creating...' : 'Create loan components'}
                 </button>
               </WriteOnly>
+            </div>
+          )}
+
+          {componentsError && !loading && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-300">
+              <AlertCircle className="h-4 w-4 shrink-0" /><span>{componentsError}</span>
             </div>
           )}
 
