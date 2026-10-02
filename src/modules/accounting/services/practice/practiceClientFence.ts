@@ -28,6 +28,7 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
+import { UUID_RE } from '@/lib/validation';
 import { CLOSED_JOB_STATUSES } from './practiceJobBudget';
 
 /** Refusal raised when a practice client id is not this company's. Routes answer 400. */
@@ -51,8 +52,11 @@ export class ClientGroupNotInCompanyError extends Error {
 /** Refusal raised when a job id is not this company's job for this practice client. Routes answer 400. */
 export class PracticeJobNotForClientError extends Error {
   readonly code = 'PRACTICE_JOB_NOT_FOUND';
-  constructor(jobId: string) {
-    super(`Job ${jobId} was not found for this client`);
+  /** Names the id only when it is a well-formed UUID: anything else is caller text of any length. */
+  constructor(jobId: unknown) {
+    super(typeof jobId === 'string' && UUID_RE.test(jobId)
+      ? `Job ${jobId} was not found for this client`
+      : 'The job was not found for this client');
     this.name = 'PracticeJobNotForClientError';
   }
 }
@@ -81,7 +85,7 @@ export function isJobFenceRefusal(err: unknown): err is PracticeJobNotForClientE
 export function rethrowJobFkAsRefusal(err: unknown, jobId: string | null): never {
   const e = err as { code?: string; constraint?: string };
   if (e.code === '23503' && e.constraint === 'time_entries_job_same_client_fkey') {
-    throw new PracticeJobNotForClientError(jobId ?? 'unknown');
+    throw new PracticeJobNotForClientError(jobId);
   }
   throw err;
 }
@@ -124,7 +128,8 @@ export async function assertJobForPracticeClient(
   { newLink }: { newLink: boolean },
 ): Promise<string | null> {
   if (jobId === undefined || jobId === null || jobId === '') return null;
-  if (typeof jobId !== 'string') throw new PracticeJobNotForClientError(String(jobId));
+  // Not a UUID (a number, a NUL, any malformed text): refused before any SQL, with a fixed sentence.
+  if (typeof jobId !== 'string' || !UUID_RE.test(jobId)) throw new PracticeJobNotForClientError(jobId);
   const rows = await savepointedRows(async () => (await sql`
     SELECT status FROM practice_jobs
     WHERE id = ${jobId}::uuid AND company_id = ${companyId}::uuid
