@@ -79,13 +79,19 @@ app) alone are 80 (one variable).
   validated size (valid, unset, 9 bad spellings under the `ceil(n)` rule, and 3 spellings below
   the floor of 2 for the AUTH_POOL_MAX and PG_POOL_MAX sites).
 - `tests/unit/lib/pgPoolMaxPremise.test.ts`: the REAL pg-pool: NaN/0 give 10, negative never
-  opens a connection, Infinity is kept.
+  opens a connection, Infinity is kept, a fractional 2.5 allows three connections (ceil).
 - `tests/unit/lib/rateLimitPoolMax.test.ts` (R-175, header reworded, `rateLimit` category asserted).
-- `tests/unit/lib/pdf/renderSemaphore.test.ts`: invalid AUTH_POOL_MAX gives ceiling 2.
-- Round 0: red `red.unit.log` (68 failed of 105 across 3 files, before the fix); green.log is
-  the round-0 run (116 passed, 4 files). Round 1: `green.round1.log` (exact commands, 127 passed in
-  5 files; wider suite 1837 passed, 6 skipped). Mutants: `mutations.log` (13 in round 0 against
-  105 tests; 7 in round 1 against 127), all red, baselines first.
+- `tests/unit/lib/pdf/renderSemaphore.test.ts`: invalid AUTH_POOL_MAX gives ceiling 2; a pool of 1
+  (`1`, `1.0`, `0.5`) is raised to 2, ceiling 1.
+- `tests/unit/lib/neonPoolNestedSql.test.ts`: real pg-pool, fake client: a size-1 pool times out on a
+  nested `sql` inside `withTransaction`; PG_POOL_MAX `1`, `1.0`, `0.5` is raised to 2 and the nested
+  `sql` completes using two connections.
+- Evidence by round: round 0 red `red.unit.log` (68 failed of 105 across 3 files, before the fix)
+  and `green.log` (116 passed, 4 files). Green logs with the exact commands: `green.round1.log`
+  (127), `green.round2.log` (149), `green.round3.log` (178), `green.round4.log` (184 passed in the
+  6 files above; the final file set). Mutants, each with its clean baseline read first, are in
+  `mutations.log`: 13 in round 0, 7 in round 1, 7 in round 2, 4 in round 3, 4 in round 4; all red.
+  Rounds 5 and later changed docs and test names only; the shuffle check is in Review round 5.
 
 ## Review round 1
 1. Rationale corrected everywhere (see Defect); premise pinned by a real-library test.
