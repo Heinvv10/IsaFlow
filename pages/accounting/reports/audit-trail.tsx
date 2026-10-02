@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Shield, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface AuditRow {
@@ -69,10 +69,10 @@ export default function AuditTrailPage() {
     try {
       const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
       const res = await apiFetch(`/api/accounting/reports-audit-trail?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the audit trail - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
       setRows(json.data || []);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setRows([]); setError(apiErrorMessage(err, 'Could not load the audit trail - try again')); }
     finally { setLoading(false); }
   }, [periodStart, periodEnd]);
 

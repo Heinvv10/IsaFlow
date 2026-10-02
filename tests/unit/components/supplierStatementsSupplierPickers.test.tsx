@@ -1,13 +1,15 @@
 // The statements page's two supplier pickers read /api/accounting/suppliers, a route
 // that does not exist, so they were always empty. They now use SupplierSelect
 // (server-side search on /suppliers-list), so a supplier past the first 25 is reachable.
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('next/router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
 import SupplierStatementsIndexPage from '../../../pages/accounting/ap/supplier-statements/index';

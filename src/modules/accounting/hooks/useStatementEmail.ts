@@ -5,7 +5,7 @@
 
 import { useState, useCallback } from 'react';
 import { log } from '@/lib/logger';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 export interface EmailProgress {
   total: number;
@@ -75,6 +75,7 @@ export function useStatementEmail({ customers, asAtDate }: Options): Return {
           body: JSON.stringify({ customerIds: emailableIds, asAtDate }),
         });
 
+        await assertOk(res, 'Could not send the statements - try again');
         const json = await res.json();
         const result = json.data || json;
 
@@ -89,20 +90,18 @@ export function useStatementEmail({ customers, asAtDate }: Options): Return {
           failed,
         });
 
-        if (failed === 0) {
+        if (sent === 0 && failed === 0) {
+          showToast('error', 'No statements were sent - try again');
+        } else if (failed === 0) {
           showToast('success', `Sent ${sent} statement${sent !== 1 ? 's' : ''} successfully.`);
         } else if (sent > 0) {
           showToast('error', `Sent ${sent}, failed ${failed}. ${errors[0] ?? ''}`);
         } else {
           showToast('error', `All ${failed} failed. ${errors[0] ?? ''}`);
         }
-
-        if (!res.ok) {
-          log.error('Bulk email API error', { status: res.status, result }, 'useStatementEmail');
-        }
       } catch (err) {
         log.error('Bulk email request failed', { data: err }, 'useStatementEmail');
-        showToast('error', 'Failed to send emails. Please try again.');
+        showToast('error', apiErrorMessage(err, 'Could not send the statements - try again'));
       } finally {
         setTimeout(() => setEmailProgress(null), 3000);
       }

@@ -8,7 +8,7 @@
  */
 import { useState } from 'react';
 import { ShieldQuestion } from 'lucide-react';
-import { apiFetch, ApiRequestError, assertOk } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { log } from '@/lib/logger';
 import { InlineReasonForm } from '@/components/shared/InlineReasonForm';
@@ -50,7 +50,7 @@ export function MarkVatDeclaredElsewhereButton({ kind, invoiceId, glJournalEntry
       onMarked?.();
     } catch (err) {
       log.warn('MarkVatDeclaredElsewhereButton: mark failed', { error: err }, 'MarkVatDeclaredElsewhereButton');
-      setError(err instanceof ApiRequestError ? err.message : 'Could not mark this document');
+      setError(apiErrorMessage(err, 'Could not mark this document'));
     } finally {
       setBusy(false);
     }

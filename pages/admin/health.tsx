@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   Activity, Database, Zap, Mail, Users, Clock,
   RefreshCw, AlertTriangle, Loader2,
@@ -46,11 +46,12 @@ export default function SystemHealthPage() {
     setError('');
     try {
       const res  = await apiFetch('/api/admin/health');
+      await assertOk(res, 'Could not load health data - try again');
       const json = await res.json() as { data: SystemHealthData; message?: string };
-      if (!res.ok) throw new Error(json.message ?? 'Failed to load health data');
       setData(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load health data');
+      setData(null);
+      setError(apiErrorMessage(err, 'Could not load health data - try again'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -117,11 +118,11 @@ export default function SystemHealthPage() {
             {/* Database */}
             <MetricCard title="Database" icon={Database} status={dbStatus}>
               <div className="grid grid-cols-2 gap-3">
-                <Stat label="Status"     value={<StatusBadge level={dbStatus} label={data.db.status === 'ok' ? 'Connected' : 'Error'} />} />
+                <Stat label="Status"     value={<StatusBadge level={dbStatus} label={data.db.status === 'ok' ? 'Connected' : 'Unreachable'} />} />
                 <Stat label="Query (ms)" value={data.db.latency_ms} />
                 <Stat label="DB Size"    value={`${data.db.size_mb} MB`} />
-                {data.db.error && (
-                  <p className="col-span-2 text-xs text-red-400 mt-1 truncate">{data.db.error}</p>
+                {data.db.status !== 'ok' && (
+                  <p className="col-span-2 text-xs text-red-400 mt-1">The database did not answer the health check query - check the database service and the server logs.</p>
                 )}
               </div>
             </MetricCard>

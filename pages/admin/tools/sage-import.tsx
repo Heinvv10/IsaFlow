@@ -12,7 +12,7 @@ import Link from 'next/link';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { SageCommitSummary, type SageCommitSummaryData } from '@/components/admin/SageCommitSummary';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   ArrowLeft, Download, CheckCircle2, AlertCircle, Loader2,
   Database, Users, Building2, FileText, ShieldCheck, Cable, KeyRound,
@@ -114,9 +114,9 @@ export default function AdminSageImportPage() {
 
   useEffect(() => {
     apiFetch('/api/admin/companies?limit=200')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load companies - try again'); return r.json(); })
       .then(d => setCompanies(d.data?.items ?? []))
-      .catch(() => setCompaniesError('Failed to load companies.'));
+      .catch((err: unknown) => setCompaniesError(apiErrorMessage(err, 'Could not load companies - try again')));
   }, []);
 
   const resetSteps = useCallback(() => {
@@ -137,15 +137,8 @@ export default function AdminSageImportPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ companyId: selectedCompanyId, sageCookie }),
       });
+      await assertOk(res, 'Could not pull the data from Sage - try again');
       const json = await res.json();
-      if (!res.ok) {
-        const msg =
-          (typeof json.error === 'string' && json.error) ||
-          json.error?.message ||
-          json.message ||
-          `Pull failed (${res.status})`;
-        throw new Error(msg);
-      }
 
       const pulled = json.data?.pulled ?? {};
       pulledData.current = pulled;
@@ -156,7 +149,7 @@ export default function AdminSageImportPage() {
       })));
       setPulledAt(new Date());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Pull failed');
+      setError(apiErrorMessage(err, 'Could not pull the data from Sage - try again'));
     } finally {
       setPulling(false);
     }
@@ -189,11 +182,11 @@ export default function AdminSageImportPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ companyId: selectedCompanyId, pulled: payload }),
       });
+      await assertOk(res, 'Could not import the Sage data - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message ?? json.message ?? 'Commit failed');
       setCommitSummary(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Commit failed');
+      setError(apiErrorMessage(err, 'Could not import the Sage data - try again'));
     } finally {
       setCommitting(false);
     }

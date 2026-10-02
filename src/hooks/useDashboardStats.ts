@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState, useRef } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -31,6 +31,7 @@ function fetchStats(): Promise<DashboardData | null> {
 
   cachedPromise = apiFetch('/api/accounting/dashboard-stats')
     .then(async (res) => {
+      await assertOk(res, 'Could not load dashboard data - try again');
       const json = (await res.json()) as { data?: DashboardData };
       cachedData = json.data ?? null;
       cacheTimestamp = Date.now();
@@ -65,8 +66,8 @@ export function useDashboardStats(): DashboardStatsState {
       .then((data) => {
         if (mounted.current) setState({ data, loading: false, error: null });
       })
-      .catch(() => {
-        if (mounted.current) setState({ data: null, loading: false, error: 'Unable to load dashboard data' });
+      .catch((err) => {
+        if (mounted.current) setState({ data: null, loading: false, error: apiErrorMessage(err, 'Could not load dashboard data - try again') });
       });
 
     return () => { mounted.current = false; };

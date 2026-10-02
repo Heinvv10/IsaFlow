@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn(async () => new Response('{"data":{"matchCount":0}}', { status: 200 })) }));
+vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch: vi.fn(async () => new Response('{"data":{"matchCount":0}}', { status: 200 })) }));
 vi.mock('@/utils/toast', () => ({ notify: { success: vi.fn(), error: vi.fn() } }));
 
 import { CreateRuleModal } from '@/components/accounting/CreateRuleModal';

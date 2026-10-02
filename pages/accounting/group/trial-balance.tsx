@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Scale, Loader2, AlertCircle, Download, Building2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { csvCell } from '@/lib/csv';
 import { TBSummaryCards, TBBalanceFooter } from '@/components/accounting/group/TBSummaryCards';
 import { TBConsolidationWarnings } from '@/components/accounting/group/TBConsolidationWarnings';
@@ -84,11 +84,11 @@ export default function ConsolidatedTrialBalancePage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    apiFetch('/api/accounting/company-groups').then(r => r.json()).then(json => {
+    apiFetch('/api/accounting/company-groups').then(async r => { await assertOk(r, 'Could not load entity groups - try again'); return r.json(); }).then(json => {
       const items: EntityGroup[] = json.data?.items || json.data?.groups || json.data || [];
       setGroups(items);
       if (items.length > 0 && !selectedGroupId && items[0]) setSelectedGroupId(items[0].id);
-    }).catch(() => { /* non-critical */ });
+    }).catch((err: unknown) => setError(apiErrorMessage(err, 'Could not load entity groups - try again')));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -98,10 +98,10 @@ export default function ConsolidatedTrialBalancePage() {
     try {
       const params = new URLSearchParams({ group_id: selectedGroupId, action: 'trial-balance', period_start: periodStart, period_end: periodEnd });
       const res = await apiFetch(`/api/accounting/consolidated-reports?${params}`);
-      if (!res.ok) throw new Error('Failed to load consolidated trial balance');
+      await assertOk(res, 'Could not load the consolidated trial balance - try again');
       const json = await res.json();
       setData(json.data || json);
-    } catch { setError('Failed to load consolidated trial balance'); setData(null); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load the consolidated trial balance - try again')); setData(null); }
     finally { setLoading(false); }
   }, [selectedGroupId, periodStart, periodEnd]);
 

@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tags, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface Category {
   id: string;
@@ -45,12 +45,13 @@ export default function AssetCategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     apiFetch('/api/accounting/assets-categories', { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load asset categories - try again'); return r.json(); })
       .then(j => { setCategories(j.data || []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch(err => { setError(apiErrorMessage(err, 'Could not load asset categories - try again')); setLoading(false); });
   }, []);
 
   const visible = filter
@@ -88,6 +89,7 @@ export default function AssetCategoriesPage() {
         </div>
 
         <div className="p-6">
+          {error && <div className="mb-4 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -112,7 +114,7 @@ export default function AssetCategoriesPage() {
                       </td>
                     </tr>
                   )}
-                  {!loading && visible.length === 0 && (
+                  {!loading && !error && visible.length === 0 && (
                     <tr>
                       <td colSpan={9} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)] text-sm">
                         No categories match your filter.

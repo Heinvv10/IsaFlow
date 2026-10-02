@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { MessageSquare, AlertCircle, Loader2, CheckCircle2, X } from 'lucide-react';
 import { BankTxAttachmentsModal } from '@/components/accounting/BankTxAttachmentsModal';
@@ -66,12 +66,13 @@ export default function ClientQueriesPage() {
     const url = `/api/accounting/bank-tx-queries${param ? `?status=${param}` : ''}`;
     try {
       const res = await apiFetch(url);
-      const json = await res.json() as { data?: BankTxQueryRow[]; message?: string; error?: { message?: string } };
-      if (!res.ok) { setError(json.message ?? json.error?.message ?? 'Failed to load queries'); return; }
+      await assertOk(res, 'Could not load the queries - try again');
+      const json = await res.json() as { data?: BankTxQueryRow[] };
       setRows(json.data ?? []);
     } catch (err) {
       log.error('Failed to load bank-tx queries', { err }, 'client-queries-page');
-      setError('Network error loading queries');
+      setRows([]);
+      setError(apiErrorMessage(err, 'Could not load the queries - try again'));
     } finally {
       setLoading(false);
     }
@@ -96,13 +97,12 @@ export default function ClientQueriesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       });
-      const json = await res.json() as { message?: string; error?: { message?: string } };
-      if (!res.ok) { setToast({ msg: json.message ?? json.error?.message ?? `${action} failed`, kind: 'err' }); return; }
+      await assertOk(res, action === 'resolve' ? 'Could not resolve the query - try again' : 'Could not cancel the query - try again');
       setToast({ msg: action === 'resolve' ? 'Query marked resolved' : 'Query cancelled', kind: 'ok' });
       await load();
     } catch (err) {
       log.error('Bank-tx query action failed', { id, action, err }, 'client-queries-page');
-      setToast({ msg: 'Network error', kind: 'err' });
+      setToast({ msg: apiErrorMessage(err, action === 'resolve' ? 'Could not resolve the query - try again' : 'Could not cancel the query - try again'), kind: 'err' });
     } finally {
       setActing(null);
     }

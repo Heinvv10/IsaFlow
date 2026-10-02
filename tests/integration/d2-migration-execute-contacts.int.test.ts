@@ -1,0 +1,81 @@
+/**
+ * D2 — a migration execute with suppliers and customers imports both, on the
+ * migration-created schema. executeMigration's supplier INSERT named
+ * suppliers.billing_address, a column no migration creates (the table has
+ * `address`), so every supplier of every execute failed.
+ */
+import { afterAll, beforeAll, expect, it } from 'vitest';
+import { Pool } from 'pg';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { executeMigration } from '../../src/modules/accounting/services/core/migrationExecuteService';
+
+assertDisposable();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const company = crypto.randomUUID();
+const user = crypto.randomUUID();
+
+beforeAll(async () => {
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'D2 contacts fixture']);
+  await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
+});
+
+afterAll(async () => {
+  try {
+    await pool.query('DELETE FROM suppliers WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM customers WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM companies WHERE id=$1', [company]);
+    await pool.query('DELETE FROM users WHERE id=$1', [user]);
+  } finally { await pool.end(); }
+});
+
+it('imports suppliers and customers with their addresses', async () => {
+  const result = await executeMigration(company, user, 'xero', [],
+    [{ name: 'Cust One', email: 'c1@x.test', phone: '011', vatNumber: '4111111111', address: '1 Main Rd, Sandton' }],
+    [{ name: 'Supp One', email: 's1@x.test', phone: '012', vatNumber: '4222222222', address: '2 Dock St, Durban' }]);
+
+  expect(result.errors).toEqual([]);
+  expect(result.customersImported).toBe(1);
+  expect(result.suppliersImported).toBe(1);
+  const cust = await pool.query('SELECT billing_address, vat_number FROM customers WHERE company_id=$1', [company]);
+  expect(cust.rows).toEqual([{ billing_address: '1 Main Rd, Sandton', vat_number: '4111111111' }]);
+  const supp = await pool.query('SELECT address, vat_number FROM suppliers WHERE company_id=$1', [company]);
+  expect(supp.rows).toEqual([{ address: '2 Dock St, Durban', vat_number: '4222222222' }]);
+});
+
+it('counts what was inserted and reports the rest as skipped', async () => {
+  // The migration-created schema has no unique key on name, so give the fixture one
+  // to make ON CONFLICT DO NOTHING skip a row, as a company with such a key would.
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS d2_tmp_cust_name ON customers(company_id, name)');
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS d2_tmp_supp_name ON suppliers(company_id, name)');
+  try {
+    const co = crypto.randomUUID();
+    await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [co, 'D2 skipped fixture']);
+    const rows = (p: string) => [{ name: `${p} A` }, { name: `${p} A` }, { name: `${p} B` }, { name: '  ' }];
+    const first = await executeMigration(co, user, 'xero', [], rows('C'), rows('S'));
+    expect(first).toMatchObject({ customersImported: 2, customersSkipped: 2, suppliersImported: 2, suppliersSkipped: 2 });
+    const again = await executeMigration(co, user, 'xero', [], rows('C'), rows('S'));
+    expect(again).toMatchObject({ customersImported: 0, customersSkipped: 4, suppliersImported: 0, suppliersSkipped: 4 });
+    await pool.query('DELETE FROM suppliers WHERE company_id=$1', [co]);
+    await pool.query('DELETE FROM customers WHERE company_id=$1', [co]);
+    await pool.query('DELETE FROM companies WHERE id=$1', [co]);
+  } finally {
+    await pool.query('DROP INDEX IF EXISTS d2_tmp_cust_name');
+    await pool.query('DROP INDEX IF EXISTS d2_tmp_supp_name');
+  }
+});
+
+it('a batch that throws is reported as failed, not skipped, and saves nothing', async () => {
+  const co = crypto.randomUUID();
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [co, 'D2 failed-batch fixture']);
+  try {
+    // name is VARCHAR(255): the second row makes the whole customers batch roll back
+    const r = await executeMigration(co, user, 'xero', [], [{ name: 'Fine Co' }, { name: 'X'.repeat(300) }, { name: '  ' }], [{ name: 'Supplier Ok' }]);
+    expect(r).toMatchObject({ customersImported: 0, customersFailed: 2, customersSkipped: 1, suppliersImported: 1, suppliersFailed: 0, suppliersSkipped: 0 });
+    expect(r.errors.join(' ')).toMatch(/Customers batch/);
+    const n = await pool.query('SELECT count(*)::int AS n FROM customers WHERE company_id=$1', [co]);
+    expect(n.rows[0].n).toBe(0);
+  } finally {
+    await pool.query('DELETE FROM suppliers WHERE company_id=$1', [co]);
+    await pool.query('DELETE FROM companies WHERE id=$1', [co]);
+  }
+});

@@ -35,10 +35,9 @@ const invoice = (state: State) => ({
   totalAmount: 1150, balance: 1150, notes: '', items: [],
   approval: { state, enforced: state !== 'not_required', requiredRole: 'owner', ruleName: 'Owner signs', requestId: state === 'required' ? null : 'req-1' },
 });
-const ok = (data: unknown) => ({ ok: true, status: 200, json: () => Promise.resolve({ data }) });
-const refused = (status: number, message: string, reason?: string) => ({
-  ok: false, status, json: () => Promise.resolve({ success: false, error: { message, details: reason ? { reason } : undefined } }),
-});
+const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
+const refused = (status: number, message: string, reason?: string) =>
+  new Response(JSON.stringify({ success: false, error: { code: 'REFUSED', message, details: reason ? { reason } : undefined } }), { status });
 const posts = () => fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
   .map(([url, init]) => ({ url: String(url), body: JSON.parse(String((init as RequestInit).body)) }));
 

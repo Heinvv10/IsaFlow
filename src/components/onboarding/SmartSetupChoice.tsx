@@ -5,7 +5,7 @@
 
 import { useRef, useState } from 'react';
 import { Keyboard, ScanLine, Upload, Loader2, CheckCircle2, AlertCircle, FileText } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import type { WizardData, DocFile } from './WizardSteps';
 import { DOC_SLOTS } from './WizardSteps';
 
@@ -61,10 +61,11 @@ export function SmartSetupChoice({ onManual, onExtracted }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: cipcDoc.data }),
       });
+      await assertOk(res, 'AI extraction could not read the document. Please enter details manually.');
       const body = await res.json() as { success: boolean; data?: Partial<WizardData>; error?: { message?: string } };
 
-      if (!res.ok || !body.success) {
-        setExtractState({ status: 'error', message: body.error?.message ?? 'AI extraction failed.' });
+      if (!body.success) {
+        setExtractState({ status: 'error', message: body.error?.message ?? 'AI extraction could not read the document. Please enter details manually.' });
         return;
       }
 
@@ -72,8 +73,8 @@ export function SmartSetupChoice({ onManual, onExtracted }: Props) {
       setTimeout(() => {
         onExtracted({ ...body.data, documents: docs });
       }, 800);
-    } catch {
-      setExtractState({ status: 'error', message: 'AI extraction is currently unavailable. Please enter details manually.' });
+    } catch (err) {
+      setExtractState({ status: 'error', message: apiErrorMessage(err, 'AI extraction is currently unavailable. Please enter details manually.') });
     }
   };
 

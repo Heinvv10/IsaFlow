@@ -7,7 +7,7 @@ import { useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface Customer {
@@ -97,13 +97,12 @@ export default function CustomerLedgerPage() {
     if (customersLoaded) return;
     try {
       const res = await apiFetch('/api/accounting/customers', { credentials: 'include' });
+      await assertOk(res, 'Could not load customers - try again');
       const json = await res.json();
-      if (res.ok) {
-        setCustomers((json.data as Customer[]) || []);
-        setCustomersLoaded(true);
-      }
-    } catch {
-      // non-fatal — user can still type
+      setCustomers((json.data as Customer[]) || []);
+      setCustomersLoaded(true);
+    } catch (err) {
+      setCustomers([]); setError(apiErrorMessage(err, 'Could not load customers - try again'));
     }
   }, [customersLoaded]);
 
@@ -122,11 +121,11 @@ export default function CustomerLedgerPage() {
       const res = await apiFetch(`/api/accounting/reports-customer-ledger?${params}`, {
         credentials: 'include',
       });
+      await assertOk(res, 'Could not load the ledger - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message ?? 'Failed');
       setLedger((json as { data: LedgerData }).data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load ledger');
+      setLedger(null); setError(apiErrorMessage(err, 'Could not load the ledger - try again'));
     } finally {
       setLoading(false);
     }

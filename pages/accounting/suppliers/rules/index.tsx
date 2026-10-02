@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, Search, ChevronRight, Settings2 } from 'lucide-react';
 
 interface SupplierRule {
@@ -59,12 +59,13 @@ export default function SupplierRulesIndexPage() {
     setLoading(true);
     try {
       const res = await apiFetch('/api/accounting/supplier-rules');
-      const json = await res.json() as { data?: SupplierRule[]; error?: string };
-      if (!res.ok) { setError(json.error ?? 'Failed to load rules'); return; }
+      await assertOk(res, 'Could not load the supplier rules - try again');
+      const json = await res.json() as { data?: SupplierRule[] };
       setRules(json.data ?? []);
       setError('');
-    } catch {
-      setError('Network error loading rules');
+    } catch (err) {
+      setRules([]);
+      setError(apiErrorMessage(err, 'Could not load the supplier rules - try again'));
     } finally {
       setLoading(false);
     }

@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { Landmark, TrendingUp } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface BankAccount {
@@ -33,12 +33,13 @@ export function BankSummaryWidget() {
     async function load() {
       try {
         const res = await apiFetch('/api/accounting/bank-accounts');
+        await assertOk(res, 'Unable to load bank accounts - try again');
         const json = (await res.json()) as { data?: BankAccount[] };
         const data = json.data ?? [];
         setAccounts(data);
       } catch (err) {
         log.error('BankSummaryWidget fetch failed', { error: err }, 'dashboard-widget');
-        setError('Unable to load bank accounts');
+        setError(apiErrorMessage(err, 'Unable to load bank accounts - try again'));
       } finally {
         setLoading(false);
       }

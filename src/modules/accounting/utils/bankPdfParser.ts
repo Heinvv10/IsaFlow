@@ -119,11 +119,10 @@ export async function parseBankPdf(
     const parser = new PDFParse({ data: pdfBuffer });
     parsed = await parser.getText();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to read PDF';
     log.error('Failed to parse PDF buffer', { error: err }, 'accounting-pdf');
     return {
       transactions: [],
-      errors: [{ row: 0, error: `PDF read error: ${message}` }],
+      errors: [{ row: 0, error: 'Could not read the PDF file - it may be damaged or password-protected. Please upload a CSV file instead.' }],
       bankFormat: bankFormat || 'unknown',
     };
   }

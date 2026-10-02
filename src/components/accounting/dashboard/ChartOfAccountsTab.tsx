@@ -30,8 +30,8 @@ export function ChartOfAccountsTab() {
   const [sidebarType, setSidebarType] = useState<AccountCategoryType>('all');
   const [sidebarPrefix, setSidebarPrefix] = useState('');
   const [showInactive, setShowInactive] = useState(false);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false); const [isSaving, setIsSaving] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [addForm, setAddForm] = useState<AddAccountFormState>({
     accountCode: '', accountName: '', accountType: 'asset',
     accountSubtype: '', parentAccountId: '', description: '',
@@ -62,6 +62,7 @@ export function ChartOfAccountsTab() {
         if (addForm.accountSubtype) qs.set('accountSubtype', addForm.accountSubtype);
         if (addForm.parentAccountId) qs.set('parentAccountId', addForm.parentAccountId);
         const res = await apiFetch(`/api/accounting/chart-of-accounts-next-code?${qs}`);
+        await assertOk(res, 'Could not suggest an account code'); // convenience only: the catch logs it
         const json = await res.json();
         const code = json?.data?.code ?? json?.code;
         if (!cancelled && code) {
@@ -69,7 +70,6 @@ export function ChartOfAccountsTab() {
           setSuggestedCode(String(code));
         }
       } catch (err) {
-        // Suggestion is a convenience — log only, never blocks the form.
         log.error('Failed to load suggested account code', { error: err }, 'accounting-ui');
       }
     })();
@@ -77,16 +77,19 @@ export function ChartOfAccountsTab() {
   }, [showAddForm, addForm.accountType, addForm.accountSubtype, addForm.parentAccountId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadAccounts = async () => {
-    setIsLoading(true);
+    setIsLoading(true); setLoadError('');
     try {
       const params = new URLSearchParams();
       if (viewMode === 'tree') params.set('view', 'tree');
       if (showInactive) params.set('includeInactive', 'true');
       const res = await apiFetch(`/api/accounting/chart-of-accounts?${params}`);
+      await assertOk(res, 'Could not load the chart of accounts - try again');
       const data = await res.json();
       setAccounts(data.data || data || []);
     } catch (err) {
+      setAccounts([]); setLoadError(apiErrorMessage(err, 'Could not load the chart of accounts - try again'));
       log.error('Failed to load accounts', { error: err }, 'accounting-ui');
+      notify.error(apiErrorMessage(err, 'Could not load the chart of accounts - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -103,14 +106,14 @@ export function ChartOfAccountsTab() {
         credentials: 'include',
         body: JSON.stringify({ ...addForm, accountSubtype: addForm.accountSubtype || undefined, parentAccountId: addForm.parentAccountId || undefined, description: addForm.description || undefined, normalBalance }),
       });
-      await assertOk(res, 'Failed to create account');   // the envelope is { error: { message } }: the refusal's own words
+      await assertOk(res, 'Could not create the account - try again'); notify.success('Account created');   // the envelope is { error: { message } }: the refusal's own words
       setShowAddForm(false);
       setAddForm({ accountCode: '', accountName: '', accountType: 'asset', accountSubtype: '', parentAccountId: '', description: '' });
       setSuggestedCode('');
       await loadAccounts();
     } catch (err) {
-      log.error('Failed to create account', { error: err }, 'accounting-ui');
-      notify.error(apiErrorMessage(err, 'Failed to create account'));
+      log.error('Could not create the account - try again', { error: err }, 'accounting-ui');
+      notify.error(apiErrorMessage(err, 'Could not create the account - try again'));
     } finally {
       setIsSaving(false);
     }
@@ -130,14 +133,14 @@ export function ChartOfAccountsTab() {
       accountSubtype?: string | null;
       parentAccountId?: string | null;
     },
-  ) => {
+  ): Promise<boolean> => {
     try {
       const res = await apiFetch('/api/accounting/chart-of-accounts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id, ...data }) });
-      await assertOk(res, 'Failed to update account');
-      await loadAccounts();
+      await assertOk(res, 'Could not update the account - try again'); notify.success('Account updated');
+      await loadAccounts(); return true;
     } catch (err) {
-      log.error('Failed to update account', { error: err }, 'accounting-ui');
-      notify.error(apiErrorMessage(err, 'Failed to update account'));
+      log.error('Could not update the account - try again', { error: err }, 'accounting-ui');
+      notify.error(apiErrorMessage(err, 'Could not update the account - try again')); return false;
     }
   };
 
@@ -152,16 +155,16 @@ export function ChartOfAccountsTab() {
     setIsDeleting(true);
     try {
       const res = await apiFetch(`/api/accounting/chart-of-accounts-detail?id=${id}`, { method: 'DELETE', credentials: 'include' });
-      await assertOk(res, 'Failed to delete account');
+      await assertOk(res, 'Could not delete the account - try again'); notify.success('Account deleted');
       setPendingDeleteId(null);
       await loadAccounts();
     } catch (err) {
-      log.error('Failed to delete account', { error: err }, 'accounting-ui');
+      log.error('Could not delete the account - try again', { error: err }, 'accounting-ui');
       // The dialog STAYS open on failure. The service refuses for reasons the
       // user can act on (non-zero balance, active children, unreconciled bank
       // transactions), and closing it would hide the reason behind a toast on
       // a row that looks unchanged.
-      notify.error(apiErrorMessage(err, 'Failed to delete account'));
+      notify.error(apiErrorMessage(err, 'Could not delete the account - try again'));
     } finally {
       setIsDeleting(false);
     }
@@ -183,7 +186,7 @@ export function ChartOfAccountsTab() {
   const flatAccounts = flattenAccounts(accounts);
   const parentOptions = flatAccounts.filter(a => a.isActive);
 
-  if (!isLoading && accounts.length === 0) {
+  if (!isLoading && !loadError && accounts.length === 0) {
     return <CoaSeedEmptyState onSeeded={loadAccounts} />;
   }
 
@@ -195,6 +198,7 @@ export function ChartOfAccountsTab() {
     <div className="flex gap-5">
       <AccountCategorySidebar accounts={accounts} selectedType={sidebarType} searchPrefix={sidebarPrefix} onSelectType={setSidebarType} onSearchPrefixChange={setSidebarPrefix} />
       <div className="flex-1 min-w-0 space-y-4">
+        {loadError && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{loadError}</div>}
         {/* Toolbar */}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="relative">

@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { Save, ArrowRight, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { Currency, ExchangeRate } from '@/modules/accounting/services/core/currencyService';
 import { localISODate } from '@/lib/dateUtils';
@@ -80,9 +80,10 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
           source: 'manual',
         }),
       });
+      await assertOk(res, 'Could not save the exchange rate - try again');
       const json = await res.json();
-      if (!res.ok || json.success === false) {
-        notify.error(json.message || 'Failed to save rate');
+      if (json.success === false) {
+        notify.error(json.error?.message || 'Could not save the exchange rate - try again');
         return;
       }
       notify.success(`Rate ${rateForm.fromCurrency}/${rateForm.toCurrency} saved`);
@@ -90,7 +91,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
       onRefresh();
     } catch (e) {
       log.error('Exchange rate operation failed', { error: e }, 'currencies');
-      notify.error('Failed to save exchange rate');
+      notify.error(apiErrorMessage(e, 'Could not save the exchange rate - try again'));
     } finally {
       setSavingRate(false);
     }
@@ -116,15 +117,17 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
         amount: String(amt),
       });
       const res = await apiFetch(`/api/accounting/exchange-rates?${params}`);
+      await assertOk(res, 'Could not convert the amount - try again');
       const json = await res.json();
-      if (!res.ok || json.success === false) {
-        notify.error(json.message || 'No rate available for this pair');
+      if (json.success === false) {
+        notify.error(json.error?.message || 'Could not convert the amount - try again');
         return;
       }
       setConvertResult(json.data);
     } catch (e) {
       log.error('Exchange rate operation failed', { error: e }, 'currencies');
-      notify.error('Conversion failed');
+      setConvertResult(null);
+      notify.error(apiErrorMessage(e, 'Could not convert the amount - try again'));
     } finally {
       setConverting(false);
     }

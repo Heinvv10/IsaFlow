@@ -5,7 +5,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, Link2, ChevronDown } from 'lucide-react';
 
 const inp =
@@ -63,19 +63,25 @@ export function PoGrnSelector({
   const [grns, setGrns] = useState<Grn[]>([]);
   const [loading, setLoading] = useState(false);
   const [copyLoading, setCopyLoading] = useState(false);
+  const [error, setError] = useState('');
 
   // Fetch POs + all GRNs for supplier when supplier changes
   const fetchPosAndGrns = useCallback(async (sid: string) => {
     setLoading(true);
+    setError('');
     try {
       const res = await apiFetch(
         `/api/accounting/purchase-orders/unmatched?supplierId=${encodeURIComponent(sid)}&include=both`
       );
-      if (!res.ok) return;
+      await assertOk(res, 'Could not load the purchase orders and GRNs - try again');
       const json = await res.json();
       const data = json.data || json;
       setPos(data.pos ?? []);
       setGrns(data.grns ?? []);
+    } catch (err) {
+      setPos([]);
+      setGrns([]);
+      setError(apiErrorMessage(err, 'Could not load the purchase orders and GRNs - try again'));
     } finally {
       setLoading(false);
     }
@@ -84,13 +90,17 @@ export function PoGrnSelector({
   // Re-filter GRNs when a PO is selected
   const fetchGrnsForPo = useCallback(async (sid: string, poId: string) => {
     setLoading(true);
+    setError('');
     try {
       const params = new URLSearchParams({ supplierId: sid, purchaseOrderId: poId, include: 'grns' });
       const res = await apiFetch(`/api/accounting/purchase-orders/unmatched?${params.toString()}`);
-      if (!res.ok) return;
+      await assertOk(res, 'Could not load the GRNs for this purchase order - try again');
       const json = await res.json();
       const data = json.data || json;
       setGrns(data.grns ?? []);
+    } catch (err) {
+      setGrns([]);
+      setError(apiErrorMessage(err, 'Could not load the GRNs for this purchase order - try again'));
     } finally {
       setLoading(false);
     }
@@ -120,9 +130,10 @@ export function PoGrnSelector({
     onCopyLinesChange(checked);
     if (!checked || !selectedPoId) return;
     setCopyLoading(true);
+    setError('');
     try {
       const res = await apiFetch(`/api/accounting/purchase-orders/${selectedPoId}`);
-      if (!res.ok) return;
+      await assertOk(res, 'Could not copy the line items from the purchase order - try again');
       const json = await res.json();
       const po = json.data || json;
       const items: PoLineItem[] = (po.items ?? []).map((item: Record<string, unknown>) => ({
@@ -132,6 +143,9 @@ export function PoGrnSelector({
         taxRate: Number(item.tax_rate ?? 15),
       }));
       onPoLineItems(items);
+    } catch (err) {
+      onCopyLinesChange(false);
+      setError(apiErrorMessage(err, 'Could not copy the line items from the purchase order - try again'));
     } finally {
       setCopyLoading(false);
     }
@@ -153,6 +167,8 @@ export function PoGrnSelector({
         {loading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
       </div>
 
+      {error && <p role="alert" className="text-xs text-red-500 mb-3">{error}</p>}
+
       <div className="grid grid-cols-2 gap-4">
         {/* PO dropdown */}
         <div>
@@ -172,7 +188,7 @@ export function PoGrnSelector({
             </select>
             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
           </div>
-          {pos.length === 0 && !loading && (
+          {pos.length === 0 && !loading && !error && (
             <p className="text-[10px] text-slate-400 mt-1">No open POs for this supplier.</p>
           )}
         </div>
@@ -195,7 +211,7 @@ export function PoGrnSelector({
             </select>
             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
           </div>
-          {filteredGrns.length === 0 && !loading && (
+          {filteredGrns.length === 0 && !loading && !error && (
             <p className="text-[10px] text-slate-400 mt-1">
               {selectedPoId ? 'No GRNs for selected PO.' : 'No GRNs for this supplier.'}
             </p>

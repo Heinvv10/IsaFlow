@@ -11,7 +11,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import DefaultAccountsPage from '@/../pages/accounting/default-accounts';
 import { apiFetch } from '@/lib/apiFetch';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => ({ ...(await vi.importActual<typeof import('@/lib/apiFetch')>('@/lib/apiFetch')), apiFetch: vi.fn() }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 
 const acct = (id: string, accountType: string, accountSubtype?: string, extra: Record<string, unknown> = {}) =>

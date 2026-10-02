@@ -7,7 +7,7 @@
  * resolves on a 4xx, so `res.ok` is checked explicitly.
  */
 import { useState } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { Toggle } from '@/components/accounting/settings/settingsTypes';
 
@@ -24,12 +24,11 @@ export function DrcFlagToggle({ supplierId, initial }: { supplierId: string; ini
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: supplierId, subject_to_drc_vat: next }),
       });
-      const json = await res.json() as { error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
+      await assertOk(res, 'Could not save the DRC VAT flag - try again');
       notify.success(next ? 'Supplier marked as subject to DRC VAT' : 'DRC VAT flag removed');
     } catch (err: unknown) {
       setChecked(!next);
-      notify.error(err instanceof Error ? err.message : 'Failed to save the DRC VAT flag');
+      notify.error(apiErrorMessage(err, 'Could not save the DRC VAT flag - try again'));
     } finally {
       setSaving(false);
     }

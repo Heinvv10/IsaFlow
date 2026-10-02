@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Loader2, AlertCircle, Plus, Zap } from 'lucide-react';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   fmt,
   selectClass,
@@ -62,13 +62,13 @@ export default function EliminationsPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/company-groups')
-      .then((r) => r.json())
+      .then(async (r) => { await assertOk(r, 'Could not load company groups - try again'); return r.json(); })
       .then((json) => {
         const list: EntityGroup[] = json.data?.items || json.data?.groups || json.data || [];
         setGroups(list);
         if (list.length > 0 && !selectedGroupId && list[0]) setSelectedGroupId(list[0].id);
       })
-      .catch(() => { /* non-critical */ });
+      .catch((err) => setError(apiErrorMessage(err, 'Could not load company groups - try again')));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -78,11 +78,11 @@ export default function EliminationsPage() {
     try {
       const params = new URLSearchParams({ group_id: selectedGroupId, action: 'eliminations', period_start: periodStart, period_end: periodEnd });
       const res = await apiFetch(`/api/accounting/consolidated-reports?${params}`);
-      if (!res.ok) throw new Error('Failed to load elimination adjustments');
+      await assertOk(res, 'Could not load the elimination adjustments - try again');
       const json = await res.json();
       const list: unknown = (json.data || json).items;
       setItems(Array.isArray(list) ? list.map(toEliminationRow) : []);
-    } catch { setError('Failed to load elimination adjustments'); setItems([]); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load the elimination adjustments - try again')); setItems([]); }
     finally { setLoading(false); }
   }, [selectedGroupId, periodStart, periodEnd]);
 
@@ -104,13 +104,13 @@ export default function EliminationsPage() {
   }, [selectedGroupId, loadData]);
 
   const handleAutoGenerate = () =>
-    postAction('auto-generate', { action: 'auto-eliminate', periodStart, periodEnd }, 'Auto-generation failed');
+    postAction('auto-generate', { action: 'auto-eliminate', periodStart, periodEnd }, 'Could not generate the eliminations - try again');
 
   const handlePost = (id: string) =>
-    postAction(id, { action: 'post-elimination', adjustmentId: id }, 'Failed to post elimination');
+    postAction(id, { action: 'post-elimination', adjustmentId: id }, 'Could not post the elimination - try again');
 
   const handleReverse = (id: string) =>
-    postAction(id, { action: 'reverse-elimination', adjustmentId: id }, 'Failed to reverse elimination');
+    postAction(id, { action: 'reverse-elimination', adjustmentId: id }, 'Could not reverse the elimination - try again');
 
   function resetForm() {
     setFormType('interco_revenue'); setFormDescription(''); setFormPeriod(localISODate());
@@ -153,10 +153,10 @@ export default function EliminationsPage() {
           }),
         }
       );
-      await assertOk(res, 'Failed to create elimination');
+      await assertOk(res, 'Could not create the elimination - try again');
       setShowCreateModal(false); resetForm(); await loadData();
     } catch (err) {
-      setFormError(apiErrorMessage(err, 'Failed to create elimination'));
+      setFormError(apiErrorMessage(err, 'Could not create the elimination - try again'));
     } finally { setFormSaving(false); }
   }
 
@@ -210,7 +210,8 @@ export default function EliminationsPage() {
               <AlertCircle className="h-4 w-4 shrink-0" /> {error}
             </div>
           )}
-          <EliminationsTable items={items} loading={loading} actionLoading={actionLoading} onPost={handlePost} onReverse={handleReverse} />
+          {/* a failed load must not also say "none found" */}
+          {!(error && items.length === 0 && !loading) && <EliminationsTable items={items} loading={loading} actionLoading={actionLoading} onPost={handlePost} onReverse={handleReverse} />}
         </div>
 
         {showCreateModal && (

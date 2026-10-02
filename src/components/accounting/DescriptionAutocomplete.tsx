@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { DescriptionSuggestion } from '@/modules/accounting/services/core/descriptionTemplateService';
 
@@ -60,6 +60,7 @@ export function DescriptionAutocomplete({
         const params = new URLSearchParams({ q: query, limit: '10' });
         if (entityType) params.set('entity_type', entityType);
         const res = await apiFetch(`/api/accounting/description-suggest?${params.toString()}`);
+        await assertOk(res, 'Could not load suggestions');
         const json = await res.json() as { data?: { suggestions: DescriptionSuggestion[] } };
         const items = json.data?.suggestions ?? [];
         setSuggestions(items);

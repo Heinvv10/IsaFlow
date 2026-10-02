@@ -43,7 +43,7 @@ function answer() {
     }
     if (u.includes('migration-parse')) return json({ success: true, data: { parsed: PARSED, count: 1 } });
     if (u.includes('/api/admin/companies')) return json({ success: true, data: { items: [{ id: 'co-1', name: 'Acme', trading_name: null }] } });
-    if (u.includes('/migration/session')) return json({ success: true, data: { id: 'session-1', sourceSystem: 'sage' } });
+    if (u.includes('/migration/session')) return json({ success: true, data: { session: { id: 'session-1', sourceSystem: 'sage' } } });
     return json({ success: true, data: {} });
   });
 }

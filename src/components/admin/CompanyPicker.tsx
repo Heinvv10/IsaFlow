@@ -12,7 +12,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { Search, X, CheckCircle2, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface CompanyOption {
@@ -41,6 +41,7 @@ export function CompanyPicker({ value, onChange }: Props) {
   const [query, setQuery]           = useState('');
   const [results, setResults]       = useState<CompanyOption[]>([]);
   const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState('');
   const [open, setOpen]             = useState(false);
   const [activeIdx, setActiveIdx]   = useState(-1);
   const [selectedMap, setSelectedMap] = useState<Map<string, CompanyOption>>(new Map());
@@ -63,19 +64,21 @@ export function CompanyPicker({ value, onChange }: Props) {
 
   const search = useCallback(async (q: string) => {
     if (!q.trim()) {
-      setResults([]);
+      setResults([]); setError('');
       setOpen(false);
       return;
     }
-    setLoading(true);
+    setLoading(true); setError('');
     try {
       const res  = await apiFetch(`/api/admin/companies?search=${encodeURIComponent(q)}&limit=10`);
+      await assertOk(res, 'Could not search companies - try again');
       const json = await res.json() as { data?: { items?: CompanyOption[] } };
       setResults(json.data?.items ?? []);
       setOpen(true);
       setActiveIdx(-1);
     } catch (err) {
-      setResults([]);
+      setResults([]); setOpen(false);
+      setError(apiErrorMessage(err, 'Could not search companies - try again'));
       log.error('Company search failed', { error: err }, 'admin-ui');
     } finally {
       setLoading(false);
@@ -209,6 +212,8 @@ export function CompanyPicker({ value, onChange }: Props) {
             })}
           </ul>
         )}
+
+        {error && <p className="mt-1 text-xs text-rose-500">{error}</p>}
 
         {open && !loading && results.length === 0 && query.trim() && (
           <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg px-3 py-2 text-sm text-gray-500 dark:text-gray-400">

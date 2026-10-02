@@ -9,6 +9,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import { mockedApiFetchModule, useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
+const saved = vi.hoisted(() => [] as unknown[]);
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/utils/toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
@@ -16,9 +17,9 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 vi.mock('@/components/accounting/AccountCategorySidebar', () => ({ AccountCategorySidebar: () => null, filterAccounts: (a: unknown[]) => a }));
 vi.mock('@/components/accounting/dashboard/CoaSeedEmptyState', () => ({ CoaSeedEmptyState: () => null }));
 vi.mock('@/components/accounting/dashboard/AccountRow', () => ({
-  AccountRow: ({ account, onUpdate, onDelete }: { account: { id: string }; onUpdate: (id: string, d: unknown) => void; onDelete: (id: string) => void }) => (
+  AccountRow: ({ account, onUpdate, onDelete }: { account: { id: string }; onUpdate: (id: string, d: unknown) => Promise<unknown>; onDelete: (id: string) => void }) => (
     <tr><td>
-      <button onClick={() => onUpdate(account.id, { accountName: 'n', description: '', defaultVatCode: '', vatInputDenied: false, parentAccountId: 'bank' })}>row save</button>
+      <button onClick={() => { void onUpdate(account.id, { accountName: 'n', description: '', defaultVatCode: '', vatInputDenied: false, parentAccountId: 'bank' }).then(r => saved.push(r)); }}>row save</button>
       <button onClick={() => onDelete(account.id)}>row delete</button>
     </td></tr>
   ),
@@ -71,7 +72,7 @@ function answer(path: string, method: string) {
   });
 }
 
-afterEach(() => { cleanup(); vi.mocked(notify.error).mockClear(); });
+afterEach(() => { cleanup(); vi.mocked(notify.error).mockClear(); vi.mocked(notify.success).mockClear(); saved.length = 0; });
 
 it('chart tab: a refused create shows the server\'s reason', async () => {
   answer('/api/accounting/chart-of-accounts', 'POST');
@@ -89,6 +90,20 @@ it('chart tab: a refused update shows the server\'s reason', async () => {
   await waitFor(() => expect(notify.error).toHaveBeenCalledWith(REFUSAL));
 });
 
+it('chart tab: a refused update tells the row so it keeps its editor open (onUpdate resolves false)', async () => {
+  answer('/api/accounting/chart-of-accounts', 'PUT');
+  render(<ChartOfAccountsTab />);
+  fireEvent.click(await screen.findByRole('button', { name: 'row save' }));
+  await waitFor(() => expect(saved).toEqual([false]));
+});
+
+it('chart tab: an accepted update tells the row it saved (onUpdate resolves true)', async () => {
+  answer('/api/accounting/none', 'PUT');
+  render(<ChartOfAccountsTab />);
+  fireEvent.click(await screen.findByRole('button', { name: 'row save' }));
+  await waitFor(() => expect(saved).toEqual([true]));
+});
+
 it('chart tab: a refused deactivation shows the server\'s reason', async () => {
   answer('/api/accounting/chart-of-accounts-detail', 'DELETE');
   render(<ChartOfAccountsTab />);
@@ -102,7 +117,7 @@ it('chart tab: a failure with no server message keeps the plain fallback', async
     init?.method === 'PUT' ? new Response('<html>502</html>', { status: 502 }) : json({ success: true, data: [ACCOUNT] })));
   render(<ChartOfAccountsTab />);
   fireEvent.click(await screen.findByRole('button', { name: 'row save' }));
-  await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Failed to update account'));
+  await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Could not update the account - try again'));
 });
 
 it('bank accounts page: when the new account\'s bank number is refused, it says so instead of "Bank account created"', async () => {

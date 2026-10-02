@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { StatusPill } from '@/components/ui';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ResolveModal } from '@/components/accounting/disputes/ResolveModal';
 import type { DisputeRow, DisputeStatus } from '@/components/accounting/disputes/types';
 
@@ -35,7 +35,7 @@ export default function DisputesPage() {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
       if (statusFilter !== 'all') params.set('status', statusFilter);
       const res = await apiFetch(`/api/accounting/ar/disputes?${params.toString()}`);
-      if (!res.ok) throw new Error(`Failed to load disputes (HTTP ${res.status})`);
+      await assertOk(res, 'Could not load disputes - try again');
       const json = await res.json();
       const data = json?.data;
       setDisputes(data?.disputes ?? []);
@@ -43,7 +43,8 @@ export default function DisputesPage() {
       setOpenTotal(Number(data?.openTotal ?? 0));
       setOpenDisputedAmount(Number(data?.openDisputedAmount ?? 0));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load disputes');
+      setDisputes([]); setTotal(0); setOpenTotal(0); setOpenDisputedAmount(0);
+      setError(apiErrorMessage(err, 'Could not load disputes - try again'));
     } finally {
       setIsLoading(false);
     }

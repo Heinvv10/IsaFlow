@@ -9,7 +9,8 @@ import { ArrowLeft, CreditCard, Loader2, Plus, Trash2, Info, Receipt } from 'luc
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 
 interface Client { id: string; name: string }
@@ -59,16 +60,16 @@ export default function NewCustomerPaymentPage() {
   }, [router.isReady, router.query, queryParamsApplied]);
 
   useEffect(() => {
-    apiFetch('/api/accounting/customers').then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load clients - try again'); return r.json(); }).then(res => {
       const data = res.data || res;
       setClients(Array.isArray(data) ? data : data.clients || []);
-    }).catch(() => setError('Failed to load clients'));
+    }).catch(err => setError(apiErrorMessage(err, 'Could not load clients - try again')));
   }, []);
 
   useEffect(() => {
     if (!form.clientId) { setInvoices([]); return; }
     apiFetch(`/api/accounting/customer-invoices-list?client_id=${form.clientId}&status=approved&status=sent&status=partially_paid&status=overdue&limit=200`)
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load outstanding invoices - try again'); return r.json(); })
       .then(res => {
         const data = res.data || res;
         const list = Array.isArray(data) ? data : data.invoices || [];
@@ -76,7 +77,7 @@ export default function NewCustomerPaymentPage() {
           Number(inv.total_amount) - Number(inv.amount_paid) > 0.01
         ));
       })
-      .catch(() => setInvoices([]));
+      .catch(err => { setInvoices([]); setError(apiErrorMessage(err, 'Could not load outstanding invoices - try again')); });
   }, [form.clientId]);
 
   const totalAllocated = allocations.reduce((s, a) => s + (a.amount || 0), 0);
@@ -132,11 +133,10 @@ export default function NewCustomerPaymentPage() {
             .map(a => ({ invoiceId: a.invoiceId, amount: a.amount })),
         }),
       });
-      const json = await res.json() as { error?: { message?: string } };
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed to create payment');
-      await router.push('/accounting/customer-payments');
+      await assertOk(res, 'Could not record the payment - try again');
+      try { await router.push('/accounting/customer-payments'); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-payments-new'); }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create payment');
+      setError(apiErrorMessage(err, 'Could not record the payment - try again'));
     } finally { setIsSubmitting(false); }
   };
 

@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { mayBeParent, systemAccountNote } from './systemAccountNote';
 import { Loader2, Pencil, Trash2, Save, X, Lock } from 'lucide-react';
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { subtypeOptionsFor } from './accountSubtypeOptions';
 
@@ -38,7 +38,7 @@ export function AccountRow({
     vatInputDenied: boolean;
     accountSubtype?: string | null;
     parentAccountId?: string | null;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
   onDelete: (id: string) => Promise<void>;
   onCodeChanged?: () => Promise<void> | void;
 }) {
@@ -75,14 +75,17 @@ export function AccountRow({
     // rule, orphaned bank transactions) that should not fire on a rename.
     const currentSubtype = account.accountSubtype || '';
     const currentParent = account.parentAccountId || '';
-    await onUpdate(account.id, {
-      accountName: editName, description: editDesc,
-      defaultVatCode: editVatCode, vatInputDenied: editVatDenied,
-      ...(editSubtype !== currentSubtype ? { accountSubtype: editSubtype || null } : {}),
-      ...(editParentId !== currentParent ? { parentAccountId: editParentId || null } : {}),
-    });
-    setIsSaving(false);
-    setIsEditing(false);
+    let saved = false;
+    try {
+      saved = await onUpdate(account.id, {
+        accountName: editName, description: editDesc,
+        defaultVatCode: editVatCode, vatInputDenied: editVatDenied,
+        ...(editSubtype !== currentSubtype ? { accountSubtype: editSubtype || null } : {}),
+        ...(editParentId !== currentParent ? { parentAccountId: editParentId || null } : {}),
+      });
+    } finally { setIsSaving(false); }
+    // A failed save keeps the editor open so the typed edits are not lost.
+    if (saved) setIsEditing(false);
   };
 
   const handleCancel = () => {
@@ -107,16 +110,14 @@ export function AccountRow({
         credentials: 'include',
         body: JSON.stringify({ id: account.id, accountCode: trimmed }),
       });
+      await assertOk(res, 'Could not change the account code - try again');
       const json = await res.json();
-      if (!res.ok || json?.success === false) {
-        notify.error(json?.error?.message || 'Failed to change code');
-        return;
-      }
+      if (json?.success === false) throw new ApiEnvelopeError(json?.error?.message || 'Could not change the account code - try again');
       notify.success(`Code changed to ${trimmed}`);
       setIsEditingCode(false);
-      await onCodeChanged?.();
-    } catch {
-      notify.error('Failed to change code');
+      try { await onCodeChanged?.(); } catch { notify.error('The code was changed, but the list could not refresh - reload the page'); }
+    } catch (err) {
+      notify.error(apiErrorMessage(err, 'Could not change the account code - try again'));
     } finally {
       setIsSavingCode(false);
     }

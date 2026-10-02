@@ -5,9 +5,11 @@
 import { useState, useEffect } from 'react';
 import {
   Mail, Smartphone, MessageSquare, Server, Globe,
-  Loader2, X, CheckCircle2, Clock, AlertOctagon,
+  Loader2, X,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
+import { GateBadge, RULE_FAILED, type GateInfo } from './CaptureGateBadge';
 
 // ─── Shared types (re-exported for page use) ──────────────────────────────────
 
@@ -45,14 +47,6 @@ interface SupplierRule {
   requirePoMatch: boolean;
 }
 
-type GateStatus = 'auto' | 'review' | 'duplicate' | 'no_rule' | 'not_ready';
-
-interface GateInfo {
-  status: GateStatus;
-  reason?: string;
-  invoiceRef?: string;
-}
-
 export interface InboxAddress { id: string; address: string }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -75,47 +69,10 @@ export const CHANNEL_ICONS: Record<CaptureEventRow['channel'], React.ReactNode> 
   api:         <Globe className="h-4 w-4" />,
 };
 
-// ─── Gate Badge ───────────────────────────────────────────────────────────────
-
-function GateBadge({ gate }: { gate: GateInfo }) {
-  if (gate.status === 'not_ready') return null;
-  if (gate.status === 'no_rule') {
-    return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 text-slate-400 text-xs">
-        <Clock className="h-3.5 w-3.5 shrink-0" />
-        No rule configured for this supplier
-      </div>
-    );
-  }
-  if (gate.status === 'duplicate') {
-    return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-900/40 text-red-400 text-xs">
-        <AlertOctagon className="h-3.5 w-3.5 shrink-0" />
-        Duplicate of invoice {gate.invoiceRef ?? gate.reason ?? 'existing record'}
-      </div>
-    );
-  }
-  if (gate.status === 'review') {
-    return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-900/30 text-amber-400 text-xs">
-        <Clock className="h-3.5 w-3.5 shrink-0" />
-        Routed for review — {gate.reason}
-      </div>
-    );
-  }
-  // auto
-  return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-900/30 text-teal-400 text-xs">
-      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-      Auto-publish eligible
-    </div>
-  );
-}
-
 // ─── Gate hook ────────────────────────────────────────────────────────────────
 
 function useGateInfo(event: CaptureEventRow): GateInfo {
-  const [rule, setRule] = useState<SupplierRule | null | undefined>(undefined);
+  const [rule, setRule] = useState<SupplierRule | null | 'failed' | undefined>(undefined);
   const supplierId = event.resolvedSupplierId ?? null;
 
   useEffect(() => {
@@ -127,9 +84,16 @@ function useGateInfo(event: CaptureEventRow): GateInfo {
     }
     let cancelled = false;
     apiFetch(`/api/accounting/supplier-rules/${supplierId}`)
-      .then(r => r.status === 404 ? null : r.json() as Promise<{ data?: SupplierRule }>)
+      .then(async r => {
+        if (r.status === 404) return null; // no rule configured for this supplier
+        await assertOk(r, RULE_FAILED);
+        return await r.json() as { data?: SupplierRule };
+      })
       .then(json => { if (!cancelled) setRule(json?.data ?? null); })
-      .catch(() => { if (!cancelled) setRule(null); });
+      .catch(e => {
+        log.warn('Supplier auto-publish rule did not load', { error: e, supplierId }, 'CaptureInboxPanel');
+        if (!cancelled) setRule('failed');
+      });
     return () => { cancelled = true; };
   }, [supplierId]);
 
@@ -141,6 +105,7 @@ function useGateInfo(event: CaptureEventRow): GateInfo {
   if (event.status !== 'extracted') return { status: 'not_ready' };
   if (!supplierId) return { status: 'no_rule' };
   if (rule === undefined) return { status: 'not_ready' }; // loading
+  if (rule === 'failed') return { status: 'rule_failed' };
   if (!rule) return { status: 'no_rule' };
   if (rule.requirePoMatch) return { status: 'review', reason: 'Requires PO match — post to review' };
   if (!rule.autoPublish) return { status: 'review', reason: 'Auto-publish disabled' };

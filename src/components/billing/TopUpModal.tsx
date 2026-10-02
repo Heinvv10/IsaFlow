@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { Zap, X, Loader2 } from 'lucide-react';
 
 interface Bundle {
@@ -31,32 +31,34 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
     setError('');
     setLoading(true);
     apiFetch('/api/billing/flows/bundles')
-      .then((r) => r.json())
+      .then(async (r) => { await assertOk(r, 'Could not load the top-up bundles - try again'); return r.json(); })
       .then((j) => {
-        if (j.success === false) throw new Error(j.error?.message ?? 'Failed to load bundles');
+        if (j.success === false) throw new ApiEnvelopeError(j.error?.message ?? 'Could not load the top-up bundles - try again');
         setBundles(j.data as Bundle[]);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed'))
+      .catch((err: unknown) => { setBundles([]); setError(apiErrorMessage(err, 'Could not load the top-up bundles - try again')); })
       .finally(() => setLoading(false));
   }, [open]);
 
   async function buy(bundleId: string) {
     setPurchasing(bundleId);
     setError('');
+    let redirecting = false;
     try {
       const res = await apiFetch('/api/billing/flows/purchase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bundleId }),
       });
+      await assertOk(res, 'Could not start the purchase - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message ?? 'Purchase failed');
 
       // When Paystack is configured the API returns a checkout URL — redirect
       // the browser to complete payment; the webhook credits the wallet and
       // the return page confirms.
       const data = json?.data as { mode?: 'paystack_transaction' | 'admin_recorded'; checkoutUrl?: string } | undefined;
       if (data?.mode === 'paystack_transaction' && data.checkoutUrl) {
+        redirecting = true; // purchasing stays set while the browser navigates away
         window.location.href = data.checkoutUrl;
         return;
       }
@@ -65,9 +67,9 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
       onSuccess();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Purchase failed');
+      setError(apiErrorMessage(err, 'Could not start the purchase - try again'));
     } finally {
-      setPurchasing(null);
+      if (!redirecting) setPurchasing(null);
     }
   }
 
