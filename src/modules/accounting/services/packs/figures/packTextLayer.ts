@@ -98,8 +98,10 @@ export function packTextExpectations(doc: PackPagesDocument): PackTextExpectatio
   return doc.pages.flatMap((page) => expectationsForPage(page, doc));
 }
 
+/** And a non-breaking hyphen is a hyphen: the titles set one between the
+ *  parts of a compound (`keepCompounds`), the document holds "-". */
 function squash(text: string): string {
-  return text.replace(/\s+/g, '').replace(/\d[\d.,]*/g, '#').toLowerCase();
+  return text.replace(/\s+/g, '').replace(/[\u2010\u2011]/g, '-').replace(/\d[\d.,]*/g, '#').toLowerCase();
 }
 
 /**

@@ -15,6 +15,7 @@
 import type { ReactNode } from 'react';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { FootnoteList } from './primitives/FootnoteList';
+import { keepCompounds } from './primitives/keepCompounds';
 
 export interface PackPageFrameProps {
   page: PackPage;
@@ -60,7 +61,7 @@ export function PackPageFrame({ page, children }: PackPageFrameProps) {
           <p className="pack-page-name">{page.navLabel}</p>
           <span className="pack-section-heading">{page.section}</span>
         </div>
-        <h2 className="pack-title">{page.title}</h2>
+        <h2 className="pack-title">{keepCompounds(page.title)}</h2>
       </header>
       {children}
       <FootnoteList footnotes={page.footnotes} />
