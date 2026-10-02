@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildFooterHtml, buildPdfMetadata } from '@/lib/pdf/printFurniture';
+import { PDF_MARGIN_MM } from '@/lib/pdf/pdfTransport';
+import { buildFooterHtml, buildPdfMetadata, FOOTER_PAGE_BOX_MM } from '@/lib/pdf/printFurniture';
 
 const base = {
   companyName: 'ISAFlow Demo (Pty) Ltd', packLabel: 'Board Pack',
@@ -17,6 +18,28 @@ describe('buildFooterHtml', () => {
     // implemented in Blink and would silently render nothing.
     expect(html).toContain('class="pageNumber"');
     expect(html).toContain('class="totalPages"');
+  });
+
+  it('is two columns: a shrinkable title, and a right block whose page-number box cannot move', () => {
+    const html = buildFooterHtml(base);
+    expect(html).not.toContain('1fr auto 1fr');
+    expect(html).not.toContain('space-between');
+    // Title: may shrink, never wraps, ellipsis as the last resort.
+    // Only the company name shrinks and ellipsises; " · pack · period" does not.
+    expect(html).toMatch(/<span style="flex:1 1 auto;min-width:0;display:flex;white-space:nowrap"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">ISAFlow Demo \(Pty\) Ltd<\/span><span style="flex:none;white-space:pre"> · Board Pack · /);
+    expect(html).toContain('box-sizing:border-box');
+    // The side padding is the transport's margins, not a literal.
+    expect(html).toContain(`padding:0 ${PDF_MARGIN_MM.right}mm 0 ${PDF_MARGIN_MM.left}mm`);
+    // Right block does not shrink or wrap.
+    expect(html).toContain('flex:none;white-space:nowrap');
+    // Page-number box: fixed width, tabular figures, right aligned.
+    expect(html).toMatch(new RegExp(`width:${FOOTER_PAGE_BOX_MM}mm;text-align:right;font-variant-numeric:tabular-nums`));
+  });
+
+  it('puts the confidentiality line in the right block, before the page number', () => {
+    const html = buildFooterHtml({ ...base, draft: true });
+    expect(html.indexOf('Confidential — for board use · DRAFT')).toBeGreaterThan(html.indexOf('flex:none'));
+    expect(html.indexOf('Confidential')).toBeLessThan(html.indexOf('class="pageNumber"'));
   });
 
   it('marks a draft pack in the footer', () => {

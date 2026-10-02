@@ -28,6 +28,19 @@ const getPackTrendMock = vi.fn(async () => []);
 vi.mock('@/modules/accounting/services/packs/packTrendService', () => ({
   getPackTrend: (...a: unknown[]) => getPackTrendMock(...a),
 }));
+// FINAL vs DRAFT in the running footer is read from `readPackDraftState`, the
+// same answer the pack body's cover and watermark use, so the two cannot
+// disagree. Both facts it derives from are stubbed — not left to the mocked
+// `sql` — so each case below states which one it is testing. Brightsphere is
+// the case that matters: a CLOSED period with NO approved commentary.
+const periodStatusMock = vi.fn(async () => 'open' as string);
+vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
+  getPeriodStatusForDate: (...a: unknown[]) => periodStatusMock(...a),
+}));
+const listCommentaryMock = vi.fn(async () => [] as unknown[]);
+vi.mock('@/modules/accounting/services/commentary/commentaryService', () => ({
+  listCommentary: (...a: unknown[]) => listCommentaryMock(...a),
+}));
 const renderPackPptxMock = vi.fn(async () => Buffer.from('PK-pptx-bytes'));
 vi.mock('@/modules/accounting/services/packs/pptxExportService', () => ({
   renderPackPptx: (...a: unknown[]) => renderPackPptxMock(...a),
@@ -119,6 +132,39 @@ describe('GET /api/accounting/packs/[id]/pdf', () => {
   it('rejects a non-ISO date rather than passing it into a URL', async () => {
     const res = mockRes();
     await pdfRoute(req({ id: 'board', from: '01/01/2026', to: '2026-09-05' }), res);
+    expect(res.statusCode).toBe(400);
+    expect(renderPagePdfMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A SHAPE IS NOT A DATE, AND AN INVALID ONE USED TO COST 30 SECONDS OF A
+   * PROCESS-WIDE, CROSS-TENANT RENDER POOL.
+   *
+   * `ISO_DATE` matches ten digits in the right places. `2026-02-31` and
+   * `2026-13-01` pass it, reach `${from}::date` in the trend query, and
+   * Postgres raises 22008 — but only after the renderer has been admitted to
+   * one of `withRenderSlot`'s three slots, the print page's own fetch has
+   * answered 400, `data-print-ready` has therefore never been set, and
+   * `waitForSelector` has run its full `PRINT_READY_TIMEOUT_MS`. The bound is
+   * per PROCESS and shared by every tenant, so 25 such requests in 15 minutes
+   * — the rate limit — could push other tenants' exports onto the 503 path.
+   */
+  it.each([
+    ['a day that does not exist', '2026-02-31'],
+    ['a month that does not exist', '2026-13-01'],
+    ['year zero, which Postgres has no calendar for', '0000-01-01'],
+  ])('rejects %s before a render slot is spent', async (unused, from) => {
+    const res = mockRes();
+    await pdfRoute(req({ id: 'board', from, to: '2026-09-05' }), res);
+    expect(res.statusCode).toBe(400);
+    expect(renderPagePdfMock).not.toHaveBeenCalled();
+  });
+
+  /** The check `pages.ts` has had all along. A reversed window composes a pack
+   *  with no ledger in it, which reads as a dormant company. */
+  it('rejects a backwards window rather than rendering an empty pack', async () => {
+    const res = mockRes();
+    await pdfRoute(req({ id: 'board', from: '2026-12-31', to: '2026-01-01' }), res);
     expect(res.statusCode).toBe(400);
     expect(renderPagePdfMock).not.toHaveBeenCalled();
   });
@@ -349,5 +395,103 @@ describe('GET /api/accounting/packs/[id]/trend — months', () => {
   it('defaults to twelve months when the caller says nothing', async () => {
     await call(undefined);
     expect(getPackTrendMock).toHaveBeenCalledWith(COMPANY, '2026-09-05', 12);
+  });
+});
+
+
+/**
+ * THE FOOTER AND THE METADATA HAD NO CALLER.
+ *
+ * `buildFooterHtml` and `buildPdfMetadata` were written, reviewed and merged,
+ * and `pdf.ts` called `renderPagePdf` without either — so every pack printed
+ * Chromium's bare `n / m` and `pdfinfo` reported no metadata at all. The
+ * rendered proof is in `tests/unit/print/packSheetCount.test.ts`, which reads
+ * the footer off a real printed sheet; this is the wiring, at the call site,
+ * because a passing render test proves nothing about a route that never asks
+ * for one.
+ */
+describe('GET /api/accounting/packs/[id]/pdf — running footer and metadata', () => {
+  const ORIGINAL_SECRET = process.env.PRINT_TOKEN_SECRET;
+
+  beforeEach(() => {
+    periodStatusMock.mockResolvedValue('open');
+    listCommentaryMock.mockResolvedValue([]);
+    rateLimitMock.mockResolvedValue(true);
+    sqlMock.mockResolvedValue([{ name: 'Acme Fibre (Pty) Ltd' }]);
+    // Without a usable secret the route answers 503 before it ever renders.
+    process.env.PRINT_TOKEN_SECRET = 'a'.repeat(32);
+  });
+
+  afterEach(() => {
+    if (ORIGINAL_SECRET === undefined) delete process.env.PRINT_TOKEN_SECRET;
+    else process.env.PRINT_TOKEN_SECRET = ORIGINAL_SECRET;
+  });
+
+  async function render(): Promise<{ footerHtml?: string; metadata?: { title: string; subject: string } }> {
+    // Cleared per call: the suites above this one render other packs through
+    // the same mock, and reading `calls[0]` would assert against theirs.
+    renderPagePdfMock.mockClear();
+    await pdfRoute(req({ id: 'board', from: '2026-01-01', to: '2026-09-05' }), mockRes());
+    return renderPagePdfMock.mock.calls[0]![0] as never;
+  }
+
+  it('names the company, the pack and the period in the footer', async () => {
+    const options = await render();
+    expect(options.footerHtml).toContain('Acme Fibre (Pty) Ltd');
+    expect(options.footerHtml).toContain('Board Pack');
+    expect(options.footerHtml).toContain('1 January 2026 to 5 September 2026');
+    expect(options.footerHtml).toContain('Confidential');
+    // Chromium substitutes these; without them the footer has no page number.
+    expect(options.footerHtml).toContain('pageNumber');
+    expect(options.footerHtml).toContain('totalPages');
+  });
+
+  it('writes the document information dictionary', async () => {
+    const options = await render();
+    expect(options.metadata?.title).toContain('Acme Fibre (Pty) Ltd');
+    expect(options.metadata?.title).toContain('Board Pack');
+  });
+
+  const approvedRow = [{ status: 'approved', approvedText: 'The board reviewed these figures.' }];
+
+  it('marks the footer DRAFT while the period is still open', async () => {
+    // The same rule the pack body's watermark uses. A footer that said FINAL
+    // over figures that can still move is the more dangerous of the two
+    // errors, and the two must never disagree on one sheet of paper.
+    expect((await render()).footerHtml).toContain('DRAFT');
+    expect((await render()).metadata?.subject).toMatch(/draft/i);
+  });
+
+  it('marks the footer DRAFT on a CLOSED period whose commentary nobody approved', async () => {
+    // Brightsphere, exactly: its period is closed, so the footer said only
+    // `Confidential — for board use` and `pdfinfo` reported `Board Pack for
+    // …` — over a cover reading "This pack is a DRAFT" and a watermark on
+    // every sheet. A pack is read as loose pages; the footer is the line that
+    // travels with a forwarded sheet.
+    periodStatusMock.mockResolvedValue('closed');
+    const options = await render();
+    expect(options.footerHtml).toContain('DRAFT');
+    expect(options.metadata?.subject).toMatch(/draft/i);
+  });
+
+  it('says FINAL only when the period is closed AND commentary is approved', async () => {
+    periodStatusMock.mockResolvedValue('closed');
+    listCommentaryMock.mockResolvedValue(approvedRow);
+    const options = await render();
+    expect(options.footerHtml).not.toContain('DRAFT');
+    expect(options.metadata?.subject).not.toMatch(/draft/i);
+  });
+
+  it('stays DRAFT on an open period even with commentary approved', async () => {
+    listCommentaryMock.mockResolvedValue(approvedRow);
+    expect((await render()).footerHtml).toContain('DRAFT');
+  });
+
+  it('never turns the whole document landscape', async () => {
+    // Page 10 alone is landscape, through the named `@page` rule the print
+    // CSS keys off `data-print-landscape`. `landscape: true` here would turn
+    // all twelve sheets sideways.
+    const options = await render() as { landscape?: boolean };
+    expect(options.landscape).toBeUndefined();
   });
 });

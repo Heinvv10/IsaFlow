@@ -28,7 +28,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useCompany } from '@/contexts/CompanyContext';
 import { startSessionHeartbeat } from '@/lib/auth/sessionHeartbeat';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { AuthPendingScreen } from '@/components/layout/AuthPendingScreen';
 import { CompanySwitcher } from '@/components/layout/CompanySwitcher';
 import { CreateNewMenu } from '@/components/layout/CreateNewMenu';
 import { SettingsMenu } from '@/components/layout/SettingsMenu';
@@ -249,14 +249,8 @@ export function AppLayout({ children }: AppLayoutProps) {
     : 'U';
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950">
-        <div className="text-center">
-          <LoadingSpinner size="lg" className="mx-auto mb-4" />
-          <p className="text-slate-500 dark:text-gray-400 text-sm">Loading...</p>
-        </div>
-      </div>
-    );
+    // D9: during an auth-service outage this explains itself and offers Retry.
+    return <AuthPendingScreen />;
   }
 
   // ─── Sidebar content (shared between mobile + desktop sidebar) ────────────

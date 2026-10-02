@@ -100,13 +100,17 @@ describe('Financial Ratios', () => {
 
   it('handles zero revenue gracefully', () => {
     const ratios = calculateFinancialRatios({ ...sampleData, revenue: 0 });
-    expect(ratios.grossProfitMargin).toBe(0);
-    expect(ratios.netProfitMargin).toBe(0);
+    // No revenue, no margin — null with a reason, not a margin of 0%.
+    expect(ratios.grossProfitMargin).toBeNull();
+    expect(ratios.netProfitMargin).toBeNull();
+    expect(ratios.notMeaningful.grossProfitMargin).toMatch(/Revenue is not positive/);
   });
 
   it('handles zero liabilities gracefully', () => {
     const ratios = calculateFinancialRatios({ ...sampleData, currentLiabilities: 0 });
-    expect(ratios.currentRatio).toBe(0);
+    // Nothing to cover: the ratio has no base, and 0 would read as illiquid.
+    expect(ratios.currentRatio).toBeNull();
+    expect(ratios.notMeaningful.currentRatio).toMatch(/Current liabilities/);
   });
 });
 

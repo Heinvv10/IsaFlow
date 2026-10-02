@@ -7,11 +7,13 @@
  * apiFetch RESOLVES on a 4xx, so the page must read res.ok, show the refusal,
  * and reload into the state that offers Submit.
  */
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: { invoiceId: 'inv-1' }, push: vi.fn() }) }));
 vi.mock('@/components/layout/AppLayout', () => ({

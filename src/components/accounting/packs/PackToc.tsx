@@ -10,7 +10,7 @@ import type { PackDocument } from '@/modules/accounting/services/packs/packDocum
 
 export function PackToc({ document }: { document: PackDocument }) {
   return (
-    <section data-pack-toc className="space-y-4">
+    <section data-pack-toc className="pack-legacy-toc space-y-4">
       <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">Contents</h2>
       <ol className="space-y-1 text-sm text-[var(--ff-text-secondary)]">
         {document.sections.map((section, i) => (

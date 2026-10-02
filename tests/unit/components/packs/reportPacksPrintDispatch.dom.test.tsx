@@ -14,6 +14,7 @@
  * nothing else — the `window.location` fallback that used to cover a
  * not-ready window is gone, because that window cannot occur on this page.
  */
+import { useApiJsonOverMock } from '../../helpers/apiJsonOverMock';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
@@ -25,6 +26,16 @@ vi.mock('next/router', () => ({
 vi.mock('@/components/accounting/packs/PackPrintPage', () => ({
   PackPrintPage: ({ packType }: { packType: string }) => (
     <div data-testid="print-page">{packType}</div>
+  ),
+}));
+
+// The board pack's own printed page. Distinct sentinel on purpose: the two
+// renderers read DIFFERENT endpoints, and the print token authorises one list
+// per pack type — so "which component mounted" is not cosmetic here, it
+// decides whether the page's fetch is authorised at all.
+vi.mock('@/components/accounting/packs/PackPagesPrintPage', () => ({
+  PackPagesPrintPage: ({ packType, from, to }: { packType: string; from: string; to: string }) => (
+    <div data-testid="pages-print-page">{`${packType}|${from}|${to}`}</div>
   ),
 }));
 
@@ -44,13 +55,14 @@ vi.mock('@/components/layout/AppLayout', () => ({
   ),
 }));
 
-vi.mock('@/lib/apiFetch', () => ({
-  apiFetch: vi.fn(() => Promise.resolve(new Response('{}'))),
-  assertOk: vi.fn(() => Promise.resolve({})),
-}));
+vi.mock('@/lib/apiFetch', async () => (await import('../../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 
+import { apiFetch } from '@/lib/apiFetch';
 import ReportPacksPage, { getServerSideProps } from '../../../../pages/accounting/reports/report-packs';
 import { PRINT_RENDER_PATH } from '@/lib/pdf/printRenderQuery';
+
+const apiFetchMock = vi.mocked(apiFetch);
 
 beforeEach(() => {
   useRouterMock.mockReset();
@@ -125,12 +137,43 @@ describe('ReportPacksPage print dispatch', () => {
     expect(screen.queryByText(/Unknown pack type/)).toBeNull();
   });
 
-  it.each([['board'], ['management'], ['monthly']])('prints the %s pack', (pack) => {
+  it.each([['management'], ['monthly']])('prints the %s pack on the legacy page', (pack) => {
     useRouterMock.mockReturnValue({
       isReady: true, pathname: PRINT_RENDER_PATH, query: { pack, print: '1' },
     });
     render(<ReportPacksPage />);
     expect(screen.getByTestId('print-page')).toHaveTextContent(pack);
+    expect(screen.queryByTestId('pages-print-page')).toBeNull();
+  });
+
+  /**
+   * BOARD ONLY. `pack=board` is the one pack composed as the twelve-page fixed
+   * model; the other two still print the legacy section list until a later
+   * workstream moves them. Routing them here would print a board pack under
+   * another pack's name — and would fetch a path their print token does not
+   * authorise, which does not 401: the renderer stubs it with an empty
+   * envelope and the PDF ships showing a loading state.
+   */
+  it('routes the board pack to the fixed-page renderer, carrying the window through', () => {
+    useRouterMock.mockReturnValue({
+      isReady: true,
+      pathname: PRINT_RENDER_PATH,
+      query: { pack: 'board', from: '2026-03-01', to: '2026-08-31', print: '1' },
+    });
+
+    render(<ReportPacksPage />);
+
+    expect(screen.getByTestId('pages-print-page')).toHaveTextContent('board|2026-03-01|2026-08-31');
+    expect(screen.queryByTestId('print-page')).toBeNull();
+  });
+
+  it('leaves the no-pack default on the legacy page — it means management, not board', () => {
+    useRouterMock.mockReturnValue({ isReady: true, pathname: PRINT_RENDER_PATH, query: { print: '1' } });
+
+    render(<ReportPacksPage />);
+
+    expect(screen.queryByTestId('pages-print-page')).toBeNull();
+    expect(screen.getByTestId('print-page')).toHaveTextContent('management');
   });
 
   /**

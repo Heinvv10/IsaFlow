@@ -1,6 +1,7 @@
 // src/lib/auth/gotrue-mfa.ts
 // Thin HTTP client for GoTrue's MFA endpoints. IsaFlow does not persist any
 // factor material — GoTrue's auth.mfa_factors owns TOTP.
+import { callAuthUpstream, readAuthUpstreamJson } from './authUpstream';
 
 function gotrueUrl(path: string): string {
   const base = (process.env.GOTRUE_URL ?? '').replace(/\/+$/, '');
@@ -27,20 +28,26 @@ export class GotrueMfaError extends Error {
   }
 }
 
+/**
+ * Bounded at 5 s like the session path (D9): an outage (5xx/408/429, network
+ * error, timeout) throws AuthUpstreamUnavailableError, which callers answer 503;
+ * any other non-OK reply is a GotrueMfaError verdict.
+ */
 async function mfaFetch<T>(
   path: string,
   init: RequestInit,
   headers: Record<string, string>
 ): Promise<T> {
-  const res = await fetch(gotrueUrl(path), {
+  const res = await callAuthUpstream(`gotrue ${path}`, (signal) => fetch(gotrueUrl(path), {
     ...init,
+    signal,
     headers: { 'content-type': 'application/json', apikey: anonKey(), ...headers },
-  });
+  }));
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new GotrueMfaError(res.status, `gotrue ${path} failed: ${res.status}`, body);
   }
-  return res.json() as Promise<T>;
+  return readAuthUpstreamJson(`gotrue ${path}`, res) as Promise<T>;
 }
 
 export interface Factor {

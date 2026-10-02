@@ -77,6 +77,7 @@ export const calculatePayRunTool: McpTool = {
     + 'An employee with no pay components costs to ZERO without erroring, so check '
     + 'employee_count and total_gross against what you expect before approving.',
   scope: 'write:payroll',
+  requiresWriteRole: true,
   write: true,
   inputSchema: {
     type: 'object',
@@ -156,6 +157,7 @@ export const approvePayRunTool: McpTool = {
     + 'Two calls: dry_run: true returns plan_hash for the journal it previews; the live call must '
     + 'send that value as expected_plan_hash, and is refused if the run has changed since.',
   scope: 'write:payroll',
+  requiresWriteRole: true,
   write: true,
   requiresPost: true,
   inputSchema: {

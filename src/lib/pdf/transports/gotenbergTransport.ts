@@ -53,6 +53,7 @@
 
 import { buildGotenbergFields, GOTENBERG_TIMEOUT_MS } from './gotenbergForm';
 import { FOOTER_HTML, HEADER_HTML, type PdfRenderRequest, type PdfTransport } from '../pdfTransport';
+import { writePdfInfoDictionary } from '../pdfInfoDictionary';
 import { log } from '@/lib/logger';
 
 const CONVERT_PATH = '/forms/chromium/convert/url';
@@ -67,8 +68,14 @@ function htmlPart(html: string): Blob {
 export const gotenbergTransport: PdfTransport = {
   name: 'gotenberg',
   // Gotenberg's Chromium route takes the document information dictionary as a
-  // form field (see gotenbergForm.ts), so metadata survives the render.
-  capabilities: { metadata: true },
+  // form field (see gotenbergForm.ts) and writes the STANDARD keys itself
+  // (Title, Author, Subject, Creator). It does NOT write our custom
+  // `IsaFlow…` keys: measured against gotenberg/gotenberg:8, its exiftool
+  // pass ignores a key it has no tag for, so `pdfinfo` read `Custom Metadata:
+  // no`. Those are added here by the same incremental-update writer the
+  // Playwright transport uses, which makes the metadata best-effort again —
+  // a PDF the writer cannot amend keeps the renderer's standard keys only.
+  capabilities: { metadata: 'best-effort' },
   async render(request: PdfRenderRequest): Promise<Buffer> {
     const base = process.env.GOTENBERG_URL;
     if (!base) throw new Error('GOTENBERG_URL is not set');
@@ -107,7 +114,13 @@ export const gotenbergTransport: PdfTransport = {
       throw new Error('Gotenberg error: response was not a PDF');
     }
 
-    log.info('gotenbergTransport: rendered', { url: request.url, bytes: bytes.length }, 'pdf');
-    return bytes;
+    const result = request.metadata ? writePdfInfoDictionary(bytes, request.metadata) : null;
+    const out = result?.pdf ?? bytes;
+    log.info(
+      'gotenbergTransport: rendered',
+      { url: request.url, bytes: out.length, metadataWritten: result?.written ?? null },
+      'pdf',
+    );
+    return out;
   },
 };

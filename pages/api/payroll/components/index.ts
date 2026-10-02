@@ -18,6 +18,7 @@ import {
   createComponent,
 } from '@/modules/accounting/services/payroll/payrollComponentService';
 import type { PayrollComponent } from '@/modules/accounting/services/payroll/payrollTypes';
+import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -54,4 +55,4 @@ async function handler(
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SignJWT } from 'jose';
 import { verifyToken, verifyTokenSignature } from '@/lib/auth/gotrue';
+import { AuthUpstreamUnavailableError } from '@/lib/auth/authUpstream';
 
 const secret = 'synthetic-session-assurance-secret-over-forty-characters';
 const userId = '00000000-0000-0000-0000-000000000aa1';
@@ -46,7 +47,12 @@ describe('completed session assurance', () => {
   });
   it('denies a provider error instead of treating enrollment as absent', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 503 })));
-    await expect(verifyToken(await token())).rejects.toThrow('Session assurance check failed');
+    // D9: still a denial, but typed as an outage so the wrappers answer 503, not 401.
+    await expect(verifyToken(await token())).rejects.toBeInstanceOf(AuthUpstreamUnavailableError);
+  });
+  it('denies a provider rejection as a verdict on the token', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })));
+    await expect(verifyToken(await token())).rejects.toThrow('Session assurance check failed: 401');
   });
   it('denies a network failure', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));

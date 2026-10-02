@@ -158,7 +158,7 @@ describe('brk-593 pass 4: rules', () => {
     await paths('under payable holder', AP, '2110', 'liability', '29');
     const B2 = id(); await ins(B2, '1111', 'asset', 'bank', false);
     out['under bank holder / bank grouping'] = st(await fx.call(bankAccounts, 'PUT', '/api/accounting/bank-accounts', { id: B2, parentAccountId: BANK }));
-    // the save's own rule is unchanged: a role cannot be ASSIGNED to an account that has sub-accounts, whatever its type
+    // D5 (Hein, 2026-10-02): the same split decides ASSIGNMENT — an income-statement role may be moved onto a revenue header
     const RH = id(); await ins(RH, '4200', 'revenue', 'other', false); await ins(id(), '4201', 'revenue', 'revenue', false, { parent: RH, level: 4 });
     out['save: move default revenue ONTO a revenue header'] = st(await fx.call(defaultAccounts, 'POST', '/api/accounting/default-accounts', { mappings: { sales_revenue: RH }, loaded: { sales_revenue: REV } }));
     // and a holder that has gained children can still be used and edited
@@ -171,7 +171,7 @@ describe('brk-593 pass 4: rules', () => {
     const barredAllowed = Object.entries(out).filter(([k, v]) => /^under (bank|receivable|payable)/.test(k) && (v === 200 || v === 'ok' || String(v).startsWith('200 imported 1')));
     expect({ allowedRefused, barredAllowed }).toEqual({ allowedRefused: [], barredAllowed: [] });
     expect(children).toMatchObject({ bank1110: 0, ar1120: 0, ap2110: 0 });
-    expect(String(out['save: move default revenue ONTO a revenue header'])).toMatch(/^400/);
+    expect({ save: out['save: move default revenue ONTO a revenue header'], holder: await holders('default_revenue') }).toEqual({ save: 200, holder: ['4200'] });
   }, 90_000);
 
   it('R4 rows with NULL is_system_account / is_active through rollback, seed, import, reactivation and the post-condition', async () => {

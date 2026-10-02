@@ -62,10 +62,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const name = await getCompanyName(companyId);
-  const [input, trend] = await Promise.all([
-    getReportPackInput(companyId, name, from, to),
-    getPackTrend(companyId, to, TREND_MONTHS),
-  ]);
+  // ONE AFTER THE OTHER, not `Promise.all`. Both run on the request's one pg
+  // client, and `getReportPackInput` takes a savepoint around its cash-flow
+  // read: a trend query landing inside it is refused with 25P02 when that
+  // read fails, and the route 500s where the pack was built to degrade.
+  const input = await getReportPackInput(companyId, name, from, to);
+  const trend = await getPackTrend(companyId, to, TREND_MONTHS);
 
   const deck = buildPackDeck(buildPackDocument(buildReportPack(id as PackType, input, from, to), trend));
   const pptx = await renderPackPptx(deck);
