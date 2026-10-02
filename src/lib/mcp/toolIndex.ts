@@ -94,6 +94,7 @@ import {
 import {
   listBankReconciliationsTool,
   cancelBankReconciliationTool,
+  reopenBankReconciliationTool,
 } from './tools/bankReconciliations';
 import {
   createBankRuleTool,
@@ -272,6 +273,8 @@ export const MCP_TOOLS = [
   setOpeningBalanceTool,
   attachDocumentTool,
   cancelBankReconciliationTool,
+  // Reopening posts nothing but undoes a sign-off, so requiresPost (as reopen_fiscal_period).
+  reopenBankReconciliationTool,
   // Practice: setup posts nothing; log/submit book billable hours that feed WIP
   // and invoicing but write no journal, so neither is requiresPost.
   createJobCategoryTool,
