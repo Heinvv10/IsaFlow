@@ -10,7 +10,7 @@
  *  - A mapping's accounts must belong to that company and that group: the route used to accept
  *    any tenant's gl_accounts id and any group's group_accounts id, and GET mappings then
  *    returned the foreign account's code and name.
- *  - The creator's add-member bootstrap holds only while the group has no current member.
+ *  - The creator's add-member bootstrap holds only for a group that has never had a member.
  *
  * `company_users.user_id` is TEXT: compared to the bare parameter, never cast (see
  * companyAccessService). `created_by` is uuid, so the COLUMN is cast to text.
@@ -79,18 +79,21 @@ export async function companyIsGroupMember(groupId: string, companyId: string): 
 }
 
 /**
- * The creator may add a member without a group write role only while the group has NO current
- * member — it could never gain its first one otherwise. Once any company is in, the group's own
- * write roles decide: a creator demoted to viewer (or who has left) keeps no standing write.
+ * The creator may add a member without a group write role only while the group has NEVER had a
+ * member — it could never gain its first one otherwise. Once any company has been in (even if
+ * every one has since left), the group's own write roles decide: a creator demoted to viewer, or
+ * who has left, keeps no standing write, and cannot re-bootstrap an EMPTIED group to read its
+ * chart and its former members' intercompany history.
+ *
+ * Trade-off, accepted: an emptied group has no writer at all — nobody can add a member to it
+ * again. It is dead; create a new group.
  */
 export async function creatorMayBootstrapGroup(userId: string, groupId: string): Promise<boolean> {
   const rows = (await sql`
     SELECT 1 FROM company_groups g
     WHERE g.id = ${groupId}::UUID
       AND g.created_by::TEXT = ${userId}
-      AND NOT EXISTS (
-        SELECT 1 FROM company_group_members cgm WHERE cgm.group_id = g.id AND cgm.left_date IS NULL
-      )
+      AND NOT EXISTS (SELECT 1 FROM company_group_members cgm WHERE cgm.group_id = g.id)
     LIMIT 1
   `) as Record<string, unknown>[];
   return rows.length > 0;
