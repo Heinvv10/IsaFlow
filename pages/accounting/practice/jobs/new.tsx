@@ -234,7 +234,7 @@ export default function NewPracticeJobPage() {
             <div>
               <label className={LC}>Engagement Budget (R)</label>
               <input type="number" min="0" step="0.01" value={form.budgetAmount} onChange={(e) => set('budgetAmount', e.target.value)} placeholder="No budget" className={IC} />
-              <p className="mt-1 text-xs text-[var(--ff-text-tertiary)]">Approved value of time on this job. All time captured against it, at the staff rate, is measured against this amount.</p>
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Approved value of time on this job. All time captured against it, at the staff rate, is measured against this amount.</p>
             </div>
             <div className="flex items-center gap-3 pt-2">
               <button type="submit" disabled={isSubmitting}
