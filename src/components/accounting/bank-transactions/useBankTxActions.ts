@@ -57,7 +57,7 @@ export function buildBankTxActions(deps: ActionDeps) {
   const saveSelection = (txId: string, type: AllocType, entityId: string, vatCode?: string) => {
     apiFetch('/api/accounting/bank-transactions-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ action: 'save_selection', bankTransactionId: txId, selectionType: type, selectionEntityId: entityId || null, vatCode: vatCode || null }),
+      body: JSON.stringify({ action: 'save_selection', bankTransactionId: txId, selectionType: type, selectionEntityId: entityId || undefined, vatCode: vatCode || undefined }),
     }).catch(() => { notify.error('Failed to save selection — please try again'); });
   };
 
