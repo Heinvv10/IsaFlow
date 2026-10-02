@@ -27,7 +27,7 @@ interface VerifyResponse {
 }
 
 /**
- * A payment still pending after this many polls (about 30s) stops on a neutral
+ * A payment still pending after this many polls (10 polls, 3 s apart) stops on a neutral
  * "still confirming" state. Unbounded, it ran into verify's per-IP rate limit and
  * ended on an error for a payer who may well have been charged.
  */

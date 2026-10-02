@@ -306,7 +306,7 @@ orchestrator. Every other R-181 evidence log (red, green, mutations, regression)
   statements use `bank_reference` and the portal uses fixed labels.
 - **Verify's `pending` can stay pending indefinitely.** When the settlement fails for a permanent
   cause, verify keeps answering `pending` (never `failed`, so the payer is not invited to pay
-  again). The return page polls it at most 10 times (about 30s), and a 429 from verify's per-IP
+  again). The return page polls it at most 10 times, 3 s apart, and a 429 from verify's per-IP
   limit ends the polling the same way: the payer lands on a neutral "Still confirming your
   payment" state ("check back later, or contact <company>"), not on an error. It promises no
   email, because the settlement sends none. The webhook fails on the same cause loudly: it answers
@@ -490,3 +490,29 @@ Evidence: unit 73/73 and component 5/5 under `env -u DATABASE_URL`; X1..X6 all k
 
 Evidence: unit 87/87 and component 5/5 under `env -u DATABASE_URL`; Y1..Y5 and C1..C6 all killed
 (`mutations.log`, red before the change `red.r11.unit.log`); R-181 integration 61/61 on 55563.
+
+## Review at 47c581ac0 (FIX: M1 + 3 LOWs)
+
+- **M1. `decideGatewayAllocation` had no unit test.** `tests/unit/services/ar/gatewayAllocationLocked.test.ts`
+  runs it with `sql` mocked and `withCustomerInvoiceLock` as a pass-through that records its
+  statement: the invoice is read `FOR UPDATE`, scoped by `company_id`, inside the lock; a draft row
+  takes nothing (`invoice_draft`); `deleted_at` set takes nothing (`invoice_deleted`); R20 of draft
+  receipts on a R115 balance leaves R95 for a R115 receipt, overpaid; the `unapplied_currency` hold
+  takes nothing; the customer read under the lock is returned. Mutants A1..A5 (status, deletedAt,
+  pending, hold, clientId) go red, and so does A6 (the `FOR UPDATE` removed): the statement's lock
+  clause is now asserted in CI. What the lock DOES under contention is still proven only by the r181
+  integration race test.
+- **L1.** Wiring cases now assert the flagged reasons for the dedupe path's own `charge.reviews`, for
+  `overpaid_unapplied` and for the main path's `fee.reviews`; mutants dropping each go red.
+  **verify's `FILTER (WHERE a.invoice_id = ...)` in the `appliedToInvoice` query is
+  integration-only** (the unit test mocks the query); it is proven by `r181-pr618.int.test.ts`.
+- **L2. A request stored `failed` whose live check threw** (timeout, 5xx) answered "failed" to a
+  payer who may have been charged ("No money has left your account"). verify now answers `pending`
+  unless Paystack itself said failed: `pending` when Paystack said success and the settlement threw,
+  or when Paystack never answered on a request stored `failed`. Unit test red first; mutant
+  restoring the old condition goes red. The claim this PR makes is therefore: **a payer is told
+  "failed" only when Paystack said the charge failed.**
+- **L3.** The one exception to master's "no payment lock while holding an invoice lock" rule
+  (`confirmCustomerPayment` locks the settlement's own uncommitted payment row while the invoice is
+  held; safe because no other transaction can see it) is stated in `ar/.claude.md`,
+  `gatewayReceiptAllocation.ts` and `customerInvoiceLock.ts`. "about 30s" is now "10 polls, 3 s apart".

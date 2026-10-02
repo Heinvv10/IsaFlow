@@ -48,6 +48,12 @@ describe('verify: a charged payer is never told "failed"', () => {
     expect((await call()).body.data).toMatchObject({ status: 'pending' });
   });
 
+  it('a request stored failed whose live check throws (timeout, 5xx) answers pending, not failed', async () => {
+    h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, status: 'failed' }]);
+    verify.mockRejectedValue(new Error('The operation was aborted due to timeout'));
+    expect((await call()).body.data).toMatchObject({ status: 'pending' });
+  });
+
   it('a request stored failed that Paystack also says failed stays failed', async () => {
     h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, status: 'failed' }]);
     verify.mockResolvedValue({ status: 'failed', id: 1, amountCents: 11500, currency: 'ZAR', paidAt: null, channel: 'card', authorization: null });
