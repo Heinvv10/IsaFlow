@@ -65,6 +65,7 @@ export default function ReportTemplatesPage() {
       const json = await res.json();
       setData(json.data);
     } catch (err: unknown) {
+      setData(null);
       setError(apiErrorMessage(err, 'Could not load report templates - try again'));
     } finally {
       setLoading(false);

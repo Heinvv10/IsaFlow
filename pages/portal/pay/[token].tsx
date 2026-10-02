@@ -44,6 +44,7 @@ export default function PortalPayPage() {
       }
       setData(json.data);
     } catch (err) {
+      setData(null);
       setError(apiErrorMessage(err, 'Could not load the payment details - try again'));
     } finally {
       setLoading(false);
@@ -74,6 +75,7 @@ export default function PortalPayPage() {
       window.location.href = json.data.checkoutUrl as string;
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not start the payment - try again'));
+    } finally {
       setSubmitting(false);
     }
   };

@@ -86,6 +86,7 @@ export default function GroupDashboardPage() {
       setDashData(json.data ?? json);
     } catch (err) {
       log.error('Failed to load group dashboard', { error: err }, 'group-dashboard');
+      setDashData(null);
       setError('Could not load consolidated dashboard.');
     } finally { setLoadingDash(false); }
   }, []);

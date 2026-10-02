@@ -60,6 +60,7 @@ function SectionCommentsPanel({ documentId, section }: {
       setComments(json.data.items ?? []);
     } catch (err) {
       log.warn('Failed to load comments', { error: err, sectionId: section.id }, 'AfsReviewTab');
+      setComments([]);
       setPostError(apiErrorMessage(err, 'Could not load comments - try again'));
     } finally {
       setLoading(false);

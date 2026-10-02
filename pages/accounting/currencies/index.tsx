@@ -52,7 +52,7 @@ export default function CurrenciesPage() {
         if (settingJson.data?.value) setReportingCurrency(settingJson.data.value);
       }
     } catch (err) {
-      setCurrencies([]); setAllCurrencies([]); setExchangeRates([]);
+      setCurrencies([]); setAllCurrencies([]); setExchangeRates([]); setReportingCurrency('ZAR');
       setError(apiErrorMessage(err, 'Could not load the currency data - try again'));
     } finally {
       setIsLoading(false);

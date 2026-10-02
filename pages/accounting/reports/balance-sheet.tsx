@@ -98,8 +98,10 @@ export default function BalanceSheetPage() {
       const json = await res.json();
       if (requestId === reportRequestRef.current) setReport(json.data || json);
     } catch (err) {
-      if (requestId === reportRequestRef.current)
+      if (requestId === reportRequestRef.current) {
+        setReport(null);
         setError(apiErrorMessage(err, 'Could not load balance sheet - try again'));
+      }
     } finally {
       if (requestId === reportRequestRef.current) setIsLoading(false);
     }

@@ -104,6 +104,7 @@ export default function BatchGridPage() {
     } catch (err) {
       setBatch(null);
       setLines([]);
+      setEmployees([]);
       setError(apiErrorMessage(err, 'Could not load the batch - try again'));
     } finally {
       setLoading(false);

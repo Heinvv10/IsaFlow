@@ -76,8 +76,8 @@ function LockRow({
   const submit = async () => {
     if (!reason.trim()) { setError('A reason is required to unlock a VAT period'); return; }
     setSubmitting(true); setError('');
-    const err = await onUnlock(lock.id, reason.trim());
-    setSubmitting(false);
+    let err: string | null;
+    try { err = await onUnlock(lock.id, reason.trim()); } finally { setSubmitting(false); }
     if (err) { setError(err); return; }
     setReason(''); onCloseConfirm();
   };

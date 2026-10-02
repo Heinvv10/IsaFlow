@@ -60,6 +60,7 @@ export default function PlansPage() {
       const json = await res.json();
       setPlans((json.data ?? []) as Plan[]);
     } catch (err) {
+      setPlans([]);
       setError(apiErrorMessage(err, 'Could not load plans - try again'));
     } finally {
       setLoading(false);

@@ -163,12 +163,11 @@ export default function IncomeStatementPage() {
         params.set('compare_end', priorEnd.toISOString().split('T')[0] ?? '');
       }
       const res = await apiFetch(`/api/accounting/reports-income-statement?${params}`);
-      await assertOk(res, 'Failed to load');
+      await assertOk(res, 'Could not load income statement - try again');
       const json = await res.json();
       if (requestId === reportRequestRef.current) setReport(json.data || json);
     } catch (err) {
-      if (requestId === reportRequestRef.current)
-        setError(apiErrorMessage(err, 'Could not load income statement - try again'));
+      if (requestId === reportRequestRef.current) { setReport(null); setError(apiErrorMessage(err, 'Could not load income statement - try again')); }
     } finally {
       if (requestId === reportRequestRef.current) setIsLoading(false);
     }

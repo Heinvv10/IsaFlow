@@ -189,7 +189,7 @@ export default function CustomerQuotesPage() {
       const json = await res.json().catch(() => ({})) as { data?: { salesOrderId?: string }; salesOrderId?: string; error?: { message?: string; details?: { salesOrderId?: string | null } } };
       // A 409 with an order id is a double-click: the order exists, so open it.
       const orderId = res.ok ? json.data?.salesOrderId || json.salesOrderId : json.error?.details?.salesOrderId;
-      if (orderId) await router.push(`/accounting/customer-sales-orders/${orderId}`); else window.alert(json.error?.message || 'Could not convert the quote - try again');
+      if (orderId) await router.push(`/accounting/customer-sales-orders/${orderId}`); else window.alert(res.ok ? 'The quote was converted but the order could not be opened - find it under Sales Orders' : json.error?.message || 'Could not convert the quote - try again');
     } catch (err) { window.alert(apiErrorMessage(err, 'Could not convert the quote - try again')); }
     finally { setConvertingToSO(null); }
   };

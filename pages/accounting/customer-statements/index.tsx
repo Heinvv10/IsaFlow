@@ -92,6 +92,8 @@ export default function CustomerStatementsPage() {
       setCustomers(data.customers || []);
       setHasMore(Boolean(json.meta?.hasMore));
     } catch (err) {
+      setCustomers([]);
+      setHasMore(false);
       setError(apiErrorMessage(err, 'Could not load the customer statements - try again'));
     } finally {
       setIsLoading(false);

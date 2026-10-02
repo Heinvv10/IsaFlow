@@ -60,6 +60,7 @@ export default function AdminAnalytics() {
       const json = await res.json() as { data: UsageAnalytics };
       setData(json.data);
     } catch (err) {
+      setData(null);
       setError(apiErrorMessage(err, 'Could not load the analytics - try again'));
     } finally {
       setLoading(false);
@@ -75,6 +76,7 @@ export default function AdminAnalytics() {
       const json = await res.json() as { data: AnalyticsTrends };
       setTrends(json.data);
     } catch (err) {
+      setTrends(null);
       setTrendsError(apiErrorMessage(err, 'Could not load the trends - try again'));
     } finally {
       setTrendsLoading(false);

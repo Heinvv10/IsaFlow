@@ -72,7 +72,7 @@ export default function AuditTrailPage() {
       await assertOk(res, 'Could not load the audit trail - try again');
       const json = await res.json();
       setRows(json.data || []);
-    } catch (err) { setError(apiErrorMessage(err, 'Could not load the audit trail - try again')); }
+    } catch (err) { setRows([]); setError(apiErrorMessage(err, 'Could not load the audit trail - try again')); }
     finally { setLoading(false); }
   }, [periodStart, periodEnd]);
 

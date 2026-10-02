@@ -48,11 +48,12 @@ export default function MyReportsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/custom-reports', { credentials: 'include' });
-      await assertOk(res, 'Failed to load');
+      await assertOk(res, 'Could not load your reports - try again');
       const json = await res.json();
       setTemplates(json.data?.items ?? []);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to load reports'));
+      setTemplates([]);
+      setError(apiErrorMessage(err, 'Could not load your reports - try again'));
     } finally {
       setIsLoading(false);
     }

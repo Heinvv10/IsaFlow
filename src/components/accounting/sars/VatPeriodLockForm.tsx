@@ -10,7 +10,7 @@
  */
 import { useEffect, useState } from 'react';
 import { Lock, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { VatGateOverrideBox, type VatGateCounts } from './VatGateOverrideBox';
 
@@ -52,8 +52,14 @@ export function VatPeriodLockForm({ onLock }: Props) {
     e.preventDefault();
     if (!periodStart || !periodEnd) return;
     setSubmitting(true); setError('');
-    const err = await onLock(periodStart, periodEnd, notes.trim(), overrideReason.trim());
-    setSubmitting(false);
+    let err: string | null | undefined;
+    try {
+      err = await onLock(periodStart, periodEnd, notes.trim(), overrideReason.trim());
+    } catch (thrown) {
+      err = apiErrorMessage(thrown, 'Could not lock the period - try again');
+    } finally {
+      setSubmitting(false);
+    }
     if (err) { setError(err); return; }
     setPeriodStart(''); setPeriodEnd(''); setNotes(''); setOverrideReason(''); setCounts(null);
   };

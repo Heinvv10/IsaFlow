@@ -92,6 +92,7 @@ export default function ExecutiveDashboardPage() {
       if (scRes.data?.scorecard) setScorecard(scRes.data.scorecard);
       if (scRes.data) setInventory(scRes.data.inventory ?? null);
     } catch (err) {
+      setSummary(null); setScorecard([]); setUnclassified(null); setInventory(null);
       setError(apiErrorMessage(err, 'Could not load the executive dashboard - try again'));
       log.error('Failed to load executive summary', { error: err instanceof Error ? err.message : String(err) });
     } finally { setLoading(false); }

@@ -4,5 +4,11 @@
     "kind": "d",
     "line": "apiFetch('/api/accounting/page-visits', {",
     "reason": "Pure page-visit telemetry: a missed write changes nothing the user sees; the .catch logs at debug."
+  },
+  {
+    "file": "pages/payroll/runs/[id].tsx",
+    "kind": "f",
+    "line": "setRun((json.data ?? json) as RunDetail);",
+    "reason": "Deliberate: after Approve the run is taken from the server's own result and a failed refresh keeps it with an explicit 'Could not refresh this run' message (payrollRunApprove.test.tsx pins it); a different run id already clears it."
   }
 ]

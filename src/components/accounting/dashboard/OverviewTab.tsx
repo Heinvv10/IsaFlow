@@ -95,7 +95,7 @@ export function OverviewTab() {
       const json = await res.json();
       setData(json.data || json);
     } catch (err) {
-      log.error('Failed to load KPI data', { error: err }, 'accounting-ui');
+      setData(null); log.error('Failed to load KPI data', { error: err }, 'accounting-ui');
       setKpiError(apiErrorMessage(err, 'Could not load the dashboard figures - try again'));
     } finally {
       setIsLoading(false);

@@ -126,7 +126,8 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
       setConvertResult(json.data);
     } catch (e) {
       log.error('Exchange rate operation failed', { error: e }, 'currencies');
-      notify.error(apiErrorMessage(e, 'Conversion failed'));
+      setConvertResult(null);
+      notify.error(apiErrorMessage(e, 'Could not convert the amount - try again'));
     } finally {
       setConverting(false);
     }

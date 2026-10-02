@@ -86,6 +86,7 @@ export default function CustomerStatementPage() {
       const json = await res.json();
       setStatement(json.data);
     } catch (err) {
+      setStatement(null);
       setError(apiErrorMessage(err, 'Could not load the statement - try again'));
     } finally {
       setLoading(false);

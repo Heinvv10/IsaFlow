@@ -141,7 +141,8 @@ export default function EditCustomerInvoicePage() {
       });
       await assertOk(res, 'Could not save the invoice - try again');
       await router.push(`/accounting/customer-invoices/${String(invoiceId)}`);
-    } catch (e) { setError(apiErrorMessage(e, 'Could not save the invoice - try again')); setSubmitting(false); }
+    } catch (e) { setError(apiErrorMessage(e, 'Could not save the invoice - try again')); }
+    finally { setSubmitting(false); }
   };
 
   if (loading) return <AppLayout><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-amber-500" /></div></AppLayout>;

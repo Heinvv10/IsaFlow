@@ -63,6 +63,8 @@ export default function AuditLogPage() {
       setTotal(json.data.total);
     } catch (err) {
       log.error('Failed to fetch audit log', { error: err }, 'audit-log-page');
+      setItems([]);
+      setTotal(0);
       setError(apiErrorMessage(err, 'Could not load the audit trail - try again'));
     } finally {
       setLoading(false);

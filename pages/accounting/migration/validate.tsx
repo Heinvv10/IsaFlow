@@ -53,6 +53,7 @@ export default function ValidatePage() {
       const json = await res.json();
       setValidation(json.data);
     } catch (err) {
+      setValidation(null);
       setError(apiErrorMessage(err, 'Could not complete: validation - try again'));
     } finally {
       setIsLoading(false);

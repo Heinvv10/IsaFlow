@@ -77,6 +77,7 @@ export default function SupplierPaymentDetailPage() {
       const json = await res.json();
       setPayment(json.data || null);
     } catch (err) {
+      setPayment(null);
       setError(apiErrorMessage(err, 'Could not load the payment - try again'));
     } finally {
       setIsLoading(false);

@@ -103,7 +103,7 @@ export default function AdminSarsCodesPage() {
       setCodes(json.data?.codes ?? []);
       setTaxYear(json.data?.taxYear ?? null);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not load - try again'));
+      setReleases([]); setCodes([]); setTaxYear(null); setError(apiErrorMessage(err, 'Could not load - try again'));
     } finally {
       setLoading(false);
     }

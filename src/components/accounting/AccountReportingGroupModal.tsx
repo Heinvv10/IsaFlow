@@ -64,7 +64,7 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
       const json = await res.json();
       setAllAccounts(json.data?.items ?? json.data ?? []);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not load accounts - try again'));
+      setAllAccounts([]); setError(apiErrorMessage(err, 'Could not load accounts - try again'));
     } finally {
       setLoadingAccounts(false);
     }

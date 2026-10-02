@@ -58,6 +58,7 @@ export default function AccountReportingGroupsPage() {
       const json = await res.json();
       setGroups(json.data?.items ?? []);
     } catch (err) {
+      setGroups([]);
       setError(apiErrorMessage(err, 'Failed to load reporting groups'));
     } finally {
       setLoading(false);

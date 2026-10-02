@@ -52,6 +52,7 @@ export default function AcceptInvitePage() {
     if (!needsExistingPassword && password.length < 10) { setError('Password must be at least 10 characters'); return; }
     if (password.length === 0) { setError('Password is required'); return; }
     setSubmitting(true); setError(null);
+    let accepted = false;
     try {
       const r = await fetch(`/api/invitations/${token}/accept`, {
         method: 'POST',
@@ -59,17 +60,19 @@ export default function AcceptInvitePage() {
         body: JSON.stringify({ password, firstName, lastName }),
       });
       const body = r.status >= 500 ? null : await r.json().catch(() => null);
-      if (!body) { setError('Could not accept the invitation - try again shortly'); setSubmitting(false); return; }
+      if (!body) { setError('Could not accept the invitation - try again shortly'); return; }
       if (!body.success) {
         if (body.error?.code === 'SIGN_IN_REQUIRED') setNeedsExistingPassword(true);
-        setError(body.error?.message ?? 'Could not accept the invitation - try again'); setSubmitting(false); return;
+        setError(body.error?.message ?? 'Could not accept the invitation - try again'); return;
       }
+      accepted = true;
       // Not awaited: a router abort would land in the catch below and show
       // "could not submit" for an accept that already succeeded server-side.
       void router.push('/accounting/dashboard');
     } catch {
       setError('Network error — could not submit. Check your connection and try again.');
-      setSubmitting(false);
+    } finally {
+      if (!accepted) setSubmitting(false);
     }
   }
 

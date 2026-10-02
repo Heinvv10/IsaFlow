@@ -75,6 +75,7 @@ export default function DunningRunsPage() {
       const json = await res.json();
       setSends(json?.data?.sends ?? []);
     } catch (err) {
+      setSends([]);
       setError(apiErrorMessage(err, 'Could not load send history - try again'));
     } finally {
       setLoading(false);

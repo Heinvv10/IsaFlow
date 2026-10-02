@@ -80,6 +80,7 @@ export default function SubmissionsPage() {
           setError('Request timed out after 30 seconds. Click Retry to try again.');
         }
       } else {
+        setSubmissions([]);
         setError(apiErrorMessage(err, 'Could not load submissions - try again'));
       }
     } finally {

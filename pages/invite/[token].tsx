@@ -64,6 +64,8 @@ export default function InvitePage() {
 
         setPageState('valid');
       } catch {
+        setInviteData(null);
+        setCurrentUser(null);
         setPageState('error');
         setErrorMsg('Could not load the invitation - please try again');
       }

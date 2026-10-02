@@ -39,7 +39,7 @@ export default function WaterfallPage() {
       if (json.data?.steps) setSteps(json.data.steps);
       setUnclassified(json.data?.unclassifiedAccounts ?? null);
     } catch (err) {
-      setSteps([]);
+      setSteps([]); setUnclassified(null);
       setError(apiErrorMessage(err, 'Could not load the waterfall chart - try again'));
     }
     finally { setLoading(false); }

@@ -42,10 +42,11 @@ export default function DisclosureNotesPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/disclosure-notes?year=${year}`);
-      await assertOk(res, 'Failed to load notes');
+      await assertOk(res, 'Could not load notes - try again');
       const json = await res.json();
       setNotes(json.data?.notes ?? []);
     } catch (err) {
+      setNotes([]);
       setError(apiErrorMessage(err, 'Could not load notes - try again'));
     } finally {
       setIsLoading(false);

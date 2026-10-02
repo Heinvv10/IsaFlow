@@ -71,6 +71,7 @@ export function RevenueIntelligenceSection() {
       const json = await res.json() as { data: RevenueIntelligence };
       setData(json.data);
     } catch (err) {
+      setData(null);
       setError(apiErrorMessage(err, 'Could not load the revenue data - try again'));
     } finally {
       setLoading(false);

@@ -34,25 +34,27 @@ export default function DRCVatPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [eligRes, histRes] = await Promise.all([
-      apiFetch('/api/accounting/drc-vat', { credentials: 'include' }),
-      apiFetch('/api/accounting/drc-vat?tab=history', { credentials: 'include' }),
-    ]);
-    await assertOk(eligRes, 'Could not load DRC VAT data - try again');
-    await assertOk(histRes, 'Could not load DRC VAT data - try again');
-    const eligJson = await eligRes.json();
-    const histJson = await histRes.json();
-    setEligible(eligJson.data?.items || []);
-    setHistory(histJson.data?.items || []);
-    setLoading(false);
+    try {
+      const [eligRes, histRes] = await Promise.all([
+        apiFetch('/api/accounting/drc-vat', { credentials: 'include' }),
+        apiFetch('/api/accounting/drc-vat?tab=history', { credentials: 'include' }),
+      ]);
+      await assertOk(eligRes, 'Could not load DRC VAT data - try again');
+      await assertOk(histRes, 'Could not load DRC VAT data - try again');
+      const eligJson = await eligRes.json();
+      const histJson = await histRes.json();
+      setEligible(eligJson.data?.items || []);
+      setHistory(histJson.data?.items || []);
+    } catch (err) {
+      setEligible([]);
+      setHistory([]);
+      setError(apiErrorMessage(err, 'Could not load DRC VAT data - try again'));
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => {
-    load().catch((err) => {
-      setLoading(false);
-      setError(apiErrorMessage(err, 'Could not load DRC VAT data - try again'));
-    });
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const applyDRC = async (invoiceId: string) => {
     setBusy(invoiceId); setError(''); setSuccess('');

@@ -38,7 +38,7 @@ export default function SupplierReturnsPage() {
       await assertOk(res, 'Could not load supplier returns - try again');
       const json = await res.json();
       setReturns((json.data || json).returns || []);
-    } catch (err) { setError(apiErrorMessage(err, 'Could not load supplier returns - try again')); }
+    } catch (err) { setReturns([]); setError(apiErrorMessage(err, 'Could not load supplier returns - try again')); }
     finally { setIsLoading(false); }
   }, []);
 

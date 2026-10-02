@@ -34,6 +34,7 @@ export function TwoFactorSection() {
     } catch (e) {
       log.warn('2fa-status load failed', { error: e }, 'auth');
       if (quiet) return;
+      setFactorId(null);
       setError(apiErrorMessage(e, 'Could not load your two-factor status - try again'));
       // Keep a known view; never fall to 'disabled' (the Enable panel) when the status is unknown.
       setView(v => (v === 'loading' ? 'unknown' : v));

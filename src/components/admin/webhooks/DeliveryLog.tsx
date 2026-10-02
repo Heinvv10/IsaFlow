@@ -64,6 +64,7 @@ export function DeliveryLog({ webhookId }: Props) {
       const json = await res.json() as { data: AdminWebhookDetail };
       setDetail(json.data);
     } catch (err) {
+      setDetail(null);
       showToast(apiErrorMessage(err, 'Could not load deliveries - try again'));
     } finally {
       setLoading(false);

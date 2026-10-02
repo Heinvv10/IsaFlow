@@ -86,8 +86,8 @@ export default function TimeTrackingPage() {
       const json = await res.json();
       const d = json.data || json;
       setEntries(d.entries || []); setTotal(d.total || 0);
-    } catch (err) { setError(apiErrorMessage(err, 'Could not load time entries - try again')); }
-    setLoading(false);
+    } catch (err) { setEntries([]); setTotal(0); setError(apiErrorMessage(err, 'Could not load time entries - try again')); }
+    finally { setLoading(false); }
   }, [tab, filterStatus, filterProject, filterCustomer, filterBillable, filterDateFrom, filterDateTo]);
 
   const loadSummary = useCallback(async () => {
@@ -100,8 +100,8 @@ export default function TimeTrackingPage() {
       await assertOk(res, 'Could not load the summary - try again');
       const json = await res.json();
       setSummary(json.data || null);
-    } catch (err) { setError(apiErrorMessage(err, 'Could not load the summary - try again')); }
-    setLoading(false);
+    } catch (err) { setSummary(null); setError(apiErrorMessage(err, 'Could not load the summary - try again')); }
+    finally { setLoading(false); }
   }, [filterDateFrom, filterDateTo]);
 
   useEffect(() => { if (tab === 'summary') void loadSummary(); else void loadEntries(); }, [tab, loadEntries, loadSummary]);

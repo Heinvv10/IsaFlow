@@ -33,10 +33,11 @@ export function UserAuditLog({ userId }: Props) {
     setLoading(true); setError('');
     try {
       const res  = await apiFetch(`/api/admin/audit?entity_type=user&entity_id=${userId}&limit=20`);
-      await assertOk(res, 'Failed to load audit log');
+      await assertOk(res, 'Could not load audit log - try again');
       const json = await res.json();
       setEntries((json.data?.items ?? []) as AuditEntry[]);
     } catch (err) {
+      setEntries([]);
       const msg = apiErrorMessage(err, 'Could not load audit log - try again');
       log.error('UserAuditLog load failed', { userId, error: err }, 'admin-ui');
       setError(msg);

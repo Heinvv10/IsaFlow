@@ -87,12 +87,14 @@ export default function APAgingPage() {
     try {
       const params = new URLSearchParams({ as_at_date: asAtDate });
       const res = await apiFetch(`/api/accounting/reports-ap-aging?${params}`, { credentials: 'include' });
-      await assertOk(res, 'Failed to load AP aging');
+      await assertOk(res, 'Could not load the AP aging - try again');
       const json = await res.json() as { data?: APAgingData; message?: string; meta?: { hasMore?: boolean } };
       setData(json.data ?? null);
       setHasMore(Boolean((json as { meta?: { hasMore?: boolean } }).meta?.hasMore));
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not load - try again'));
+      setData(null);
+      setHasMore(false);
+      setError(apiErrorMessage(err, 'Could not load the AP aging - try again'));
     } finally {
       setLoading(false);
     }

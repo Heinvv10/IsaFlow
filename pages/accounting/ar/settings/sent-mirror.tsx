@@ -166,7 +166,7 @@ export default function SentMirrorSettingsPage() {
       await assertOk(res, 'Could not load the scan log - try again');
       const json = await res.json() as { data?: { items?: ScanLogEntry[] } };
       setLogEntries(json.data?.items ?? []);
-    } catch (err) { showToast(apiErrorMessage(err, 'Could not load the scan log - try again'), false); }
+    } catch (err) { setLogEntries([]); showToast(apiErrorMessage(err, 'Could not load the scan log - try again'), false); }
   }
 
   return (

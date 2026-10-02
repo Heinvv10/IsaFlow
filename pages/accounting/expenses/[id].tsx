@@ -121,7 +121,7 @@ export default function ExpenseClaimDetail() {
       const res = await apiFetch('/api/accounting/chart-of-accounts?limit=500'); await assertOk(res, 'Could not load GL accounts - try again');
       const json = await res.json() as { data?: { accounts?: GlAccount[] } };
       setAccounts(json.data?.accounts ?? []);
-    } catch (err) { showToast(apiErrorMessage(err, 'Could not load GL accounts - try again'), false); }
+    } catch (err) { setAccounts([]); showToast(apiErrorMessage(err, 'Could not load GL accounts - try again'), false); }
   }, [showToast]);
 
   useEffect(() => { void loadClaim(); void loadAccounts(); }, [loadClaim, loadAccounts]);

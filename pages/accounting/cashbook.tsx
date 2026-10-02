@@ -51,7 +51,7 @@ export default function CashbookPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    apiJson('/api/accounting/bank-accounts')
+    apiJson('/api/accounting/bank-accounts', undefined, 'Could not load the bank accounts - try again')
       .then(data => {
         const list = Array.isArray(data) ? data : [];
         setBankAccounts(list);
@@ -59,7 +59,7 @@ export default function CashbookPage() {
       })
       .catch((err) => {
         log.error('Failed to load bank accounts for cashbook', { error: err }, 'accounting-ui');
-        setError('Failed to load bank accounts');
+        setError(apiErrorMessage(err, 'Could not load the bank accounts - try again'));
         setLoading(false);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -82,6 +82,7 @@ export default function CashbookPage() {
       const data = json.data || json;
       setTransactions(Array.isArray(data) ? data : data.items || data.transactions || []);
     } catch (err) {
+      setTransactions([]);
       setError(apiErrorMessage(err, 'Could not load the cashbook - try again'));
     } finally {
       setLoading(false);

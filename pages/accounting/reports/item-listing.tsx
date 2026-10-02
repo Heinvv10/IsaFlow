@@ -23,17 +23,19 @@ export default function ItemListingReport() {
     setLoading(true);
     setError('');
     const params = search ? `?search=${encodeURIComponent(search)}` : '';
-    const res = await apiFetch(`/api/accounting/reports/item-listing${params}`, { credentials: 'include' });
-    await assertOk(res, 'Could not load the item listing - try again');
-    const json = await res.json();
-    setRows(json.data || []);
-    setLoading(false);
+    try {
+      const res = await apiFetch(`/api/accounting/reports/item-listing${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the item listing - try again');
+      const json = await res.json();
+      setRows(json.data || []);
+    } finally {
+      setLoading(false);
+    }
   }, [search]);
 
   useEffect(() => {
     load().catch(err => {
       setRows([]);
-      setLoading(false);
       setError(apiErrorMessage(err, 'Could not load the item listing - try again'));
       log.error('Failed to load item listing', { error: err }, 'ItemListingReport');
     });

@@ -87,7 +87,7 @@ export default function EMP201Page() {
       const json = await res.json();
       setData(json.data);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not generate EMP201 - try again'));
+      setData(null); setError(apiErrorMessage(err, 'Could not generate EMP201 - try again'));
     } finally {
       setLoading(false);
     }
