@@ -75,11 +75,11 @@ export default function WriteOffsPage() {
         credentials: 'include',
         body: JSON.stringify({ clientId: form.clientId, invoiceId: form.invoiceId, amount: Number(form.amount), reason: form.reason }),
       });
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not save the write-off - try again');
       setShowForm(false);
       setForm({ clientId: '', invoiceId: '', amount: '', reason: '' });
       await load();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not save the write-off - try again')); }
     finally { setBusy(''); }
   };
 

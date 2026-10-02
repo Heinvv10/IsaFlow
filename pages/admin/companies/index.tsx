@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { BulkActionsBar } from '@/components/admin/companies/BulkActionsBar';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
@@ -92,7 +92,7 @@ export default function AdminCompaniesPage() {
       setRows(d.items);
       setTotal(d.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Could not load companies - try again'));
     } finally {
       setLoading(false);
     }
@@ -166,7 +166,7 @@ export default function AdminCompaniesPage() {
       setPage(1);
       void load(search, status, 1, sortBy, sortDir);
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : 'Failed');
+      setCreateError(apiErrorMessage(err, 'Could not create the company - try again'));
     } finally {
       setCreating(false);
     }
@@ -184,9 +184,9 @@ export default function AdminCompaniesPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ reason: 'Suspended by admin' }),
       });
-      await assertOk(res, 'Suspend failed');
+      await assertOk(res, 'Could not suspend the company - try again');
       void load(search, status, page, sortBy, sortDir);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Suspend failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not suspend the company - try again')); }
     finally { setActionLoading(null); }
   }
 
@@ -195,9 +195,9 @@ export default function AdminCompaniesPage() {
     setActionLoading(companyId + ':activate'); setError('');
     try {
       const res = await apiFetch(`/api/admin/companies/${companyId}/activate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
-      await assertOk(res, 'Activate failed');
+      await assertOk(res, 'Could not activate the company - try again');
       void load(search, status, page, sortBy, sortDir);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Activate failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not activate the company - try again')); }
     finally { setActionLoading(null); }
   }
 

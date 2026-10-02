@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Send, CreditCard } from 'lucide-react';
 
@@ -83,7 +83,7 @@ export default function InvoicesPage() {
       setRows(d.items);
       setTotal(d.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Could not load invoices - try again'));
     } finally {
       setLoading(false);
     }
@@ -113,7 +113,7 @@ export default function InvoicesPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body,
       });
-      await assertOk(res, 'Action failed');
+      await assertOk(res, 'Could not complete the invoice action - try again');
       void load(search, status, dateFrom, dateTo, page);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed');
@@ -146,7 +146,7 @@ export default function InvoicesPage() {
       setForm(EMPTY_FORM);
       void load(search, status, dateFrom, dateTo, 1);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed');
+      setFormError(apiErrorMessage(err, 'Could not create the invoice - try again'));
     } finally {
       setSaving(false);
     }

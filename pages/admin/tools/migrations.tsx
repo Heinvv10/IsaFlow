@@ -80,7 +80,7 @@ export default function AdminMigrationsPage() {
     setLoadingCo(true);
     try {
       const res  = await apiFetch('/api/admin/companies?limit=200&sort_by=name&sort_dir=asc');
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not load companies - try again');
       const json = await res.json();
       const items: Company[] = (json.data?.items ?? []).map((c: Company) =>
         ({ id: c.id, name: c.name, trading_name: c.trading_name }));

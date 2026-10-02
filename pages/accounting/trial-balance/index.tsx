@@ -11,7 +11,7 @@ import { Scale, Loader2, AlertCircle, Download, CheckCircle2, AlertTriangle } fr
 import { TrialBalanceRow } from '@/components/reports/TrialBalanceRow';
 import type { TBRowData } from '@/components/reports/TrialBalanceRow';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 import { useTrialBalanceFilters } from '@/components/reports/useTrialBalanceFilters';
 import { localISODate } from '@/lib/dateUtils';
@@ -69,7 +69,7 @@ export default function TrialBalancePage() {
       if (businessUnitId) params.set('business_unit_id', businessUnitId);
       if (comparePeriodId) params.set('compare_period_id', comparePeriodId);
       const res = await apiFetch(`/api/accounting/reports-trial-balance?${params}`, { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to load');
+      await assertOk(res, 'Could not load the trial balance - try again');
       const json = await res.json();
       const data = json.data || json;
       setRows(data.rows || []);
@@ -79,7 +79,7 @@ export default function TrialBalancePage() {
       setBalanced(data.balanced === true);
       setAccountCount(Number(data.accountCount || 0));
       setFiscalYearStart(String(data.fiscalYearStart || ''));
-    } catch { setError('Failed to load trial balance'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load the trial balance - try again')); }
     finally { setLoading(false); }
   }, [selectedPeriod, costCentreId, businessUnitId, comparePeriodId, filtersReady]);
 
