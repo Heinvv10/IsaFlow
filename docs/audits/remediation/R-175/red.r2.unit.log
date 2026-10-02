@@ -1,0 +1,207 @@
+### Round-2 unit tests run against a06b5cc8b's sources (the 20 changed src/pages files swapped back; the new files quotaUse.ts and rateLimitCore.ts left in place)
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts (5 tests | 5 failed) 13ms
+     × answers 400, before any query, for an id that is a plain word 5ms
+     × answers 400, before any query, for an id that is a uuid with trailing SQL 1ms
+     × answers 400, before any query, for an id that is an empty string 1ms
+     × logs a count and a sample of the ids it refuses, not every id 4ms
+     × is limited before the ownership query, asks for refundUnused, and sends when all checks pass 1ms
+ ❯ tests/unit/security/statementBulkEmailRateLimit.test.ts (9 tests | 8 failed) 17ms
+     × returns 429 and does not send when over the limit 8ms
+     × weights the limiter cost by customerIds.length (cost-weighting fix) 3ms
+     × charges no volume when the ownership guard refuses, and logs a count and a sample, not every id 2ms
+     × counts every attempt against the user before the ownership query, and refuses when over 1ms
+     × counts the attempt even for a request it then rejects as malformed 0ms
+     × answers 400, before any query, for an id that is a plain word 1ms
+     × answers 400, before any query, for an id that is a uuid with trailing SQL 0ms
+     × answers 400, before any query, for an id that is an empty string 0ms
+ ❯ tests/unit/security/rateLimitKeyCensus.test.ts (6 tests | 1 failed) 12ms
+     × finds the call sites, including the keys the wrappers build 9ms
+ ❯ tests/unit/lib/rateLimitQuota.test.ts (13 tests | 13 failed) 20ms
+     × notes the daily bucket only, and only when the caller asks for refundUnused 10ms
+     × AI: no provider answer, then a 200 with a fallback, gives the unit back 2ms
+     × AI: the provider answered, then the request threw, keeps the unit 1ms
+     × send: every email accepted keeps every unit 1ms
+     × send: 59 of 100 accepted, then a throw, gives back 41 1ms
+     × send: nothing accepted (SMTP down), answered 200, gives every unit back 0ms
+     × never gives back more than was charged, however much use is recorded 0ms
+     × use of one kind does not spend the other kind 0ms
+     × a caller that did not ask for refundUnused keeps its charge whatever happens 1ms
+     × a refused call notes nothing and gets nothing back 1ms
+     × settles once: a second settle gives nothing back 0ms
+     × outside a request that keeps the list (bearer, cron, platform admin) nothing is noted, marked or given back 1ms
+     × a refund that fails is logged, does not throw, and does not stop the next one 0ms
+ ❯ tests/unit/api/aiRoutesQuotaUse.test.ts (10 tests | 4 failed) 33ms
+     × asks the limiter for refundUnused 21ms
+     × uses the unit when the provider answers 2ms
+     × asks the limiter for refundUnused 2ms
+     × uses the unit when the provider answers 1ms
+ ❯ tests/unit/security/quotaCallerCensus.test.ts (21 tests | 14 failed) 118ms
+     × accounting/nl-query.ts asks for refundUnused and can reach where its use is recorded 4ms
+     × accounting/ai-narrative.ts asks for refundUnused and can reach where its use is recorded 1ms
+     × accounting/ai-forecast.ts asks for refundUnused and can reach where its use is recorded 0ms
+     × accounting/vlm-extract.ts asks for refundUnused and can reach where its use is recorded 0ms
+     × onboarding/extract.ts asks for refundUnused and can reach where its use is recorded 0ms
+     × onboarding/extract-id.ts asks for refundUnused and can reach where its use is recorded 0ms
+     × accounting/afs/[documentId]/sections/[sectionId]/ai-narrative.ts asks for refundUnused and can reach where its use is recorded 0ms
+     × accounting/invoice-email.ts asks for refundUnused and can reach where its use is recorded 0ms
+     × accounting/statement-bulk-email.ts asks for refundUnused and can reach where its use is recorded 1ms
+     × accounting/customer-statements-send.ts asks for refundUnused and can reach where its use is recorded 0ms
+     × accounting/company-invitations.ts asks for refundUnused and can reach where its use is recorded 0ms
+     × accounting/ar/dunning/send.ts asks for refundUnused and can reach where its use is recorded 0ms
+     × accounting/afs/[documentId]/send-for-signing.ts asks for refundUnused and can reach where its use is recorded 0ms
+     × use is recorded only in the places listed above 98ms
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts (10 tests | 10 failed) 38ms
+     × asks for refundUnused, and does nothing more when the limiter refuses 8ms
+     × leaves the unit unused for a question that is too short 2ms
+     × leaves the unit unused for a question that is not a string 1ms
+     × leaves the unit unused for a question that is too long 1ms
+     × leaves the unit unused when no provider key is configured 1ms
+     × leaves the unit unused when the provider answers with an error status 1ms
+     × leaves the unit unused when the provider call throws 1ms
+     × marks the unit used when the provider answered, even if its answer could not be used 2ms
+     × marks the unit used when the provider answered and the generated query then fails 17ms
+     × marks the unit used once on success 5ms
+ ❯ tests/unit/lib/quotaUseChokepoints.test.ts (9 tests | 3 failed) 16ms
+       × records one send per message the mail server accepts 9ms
+       × records one AI use when the provider answers 1ms
+       × records one AI use when the provider answers 1ms
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts (13 tests | 10 failed) 460ms
+     × ROLLBACKs (not COMMITs) when the handler responds 5xx 14ms
+     × turns a failed COMMIT after a 2xx into a 500 (no silent lie) 9ms
+     × ROLLBACKs, then answers 500 itself, when the handler throws without responding (R-159) 11ms
+     × settles the usage quota after a 200, with the use the request recorded 9ms
+     × settles the usage quota after a 400, with the use the request recorded 9ms
+     × settles the usage quota after a 429, with the use the request recorded 14ms
+     × settles the usage quota after a 500, with the use the request recorded 6ms
+     × settles the usage quota after a 503, with the use the request recorded 5ms
+     × settles when the handler throws, keeping what was used before the throw 5ms
+     × settles when the COMMIT fails after a 2xx: the work was done, the use stands 5ms
+AssertionError: expected { ipMax: 30, companyMax: 60, …(1) } to match object { refundUnused: true }
+ ❯ tests/unit/api/aiRoutesQuotaUse.test.ts:63:39
+AssertionError: expected +0 to be 1 // Object.is equality
+ ❯ tests/unit/api/aiRoutesQuotaUse.test.ts:91:36
+AssertionError: expected { ipMax: 30, companyMax: 60, …(1) } to match object { dailyMax: 300, refundUnused: true }
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts:61:39
+Error: [vitest] No "aiDailyKey" export is defined on the "@/lib/rateLimit" mock. Did you forget to return it from "vi.mock"?
+ ❯ refundAiDailyQuota src/lib/rateLimitQuota.ts:61:26
+ ❯ noAiAnswer pages/api/accounting/nl-query.ts:49:28
+ ❯ Module.handler pages/api/accounting/nl-query.ts:53:11
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts:69:5
+Error: [vitest] No "aiDailyKey" export is defined on the "@/lib/rateLimit" mock. Did you forget to return it from "vi.mock"?
+ ❯ refundAiDailyQuota src/lib/rateLimitQuota.ts:61:26
+ ❯ noAiAnswer pages/api/accounting/nl-query.ts:49:28
+ ❯ Module.handler pages/api/accounting/nl-query.ts:57:11
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts:69:5
+Error: [vitest] No "aiDailyKey" export is defined on the "@/lib/rateLimit" mock. Did you forget to return it from "vi.mock"?
+ ❯ refundAiDailyQuota src/lib/rateLimitQuota.ts:61:26
+ ❯ noAiAnswer pages/api/accounting/nl-query.ts:49:28
+ ❯ Module.handler pages/api/accounting/nl-query.ts:68:11
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts:78:5
+Error: [vitest] No "aiDailyKey" export is defined on the "@/lib/rateLimit" mock. Did you forget to return it from "vi.mock"?
+ ❯ refundAiDailyQuota src/lib/rateLimitQuota.ts:61:26
+ ❯ noAiAnswer pages/api/accounting/nl-query.ts:49:28
+ ❯ Module.handler pages/api/accounting/nl-query.ts:173:28
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts:86:5
+Error: [vitest] No "aiDailyKey" export is defined on the "@/lib/rateLimit" mock. Did you forget to return it from "vi.mock"?
+ ❯ refundAiDailyQuota src/lib/rateLimitQuota.ts:61:26
+ ❯ noAiAnswer pages/api/accounting/nl-query.ts:49:28
+ ❯ Module.handler pages/api/accounting/nl-query.ts:173:28
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts:93:5
+AssertionError: expected [] to deeply equal [ [ 'ai' ] ]
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts:103:33
+AssertionError: expected [] to deeply equal [ [ 'ai' ] ]
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts:111:33
+AssertionError: expected [] to deeply equal [ [ 'ai' ] ]
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts:118:33
+Error: [vitest] No "refundQuotaCharges" export is defined on the "@/lib/rateLimitQuota" mock. Did you forget to return it from "vi.mock"?
+ ❯ src/lib/auth/withAuth.ts:280:40
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts:158:5
+Error: [vitest] No "refundQuotaCharges" export is defined on the "@/lib/rateLimitQuota" mock. Did you forget to return it from "vi.mock"?
+ ❯ src/lib/auth/withAuth.ts:280:40
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts:177:5
+AssertionError: promise rejected "Error: [vitest] No "refundQuotaCharges" e… { codeFrame: '…' }" instead of resolving
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts:214:6
+ ❯ src/lib/auth/withAuth.ts:280:40
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts:212:5
+AssertionError: expected [] to deeply equal [ [ { kind: 'send', …(3) } ] ]
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts:262:21
+Error: [vitest] No "refundQuotaCharges" export is defined on the "@/lib/rateLimitQuota" mock. Did you forget to return it from "vi.mock"?
+ ❯ src/lib/auth/withAuth.ts:280:40
+ ❯ runCharged tests/unit/auth/withAuth-commit-order.test.ts:247:5
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts:260:5
+Error: [vitest] No "refundQuotaCharges" export is defined on the "@/lib/rateLimitQuota" mock. Did you forget to return it from "vi.mock"?
+ ❯ src/lib/auth/withAuth.ts:280:40
+ ❯ runCharged tests/unit/auth/withAuth-commit-order.test.ts:247:5
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts:267:5
+Error: [vitest] No "refundQuotaCharges" export is defined on the "@/lib/rateLimitQuota" mock. Did you forget to return it from "vi.mock"?
+ ❯ src/lib/auth/withAuth.ts:280:40
+ ❯ runCharged tests/unit/auth/withAuth-commit-order.test.ts:247:5
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts:273:21
+AssertionError: expected { ai: +0, send: +0 } to deeply equal { ai: +0, send: 2 }
+ ❯ tests/unit/lib/quotaUseChokepoints.test.ts:68:11
+AssertionError: expected { ai: +0, send: +0 } to deeply equal { ai: 1, send: +0 }
+ ❯ tests/unit/lib/quotaUseChokepoints.test.ts:92:11
+AssertionError: expected { ai: +0, send: +0 } to deeply equal { ai: 1, send: +0 }
+ ❯ tests/unit/lib/quotaUseChokepoints.test.ts:115:11
+AssertionError: expected [ { …(2) }, { …(2) }, { …(2) }, …(1) ] to deeply equal [ { kind: 'ai', …(3) }, …(1) ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:61:30
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/unit/lib/rateLimitQuota.test.ts:40:9
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:68:5
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/unit/lib/rateLimitQuota.test.ts:40:9
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:74:5
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/unit/lib/rateLimitQuota.test.ts:40:9
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:84:5
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/unit/lib/rateLimitQuota.test.ts:40:9
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:93:5
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/unit/lib/rateLimitQuota.test.ts:40:9
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:103:5
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/unit/lib/rateLimitQuota.test.ts:40:9
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:109:5
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/unit/lib/rateLimitQuota.test.ts:40:9
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:127:5
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/unit/lib/rateLimitQuota.test.ts:40:9
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:138:5
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/unit/lib/rateLimitQuota.test.ts:40:9
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:150:17
+TypeError: settleQuotaCharges is not a function
+ ❯ asRequest tests/unit/lib/rateLimitQuota.test.ts:40:9
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:159:17
+TypeError: settleQuotaCharges is not a function
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:174:11
+TypeError: settleQuotaCharges is not a function
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:187:18
+AssertionError: expected "vi.fn()" to be called with arguments: [ Anything, …(1) ]
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts:56:36
+AssertionError: expected { …(2) } to deeply equal { …(3) }
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts:68:51
+AssertionError: expected [ …(2) ] to deeply equal [ …(3) ]
+ ❯ tests/unit/security/customerStatementsSendGuards.test.ts:75:47
+AssertionError: expected false to be true // Object.is equality
+ ❯ tests/unit/security/quotaCallerCensus.test.ts:104:35
+AssertionError: expected [] to deeply equal [ …(6) ]
+ ❯ tests/unit/security/quotaCallerCensus.test.ts:117:28
+AssertionError: expected [ …(115) ] to deeply equal ArrayContaining{…}
+ ❯ tests/unit/security/rateLimitKeyCensus.test.ts:187:49
+AssertionError: expected "vi.fn()" to be called with arguments: [ { method: 'POST', …(4) }, …(3) ]
+ ❯ tests/unit/security/statementBulkEmailRateLimit.test.ts:97:36
+AssertionError: expected "vi.fn()" to be called with arguments: [ { method: 'POST', …(4) }, …(3) ]
+ ❯ tests/unit/security/statementBulkEmailRateLimit.test.ts:123:36
+AssertionError: expected { …(2) } to deeply equal { …(3) }
+ ❯ tests/unit/security/statementBulkEmailRateLimit.test.ts:144:51
+AssertionError: expected [] to deeply equal [ [ …(2) ] ]
+ ❯ tests/unit/security/statementBulkEmailRateLimit.test.ts:152:43
+AssertionError: expected "vi.fn()" to be called 1 times, but got 0 times
+ ❯ tests/unit/security/statementBulkEmailRateLimit.test.ts:161:32
+AssertionError: expected "vi.fn()" to be called with arguments: [ Anything, …(1) ]
+ ❯ tests/unit/security/statementBulkEmailRateLimit.test.ts:174:36
+ Test Files  9 failed (9)
+      Tests  68 failed | 28 passed (96)

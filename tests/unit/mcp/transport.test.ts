@@ -284,15 +284,14 @@ describe('/api/mcp transport', () => {
     vi.mocked(checkRateLimit).mockImplementation(async (key: string) => !key.startsWith('mcp:'));
     const res = makeRes();
     await route(makeReq('POST', rpc('ping')) as never, res);
-    expect(checkRateLimit).toHaveBeenCalledWith(`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60 });
+    expect(checkRateLimit).toHaveBeenCalledWith(`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60, cost: 1 });
     expect((res.body as { error: { code: number } }).error.code).toBe(-32000);
   });
 
-  it('a batch charges the per-company limiter PER call (no batch bypass)', async () => {
-    const res = makeRes();
-    await route(makeReq('POST', [rpc('ping', undefined, 1), rpc('ping', undefined, 2), rpc('ping', undefined, 3)]) as never, res);
-    const companyCharges = vi.mocked(checkRateLimit).mock.calls.filter(([k]) => (k as string).startsWith(`mcp:`));
-    expect(companyCharges).toHaveLength(3); // one per-company unit per RPC, not one per HTTP request
+  const companyCharges = () => vi.mocked(checkRateLimit).mock.calls.filter(([k]) => (k as string).startsWith('mcp:'));
+  it('a batch charges the per-company limiter its call count, once (R-175; more in transportBatchCharge)', async () => {
+    await route(makeReq('POST', [rpc('ping', undefined, 1), rpc('ping', undefined, 2), rpc('ping', undefined, 3)]) as never, makeRes());
+    expect(companyCharges()).toEqual([[`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60, cost: 3 }]]);
   });
 
   it('an over-large batch (>20) → 400 invalid request, nothing dispatched', async () => {
@@ -328,10 +327,11 @@ describe('/api/mcp transport', () => {
     const body = res.body as Array<{ id: number; result: { isError?: boolean; content?: { text: string }[] } }>;
     const retry = 'The chart of accounts is being changed by another request — retry in a moment.';
     const text = (id: number) => { const r = body.find((b) => b.id === id)!.result; return `${r.isError}:${r.content?.[0]?.text}`; };
-    // The call that waited gets the lock's own refusal; the calls not run say that, and that nothing was charged.
+    // The call that waited gets the lock's refusal; the calls not run say so. The batch was charged its full five up front.
     expect({ roleBusyRuns: counts.roleBusy, echoRuns: seenContexts.length, ids: body.map((b) => b.id), ping: body[3]!.result, waited: text(2), skipped: [text(3), text(5)] })
       .toEqual({ roleBusyRuns: 1, echoRuns: 1, ids: [1, 2, 3, 4, 5], ping: {}, waited: `true:${retry}`,
-        skipped: Array(2).fill(expect.stringMatching(/^true:Not run: an earlier call in this batch found the chart of accounts being changed.*Nothing was written or charged/)) });
+        skipped: Array(2).fill(expect.stringMatching(/^true:Not run: an earlier call in this batch found the chart of accounts being changed.*Nothing was written and no Flows were debited for this call; it still counted towards the batch's rate limit/)) });
+    expect(companyCharges()).toEqual([[`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60, cost: 5 }]]);
   });
 
   it('no other failure stops a batch: a thrown error, a returned tool error and a row-lock timeout each leave the later calls running', async () => {

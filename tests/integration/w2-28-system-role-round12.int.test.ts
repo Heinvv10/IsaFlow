@@ -92,7 +92,7 @@ describeIfDb('W2-28 round 12', () => {
       expect({ aboutOneWait: ms >= 4500 && ms < 9000, ids: body.map((r) => r.id), first: text(1), ping: body.find((r) => r.id === 4)?.result,
         skipped: [...new Set([2, 3, 5, 6].map(text))], malformed: body.find((r) => r.id === 7)?.error?.message })
         .toEqual({ aboutOneWait: true, ids: [1, 2, 3, 4, 5, 6, 7], first: `true:${RETRY}`, ping: {}, malformed: 'tool name required',
-          skipped: [expect.stringMatching(/^true:Not run: an earlier call in this batch found the chart of accounts being changed by another request.*Nothing was written or charged.*retry/)] });
+          skipped: [expect.stringMatching(/^true:Not run: an earlier call in this batch found the chart of accounts being changed by another request.*Nothing was written and no Flows were debited.*rate limit.*retry/)] });
     } finally { await tx.rollback(); await release(); }
     expect((await fx.query('SELECT account_name FROM gl_accounts WHERE id = $1', [X])).rows[0].account_name).toBe('W228R12 1115');
     // Every call is on the audit trail: the one that waited as an error, the four that were not run as rejected —
@@ -310,15 +310,15 @@ describeIfDb('W2-28 round 12', () => {
         expect(await holders('bank')).toEqual(['1110']);
       });
 
-      it('the same for an EXISTING income-statement system header: the parent rule does not bar it — what the import answers is the role-ASSIGNMENT rule', async () => {
+      it('the same for an EXISTING income-statement system header: neither the parent rule nor the assignment rule bars it — imported, the role on it', async () => {
         await ins(SRC, '4000', 'revenue', null, true, { level: 1 });
         const out = await importing([row('4000', 'revenue'), row('4001', 'revenue', { parentCode: '4000', accountSubtype: 'revenue' })], { default_revenue: '4000' });
         // No "cannot go under" row error: an income-statement holder may have sub-accounts.
         expect(out.errors.filter((e) => e.startsWith('parentCode:'))).toEqual([]);
-        // But the import is still refused, by the rule round 11 left unchanged ("not ruled on"): a role is not
-        // ASSIGNED to an account that has, or is given, sub-accounts — whatever its type.
-        expect(out).toMatchObject({ imported: 0, unchanged: true,
-          errors: [expect.stringMatching(/^systemAccountMap\.default_revenue: Account 4000 is a header with sub-accounts, so it cannot hold the 'default_revenue' role/)] });
+        // Nor is the role ASSIGNMENT (D5, Hein 2026-10-02): an income-statement role may go to an account that has,
+        // or is given, sub-accounts — only a balance-sheet one may not.
+        expect({ imported: out.imported, refusals: out.errors.filter((e) => /is a header|without exactly one/.test(e)), holder: await holders('default_revenue') })
+          .toEqual({ imported: 2, refusals: [], holder: ['4000'] });
       });
 
       it('a revenue holder as the parent of a row in the same import, re-stated in the map: allowed, the role stays with it', async () => {

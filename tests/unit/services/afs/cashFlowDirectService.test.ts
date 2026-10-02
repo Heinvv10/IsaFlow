@@ -6,6 +6,7 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { getCashFlowDirect } from '@/modules/accounting/services/afs/cashFlowDirectService';
 
 type SqlFn = MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
@@ -119,5 +120,22 @@ describe('cashFlowDirectService', () => {
     await expect(
       getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END)
     ).rejects.toThrow('timeout');
+  });
+
+  it('logs the failure by its class and SQLSTATE, never the driver\'s sentence', async () => {
+    // The board pack degrades on this failure, so it is logged on every
+    // degraded render — and a node-postgres message carries whatever the
+    // server put in it, the statement and its values included.
+    const driverError = Object.assign(
+      new Error("canceling statement due to statement timeout: SELECT … WHERE company_id = 'c1'"),
+      { code: '57014' },
+    );
+    mockSql.mockRejectedValueOnce(driverError);
+
+    await expect(getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END)).rejects.toBe(driverError);
+
+    const logged = vi.mocked(log.error).mock.calls.at(-1)!;
+    expect(logged[1]).toEqual({ error: 'Error (SQLSTATE 57014)' });
+    expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toMatch(/SELECT|company_id|canceling/);
   });
 });

@@ -13,7 +13,8 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID, requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { checkSendRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, checkSendRateLimit } from '@/lib/rateLimit';
+import { markQuotaUsed, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
 import { sendForSigning } from '@/modules/accounting/services/afs/signumIntegrationService';
 import { notifySigningRequested } from '@/modules/accounting/services/afs/portalNotificationService';
 import type { PortalRole } from '@/modules/accounting/services/afs/afsTypes';
@@ -29,10 +30,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
 
-  const sendAllowed = await checkSendRateLimit(req, companyId, 'afs-signing');
-  if (!sendAllowed) {
+  // Abuse limit: every attempt counts, per user and company (30), and per user
+  // across all their companies (90), and is never given back. The company's
+  // send bucket below is shared by every colleague, so it is charged only once
+  // the request is well formed and names records the company owns (R-175).
+  if (!(await checkRateLimit(`afs-signing:attempts:${companyId}:${user.id}`, { max: 30, windowSecs: 900 }))
+    || !(await checkRateLimit(`afs-signing:user-attempts:${user.id}`, { max: 90, windowSecs: 900 }))) {
     return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
   }
 
@@ -86,8 +91,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  // 3. Load rendered AFS HTML (stored by render service)
+  // 3. The rendered AFS HTML (stored by render service) must exist. Checked
+  // before the charge, read after it: a document with nothing to send must not
+  // spend the company's shared bucket.
   const htmlPath = afsHtmlPath(companyId, documentId);
+  try {
+    await fs.access(htmlPath);
+  } catch {
+    return apiResponse.badRequest(res, 'Rendered HTML not yet generated for this document');
+  }
+
+  // Charged once the document, every signer and the rendered HTML are known to
+  // be there, before the company query and the file read.
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'afs-signing', { refundUnused: true });
+  if (!sendAllowed) {
+    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
+  }
+
   let html: string;
   try {
     html = await fs.readFile(htmlPath, 'utf-8');
@@ -104,13 +124,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // 5. Send to Signum (JSON body — real API uses /documents/from-html)
   const signers = contacts.map((c) => ({ email: c.email, name: c.name }));
-  const { signumDocumentId, signingTokens } = await sendForSigning(
-    documentId,
-    companyId,
-    html,
-    title,
-    signers,
-  );
+  let signum: Awaited<ReturnType<typeof sendForSigning>>;
+  try {
+    signum = await sendForSigning(documentId, companyId, html, title, signers);
+  } catch (err) {
+    // A timeout may still have created the document; a refusal did nothing (R-175).
+    markQuotaUsedUnlessNoWork('send', err);
+    throw err;
+  }
+  // The Signum document is the work this route's daily unit bounds: it is
+  // spent now, whether or not the signer emails below go out (R-175).
+  markQuotaUsed('send');
+  const { signumDocumentId, signingTokens } = signum;
 
   // 6. Notify each signer with their individual signing URL
   const callbackBaseUrl =

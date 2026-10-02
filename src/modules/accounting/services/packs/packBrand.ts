@@ -1,6 +1,14 @@
 /**
  * The brand tokens a printed pack renders with.
  *
+ * PURE, AND IT HAS TO STAY THAT WAY: `PackPagesView.tsx` imports
+ * `packBrandStyleBlock` from here, so everything this module imports is in the
+ * BROWSER bundle. The render-time SSRF re-check of `logoUrl` needs
+ * `node:dns`, so it lives in `packBrandForRender.ts` — importing `safeFetch`
+ * here broke the print page with `UnhandledSchemeError: Reading from
+ * "node:dns/promises"`, which every unit test was green over and only loading
+ * the page showed.
+ *
  * Two things this file exists to stop. First, a company with no brand_profiles
  * row printing an unstyled pack — it gets the neutral default instead. Second,
  * a legacy row written before the contrast gate (Task 4) reproducing an

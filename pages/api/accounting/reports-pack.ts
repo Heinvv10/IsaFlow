@@ -7,17 +7,14 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
-import {
-  getFinancialFigures,
-  unclassifiedWarning,
-  totalEquity,
-} from '@/modules/accounting/services/gl/financialFiguresService';
+import { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
+import { readReportPackInput } from '@/modules/accounting/services/reports/reportPackDataService';
 import { log } from '@/lib/logger';
+import { readPackDraftState } from '@/modules/accounting/services/packs/pages/packDraftState';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import {
   buildReportPack,
   type PackType,
-  type ReportPackInput,
 } from '@/modules/accounting/services/reports/reportPackService';
 import { getCompanyName } from '@/modules/accounting/services/reports/companyName';
 
@@ -41,42 +38,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, `type must be one of: ${VALID_TYPES.join(', ')}`);
   }
 
-  const [figures, companyName] = await Promise.all([
-    getFinancialFigures(companyId, from, to),
-    getCompanyName(companyId),
-  ]);
-
-  const { period, cumulative } = figures;
-  const netProfit = period.netProfit;
-
-  const data: ReportPackInput = {
-    companyName,
-    period: `${from} to ${to}`,
-    revenue: period.revenue,
-    costOfSales: period.costOfSales,
-    operatingExpenses: period.operatingExpenses,
-    netProfit,
-    totalAssets: cumulative.totalAssets,
-    totalLiabilities: cumulative.totalLiabilities,
-    totalEquity: totalEquity(figures),
-    currentAssets: cumulative.currentAssets,
-    currentLiabilities: cumulative.currentLiabilities,
-    cash: cumulative.cash,
-    accountsReceivable: cumulative.accountsReceivable,
-    accountsPayable: cumulative.accountsPayable,
-    inventory: cumulative.inventory,
-    otherIncome: period.otherIncome,
-    otherExpenses: period.otherExpenses,
-  };
+  // THE SAME INPUT THE PDF AND THE DECK ARE BUILT FROM. It was assembled here
+  // by hand, without the cash flows, so the screen printed reasons where the
+  // PDF for the same period printed the ledger's cash flow statement. One
+  // read after the other: both run on the request's one connection.
+  const companyName = await getCompanyName(companyId);
+  const { input: data, figures } = await readReportPackInput(companyId, companyName, from, to);
 
   const pack = buildReportPack(packType, data, from, to);
 
   log.info('Report pack generated', { companyId, packType, from, to }, 'accounting');
 
+  // The same answer the running footer and the PDF metadata carry, so the
+  // print view's watermark cannot disagree with them.
+  const draft = (await readPackDraftState(companyId, packType, from, to)).reasons.length > 0;
+
   return apiResponse.success(res, {
     pack,
+    draft,
     period: { from, to },
-    unclassifiedAccounts: unclassifiedWarning(cumulative),
+    unclassifiedAccounts: unclassifiedWarning(figures.cumulative),
   });
 }
 

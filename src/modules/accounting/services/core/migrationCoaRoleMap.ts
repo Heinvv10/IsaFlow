@@ -22,8 +22,8 @@ const SYSTEM_MAP_KEYS: readonly (keyof SystemAccountMap)[] = [
  * or a mapped account whose type cannot carry the role (an expense account as
  * vat_input) or one account named for two roles must refuse the whole import
  * BEFORE any row is written. Returns the refusals; empty means proceed. (A
- * role put on a header is refused by `roleMapConflicts`, which can see whether
- * the account already holds that role.)
+ * balance-sheet role put on a header is refused by `roleMapConflicts`, which
+ * can see the chart.)
  */
 export function validateSystemAccountMap(
   map: Record<string, unknown>,
@@ -65,14 +65,12 @@ export function validateSystemAccountMap(
 
 /**
  * The Default Accounts rule (`gl/roleTargetRules`), for every mapped code:
- * active, not a header (one the chart already has, or one this import makes by
- * giving it a child), unclassified or already classified for that role.
+ * active, not a balance-sheet header (one the chart already has, or one this
+ * import makes by giving it a child — an income-statement role may go to
+ * either), unclassified or already classified for that role.
  * Mapping a role onto the account that holds ANOTHER role, or onto an inactive
  * account, demoted the live holder and left a role with no holder.
- * An account that ALREADY holds the role is not being assigned it: a re-import
- * that names 4100 for revenue again, with 4101 under it, is the holder gaining
- * a sub-account, which only a balance-sheet holder is barred from
- * (`roleBarringChildren`). Read under the role-write lock, before any write.
+ * Read under the role-write lock, before any write.
  */
 export async function roleMapConflicts(
   companyId: string, map: SystemAccountMap, accounts: readonly AccountImportRow[],
@@ -109,11 +107,9 @@ export async function roleMapConflicts(
     const r = existing.get(code);
     // The type the row will HAVE: the upsert keeps a system account's own type and re-types any other.
     const type = r && r.is_system_account === true ? String(r.account_type) : String(byCode.get(code)?.accountType ?? r?.account_type);
-    const holdsIt = r?.is_system_account === true && r.is_active === true && r.account_subtype === role;
-    const hasChildren = r?.has_children === true || parentCodes.has(code);
     const message = roleTargetRefusal(role, role, {
       code, type, isActive: r ? r.is_active === true : true,
-      hasChildren: hasChildren && (!holdsIt || roleBarringChildren({ ...r, account_type: type }) !== null),
+      hasChildren: r?.has_children === true || parentCodes.has(code),
       subtype: r?.account_subtype == null ? null : String(r.account_subtype),
     }, 'import');
     return message ? [{ step: 'coa' as const, row: -1, field: `systemAccountMap.${role}`, message }] : [];

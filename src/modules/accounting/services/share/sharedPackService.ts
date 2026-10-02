@@ -8,12 +8,9 @@
  * return value — not a hidden field, not a flag the caller could flip.
  */
 import { sql, type DbRow } from '@/lib/neon';
-import {
-  getFinancialFigures, unclassifiedWarning, totalEquity,
-} from '@/modules/accounting/services/gl/financialFiguresService';
-import {
-  buildReportPack, type ReportPack, type ReportPackInput,
-} from '@/modules/accounting/services/reports/reportPackService';
+import { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
+import { readReportPackInput } from '@/modules/accounting/services/reports/reportPackDataService';
+import { buildReportPack, type ReportPack } from '@/modules/accounting/services/reports/reportPackService';
 import { getCompanyName } from '@/modules/accounting/services/reports/companyName';
 import { canonicalParamsHash } from '@/modules/accounting/services/reports/packParamsHash';
 import type { ResolvedShareLink } from './shareResolver';
@@ -55,38 +52,20 @@ async function loadApprovedCommentary(companyId: string, paramsHash: string): Pr
 
 export async function buildSharedPack(link: ResolvedShareLink): Promise<SharedPack> {
   const { companyId, params } = link;
-  const [figures, companyName, commentary] = await Promise.all([
-    getFinancialFigures(companyId, params.from, params.to),
-    getCompanyName(companyId),
-    loadApprovedCommentary(companyId, canonicalParamsHash(params)),
-  ]);
-
-  const { period, cumulative } = figures;
-  const input: ReportPackInput = {
-    companyName,
-    period: `${params.from} to ${params.to}`,
-    revenue: period.revenue,
-    costOfSales: period.costOfSales,
-    operatingExpenses: period.operatingExpenses,
-    netProfit: period.netProfit,
-    totalAssets: cumulative.totalAssets,
-    totalLiabilities: cumulative.totalLiabilities,
-    totalEquity: totalEquity(figures),
-    currentAssets: cumulative.currentAssets,
-    currentLiabilities: cumulative.currentLiabilities,
-    cash: cumulative.cash,
-    accountsReceivable: cumulative.accountsReceivable,
-    accountsPayable: cumulative.accountsPayable,
-    inventory: cumulative.inventory,
-    otherIncome: period.otherIncome,
-    otherExpenses: period.otherExpenses,
-  };
+  // THE SAME INPUT THE PDF, THE DECK AND THE SCREEN ARE BUILT FROM — see
+  // `readReportPackInput`. It was assembled here by hand, without the cash
+  // flows. One read after the other, because that producer takes a savepoint
+  // around its cash-flow read and a query landing inside it is refused when
+  // that read fails.
+  const companyName = await getCompanyName(companyId);
+  const { input, figures } = await readReportPackInput(companyId, companyName, params.from, params.to);
+  const commentary = await loadApprovedCommentary(companyId, canonicalParamsHash(params));
 
   return {
     companyName,
     period: { from: params.from, to: params.to },
     pack: buildReportPack(params.type, input, params.from, params.to),
     commentary,
-    unclassifiedAccounts: unclassifiedWarning(cumulative),
+    unclassifiedAccounts: unclassifiedWarning(figures.cumulative),
   };
 }

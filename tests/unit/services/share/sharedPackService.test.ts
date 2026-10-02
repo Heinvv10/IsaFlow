@@ -7,15 +7,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sqlMock = vi.fn();
-vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
+// `withSavepoint` stays real: the pack input's cash-flow read takes one, and
+// outside a request transaction it simply runs the read.
+vi.mock('@/lib/neon', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  sql: (...a: unknown[]) => sqlMock(...a),
+}));
 
 const getFinancialFiguresMock = vi.fn();
 const unclassifiedWarningMock = vi.fn();
-const totalEquityMock = vi.fn();
-vi.mock('@/modules/accounting/services/gl/financialFiguresService', () => ({
+// The rest of the module is real: the pack input is assembled by
+// `readReportPackInput`, the one producer every pack surface shares, and it
+// maps these figures through the module's own `toFinancialData`.
+vi.mock('@/modules/accounting/services/gl/financialFiguresService', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
   getFinancialFigures: (...a: unknown[]) => getFinancialFiguresMock(...a),
   unclassifiedWarning: (...a: unknown[]) => unclassifiedWarningMock(...a),
-  totalEquity: (...a: unknown[]) => totalEquityMock(...a),
+}));
+const getCashFlowDirectMock = vi.fn();
+vi.mock('@/modules/accounting/services/afs/cashFlowDirectService', () => ({
+  getCashFlowDirect: (...a: unknown[]) => getCashFlowDirectMock(...a),
 }));
 
 const buildReportPackMock = vi.fn();
@@ -57,7 +68,7 @@ const PACK = { type: 'board', companyName: 'Acme', period: '2026-01-01 to 2026-0
 beforeEach(() => {
   vi.clearAllMocks();
   getFinancialFiguresMock.mockResolvedValue(FIGURES);
-  totalEquityMock.mockReturnValue(340);
+  getCashFlowDirectMock.mockResolvedValue({ operatingTotal: 55, investingTotal: -20, financingTotal: 5, netChange: 40 });
   unclassifiedWarningMock.mockReturnValue(null);
   buildReportPackMock.mockReturnValue(PACK);
   sqlMock.mockImplementation((strings: TemplateStringsArray) => {
@@ -72,6 +83,7 @@ describe('buildSharedPack', () => {
   it('scopes every query to the link row company, never a caller-supplied id', async () => {
     await buildSharedPack(LINK);
 
+    expect(getCashFlowDirectMock).toHaveBeenCalledWith(COMPANY, LINK.params.from, LINK.params.to);
     expect(getFinancialFiguresMock).toHaveBeenCalledWith(COMPANY, LINK.params.from, LINK.params.to);
     const commentaryCall = sqlMock.mock.calls.find(([strings]) =>
       (strings as TemplateStringsArray).join('').includes('FROM report_commentary'));
@@ -86,7 +98,11 @@ describe('buildSharedPack', () => {
     expect(buildReportPackMock).toHaveBeenCalledWith('board', expect.objectContaining({
       companyName: 'Acme',
       revenue: 100,
+      // The balance-sheet equity plus the period's result, from the figures
+      // service's own `totalEquity`: 300 + 40.
       totalEquity: 340,
+      // And the window's cash flows, which a hand-built input never carried.
+      operatingCashFlow: 55, investingCashFlow: -20, financingCashFlow: 5,
     }), '2026-01-01', '2026-03-31');
     expect(result.pack).toBe(PACK);
     expect(result.companyName).toBe('Acme');
