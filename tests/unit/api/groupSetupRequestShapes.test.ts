@@ -52,6 +52,7 @@ vi.mock('@/modules/accounting/services/core/companyAccessService', () => ({
   userBelongsToCompany: vi.fn(async () => true),
   userBelongsToGroup: vi.fn(async () => true),
   userCanWriteGroup: vi.fn(async () => true),
+  userCanWriteCompany: vi.fn(async () => true),
   userCreatedGroup: vi.fn(async () => true),
 }));
 vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => ({
@@ -249,12 +250,13 @@ describe('the old snake_case bodies must NOT be silently accepted', () => {
     expect(put.res.statusCode).toBe(400);
   });
 
-  it('update-group rejects a holding company the caller does not belong to', async () => {
+  it('update-group rejects a holding company the caller holds no write role in', async () => {
     // This path was unreachable while the UI sent `id`, so fixing the casing
     // would otherwise have activated an ungated body-supplied companyId
     // (the same vector the create branch guards — pentest H1).
     const access = await import('@/modules/accounting/services/core/companyAccessService');
-    vi.mocked(access.userBelongsToCompany).mockResolvedValueOnce(false);
+    // D4 round 9: a write role in the holding company, not membership (a viewer would publish its ledger).
+    vi.mocked(access.userCanWriteCompany).mockResolvedValueOnce(false);
     const c = call('PUT', updateGroupBody(GROUP, {
       name: 'x', holdingCompanyId: 'foreign-company', defaultCurrency: 'ZAR', financialYearStart: 3,
     }));

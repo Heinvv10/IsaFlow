@@ -14,6 +14,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   userBelongsToCompany,
   userBelongsToGroup,
+  userCanWriteCompany,
   userCanWriteGroup,
   userCreatedGroup,
 } from '@/modules/accounting/services/core/companyAccessService';
@@ -57,6 +58,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // so a group member cannot pull an unrelated tenant's company into the group and
   // read its COA/financials (pentest H1 — cross-tenant IDOR).
   const verifyCompanyMembership = (cId: string) => userBelongsToCompany(userId, cId);
+  // Putting a company into a group (member or holding) exposes its ledger to the whole group:
+  // that needs a WRITE role in the company itself, not just membership (D4 round 9).
+  const COMPANY_WRITE_REFUSED = 'Adding a company to a group needs an owner, admin or manager role in that company.';
 
   // Every POST / PUT / DELETE on an existing group changes what the consolidation
   // reports (members, ownership, group chart, mappings), so it needs a group WRITE role:
@@ -126,7 +130,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // A group created without a holding company has no members yet, so
       // verifyGroupAccess cannot pass and the first member could never be added
       // — the group stayed orphaned forever. The creator may bootstrap it.
-      // verifyCompanyMembership below still prevents pulling in a foreign tenant.
+      // userCanWriteCompany below still prevents pulling in a foreign (or view-only) tenant.
       // A group member needs a write role; the creator may still add members (bootstrap).
       const mayAddMember =
         (await userCanWriteGroup(userId, groupId)) || (await userCreatedGroup(userId, groupId));
@@ -134,7 +138,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         const member = await verifyGroupAccess(groupId);
         return apiResponse.forbidden(res, member ? 'Your role in this group does not allow this change.' : 'Access denied to this group');
       }
-      if (!(await verifyCompanyMembership(companyId))) return apiResponse.forbidden(res, 'Access denied to the specified company');
+      if (!(await userCanWriteCompany(userId, companyId))) return apiResponse.forbidden(res, COMPANY_WRITE_REFUSED);
       const member = await addMember(groupId, companyId, {
         ownershipPct: ownershipPct ?? 100,
         consolidationMethod: consolidationMethod ?? 'full',
@@ -198,8 +202,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!name) return apiResponse.badRequest(res, 'name is required');
     // createGroup auto-enrolls holdingCompanyId as a group member, so it is the same
     // cross-tenant injection vector as add-member — gate it on caller membership (H1).
-    if (holdingCompanyId && !(await verifyCompanyMembership(holdingCompanyId))) {
-      return apiResponse.forbidden(res, 'Access denied to the specified holding company');
+    if (holdingCompanyId && !(await userCanWriteCompany(userId, holdingCompanyId))) {
+      return apiResponse.forbidden(res, COMPANY_WRITE_REFUSED);
     }
     const group = await createGroup({ name, holdingCompanyId, defaultCurrency, financialYearStart }, userId);
     return apiResponse.success(res, group);
@@ -238,8 +242,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // holdingCompanyId arrives in the body. This path was unreachable while the
     // UI sent `id` instead of `groupId`, so fixing that casing would otherwise
     // have activated an ungated body-supplied companyId.
-    if (updates.holdingCompanyId && !(await verifyCompanyMembership(updates.holdingCompanyId))) {
-      return apiResponse.forbidden(res, 'Access denied to the specified holding company');
+    if (updates.holdingCompanyId && !(await userCanWriteCompany(userId, updates.holdingCompanyId))) {
+      return apiResponse.forbidden(res, COMPANY_WRITE_REFUSED);
     }
     const group = await updateGroup(groupId, updates);
     return apiResponse.success(res, group);

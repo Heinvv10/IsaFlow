@@ -16,7 +16,7 @@ vi.mock('@/lib/auth', async () => ({
 }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
-vi.mock('@/modules/accounting/services/core/companyAccessService', () => ({ userBelongsToCompany: vi.fn(async () => true) }));
+vi.mock('@/modules/accounting/services/core/companyAccessService', () => ({ userCanWriteCompany: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/reports/consolidationService', () => ({
   getGroupCompanies: rel.list, createCompanyRelationship: rel.create, deleteCompanyRelationship: rel.remove,
 }));

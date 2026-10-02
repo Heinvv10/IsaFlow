@@ -17,6 +17,14 @@ import {
   getIntercompanyReconciliation,
 } from '@/modules/accounting/services/reports/groupCompanyService';
 import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
+import { isUuidParam } from '@/lib/validation';
+
+/** First of `fields` (in `body`) that is present-or-required and not a UUID string, or null. typeof first. */
+function badUuid(body: Record<string, unknown>, required: string[], optional: string[] = []): string | null {
+  for (const f of required) if (!isUuidParam(body[f])) return f;
+  for (const f of optional) if (body[f] !== undefined && body[f] !== null && body[f] !== '' && !isUuidParam(body[f])) return f;
+  return null;
+}
 
 // Uses withAuth (not withCompany) because intercompany transactions cross company
 // boundaries. Security is provided by verifyGroupAccess() which ensures the user
@@ -90,6 +98,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { sourceId, targetId, groupId: matchGroupId } = req.body;
       if (!sourceId || !targetId) return apiResponse.badRequest(res, 'sourceId and targetId required');
       if (!matchGroupId) return apiResponse.badRequest(res, 'groupId required');
+      // Each reaches a ::UUID cast: a malformed or repeated value used to 500 (D4 round 9).
+      const badMatch = badUuid(req.body, ['sourceId', 'targetId', 'groupId']);
+      if (badMatch) return apiResponse.badRequest(res, `${badMatch} must be a valid UUID`);
       if (!(await verifyGroupAccess(matchGroupId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
       if (!(await userCanWriteGroup(userId, matchGroupId as string))) return apiResponse.forbidden(res, WRITE_REFUSED);
       await matchIntercompanyTransactions(sourceId, targetId, matchGroupId as string);
@@ -101,6 +112,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!gId || !sourceCompanyId || !targetCompanyId || !transactionType || !amount || !transactionDate) {
       return apiResponse.badRequest(res, 'groupId, sourceCompanyId, targetCompanyId, transactionType, amount, transactionDate required');
     }
+    const badCreate = badUuid(req.body, ['groupId', 'sourceCompanyId', 'targetCompanyId'], ['sourceJournalEntryId', 'targetJournalEntryId']);
+    if (badCreate) return apiResponse.badRequest(res, `${badCreate} must be a valid UUID`);
     if (!(await verifyGroupAccess(gId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
     if (!(await userCanWriteGroup(userId, gId as string))) return apiResponse.forbidden(res, WRITE_REFUSED);
 

@@ -6,7 +6,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { als } from '@/lib/als';
 import { getPoolForTests, sql } from '@/lib/neon';
-import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
+import { userBelongsToGroup, userCanWriteCompany, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
 import { isDbReachable } from '../../helpers/dbReachable';
 import { assertNotProductionDb } from '../../../helpers/assertNotProductionDb';
 
@@ -43,6 +43,12 @@ describe('userCanWriteGroup (Postgres)', async () => {
         expect(await verdict('left-admin')).toEqual([false, false]);  // company left the group
         expect(await verdict('outside-admin')).toEqual([false, false]);
         expect(await verdict('mixed')).toEqual([true, false]);        // admin elsewhere does not count
+        // Round 9: a write role in the COMPANY itself (needed to put it into a group).
+        const inCompany = async (user: string, co: string) => userCanWriteCompany(user, co);
+        expect([await inCompany('owner', IN), await inCompany('admin', IN), await inCompany('manager', IN)]).toEqual([true, true, true]);
+        expect(await inCompany('viewer', IN)).toBe(false);
+        expect([await inCompany('mixed', IN), await inCompany('mixed', OUTSIDE)]).toEqual([false, true]);
+        expect(await inCompany('admin', OUTSIDE)).toBe(false);       // a role in another company does not count
       });
     } finally {
       try { await client.query('ROLLBACK'); } finally { client.release(); }

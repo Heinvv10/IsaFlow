@@ -27,7 +27,7 @@ import {
   createCompanyRelationship,
   deleteCompanyRelationship,
 } from '@/modules/accounting/services/reports/consolidationService';
-import { userBelongsToCompany } from '@/modules/accounting/services/core/companyAccessService';
+import { userCanWriteCompany } from '@/modules/accounting/services/core/companyAccessService';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
@@ -70,9 +70,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // consolidation/intercompany-balances aggregate every child's GL, so
     // attaching a company the caller does not belong to reads that tenant's
     // whole ledger. 403 (not 404) — the company demonstrably exists.
-    if (!(await userBelongsToCompany(userId, childCompanyId))) {
+    // A write role in the child, not membership: attaching it publishes its ledger (D4 round 9).
+    if (!(await userCanWriteCompany(userId, childCompanyId))) {
       log.warn(
-        'Refused subsidiary link to a company the user does not belong to',
+        'Refused subsidiary link to a company the user holds no write role in',
         { companyId, childCompanyId, userId },
         'consolidation-api',
       );
