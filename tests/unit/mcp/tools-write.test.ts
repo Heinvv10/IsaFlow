@@ -224,6 +224,40 @@ describe('create_draft_journal', () => {
     );
   });
 
+  // ── vat_type: a correcting journal on VAT Input must be codable ────────────
+  // Without it the line is an uncoded GL VAT line and blocks the VAT201, so a
+  // journal that mirrors an allocation could never be filed (2026-10-02).
+  it('passes a line vat_type through as vatType, and leaves lines without one uncoded', async () => {
+    vi.mocked(createJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97', status: 'draft' } as never);
+    parseOk(await tool('create_draft_journal').handler({
+      date: '2025-04-30', memo: 'Move fuel reversal into April',
+      lines: [
+        { account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', debit: 115, credit: 0 },
+        { account_id: 'a75990ab-7ebf-48a9-86bd-35b744c781c2', debit: 0, credit: 100, vat_type: 'standard' },
+        { account_id: 'b0c4b7a1-0d2e-4b1e-9a51-2f6c1a3e4d55', debit: 0, credit: 15, vat_type: 'standard' },
+      ],
+      ...KEY,
+    }, ctx()));
+    const lines = vi.mocked(createJournalEntry).mock.calls[0]![1].lines;
+    expect(lines[0]).not.toHaveProperty('vatType');
+    expect(lines[1]).toMatchObject({ vatType: 'standard' });
+    expect(lines[2]).toMatchObject({ vatType: 'standard' });
+  });
+
+  it('refuses an unknown vat_type before creating anything, naming the line', async () => {
+    const res = await tool('create_draft_journal').handler({
+      date: '2025-04-30',
+      lines: [
+        { account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', debit: 15, credit: 0 },
+        { account_id: 'a75990ab-7ebf-48a9-86bd-35b744c781c2', debit: 0, credit: 15, vat_type: 'fifteen' },
+      ],
+      ...KEY,
+    }, ctx());
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toMatch(/lines\[1\]\.vat_type must be one of/);
+    expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+
   // ── Attribution: the draft path must not post as the token owner ──────────
   // createJournalEntry falls back to defaultHumanMeta(userId) when meta is
   // omitted, so an unstamped draft lands as human:<userId>: agent work
