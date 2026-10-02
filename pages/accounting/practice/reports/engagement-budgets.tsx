@@ -20,7 +20,7 @@ const SC = 'py-2 px-3 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(-
 
 function ErrBanner({ msg }: { msg: string }) {
   return (
-    <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+    <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-400 text-sm">
       <AlertCircle className="h-4 w-4 shrink-0" />{msg}
     </div>
   );
