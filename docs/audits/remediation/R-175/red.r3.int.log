@@ -1,0 +1,82 @@
+### Round-3 integration tests run against d89110477's sources
+ ❯ tests/integration/rate-limit-counter-db.int.test.ts (6 tests | 1 failed) 331ms
+     × rejects a single call whose cost alone exceeds max, and charges nothing for it 30ms
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts (8 tests | 4 failed) 492ms
+     × a request refused by the daily bucket gets nothing back 64ms
+     × a refund that arrives after the window rolled over does not touch the new window 90ms
+     × the same refund, with no rollover, lands 68ms
+     × refundRateLimit with a window is a no-op on any other window, and unchanged without one 0ms
+ ❯ tests/integration/r175-refusal-cache.int.test.ts (9 tests | 8 failed) 1468ms
+     × answers a flood on a full key without touching the database 229ms
+     × never admits from memory: a deleted row is not noticed until the cache is cleared 234ms
+     × a refund in this process drops the remembered refusal 212ms
+     × re-admits when the window rolls over, without the cache being cleared 30ms
+     × forgets a refusal after REFUSAL_TTL_MS, so a refund made elsewhere is honoured 218ms
+     × a remembered refusal for one limit does not refuse a caller with a higher limit 216ms
+     × a remembered refusal of a large call does not refuse a smaller call that fits 20ms
+     × a 30-day window does not overflow: it admits, refuses and remembers like any other 33ms
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts (14 tests | 9 failed) 3385ms
+     × admits exactly max of 100 sequential calls, in order 226ms
+     × admits exactly max of 100 concurrent calls 1004ms
+     × admits weighted calls only while their running total stays within max 83ms
+     × starts a fresh allowance of exactly max when the window rolls over 322ms
+     × keeps counting inside a window that has not ended 192ms
+     × two module instances sharing the database together admit exactly max 197ms
+     × a refused large charge leaves the room it could not use: 9,950 of 10,000 21ms
+     × a charge larger than the whole allowance is refused and creates no row 10ms
+     × weighted concurrent charges never pass max, and fill it when they can 281ms
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts (9 tests | 1 failed) 10577ms
+     × admits exactly max when 40 concurrent requests charge one key 330ms
+AssertionError: expected 30 to be 20 // Object.is equality
+ ❯ tests/integration/k103-rate-limit-rolls-back-with-request.int.test.ts:135:36
+AssertionError: expected 21 to be 20 // Object.is equality
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:58:36
+AssertionError: expected 100 to be 20 // Object.is equality
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:66:36
+AssertionError: expected 21 to be 18 // Object.is equality
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:93:36
+AssertionError: expected 21 to be 20 // Object.is equality
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:109:36
+AssertionError: expected 21 to be 20 // Object.is equality
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:120:36
+AssertionError: expected 22 to be 20 // Object.is equality
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:164:36
+AssertionError: expected 10050 to be 9950 // Object.is equality
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:185:36
+AssertionError: expected 21 to be undefined
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:199:36
+AssertionError: expected 90 to be 18 // Object.is equality
+ ❯ tests/integration/r175-rate-limit-admits-over-max.int.test.ts:210:36
+AssertionError: expected 21 to be 20 // Object.is equality
+ ❯ driveOverLimit tests/integration/r175-refusal-cache.int.test.ts:40:34
+ ❯ tests/integration/r175-refusal-cache.int.test.ts:53:5
+AssertionError: expected 21 to be 20 // Object.is equality
+ ❯ driveOverLimit tests/integration/r175-refusal-cache.int.test.ts:40:34
+ ❯ tests/integration/r175-refusal-cache.int.test.ts:73:5
+AssertionError: expected 21 to be 20 // Object.is equality
+ ❯ driveOverLimit tests/integration/r175-refusal-cache.int.test.ts:40:34
+ ❯ tests/integration/r175-refusal-cache.int.test.ts:87:5
+AssertionError: expected 3 to be 2 // Object.is equality
+ ❯ tests/integration/r175-refusal-cache.int.test.ts:105:36
+AssertionError: expected 21 to be 20 // Object.is equality
+ ❯ driveOverLimit tests/integration/r175-refusal-cache.int.test.ts:40:34
+ ❯ tests/integration/r175-refusal-cache.int.test.ts:116:5
+AssertionError: expected 21 to be 20 // Object.is equality
+ ❯ driveOverLimit tests/integration/r175-refusal-cache.int.test.ts:40:34
+ ❯ tests/integration/r175-refusal-cache.int.test.ts:132:5
+AssertionError: expected false to be true // Object.is equality
+ ❯ tests/integration/r175-refusal-cache.int.test.ts:145:61
+AssertionError: expected 3 to be 2 // Object.is equality
+ ❯ tests/integration/r175-refusal-cache.int.test.ts:168:36
+AssertionError: expected 2 to be 1 // Object.is equality
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts:105:44
+AssertionError: expected +0 to be 100 // Object.is equality
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts:128:46
+TypeError: .toMatch() expects to receive a string, but got undefined
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts:139:45
+TypeError: chargeRateLimit is not a function
+ ❯ tests/integration/r175-usage-quota-refund.int.test.ts:148:26
+AssertionError: expected 201 to be 1 // Object.is equality
+ ❯ tests/integration/rate-limit-counter-db.int.test.ts:82:30
+ Test Files  5 failed | 1 passed (6)
+      Tests  23 failed | 28 passed (51)

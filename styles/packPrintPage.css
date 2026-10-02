@@ -1,0 +1,289 @@
+/* styles/packPrintPage.css — the first of packPrint.css's four partials: the
+ * self-hosted faces, the print tokens and mechanics, the page box and its
+ * header, the KPI tile and the footnote strip.
+ *
+ * A CONTIGUOUS SLICE of what packPrint.css was, in its original order — the
+ * four partials are cut where the file was, not regrouped by topic, because
+ * regrouping would change the cascade. Why the faces are self-hosted is in
+ * packPrint.css's own header.
+ */
+
+@font-face { font-family: 'IBM Plex Sans'; font-weight: 400; font-style: normal;
+  font-display: block; src: url('/fonts/IBMPlexSans-Regular.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-weight: 500; font-style: normal;
+  font-display: block; src: url('/fonts/IBMPlexSans-Medium.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-weight: 600; font-style: normal;
+  font-display: block; src: url('/fonts/IBMPlexSans-SemiBold.woff2') format('woff2'); }
+/* ONE FACE. IBM PLEX MONO IS NOT LOADED, AND MUST NOT BE.
+ *
+ * Every figure position in the pack — the page-3 tiles at 22pt, every
+ * statement cell, the contents numbers, the matters quantum column and the
+ * scorecard's status words — was set in IBM Plex Mono against IBM Plex Sans
+ * prose. The intent was column alignment and monospace is not how a document
+ * gets it: a humanist sans with `tnum` gives every digit the same advance
+ * while staying the same voice as the sentence beside it. A monospace figure
+ * next to humanist prose reads as a fallback the renderer chose, and a status
+ * column set in it reads as terminal output rather than as a judgement the
+ * company is making.
+ *
+ * `--pack-font-figure` exists so the figure positions say what they are.
+ * There is deliberately no mono variable left to reach for.
+ */
+html.print-mode {
+  --pack-font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --pack-font-figure: var(--pack-font-sans);
+  /* The screen components the LEGACY print view reuses (statement rows, KPI
+   * tiles) set their figures in `var(--ff-fig-font)`, which globals.css
+   * defines as IBM Plex Mono. The print page loads no such face, so every one
+   * of those cells fell back to DejaVuSansMono in the PDF. Redefined here, for
+   * print only, so the same components print in the pack's own face. */
+  --ff-fig-font: var(--pack-font-sans);
+}
+
+html.print-mode body {
+  font-family: var(--pack-font-sans);
+  /* Not automatic on a proportional face. A statement column misaligns without
+   * it, and since the figures are set in the TEXT face this is what carries
+   * the alignment monospace used to. */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* Every position that holds a FIGURE, restating the two features rather than
+ * inheriting them: `font-variant-numeric` is not inherited through an element
+ * that sets `font-feature-settings` of its own, and these are the cells whose
+ * alignment a reader checks a column with. */
+html.print-mode .pack-kpi-value,
+html.print-mode .pack-stat-value,
+html.print-mode .pack-table td,
+html.print-mode .pack-contents-number,
+html.print-mode .pack-matters td:nth-child(2) {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* Chromium's ink-saving default washes out every brand band, KPI tile fill and
+ * chart fill. Both spellings: the unprefixed property is the standard, the
+ * -webkit- one is what Chromium 111 in the Gotenberg image actually honours. */
+html.print-mode,
+html.print-mode * {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* Page size only — no margin here. preferCSSPageSize is never set on either
+ * transport, so Chromium ignores a CSS @page margin and uses whatever the
+ * transport passes instead (PDF_MARGIN_MM in src/lib/pdf/pdfTransport.ts,
+ * the single source of truth for the page margin). A margin declared here
+ * would be silently dropped and would mislead the next reader.
+ *
+ * This rule is GLOBAL, deliberately. @page cannot be scoped to a class, and
+ * styles/print.css — which imports this file — is a global import in
+ * pages/_app.tsx, so a user pressing Ctrl+P on any IsaFlow page gets A4.
+ * That is the right default for a South African product. Nothing else in
+ * either file escapes `html.print-mode`. */
+@page {
+  size: A4;
+}
+
+/* A statement's not-meaningful notes, printed once under the table rather
+ * than repeated in every cell they apply to — see `ComparativeTable`. A
+ * definition list because that is what it is: a mark, and what the mark
+ * means. */
+.pack-table-notes {
+  margin: 1.5mm 0 0; font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid);
+}
+.pack-table-notes > div { display: flex; gap: 1.5mm; }
+.pack-table-notes dt { font-weight: 600; }
+.pack-table-notes dd { margin: 0; }
+.pack-table-note-mark { font-size: 0.7em; vertical-align: super; line-height: 0; }
+.pack-table-notes abbr { text-decoration: none; }
+
+/* A full P&L and a notes table run past a page. Without this the second page
+ * of a table has no column headings and its numbers are unreadable. */
+html.print-mode thead {
+  display: table-header-group;
+}
+html.print-mode tfoot {
+  display: table-footer-group;
+}
+html.print-mode tr,
+html.print-mode [data-pack-block] {
+  break-inside: avoid;
+}
+
+html.print-mode {
+  --pack-gutter: 8mm;
+  /* 4.5mm, not 6mm. A page carries up to six blocks, so the baseline is paid
+   * five or six times on the pages that are tightest — the cash page spilled
+   * by less than the 6mm rhythm cost it. The rhythm is still a single
+   * multiple everywhere (spec §5.1); only its size changed. */
+  --pack-baseline: 4.5mm;
+  --pack-ink: #1a1a1a;
+  --pack-grey-strong: #4a4a4a;
+  /* 5.33:1, up from #8a8a8a's 3.45:1. This carries the FOOTNOTES — 7.5pt, and
+   * the only place several of the pack's rules are stated — plus the cover
+   * meta, the contents numbers and every "unscored" cell. Below 4.5:1 a line
+   * of 7.5pt type is a rule a reader can see is there and cannot read, which
+   * is worse than not printing it. `--pack-grey-strong` was already 8.86:1
+   * and does not move. */
+  --pack-grey-mid: #6b6b6b;
+  --pack-rule: #d8d8d8;
+  --pack-tint: #f5f5f5;
+  /* Overridden per-request by the brand style block — Task 5. */
+  --pack-brand: #1a3a5c;
+  --pack-brand-ink: #ffffff;
+}
+
+.pack-page {
+  break-after: page;
+  /* 297mm less the 20/22mm page margins. Fixed so density is measurable
+   * rather than a matter of opinion at review time. */
+  min-height: 255mm;
+  display: flex;
+  flex-direction: column;
+  color: var(--pack-ink);
+}
+.pack-page:last-child { break-after: auto; }
+
+/* THE WRAPPER WAS CAPPING EVERY PAGE AT PORTRAIT WIDTH, INCLUDING THE
+ * LANDSCAPE ONE.
+ *
+ * `PackPagesView`'s root carries `max-w-[210mm]`, which is right on screen —
+ * the pack is a page-shaped document in a browser window — and wrong on
+ * paper, where the sheet already IS the measure. A landscape sheet's content
+ * box is 261mm and the trends page was being laid out across 210 of them: 51mm
+ * of white down the right edge, and a page 10-14mm TALLER than it needed to
+ * be, because six panels and two columns of notes were set into two thirds of
+ * the paper they print on.
+ *
+ * That is what made the pack thirteen sheets on one company while the print
+ * harness — which has no wrapper and no Tailwind utilities — reported twelve
+ * off the same document. The composer models a landscape page at 261mm
+ * (`PAGE_WIDTH_MM.landscape`); this is what makes that true of the paper.
+ *
+ * Print only. An on-screen reader keeps the 210mm column. */
+html.print-mode .pack-pages {
+  max-width: none;
+}
+
+/* A LANDSCAPE page's box is 210mm tall, not 297mm — so the portrait
+ * min-height above is 87mm taller than the sheet it is printed on, and page
+ * 10 spilled onto a second landscape sheet on EVERY pack ever rendered. The
+ * blank sheet the reader got was the min-height, not the content. 210mm less
+ * the same 20/22mm margins. */
+.pack-page[data-print-landscape] {
+  min-height: 168mm;
+}
+/* A landscape sheet's box is 87mm shorter, so the header pays for itself
+ * there in a way it does not in portrait: naming the page cost 2.1mm more
+ * than page 10 had. The name and the standfirst both come down a step and the
+ * header's own bottom margin halves — the page still names itself, at a size
+ * that still outranks the panel captions under it. */
+.pack-page[data-print-landscape] .pack-page-header { margin-bottom: 2mm; }
+.pack-page[data-print-landscape] .pack-title { font-size: 13pt; line-height: 16pt; }
+
+.pack-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: var(--pack-gutter);
+  align-items: start;
+}
+
+/* THE PAGE HEADER, and it has to be CHEAP.
+ *
+ * The title was hidden altogether until `styles/print.css`'s `header` rule
+ * was scoped, so its cost had never been paid on paper. Set at 20pt over a
+ * 13pt section line it costs 25-30mm of an A4 content box — a page title is
+ * a whole SENTENCE here by rule (`assertPageTitleIsAMessage`), so it wraps
+ * to two or three lines — and every fixture in the print harness spilled the
+ * moment the titles became visible.
+ *
+ * So: the section becomes an EYEBROW above the title rather than a second
+ * heading below it (it is 'Financials' / 'Governance' — a locator, not a
+ * heading of anything), and the title is set at the size a sentence of that
+ * length wants to be read at. Same information, ~14mm less paper. */
+.pack-page-header { margin: 0 0 var(--pack-baseline); }
+
+/* THE HEADING ROW: the page's NAME, and its section as an eyebrow beside it.
+ *
+ * The section used to sit on a line of its own above the title. It shares
+ * this one instead, so naming the page costs no extra paper — the header is
+ * still two lines. `baseline` alignment, not `center`: the two sit on the
+ * same reading line at very different sizes. */
+.pack-page-heading-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--pack-gutter); margin: 0 0 0.5mm;
+}
+/* The page's own name — "Income statement", the string the Contents prints —
+ * as an EYEBROW rather than as the heading. Set exactly like the section
+ * label it shares the line with, so the row reads as one navigational strip
+ * above the sentence that carries the page. */
+.pack-page-name {
+  font-size: 8pt; line-height: 11pt; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--pack-grey-strong);
+  margin: 0;
+}
+/* THE CONCLUSION, AS THE HEADING. 15pt semibold in full ink: it wins the page
+ * against the 24pt KPI figure on weight and position rather than on size, and
+ * it is the first thing read on every content sheet. 15 rather than 16 is what
+ * keeps a two-line conclusion two lines on a 174mm measure — see
+ * `pageHeaderMm`, which charges the pack for every line of it. */
+.pack-title {
+  font-size: 15pt; line-height: 18pt; font-weight: 600;
+  color: var(--pack-ink);
+  margin: 0; padding-bottom: 1.5mm;
+  border-bottom: 2pt solid var(--pack-brand);
+}
+.pack-section-heading {
+  font-size: 8pt; line-height: 11pt; font-weight: 500;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--pack-grey-strong);
+  white-space: nowrap;
+  margin: 0;
+}
+/* `white-space: nowrap`, and it is not cosmetic: at 28pt in a four-column
+ * grid a figure of `(1 546)` broke after the thousands separator and printed
+ * as `(1` over `546)`. A number split across two lines is a number a reader
+ * has to reassemble. `font-size` shrinks to fit the column instead. */
+.pack-kpi-value {
+  font-family: var(--pack-font-figure);
+  /* 22pt, not 24. `white-space: nowrap` means a tile's widest figure sets the
+   * grid track, and the pack's one negative convention turned `−1348.0%` into
+   * `(1348.0%)` — one character wider, and page 3's tile row then ran past the
+   * right edge of the paper, where content is not short but GONE. 23 and 21
+   * were both printed; 22 is the largest that clears it on every fixture. */
+  font-size: 22pt; line-height: 25pt; font-weight: 500;
+  white-space: nowrap;
+}
+/* THE FOOTNOTES FOLLOW THE CONTENT THEY ANNOTATE. `margin-top: auto` pinned
+ * them to the bottom margin of a flex column, which is invisible on a full
+ * sheet and is what stranded two grey lines at the foot of page 5 under 44%
+ * of unbroken white — a hole in the middle of the page rather than a page
+ * that ends. A short page is an honest outcome (page 4's empty column IS the
+ * fact that no commentary has been approved); a hole is a layout failure.
+ * Removing the auto margin can only move the strip UP, so no page's measured
+ * height changes — see `packSheetCount.test.ts`. */
+.pack-footnotes { font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid); margin-top: 0; padding-top: 2mm; list-style: none; padding-left: 0; }
+/* THE FOOTNOTE PRINTS ITS OWN NUMBER. Tailwind preflight strips the `<ol>`'s
+ * marker app-wide, so `Revenue¹` on sheet 3 pointed at an unlabelled grey
+ * block. The marker column is ~3mm at 7.5pt including the gap, inside the 6mm
+ * `footnotesMm` already withholds from the text width — so the height estimate
+ * stays at or above what Chromium lays out. */
+.pack-footnotes > li { display: flex; gap: 1.5mm; }
+.pack-footnote-number { font-weight: 600; }
+
+/* Task 13 — the KPI tile, its delta and its inline sparkline. The delta's
+ * colour (favourable/unfavourable) is never the ONLY cue: `.pack-kpi-delta-cue`
+ * carries a shape glyph (↑/↓/→) alongside it — rubric criterion 7, a
+ * deuteranopic reader cannot rely on colour alone. */
+.pack-kpi-tile { display: flex; flex-direction: column; gap: 1mm; }
+.pack-kpi-label { font-size: 9pt; line-height: 12pt; color: var(--pack-grey-strong); }
+.pack-kpi-unavailable { font-size: 11pt; line-height: 14pt; font-style: italic; color: var(--pack-grey-mid); }
+.pack-kpi-delta { font-size: 9pt; line-height: 12pt; }
+.pack-kpi-delta.is-favourable { color: var(--pack-favourable, #1a7a4a); }
+.pack-kpi-delta.is-unfavourable { color: var(--pack-unfavourable, #b3261e); }
+.pack-kpi-delta-cue { font-size: 7pt; }
+.pack-kpi-sparkline svg { display: block; width: 100%; height: auto; }
+.pack-footnote-marker { font-size: 0.7em; vertical-align: super; line-height: 0; }

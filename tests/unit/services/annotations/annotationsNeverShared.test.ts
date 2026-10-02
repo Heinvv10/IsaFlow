@@ -10,12 +10,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sqlMock = vi.fn();
-vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
+// The share path reads its input through the real report-pack producer, so
+// every query that producer issues (cash flows included) passes through
+// `sqlMock` and is inspected below. The savepoint is a passthrough: there is no
+// transaction here, only the queries.
+vi.mock('@/lib/neon', () => ({
+  sql: (...a: unknown[]) => sqlMock(...a),
+  withSavepoint: <T,>(_name: string, fn: () => Promise<T>) => fn(),
+}));
 
-vi.mock('@/modules/accounting/services/gl/financialFiguresService', () => ({
+vi.mock('@/modules/accounting/services/gl/financialFiguresService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/financialFiguresService')>()),
   getFinancialFigures: () => Promise.resolve(FIGURES),
-  unclassifiedWarning: () => null,
-  totalEquity: () => 300,
 }));
 vi.mock('@/modules/accounting/services/reports/reportPackService', () => ({
   buildReportPack: () => PACK,

@@ -1,0 +1,439 @@
+import { describe, expect, it } from 'vitest';
+import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
+import {
+  cashTitle,
+  highlightsTitle,
+  incomeStatementTitle,
+  largestMoverCaption,
+  impossibleIncomeLinesSentence,
+  positionTitle,
+  scorecardCaption,
+  scorecardTitle,
+  tileCaption,
+  trendsCaption,
+} from '@/modules/accounting/services/packs/narrative/derivedSentences';
+import type {
+  PackChartSpec,
+  PackKpiTile,
+  PackScorecardGroup,
+  PackTableRow,
+} from '@/modules/accounting/services/packs/pages/packPageModel';
+
+const set = (revenue: number, priorRevenue: number | null, operatingProfit: number) => ({
+  current: { revenue, operatingProfit, totalEquity: 1_000_000, cash: 200_000 },
+  prior: priorRevenue === null ? null : { revenue: priorRevenue, operatingProfit: 0, totalEquity: 900_000, cash: 180_000 },
+} as never);
+
+describe('highlightsTitle', () => {
+  it('states direction and magnitude against the prior period', () => {
+    expect(highlightsTitle(set(1_120_000, 1_000_000, 50_000)))
+      .toMatch(/Revenue up 12(\.0)?%/);
+  });
+
+  it('says so plainly when there is no comparative', () => {
+    expect(highlightsTitle(set(1_120_000, null, 50_000)))
+      .toMatch(/no comparative period/i);
+  });
+
+  it('does not claim a percentage change from a non-positive base', () => {
+    // Brightsphere: negative revenue. A percentage against a negative base is
+    // arithmetically meaningless and reads as a triumph or a catastrophe at random.
+    const title = highlightsTitle(set(-50_000, -100_000, -20_000), 'R');
+    expect(title).not.toMatch(/%/);
+    // The headline states the LEVEL — the finding — rather than the reason a
+    // ratio could not be formed. The ninth visual gate rejected the pack for
+    // spending half of sheet 3's headline on a denominator.
+    expect(title).toMatch(/Revenue of \(50\u00a0000\)/);
+  });
+
+  it('keeps the reason there is no percentage off the headline', () => {
+    // WHERE THE CLAUSE WENT. It is a disclosure the page still owes the
+    // reader — a tile with no movement beside it needs saying why — and it is
+    // the revenue TILE's own caption that carries it, anchored to the tile by
+    // position. It was page 3's footnote 2, with no superscript on the sheet
+    // to attach it to; `packPresentationConventions.test.ts` holds the
+    // caption. What is pinned here is that the headline does not carry it.
+    expect(highlightsTitle(set(-50_000, -100_000, -20_000))).not.toMatch(/comparative/i);
+  });
+
+  it('never prints a margin of 0% on non-positive turnover', () => {
+    expect(highlightsTitle(set(0, 0, 0))).not.toMatch(/0(\.0)?% margin/);
+  });
+
+  it('states the down direction when revenue fell', () => {
+    expect(highlightsTitle(set(900_000, 1_000_000, 50_000)))
+      .toMatch(/Revenue down 10(\.0)?%/);
+  });
+
+  it('prints the margin off OPERATING profit, not net profit (spec §4.A p3)', () => {
+    // R-P37: the fixture's `netProfit` is always undefined; only
+    // `operatingProfit` is real here, so this pins the branch that a
+    // reversion to `netProfit` would silently fall through to null on.
+    const title = highlightsTitle(set(1_120_000, 1_000_000, 50_000));
+    // 50,000 / 1,120,000 = 4.4642...% -> 4.5% at 1dp.
+    expect(title).toMatch(/Operating margin is a positive 4\.5%/);
+  });
+
+  it('no-margin fallback names the operating line, not net profit', () => {
+    const title = highlightsTitle(set(0, 0, 0));
+    expect(title).toMatch(/operating margin/i);
+    expect(title).not.toMatch(/net profit margin/i);
+  });
+});
+
+/**
+ * THE HEADLINE SENTENCES DROPPED THE MINUS SIGN.
+ *
+ * A rendered pack's sheet 6 read "Gross margin of 1348.0%" in the largest
+ * type on the page, directly above its own table reading (1348.0%); sheet 3
+ * read "Operating margin is 1564.3%" against (1564.3%). A margin of positive
+ * 1348% and one of negative 1348% are not the same claim about a business,
+ * and the header is the line that gets read.
+ *
+ * Both sentences went through `formatPctMagnitude`, which is correct in
+ * isolation — an unsigned magnitude, for prose that carries direction in a
+ * word — and was reached by two sentences that carry no such word. These
+ * exercise a NEGATIVE value through both builders and assert the direction
+ * survives into the string.
+ */
+describe('a negative percentage keeps its direction in the sentence', () => {
+  const negativeMargin = () => set(100_000, null, -1_564_300);
+
+  it('says the operating margin is NEGATIVE, not just how large it is', () => {
+    const title = highlightsTitle(negativeMargin(), "R'000");
+    expect(title).toContain('1\u00a0564.3%');
+    expect(title).toMatch(/negative 1\u00a0564\.3%/);
+    // And the failure the fixture reproduces: the magnitude alone, with the
+    // sentence saying "is" and nothing else.
+    expect(title).not.toMatch(/margin is 1\u00a0564\.3%/);
+  });
+
+  it('says the gross margin is NEGATIVE on page 6', () => {
+    const title = incomeStatementTitle(
+      { current: { revenue: 100_000, costOfSales: 1_448_000, operatingExpenses: 226_000 } } as never,
+      "R'000",
+    );
+    expect(title).toMatch(/negative 1\u00a0348\.0%/);
+    expect(title).not.toMatch(/margin of 1\u00a0348\.0%/);
+  });
+});
+
+describe('positionTitle', () => {
+  it('names negative equity in the title, per spec §3.5', () => {
+    const negative = { current: { totalEquity: -250_000, totalAssets: 1, totalLiabilities: 2 }, prior: null } as never;
+    expect(positionTitle(negative)).toMatch(/negative equity/i);
+  });
+
+  it('does not call positive equity negative', () => {
+    const positive = { current: { totalEquity: 250_000, totalAssets: 1, totalLiabilities: 2 }, prior: null } as never;
+    expect(positionTitle(positive)).not.toMatch(/negative equity/i);
+  });
+});
+
+describe('cashTitle', () => {
+  it('states direction against the prior period', () => {
+    const s = { current: { cash: 220_000 }, prior: { cash: 200_000 } } as never;
+    expect(cashTitle(s)).toMatch(/Cash is up 10(\.0)?%/);
+  });
+
+  it('says so plainly when there is no comparative', () => {
+    const s = { current: { cash: 220_000 }, prior: null } as never;
+    expect(cashTitle(s)).toMatch(/no comparative period/i);
+  });
+
+  it('does not claim a percentage change from a non-positive cash base', () => {
+    const s = { current: { cash: 220_000 }, prior: { cash: -50_000 } } as never;
+    const title = cashTitle(s);
+    expect(title).not.toMatch(/%/);
+    expect(title).toMatch(/not meaningful/i);
+  });
+});
+
+describe('scorecardTitle', () => {
+  it('reads as a judgement, not a label', () => {
+    expect(scorecardTitle(6, 9)).toBe('6 of 9 scored targets were met this period.');
+  });
+});
+
+describe('scorecardCaption', () => {
+  const row = (status: PackScorecardGroup['rows'][number]['status']) => ({
+    metric: 'm',
+    actual: { value: 1, format: 'money', source: 'x.y' },
+    target: null,
+    prior: { value: 1, format: 'money', source: 'x.y' },
+    status,
+    trend: 'flat',
+    trendSvg: null,
+    bulletSvg: null,
+  });
+
+  // THE CAPTION IS NO LONGER THE TITLE. It read the page's own heading with
+  // ", with N missed" appended — the echo §5.7 forbids, and arithmetic a
+  // reader already has from the two numbers above it. It names WHERE instead,
+  // which is the question "0 of 3" leaves a director holding.
+  it('names the groups the misses are in', () => {
+    const groups: PackScorecardGroup[] = [
+      { letter: 'A', name: 'Growth', rows: [row('met'), row('met'), row('missed')] },
+      { letter: 'B', name: 'Liquidity', rows: [row('missed')] },
+      { letter: 'C', name: 'Efficiency', rows: [row('met')] },
+    ];
+    expect(scorecardCaption(groups)).toBe('The misses are in Growth and Liquidity.');
+    // AND IT DOES NOT RESTATE THE TITLE, which is the whole point.
+    expect(scorecardCaption(groups)).not.toMatch(/scored targets? w(as|ere) met/);
+  });
+
+  it('names where the scored targets are when none was missed', () => {
+    const groups: PackScorecardGroup[] = [
+      { letter: 'A', name: 'Growth', rows: [row('met')] },
+      { letter: 'B', name: 'Liquidity', rows: [row('unscored'), row('notMeaningful')] },
+    ];
+    expect(scorecardCaption(groups)).toBe('The scored target is in Growth.');
+  });
+
+  // THE VERB FOLLOWS THE COUNT OF MISSES, NOT THE COUNT OF GROUPS. Brightsphere
+  // scores one target and misses it, and this line read "The misses are in
+  // Liquidity." four centimetres under a title reading "0 of 1 scored target
+  // WAS met" — the plural bug `scoredTargetsSentence` exists to prevent,
+  // reappearing in a sentence added one round after that fix.
+  it('agrees its verb with the number of misses, not of groups', () => {
+    const one: PackScorecardGroup[] = [{ letter: 'B', name: 'Liquidity', rows: [row('missed')] }];
+    expect(scorecardCaption(one)).toBe('The miss is in Liquidity.');
+    const twoInOne: PackScorecardGroup[] = [
+      { letter: 'B', name: 'Liquidity', rows: [row('missed'), row('missed')] },
+    ];
+    expect(scorecardCaption(twoInOne), 'two misses in one group is still plural')
+      .toBe('The misses are in Liquidity.');
+  });
+
+  /**
+   * THE LARGEST TYPE ON SHEET 9 DISAGREED WITH ITSELF ABOUT NUMBER. Both the
+   * page title and this caption read "0 of 1 scored targets were met", and the
+   * demo company hides it because it scores three. Brightsphere scores one.
+   * Asserted on the title and the caption together because the sentence used to
+   * be written twice and both copies were wrong.
+   */
+  it('agrees noun and verb with the number of scored targets', () => {
+    expect(scorecardTitle(0, 1)).toBe('0 of 1 scored target was met this period.');
+    expect(scorecardTitle(1, 3)).toBe('1 of 3 scored targets were met this period.');
+    expect(scorecardTitle(3, 3)).toBe('3 of 3 scored targets were met this period.');
+  });
+
+  it('says so plainly when nothing has a target', () => {
+    const groups: PackScorecardGroup[] = [
+      { letter: 'A', name: 'Growth', rows: [row('unscored')] },
+    ];
+    expect(scorecardCaption(groups)).toMatch(/no scorecard metric/i);
+  });
+});
+
+describe('largestMoverCaption', () => {
+  const line = (label: string, change: number | null, changePct: number | null = null): PackTableRow => ({
+    label,
+    level: 0,
+    role: 'line',
+    figures: {
+      change: change === null
+        ? { value: null, format: 'money', source: 'x.y', unavailable: 'no comparative' }
+        : { value: change, format: 'money', source: 'x.y' },
+      ...(changePct === null ? {} : { changePct: { value: changePct, format: 'pct' as const, source: 'x.y' } }),
+    },
+  });
+
+  it('names the row with the largest movement in money', () => {
+    const rows = [line('Revenue', 5_000), line('Cost of sales', -40_000), line('Other income', 12_000)];
+    expect(largestMoverCaption(rows, PACK_SCALE)).toMatch(/Cost of sales moved the most in money, down 40/);
+  });
+
+  /**
+   * THE DEFECT THIS PINS, AND IT IS THE WHOLE REASON THE RANKING MOVED.
+   *
+   * Page 6 read "Operating expenses moved the most, up 102.1%." on a table
+   * where cost of sales moved 626 against operating expenses' 115 — 626 of
+   * the 639 total deterioration, and the tallest bar on the bridge printed
+   * two centimetres below the sentence. Ranking on the percentage names the
+   * line that changed most RELATIVE TO ITSELF, which on any small comparative
+   * base is not the line that explains the result.
+   *
+   * Both measures are in the fixture and they disagree: operating expenses
+   * move 102% on a base of 113 while cost of sales moves five times the money
+   * on a base ten times larger. Rank on `changePct` again and this goes red.
+   */
+  it('ranks on the money even where the percentage names another line', () => {
+    const rows = [
+      line('Cost of sales', 626_000, 77.8),
+      line('Operating expenses', 115_000, 102.1),
+    ];
+    const caption = largestMoverCaption(rows, PACK_SCALE);
+    expect(caption).toContain('Cost of sales');
+    expect(caption).not.toContain('Operating expenses');
+    // AND IT SAYS WHICH MEASURE IT RANKED ON, so the sentence cannot be read
+    // as answering the percentage question. `superlativeClause` is total over
+    // `RankedMeasure`, so there is no wording without one.
+    expect(caption).toContain('moved the most in money');
+    // The figure printed is the one the ranking was taken on.
+    expect(caption).toContain('626');
+    expect(caption).not.toContain('77.8');
+  });
+
+  it('ignores subtotal rows and rows with no comparative', () => {
+    const rows: PackTableRow[] = [
+      { label: 'Total', level: 0, role: 'total', figures: { change: { value: 90_000, format: 'money', source: 'x.y' } } },
+      line('Revenue', null),
+      line('Rent', 3_000),
+    ];
+    expect(largestMoverCaption(rows, PACK_SCALE)).toMatch(/Rent moved the most in money, up 3/);
+  });
+
+  /**
+   * Sheet 5 printed "No line item shows a meaningful period-on-period
+   * movement" and sheet 6, the next page, printed "Cost of sales moved the
+   * most, up 77.8%." Sheet 5's summary carries exactly one `line` row, whose
+   * percentage is not meaningful because the comparative is not a positive
+   * base — so the page had concluded something about the PERIOD from a missing
+   * PERCENTAGE, two sheets from its own counter-example.
+   */
+  it('says the movement is missing, not that nothing moved', () => {
+    const caption = largestMoverCaption([line('Revenue', null)], PACK_SCALE);
+
+    expect(caption).toMatch(/no line item on this page/i);
+    // The claim it must NOT make: this page cannot see the other page's table.
+    expect(caption).not.toMatch(/meaningful period-on-period movement/);
+    // And it carries the cells' own reason rather than inventing one.
+    expect(caption).toContain('no comparative');
+  });
+
+  it('still says something when the column carries no reason either', () => {
+    const bare: PackTableRow = { label: 'Revenue', level: 0, role: 'line', figures: {} };
+    expect(largestMoverCaption([bare], PACK_SCALE)).toMatch(/no line item on this page/i);
+  });
+});
+
+describe('trendsCaption', () => {
+  const panel = (id: string, title: string): PackChartSpec => ({
+    id, title, kind: 'line', svg: '<svg/>', heightMm: 40,
+  });
+
+  it('counts the tracked panels without restating their titles', () => {
+    const panels = [panel('p1', 'Revenue rose 12%'), panel('p2', 'Cash held flat')];
+    // DRAWN, not "tracked": the pack TRACKS six measures and a page DRAWS as
+    // many as the ledger supports, and Brightsphere's sheet 10 used the one
+    // word for both counts — "4 metrics are tracked" over "tracks six
+    // measures on this page".
+    expect(trendsCaption(panels)).toMatch(/2 measures are drawn/);
+    // Each panel prints its own title three centimetres away; repeating all
+    // six here told the reader nothing new and was enough on its own to push
+    // the landscape page onto a second sheet.
+    expect(trendsCaption(panels)).not.toMatch(/Revenue rose 12%/);
+    expect(trendsCaption(panels)).toMatch(/each panel states/);
+  });
+
+  it('says so plainly when there are no panels', () => {
+    expect(trendsCaption([])).toMatch(/no trend panels/i);
+  });
+
+  /**
+   * ONE PANEL IS ONE MEASURE. No fixture in the suite draws a single panel —
+   * the packs draw four and six — so the singular arm could be forced to the
+   * plural constant with everything green, and a pack whose ledger supports
+   * one measure would print "1 measures are drawn over the period".
+   *
+   * It is reachable: `buildTrendPanels` drops every measure the ledger cannot
+   * support, and a company with cash and nothing else keeps one.
+   */
+  it('says one measure IS drawn where the ledger supports only one panel', () => {
+    const caption = trendsCaption([panel('p1', 'Cash held flat')]);
+    expect(caption).toMatch(/^1 measure is drawn over the period;/);
+    expect(caption).not.toMatch(/measures are/);
+  });
+});
+
+describe("a tile's caption, where the tile shows no movement", () => {
+  /** A tile with a figure, and whatever the caller says about its delta. */
+  const tile = (delta: PackKpiTile['delta'], deltaAbsence: PackKpiTile['deltaAbsence']): PackKpiTile => ({
+    label: 'Revenue',
+    figure: { source: 'set.current.revenue', value: 99, kind: 'money', unavailable: null },
+    delta,
+    deltaAbsence,
+    trendFootnote: null,
+    sparklineSvg: null,
+  });
+
+  it('states the reason the tile gives', () => {
+    expect(tileCaption(tile(null, 'unusableBase'))).toMatch(/not a positive base/i);
+  });
+
+  it('REFUSES a tile that shows no movement and states no reason', () => {
+    // `PackKpiTile` says exactly one of `delta` and `deltaAbsence` is
+    // non-null, and this used to be spelt `?? 'noCurrentValue'` — a fallback
+    // that prints "This tile has no figure for the period, so there is
+    // nothing to move" beside a tile that has just printed 99. The state is
+    // unreachable from `buildHighlightTiles` today, which is exactly why the
+    // invariant needs a gate rather than a default: the next builder is the
+    // one that breaks it, and a caption that is false on a board pack is
+    // worse than a render that stops.
+    expect(() => tileCaption(tile(null, null))).toThrow(/states no reason/);
+  });
+});
+
+/**
+ * SHEET 6'S DISCLOSURE ABOUT INCOME LINES THE WRONG SIDE OF ZERO.
+ *
+ * ~400 characters of prose that the live Brightsphere pack actually prints,
+ * and nothing asserted a word of it: no test imported this function, and no
+ * composed-document prose test matched a phrase in it. Its closing sentence
+ * could be replaced with a placeholder, on a director's income statement,
+ * with the whole suite green.
+ *
+ * Four things carry meaning here and each is held separately: the list and
+ * its figures, the agreement of the verb with the count, WHICH cause is named
+ * (an income account in net debit and a cost account in net credit are
+ * different postings to go looking for), and the consequence clause, which
+ * belongs to revenue alone because revenue is what every margin divides by.
+ */
+describe('impossibleIncomeLinesSentence', () => {
+  const line = (label: string, amount: number) => ({ label, amount });
+
+  it('names one line in the singular and does not reach for the revenue consequence', () => {
+    const text = impossibleIncomeLinesSentence([line('Other income', -1_000)], 'income', PACK_SCALE, false);
+    expect(text).toMatch(/^Other income \(1\) is below zero: /);
+    expect(text).not.toMatch(/are below zero/);
+    // Nothing divides by other income.
+    expect(text).not.toContain('Every margin divides by revenue');
+    expect(text).toContain('income accounts in net debit');
+    expect(text).not.toContain('cost accounts in net credit');
+    expect(text.endsWith(
+      ' The ledger is reported as it stands; trace these accounts before relying on this sheet.',
+    ), `the closing sentence is not the one the sheet prints: ${text}`).toBe(true);
+  });
+
+  it('names the cost cause on its own, and the two sides together as a third', () => {
+    const cost = impossibleIncomeLinesSentence(
+      [line('Operating expenses', -3_717_000), line('Other expenses', -411_000)], 'cost', PACK_SCALE, false);
+    expect(cost).toMatch(/^Operating expenses \(3 717\) and other expenses \(411\) are below zero: /);
+    expect(cost).toContain('cost accounts in net credit');
+    expect(cost).not.toContain('income accounts in net debit');
+
+    const both = impossibleIncomeLinesSentence(
+      [line('Revenue', -5_535_000), line('Other expenses', -411_000)], 'both', PACK_SCALE, true);
+    expect(both).toContain('income accounts in net debit and cost accounts in net credit');
+    // Three sides, three sentences: an arm that fell back on another's wording
+    // would send a reader after the wrong posting.
+    expect(new Set([cost, both]).size).toBe(2);
+  });
+
+  it('states the margin consequence only where REVENUE is one of the lines', () => {
+    const withRevenue = impossibleIncomeLinesSentence(
+      [line('Revenue', -5_535_000)], 'income', PACK_SCALE, true);
+    const without = impossibleIncomeLinesSentence(
+      [line('Other income', -1_000)], 'income', PACK_SCALE, false);
+    expect(withRevenue).toContain(
+      ' Every margin divides by revenue, so each is reported as not meaningful rather than '
+      + 'computed off a negative base.',
+    );
+    expect(without).not.toContain('Every margin divides by revenue');
+    // And the consequence sits BEFORE the closing sentence rather than after
+    // it — the sheet's last word is what to do about it.
+    expect(withRevenue.indexOf('Every margin divides'))
+      .toBeLessThan(withRevenue.indexOf('The ledger is reported as it stands'));
+  });
+});

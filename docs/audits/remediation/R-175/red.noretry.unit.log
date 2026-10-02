@@ -1,0 +1,5 @@
+### noteAiService no-retry test run against 7ff2d029f's noteAiService.ts
+     × a 529 is not retried: one request, no use 495ms
+     × a 500 is not retried either: one request, counted as use 400ms
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)

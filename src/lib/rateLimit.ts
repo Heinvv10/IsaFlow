@@ -1,137 +1,22 @@
 /**
- * Neon-backed rate limiter with in-memory LRU short-circuit.
+ * Rate limiting for API routes: the per-route helpers and the middleware.
  *
- * BL-21 (S-005): replaces the single-process LRU-only limiter with an atomic
- * UPSERT on rate_limit_counters so all pods share the same counter.
- *
- * Short-circuit: if the LRU entry is <5 s old AND the cached count is below
- * 50% of the limit, skip the DB round-trip and increment locally. This keeps
- * the common-case overhead negligible while still persisting state across pods
- * once the key approaches the limit.
+ * The counter itself, the refuse-only cache and the refund live in
+ * `@/lib/rateLimitCore` and are re-exported here; import them from this module.
+ * Usage-quota refunds are in `@/lib/rateLimitQuota`.
  */
 
-import { LRUCache } from 'lru-cache';
 import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
-import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { noteQuotaCharge } from '@/lib/quotaUse';
+import {
+  chargeRateLimit, checkRateLimit, clampCost, isKnownFull, refundRateLimit, type RateLimitCharge, type RateLimitOptions,
+} from '@/lib/rateLimitCore';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface RateLimitOptions {
-  max: number;
-  windowSecs: number;
-  /**
-   * Units to charge this call against the counter (default 1). Used to
-   * weight rate-limit cost by batch size — e.g. a bulk-email call sending
-   * N recipients should consume N units, not 1, so batching can't be used
-   * to bypass the effective ceiling implied by `max`.
-   */
-  cost?: number;
-}
-
-// ---------------------------------------------------------------------------
-// LRU short-circuit cache
-// ---------------------------------------------------------------------------
-
-const LRU_TTL_MS = 5_000;
-
-const lru = new LRUCache<string, { count: number; windowStart: number }>({
-  max: 10_000,
-  ttl: LRU_TTL_MS,
-});
-
-/** Clears the in-process LRU cache. Exposed for test use only. */
-export function clearRateLimitCache(): void {
-  lru.clear();
-}
-
-// ---------------------------------------------------------------------------
-// Core function
-// ---------------------------------------------------------------------------
-
-/**
- * Returns true if the request is allowed, false if it is rate-limited.
- *
- * The counter is persisted in `rate_limit_counters` (migration 331) so it is
- * shared across all pods. A 5-second LRU short-circuit avoids the DB round-
- * trip for low-pressure keys.
- */
-/**
- * Clamp a rate-limit `cost` to a positive integer. A shared primitive must never
- * let a caller pass a negative / zero / NaN / Infinity / fractional cost that
- * would decrement or corrupt the shared counter. Note `Math.max(1, NaN)` is NaN,
- * so the finite guard is required — do not simplify to `Math.max(1, trunc)`.
- */
-export function clampCost(cost: number | undefined): number {
-  const t = Math.trunc(cost ?? 1);
-  return Number.isFinite(t) && t > 0 ? t : 1;
-}
-
-export async function checkRateLimit(key: string, opts: RateLimitOptions): Promise<boolean> {
-  const { max, windowSecs } = opts;
-  const cost = clampCost(opts.cost);
-
-  // Short-circuit ONLY for the common cost === 1 case: if the LRU copy is fresh
-  // and well under the limit, skip the DB round-trip. Cost-weighted calls
-  // (cost > 1, e.g. bulk email) always fall through to the authoritative DB
-  // upsert — they are low-frequency, so the round-trip is cheap, and admitting
-  // up to `cost` units from a per-process LRU that can trail the shared DB
-  // counter by the cache window would widen the cross-pod race precisely where
-  // a wrong admission is expensive.
-  const cached = lru.get(key);
-  if (cost === 1 && cached && cached.count < Math.floor(max * 0.5)) {
-    cached.count += 1;
-    return true;
-  }
-
-  const rows = (await sql`
-    INSERT INTO rate_limit_counters (key, count, window_start)
-    VALUES (${key}, ${cost}, NOW())
-    ON CONFLICT (key) DO UPDATE
-      SET count = CASE
-        WHEN rate_limit_counters.window_start < NOW() - make_interval(secs => ${windowSecs})
-          THEN ${cost}
-        ELSE rate_limit_counters.count + ${cost}
-      END,
-      window_start = CASE
-        WHEN rate_limit_counters.window_start < NOW() - make_interval(secs => ${windowSecs})
-          THEN NOW()
-        ELSE rate_limit_counters.window_start
-      END
-    RETURNING count, window_start
-  `) as { count: number; window_start: Date }[];
-
-  const row = rows[0]!;
-  lru.set(key, { count: row.count, windowStart: new Date(row.window_start).getTime() });
-  return row.count <= max;
-}
-
-/**
- * Give `units` back to `key`'s current window.
- *
- * Only for a caller that has charged up front and then reached an outcome the
- * cap was never meant to bound — e.g. the invite-accept endpoint charges before
- * it touches GoTrue so that password guesses are counted even when the request
- * dies, then refunds the deterministic non-guess verdicts it can only discover
- * AFTER a successful sign-in. Never refund an outcome a caller could reach
- * without authenticating: that turns the counter into a free-attempt loop.
- *
- * Floors at zero and leaves `window_start` alone, so a refund can never extend
- * a window or drive the shared counter negative. Absent keys are a no-op.
- */
-export async function refundRateLimit(key: string, units: number): Promise<void> {
-  const cost = clampCost(units);
-  await sql`
-    UPDATE rate_limit_counters
-    SET count = GREATEST(count - ${cost}, 0)
-    WHERE key = ${key}
-  `;
-  // The LRU copy is now stale in the permissive direction; drop it rather than
-  // patch it, so the next call re-reads the authoritative row.
-  lru.delete(key);
-}
+export {
+  chargeRateLimit, checkRateLimit, clampCost, clearRateLimitCache, refundRateLimit, REFUSAL_TTL_MS,
+} from '@/lib/rateLimitCore';
+export type { RateLimitCharge, RateLimitOptions } from '@/lib/rateLimitCore';
 
 // ---------------------------------------------------------------------------
 // IP extraction (BL-20 — do NOT remove; used by register, forgot-password, etc.)
@@ -158,6 +43,21 @@ export function getClientIp(req: NextApiRequest): string {
 }
 
 /**
+ * The two per-company usage buckets of the AI and send limiters: 15 minutes
+ * (`<key>`) and a day (`<key>:day`). Both or neither: if the day refuses, what
+ * this call took from the 15-minute bucket goes back, into the window it was
+ * taken from, so a refused call consumes nothing. The per-IP bucket charged
+ * before this is an abuse limit and is never given back.
+ */
+async function chargeUsageBuckets(key: string, cost: number, companyMax: number, dailyMax: number): Promise<RateLimitCharge> {
+  const short = await chargeRateLimit(key, { max: companyMax, windowSecs: 900, cost });
+  if (!short.admitted) return short;
+  const day = await chargeRateLimit(`${key}:day`, { max: dailyMax, windowSecs: 86_400, cost });
+  if (!day.admitted) await refundRateLimit(key, cost, short.windowStart);
+  return day;
+}
+
+/**
  * Per-IP + per-company + daily-quota limiting for expensive AI/LLM endpoints
  * (pentest H3: an authenticated tenant could otherwise burn the inference budget
  * with unbounded calls). Returns true when ALLOWED, false when it should be 429'd.
@@ -166,17 +66,22 @@ export async function checkAiRateLimit(
   req: NextApiRequest,
   companyId: string,
   name: string,
-  opts: { ipMax?: number; companyMax?: number; dailyMax?: number } = {},
+  opts: { ipMax?: number; companyMax?: number; dailyMax?: number; refundUnused?: boolean } = {},
 ): Promise<boolean> {
   const ip = getClientIp(req);
   const ipMax = opts.ipMax ?? 20;
   const companyMax = opts.companyMax ?? 40;
   const dailyMax = opts.dailyMax ?? 300;
-  return (
-    (await checkRateLimit(`ai:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900 })) &&
-    (await checkRateLimit(`ai:${name}:co:${companyId}`, { max: companyMax, windowSecs: 900 })) &&
-    (await checkRateLimit(`ai:${name}:co:${companyId}:day`, { max: dailyMax, windowSecs: 86_400 }))
-  );
+  // A company whose daily bucket is known to be full is refused with no write.
+  if (isKnownFull(`ai:${name}:co:${companyId}:day`, dailyMax)) return false;
+  if (!(await checkRateLimit(`ai:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900 }))) return false;
+  const day = await chargeUsageBuckets(`ai:${name}:co:${companyId}`, 1, companyMax, dailyMax);
+  // The daily bucket is a budget for AI calls a provider answered, not an abuse
+  // limit. `refundUnused` is for routes whose provider call goes through a
+  // client that calls markQuotaUsed('ai'); the unit comes back when the request
+  // ends without one. The 15-minute buckets always stay charged.
+  if (day.admitted && opts.refundUnused) noteQuotaCharge('ai', `ai:${name}:co:${companyId}:day`, 1, day.windowStart);
+  return day.admitted;
 }
 
 /**
@@ -187,7 +92,7 @@ export async function checkSendRateLimit(
   req: NextApiRequest,
   companyId: string,
   name: string,
-  opts: { ipMax?: number; companyMax?: number; dailyMax?: number; count?: number } = {},
+  opts: { ipMax?: number; companyMax?: number; dailyMax?: number; count?: number; refundUnused?: boolean } = {},
 ): Promise<boolean> {
   const ip = getClientIp(req);
   const ipMax = opts.ipMax ?? 30;
@@ -199,11 +104,14 @@ export async function checkSendRateLimit(
   // regardless of recipient count, so it is always charged 1. Charging the IP
   // bucket per-recipient would wrongly block a single legitimate large batch.
   const volumeCost = opts.count ?? 1;
-  return (
-    (await checkRateLimit(`send:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900, cost: 1 })) &&
-    (await checkRateLimit(`send:${name}:co:${companyId}`, { max: companyMax, windowSecs: 900, cost: volumeCost })) &&
-    (await checkRateLimit(`send:${name}:co:${companyId}:day`, { max: dailyMax, windowSecs: 86_400, cost: volumeCost }))
-  );
+  // A company whose daily bucket is known to be full is refused with no write.
+  if (isKnownFull(`send:${name}:co:${companyId}:day`, dailyMax)) return false;
+  if (!(await checkRateLimit(`send:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900, cost: 1 }))) return false;
+  const day = await chargeUsageBuckets(`send:${name}:co:${companyId}`, volumeCost, companyMax, dailyMax);
+  // As for AI: with `refundUnused` the daily bucket ends up holding the emails
+  // a mail server accepted (markQuotaUsed('send') in emailService.sendEmail).
+  if (day.admitted && opts.refundUnused) noteQuotaCharge('send', `send:${name}:co:${companyId}:day`, clampCost(volumeCost), day.windowStart);
+  return day.admitted;
 }
 
 /**

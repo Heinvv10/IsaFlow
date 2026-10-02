@@ -11,6 +11,12 @@ describe('packSectionTitle', () => {
     expect(packSectionTitle('cash_flow', 'Cash Flow')).toBe('Statement of Cash Flows');
   });
 
+  // It said "Twelve-Month Trend" over a chart that starts at the first month
+  // with revenue — six months on Brightsphere. The caption states the window.
+  it('titles the trend for what it draws, not for a window it may not fill', () => {
+    expect(packSectionTitle('trends', '12-Month Trend')).toBe('Revenue by Month');
+  });
+
   it('has a title for EVERY section the pack service emits, on every pack type', () => {
     // A section added to reportPackService with no entry here would otherwise
     // print its plain-English screen label inside an IFRS document.
@@ -23,9 +29,9 @@ describe('packSectionTitle', () => {
 });
 
 describe('isLandscapeSection', () => {
-  it('turns the two chart sections sideways and nothing else', () => {
-    expect(isLandscapeSection('waterfall')).toBe(true);
-    expect(isLandscapeSection('trends')).toBe(true);
+  it('turns no section sideways: the charts are drawn at the portrait content width', () => {
+    expect(isLandscapeSection('waterfall')).toBe(false);
+    expect(isLandscapeSection('trends')).toBe(false);
     expect(isLandscapeSection('income_statement')).toBe(false);
     expect(isLandscapeSection('ratios')).toBe(false);
   });
