@@ -11,6 +11,7 @@ import { assertNoOpenDocuments } from './masterDeleteGuards';
 import { prepareInvoiceDelete, reinstateInvoiceJournal } from './softDeleteJournalService';
 import { SoftDeleteRefusalError } from './softDeleteErrors';
 import { underFlowLockBudget } from './rowLockBudget';
+import { isLockTimeoutError } from '@/lib/lockTimeout';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 
@@ -39,6 +40,18 @@ export function isValidEntityType(entityType: string): boolean {
  */
 function underInvoiceLockBudget<T>(entityType: string, entityId: string, fn: () => Promise<T>): Promise<T> {
   return INVOICE_ENTITY_TYPES.has(entityType) ? underFlowLockBudget(`Invoice ${entityId}`, fn) : fn();
+}
+
+/**
+ * A lock wait that ran out — the raw 55P03 the budget above converts, or a nested helper's typed timeout — is an
+ * answered 503, not a fault: logged at info (D8 round 13). Everything else is logged at error.
+ */
+function logFailure(message: string, data: Record<string, unknown>, err: unknown): void {
+  if ((err as { code?: unknown } | null)?.code === '55P03' || isLockTimeoutError(err)) {
+    log.info(message, { ...data, error: (err as Error).message }, 'accounting');
+  } else {
+    log.error(message, { ...data, error: err }, 'accounting');
+  }
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -96,7 +109,7 @@ async function softDeleteInner(
     log.info('Soft deleted entity', { entityType, entityId, companyId }, 'accounting');
     return { undoToken: entityId };
   } catch (err) {
-    log.error('Soft delete failed', { entityType, entityId, error: err }, 'accounting');
+    logFailure('Soft delete failed', { entityType, entityId }, err);
     throw err;
   }
 }
@@ -141,7 +154,7 @@ async function undoDeleteInner(
     }
     return restored;
   } catch (err) {
-    log.error('Undo delete failed', { entityType, entityId, error: err }, 'accounting');
+    logFailure('Undo delete failed', { entityType, entityId }, err);
     throw err;
   }
 }
