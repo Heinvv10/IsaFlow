@@ -15,6 +15,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { isJobFenceRefusal } from '@/modules/accounting/services/practice/practiceClientFence';
+import { PracticeEntryRefusal } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
 import { isJsonObjectBody } from '@/lib/validation';
 import {
   bulkCreateFromTemplate,
@@ -53,12 +54,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // 201 even when some failed — the UI shows the partial summary
     return res.status(201).json({ data: result });
   } catch (err) {
-    if (isJobFenceRefusal(err)) {
-      log.warn('Practice bulk create refused', { code: err.code, message: err.message }, 'practice-api');
+    if (isJobFenceRefusal(err) || err instanceof PracticeEntryRefusal) {
+      log.warn('Practice bulk create refused', { message: err.message }, 'practice-api');
       return apiResponse.badRequest(res, err.message);
     }
+    // A server fault: re-thrown so withErrorHandler answers 500 and withAuth rolls back
+    // the dates already written. A 4xx here would COMMIT them.
     log.error('Practice bulk create from template failed', { error: err }, 'practice-api');
-    return apiResponse.badRequestFromError(res, err, 'Bulk create failed');
+    throw err;
   }
 }
 
