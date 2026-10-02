@@ -51,6 +51,7 @@ vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h 
 vi.mock('@/modules/accounting/services/core/companyAccessService', () => ({
   userBelongsToCompany: vi.fn(async () => true),
   userBelongsToGroup: vi.fn(async () => true),
+  userCanWriteGroup: vi.fn(async () => true),
   userCreatedGroup: vi.fn(async () => true),
 }));
 vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => ({

@@ -11,6 +11,7 @@ import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
 import { isUuidParam } from '@/lib/validation';
+import { getGroupAccounts } from '@/modules/accounting/services/reports/groupCompanyService';
 import {
   getConsolidatedTrialBalance,
   getConsolidatedIncomeStatement,
@@ -134,6 +135,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'create-elimination') {
       const shape = eliminationBodyError(body);
       if (shape) return apiResponse.badRequest(res, shape);
+      // lines is JSONB (no FK): an id from another group, or none at all, would be stored and
+      // then silently dropped by the reports, leaving the elimination one-sided. Own, active only.
+      const own = new Set((await getGroupAccounts(gId)).map(a => a.id));
+      if ((body.lines as Array<{ groupAccountId: string }>).some(l => !own.has(l.groupAccountId))) {
+        return apiResponse.badRequest(res, "each line's groupAccountId must be an active account of this group");
+      }
       const { adjustmentType, description, periodStart, periodEnd, lines } = req.body;
       const bad = rangeError(periodStart, periodEnd, { optional: true, names: ['periodStart', 'periodEnd'] });
       if (bad) return apiResponse.badRequest(res, bad);
