@@ -14,7 +14,7 @@
  * client's is out by R450 — and that sentence reaching a human IS the gate's
  * value. Returned here so the screen can print it.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
@@ -104,6 +104,9 @@ export function usePackDownload(request: PackDownloadRequest): PackDownload {
   const [downloading, setDownloading] = useState<PackDownloadFormat | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { packType, from, to } = request;
+
+  // A refusal belongs to the pack that was asked for; another pack is not it.
+  useEffect(() => { setError(null); }, [packType, from, to]);
 
   const download = async (format: PackDownloadFormat) => {
     setDownloading(format);

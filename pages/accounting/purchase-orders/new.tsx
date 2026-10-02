@@ -8,6 +8,7 @@ import { ArrowLeft, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -66,9 +67,9 @@ export default function NewPurchaseOrderPage() {
       if (andNew) {
         setForm({ supplierId: '', orderDate: localISODate(), expectedDeliveryDate: '', notes: '', reference: '' });
         setItems([{ key: '1', description: '', quantity: '1', unitPrice: '0', taxRate: '15' }]);
-        await router.push('/accounting/purchase-orders/new');
+        try { await router.push('/accounting/purchase-orders/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'purchase-orders-new'); }
       } else {
-        await router.push(`/accounting/purchase-orders/${json.data?.id ?? ''}`);
+        try { await router.push(`/accounting/purchase-orders/${json.data?.id ?? ''}`); } catch (e) { log.warn('navigation failed', { error: e }, 'purchase-orders-new'); }
       }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the purchase order - try again'));

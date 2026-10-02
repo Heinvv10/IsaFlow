@@ -52,7 +52,7 @@ export default function PresentPackPage() {
     // invalid pack — a client-side navigation from an unknown pack to a
     // known one must not keep the old "Unknown pack" banner on screen.
     setError('');
-    setSlides(null);
+    setSlides(null); setIncome(null); setTrends(null); setBudget([]); setBudgetedCount(0);
     let live = true;
     setTrendsFailed(false);
     setBudgetFailed(false);

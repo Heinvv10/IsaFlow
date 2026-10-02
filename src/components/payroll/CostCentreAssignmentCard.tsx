@@ -274,6 +274,12 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
         </>
       )}
 
+      {loadFailed && !loading && (
+        <button type="button" onClick={() => void load()}
+          className="mt-3 px-3 py-1.5 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-primary)]">
+          Retry
+        </button>
+      )}
       {error && (
         <div className="mt-3 flex items-center gap-2 text-sm text-red-400">
           <AlertCircle className="h-4 w-4" />{error}

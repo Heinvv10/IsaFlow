@@ -6,6 +6,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { formatCurrency } from '@/utils/formatters';
 import { Banknote, Save, Loader2 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
@@ -135,6 +136,7 @@ export default function NewLoanPage() {
       return;
     }
     setSaving(true);
+    let id = '';
     try {
       const res = await apiFetch('/api/payroll/loans', {
         method: 'POST',
@@ -146,14 +148,13 @@ export default function NewLoanPage() {
         }),
       });
       await assertOk(res, 'Could not create the loan - try again');
-      const json = await res.json();
-      const id = (json.data ?? json).id as string;
-      await router.push(`/payroll/loans/${id}`);
+      id = (await res.json().then((j) => j.data ?? j)).id as string;
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the loan - try again'));
-    } finally {
-      setSaving(false);
-    }
+    } finally { if (!id) setSaving(false); }
+    if (!id) return;
+    try { await router.push(`/payroll/loans/${id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'NewLoanPage'); }
+    setSaving(false);
   }
 
   return (

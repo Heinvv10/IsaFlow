@@ -7,6 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Plus, Trash2, Loader2, Info, SlidersHorizontal, Receipt } from 'lucide-react';
 import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
@@ -88,10 +89,10 @@ export default function NewCustomerInvoicePage() {
         const today = localISODate();
         setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1 });
         setLines([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0 }]);
-        await router.push('/accounting/customer-invoices/new');
+        try { await router.push('/accounting/customer-invoices/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
       } else {
         if (!d.id) throw new ApiEnvelopeError('The invoice could not be opened - check the invoice list before creating it again');
-        await router.push(`/accounting/customer-invoices/${d.id}`);
+        try { await router.push(`/accounting/customer-invoices/${d.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
       }
     } catch (e) { setError(apiErrorMessage(e, 'Could not create the invoice - try again')); }
     finally { setSubmitting(false); }

@@ -75,15 +75,12 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: currency.code, isActive: !currency.isActive }),
       });
-      if (!res.ok) {
-        notify.error('Could not update the currency - try again');
-        return;
-      }
+      await assertOk(res, 'Could not update the currency - try again');
       notify.success(`${currency.code} ${!currency.isActive ? 'activated' : 'deactivated'}`);
       onRefresh();
     } catch (e) {
       log.error('Currency operation failed', { error: e }, 'currencies');
-      notify.error('Could not update the currency - try again');
+      notify.error(apiErrorMessage(e, 'Could not update the currency - try again'));
     } finally {
       setToggling(null);
     }

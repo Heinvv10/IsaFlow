@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { ArrowLeft, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -78,7 +79,7 @@ export default function NewSupplierCreditNotePage() {
         }),
       });
       await assertOk(res, 'Could not create the credit note - try again');
-      await router.push('/accounting/supplier-credit-notes');
+      try { await router.push('/accounting/supplier-credit-notes'); } catch (e) { log.warn('navigation failed', { error: e }, 'supplier-credit-notes-new'); }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the credit note - try again'));
     } finally {

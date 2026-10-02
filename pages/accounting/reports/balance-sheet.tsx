@@ -41,6 +41,7 @@ export default function BalanceSheetPage() {
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
+  const [refError, setRefError] = useState<Record<string, string>>({});
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
   // No Budget checkbox here: a budget is a P&L figure, and its account codes
   // match nothing on a balance sheet. The trend series is `balance`, not
@@ -72,14 +73,14 @@ export default function BalanceSheetPage() {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
       .then(async r => { await assertOk(r, 'Could not load the cost centres - try again'); return r.json(); })
       .then(json => setCostCentres(json.data?.items || json.data || []))
-      .catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'balance-sheet'); });
+      .catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'balance-sheet'); setRefError(p => ({ ...p, cc: apiErrorMessage(err, 'Could not load the cost centres - try again') })); });
     apiFetch('/api/accounting/business-units?active=true', { credentials: 'include' })
       .then(async r => { await assertOk(r, 'Could not load the business units - try again'); return r.json(); })
       .then(json => {
         const items = json.data?.items || json.data || [];
         setBusinessUnits(Array.isArray(items) ? items : []);
       })
-      .catch(err => { setBusinessUnits([]); log.warn('Failed to load business units', { err }, 'balance-sheet'); });
+      .catch(err => { setBusinessUnits([]); log.warn('Failed to load business units', { err }, 'balance-sheet'); setRefError(p => ({ ...p, bu: apiErrorMessage(err, 'Could not load the business units - try again') })); });
   }, []);
 
   const loadReport = useCallback(async () => {
@@ -203,6 +204,7 @@ export default function BalanceSheetPage() {
           <ComparatorNotices budgetState={budgetState} trendFailed={trendFailed}
             companyWideUnavailable={companyWideUnavailable} />
 
+          {Object.keys(refError).length > 0 && <p role="alert" className="text-xs text-amber-500">{Object.values(refError).join(' ')}</p>}
           {(error || periodError) && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error || periodError}

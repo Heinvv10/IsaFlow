@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import type { CreditNote } from '@/modules/accounting/types/ar.types';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -89,7 +90,8 @@ export default function SupplierCreditNoteDetailPage() {
         body: JSON.stringify({ action: 'cancel', creditNoteId: note.id }),
       });
       await assertOk(res, 'Could not delete the credit note - try again');
-      await router.push('/accounting/supplier-credit-notes');
+      try { await router.push('/accounting/supplier-credit-notes'); } catch (e) { log.warn('navigation failed', { error: e }, 'supplier-credit-notes-id'); }
+      setActionLoading('');
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not delete the credit note - try again'));
       setActionLoading('');

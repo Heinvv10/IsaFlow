@@ -112,7 +112,7 @@ export default function NewPracticeJobPage() {
       const res = await apiFetch('/api/accounting/practice/jobs', { method: 'POST', body: JSON.stringify(body) });
       await assertOk(res, 'Could not create the job - try again');
       const j = await res.json() as { data?: PracticeJob } | PracticeJob;
-      await router.push(`/accounting/practice/jobs/${((j as { data?: PracticeJob }).data ?? (j as PracticeJob)).id}`);
+      try { await router.push(`/accounting/practice/jobs/${((j as { data?: PracticeJob }).data ?? (j as PracticeJob)).id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'practice-jobs-new'); }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the job - try again'));
     } finally { setIsSubmitting(false); }

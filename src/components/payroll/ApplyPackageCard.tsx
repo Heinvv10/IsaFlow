@@ -26,6 +26,7 @@ export function ApplyPackageCard({ employeeId }: Props) {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     setLoadFailed(false);
     try {
       const res = await apiFetch('/api/payroll/pay-packages?activeOnly=1');
@@ -99,6 +100,12 @@ export function ApplyPackageCard({ employeeId }: Props) {
             with the chosen effective date. Prior runs remain unchanged.
           </p>
         </>
+      )}
+      {loadFailed && !loading && (
+        <button type="button" onClick={() => void load()}
+          className="mt-3 px-3 py-1.5 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-primary)]">
+          Retry
+        </button>
       )}
       {result && (
         <div className="mt-3 flex items-center gap-2 text-sm text-green-400">

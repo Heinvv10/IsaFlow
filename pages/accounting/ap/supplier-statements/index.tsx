@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { Loader2, AlertCircle, Upload, X, CheckCircle2, FileText } from 'lucide-react';
 
@@ -117,7 +118,7 @@ export default function SupplierStatementsIndexPage() {
       await assertOk(res, 'Could not upload the statement - try again');
       const json = await res.json() as { data?: SupplierStatementReconciliation };
       setModalOpen(false); setModalFile(null); setModalSupplier('');
-      if (json.data?.id) await router.push(`/accounting/ap/supplier-statements/${json.data.id}`);
+      if (json.data?.id) try { await router.push(`/accounting/ap/supplier-statements/${json.data.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'ap-supplier-statements-index'); }
     } catch (err) { showToast(apiErrorMessage(err, 'Could not upload the statement - try again'), 'err'); }
     finally { setUploading(false); }
   }, [modalFile, modalSupplier, router, showToast]);

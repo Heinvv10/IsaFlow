@@ -16,6 +16,7 @@ import { ReconciliationBalances } from '@/components/accounting/bank/Reconciliat
 import type { BankReconciliation, BankTransaction } from '@/modules/accounting/types/bank.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 function TxStatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -208,7 +209,7 @@ export default function ReconciliationDetailPage() {
       // reconciliation was refused (already completed, reconciled rows).
       await postAction(RECON_URL, { action: 'cancel', reconciliationId: reconId }, 'Could not cancel the reconciliation - try again');
       setConfirmCancelOpen(false);
-      await router.push('/accounting/bank-reconciliation');
+      try { await router.push('/accounting/bank-reconciliation'); } catch (e) { log.warn('navigation failed', { error: e }, 'bank-reconciliation-reconId'); }
     } catch (err) {
       setConfirmCancelOpen(false);
       setError(apiErrorMessage(err, 'Could not cancel the reconciliation - try again'));

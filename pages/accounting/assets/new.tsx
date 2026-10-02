@@ -9,6 +9,7 @@ import { Package, ArrowLeft, Loader2, Database } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 
 interface Category {
@@ -89,7 +90,7 @@ export default function NewAssetPage() {
         }),
       });
       await assertOk(res, 'Could not create the asset - try again');
-      await router.push('/accounting/assets');
+      try { await router.push('/accounting/assets'); } catch (e) { log.warn('navigation failed', { error: e }, 'assets-new'); }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the asset - try again'));
     } finally {

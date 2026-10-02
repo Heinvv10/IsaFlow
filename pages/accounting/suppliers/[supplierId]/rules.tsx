@@ -8,6 +8,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { ArrowLeft, Loader2, AlertCircle, Check, X } from 'lucide-react';
 
 interface Supplier { id: string; name: string; company_name: string | null }
@@ -167,7 +168,7 @@ export default function SupplierRulesPage() {
     try {
       const res = await apiFetch(`/api/accounting/supplier-rules/${sid}`, { method: 'DELETE' });
       await assertOk(res, 'Could not delete the coding rule - try again');
-      await router.push(`/accounting/suppliers/${sid}`);
+      try { await router.push(`/accounting/suppliers/${sid}`); } catch (e) { log.warn('navigation failed', { error: e }, 'suppliers-supplierId-rules'); }
     } catch (err) {
       showToast(apiErrorMessage(err, 'Could not delete the coding rule - try again'), false);
     } finally {

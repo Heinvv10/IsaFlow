@@ -87,7 +87,7 @@ describe('users delete', () => {
     render(<UsersPage />);
     fireEvent.click(await screen.findByTitle('Delete user'));
     fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
-    expect(await screen.findByText('Could not delete user - try again')).toBeDefined();
+    expect(await screen.findByText('Could not delete the user - try again')).toBeDefined();
     expect(document.body.textContent).not.toContain('Delete failed');
   });
 });

@@ -145,7 +145,7 @@ export default function EditRecurringInvoicePage() {
         body: JSON.stringify(payload),
       });
       await assertOk(res, 'Could not save the recurring invoice - try again');
-      await router.push('/accounting/recurring-invoices');
+      try { await router.push('/accounting/recurring-invoices'); } catch (e) { log.warn('navigation failed', { error: e }, 'recurring-invoices-id'); }
     } catch (err) {
       log.error('Failed to update recurring invoice', { id, error: err }, 'recurring-edit');
       setError(apiErrorMessage(err, 'Could not save the recurring invoice - try again'));

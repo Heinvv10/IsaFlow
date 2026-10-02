@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ScanLine, RefreshCw } from 'lucide-react';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { UploadZone } from '@/components/accounting/document-capture/UploadZone';
 import { ExtractionReview } from '@/components/accounting/document-capture/ExtractionReview';
@@ -44,7 +44,7 @@ export default function DocumentCapturePage() {
       const res = await apiFetch(`/api/accounting/document-capture?${params}`);
       await assertOk(res, 'Could not load documents - try again');
       const json = await res.json();
-      if (!json.success) throw new Error(json.error?.message || 'Could not load documents - try again');
+      if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Could not load documents - try again');
       setDocuments(json.data || []);
       setTotal(json.pagination?.total || 0);
     } catch (err) {

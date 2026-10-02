@@ -228,7 +228,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
   );
 };
 
-export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query, req }) => {
+export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query, req, resolvedUrl }) => {
   const documentId = Array.isArray(query.documentId) ? query.documentId[0] : query.documentId;
   if (!documentId) return { notFound: true };
 
@@ -250,11 +250,14 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query,
         { headers: { cookie: req.headers.cookie ?? '' } },
       );
       if (apiRes.status === 404) return { notFound: true };
+      // 401: the session cookie outlived its token. Reloading can never clear a period-error page, and rendering with a guessed year would show the wrong period, so sign in again and come back.
+      if (apiRes.status === 401) return { redirect: { destination: `/login?returnTo=${encodeURIComponent(resolvedUrl)}`, permanent: false } };
+      // 403: the client load explains the refusal; this is not a failure to work out the period.
       if (apiRes.ok) {
         const json = (await apiRes.json()) as { data?: { periodStart?: string; periodEnd?: string } };
         periodStart = json.data?.periodStart ?? null;
         periodEnd   = json.data?.periodEnd   ?? null;
-      } else {
+      } else if (apiRes.status !== 403) {
         periodError = PERIOD_ERROR;
       }
     } catch (err) {

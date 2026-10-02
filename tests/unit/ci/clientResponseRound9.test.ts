@@ -89,3 +89,12 @@ describe('which files are client code', () => {
     expect(sel(m)).toEqual(['pages/p.tsx', 'src/lib/http.ts', 'src/lib/swr.ts']);
   });
 });
+
+describe('(g) a refused response shows a fixed sentence and drops the server message', () => {
+  it('if (!res.ok) notify.error(literal) is flagged; assertOk + apiErrorMessage is not', () => {
+    expect(kinds(wrap(`const res = await apiFetch('/x', { method: 'PATCH' }); if (!res.ok) notify.error('Could not update the currency - try again');`))).toEqual(['g']);
+    expect(kinds(wrap(`const res = await apiFetch('/x', { method: 'PATCH' }); if (!res.ok) { setError('Could not update the currency - try again'); return; }`))).toEqual(['g']);
+    expect(kinds(wrap(`try { const res = await apiFetch('/x', { method: 'PATCH' }); await assertOk(res, 'Could not update the currency - try again'); } catch (e) { notify.error(apiErrorMessage(e, 'Could not update the currency - try again')); }`))).toEqual([]);
+    expect(kinds(wrap(`const res = await apiFetch('/x', { method: 'PATCH' }); if (!res.ok) { const j = await res.json(); notify.error(j.error.message); return; }`))).toEqual([]);
+  });
+});

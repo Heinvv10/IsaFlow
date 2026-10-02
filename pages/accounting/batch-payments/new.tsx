@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Layers, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
 // supplier-invoices answers camelCase rows. Reading snake_case left the invoice
@@ -78,7 +79,7 @@ export default function NewBatchPaymentPage() {
       // The refusal's text is at `error.message`; `json.message` is absent on
       // a 4xx, so this used to show a bare "Failed".
       await assertOk(res, 'Could not create the batch - try again');
-      await router.push('/accounting/batch-payments');
+      try { await router.push('/accounting/batch-payments'); } catch (e) { log.warn('navigation failed', { error: e }, 'batch-payments-new'); }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the batch - try again'));
     } finally {

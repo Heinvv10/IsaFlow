@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Settings, Loader2, AlertCircle, Save } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { roleCandidates, type CandidateAccount } from '@/modules/accounting/services/gl/defaultAccountRoles';
 
 interface GLAccount extends CandidateAccount {
@@ -66,7 +66,9 @@ export default function DefaultAccountsPage() {
         apiFetch('/api/accounting/chart-of-accounts?includeInactive=true'),
         apiFetch('/api/accounting/default-accounts'),
       ]);
-      if (!acctRes.ok || !mapRes.ok) throw new Error('load failed');   // apiFetch resolves on 4xx/5xx
+      // apiFetch resolves on 4xx/5xx: the refusal's own message (a 403 says why) is what the person reads.
+      await assertOk(acctRes, 'Could not load the default accounts - try again');
+      await assertOk(mapRes, 'Could not load the default accounts - try again');
       const acctJson = await acctRes.json();
       const mapJson = await mapRes.json();
       const acctData = acctJson.data ?? acctJson;
@@ -75,9 +77,9 @@ export default function DefaultAccountsPage() {
       setMappings(shown);
       setLoaded(shown);
       setLoadFailed(false);
-    } catch {
+    } catch (err) {
       setLoadFailed(true);
-      setMessage({ type: 'error', text: 'Could not load the default accounts - try again' });
+      setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not load the default accounts - try again') });
     } finally {
       setIsLoading(false);
     }

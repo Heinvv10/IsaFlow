@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { CalendarOff, Loader2, AlertCircle, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
@@ -106,11 +107,14 @@ export default function LeaveDetailPage() {
     try {
       const res = await apiFetch(`/api/payroll/leave/${id}`, { method: 'DELETE' });
       await assertOk(res, 'Could not delete the leave request - try again');
-      await router.push('/payroll/leave');
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not delete the leave request - try again'));
       setActionLoading('');
+      return;
     }
+    // The request is deleted; a failed navigation is not a failed delete.
+    try { await router.push('/payroll/leave'); } catch (e) { log.warn('navigation failed', { error: e }, 'LeaveRequestPage'); }
+    setActionLoading('');
   };
 
   return (

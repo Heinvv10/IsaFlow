@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { notify } from '@/utils/toast';
 import { SupplierForm, type SupplierFormData, INITIAL_SUPPLIER_FORM } from '@/components/accounting/SupplierForm';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 export default function NewSupplierPage() {
   const router = useRouter();
@@ -39,8 +40,7 @@ export default function NewSupplierPage() {
     setSaveAndNew(andNew);
 
     setIsSubmitting(true);
-    // Stays true while the detail page loads, so a second click cannot create a second supplier.
-    let navigating = false;
+    // The push is awaited, so the button stays disabled while the detail page loads and is released if the navigation is cancelled.
     try {
       const res = await apiFetch('/api/accounting/suppliers-list', {
         method: 'POST',
@@ -66,15 +66,14 @@ export default function NewSupplierPage() {
       if (andNew) {
         setForm(INITIAL_SUPPLIER_FORM);
         setFieldErrors({});
-        await router.push('/accounting/suppliers/new');
+        try { await router.push('/accounting/suppliers/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'suppliers-new'); }
       } else {
-        navigating = true;
-        await router.push(`/accounting/suppliers/${json.data?.id ?? ''}`);
+        try { await router.push(`/accounting/suppliers/${json.data?.id ?? ''}`); } catch (e) { log.warn('navigation failed', { error: e }, 'suppliers-new'); }
       }
     } catch (err: unknown) {
       notify.error(apiErrorMessage(err, 'Could not create the supplier - try again'));
     } finally {
-      if (!navigating) setIsSubmitting(false);
+      setIsSubmitting(false);
     }
   }
 

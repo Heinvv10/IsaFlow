@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { notify } from '@/utils/toast';
 import { CustomerForm, type CustomerFormData, INITIAL_CUSTOMER_FORM } from '@/components/accounting/CustomerForm';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 export default function NewCustomerPage() {
   const router = useRouter();
@@ -61,9 +62,9 @@ export default function NewCustomerPage() {
       if (andNew) {
         setForm(INITIAL_CUSTOMER_FORM);
         setFieldErrors({});
-        await router.push('/accounting/customers/new');
+        try { await router.push('/accounting/customers/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'customers-new'); }
       } else {
-        await router.push(`/accounting/customers/${json.data?.id ?? ''}`);
+        try { await router.push(`/accounting/customers/${json.data?.id ?? ''}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customers-new'); }
       }
     } catch (err: unknown) {
       notify.error(apiErrorMessage(err, 'Could not create the customer - try again'));

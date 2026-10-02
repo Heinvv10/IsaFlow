@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { Layers, Save, Loader2 } from 'lucide-react';
 
 interface Component {
@@ -54,6 +55,7 @@ export default function NewBatchPage() {
       return;
     }
     setSaving(true);
+    let id = '';
     try {
       const res = await apiFetch('/api/payroll/batches', {
         method: 'POST',
@@ -69,13 +71,15 @@ export default function NewBatchPage() {
       });
       await assertOk(res, 'Could not create the batch - try again');
       const json = await res.json();
-      const id = (json.data ?? json).id as string;
-      await router.push(`/payroll/batches/${id}`);
+      id = (json.data ?? json).id as string;
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the batch - try again'));
     } finally {
-      setSaving(false);
+      if (!id) setSaving(false);
     }
+    if (!id) return;
+    try { await router.push(`/payroll/batches/${id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'NewBatchPage'); }
+    setSaving(false);
   }
 
   return (

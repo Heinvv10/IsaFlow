@@ -322,12 +322,12 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           } else {
             failed++;
             setRows(prev => prev.map(r => r.id === row.id ? {
-              ...r, phase: 'failed', errorMessage: data.reason ?? 'This statement could not be imported - try again',
+              ...r, phase: 'failed', errorMessage: data.reason ?? 'Could not import this statement - try again',
             } : r));
           }
         } catch (err) {
           failed++;
-          const msg = apiErrorMessage(err, 'This statement could not be imported - try again');
+          const msg = apiErrorMessage(err, 'Could not import this statement - try again');
           setRows(prev => prev.map(r => r.id === row.id ? {
             ...r, phase: 'failed', errorMessage: msg,
           } : r));

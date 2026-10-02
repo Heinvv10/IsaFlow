@@ -11,6 +11,7 @@ import { ActivityTab } from '@/components/accounting/suppliers/ActivityTab';
 import Link from 'next/link';
 import { ArrowLeft, Building2, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 import { DrcFlagToggle } from '@/components/accounting/suppliers/DrcFlagToggle';
 
@@ -79,7 +80,7 @@ export default function SupplierDetailPage() {
         alert(json.error?.message ?? 'Could not delete the supplier - try again');
         return;
       }
-      await router.push('/accounting/suppliers');
+      try { await router.push('/accounting/suppliers'); } catch (e) { log.warn('navigation failed', { error: e }, 'suppliers-supplierId'); }
     } catch (err) {
       alert(apiErrorMessage(err, 'Could not delete the supplier - try again'));
     } finally {

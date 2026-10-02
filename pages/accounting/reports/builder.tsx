@@ -10,6 +10,7 @@ import { ReportBuilderFilters, type FilterRow } from '@/components/accounting/re
 import { ReportBuilderPreview } from '@/components/accounting/reports/ReportBuilderPreview';
 import { Play, Save, Download, ChevronLeft, BookOpen } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { localISODate } from '@/lib/dateUtils';
@@ -152,9 +153,8 @@ export default function ReportBuilderPage() {
         body: JSON.stringify(body),
       });
       await assertOk(res, 'Could not save the report - try again');
-      const json = await res.json();
-      showToast('Report saved successfully');
-      await router.replace(`/accounting/reports/builder?id=${json.data.id}`);
+      const json = await res.json(); showToast('Report saved successfully');
+      try { await router.replace(`/accounting/reports/builder?id=${json.data.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'report-builder'); }
     } catch (err) {
       showToast(apiErrorMessage(err, 'Could not save the report - try again'));
     } finally {

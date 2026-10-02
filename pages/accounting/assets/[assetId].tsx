@@ -145,7 +145,7 @@ export default function AssetDetailPage() {
       await assertOk(res, 'Could not dispose of the asset - try again');
       const json = await res.json() as { success?: boolean; error?: { message?: string } };
       if (!json.success) { setDisposalError(json.error?.message ?? 'Could not dispose of the asset - try again'); return; }
-      await router.push('/accounting/assets');
+      try { await router.push('/accounting/assets'); } catch (e) { log.warn('navigation failed', { error: e }, 'assets-assetId'); }
     } catch (err) {
       log.error('Disposal failed', { err, assetId: asset.id }, 'accounting');
       setDisposalError(apiErrorMessage(err, 'Could not dispose of the asset - try again'));

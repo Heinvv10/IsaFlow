@@ -96,10 +96,9 @@ export default function IncomeStatementPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
-  const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
-  const [costCentreId, setCostCentreId] = useState('');
-  const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
-  const [businessUnitId, setBusinessUnitId] = useState(qBusinessUnit);
+  const [costCentres, setCostCentres] = useState<CostCentre[]>([]); const [costCentreId, setCostCentreId] = useState('');
+  const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]); const [businessUnitId, setBusinessUnitId] = useState(qBusinessUnit);
+  const [refError, setRefError] = useState<Record<string, string>>({});
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
   // The Prior-period checkbox IS the comparative fetch: one control, so the
   // column cannot be on with no comparative period behind it.
@@ -117,11 +116,11 @@ export default function IncomeStatementPage() {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
       .then(async r => { await assertOk(r, 'Could not load the cost centres - try again'); return r.json(); })
       .then(json => setCostCentres(json.data?.items || json.data || []))
-      .catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'income-statement'); });
+      .catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'income-statement'); setRefError(p => ({ ...p, cc: apiErrorMessage(err, 'Could not load the cost centres - try again') })); });
     apiFetch('/api/accounting/business-units?active=true', { credentials: 'include' })
       .then(async r => { await assertOk(r, 'Could not load the business units - try again'); return r.json(); })
       .then(json => { const items = json.data?.items || json.data || []; setBusinessUnits(Array.isArray(items) ? items : []); })
-      .catch(err => { setBusinessUnits([]); log.warn('Failed to load business units', { err }, 'income-statement'); });
+      .catch(err => { setBusinessUnits([]); log.warn('Failed to load business units', { err }, 'income-statement'); setRefError(p => ({ ...p, bu: apiErrorMessage(err, 'Could not load the business units - try again') })); });
   }, []);
 
   function handleExport() {
@@ -248,6 +247,7 @@ export default function IncomeStatementPage() {
           <ComparatorNotices budgetState={budgetState} trendFailed={trendFailed}
             companyWideUnavailable={companyWideUnavailable} />
 
+          {Object.keys(refError).length > 0 && <p role="alert" className="text-xs text-amber-500">{Object.values(refError).join(' ')}</p>}
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}

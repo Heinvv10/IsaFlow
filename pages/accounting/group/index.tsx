@@ -55,12 +55,13 @@ export default function GroupDashboardPage() {
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [dashData, setDashData] = useState<GroupDashboardData | null>(null);
   const [loadingGroups, setLoadingGroups] = useState(true);
+  const [groupsFailed, setGroupsFailed] = useState(false);
   const [loadingDash, setLoadingDash] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const loadGroups = useCallback(async () => {
-    setLoadingGroups(true); setError(null);
+    setLoadingGroups(true); setError(null); setGroupsFailed(false);
     try {
       const res = await apiFetch('/api/accounting/company-groups');
       await assertOk(res, 'Could not load the company groups - try again');
@@ -72,6 +73,7 @@ export default function GroupDashboardPage() {
     } catch (err) {
       log.error('Failed to load company groups', { error: err }, 'group-dashboard');
       setGroups([]);
+      setGroupsFailed(true);
       setError(apiErrorMessage(err, 'Could not load the company groups - try again'));
     } finally { setLoadingGroups(false); }
   }, []);
@@ -117,7 +119,7 @@ export default function GroupDashboardPage() {
               <div className="flex items-center gap-2">
                 {loadingGroups ? (
                   <Loader2 className="h-5 w-5 animate-spin text-teal-500" />
-                ) : groups.length === 0 ? (
+                ) : groupsFailed ? null /* the error banner below carries Retry; "Create Group" would say there are none */ : groups.length === 0 ? (
                   <Link href="/accounting/group/setup" className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium">
                     <Plus className="h-4 w-4" /> Create Group
                   </Link>

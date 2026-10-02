@@ -62,14 +62,14 @@
   async function listAccounts() {
     const json = await callExp('BalanceEnquiryFacade', 'GetAllBalances', {});
     if (!json || !Array.isArray(json.accountList)) {
-      throw new AbsaError('Unexpected BalanceEnquiry response');
+      throw new AbsaError('ABSA did not return your accounts - sign in to ABSA online banking again and try again');
     }
     return json.accountList.map(absaAccountToSummary);
   }
 
   async function fetchTransactions(accountNumber, fromDate, toDate) {
-    if (!accountNumber) throw new AbsaError('accountNumber is required');
-    if (!fromDate || !toDate) throw new AbsaError('fromDate and toDate are required (YYYY-MM-DD)');
+    if (!accountNumber) throw new AbsaError('Choose a bank account to sync first');
+    if (!fromDate || !toDate) throw new AbsaError('Choose a start date and an end date to sync');
 
     if (daysBetween(fromDate, toDate) > MAX_RANGE_DAYS) {
       throw new AbsaError(`Date range exceeds ABSA's 180-day server-side cap. Sync in chunks.`);
@@ -86,7 +86,7 @@
     });
 
     if (!json || !json.transactionHistory || !Array.isArray(json.transactionHistory.accountHistoryLines)) {
-      throw new AbsaError('Unexpected TransactionHistory response');
+      throw new AbsaError('ABSA did not return the transactions - try again in a moment');
     }
     const lines = json.transactionHistory.accountHistoryLines;
     return { transactions: lines.map(absaLineToParsed), rawCount: lines.length };
