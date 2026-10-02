@@ -48,10 +48,11 @@ export default function InvitePage() {
           fetch('/api/auth/me'),
         ]);
 
-        if (!inviteRes.ok) {
+        if (inviteRes.status === 404) {
           setPageState('invalid');
           return;
         }
+        if (!inviteRes.ok) throw new Error('invitation lookup refused');
 
         const inviteJson = await inviteRes.json() as { data: InviteData };
         setInviteData(inviteJson.data);
@@ -63,8 +64,10 @@ export default function InvitePage() {
 
         setPageState('valid');
       } catch {
+        setInviteData(null);
+        setCurrentUser(null);
         setPageState('error');
-        setErrorMsg('Failed to load invitation. Please try again.');
+        setErrorMsg('Could not load the invitation - please try again');
       }
     }
 
@@ -77,10 +80,10 @@ export default function InvitePage() {
 
     try {
       const res = await fetch(`/api/invite/${token}`, { method: 'POST' });
-      const json = await res.json() as { success: boolean; error?: { message: string } };
 
       if (!res.ok) {
-        setErrorMsg(json.error?.message ?? 'Failed to accept invitation');
+        const failure = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        setErrorMsg(failure?.error?.message ?? 'Could not accept the invitation - please try again');
         setPageState('error');
         return;
       }
@@ -89,7 +92,7 @@ export default function InvitePage() {
       // Give a moment to show success, then redirect
       setTimeout(() => { void router.push('/accounting'); }, 1500);
     } catch {
-      setErrorMsg('Network error. Please try again.');
+      setErrorMsg('Could not accept the invitation - check your connection and try again.');
       setPageState('error');
     }
   }
@@ -133,7 +136,7 @@ export default function InvitePage() {
         {pageState === 'error' && (
           <div className="bg-white dark:bg-gray-900 border border-red-300 dark:border-red-800 rounded-2xl p-8 text-center shadow-xl">
             <AlertTriangle className="h-12 w-12 text-red-400 mx-auto mb-4" />
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Something Went Wrong</h1>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white mb-2">We Could Not Open This Invitation</h1>
             <p className="text-slate-600 dark:text-gray-400 text-sm mb-6">{errorMsg}</p>
             <button
               onClick={() => window.location.reload()}

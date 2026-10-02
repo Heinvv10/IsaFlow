@@ -1,6 +1,7 @@
 // pages/accept-invite.tsx
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import { log } from '@/lib/logger';
 
 export default function AcceptInvitePage() {
   const router = useRouter();
@@ -22,7 +23,9 @@ export default function AcceptInvitePage() {
     if (!token) return;
     (async () => {
       const r = await fetch(`/api/invitations/${token}`);
-      const body = await r.json();
+      // An outage answers 5xx with an empty or HTML body: say so, never a JSON parse error.
+      const body = r.status >= 500 ? null : await r.json().catch(() => null);
+      if (!body) { setError('Could not load the invitation - try again shortly'); setLoading(false); return; }
       // An invitation created by the other invitation system has no GoTrue user
       // to set a password on. It is accepted at /invite/<token> by a signed-in
       // user; /register?invite= and /login?invite= both land here, so forward.
@@ -34,7 +37,7 @@ export default function AcceptInvitePage() {
         void router.replace(`/invite/${encodeURIComponent(token)}`);
         return;
       }
-      if (!body.success) { setError(body.error?.message ?? 'Invalid invitation'); setLoading(false); return; }
+      if (!body.success) { setError(body.error?.message ?? 'This invitation is invalid or has expired'); setLoading(false); return; }
       setInvite(body.data);
       setLoading(false);
     })().catch(() => {
@@ -50,24 +53,30 @@ export default function AcceptInvitePage() {
     if (!needsExistingPassword && password.length < 10) { setError('Password must be at least 10 characters'); return; }
     if (password.length === 0) { setError('Password is required'); return; }
     setSubmitting(true); setError(null);
+    let accepted = false;
     try {
       const r = await fetch(`/api/invitations/${token}/accept`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ password, firstName, lastName }),
       });
-      const body = await r.json();
+      const body = r.status >= 500 ? null : await r.json().catch(() => null);
+      if (!body) { setError('Could not accept the invitation - try again shortly'); return; }
       if (!body.success) {
         if (body.error?.code === 'SIGN_IN_REQUIRED') setNeedsExistingPassword(true);
-        setError(body.error?.message ?? 'Failed to accept'); setSubmitting(false); return;
+        setError(body.error?.message ?? 'Could not accept the invitation - try again'); return;
       }
-      // Not awaited: a router abort would land in the catch below and show
-      // "could not submit" for an accept that already succeeded server-side.
-      void router.push('/accounting/dashboard');
+      accepted = true;
     } catch {
-      setError('Network error — could not submit. Check your connection and try again.');
-      setSubmitting(false);
+      setError('Could not accept the invitation - try again');
+    } finally {
+      if (!accepted) setSubmitting(false);
     }
+    if (!accepted) return;
+    // The invite is accepted server-side. The navigation runs outside the try above so a
+    // router abort is never reported as a failed accept; awaited, then the button is freed.
+    try { await router.push('/accounting/dashboard'); } catch (e) { log.warn('navigation failed', { error: e }, 'AcceptInvitePage'); }
+    setSubmitting(false);
   }
 
   if (loading) return <div className="p-8">Loading invitation…</div>;

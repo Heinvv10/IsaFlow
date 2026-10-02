@@ -14,8 +14,8 @@
  * client's is out by R450 — and that sentence reaching a human IS the gate's
  * value. Returned here so the screen can print it.
  */
-import { useState } from 'react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { useEffect, useState } from 'react';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 export type PackDownloadFormat = 'pdf' | 'pptx';
@@ -82,7 +82,7 @@ function safeDecode(value: string): string {
  * blobs perfectly well, and writing it to disk under a `.pdf` name is how a
  * correct refusal reached a user as a corrupt file.
  */
-async function downloadFile(url: string, fallbackName: string, failure: string): Promise<void> {
+export async function downloadFile(url: string, fallbackName: string, failure: string): Promise<void> {
   const res = await apiFetch(url);
   await assertOk(res, failure);
   const served = filenameFromDisposition(res.headers.get('Content-Disposition'));
@@ -105,6 +105,9 @@ export function usePackDownload(request: PackDownloadRequest): PackDownload {
   const [error, setError] = useState<string | null>(null);
   const { packType, from, to } = request;
 
+  // A refusal belongs to the pack that was asked for; another pack is not it.
+  useEffect(() => { setError(null); }, [packType, from, to]);
+
   const download = async (format: PackDownloadFormat) => {
     setDownloading(format);
     setError(null);
@@ -115,12 +118,11 @@ export function usePackDownload(request: PackDownloadRequest): PackDownload {
         // the company slug lives on the server side of this call, so a
         // client-composed name cannot carry it.
         `report-pack-${packType}-${from}-to-${to}.${format}`,
-        `${format.toUpperCase()} generation failed`,
+        `Could not generate the ${format.toUpperCase()} pack - try again`,
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error('Failed to download report pack', { format, error: message });
-      setError(message);
+      log.error('Failed to download report pack', { format, error: err });
+      setError(apiErrorMessage(err, 'The report pack could not be generated. Try again.'));
     } finally {
       setDownloading(null);
     }

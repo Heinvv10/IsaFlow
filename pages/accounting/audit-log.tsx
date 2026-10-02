@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Shield, Download, Loader2, AlertCircle, Search, Filter } from 'lucide-react';
 import {
@@ -57,12 +57,15 @@ export default function AuditLogPage() {
       params.set('offset', String(p * PAGE_SIZE));
 
       const res = await apiFetch(`/api/accounting/audit-log?${params.toString()}`);
+      await assertOk(res, 'Could not load the audit trail - try again');
       const json = await res.json() as { data: { items: AuditLogItem[]; total: number } };
       setItems(json.data.items);
       setTotal(json.data.total);
     } catch (err) {
       log.error('Failed to fetch audit log', { error: err }, 'audit-log-page');
-      setError('Failed to load audit trail');
+      setItems([]);
+      setTotal(0);
+      setError(apiErrorMessage(err, 'Could not load the audit trail - try again'));
     } finally {
       setLoading(false);
     }

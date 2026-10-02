@@ -7,7 +7,7 @@ import { TrendingDown, Loader2, Plus, X, Trash2, Receipt } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { formatCurrency } from '@/utils/formatters';
 import { StatusPill, PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
 interface SupplierReturn {
@@ -35,9 +35,10 @@ export default function SupplierReturnsPage() {
     setIsLoading(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/supplier-returns');
+      await assertOk(res, 'Could not load supplier returns - try again');
       const json = await res.json();
       setReturns((json.data || json).returns || []);
-    } catch { setError('Failed to load supplier returns'); }
+    } catch (err) { setReturns([]); setError(apiErrorMessage(err, 'Could not load supplier returns - try again')); }
     finally { setIsLoading(false); }
   }, []);
 
@@ -55,12 +56,11 @@ export default function SupplierReturnsPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ supplierId: form.supplierId, originalInvoiceNumber: form.originalInvoiceNumber || undefined, amount: Number(form.amount), reason: form.reason || undefined }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed to create return');
+      await assertOk(res, 'Could not create return - try again');
       notify.success('Supplier return created');
       setShowModal(false); setForm(EMPTY);
       await loadReturns();
-    } catch (err) { notify.error(err instanceof Error ? err.message : 'Failed to create return'); }
+    } catch (err) { notify.error(apiErrorMessage(err, 'Could not create return - try again')); }
     finally { setSubmitting(false); }
   }
 

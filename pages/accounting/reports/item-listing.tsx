@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { List, Loader2, Download, Search } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -17,19 +17,26 @@ export default function ItemListingReport() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     const params = search ? `?search=${encodeURIComponent(search)}` : '';
-    const res = await apiFetch(`/api/accounting/reports/item-listing${params}`, { credentials: 'include' });
-    const json = await res.json();
-    setRows(json.data || []);
-    setLoading(false);
+    try {
+      const res = await apiFetch(`/api/accounting/reports/item-listing${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the item listing - try again');
+      const json = await res.json();
+      setRows(json.data || []);
+    } finally {
+      setLoading(false);
+    }
   }, [search]);
 
   useEffect(() => {
     load().catch(err => {
-      setLoading(false);
+      setRows([]);
+      setError(apiErrorMessage(err, 'Could not load the item listing - try again'));
       log.error('Failed to load item listing', { error: err }, 'ItemListingReport');
     });
   }, [load]);
@@ -59,6 +66,7 @@ export default function ItemListingReport() {
           </div>
         </div>
         <div className="p-6">
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">{error}</div>}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             {loading ? (
               <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>

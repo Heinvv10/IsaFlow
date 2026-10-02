@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { Plus, Loader2, Check, X, Star } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { Currency } from '@/modules/accounting/services/core/currencyService';
 
@@ -49,9 +49,10 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
           decimalPlaces: parseInt(form.decimalPlaces, 10) || 2,
         }),
       });
+      await assertOk(res, 'Could not create the currency - try again');
       const json = await res.json();
-      if (!res.ok || json.success === false) {
-        notify.error(json.message || 'Failed to create currency');
+      if (json.success === false) {
+        notify.error(json.error?.message || 'Could not create the currency - try again');
         return;
       }
       notify.success(`Currency ${form.code.toUpperCase()} created`);
@@ -60,7 +61,7 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
       onRefresh();
     } catch (e) {
       log.error('Currency operation failed', { error: e }, 'currencies');
-      notify.error('Failed to create currency');
+      notify.error(apiErrorMessage(e, 'Could not create the currency - try again'));
     } finally {
       setSaving(false);
     }
@@ -74,15 +75,12 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: currency.code, isActive: !currency.isActive }),
       });
-      if (!res.ok) {
-        notify.error('Failed to update currency');
-        return;
-      }
+      await assertOk(res, 'Could not update the currency - try again');
       notify.success(`${currency.code} ${!currency.isActive ? 'activated' : 'deactivated'}`);
       onRefresh();
     } catch (e) {
       log.error('Currency operation failed', { error: e }, 'currencies');
-      notify.error('Failed to update currency');
+      notify.error(apiErrorMessage(e, 'Could not update the currency - try again'));
     } finally {
       setToggling(null);
     }

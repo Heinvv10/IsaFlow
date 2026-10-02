@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { SupplierOption } from './listTypes';
 
@@ -42,6 +42,7 @@ export function SupplierTypeahead({
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<SupplierOption[]>([]);
   const [open, setOpen] = useState(false);
+  const [failed, setFailed] = useState('');
   // Nothing is fetched until the user focuses or types: a page with a picker per
   // row must not fire one request per row on mount.
   const [active, setActive] = useState(false);
@@ -64,14 +65,17 @@ export function SupplierTypeahead({
           ? `/api/accounting/suppliers-list?q=${encodeURIComponent(q)}&limit=25`
           : '/api/accounting/suppliers-list?limit=25';
         const res = await apiFetch(url);
+        await assertOk(res, 'Could not load suppliers - try again');
         const json = await res.json();
         const data = (json.data || json) as { suppliers?: { id: string; name: string; company_name?: string | null }[] };
         if (!cancelled) {
+          setFailed('');
           setOptions((data.suppliers || []).map((s) => ({ id: s.id, name: (companyFirst && s.company_name) || s.name })));
         }
       } catch (err) {
         if (!cancelled) {
           setOptions([]);
+          setFailed(apiErrorMessage(err, 'Could not load suppliers - try again'));
           log.warn('Supplier typeahead fetch failed', { error: err }, 'supplier-invoices');
         }
       }
@@ -117,6 +121,7 @@ export function SupplierTypeahead({
           <X className="h-3.5 w-3.5" />
         </button>
       )}
+      {open && failed && !selectedId && <p role="alert" className="absolute left-0 top-full mt-1 z-20 text-xs text-red-500">{failed}</p>}
       {open && options.length > 0 && !selectedId && (
         <div className="absolute left-0 right-0 top-full mt-1 z-20 max-h-64 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl">
           {options.map((s) => (

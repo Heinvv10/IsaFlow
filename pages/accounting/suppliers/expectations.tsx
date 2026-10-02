@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { RefreshCw, AlertCircle, Loader2, X, CheckCircle2, Clock, Search } from 'lucide-react';
 
 interface SupplierExpectation {
@@ -87,10 +87,10 @@ export default function SupplierExpectationsPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/supplier-expectations');
-      const json = await res.json() as { data?: SupplierExpectation[]; error?: string };
-      if (!res.ok) { setError(json.error ?? 'Failed to load expectations'); return; }
+      await assertOk(res, 'Could not load supplier expectations - try again');
+      const json = await res.json() as { data?: SupplierExpectation[] };
       setRows(Array.isArray(json.data) ? json.data : []);
-    } catch { setError('Network error loading supplier expectations'); }
+    } catch (err) { setRows([]); setError(apiErrorMessage(err, 'Could not load supplier expectations - try again')); }
     finally { setLoading(false); }
   }, []);
 
@@ -109,13 +109,13 @@ export default function SupplierExpectationsPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ supplierId }),
       });
-      const json = await res.json() as { data?: SupplierExpectation; error?: string };
-      if (!res.ok) { setToast({ msg: json.error ?? 'Recompute failed', kind: 'err' }); return; }
+      await assertOk(res, 'Could not recompute this expectation - try again');
+      const json = await res.json() as { data?: SupplierExpectation };
       if (json.data) {
         setRows(prev => prev.map(r => r.id === rowId ? { ...r, ...json.data } : r));
         setToast({ msg: 'Expectation recomputed', kind: 'ok' });
       }
-    } catch { setToast({ msg: 'Network error during recompute', kind: 'err' }); }
+    } catch (err) { setToast({ msg: apiErrorMessage(err, 'Could not recompute this expectation - try again'), kind: 'err' }); }
     finally { setRecomputingId(null); }
   }, []);
 
@@ -126,11 +126,11 @@ export default function SupplierExpectationsPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      const json = await res.json() as { data?: { processed: number; locked: number }; error?: string };
-      if (!res.ok) { setToast({ msg: json.error ?? 'Recompute all failed', kind: 'err' }); return; }
+      await assertOk(res, 'Could not recompute the expectations - try again');
+      const json = await res.json() as { data?: { processed: number; locked: number } };
       setToast({ msg: `Recomputed ${json.data?.processed ?? 0} expectations, ${json.data?.locked ?? 0} locked`, kind: 'ok' });
       void load();
-    } catch { setToast({ msg: 'Network error during recompute all', kind: 'err' }); }
+    } catch (err) { setToast({ msg: apiErrorMessage(err, 'Could not recompute the expectations - try again'), kind: 'err' }); }
     finally { setRecomputingAll(false); }
   }, [load]);
 

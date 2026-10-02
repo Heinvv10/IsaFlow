@@ -6,7 +6,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { Plus, ArrowLeft, Loader2 } from 'lucide-react';
 
 const MONTHS = [
@@ -28,25 +29,25 @@ export default function NewPayrollRunPage() {
     e.preventDefault();
     setSubmitting(true);
     setError('');
+    let target = '';
     try {
       const res = await apiFetch('/api/payroll/runs', {
         method: 'POST',
         body: JSON.stringify({ month, year }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({} as Record<string, unknown>));
-        const errObj = (j as { error?: { message?: string } | string }).error;
-        const msg = typeof errObj === 'string' ? errObj : errObj?.message;
-        throw new Error(msg || `Server error (HTTP ${res.status})`);
-      }
+      await assertOk(res, 'Could not create the payroll run - try again');
       const json = await res.json();
       const created = json.data ?? json;
-      void router.push(`/payroll/runs/${created.id}`);
+      target = `/payroll/runs/${created.id}`;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Create failed');
+      setError(apiErrorMessage(err, 'Could not create the payroll run - try again'));
     } finally {
-      setSubmitting(false);
+      if (!target) setSubmitting(false);
     }
+    if (!target) return;
+    // The run exists; a failed navigation is not a failed save.
+    try { await router.push(target); } catch (e) { log.warn('navigation failed', { error: e }, 'NewPayrollRunPage'); }
+    setSubmitting(false);
   };
 
   const field = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500';

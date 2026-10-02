@@ -57,7 +57,7 @@ async function clickDismiss(dismissReply: () => Response) {
 
 it('dismiss, empty 500: a plain sentence, not a JSON parse error', async () => {
   await clickDismiss(empty500);
-  expect(await screen.findByText('Could not dismiss the provisional entry - try again.')).toBeTruthy();
+  expect(await screen.findByText('Could not dismiss the entry - try again')).toBeTruthy();
   expect(screen.queryByText(/JSON/)).toBeNull();
 });
 
@@ -69,7 +69,7 @@ it("dismiss, 400: the server's message", async () => {
 it('the list, empty 500: a plain sentence', async () => {
   vi.mocked(apiFetch).mockImplementation(async () => empty500());
   render(<ProvisionalPage />);
-  expect(await screen.findByText('Could not load the provisional entries - try again.')).toBeTruthy();
+  expect(await screen.findByText('Could not load the provisional entries - try again')).toBeTruthy();
 });
 
 it("the list, 403: the server's message", async () => {
@@ -82,7 +82,7 @@ it('the captured-document list, empty 500: a plain sentence', async () => {
   vi.mocked(apiFetch).mockImplementation(async (url) => (String(url).includes('document-capture') ? empty500() : list()));
   render(<ProvisionalPage />);
   fireEvent.click(await screen.findByRole('button', { name: 'Attach evidence' }));
-  expect(await screen.findByText('Could not load the captured documents - try again.')).toBeTruthy();
+  expect(await screen.findByText('Could not load documents - try again')).toBeTruthy();
 });
 
 it('attach, empty 500: a plain sentence; 400: the server message', async () => {
@@ -96,7 +96,7 @@ it('attach, empty 500: a plain sentence; 400: the server message', async () => {
   render(<ProvisionalPage />);
   fireEvent.click(await screen.findByRole('button', { name: 'Attach evidence' }));
   fireEvent.click(await screen.findByText('Shell'));
-  expect(await screen.findByText('Could not attach the evidence - try again.')).toBeTruthy();
+  expect(await screen.findByText('Could not attach the evidence - try again')).toBeTruthy();
   attach = () => json({ success: false, error: { code: 'BAD_REQUEST', message: 'Journal entry is already evidenced' } }, 400);
   fireEvent.click(screen.getByText('Shell'));
   expect(await screen.findByText('Journal entry is already evidenced')).toBeTruthy();

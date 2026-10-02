@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Mail, Loader2, AlertCircle, Plus, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { ReportRecipient } from '@/modules/accounting/services/practice/practiceReportRecipientsService';
 
 const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40 w-full';
@@ -30,11 +30,12 @@ export default function ReportRecipientsPage() {
     setError(null);
     try {
       const res = await apiFetch('/api/accounting/practice/report-recipients');
-      if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+      await assertOk(res, 'Could not load report recipients - try again');
       const json = await res.json() as { data?: ReportRecipient[] } | ReportRecipient[];
       setRecipients(Array.isArray(json) ? json : ((json as { data?: ReportRecipient[] }).data ?? []));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load');
+      setRecipients([]);
+      setError(apiErrorMessage(e, 'Could not load report recipients - try again'));
     } finally {
       setLoading(false);
     }
@@ -56,14 +57,11 @@ export default function ReportRecipientsPage() {
           reportTypes: form.monthlySummary ? ['monthly_summary'] : [],
         }),
       });
-      if (!res.ok) {
-        const body = await res.json() as { error?: string };
-        throw new Error(body.error ?? `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not add the recipient - try again');
       setForm(EMPTY_FORM);
       await loadData();
     } catch (e) {
-      setAddError(e instanceof Error ? e.message : 'Failed to add');
+      setAddError(apiErrorMessage(e, 'Could not add the recipient - try again'));
     } finally {
       setAdding(false);
     }
@@ -77,10 +75,10 @@ export default function ReportRecipientsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive: !r.isActive }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not update the recipient - try again');
       await loadData();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Toggle failed');
+      setError(apiErrorMessage(e, 'Could not update the recipient - try again'));
     } finally {
       setActionId(null);
     }
@@ -90,10 +88,10 @@ export default function ReportRecipientsPage() {
     setActionId(id);
     try {
       const res = await apiFetch(`/api/accounting/practice/report-recipients/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not delete the recipient - try again');
       await loadData();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Delete failed');
+      setError(apiErrorMessage(e, 'Could not delete the recipient - try again'));
     } finally {
       setActionId(null);
     }

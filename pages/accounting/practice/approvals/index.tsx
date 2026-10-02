@@ -50,6 +50,7 @@ export default function ApprovalsPage() {
   const [users, setUsers] = useState<CompanyUserSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [filterError, setFilterError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [period, setPeriod] = useState<PeriodRange>({ dateFrom: firstOfMonth(), dateTo: localISODate() });
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -71,19 +72,19 @@ export default function ApprovalsPage() {
       if (f.dateFrom) params.set('dateFrom', f.dateFrom);
       if (f.dateTo) params.set('dateTo', f.dateTo);
       const res = await apiFetch(`/api/accounting/practice/time-entries?${params.toString()}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load time entries - try again');
       type ListJson = { data?: { entries: PracticeTimeEntry[]; total: number } } | { entries: PracticeTimeEntry[]; total: number };
       const json = (await res.json()) as ListJson;
       const data = 'data' in json && json.data ? json.data : (json as { entries: PracticeTimeEntry[]; total: number });
       setEntries(data.entries ?? []); setTotal(data.total ?? 0); setSelected(new Set());
-    } catch (err) { setLoadError(err instanceof Error ? err.message : 'Failed to load entries'); }
+    } catch (err) { setEntries([]); setTotal(0); setSelected(new Set()); setLoadError(apiErrorMessage(err, 'Could not load time entries - try again')); }
     finally { setLoading(false); }
   }, []);
 
   const loadClients = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/practice/clients?status=active');
-      if (!res.ok) return;
+      await assertOk(res, 'Could not load the client filter - try again');
       const json = (await res.json()) as unknown;
       const payload = (json && typeof json === 'object' && 'data' in json ? (json as { data: unknown }).data : json) as unknown;
       const list = Array.isArray(payload)
@@ -92,16 +93,16 @@ export default function ApprovalsPage() {
           ? (payload as { clients: PracticeClient[] }).clients
           : [];
       setClients(list as PracticeClient[]);
-    } catch (_err) { /* non-fatal */ }
+    } catch (err) { setClients([]); setFilterError(apiErrorMessage(err, 'Could not load the client filter - try again')); }
   }, []);
 
   const loadUsers = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/practice/users');
-      if (!res.ok) return;
+      await assertOk(res, 'Could not load the user filter - try again');
       const json = (await res.json()) as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
       setUsers(Array.isArray(json) ? json : ((json as { data?: CompanyUserSummary[] }).data ?? []));
-    } catch (_err) { /* non-fatal */ }
+    } catch (err) { setUsers([]); setFilterError(apiErrorMessage(err, 'Could not load the user filter - try again')); }
   }, []);
 
   useEffect(() => { void loadClients(); void loadUsers(); void loadEntries(EMPTY_FILTERS); }, [loadClients, loadUsers, loadEntries]);
@@ -140,11 +141,11 @@ export default function ApprovalsPage() {
       const res = await apiFetch('/api/accounting/practice/time-entries/write-off', {
         method: 'POST', body: JSON.stringify({ ids: Array.from(selected), reason: writeOffReason }),
       });
-      await assertOk(res, 'Write-off failed');
+      await assertOk(res, 'Could not write off the time entries - try again');
       const n = selected.size;
       setToast(`Wrote off ${n} entr${n === 1 ? 'y' : 'ies'}`); setWriteOffOpen(false);
       await loadEntries(filters);
-    } catch (err) { setWriteOffError(apiErrorMessage(err, 'Write-off failed')); }
+    } catch (err) { setWriteOffError(apiErrorMessage(err, 'Could not write off the time entries - try again')); }
     finally { setWritingOff(false); }
   }
 
@@ -153,11 +154,11 @@ export default function ApprovalsPage() {
     setApproving(true); setApproveError(null);
     try {
       const res = await apiFetch('/api/accounting/practice/time-entries/approve', { method: 'POST', body: JSON.stringify({ ids: Array.from(selected) }) });
-      await assertOk(res, 'Approval failed');
+      await assertOk(res, 'Could not approve the time entries - try again');
       const n = selected.size;
       setToast(`Approved ${n} entr${n === 1 ? 'y' : 'ies'}`);
       await loadEntries(filters);
-    } catch (err) { setApproveError(apiErrorMessage(err, 'Approval failed')); }
+    } catch (err) { setApproveError(apiErrorMessage(err, 'Could not approve the time entries - try again')); }
     finally { setApproving(false); }
   }
 
@@ -222,6 +223,7 @@ export default function ApprovalsPage() {
           </div>
 
           {loadError && <ErrBanner msg={loadError} />}
+          {filterError && <ErrBanner msg={filterError} />}
 
           {/* table */}
           {loading ? (

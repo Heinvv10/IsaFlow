@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const apiFetch = vi.fn();
 const generateStatementPdf = vi.fn();
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }));
+vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch: (...a: unknown[]) => apiFetch(...a) }));
 vi.mock('@/modules/accounting/utils/statementPdf', () => ({ generateStatementPdf: (...a: unknown[]) => generateStatementPdf(...a) }));
 
 import { generateStatementsBatch } from '@/modules/accounting/utils/generateStatementsBatch';
@@ -21,7 +21,7 @@ import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLed
 import type { CustomerBalance } from '@/components/accounting/CustomerStatementTable';
 
 function reply(status: number, body: unknown) {
-  return { ok: status < 400, status, json: async () => body };
+  return new Response(JSON.stringify(body), { status });
 }
 
 const customers = [

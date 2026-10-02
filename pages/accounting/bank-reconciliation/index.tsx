@@ -12,7 +12,7 @@ import {
 import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import type { BankReconciliation } from '@/modules/accounting/types/bank.types';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { EmptyState } from '@/components/ui';
 
 function StatusBadge({ status }: { status: string }) {
@@ -39,11 +39,13 @@ export default function BankReconciliationListPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/bank-reconciliations');
+      await assertOk(res, 'Could not load the reconciliations - try again');
       const json = await res.json();
       const data = json.data || json;
       setReconciliations(Array.isArray(data) ? data : []);
-    } catch {
-      setError('Failed to load reconciliations');
+    } catch (err) {
+      setReconciliations([]);
+      setError(apiErrorMessage(err, 'Could not load the reconciliations - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -62,15 +64,14 @@ export default function BankReconciliationListPage() {
         credentials: 'include',
         body: JSON.stringify({ action: 'cancel', reconciliationId: pendingCancel.id }),
       });
-      const json = await res.json();
       // apiFetch resolves on 4xx: a refusal (already completed, reconciled
-      // rows) only shows up in res.ok.
-      if (!res.ok) throw new Error(json?.error?.message || 'Cannot cancel reconciliation');
+      // rows) only shows up in the status.
+      await assertOk(res, 'Could not cancel the reconciliation - try again');
       setPendingCancel(null);
       await load();
     } catch (err) {
       setPendingCancel(null);
-      setError(err instanceof Error ? err.message : 'Cannot cancel reconciliation');
+      setError(apiErrorMessage(err, 'Could not cancel the reconciliation - try again'));
     } finally {
       setIsCancelling(false);
     }

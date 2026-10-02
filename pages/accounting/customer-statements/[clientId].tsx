@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { ArrowLeft, ClipboardList, Loader2, AlertCircle, Download, FileText, Search, ExternalLink } from 'lucide-react';
 // generateStatementPdf is loaded dynamically inside handleDownloadPDF
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { fmtDate } from '@/lib/fmtDate';
 import { fetchCompanyMeta } from '@/modules/accounting/utils/generateStatementsBatch';
 import {
@@ -39,17 +39,15 @@ export default function CustomerStatementDetailPage() {
     try {
       const asAtQuery = asAtParam ? `&as_at_date=${encodeURIComponent(asAtParam)}` : '';
       const res = await apiFetch(`/api/accounting/customer-statement-detail?client_id=${clientId}${asAtQuery}`);
+      await assertOk(res, 'Could not load the customer statement - try again');
       const json = await res.json();
-      if (!res.ok) {
-        setError(json.error?.message || 'Failed to load customer statement');
-        return;
-      }
       const data = json.data || json;
       setClient(data.client || null);
       setTransactions(data.transactions || []);
       setSummary(data.summary || null);
-    } catch {
-      setError('Failed to load customer statement');
+    } catch (err) {
+      setClient(null); setTransactions([]); setSummary(null);
+      setError(apiErrorMessage(err, 'Could not load the customer statement - try again'));
     } finally {
       setIsLoading(false);
     }

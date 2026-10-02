@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   FileCheck, Plus, RefreshCw, Loader2, AlertCircle, Download, Link as LinkIcon,
   ShieldCheck, Copy, Check, X,
@@ -54,6 +54,12 @@ function fmtDate(s: string | null): string {
   try { return new Date(s).toLocaleString('en-ZA'); } catch { return s; }
 }
 
+async function fetchSessions(exportId: string): Promise<PortalSession[]> {
+  const res = await apiFetch(`/api/accounting/audit-exports/${exportId}/sessions`);
+  await assertOk(res, 'Could not load the auditor sessions - try again');
+  return ((await res.json()) as { data?: { sessions?: PortalSession[] } }).data?.sessions ?? [];
+}
+
 export default function AuditTrailPage() {
   const [exports, setExports] = useState<AuditExport[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,12 +87,10 @@ export default function AuditTrailPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/audit-exports');
-      const json = await res.json() as { data?: { exports?: AuditExport[] }; error?: { message?: string } | string };
-      if (!res.ok) {
-        setError(typeof json.error === 'string' ? json.error : json.error?.message ?? 'Failed'); return;
-      }
+      await assertOk(res, 'Could not load the audit packs - try again');
+      const json = await res.json() as { data?: { exports?: AuditExport[] } };
       setExports(json.data?.exports ?? []);
-    } catch { setError('Network error'); }
+    } catch (err) { setExports([]); setError(apiErrorMessage(err, 'Could not load the audit packs - try again')); }
     finally { setLoading(false); }
   }, []);
 
@@ -100,15 +104,12 @@ export default function AuditTrailPage() {
         method: 'POST',
         body: JSON.stringify({ periodStart, periodEnd }),
       });
-      const json = await res.json() as { data?: { export?: AuditExport }; error?: { message?: string } | string };
-      if (!res.ok) {
-        showToast(typeof json.error === 'string' ? json.error : json.error?.message ?? 'Build failed', false);
-        return;
-      }
+      await assertOk(res, 'Could not build the audit pack - try again');
+      const json = await res.json() as { data?: { export?: AuditExport } };
       showToast(`Pack ready — ${json.data?.export?.jeCount ?? 0} JEs`, true);
       setCreateMode(false);
       void load();
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not build the audit pack - try again'), false); }
     finally { setCreating(false); }
   }
 
@@ -117,10 +118,8 @@ export default function AuditTrailPage() {
     setInviteEmail(''); setInviteTtl('168');
     setInviteResult(null);
     try {
-      const res = await apiFetch(`/api/accounting/audit-exports/${id}/sessions`);
-      const json = await res.json() as { data?: { sessions?: PortalSession[] } };
-      setSessions(json.data?.sessions ?? []);
-    } catch { setSessions([]); }
+      setSessions(await fetchSessions(id));
+    } catch (err) { setSessions([]); showToast(apiErrorMessage(err, 'Could not load the auditor sessions - try again'), false); }
   }
 
   async function handleInvite() {
@@ -130,16 +129,13 @@ export default function AuditTrailPage() {
         method: 'POST',
         body: JSON.stringify({ auditorEmail: inviteEmail, ttlHours: parseInt(inviteTtl, 10) }),
       });
-      const json = await res.json() as { data?: { portalUrl?: string; accessToken?: string }; error?: { message?: string } | string };
-      if (!res.ok || !json.data?.portalUrl) {
-        showToast(typeof json.error === 'string' ? json.error : json.error?.message ?? 'Invite failed', false); return;
-      }
+      await assertOk(res, 'Could not create the auditor invite - try again');
+      const json = await res.json() as { data?: { portalUrl?: string; accessToken?: string } };
+      if (!json.data?.portalUrl) { showToast('Could not create the auditor invite - try again', false); return; }
       setInviteResult({ portalUrl: json.data.portalUrl, accessToken: json.data.accessToken ?? '' });
       setInviteEmail('');
-      const sres = await apiFetch(`/api/accounting/audit-exports/${inviteId}/sessions`);
-      const sjson = await sres.json() as { data?: { sessions?: PortalSession[] } };
-      setSessions(sjson.data?.sessions ?? []);
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not create the auditor invite - try again'), false); return; }
+    try { setSessions(await fetchSessions(inviteId)); } catch (err) { setSessions([]); showToast(apiErrorMessage(err, 'Could not load the auditor sessions - try again'), false); }
   }
 
   async function revokeSession(id: string) {
@@ -147,13 +143,10 @@ export default function AuditTrailPage() {
     if (!confirm('Revoke this auditor session?')) return;
     try {
       const res = await apiFetch(`/api/accounting/audit-exports/${inviteId}/sessions/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast('Revoked', true);
-        const sres = await apiFetch(`/api/accounting/audit-exports/${inviteId}/sessions`);
-        const sjson = await sres.json() as { data?: { sessions?: PortalSession[] } };
-        setSessions(sjson.data?.sessions ?? []);
-      }
-    } catch { showToast('Network error', false); }
+      await assertOk(res, 'Could not revoke the session - try again');
+      showToast('Revoked', true);
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not revoke the session - try again'), false); return; }
+    try { setSessions(await fetchSessions(inviteId)); } catch (err) { setSessions([]); showToast(`Session revoked, but the session list did not refresh: ${apiErrorMessage(err, 'try again')}`, false); }
   }
 
   async function copyUrl(url: string) {

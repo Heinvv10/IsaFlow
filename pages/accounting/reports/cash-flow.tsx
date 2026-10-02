@@ -8,7 +8,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Banknote, Loader2, AlertCircle, Download } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { localISODate, prevMonthRange } from '@/lib/dateUtils';
 
 interface CashFlowSection {
@@ -36,12 +37,14 @@ export default function CashFlowPage() {
   const [endDate, setEndDate] = useState(localISODate());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [refError, setRefError] = useState('');
 
   useEffect(() => {
-    apiFetch('/api/accounting/cost-centres', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/cost-centres', { credentials: 'include' })
+      .then(async r => { await assertOk(r, 'Could not load the cost centres - try again'); return r.json(); }).then(res => {
       const list = res.data?.items || [];
       setCostCentres(list.map((c: Record<string, unknown>) => ({ id: String(c.id), code: String(c.code), name: String(c.name) })));
-    }).catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
+    }).catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'cash-flow'); setRefError(apiErrorMessage(err, 'Could not load the cost centres - try again')); });
   }, []);
 
   const loadReport = useCallback(async () => {
@@ -51,15 +54,13 @@ export default function CashFlowPage() {
       const params = new URLSearchParams({ start_date: startDate || '', end_date: endDate || '' });
       if (costCentreFilter) params.set('cost_centre', costCentreFilter);
       const res = await apiFetch(`/api/accounting/reports-cash-flow?${params}`);
+      await assertOk(res, 'Could not load the cash flow statement - try again');
       const json = await res.json();
-      if (!res.ok) {
-        setError(json?.error?.message || 'Failed to load cash flow statement');
-        return;
-      }
       const data = json.data || json;
       setReport(data.report || data);
-    } catch {
-      setError('Failed to load cash flow statement');
+    } catch (err) {
+      setReport(null);
+      setError(apiErrorMessage(err, 'Could not load the cash flow statement - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -128,6 +129,7 @@ export default function CashFlowPage() {
             )}
           </div>
 
+          {refError && <p role="alert" className="text-xs text-amber-500">{refError}</p>}
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-green-500" />

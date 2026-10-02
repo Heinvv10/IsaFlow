@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { User, ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
 import { EmployeeProfileCard, type Employee } from '@/components/payroll/EmployeeProfileCard';
 import {
@@ -55,16 +55,19 @@ export default function EmployeeDetailPage() {
         apiFetch('/api/payroll/components'),
         apiFetch(`/api/payroll/employees/${employeeId}/components`),
       ]);
-      if (!eRes.ok) throw new Error(`Employee HTTP ${eRes.status}`);
+      if (eRes.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load this employee - try again'));
+      await assertOk(eRes, 'Could not load this employee - try again');
       const eJson = await eRes.json();
+      if (!cRes.ok) setError(payrollLoadMessage(cRes.status, 'Could not load the payroll components - try again'));
       const cJson = cRes.ok ? await cRes.json() : { data: [] };
-      if (aRes.status === 403) setError(payrollLoadMessage(403, ''));
+      if (!aRes.ok) setError(payrollLoadMessage(aRes.status, 'Could not load the employee components - try again'));
       const aJson = aRes.ok ? await aRes.json() : { data: [] };
       setEmployee((eJson.data ?? eJson) as Employee);
       setComponents((cJson.data ?? cJson) as Component[]);
       setAssignments((aJson.data ?? aJson) as Assignment[]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Load failed');
+      setEmployee(null); setComponents([]); setAssignments([]);
+      setError(apiErrorMessage(err, 'Could not load this employee - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -92,9 +95,9 @@ export default function EmployeeDetailPage() {
           medicalAidDependantsCount: employee.medicalAidDependantsCount,
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not save the employee - try again');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
+      setError(apiErrorMessage(err, 'Could not save the employee - try again'));
     } finally {
       setSavingProfile(false);
     }
@@ -114,14 +117,11 @@ export default function EmployeeDetailPage() {
           isRecurring: newIsRecurring,
         }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error((j as { error?: string }).error || `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not assign the component - try again');
       setNewComponentId(''); setNewAmount('');
       await loadAll();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Assignment failed');
+      setError(apiErrorMessage(err, 'Could not assign the component - try again'));
     } finally {
       setAddingAssignment(false);
     }
@@ -129,11 +129,18 @@ export default function EmployeeDetailPage() {
 
   const endAssignment = async (assignmentId: string) => {
     const today = localISODate();
-    const res = await apiFetch(
-      `/api/payroll/employees/${employeeId}/components?aid=${assignmentId}`,
-      { method: 'DELETE', body: JSON.stringify({ effectiveTo: today }) },
-    );
-    if (res.ok) await loadAll();
+    setError('');
+    try {
+      const res = await apiFetch(
+        `/api/payroll/employees/${employeeId}/components?aid=${assignmentId}`,
+        { method: 'DELETE', body: JSON.stringify({ effectiveTo: today }) },
+      );
+      await assertOk(res, 'Could not end this component - try again');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not end this component - try again'));
+      return;
+    }
+    await loadAll();
   };
 
   if (isLoading) {

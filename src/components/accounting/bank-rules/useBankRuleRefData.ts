@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { fetchAllSuppliers } from '@/lib/fetchAllSuppliers';
 import { log } from '@/lib/logger';
 
@@ -47,6 +47,11 @@ export interface BankRuleRefData {
   errors: string[];
 }
 
+const COA_FAILED = 'Could not load the chart of accounts - try again';
+const BANKS_FAILED = 'Could not load the bank accounts - try again';
+const SUPPLIERS_FAILED = 'Could not load the suppliers - try again';
+const CUSTOMERS_FAILED = 'Could not load the customers - try again';
+
 /**
  * Wraps a fetcher with named error handling. We log the failure and add
  * the resource name to the returned `errors` array so the page can render
@@ -56,15 +61,15 @@ export interface BankRuleRefData {
  */
 async function loadWithLog<T>(
   resource: string,
+  failure: string,
   loader: () => Promise<T>,
   onError: (msg: string) => void,
 ): Promise<T | null> {
   try {
     return await loader();
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error('Bank rules ref-data fetch failed', { resource, error: msg }, 'bankRules');
-    onError(`${resource} (${msg})`);
+    log.error('Bank rules ref-data fetch failed', { resource, error: err instanceof Error ? err.message : String(err) }, 'bankRules');
+    onError(apiErrorMessage(err, failure));
     return null;
   }
 }
@@ -81,9 +86,9 @@ export function useBankRuleRefData(): BankRuleRefData {
   useEffect(() => {
     const pushErr = (msg: string) => setErrors(prev => [...prev, msg]);
 
-    void loadWithLog('chart-of-accounts', async () => {
+    void loadWithLog('Chart of accounts', COA_FAILED, async () => {
       const res = await apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, COA_FAILED);
       const json = await res.json();
       const d = json.data || json;
       const list = Array.isArray(d) ? d : d.accounts || d.items || [];
@@ -97,8 +102,8 @@ export function useBankRuleRefData(): BankRuleRefData {
       })));
     }, pushErr);
 
-    void loadWithLog('bank-accounts', async () => {
-      const data = await apiJson('/api/accounting/bank-accounts');
+    void loadWithLog('Bank accounts', BANKS_FAILED, async () => {
+      const data = await apiJson('/api/accounting/bank-accounts', undefined, BANKS_FAILED);
       const list = Array.isArray(data) ? data : [];
       const mapped: RefBankAccount[] = list.map((a) => ({
         id: String(a.id),
@@ -109,15 +114,15 @@ export function useBankRuleRefData(): BankRuleRefData {
       if (mapped[0]) setDefaultBankId(mapped[0].id);
     }, pushErr);
 
-    void loadWithLog('suppliers', async () => {
+    void loadWithLog('Suppliers', SUPPLIERS_FAILED, async () => {
       const { suppliers: list, truncated } = await fetchAllSuppliers();
       setSuppliers(list.map(s => ({ id: String(s.id), name: s.name })));
       setSuppliersTruncated(truncated);
     }, pushErr);
 
-    void loadWithLog('customers', async () => {
+    void loadWithLog('Customers', CUSTOMERS_FAILED, async () => {
       const res = await apiFetch('/api/accounting/customers', { credentials: 'include' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, CUSTOMERS_FAILED);
       const json = await res.json();
       const list = Array.isArray(json.data) ? json.data : [];
       setClients(list.map((c: { id: string; name?: string; company_name?: string; companyName?: string }) => ({

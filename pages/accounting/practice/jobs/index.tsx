@@ -9,7 +9,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Briefcase, Loader2, AlertCircle, Plus, List, Columns } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { JobStatusBadge } from '@/components/practice/JobStatusBadge';
 import { KanbanBoard } from '@/components/practice/KanbanBoard';
 import type { PracticeJob } from '@/modules/accounting/services/practice/practiceJobService';
@@ -54,6 +54,7 @@ export default function PracticeJobsPage() {
   const [clients, setClients] = useState<PracticeClientOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [filterError, setFilterError] = useState('');
   const [toast, setToast] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [clientFilter, setClientFilter] = useState('');
@@ -66,12 +67,13 @@ export default function PracticeJobsPage() {
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (clientFilter) params.set('practiceClientId', clientFilter);
       const res = await apiFetch(`/api/accounting/practice/jobs?${params}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the jobs - try again');
       const json = await res.json() as { data?: { jobs: PracticeJob[] }; jobs?: PracticeJob[] };
       const payload = json.data ?? json;
       setJobs((payload as { jobs: PracticeJob[] }).jobs ?? []);
-    } catch {
-      setError('Failed to load jobs');
+    } catch (err) {
+      setJobs([]);
+      setError(apiErrorMessage(err, 'Could not load the jobs - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -85,7 +87,7 @@ export default function PracticeJobsPage() {
     async function loadClients() {
       try {
         const res = await apiFetch('/api/accounting/practice/clients?status=active');
-        if (!res.ok) return;
+        await assertOk(res, 'Could not load the client filter - try again');
         const json = await res.json() as unknown;
         const payload = (json && typeof json === 'object' && 'data' in json ? (json as { data: unknown }).data : json) as unknown;
         const arr = Array.isArray(payload)
@@ -94,7 +96,7 @@ export default function PracticeJobsPage() {
             ? (payload as { clients: PracticeClientOption[] }).clients
             : [];
         setClients(arr as PracticeClientOption[]);
-      } catch { /* non-critical */ }
+      } catch (err) { setClients([]); setFilterError(apiErrorMessage(err, 'Could not load the client filter - try again')); }
     }
     void loadClients();
   }, []);
@@ -106,15 +108,12 @@ export default function PracticeJobsPage() {
         method: 'POST',
         body: JSON.stringify({ id: jobId, newStatus }),
       });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(json.error ?? `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not change the job status - try again');
       setToast('Status updated');
       setTimeout(() => setToast(''), 3000);
       await loadJobs();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to transition job');
+      setError(apiErrorMessage(err, 'Could not change the job status - try again'));
     }
   }
 
@@ -152,6 +151,12 @@ export default function PracticeJobsPage() {
             <div className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{error}</span>
+            </div>
+          )}
+          {filterError && (
+            <div className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{filterError}</span>
             </div>
           )}
           {toast && (

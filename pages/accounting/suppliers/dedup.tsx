@@ -10,7 +10,7 @@
 import { useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Truck, Loader2, AlertCircle, Search, Info, CheckCircle2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { SupplierDuplicatePair } from '@/types/supplier-duplicates';
 import {
   ConfirmModal,
@@ -44,12 +44,14 @@ export default function SupplierDedupPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/supplier-duplicates');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not scan for duplicates - try again');
       const json = await res.json() as { data: SupplierDuplicatePair[] };
       setPairs(json.data ?? []);
       setScanned(true);
-    } catch {
-      setError('Failed to scan for duplicates. Please try again.');
+    } catch (err) {
+      setPairs([]);
+      setScanned(false);
+      setError(apiErrorMessage(err, 'Could not scan for duplicates - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -64,10 +66,7 @@ export default function SupplierDedupPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target_id: pending.keepId, source_id: pending.mergeId }),
       });
-      if (!res.ok) {
-        const body = await res.json() as { message?: string; error?: { message?: string } };
-        throw new Error(body.error?.message ?? body.message ?? `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not merge the suppliers - try again');
       // Remove all pairs that involved either supplier
       setPairs((prev) =>
         prev.filter(
@@ -78,8 +77,7 @@ export default function SupplierDedupPage() {
       );
       showToast(`"${pending.mergeName}" merged into "${pending.keepName}"`, 'success');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      showToast(`Merge failed: ${msg}`, 'error');
+      showToast(apiErrorMessage(err, 'Could not merge the suppliers - try again'), 'error');
     } finally {
       setIsMerging(false);
       setPending(null);

@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { Plus, ChevronDown } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 interface FieldDef {
   field: string;
@@ -42,16 +42,18 @@ const TYPE_BADGE: Record<string, string> = {
 export function ReportBuilderSidebar({ selectedSource, selectedFields, onSourceChange, onAddField }: Props) {
   const [fields, setFields] = useState<FieldDef[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [open, setOpen] = useState(true);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
     if (!selectedSource) return;
     setLoading(true);
+    setLoadError('');
     apiFetch(`/api/accounting/custom-reports-fields?source=${selectedSource}`, { credentials: 'include' })
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load fields - try again'); return r.json(); })
       .then(json => setFields(json.data?.fields ?? []))
-      .catch(() => setFields([]))
+      .catch(err => { setFields([]); setLoadError(apiErrorMessage(err, 'Could not load fields - try again')); })
       .finally(() => setLoading(false));
   }, [selectedSource]);
 
@@ -108,6 +110,8 @@ export function ReportBuilderSidebar({ selectedSource, selectedFields, onSourceC
               <div className="flex-1 overflow-y-auto">
                 {loading ? (
                   <div className="px-4 py-6 text-sm text-gray-600 dark:text-gray-400 dark:text-slate-500 text-center">Loading fields...</div>
+                ) : loadError ? (
+                  <div className="px-4 py-6 text-sm text-red-500 text-center">{loadError}</div>
                 ) : filtered.length === 0 ? (
                   <div className="px-4 py-6 text-sm text-gray-600 dark:text-gray-400 dark:text-slate-500 text-center">No fields found</div>
                 ) : (

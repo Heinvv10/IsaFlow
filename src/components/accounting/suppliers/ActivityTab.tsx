@@ -9,7 +9,7 @@ import {
   MessageSquare, Phone, Mail, DollarSign, FileText, RefreshCw,
   Clock, Plus, Trash2, Loader2, AlertCircle,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 type ActivityType =
@@ -114,12 +114,14 @@ export function ActivityTab({ supplierId }: { supplierId: string }) {
     setError('');
     try {
       const res  = await apiFetch(`/api/accounting/supplier-activities?supplierId=${supplierId}`);
+      await assertOk(res, 'Could not load the activities - try again');
       const json = await res.json() as { data?: SupplierActivity[] } | SupplierActivity[];
       const data = (json as { data?: SupplierActivity[] }).data ?? (json as SupplierActivity[]);
       setActivities(data);
     } catch (err) {
       log.error('Failed to load supplier activities', { supplierId, error: err }, 'activity-tab');
-      setError('Failed to load activities');
+      setActivities([]);
+      setError(apiErrorMessage(err, 'Could not load the activities - try again'));
     } finally {
       setLoading(false);
     }
@@ -132,7 +134,7 @@ export function ActivityTab({ supplierId }: { supplierId: string }) {
     setSaving(true);
     setError('');
     try {
-      await apiFetch('/api/accounting/supplier-activities', {
+      const res = await apiFetch('/api/accounting/supplier-activities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -142,12 +144,13 @@ export function ActivityTab({ supplierId }: { supplierId: string }) {
           description:   form.description.trim(),
         }),
       });
+      await assertOk(res, 'Could not save the activity - try again');
       setForm(EMPTY_FORM);
       setShowForm(false);
       void load();
     } catch (err) {
       log.error('Failed to add supplier activity', { supplierId, error: err }, 'activity-tab');
-      setError('Failed to save activity');
+      setError(apiErrorMessage(err, 'Could not save the activity - try again'));
     } finally {
       setSaving(false);
     }
@@ -156,11 +159,12 @@ export function ActivityTab({ supplierId }: { supplierId: string }) {
   const handleDelete = async (id: string) => {
     setError('');
     try {
-      await apiFetch(`/api/accounting/supplier-activities?id=${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/accounting/supplier-activities?id=${id}`, { method: 'DELETE' });
+      await assertOk(res, 'Could not delete the activity - try again');
       void load();
     } catch (err) {
       log.error('Failed to delete supplier activity', { id, error: err }, 'activity-tab');
-      setError('Failed to delete activity');
+      setError(apiErrorMessage(err, 'Could not delete the activity - try again'));
     }
   };
 

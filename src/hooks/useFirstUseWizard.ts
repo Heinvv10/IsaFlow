@@ -5,7 +5,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 // Module-level cache: wizardKey → dismissed boolean
 const cache = new Map<string, boolean>();
@@ -34,13 +35,14 @@ async function fetchDismissed(wizardKey: string): Promise<boolean> {
 }
 
 async function saveDismissed(wizardKey: string): Promise<void> {
-  await apiFetch('/api/auth/preferences', {
+  const res = await apiFetch('/api/auth/preferences', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       preferences: { [`${wizardKey}_dismissed`]: 'true' },
     }),
   });
+  await assertOk(res, 'Could not remember that you dismissed this guide');
 }
 
 interface UseFirstUseWizardResult {
@@ -81,7 +83,7 @@ export function useFirstUseWizard(wizardKey: string): UseFirstUseWizardResult {
   const dismiss = useCallback(() => {
     cache.set(wizardKey, true);
     setDismissed(true);
-    void saveDismissed(wizardKey);
+    saveDismissed(wizardKey).catch((err: unknown) => log.warn('first-use wizard dismissal was not saved; it may show again', { err }, 'first-use-wizard'));
   }, [wizardKey]);
 
   return {

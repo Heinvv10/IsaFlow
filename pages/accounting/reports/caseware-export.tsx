@@ -9,7 +9,7 @@ import Link from 'next/link';
 import {
   ArrowLeft, Database, Loader2, AlertCircle, Download, Wand2, Save,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface AccountMapping {
@@ -50,8 +50,8 @@ export default function CaseWareExportPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/account-mappings?system=caseware');
+      await assertOk(res, 'Could not load the account mappings - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message ?? 'Failed to load mappings');
       const items: AccountMapping[] = json.data?.items ?? [];
       setMappings(items);
       const initial: Record<string, { code: string; label: string }> = {};
@@ -60,7 +60,8 @@ export default function CaseWareExportPage() {
       }
       setEdits(initial);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
+      setMappings([]); setEdits({});
+      setError(apiErrorMessage(err, 'Could not load the account mappings - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -77,12 +78,12 @@ export default function CaseWareExportPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'auto-suggest', targetSystem: 'caseware' }),
       });
+      await assertOk(res, 'Could not auto-suggest the codes - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message ?? 'Auto-suggest failed');
       setSaveMsg(`Auto-suggested ${json.data?.applied ?? 0} account codes`);
       await loadMappings();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Auto-suggest failed');
+      setError(apiErrorMessage(err, 'Could not auto-suggest the codes - try again'));
     } finally {
       setIsAutoSuggesting(false);
     }
@@ -99,8 +100,8 @@ export default function CaseWareExportPage() {
       });
 
       await Promise.all(
-        changes.map(([glAccountId, val]) =>
-          apiFetch('/api/accounting/account-mappings', {
+        changes.map(async ([glAccountId, val]) => {
+          const res = await apiFetch('/api/accounting/account-mappings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -109,13 +110,14 @@ export default function CaseWareExportPage() {
               externalCode: val.code,
               externalLabel: val.label,
             }),
-          }),
-        ),
+          });
+          await assertOk(res, 'Could not save the mappings - try again');
+        }),
       );
       setSaveMsg(`Saved ${changes.length} mapping(s)`);
       await loadMappings();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
+      setError(apiErrorMessage(err, 'Could not save the mappings - try again'));
     } finally {
       setIsSaving(false);
     }

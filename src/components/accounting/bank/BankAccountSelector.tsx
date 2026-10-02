@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Landmark, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { groupBankAccountOptions } from './groupBankOptions';
 
 export interface BankAccountOption {
@@ -33,6 +33,7 @@ export function BankAccountSelector(props: BankAccountSelectorProps) {
     void (async () => {
       try {
         const res = await apiFetch('/api/accounting/chart-of-accounts?subtype=bank');
+        await assertOk(res, 'Could not load bank accounts - try again');
         const json = await res.json();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data: any[] = Array.isArray(json?.data) ? json.data : json?.data?.accounts || [];
@@ -54,7 +55,7 @@ export function BankAccountSelector(props: BankAccountSelectorProps) {
         setLoading(false);
       } catch (err) {
         if (!alive) return;
-        setError(err instanceof Error ? err.message : 'Failed to load bank accounts');
+        setError(apiErrorMessage(err, 'Could not load bank accounts - try again'));
         setLoading(false);
       }
     })();

@@ -61,6 +61,12 @@ run_step "oauth-trust-flags"      bun scripts/ci/check-oauth-trust-flags.ts
 # GitHub's CI job must call this script, not a hand-kept copy of its list
 # (R-052: GitHub ran 5 of these gates while a PR showed green).
 run_step "workflow-runs-ci"       bun scripts/ci/check-workflow-runs-ci.ts
+# Client code must read the HTTP status before a response body, say what failed
+# in a plain sentence, show errors through apiErrorMessage, and check its writes.
+# A regression guard on the COMMON shapes, over every client file (selected by
+# imports, not by directory). It is not a completeness proof: its stated limits
+# are in scripts/ci/clientResponseRule.ts, and review still has to find the rest.
+run_step "client-responses"       bun scripts/ci/check-client-responses.ts
 run_step "unit-tests"        bun run test:unit
 run_step "component-tests"   bun run test:components
 # The tests that launch real Chromium (tests/unit/print/). Excluded from

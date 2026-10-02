@@ -71,6 +71,8 @@ function asField<T>(
 export async function fetchJobCategories(includeInactive = false): Promise<JobCategory[]> {
   const data = await apiJson(
     `/api/accounting/practice/job-categories?includeInactive=${includeInactive}`,
+    undefined,
+    'Could not load the job categories - try again',
   );
   return asArray<JobCategory>(data, 'job categories');
 }
@@ -80,7 +82,7 @@ export async function createJobCategory(name: string): Promise<void> {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
-  await assertOk(res, 'Failed to create category');
+  await assertOk(res, 'Could not add the category - try again');
 }
 
 export async function setJobCategoryActive(id: string, isActive: boolean): Promise<void> {
@@ -88,7 +90,7 @@ export async function setJobCategoryActive(id: string, isActive: boolean): Promi
     `/api/accounting/practice/job-categories/${encodeURIComponent(id)}`,
     { method: 'PUT', body: JSON.stringify({ isActive }) },
   );
-  await assertOk(res, 'Failed to update category');
+  await assertOk(res, 'Could not update the category - try again');
 }
 
 // ---------------------------------------------------------------- work items
@@ -100,6 +102,8 @@ export async function fetchWorkItems(
   const data = await apiJson(
     `/api/accounting/practice/work-items?categoryId=${encodeURIComponent(categoryId)}` +
       `&includeInactive=${includeInactive}`,
+    undefined,
+    'Could not load the work items - try again',
   );
   return asArray<WorkItem>(data, 'work items');
 }
@@ -113,7 +117,7 @@ export async function createWorkItem(
     method: 'POST',
     body: JSON.stringify({ categoryId, name, defaultBillable }),
   });
-  await assertOk(res, 'Failed to create work item');
+  await assertOk(res, 'Could not add the work item - try again');
 }
 
 export async function setWorkItemActive(id: string, isActive: boolean): Promise<void> {
@@ -121,7 +125,7 @@ export async function setWorkItemActive(id: string, isActive: boolean): Promise<
     `/api/accounting/practice/work-items/${encodeURIComponent(id)}`,
     { method: 'PUT', body: JSON.stringify({ isActive }) },
   );
-  await assertOk(res, 'Failed to update work item');
+  await assertOk(res, 'Could not update the work item - try again');
 }
 
 // ------------------------------------------------------------------- clients
@@ -136,6 +140,8 @@ export const CLIENT_PICKER_LIMIT = 1000;
 export async function fetchActiveClients(): Promise<PracticeClient[]> {
   const data = await apiJson(
     `/api/accounting/practice/clients?status=active&limit=${CLIENT_PICKER_LIMIT}`,
+    undefined,
+    'Could not load the clients - try again',
   );
   return asField<PracticeClient[]>(data, 'clients', 'practice clients', 'array');
 }
@@ -143,7 +149,7 @@ export async function fetchActiveClients(): Promise<PracticeClient[]> {
 // ----------------------------------------------------------------- templates
 
 export async function fetchEntryTemplates(): Promise<EntryTemplate[]> {
-  const data = await apiJson('/api/accounting/practice/entry-templates');
+  const data = await apiJson('/api/accounting/practice/entry-templates', undefined, 'Could not load the entry templates - try again');
   return asField<EntryTemplate[]>(data, 'templates', 'entry templates', 'array');
 }
 
@@ -152,7 +158,7 @@ export async function createEntryTemplate(input: EntryTemplateInput): Promise<vo
     method: 'POST',
     body: JSON.stringify(input),
   });
-  await assertOk(res, 'Failed to save template');
+  await assertOk(res, 'Could not save the template - try again');
 }
 
 // ---------------------------------------------------------------------- rate
@@ -171,6 +177,8 @@ export async function resolveStaffRate(
     const data = await apiJson(
       `/api/accounting/practice/rate-resolve?userId=${encodeURIComponent(userId)}` +
         `&clientId=${encodeURIComponent(clientId)}&date=${encodeURIComponent(date)}`,
+    undefined,
+    'Could not look up the billing rate - try again',
     );
     return asField<number>(data, 'rate', 'rate resolve', 'number');
   } catch (err) {

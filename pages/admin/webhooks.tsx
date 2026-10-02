@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { WebhookRow } from '@/components/admin/webhooks/WebhookRow';
 import { ConfirmDeleteModal } from '@/components/admin/webhooks/ConfirmDeleteModal';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, RefreshCw, Webhook, Search } from 'lucide-react';
 import type { AdminWebhook } from '@/modules/admin/services/adminWebhookService';
 
@@ -37,6 +37,7 @@ export default function AdminWebhooksPage() {
   const [deleteTarget, setDeleteTarget]   = useState<{ id: string; url: string } | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [toast, setToast]                 = useState<string | null>(null);
+  const [error, setError]                 = useState('');
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -48,6 +49,7 @@ export default function AdminWebhooksPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const params = new URLSearchParams({
         page: String(page),
@@ -57,6 +59,7 @@ export default function AdminWebhooksPage() {
       if (search) params.set('search', search);
 
       const res  = await apiFetch(`/api/admin/webhooks?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load webhooks - try again');
       const json = await res.json() as { data: { items: AdminWebhook[]; total: number } };
       let fetched = json.data?.items ?? [];
 
@@ -66,8 +69,9 @@ export default function AdminWebhooksPage() {
 
       setItems(fetched);
       setTotal(json.data?.total ?? 0);
-    } catch {
+    } catch (err) {
       setItems([]);
+      setError(apiErrorMessage(err, 'Could not load webhooks - try again'));
     } finally {
       setLoading(false);
     }
@@ -84,15 +88,11 @@ export default function AdminWebhooksPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ status: currentlyActive ? 'disabled' : 'active' }),
       });
-      if (!res.ok) {
-        const j = await res.json() as { error?: { message?: string } };
-        showToast(j.error?.message ?? 'Update failed');
-      } else {
-        showToast(currentlyActive ? 'Webhook disabled' : 'Webhook enabled');
-        await load();
-      }
-    } catch {
-      showToast('Request failed');
+      await assertOk(res, 'Could not update the webhook - try again');
+      showToast(currentlyActive ? 'Webhook disabled' : 'Webhook enabled');
+      await load();
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not update the webhook - try again'));
     } finally {
       setActionLoading(null);
     }
@@ -107,17 +107,13 @@ export default function AdminWebhooksPage() {
         credentials: 'include',
         headers: { 'X-Admin-Request': 'true' },
       });
-      if (!res.ok) {
-        const j = await res.json() as { error?: { message?: string } };
-        showToast(j.error?.message ?? 'Delete failed');
-      } else {
-        showToast('Webhook deleted');
-        if (expanded === deleteTarget.id) setExpanded(null);
-        setDeleteTarget(null);
-        await load();
-      }
-    } catch {
-      showToast('Request failed');
+      await assertOk(res, 'Could not delete the webhook - try again');
+      showToast('Webhook deleted');
+      if (expanded === deleteTarget.id) setExpanded(null);
+      setDeleteTarget(null);
+      await load();
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not delete the webhook - try again'));
     } finally {
       setDeleteLoading(false);
     }
@@ -208,8 +204,8 @@ export default function AdminWebhooksPage() {
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-gray-500 text-sm">
-                    No webhooks found.
+                  <td colSpan={7} className={`px-4 py-10 text-center text-sm ${error ? 'text-red-400' : 'text-gray-500'}`}>
+                    {error || 'No webhooks found.'}
                   </td>
                 </tr>
               ) : (

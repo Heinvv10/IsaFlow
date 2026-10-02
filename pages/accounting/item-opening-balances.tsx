@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PackageOpen, Save, Loader2, Search } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -20,21 +20,26 @@ export default function ItemOpeningBalancesPage() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await apiFetch('/api/accounting/item-opening-balances', { credentials: 'include' });
-    const json = await res.json();
-    setItems(json.data || []);
-    setEdits({});
-    setLoading(false);
+    try {
+      const res = await apiFetch('/api/accounting/item-opening-balances', { credentials: 'include' });
+      await assertOk(res, 'Could not load items - try again');
+      const json = await res.json();
+      setItems(json.data || []);
+      setEdits({});
+    } catch (e) {
+      setItems([]); setEdits({});
+      throw e;
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    load().catch(() => {
-      setLoading(false);
-      setMsg('Failed to load items');
-    });
+    load().catch((e) => setErr(apiErrorMessage(e, 'Could not load items - try again')));
   }, [load]);
 
   const filtered = useMemo(() => {
@@ -61,15 +66,23 @@ export default function ItemOpeningBalancesPage() {
 
   const save = async () => {
     if (!changedCount) return;
-    setSaving(true); setMsg('');
+    setSaving(true); setMsg(''); setErr('');
     const payload = Object.entries(edits).map(([itemId, v]) => ({ itemId, quantity: Number(v.quantity), unitCost: Number(v.unitCost) }));
-    const res = await apiFetch('/api/accounting/item-opening-balances', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ items: payload }),
-    });
-    if (res.ok) { setMsg(`Balances set for ${payload.length} item(s)`); await load(); }
-    else { setMsg('Failed to save'); }
-    setSaving(false);
+    let written = false;
+    try {
+      const res = await apiFetch('/api/accounting/item-opening-balances', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ items: payload }),
+      });
+      await assertOk(res, 'Could not save the opening balances - try again');
+      written = true;
+      setMsg(`Balances set for ${payload.length} item(s)`);
+      await load();
+    } catch (e) {
+      setErr(apiErrorMessage(e, written ? 'Could not reload items - try again' : 'Could not save the opening balances - try again'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -103,7 +116,8 @@ export default function ItemOpeningBalancesPage() {
         </div>
 
         <div className="p-6">
-          {msg && <div className={`p-3 rounded-lg text-sm mb-4 ${msg.includes('set') ? 'bg-teal-500/10 text-teal-400' : 'bg-red-500/10 text-red-400'}`}>{msg}</div>}
+          {msg && <div className="p-3 rounded-lg text-sm mb-4 bg-teal-500/10 text-teal-400">{msg}</div>}
+          {err && <div className="p-3 rounded-lg text-sm mb-4 bg-red-500/10 text-red-400">{err}</div>}
 
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             {loading ? (

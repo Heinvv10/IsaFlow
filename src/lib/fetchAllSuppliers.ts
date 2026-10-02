@@ -7,7 +7,7 @@
  * rewriting every allocation cell.
  */
 
-import { apiFetch } from './apiFetch';
+import { apiFetch, assertOk } from './apiFetch';
 import { log } from './logger';
 
 interface SupplierRow { id: number | string; name: string; code?: string }
@@ -31,7 +31,7 @@ export async function fetchAllSuppliers(): Promise<AllSuppliers> {
   let done = false;
   for (let page = 1; page <= MAX_PAGES && !done; page++) {
     const res = await apiFetch(`/api/accounting/suppliers-list?limit=${PAGE_SIZE}&page=${page}`, { credentials: 'include' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await assertOk(res, 'Could not load the suppliers - try again');
     const json = await res.json();
     const d = (json.data ?? json) as { suppliers?: SupplierRow[]; total?: number } | SupplierRow[];
     const rows = Array.isArray(d) ? d : (d.suppliers ?? []);

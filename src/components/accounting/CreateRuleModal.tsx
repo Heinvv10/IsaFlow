@@ -4,21 +4,16 @@
  * allocation type (account/supplier/customer), and shows a live preview.
  */
 
-import { useState, useEffect, useRef } from 'react';
-import { X, Search, BookmarkPlus, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, BookmarkPlus, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import type { BankTx, SelectOption } from './BankTxTable';
-import type { RuleMatchType, RuleVatCode } from '@/modules/accounting/types/bank.types';
-
-const VAT_OPTIONS: { value: RuleVatCode; label: string }[] = [
-  { value: 'none', label: 'No VAT' },
-  { value: 'standard', label: 'Standard 15%' },
-  { value: 'zero_rated', label: 'Zero Rated' },
-  { value: 'exempt', label: 'Exempt' },
-];
-
-type AllocType = 'account' | 'supplier' | 'customer' | 'bank';
+import { EntityPicker } from './EntityPicker';
+import { VatTreatmentField, AllocTypeField } from './RuleModalFields';
+import { useRuleTarget } from './useRuleTarget';
+import { extractPattern } from './extractPattern';
+import type { RuleMatchType } from '@/modules/accounting/types/bank.types';
 
 interface Props {
   transaction: BankTx;
@@ -32,100 +27,7 @@ interface Props {
   onCreated: () => void;
 }
 
-/**
- * Strip unique references, dates, card numbers from a transaction description
- * to extract the recurring core pattern for rule matching.
- * Exported so other components (e.g. allocation flow) can derive the same pattern.
- */
-export function extractPattern(desc: string): string {
-  let p = desc;
-  p = p.replace(/[a-f0-9]{8,}/gi, '');
-  p = p.replace(/\d{4}[-/]\d{2}[-/]\d{2}/g, '');
-  p = p.replace(/\d{2}[-/]\d{2}[-/]\d{4}/g, '');
-  p = p.replace(/\d{8}/g, '');
-  p = p.replace(/\d{4,}/g, '');
-  p = p.replace(/\/Cmd\s+\w\b/gi, '');
-  p = p.replace(/\s{2,}/g, ' ').trim();
-  p = p.replace(/[/\s]+$/, '');
-  return p;
-}
-
-/** Reusable searchable dropdown for GL accounts, suppliers, or customers */
-function EntityPicker({
-  label, placeholder, options, selected, onSelect,
-}: {
-  label: string; placeholder: string; options: SelectOption[];
-  selected: SelectOption | null; onSelect: (o: SelectOption) => void;
-}) {
-  const [search, setSearch] = useState('');
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);
-
-  const filtered = search
-    ? options.filter(o =>
-        (o.code || '').toLowerCase().includes(search.toLowerCase()) ||
-        o.name.toLowerCase().includes(search.toLowerCase())
-      )
-    : options;
-
-  return (
-    <div ref={ref}>
-      <label className="text-xs text-[var(--ff-text-tertiary)] mb-1 block">{label}</label>
-      <div className="relative">
-        <button
-          onClick={() => { setOpen(!open); setSearch(''); }}
-          className={`w-full text-left px-3 py-2 rounded border text-sm ${
-            selected
-              ? 'bg-[var(--ff-bg-primary)] border-[var(--ff-border-light)] text-[var(--ff-text-primary)]'
-              : 'bg-[var(--ff-bg-primary)] border-amber-500/40 text-amber-400'
-          }`}
-        >
-          {selected ? `${selected.code || ''} ${selected.name}`.trim() : placeholder}
-        </button>
-        {open && (
-          <div className="absolute z-50 top-full left-0 mt-1 w-full bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg shadow-xl">
-            <div className="p-2">
-              <div className="relative">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-[var(--ff-text-tertiary)]" />
-                <input
-                  type="text"
-                  placeholder={`Search...`}
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  className="w-full pl-7 pr-2 py-1.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)] focus:outline-none focus:border-blue-500"
-                  autoFocus
-                />
-              </div>
-            </div>
-            <div className="max-h-48 overflow-y-auto">
-              {filtered.slice(0, 50).map(o => (
-                <button
-                  key={o.id}
-                  onClick={() => { onSelect(o); setOpen(false); }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-[var(--ff-bg-primary)] text-xs flex items-center gap-2"
-                >
-                  {o.code && <span className="font-mono text-[var(--ff-text-tertiary)] w-10 shrink-0">{o.code}</span>}
-                  <span className="text-[var(--ff-text-primary)] truncate">{o.name}</span>
-                </button>
-              ))}
-              {filtered.length === 0 && (
-                <div className="px-3 py-2 text-xs text-[var(--ff-text-tertiary)]">No results found</div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+export { extractPattern };
 
 export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppliers = [], clients = [], bankAccounts = [], selection, onClose, onCreated }: Props) {
   const [pattern, setPattern] = useState(() => extractPattern(transaction.description || ''));
@@ -135,45 +37,10 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
   // match, so it has to be an explicit opt-in. Audit Finding 4.
   const [autoCreateEntry, setAutoCreateEntry] = useState(false);
 
-  const [allocType, setAllocType] = useState<AllocType>(() => {
-    const t = selection?.type;
-    if (t === 'supplier') return 'supplier';
-    if (t === 'customer') return 'customer';
-    if (t === 'transfer') return 'bank';
-    return 'account';
-  });
-  // Seeded from the row, but never for a type that posts no VAT line: the
-  // effect below only fires on a CHANGE of alloc type, so a modal opened
-  // straight onto a supplier selection would otherwise keep a code the render
-  // no longer shows and the sweep would discard.
-  const [vatCode, setVatCode] = useState<RuleVatCode>(() => (
-    selection?.type === 'account' ? (selection.vatCode as RuleVatCode) ?? 'none' : 'none'
-  ));
-  const [selectedGl, setSelectedGl] = useState<SelectOption | null>(() => {
-    if (selection?.type === 'account' && selection.entityId) {
-      return glAccounts.find(a => a.id === selection.entityId) ?? null;
-    }
-    return null;
-  });
-  const [selectedSupplier, setSelectedSupplier] = useState<SelectOption | null>(() => {
-    if (selection?.type === 'supplier' && selection.entityId) {
-      // The list may not have loaded yet (it pages in on its own): the row's label stands in.
-      return suppliers.find(s => s.id === selection.entityId) ?? { id: selection.entityId, name: selection.label };
-    }
-    return null;
-  });
-  const [selectedClient, setSelectedClient] = useState<SelectOption | null>(() => {
-    if (selection?.type === 'customer' && selection.entityId) {
-      return clients.find(c => c.id === selection.entityId) ?? null;
-    }
-    return null;
-  });
-  const [selectedBankAccount, setSelectedBankAccount] = useState<SelectOption | null>(() => {
-    if (selection?.type === 'transfer' && selection.entityId) {
-      return bankAccounts.find(b => b.id === selection.entityId) ?? null;
-    }
-    return null;
-  });
+  const {
+    allocType, setAllocType, vatCode, setVatCode, selectedGl, setSelectedGl,
+    selectedSupplier, setSelectedSupplier, selectedClient, setSelectedClient, selectedBankAccount, setSelectedBankAccount,
+  } = useRuleTarget({ selection, glAccounts, suppliers, clients, bankAccounts });
 
   const [matchCount, setMatchCount] = useState<number | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -186,7 +53,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
     const timer = setTimeout(async () => {
       try {
         const params = new URLSearchParams({ pattern, matchType, bankAccountId });
-        const res = await apiFetch(`/api/accounting/bank-rules-preview?${params}`);
+        const res = await apiFetch(`/api/accounting/bank-rules-preview?${params}`); await assertOk(res, 'Could not preview the matches');
         const json = await res.json();
         setMatchCount(json.data?.matchCount ?? 0);
       } catch {
@@ -197,20 +64,6 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
     }, 400);
     return () => clearTimeout(timer);
   }, [pattern, matchType, bankAccountId]);
-
-  // Clear entity selection when switching alloc type (skip initial mount)
-  const allocTypeInitial = useRef(true);
-  useEffect(() => {
-    if (allocTypeInitial.current) { allocTypeInitial.current = false; return; }
-    setSelectedSupplier(null);
-    setSelectedClient(null);
-    setSelectedBankAccount(null);
-    // Only an `account` rule posts a VAT line. A supplier or customer rule
-    // SETTLES a document that already carried its VAT and a bank rule is a
-    // transfer, so the sweep drops the code — storing one here would keep
-    // showing "Standard 15%" on the rules list for a treatment nothing applies.
-    if (allocType !== 'account') setVatCode('none');
-  }, [allocType]);
 
   const needsGlAccount = allocType === 'account';
 
@@ -246,8 +99,9 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      await assertOk(res, 'Could not create the rule - try again');
       const json = await res.json();
-      if (!res.ok || json.success === false) throw new Error(json.message || 'Failed to create rule');
+      if (json.success === false) throw new ApiEnvelopeError(json.error?.message || 'Could not create the rule - try again');
       const rawApplied = (json as { data?: { applied?: unknown } }).data?.applied;
       const applied = typeof rawApplied === 'number' && Number.isFinite(rawApplied) ? rawApplied : 0;
       const verb = autoCreateEntry ? 'allocated' : 'matched';
@@ -256,7 +110,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
         : 'Rule created');
       onCreated();
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : 'Failed to create rule');
+      notify.error(apiErrorMessage(e, 'Could not create the rule - try again'));
     } finally {
       setSaving(false);
     }
@@ -321,25 +175,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
             </select>
           </div>
 
-          {/* Allocation Type */}
-          <div>
-            <label className="text-xs text-[var(--ff-text-tertiary)] mb-1 block">Allocation Type</label>
-            <div className="flex gap-1">
-              {(['account', 'supplier', 'customer', 'bank'] as AllocType[]).map(t => (
-                <button
-                  key={t}
-                  onClick={() => setAllocType(t)}
-                  className={`flex-1 px-3 py-1.5 rounded text-xs font-medium transition-colors ${
-                    allocType === t
-                      ? 'bg-teal-600 text-white'
-                      : 'bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]'
-                  }`}
-                >
-                  {t === 'account' ? 'Account' : t === 'supplier' ? 'Supplier' : t === 'customer' ? 'Customer' : 'Bank'}
-                </button>
-              ))}
-            </div>
-          </div>
+          <AllocTypeField allocType={allocType} onChange={setAllocType} />
 
           {needsGlAccount && (
             <EntityPicker
@@ -381,34 +217,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
             />
           )}
 
-          {/* VAT — `account` rules only; the other three post no VAT line. */}
-          <div>
-            <label className="text-xs text-[var(--ff-text-tertiary)] mb-1 block">VAT Treatment</label>
-            {allocType === 'account' ? (
-              <div className="flex gap-1">
-                {VAT_OPTIONS.map(opt => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setVatCode(opt.value)}
-                    className={`flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
-                      vatCode === opt.value
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-[var(--ff-text-tertiary)] italic py-1.5">
-                N/A — {allocType === 'bank'
-                  ? 'a transfer between your own accounts is not a supply.'
-                  : 'settling a bill or an invoice claims no VAT; the document already carried it.'}
-              </p>
-            )}
-          </div>
+          <VatTreatmentField allocType={allocType} vatCode={vatCode} onChange={setVatCode} />
 
           {/* Rule name */}
           <div>

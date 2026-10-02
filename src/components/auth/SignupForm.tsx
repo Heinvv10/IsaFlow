@@ -15,6 +15,7 @@
 import { useState, FormEvent } from 'react';
 import Link from 'next/link';
 import { Building2, CircleDollarSign, Lock, Mail, UserRound } from 'lucide-react';
+import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { WaitlistPageShell } from '@/components/landing/WaitlistPageShell';
 import { SignupPendingCard } from './SignupPendingCard';
@@ -94,17 +95,18 @@ export function SignupForm() {
         }),
       });
 
+      await assertOk(res, 'Could not create your account - please try again');
       const json = (await res.json()) as ApiEnvelope;
 
-      if (!res.ok || !json.success) {
-        setError(json.error?.message ?? json.message ?? 'Registration failed. Please try again.');
+      if (!json.success) {
+        setError(json.error?.message ?? json.message ?? 'Could not create your account - please try again');
         return;
       }
 
       // No sign-in here: the account is inert until the emailed link is opened.
       setSubmittedEmail(trimmedEmail);
-    } catch {
-      setError('Could not reach the server. Please check your connection and try again.');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not reach the server. Please check your connection and try again.'));
     } finally {
       setSubmitting(false);
     }

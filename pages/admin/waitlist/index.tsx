@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Search, UserPlus, ExternalLink, X, Check } from 'lucide-react';
 
@@ -74,13 +74,13 @@ export default function AdminWaitlistPage() {
       const params = new URLSearchParams({ status: s, page: String(p), limit: String(LIMIT) });
       if (q) params.set('search', q);
       const res  = await apiFetch(`/api/admin/waitlist?${params}`);
+      await assertOk(res, 'Could not load the waitlist - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Failed to load');
       const data = (json as { data: ListResponse }).data;
       setRows(data.items);
       setTotal(data.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Could not load the waitlist - try again'));
     } finally {
       setLoading(false);
     }
@@ -125,8 +125,8 @@ export default function AdminWaitlistPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ planCodeOverride: planOverride || null }),
       });
+      await assertOk(res, 'Could not promote the signup - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Promotion failed');
       const data = (json as { data: { companyId: string | null; status: string } }).data;
       setPromoteTarget(null);
       if (data.companyId) {
@@ -135,7 +135,7 @@ export default function AdminWaitlistPage() {
       }
       void load(status, search, page);
     } catch (err) {
-      setPromoteError(err instanceof Error ? err.message : 'Promotion failed');
+      setPromoteError(apiErrorMessage(err, 'Could not promote the signup - try again'));
     } finally {
       setPromoting(false);
     }

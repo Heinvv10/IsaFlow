@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { log } from '@/lib/logger';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { ResponseFor } from '@/lib/apiRoutes';
 import { Loader2, AlertCircle, Upload, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { StatementReviewPanel, type BankStatementImport } from '@/components/accounting/bank-transactions/StatementReviewPanel';
@@ -67,7 +67,7 @@ export default function ImportPdfPage() {
 
   const loadAccounts = useCallback(async () => {
     try {
-      const data = await apiJson('/api/accounting/bank-accounts');
+      const data = await apiJson('/api/accounting/bank-accounts', undefined, 'Could not load the bank accounts - try again');
       const list = Array.isArray(data) ? data : [];
       setAccounts(list);
       if (list.length > 0) setSelectedAccount(list[0]!.id);
@@ -81,10 +81,10 @@ export default function ImportPdfPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch(`/api/accounting/bank-statements/${id}`);
-      const json = await res.json() as { data?: BankStatementImport; error?: string };
-      if (!res.ok) { setError(json.error ?? 'Failed to load import'); return; }
+      await assertOk(res, 'Could not load this import - try again');
+      const json = await res.json() as { data?: BankStatementImport };
       setImp(json.data ?? null);
-    } catch { setError('Network error loading import'); }
+    } catch (err) { setImp(null); setError(apiErrorMessage(err, 'Could not load this import - try again')); }
     finally { setLoading(false); }
   }, []);
 
@@ -105,10 +105,10 @@ export default function ImportPdfPage() {
       const cid = readCompanyId(); if (cid) headers.set('X-Company-Id', cid);
       const csrf = readCsrf(); if (csrf) headers.set('X-CSRF-Token', csrf);
       const res = await fetch('/api/accounting/bank-statements', { method: 'POST', body: form, headers, credentials: 'include' });
-      const json = await res.json() as { data?: BankStatementImport; error?: string };
-      if (!res.ok) { showToast(json.error ?? 'Upload failed', 'err'); return; }
-      if (json.data?.id) void router.push(`/accounting/bank/statements/import-pdf?id=${json.data.id}`);
-    } catch { showToast('Network error during upload', 'err'); }
+      await assertOk(res, 'Could not upload the statement - try again');
+      const json = await res.json() as { data?: BankStatementImport };
+      if (json.data?.id) try { await router.push(`/accounting/bank/statements/import-pdf?id=${json.data.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'bank-statements-import-pdf'); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not upload the statement - try again'), 'err'); }
     finally { setUploading(false); }
   }, [file, selectedAccount, router, showToast]);
 
@@ -117,11 +117,11 @@ export default function ImportPdfPage() {
     setCommitting(true);
     try {
       const res = await apiFetch(`/api/accounting/bank-statements/${importId}/commit`, { method: 'POST' });
-      const json = await res.json() as { data?: { inserted: number; skipped: number }; error?: string };
-      if (!res.ok) { showToast(json.error ?? 'Commit failed', 'err'); return; }
+      await assertOk(res, 'Could not commit the statement - try again');
+      const json = await res.json() as { data?: { inserted: number; skipped: number } };
       showToast(`Inserted ${json.data?.inserted ?? 0}, skipped ${json.data?.skipped ?? 0}`, 'ok');
       void loadImport(importId);
-    } catch { showToast('Network error during commit', 'err'); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not commit the statement - try again'), 'err'); }
     finally { setCommitting(false); }
   }, [importId, loadImport, showToast]);
 
@@ -130,10 +130,10 @@ export default function ImportPdfPage() {
     setRollingBack(true);
     try {
       const res = await apiFetch(`/api/accounting/bank-statements/${importId}/rollback`, { method: 'POST' });
-      if (!res.ok) { showToast('Rollback failed', 'err'); return; }
+      await assertOk(res, 'Could not roll back the import - try again');
       showToast('Import rolled back', 'ok');
       void loadImport(importId);
-    } catch { showToast('Network error during rollback', 'err'); }
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not roll back the import - try again'), 'err'); }
     finally { setRollingBack(false); }
   }, [importId, loadImport, showToast]);
 

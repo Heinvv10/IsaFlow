@@ -1,7 +1,7 @@
 /** Admin Trial Management — full lifecycle view. /admin/trials */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Clock, CheckCircle, TrendingUp, XCircle } from 'lucide-react';
 import Link from 'next/link';
@@ -69,13 +69,13 @@ export default function AdminTrialsPage() {
         apiFetch('/api/admin/trials?within=365'),
         apiFetch('/api/admin/trials/stats'),
       ]);
+      await assertOk(trialsRes, 'Could not load the trials - try again');
       const trialsJson = await trialsRes.json() as ApiTrialsResponse;
-      const statsJson  = await statsRes.json() as ApiStatsResponse;
-      if (!trialsRes.ok) throw new Error('Failed to load trials');
       setTrials(trialsJson.data ?? []);
-      if (statsRes.ok) setStats(statsJson.data ?? null);
+      setStats(statsRes.ok ? ((await statsRes.json().catch(() => null)) as ApiStatsResponse | null)?.data ?? null : null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load trials');
+      setTrials([]); setStats(null);
+      setError(apiErrorMessage(err, 'Could not load the trials - try again'));
     } finally {
       setLoading(false);
     }
@@ -102,10 +102,10 @@ export default function AdminTrialsPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ company_id: id, days }),
       });
-      if (!res.ok) throw new Error('Extend failed');
+      await assertOk(res, 'Could not extend the trial - try again');
       await load();
-    } catch {
-      setError(`Failed to extend trial for company ${id}`);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not extend the trial - try again'));
     } finally {
       setExtending((prev) => { const s = new Set(prev); s.delete(id); return s; });
     }
@@ -121,11 +121,11 @@ export default function AdminTrialsPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ company_ids: Array.from(selected), days: 7 }),
       });
-      if (!res.ok) throw new Error('Bulk extend failed');
+      await assertOk(res, 'Could not extend the selected trials - try again');
       setSelected(new Set());
       await load();
-    } catch {
-      setError('Bulk extend failed');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not extend the selected trials - try again'));
     } finally {
       setBulkWorking(false);
     }
