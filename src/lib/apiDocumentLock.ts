@@ -21,21 +21,14 @@
 
 import type { NextApiResponse } from 'next';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { isLockTimeoutError } from '@/lib/lockTimeout';
 
 /**
- * ONE predicate for every row-lock timeout (D8 round 9): each class carries a
- * `code` ending in `_LOCK_TIMEOUT` — DOCUMENT_NUMBER_, BANK_TX_, PAYMENT_,
- * JOURNAL_REVERSAL_, ROW_ (core/rowLockBudget), CREDIT_NOTE_, … — so a new
- * class is answered without a list to forget it in. The list it replaces
- * missed BankTransactionLockTimeoutError: dismiss's bank-line lock answered 500.
- * Structural, not `instanceof`, for the reason `isBankTransactionLockTimeout` gives.
+ * ONE predicate for every row-lock timeout (D8 round 9), `@/lib/lockTimeout`'s since round 11: each class carries a
+ * `code` ending in `_LOCK_TIMEOUT` — DOCUMENT_NUMBER_, BANK_TX_, PAYMENT_, JOURNAL_REVERSAL_, ROW_
+ * (core/rowLockBudget), CREDIT_NOTE_, … — so a new class is answered without a list to forget it in. The list it
+ * replaced missed BankTransactionLockTimeoutError: dismiss's bank-line lock answered 500.
  */
-export function isLockTimeoutError(err: unknown): err is Error & { code: string } {
-  const code = (err as { code?: unknown } | null)?.code;
-  return err instanceof Error && typeof code === 'string'
-    && (/_LOCK_TIMEOUT$/.test(code) || code === 'WIP_ENTRIES_LOCKED');
-}
-
 export function respondIfLockTimeout(res: NextApiResponse, err: unknown): boolean {
   if (!isLockTimeoutError(err)) return false;
   res.setHeader('Retry-After', '2');
