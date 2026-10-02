@@ -62,10 +62,11 @@ export default function JobDetailPage() {
       const j = await jobRes.json() as { data?: PracticeJob } | PracticeJob;
       const job = ('data' in j ? j.data : j) as PracticeJob;
       setJob(job); setForm(job);
-      if (usersRes.ok) {
+      try {
+        await assertOk(usersRes, 'Could not load the team members - assignees show as IDs');
         const uj = await usersRes.json() as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
         setUsers(Array.isArray(uj) ? uj : ((uj as { data?: CompanyUserSummary[] }).data ?? []));
-      }
+      } catch (e) { setUsers([]); setBanner(apiErrorMessage(e, 'Could not load the team members - assignees show as IDs')); }
     } catch (err) { setUsers([]); setError(apiErrorMessage(err, 'Could not load the job - try again')); }
     finally { setLoading(false); }
   }, [jobId]);

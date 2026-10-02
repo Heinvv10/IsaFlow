@@ -22,7 +22,7 @@ describe('(a) body read before a status check', () => {
   });
   it('is quiet when assertOk, .ok or .status come first', () => {
     expect(kinds(wrap(`const res = await apiFetch('/x'); await assertOk(res, 'Could not load x - try again'); return res.json();`))).toEqual([]);
-    expect(kinds(wrap(`const res = await apiFetch('/x'); if (!res.ok) return null; return res.json();`))).toEqual([]);
+    expect(kinds(wrap(`const res = await apiFetch('/x'); if (!res.ok) throw new Error('Could not load x - try again'); return res.json();`))).toEqual([]);
     expect(kinds(wrap(`return apiFetch('/x').then(async r => { await assertOk(r, 'Could not load x - try again'); return r.json(); });`))).toEqual([]);
   });
 });
@@ -88,5 +88,23 @@ describe('(f) a failed load that keeps its old rows', () => {
     expect(kinds(LOAD(`setRows([]); setError(apiErrorMessage(err, 'Could not load x - try again'));`))).toEqual([]);
     expect(kinds(wrap(`try { const res = await apiFetch('/x', { method: 'POST' }); await assertOk(res, 'Could not save - try again'); const json = await res.json(); setRows(json.data); } catch (err) { setError(apiErrorMessage(err, 'Could not save - try again')); }`))).toEqual([]);
     expect(kinds(wrap(`try { const res = await apiFetch('/x', { method: m }); await assertOk(res, 'Could not save - try again'); const json = await res.json(); setRows(json.data); } catch (err) { setError(apiErrorMessage(err, 'Could not save - try again')); }`))).toEqual([]);
+  });
+});
+
+describe('(g) a failed response dropped without a word', () => {
+  it('fires on a silent return after !res.ok and on a success-only last branch', () => {
+    expect(kinds(wrap(`const res = await apiFetch('/x'); if (!res.ok) return; setRows(await res.json());`))).toEqual(['g']);
+    expect(kinds(wrap(`const res = await apiFetch('/x'); if (res.ok) { setRows(await res.json()); }`))).toEqual(['g']);
+  });
+  it('is quiet when the failure is handled, or handled after the success branch', () => {
+    expect(kinds(wrap(`const res = await apiFetch('/x'); if (!res.ok) { setError('Could not load x - try again'); return; } setRows(await res.json());`))).toEqual([]);
+    expect(kinds(wrap(`const res = await apiFetch('/x'); if (res.ok) { setRows(await res.json()); return; } setError('Could not load x - try again');`))).toEqual([]);
+  });
+});
+
+describe('(b) apiJson without a failure sentence', () => {
+  it('fires when the third argument is missing, quiet when given', () => {
+    expect(kinds(`import { apiJson } from '@/lib/apiFetch';\nexport async function f() { return apiJson('/api/x'); }`)).toEqual(['b']);
+    expect(kinds(`import { apiJson } from '@/lib/apiFetch';\nexport async function f() { return apiJson('/api/x', undefined, 'Could not load x - try again'); }`)).toEqual([]);
   });
 });

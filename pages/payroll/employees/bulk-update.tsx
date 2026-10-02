@@ -7,7 +7,7 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Users, Loader2, AlertCircle, CheckCircle2, ChevronRight } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -68,17 +68,16 @@ export default function BulkUpdatePage() {
     setLoading(true);
     try {
       const res = await apiFetch('/api/payroll/cost-centres?activeOnly=1');
-      if (res.ok) {
-        const json = await res.json();
-        setCentres((json.data ?? json) as CostCentre[]);
-      }
+      await assertOk(res, 'Could not load cost centres - try again');
+      const json = await res.json();
+      setCentres((json.data ?? json) as CostCentre[]);
     } finally {
       setLoading(false);
     }
   }, []);
   useEffect(() => {
     loadCentres().catch((err) => {
-      setError(apiErrorMessage(err, 'Could not load cost centres - try again'));
+      setCentres([]); setError(apiErrorMessage(err, 'Could not load cost centres - try again'));
     });
   }, [loadCentres]);
 

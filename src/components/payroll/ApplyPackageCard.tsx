@@ -50,13 +50,11 @@ export function ApplyPackageCard({ employeeId }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ packageId: selected, effectiveFrom }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? 'Apply failed');
-        return;
-      }
+      await assertOk(res, 'Could not apply the package - try again');
       const json = await res.json();
       setResult((json.data ?? json) as { inserted: number; ended: number });
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not apply the package - try again'));
     } finally {
       setApplying(false);
     }

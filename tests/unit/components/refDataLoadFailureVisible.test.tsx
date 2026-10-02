@@ -42,7 +42,7 @@ it('capture inbox: a failed inbox-address load is reported', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) =>
     String(url).includes('inbox-address') ? fail() : ok({ events: [] })));
   render(<CaptureInboxPage />);
-  expect(await screen.findByText(/failed to load inbox address/i)).toBeInTheDocument();
+  expect(await screen.findByText(/boom/)).toBeInTheDocument();
 });
 
 it('new bank transaction: a failed bank-account load is reported', async () => {

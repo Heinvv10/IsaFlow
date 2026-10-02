@@ -30,7 +30,7 @@ export default function ValidatePage() {
 
   const loadSession = useCallback(async () => {
     try {
-      const { session } = await apiJson('/api/accounting/migration/session');
+      const { session } = await apiJson('/api/accounting/migration/session', undefined, 'Could not load the migration session - try again');
       if (!session) {
         setError('No active migration session found — start one from the Migration Hub');
         return;

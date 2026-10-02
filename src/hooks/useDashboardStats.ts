@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState, useRef } from 'react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -66,8 +66,8 @@ export function useDashboardStats(): DashboardStatsState {
       .then((data) => {
         if (mounted.current) setState({ data, loading: false, error: null });
       })
-      .catch(() => {
-        if (mounted.current) setState({ data: null, loading: false, error: 'Could not load dashboard data - try again' });
+      .catch((err) => {
+        if (mounted.current) setState({ data: null, loading: false, error: apiErrorMessage(err, 'Could not load dashboard data - try again') });
       });
 
     return () => { mounted.current = false; };

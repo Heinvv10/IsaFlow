@@ -93,23 +93,31 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
         ]);
         if (cancelled) return;
 
-        if (settingsRes.ok) {
-          const json = await settingsRes.json() as { data: Settings };
-          if (cancelled) return;
-          const s: Settings = json.data;
-          setPhone(s.clientQueryWhatsapp ?? '');
-          setCompanyName(s.companyName);
-          // Only prefill message on first load (not dirty)
-          setMessage(prev => (prev === '' ? buildMessage(s.companyName) : prev));
-        }
-
-        if (queriesRes.ok) {
-          const json = await queriesRes.json() as { data: QueryRow[] };
-          if (cancelled) return;
-          const rows: QueryRow[] = json.data ?? [];
-          const prior = rows.find(r => r.status === 'sent' || r.status === 'replied');
-          setPriorQuery(prior ?? null);
-        }
+        // '' on success, else the plain-sentence reason; both loads are shown, not dropped.
+        const step = async (res: Response, fallback: string, apply: (json: unknown) => void): Promise<string> => {
+          try {
+            await assertOk(res, fallback);
+            const json = await res.json();
+            if (!cancelled) apply(json);
+            return '';
+          } catch (err) { return apiErrorMessage(err, fallback); }
+        };
+        const problems = [
+          await step(settingsRes, 'Could not load the saved WhatsApp number - enter it below', (json) => {
+            const s = (json as { data: Settings }).data;
+            setPhone(s.clientQueryWhatsapp ?? '');
+            setCompanyName(s.companyName);
+            // Only prefill message on first load (not dirty)
+            setMessage(prev => (prev === '' ? buildMessage(s.companyName) : prev));
+          }),
+          await step(queriesRes, 'Could not check whether this transaction was already queried', (json) => {
+            const rows: QueryRow[] = (json as { data: QueryRow[] }).data ?? [];
+            setPriorQuery(rows.find(r => r.status === 'sent' || r.status === 'replied') ?? null);
+          }),
+        ].filter(Boolean);
+        if (!cancelled && problems.length > 0) setInlineError(problems.join('. '));
+      } catch (err) {
+        if (!cancelled) setInlineError(apiErrorMessage(err, 'Could not load the query details - try again'));
       } finally {
         if (!cancelled) setLoadingSettings(false);
       }
@@ -142,12 +150,12 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
         }),
       });
 
-      await assertOk(res, 'Failed to send query');
+      await assertOk(res, 'Could not send the query - try again');
 
       onSent?.();
       onClose();
     } catch (err) {
-      setInlineError(apiErrorMessage(err, 'Unexpected error sending query'));
+      setInlineError(apiErrorMessage(err, 'Could not send the query - try again'));
     } finally {
       setSending(false);
     }

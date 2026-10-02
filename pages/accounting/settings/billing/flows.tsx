@@ -79,12 +79,19 @@ export default function FlowsSettingsPage() {
   useEffect(() => { void load(); }, [load]);
 
   async function updateAutoTopup(enabled: boolean, bundleId: string | null) {
-    const res = await apiFetch('/api/billing/flows/auto-topup', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled, bundleId }),
-    });
-    if (res.ok) await load();
+    setError('');
+    try {
+      const res = await apiFetch('/api/billing/flows/auto-topup', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled, bundleId }),
+      });
+      await assertOk(res, 'Could not save the auto top-up setting - try again');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the auto top-up setting - try again'));
+      return;
+    }
+    await load();
   }
 
   if (notPayg) {

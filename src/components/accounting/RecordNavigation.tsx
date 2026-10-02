@@ -10,7 +10,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 export type RecordEntity = 'customers' | 'suppliers' | 'items';
 
@@ -29,22 +30,28 @@ export function RecordNavigation({ entity, currentId, basePath }: Props) {
   const router = useRouter();
   const [adjacent, setAdjacent] = useState<AdjacentData>({ prevId: null, nextId: null });
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const fetchAdjacent = useCallback(async () => {
     if (!currentId) return;
     setLoading(true);
+    setFailed(false);
     try {
       const res = await apiFetch(
         `/api/accounting/record-adjacent?entity=${entity}&id=${currentId}`
       );
-      if (!res.ok) return;
+      await assertOk(res, 'Could not load the neighbouring records');
       const json = await res.json() as { data?: AdjacentData } | AdjacentData;
       const data = (json as { data?: AdjacentData }).data ?? (json as AdjacentData);
       if (data && typeof data === 'object' && 'prevId' in data) {
         setAdjacent({ prevId: data.prevId, nextId: data.nextId });
       }
-    } catch {
-      // Navigation is non-critical — silently ignore fetch errors
+    } catch (err) {
+      // Convenience control: no error banner, but never keep the previous record's neighbours
+      // (they would navigate to the wrong record) and tell the user why the arrows are off.
+      setAdjacent({ prevId: null, nextId: null });
+      setFailed(true);
+      log.warn('Record navigation could not load adjacent records', { error: err, entity }, 'record-navigation');
     } finally {
       setLoading(false);
     }
@@ -64,7 +71,7 @@ export function RecordNavigation({ entity, currentId, basePath }: Props) {
       <button
         onClick={() => navigate(adjacent.prevId)}
         disabled={loading || !adjacent.prevId}
-        title="Previous record"
+        title={failed ? 'Could not load the neighbouring records' : 'Previous record'}
         aria-label="Previous record"
         className={`
           inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium
@@ -82,7 +89,7 @@ export function RecordNavigation({ entity, currentId, basePath }: Props) {
       <button
         onClick={() => navigate(adjacent.nextId)}
         disabled={loading || !adjacent.nextId}
-        title="Next record"
+        title={failed ? 'Could not load the neighbouring records' : 'Next record'}
         aria-label="Next record"
         className={`
           inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium

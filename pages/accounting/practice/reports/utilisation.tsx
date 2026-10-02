@@ -47,15 +47,16 @@ export default function UtilisationPage() {
   const [users, setUsers] = useState<CompanyUserSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usersError, setUsersError] = useState<string | null>(null);
   const [period, setPeriod] = useState<PeriodRange>({ dateFrom: firstOfMonth(), dateTo: todayIso() });
   const [userId, setUserId] = useState('');
 
   useEffect(() => {
     apiFetch('/api/accounting/practice/users').then(async (res) => {
-      if (!res.ok) return;
+      await assertOk(res, 'Could not load the staff names - try again');
       const json = (await res.json()) as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
       setUsers(Array.isArray(json) ? json : ((json as { data?: CompanyUserSummary[] }).data ?? []));
-    }).catch(() => { /* non-critical */ });
+    }).catch((e: unknown) => { setUsers([]); setUsersError(apiErrorMessage(e, 'Could not load the staff names - try again')); });
   }, []);
 
   useEffect(() => {
@@ -127,6 +128,7 @@ export default function UtilisationPage() {
           </div>
 
           {error && <ErrBanner msg={error} />}
+          {usersError && <ErrBanner msg={usersError} />}
 
           {loading
             ? <div className="flex items-center gap-2 py-12 justify-center text-[var(--ff-text-tertiary)] text-sm"><Loader2 className="h-5 w-5 animate-spin" />Loading…</div>

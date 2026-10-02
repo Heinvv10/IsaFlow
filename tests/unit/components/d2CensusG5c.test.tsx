@@ -112,7 +112,7 @@ describe('supplier migration import', () => {
   it('shows a plain sentence on an empty 500', async () => {
     await runImport(empty500); await waitFor(() => expect(bodyText()).toContain('Could not load the migration session')); noParserText();
   });
-  it('imports on a 200', async () => { await runImport(() => ok({ id: 'sess-1' })); await waitFor(() => expect(bodyText()).toContain('Imported 7 suppliers')); });
+  it('imports on a 200', async () => { await runImport(() => ok({ session: { id: 'sess-1' } })); await waitFor(() => expect(bodyText()).toContain('Imported 7 suppliers')); });
 });
 
 describe('supplier invoice form reference data', () => {

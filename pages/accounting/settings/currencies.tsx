@@ -26,7 +26,7 @@ export default function CurrenciesPage() {
     try {
       // The handler returns the currency array as `data` directly; there is no
       // `data.currencies` wrapper, so this list always rendered empty.
-      setCurrencies(await apiJson('/api/accounting/currencies'));
+      setCurrencies(await apiJson('/api/accounting/currencies', undefined, 'Could not load the currencies - try again'));
     } catch (err) {
       // `apiJson` throws ApiRequestError carrying the server's own message.
       // Surface it — collapsing every cause into one generic string would lose

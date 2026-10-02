@@ -49,20 +49,27 @@ export default function ConnectedAppsPage() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const load = useCallback(async () => {
+  /** Returns '' on success, else the plain-sentence reason (the caller decides how to say it). */
+  const fetchApps = useCallback(async (): Promise<string> => {
     setLoading(true);
     try {
       const res = await apiFetch('/api/oauth/connected-apps');
       await assertOk(res, 'Could not load your connected apps - try again');
       const json = (await res.json()) as { data?: ConnectedApp[] };
       setApps(json.data ?? []);
+      return '';
     } catch (err) {
       setApps([]);
-      showToast(apiErrorMessage(err, 'Could not load your connected apps - try again'), false);
+      return apiErrorMessage(err, 'Could not load your connected apps - try again');
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const load = useCallback(async () => {
+    const problem = await fetchApps();
+    if (problem) showToast(problem, false);
+  }, [fetchApps]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -72,8 +79,9 @@ export default function ConnectedAppsPage() {
     try {
       const res = await apiFetch(`/api/oauth/authorisations/${authorisationId}`, { method: 'DELETE' });
       await assertOk(res, 'Could not revoke access - try again');
-      showToast('Access revoked', true);
-      void load();
+      const problem = await fetchApps();
+      if (problem) showToast('Access revoked, but the list could not be refreshed - reload the page', false);
+      else showToast('Access revoked', true);
     } catch (err) {
       showToast(apiErrorMessage(err, 'Could not revoke access - try again'), false);
     } finally {

@@ -54,11 +54,12 @@ export default function CaptureInboxPage() {
 
   const loadInboxAddress = useCallback(async () => {
     try {
-      const { inbox } = await apiJson('/api/accounting/capture/inbox-address');
+      const { inbox } = await apiJson('/api/accounting/capture/inbox-address', undefined, 'Could not load the inbox address - try again');
       setInboxAddr(inbox);
     } catch (err) {
       log.error('Failed to load capture inbox address', { error: err }, 'accounting-ui');
-      showToast('Failed to load inbox address', false);
+      setInboxAddr(null);
+      showToast(apiErrorMessage(err, 'Could not load the inbox address - try again'), false);
     }
   }, []);
 

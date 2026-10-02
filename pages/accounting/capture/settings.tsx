@@ -50,11 +50,12 @@ export default function CaptureSettingsPage() {
 
   const loadAddress = useCallback(async () => {
     try {
-      const { inbox } = await apiJson('/api/accounting/capture/inbox-address');
+      const { inbox } = await apiJson('/api/accounting/capture/inbox-address', undefined, 'Could not load the inbox address - try again');
       setInboxAddr(inbox);
       setError('');
     } catch (err) {
-      setError(apiErrorMessage(err, 'Failed to load inbox address'));
+      setInboxAddr(null);
+      setError(apiErrorMessage(err, 'Could not load the inbox address - try again'));
     } finally {
       setLoading(false);
     }
@@ -87,7 +88,7 @@ export default function CaptureSettingsPage() {
     setRegenerating(true);
     setConfirmRegen(false);
     try {
-      const { inbox } = await apiJson('/api/accounting/capture/inbox-address', { method: 'POST', body: '{}' });
+      const { inbox } = await apiJson('/api/accounting/capture/inbox-address', { method: 'POST', body: '{}' }, 'Could not regenerate the inbox address - try again');
       setInboxAddr(inbox);
       showToast('Inbox address regenerated', true);
     } catch (err) {

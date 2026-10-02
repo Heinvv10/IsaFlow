@@ -8,6 +8,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
 import { TrafficTimeseriesChart, type TimeseriesPoint } from '@/components/admin/charts/TrafficTimeseriesChart';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { Activity, Loader2, Globe, Download, Bot } from 'lucide-react';
 
 type Range = '24h' | '7d' | '30d' | '90d';
@@ -167,10 +168,9 @@ export default function AdminWebAnalytics() {
     if (!websiteId) return;
     try {
       const res = await apiFetch(`/api/admin/analytics/web/realtime?website_id=${websiteId}`);
-      if (!res.ok) return; // polled every 5s: a failed tick keeps the last reading
-      const json = await res.json();
-      if (json.success) setRealtime(json.data as Realtime);
-    } catch { /* silent */ }
+      await assertOk(res, 'Could not refresh the live visitor count'); // polled every 5s: a failed tick keeps the last reading
+      const json = await res.json(); if (json.success) setRealtime(json.data as Realtime);
+    } catch (err) { log.warn('web-analytics: realtime tick failed, keeping the last reading', { err }); }
   }, [websiteId]);
 
   useEffect(() => { void loadSummary(); }, [loadSummary]);

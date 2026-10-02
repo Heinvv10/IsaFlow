@@ -60,17 +60,17 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
   const loadCompanyDetails = useCallback(async (companyId: string) => {
     try {
       const res = await apiFetch(`/api/accounting/companies?id=${companyId}`);
-      if (res.ok) {
-        const data = await res.json();
-        const c = data.data;
-        if (c) {
-          const company = mapCompanyRow(c);
-          setActiveCompany(company);
-          writeStoredCompany({ id: company.id, name: company.name, isDemo: company.isDemo ?? false });
-          return company;
-        }
+      await assertOk(res, 'Could not load the company details');
+      const data = await res.json();
+      const c = data.data;
+      if (c) {
+        const company = mapCompanyRow(c);
+        setActiveCompany(company);
+        writeStoredCompany({ id: company.id, name: company.name, isDemo: company.isDemo ?? false });
+        return company;
       }
     } catch (e) {
+      // Enrichment of the {id, name} already hydrated from storage: keep that value, say why in the log.
       log.warn('Failed to load company details', { error: e }, 'context');
     }
     return null;

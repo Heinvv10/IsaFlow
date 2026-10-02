@@ -67,6 +67,8 @@ export default function PresentPackPage() {
       try {
         const packData = await apiJson(
           `/api/accounting/reports-pack?type=${packType}&from=${from}&to=${to}`,
+    undefined,
+    'Could not load the report pack - try again',
         );
         if (!live) return;
         setSlides(buildSlides(packData.pack as ReportPack));
@@ -76,9 +78,9 @@ export default function PresentPackPage() {
         // one slide — PresentSlide renders it without the missing column —
         // it must not blank the whole deck the pack fetch just built.
         const [trendsResult, budgetResult, incomeResult] = await Promise.allSettled([
-          apiJson(`/api/accounting/reports-account-trends?as_of=${to}&basis=movement`),
-          apiJson(`/api/accounting/reports-budget-comparator?period_start=${from}&period_end=${to}`),
-          apiJson(`/api/accounting/reports-income-statement?period_start=${from}&period_end=${to}`),
+          apiJson(`/api/accounting/reports-account-trends?as_of=${to}&basis=movement`, undefined, 'Could not load the trend comparison - try again'),
+          apiJson(`/api/accounting/reports-budget-comparator?period_start=${from}&period_end=${to}`, undefined, 'Could not load the budget comparison - try again'),
+          apiJson(`/api/accounting/reports-income-statement?period_start=${from}&period_end=${to}`, undefined, 'Could not load the income statement - try again'),
         ]);
         if (!live) return;
 

@@ -38,22 +38,24 @@ export default function BankFeedsPage() {
   const fetchBankAccounts = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/bank-accounts');
-      if (res.ok) {
-        const json = await res.json();
-        // The bank-accounts endpoint returns the rows directly under `data`
-        // as an array, not under `data.items`. Tolerate both shapes so this
-        // doesn't regress when the API is normalised.
-        const items = Array.isArray(json.data)
-          ? json.data
-          : Array.isArray(json.data?.items)
-            ? json.data.items
-            : [];
-        setBankAccounts(items.map((a: Record<string, unknown>) => ({
-          id: String(a.id),
-          accountName: String(a.accountName ?? a.account_name ?? ''),
-        })));
-      }
-    } catch { /* optional — proceed without bank accounts */ }
+      await assertOk(res, 'Could not load the bank accounts - try again');
+      const json = await res.json();
+      // The bank-accounts endpoint returns the rows directly under `data`
+      // as an array, not under `data.items`. Tolerate both shapes so this
+      // doesn't regress when the API is normalised.
+      const items = Array.isArray(json.data)
+        ? json.data
+        : Array.isArray(json.data?.items)
+          ? json.data.items
+          : [];
+      setBankAccounts(items.map((a: Record<string, unknown>) => ({
+        id: String(a.id),
+        accountName: String(a.accountName ?? a.account_name ?? ''),
+      })));
+    } catch (err) {
+      setBankAccounts([]);
+      notify.error(apiErrorMessage(err, 'Could not load the bank accounts - try again'));
+    }
   }, []);
 
   useEffect(() => {

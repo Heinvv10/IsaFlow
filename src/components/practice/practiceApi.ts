@@ -71,6 +71,8 @@ function asField<T>(
 export async function fetchJobCategories(includeInactive = false): Promise<JobCategory[]> {
   const data = await apiJson(
     `/api/accounting/practice/job-categories?includeInactive=${includeInactive}`,
+    undefined,
+    'Could not load the job categories - try again',
   );
   return asArray<JobCategory>(data, 'job categories');
 }
@@ -100,6 +102,8 @@ export async function fetchWorkItems(
   const data = await apiJson(
     `/api/accounting/practice/work-items?categoryId=${encodeURIComponent(categoryId)}` +
       `&includeInactive=${includeInactive}`,
+    undefined,
+    'Could not load the work items - try again',
   );
   return asArray<WorkItem>(data, 'work items');
 }
@@ -136,6 +140,8 @@ export const CLIENT_PICKER_LIMIT = 1000;
 export async function fetchActiveClients(): Promise<PracticeClient[]> {
   const data = await apiJson(
     `/api/accounting/practice/clients?status=active&limit=${CLIENT_PICKER_LIMIT}`,
+    undefined,
+    'Could not load the clients - try again',
   );
   return asField<PracticeClient[]>(data, 'clients', 'practice clients', 'array');
 }
@@ -143,7 +149,7 @@ export async function fetchActiveClients(): Promise<PracticeClient[]> {
 // ----------------------------------------------------------------- templates
 
 export async function fetchEntryTemplates(): Promise<EntryTemplate[]> {
-  const data = await apiJson('/api/accounting/practice/entry-templates');
+  const data = await apiJson('/api/accounting/practice/entry-templates', undefined, 'Could not load the entry templates - try again');
   return asField<EntryTemplate[]>(data, 'templates', 'entry templates', 'array');
 }
 
@@ -171,6 +177,8 @@ export async function resolveStaffRate(
     const data = await apiJson(
       `/api/accounting/practice/rate-resolve?userId=${encodeURIComponent(userId)}` +
         `&clientId=${encodeURIComponent(clientId)}&date=${encodeURIComponent(date)}`,
+    undefined,
+    'Could not look up the billing rate - try again',
     );
     return asField<number>(data, 'rate', 'rate resolve', 'number');
   } catch (err) {

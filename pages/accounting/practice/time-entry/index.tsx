@@ -72,7 +72,7 @@ export default function TimeEntryPage() {
         setClients(clientList);
         setCategories(categoryList);
       } catch (err) {
-        setInitError(`Failed to load clients or categories: ${apiErrorMessage(err, 'unknown error')}`);
+        setInitError(apiErrorMessage(err, 'Could not load the clients or categories - try again'));
       }
       finally { setInitLoading(false); }
     })();

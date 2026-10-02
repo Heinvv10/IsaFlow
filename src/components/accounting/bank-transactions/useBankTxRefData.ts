@@ -44,7 +44,7 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
   } = setters;
 
   const refreshBankAccounts = useCallback(() => {
-    apiJson('/api/accounting/bank-accounts').then(data => {
+    apiJson('/api/accounting/bank-accounts', undefined, 'Could not load the bank accounts - try again').then(data => {
       const bankList: BankAcct[] = Array.isArray(data) ? data : [];
       setBankAccounts(bankList);
     }).catch((err) => {

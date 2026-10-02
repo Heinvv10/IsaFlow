@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { apiFetch, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Building2, Loader2, AlertCircle, Plus, X } from 'lucide-react';
 
 interface CostCentre {
@@ -36,27 +36,26 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const [cRes, aRes] = await Promise.all([
         apiFetch('/api/payroll/cost-centres?activeOnly=1'),
         apiFetch(`/api/payroll/employees/${employeeId}/cost-allocations`),
       ]);
-      if (cRes.ok) {
-        const json = await cRes.json();
-        setCentres((json.data ?? json) as CostCentre[]);
-      }
-      if (aRes.ok) {
-        const json = await aRes.json();
-        const list = ((json.data ?? json) as Allocation[]) ?? [];
-        setAllocations(list);
-        setBaseline(list);
-        if (list.length > 0) setMode('split');
-      }
+      await assertOk(cRes, 'Could not load cost centres - try again');
+      await assertOk(aRes, 'Could not load the cost allocations - try again');
+      const cJson = await cRes.json();
+      setCentres((cJson.data ?? cJson) as CostCentre[]);
+      const aJson = await aRes.json();
+      const list = ((aJson.data ?? aJson) as Allocation[]) ?? [];
+      setAllocations(list);
+      setBaseline(list);
+      if (list.length > 0) setMode('split');
     } catch (err) {
       setCentres([]);
       setAllocations([]);
       setBaseline([]);
-      setError(apiErrorMessage(err, 'Could not load cost centres - try again'));
+      setError(apiErrorMessage(err, 'Could not load the cost centres and allocations - try again'));
     } finally {
       setLoading(false);
     }
@@ -113,7 +112,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
-        setError(json.error?.message ?? json.message ?? 'Save failed');
+        setError(json.error?.message ?? json.message ?? 'Could not save the cost centre - try again');
         return;
       }
       onChange(costCentreId);
@@ -135,7 +134,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? 'Save failed');
+        setError(j.error?.message ?? j.message ?? 'Could not save the allocations - try again');
         return;
       }
       const json = await res.json();

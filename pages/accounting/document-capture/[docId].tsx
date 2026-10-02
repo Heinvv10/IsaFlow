@@ -72,7 +72,7 @@ export default function DocumentCaptureDetailPage() {
     setError('');
 
     try {
-      const found = await apiJson(`/api/accounting/document-capture?id=${encodeURIComponent(String(docId))}`);
+      const found = await apiJson(`/api/accounting/document-capture?id=${encodeURIComponent(String(docId))}`, undefined, 'Could not load the document - try again');
 
       setDoc(found);
 

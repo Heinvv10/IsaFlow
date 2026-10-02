@@ -54,7 +54,7 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
     setError(null);
     try {
       const qs = new URLSearchParams({ type, from, to });
-      const r = await apiJson(`/api/accounting/commentary?${qs.toString()}`);
+      const r = await apiJson(`/api/accounting/commentary?${qs.toString()}`, undefined, 'Could not load the commentary - try again');
       if (requestId.current !== id) return;
       // NOT `: []`. The route's type is a union of the GET and POST envelopes,
       // and an empty array for the wrong arm renders as "no commentary yet" —
@@ -83,7 +83,7 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
       await apiJson('/api/accounting/commentary', {
         method: 'POST',
         body: JSON.stringify({ params: { type, from, to }, replace }),
-      });
+      }, 'Could not save the commentary - try again');
       await refresh();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not generate commentary.'));
@@ -93,7 +93,7 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
   const approve = useCallback(async (id: string) => {
     setError(null);
     try {
-      await apiJson(`/api/accounting/commentary/${id}/approve`, { method: 'POST' });
+      await apiJson(`/api/accounting/commentary/${id}/approve`, { method: 'POST' }, 'Could not approve the commentary - try again');
       await refresh();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not approve that commentary.'));
@@ -103,7 +103,7 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
   const reject = useCallback(async (id: string) => {
     setError(null);
     try {
-      await apiJson(`/api/accounting/commentary/${id}/reject`, { method: 'POST' });
+      await apiJson(`/api/accounting/commentary/${id}/reject`, { method: 'POST' }, 'Could not reject the commentary - try again');
       await refresh();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not reject that commentary.'));

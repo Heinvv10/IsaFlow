@@ -50,6 +50,7 @@ export default function ApprovalsPage() {
   const [users, setUsers] = useState<CompanyUserSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [filterError, setFilterError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [period, setPeriod] = useState<PeriodRange>({ dateFrom: firstOfMonth(), dateTo: localISODate() });
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -83,7 +84,7 @@ export default function ApprovalsPage() {
   const loadClients = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/practice/clients?status=active');
-      if (!res.ok) return;
+      await assertOk(res, 'Could not load the client filter - try again');
       const json = (await res.json()) as unknown;
       const payload = (json && typeof json === 'object' && 'data' in json ? (json as { data: unknown }).data : json) as unknown;
       const list = Array.isArray(payload)
@@ -92,16 +93,16 @@ export default function ApprovalsPage() {
           ? (payload as { clients: PracticeClient[] }).clients
           : [];
       setClients(list as PracticeClient[]);
-    } catch (_err) { /* non-fatal */ }
+    } catch (err) { setClients([]); setFilterError(apiErrorMessage(err, 'Could not load the client filter - try again')); }
   }, []);
 
   const loadUsers = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/practice/users');
-      if (!res.ok) return;
+      await assertOk(res, 'Could not load the user filter - try again');
       const json = (await res.json()) as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
       setUsers(Array.isArray(json) ? json : ((json as { data?: CompanyUserSummary[] }).data ?? []));
-    } catch (_err) { /* non-fatal */ }
+    } catch (err) { setUsers([]); setFilterError(apiErrorMessage(err, 'Could not load the user filter - try again')); }
   }, []);
 
   useEffect(() => { void loadClients(); void loadUsers(); void loadEntries(EMPTY_FILTERS); }, [loadClients, loadUsers, loadEntries]);
@@ -222,6 +223,7 @@ export default function ApprovalsPage() {
           </div>
 
           {loadError && <ErrBanner msg={loadError} />}
+          {filterError && <ErrBanner msg={filterError} />}
 
           {/* table */}
           {loading ? (

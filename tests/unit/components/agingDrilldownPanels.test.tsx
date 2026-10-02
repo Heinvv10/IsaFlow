@@ -48,7 +48,7 @@ describe('AgingInvoicesPanel', () => {
   it('reports a failed load', async () => {
     vi.mocked(apiFetch).mockResolvedValue(new Response('{}', { status: 403 }));
     inTable(<AgingInvoicesPanel side="ap" entityId={CUSTOMER} entityName="Acme" asAtDate="2026-05-31" colSpan={8} />);
-    expect(await screen.findByText(/Could not load invoices for Acme \(Could not load the invoices - try again\)/)).toBeTruthy();
+    expect(await screen.findByText('Could not load the invoices - try again')).toBeTruthy();
   });
 });
 

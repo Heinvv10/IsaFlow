@@ -43,10 +43,10 @@ export default function MissingInvoicesPage() {
   const loadSettings = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/chase-settings');
-      if (!res.ok) return;
+      await assertOk(res, 'Could not load the chase settings - try again');
       const json = await res.json() as { data?: ChaseSettings };
       if (json.data) setChaseSettings(json.data);
-    } catch { /* silent — settings UI is optional */ }
+    } catch (err) { setChaseSettings(null); setToast({ msg: apiErrorMessage(err, 'Could not load the chase settings - try again'), kind: 'err' }); }
   }, []);
 
   useEffect(() => { void loadSettings(); }, [loadSettings]);

@@ -65,7 +65,7 @@ export default function CustomerDedupPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target_id: pending.keepId, source_id: pending.mergeId }),
-      });
+      }, 'Could not merge the customers - try again');
       // Remove all pairs that involved either customer
       setPairs((prev) =>
         prev.filter(

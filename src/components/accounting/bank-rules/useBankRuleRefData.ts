@@ -97,7 +97,7 @@ export function useBankRuleRefData(): BankRuleRefData {
     }, pushErr);
 
     void loadWithLog('Bank accounts', async () => {
-      const data = await apiJson('/api/accounting/bank-accounts');
+      const data = await apiJson('/api/accounting/bank-accounts', undefined, 'Could not load the bank accounts - try again');
       const list = Array.isArray(data) ? data : [];
       const mapped: RefBankAccount[] = list.map((a) => ({
         id: String(a.id),

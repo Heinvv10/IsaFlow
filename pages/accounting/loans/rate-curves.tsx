@@ -65,6 +65,7 @@ export default function RateCurvesPage() {
   const handleCreate = async () => {
     if (!newName.trim()) return;
     setCreating(true);
+    setError('');
     try {
       const res = await apiFetch('/api/accounting/loan-rate-curves', {
         method: 'POST',
@@ -72,11 +73,12 @@ export default function RateCurvesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName.trim() }),
       });
-      if (res.ok) {
-        setNewName('');
-        setShowNewForm(false);
-        await loadCurves();
-      }
+      await assertOk(res, 'Could not create the rate curve - try again');
+      setNewName('');
+      setShowNewForm(false);
+      await loadCurves();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not create the rate curve - try again'));
     } finally { setCreating(false); }
   };
 
@@ -104,15 +106,12 @@ export default function RateCurvesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ points: pts }),
       });
-      if (res.ok) {
-        setUploadStatus(prev => ({ ...prev, [curveId]: `✓ ${pts.length} points uploaded` }));
-        setPoints(prev => ({ ...prev, [curveId]: undefined as unknown as RatePoint[] }));
-        await loadPoints(curveId);
-      } else {
-        setUploadStatus(prev => ({ ...prev, [curveId]: 'Upload failed' }));
-      }
-    } catch {
-      setUploadStatus(prev => ({ ...prev, [curveId]: 'Upload error' }));
+      await assertOk(res, 'Could not upload the rate points - try again');
+      setUploadStatus(prev => ({ ...prev, [curveId]: `✓ ${pts.length} points uploaded` }));
+      setPoints(prev => ({ ...prev, [curveId]: undefined as unknown as RatePoint[] }));
+      await loadPoints(curveId);
+    } catch (err) {
+      setUploadStatus(prev => ({ ...prev, [curveId]: apiErrorMessage(err, 'Could not upload the rate points - try again') }));
     }
   };
 
@@ -207,7 +206,7 @@ export default function RateCurvesPage() {
                           const f = e.target.files?.[0];
                           if (f) {
                             handleCsvUpload(curve.id, f).catch(() => {
-                              setUploadStatus(prev => ({ ...prev, [curve.id]: 'Upload error' }));
+                              setUploadStatus(prev => ({ ...prev, [curve.id]: 'Could not read the CSV file - try again' }));
                             });
                           }
                           e.target.value = '';

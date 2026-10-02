@@ -39,11 +39,13 @@ export default function LoansListPage() {
   const [statusFilter, setStatusFilter] = useState<'' | LoanRow['status']>('');
 
   const [componentsMissing, setComponentsMissing] = useState(false);
+  const [componentsError, setComponentsError] = useState('');
   const [seeding, setSeeding] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
+    setComponentsError('');
     try {
       const qs = statusFilter ? `?status=${statusFilter}` : '';
       const [loansRes, compRes] = await Promise.all([
@@ -53,11 +55,15 @@ export default function LoansListPage() {
       await assertOk(loansRes, 'Could not load the loans - try again');
       const json = await loansRes.json();
       setLoans((json.data ?? json) as LoanRow[]);
-      if (compRes.ok) {
+      try {
+        await assertOk(compRes, 'Could not check the loan payslip components - try again');
         const compJson = await compRes.json();
         const components = (compJson.data ?? compJson) as Array<{ sarsSourceCode: string }>;
         const codes = new Set(components.map(c => c.sarsSourceCode));
         setComponentsMissing(!codes.has('LOAN') || !codes.has('3801'));
+      } catch (compErr) {
+        setComponentsMissing(false);
+        setComponentsError(apiErrorMessage(compErr, 'Could not check the loan payslip components - try again'));
       }
     } catch (err) {
       setLoans([]);
@@ -110,6 +116,12 @@ export default function LoansListPage() {
                 className="px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium disabled:opacity-50">
                 {seeding ? 'Creating...' : 'Create loan components'}
               </button>
+            </div>
+          )}
+
+          {componentsError && !loading && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-300">
+              <AlertCircle className="h-4 w-4 shrink-0" /><span>{componentsError}</span>
             </div>
           )}
 

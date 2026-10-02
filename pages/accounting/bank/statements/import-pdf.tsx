@@ -67,7 +67,7 @@ export default function ImportPdfPage() {
 
   const loadAccounts = useCallback(async () => {
     try {
-      const data = await apiJson('/api/accounting/bank-accounts');
+      const data = await apiJson('/api/accounting/bank-accounts', undefined, 'Could not load the bank accounts - try again');
       const list = Array.isArray(data) ? data : [];
       setAccounts(list);
       if (list.length > 0) setSelectedAccount(list[0]!.id);
