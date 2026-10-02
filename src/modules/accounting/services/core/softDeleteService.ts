@@ -10,6 +10,7 @@ import { softDeleteRow, restoreRow } from './softDeleteRowOps';
 import { assertNoOpenDocuments } from './masterDeleteGuards';
 import { prepareInvoiceDelete, reinstateInvoiceJournal } from './softDeleteJournalService';
 import { SoftDeleteRefusalError } from './softDeleteErrors';
+import { underFlowLockBudget } from './rowLockBudget';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 
@@ -28,6 +29,16 @@ const INVOICE_ENTITY_TYPES = new Set(['customer_invoice', 'supplier_invoice']);
 
 export function isValidEntityType(entityType: string): boolean {
   return ALLOWED_ENTITY_TYPES.has(entityType);
+}
+
+/**
+ * An invoice's delete or undo under ONE flow lock budget (D8 round 11), inside this service's own savepoint as every
+ * D8 entry point runs it: the invoice row lock, the undo's `deleted_at` UPDATE and the contra posting each wait at
+ * most 5 s, then answer `RowLockTimeoutError` (503). The request transaction stays withAuth's. Other entity types post
+ * nothing and are left as they were.
+ */
+function underInvoiceLockBudget<T>(entityType: string, entityId: string, fn: () => Promise<T>): Promise<T> {
+  return INVOICE_ENTITY_TYPES.has(entityType) ? underFlowLockBudget(`Invoice ${entityId}`, fn) : fn();
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -52,9 +63,9 @@ export async function softDelete(
   // SAVEPOINT for the same reason cancel takes one: the route answers 400 on a
   // refusal and withAuth COMMITs the request tx on any <5xx, so a failure after
   // the reversal's draft INSERTs would orphan-commit them.
-  return withSavepoint('soft_delete_entity', () =>
+  return withSavepoint('soft_delete_entity', () => underInvoiceLockBudget(entityType, entityId, () =>
     softDeleteInner(companyId, entityType, entityId, userId),
-  );
+  ));
 }
 
 async function softDeleteInner(
@@ -105,9 +116,9 @@ export async function undoDelete(
     throw new Error(`Unknown entity type: ${entityType}`);
   }
 
-  return withSavepoint('undo_delete_entity', () =>
+  return withSavepoint('undo_delete_entity', () => underInvoiceLockBudget(entityType, entityId, () =>
     undoDeleteInner(companyId, entityType, entityId, userId),
-  );
+  ));
 }
 
 async function undoDeleteInner(
