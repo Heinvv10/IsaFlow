@@ -156,7 +156,7 @@ export default function SubscriptionsPage() {
       setConfirmCancelId(null);
       void load(search, status, page);
     } catch (err) {
-      setCancelError(err instanceof Error ? err.message : 'Failed to cancel subscription');
+      setCancelError(apiErrorMessage(err, 'Could not cancel the subscription - try again'));
     } finally {
       setCancelling(false);
     }
