@@ -4,6 +4,7 @@ import { adminUpdateUser } from '@/lib/auth/gotrue';
 import { revokeAllSessions } from '@/lib/auth/sessionRevocation';
 import { consumePasswordResetToken, releasePasswordResetToken } from '@/lib/auth/passwordResetService';
 import { AuthUpstreamUnavailableError, respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
+import { sql } from '@/lib/neon';
 import { withRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 
@@ -35,14 +36,34 @@ const handler: NextApiHandler = async (req, res) => {
     // OUTAGE instead hands the link back (below): retrying it re-applies the
     // password and finishes the revocation.
     spent = true;
-    const updated = await adminUpdateUser(consumed.userId, { password: newPassword });
+    let email: string;
+    try {
+      email = (await adminUpdateUser(consumed.userId, { password: newPassword })).email;
+    } catch (updateErr) {
+      if (!(updateErr instanceof AuthUpstreamUnavailableError)) throw updateErr;
+      // D9: the outcome is UNKNOWN — GoTrue may have saved the password and lost the reply. Fail safe:
+      // still revoke every session (it signs in with the new password, so it succeeds only if the change
+      // landed). If it cannot, the outage stands: the link is handed back below and a retry finishes it.
+      const rows = await sql<{ email: string }>`SELECT email FROM users WHERE id = ${consumed.userId} LIMIT 1`;
+      if (!rows[0]?.email) throw updateErr;
+      email = rows[0].email;
+      try {
+        await revokeAllSessions(email, newPassword);
+      } catch (revokeErr) {
+        log.warn('reset-password: outcome unknown; revocation not possible yet', {
+          message: revokeErr instanceof Error ? revokeErr.message : String(revokeErr),
+        }, 'Auth');
+        throw updateErr;
+      }
+      return res.status(200).json({ success: true, data: null });
+    }
     // SECURITY: a reset is compromise recovery. adminUpdateUser only rotates the
     // password hash — GoTrue's stateless HS256 refresh tokens survive it, so a
     // stolen token would keep refreshing after the reset. Revoke ALL sessions
     // globally (see sessionRevocation.ts). Fail closed: if this throws it is
     // caught below and surfaced as a 500 so the user is never told the reset
     // succeeded while stale sessions may still be live.
-    await revokeAllSessions(updated.email, newPassword);
+    await revokeAllSessions(email, newPassword);
     return res.status(200).json({ success: true, data: null });
   } catch (err) {
     if (spent && err instanceof AuthUpstreamUnavailableError) {

@@ -26,7 +26,10 @@ vi.mock('@/lib/auth/withUserAuth', () => ({
     return h(q, s);
   },
 }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
+// do-reset-password reads the account email from `users` when the update's outcome is unknown.
+vi.mock('@/lib/neon', () => ({
+  sql: vi.fn(async (strings: TemplateStringsArray) => (strings.join('?').includes('FROM users') ? [{ email: 'user@example.test' }] : [])),
+}));
 const { tokens } = vi.hoisted(() => ({ tokens: new Map<string, { userId: string; consumed: boolean }>() }));
 vi.mock('@/lib/auth/passwordResetService', () => ({
   consumePasswordResetToken: vi.fn(async (raw: string) => {
@@ -78,11 +81,23 @@ const OUTAGES: Array<[string, Answerer]> = [
 const SESSION = { access_token: 'a', refresh_token: 'r', expires_in: 3600, token_type: 'bearer', user: { id: 'user-1', email: 'user@example.test' } };
 const ok = (body: unknown): Answerer => async () => Response.json(body);
 
+/** GoTrue's stored password: a sign-in succeeds only with it; an admin PUT that GoTrue applies changes it. */
+const gt = { password: 'right-password' };
+const bodyPassword = (init?: RequestInit) => (JSON.parse(String(init?.body ?? '{}')) as { password?: string }).password;
+const signInWithState: Answerer = async (init) => (bodyPassword(init) === gt.password
+  ? Response.json(SESSION) : new Response('{"error":"invalid_grant"}', { status: 400 }));
+const applyUpdate: Answerer = async (init) => {
+  gt.password = bodyPassword(init) ?? gt.password;
+  return Response.json({ id: 'user-1', email: 'user@example.test' });
+};
+/** GoTrue saved the new password, then the reply was lost: the bound fires (timeout) or the body is cut off. */
+const appliedThen = (lost: Answerer): Answerer => async (init) => { await applyUpdate(init); return lost(init); };
+
 /** GoTrue by path: sign-in, the admin PUT and logout each get their own answer. */
 function gotrue(answers: { token?: Answerer; update?: Answerer; logout?: Answerer }) {
   return vi.fn(async (url: string, init?: RequestInit) => {
-    if (url.includes('/token?grant_type=password')) return (answers.token ?? ok(SESSION))(init);
-    if (url.includes('/admin/users/')) return (answers.update ?? ok({ id: 'user-1', email: 'user@example.test' }))(init);
+    if (url.includes('/token?grant_type=password')) return (answers.token ?? signInWithState)(init);
+    if (url.includes('/admin/users/')) return (answers.update ?? applyUpdate)(init);
     if (url.includes('/logout')) return (answers.logout ?? (async () => new Response(null, { status: 204 })))(init);
     throw new Error(`unexpected fetch ${url}`);
   });
@@ -102,6 +117,7 @@ beforeEach(() => {
   restoreBound = setAuthUpstreamBoundForTests(50);
   tokens.clear();
   tokens.set('link-1', { userId: 'user-1', consumed: false });
+  gt.password = 'right-password';
 });
 afterEach(() => { restoreBound(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
@@ -154,5 +170,42 @@ describe('a failure that is not an outage keeps its old answer', () => {
     vi.stubGlobal('fetch', gotrue({ update: async () => new Response('{"msg":"already registered"}', { status: 422 }) }));
     const answer = await call(changeEmail, { newEmail: 'new@example.test', currentPassword: 'right-password' });
     expect(answer.status).toBe(409);
+  });
+});
+
+describe('the update\'s outcome is unknown (GoTrue saved it, then the reply was lost): revoke anyway (fail safe)', () => {
+  const lost: Array<[string, Answerer]> = [['a timeout', hang], ['a cut-off body', OUTAGES[4]![1]]];
+  const logouts = (fetch: ReturnType<typeof gotrue>) => fetch.mock.calls.filter(([u]) => String(u).includes('/logout')).map(([u]) => String(u));
+
+  it.each(lost)('change-password, %s: the other sessions are revoked and the caller keeps a fresh session', async (_l, reply) => {
+    const fetch = gotrue({ update: appliedThen(reply) });
+    vi.stubGlobal('fetch', fetch);
+    const answer = await call(changePassword, { currentPassword: 'right-password', newPassword: NEW_VALUE });
+    expect(logouts(fetch)).toEqual(['http://gotrue.test.local/logout?scope=others']);
+    expect(answer.status).toBe(200);
+    expect((answer.headers['set-cookie'] as string[]).some((c) => c.startsWith('sb-access-token=a;'))).toBe(true);
+  });
+  it('change-password, the outcome stays unknown (sign-in also unavailable): 503 that says so, never an unhandled error', async () => {
+    const fetch = gotrue({ update: appliedThen(hang), token: async (init) => (bodyPassword(init) === 'right-password'
+      ? Response.json(SESSION) : new Response('', { status: 503 })) });
+    vi.stubGlobal('fetch', fetch);
+    const answer = await call(changePassword, { currentPassword: 'right-password', newPassword: NEW_VALUE });
+    expect(answer.status).toBe(503);
+    expect(answer.body).toMatchObject({ success: false, error: { code: 'PASSWORD_CHANGE_UNCONFIRMED' } });
+  });
+  it.each(lost)('do-reset-password, %s: every session is revoked and the reset completes; the link stays spent', async (_l, reply) => {
+    const fetch = gotrue({ update: appliedThen(reply) });
+    vi.stubGlobal('fetch', fetch);
+    expect((await call(doReset, { recoveryToken: 'link-1', newPassword: NEW_VALUE })).status).toBe(200);
+    expect(logouts(fetch)).toEqual(['http://gotrue.test.local/logout?scope=global']);
+    expect(tokens.get('link-1')?.consumed).toBe(true);
+  });
+  it('do-reset-password, saved but the revocation is unavailable: 503, and the same link finishes it', async () => {
+    vi.stubGlobal('fetch', gotrue({ update: appliedThen(hang), logout: async () => new Response('', { status: 503 }) }));
+    expectOutage(await call(doReset, { recoveryToken: 'link-1', newPassword: NEW_VALUE }));
+    const retry = gotrue({});
+    vi.stubGlobal('fetch', retry);
+    expect((await call(doReset, { recoveryToken: 'link-1', newPassword: NEW_VALUE })).status).toBe(200);
+    expect(logouts(retry)).toEqual(['http://gotrue.test.local/logout?scope=global']);
   });
 });
