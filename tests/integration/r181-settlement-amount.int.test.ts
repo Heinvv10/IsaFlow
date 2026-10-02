@@ -92,7 +92,8 @@ describe('R-181: the reported amount is what is banked', () => {
     const ref = await checkout(A, id);
     expect((await deliver(ref, 11500, 'USD')).statusCode).toBe(200);
     expect(await settlement(A, ref, id)).toMatchObject({
-      payments: [{ total: '115.00' }], bankDebit: '115.00', review: 'review:currency_mismatch' });
+      payments: [{ total: '115.00', allocated: '0.00' }], bankDebit: '115.00', invoicePaid: '0.00',
+      review: 'review:currency_mismatch,unapplied_currency' });
     expect(errorLog).toHaveBeenCalledWith(expect.any(String),
       expect.objectContaining({ companyId: A.id, reference: ref, reportedCurrency: 'USD' }), expect.any(String));
   });

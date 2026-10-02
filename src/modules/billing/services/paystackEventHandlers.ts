@@ -98,6 +98,7 @@ async function handleChargeSuccess(
     amountCents: event.data.amount,
     currency: event.data.currency,
     requestedAmountCents: event.data.requested_amount,
+    feeCents: event.data.fees,
   };
 
   const prRows = await sql<{

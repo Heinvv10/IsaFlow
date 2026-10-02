@@ -111,7 +111,7 @@ describe('paystackClient — REST surface', () => {
         reference: 'ref_2',
         id: 9876,
         amount: 250000,
-        requested_amount: 245000,
+        requested_amount: 245000, fees: 3750,
         currency: 'ZAR',
         channel: 'card',
         paid_at: '2026-05-01T10:00:00Z',
@@ -137,7 +137,7 @@ describe('paystackClient — REST surface', () => {
 
     expect(result.status).toBe('success');
     expect(result.amountCents).toBe(250000);
-    expect(result.requestedAmountCents).toBe(245000); // R-181: before a customer-paid fee
+    expect([result.requestedAmountCents, result.feesCents]).toEqual([245000, 3750]); // R-181
     expect(result.authorization?.authorizationCode).toBe('AUTH_xyz');
     expect(result.authorization?.last4).toBe('4242');
     expect(result.authorization?.reusable).toBe(true);

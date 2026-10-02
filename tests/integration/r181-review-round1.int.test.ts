@@ -89,7 +89,7 @@ describe('1. a fee the customer paid is the gateway\'s, not customer credit', ()
   it('verify first with charges passed on, then the webhook with the fee: one R115 receipt, no disagreement', async () => {
     const id = await invoice(A);
     const ref = await checkout(A, id);
-    paystackSays(11850, { requestedAmountCents: 11500 });
+    paystackSays(11850, { requestedAmountCents: 11500, feesCents: 350 });
     expect((await verify(ref)).body.data?.status).toBe('completed');
     expect((await deliver(ref, 11850, 'ZAR', { requested_amount: 11500, fees: 350 })).statusCode).toBe(200);
     expect(await settlement(A, ref, id)).toMatchObject({ payments: [{ total: '115.00', allocated: '115.00' }], review: null });
@@ -119,7 +119,7 @@ describe('2. a non-ZAR charge', () => {
     const id = await invoice(A);
     const ref = await checkout(A, id);
     expect((await deliver(ref, 11500, 'USD', { fees: 350 })).statusCode).toBe(200);
-    expect((await settlement(A, ref, id)).review).toBe('review:currency_mismatch,fee_not_posted_currency');
+    expect((await settlement(A, ref, id)).review).toBe('review:currency_mismatch,unapplied_currency,fee_not_posted_currency');
     const l = await ledger(A, ref);
     expect(l).toMatchObject({ bankNet: '115.00', feeExpense: '0.00', balanced: true });
     expect(l.description).toContain('USD 115.00');
