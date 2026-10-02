@@ -61,11 +61,11 @@ export default function DRCVatPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ supplierInvoiceId: invoiceId }),
       });
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not apply DRC VAT - try again');
       const json = await res.json();
       setSuccess(`DRC VAT applied: ${fmt(json.data?.vatAmount || 0)}`);
       await load();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not apply DRC VAT - try again')); }
     finally { setBusy(''); }
   };
 

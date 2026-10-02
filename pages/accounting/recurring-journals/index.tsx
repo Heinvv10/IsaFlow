@@ -120,10 +120,10 @@ export default function RecurringJournalsPage() {
         method, headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify(payload),
       });
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not save the recurring journal - try again');
       resetForm();
       await load();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not save the recurring journal - try again')); }
     finally { setBusy(''); }
   };
 

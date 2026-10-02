@@ -85,10 +85,10 @@ export default function BankTransactionsPage() {
         period_start: periodStart, period_end: periodEnd, account_code: accountCode,
       });
       const res = await apiFetch(`/api/accounting/reports-bank-transactions?${params}`, { credentials: 'include' });
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not load the bank transactions report - try again');
       const json = await res.json();
       setReport(json.data || null);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load the bank transactions report - try again')); }
     finally { setLoading(false); }
   }, [periodStart, periodEnd, accountCode]);
 

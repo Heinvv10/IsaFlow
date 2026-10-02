@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Ban, Download } from 'lucide-react';
@@ -91,7 +91,7 @@ export default function SubscriptionsPage() {
       setRows(d.items);
       setTotal(d.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Could not load subscriptions - try again'));
     } finally {
       setLoading(false);
     }
@@ -141,7 +141,7 @@ export default function SubscriptionsPage() {
       setForm(EMPTY_FORM);
       void load(search, status, 1);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed');
+      setFormError(apiErrorMessage(err, 'Could not create the subscription - try again'));
     } finally {
       setSaving(false);
     }

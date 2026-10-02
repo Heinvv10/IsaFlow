@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { CompanyBillingTab } from '@/components/admin/companies/CompanyBillingTab';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { CompanyEffectiveFeature } from '@/modules/admin/types/admin-billing.types';
 import { formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
@@ -132,7 +132,7 @@ export default function AdminCompanyDetailPage() {
       await assertOk(res, 'Failed to load company');
       const json = await res.json();
       setCompany(json.data as CompanyDetail);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load the company - try again')); }
     finally { setLoading(false); }
   }, [id]);
 
@@ -171,9 +171,9 @@ export default function AdminCompanyDetailPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ reason: suspendReason }),
       });
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not suspend the company - try again');
       setSuspendOpen(false); setSuspendReason(''); void load();
-    } catch (err) { setActionError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setActionError(apiErrorMessage(err, 'Could not suspend the company - try again')); }
     finally { setActionLoading(false); }
   }
 
@@ -182,9 +182,9 @@ export default function AdminCompanyDetailPage() {
     setActionLoading(true); setActionError('');
     try {
       const res  = await apiFetch(`/api/admin/companies/${id}/activate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not activate the company - try again');
       void load();
-    } catch (err) { setActionError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setActionError(apiErrorMessage(err, 'Could not activate the company - try again')); }
     finally { setActionLoading(false); }
   }
 
@@ -193,9 +193,9 @@ export default function AdminCompanyDetailPage() {
     setActionLoading(true); setActionError('');
     try {
       const res  = await apiFetch(`/api/admin/companies/${id}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not delete the company - try again');
       void router.push(adminHref('/admin/companies'));
-    } catch (err) { setActionError(err instanceof Error ? err.message : 'Failed'); setActionLoading(false); }
+    } catch (err) { setActionError(apiErrorMessage(err, 'Could not delete the company - try again')); setActionLoading(false); }
   }
 
   function startEdit() {

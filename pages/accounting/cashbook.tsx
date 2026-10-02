@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { BookOpen, Loader2, AlertCircle, Filter } from 'lucide-react';
 import { log } from '@/lib/logger';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 const fmt = (n: number) =>
@@ -77,12 +77,12 @@ export default function CashbookPage() {
         limit: '500',
       });
       const res = await apiFetch(`/api/accounting/bank-transactions?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the cashbook - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to load');
       const data = json.data || json;
       setTransactions(Array.isArray(data) ? data : data.items || data.transactions || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Could not load the cashbook - try again'));
     } finally {
       setLoading(false);
     }
