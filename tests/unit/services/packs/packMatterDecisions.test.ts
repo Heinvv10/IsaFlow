@@ -30,10 +30,10 @@ const NO_DECISION = 'None. Note for the record.';
 describe('every decision the pack puts to the board is a question', () => {
   it('opens each one with "Whether"', () => {
     const entries = Object.entries(BOARD_DECISIONS);
-    // Six sources: four ledger checks, the derived credit month, and a check
-    // that failed. A record that has quietly shrunk is a source whose wording
-    // moved back into a literal.
-    expect(entries.length).toBe(6);
+    // Seven: four ledger checks, the derived credit month, a check that
+    // failed, and a bulk load of journals. A record that has quietly shrunk
+    // is a source whose wording moved back into a literal.
+    expect(entries.length).toBe(7);
     for (const [name, decision] of entries) {
       expect(decision, `${name} does not put a question to the board`).toMatch(/^Whether\b/);
       expect(decision, `${name} is not a sentence`).toMatch(/\.$/);
