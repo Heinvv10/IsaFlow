@@ -204,3 +204,62 @@ describe('5. two settlements racing for one invoice', () => {
     expect(await settlement(A, ref, id)).toMatchObject({ payments: [{ total: '115.00', allocated: '115.00' }], invoicePaid: '115.00' });
   }, 30_000);
 });
+
+describe('R-181 review round 2: the second report and a missing amount', () => {
+  it('LOW-1: verify ZAR then a webhook reporting USD flags the currency', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    paystackSays(11500);
+    expect((await verify(ref)).body.data?.status).toBe('completed');
+    expect((await deliver(ref, 11500, 'USD')).statusCode).toBe(200);
+    expect((await settlement(A, ref, id)).review).toBe('review:currency_mismatch');
+  });
+
+  it('LOW-1: verify R115 then a webhook with no amount flags amount_not_reported', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    paystackSays(11500);
+    expect((await verify(ref)).body.data?.status).toBe('completed');
+    expect((await deliver(ref, null)).statusCode).toBe(200);
+    expect(await settlement(A, ref, id)).toMatchObject({
+      payments: [{ total: '115.00' }], review: 'review:amount_not_reported' });
+  });
+
+  it('LOW-2: verify banks R118.50 with no requested_amount; the webhook fee is costed against what was banked', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    paystackSays(11850, { requestedAmountCents: null });
+    expect((await verify(ref)).body.data?.status).toBe('completed');
+    expect((await deliver(ref, 11850, 'ZAR', { requested_amount: 11500, fees: 350 })).statusCode).toBe(200);
+    // Paystack deposits amount - fees = R115.00; the R118.50 receipt is offset by a R3.50 fee.
+    expect(await ledger(A, ref)).toMatchObject({ bankNet: '115.00', feeExpense: '3.50', balanced: true });
+    expect((await settlement(A, ref, id)).review).toContain('amount_disagrees_with_first_report');
+  });
+
+  it('a second report below what was banked never expenses more than the reported fee', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    paystackSays(6000);
+    expect((await verify(ref)).body.data?.status).toBe('completed');
+    expect((await deliver(ref, 5000, 'ZAR', { fees: 150 })).statusCode).toBe(200);
+    // The R10 gap is the receipt's, flagged for a person; it is not booked as a fee.
+    expect(await ledger(A, ref)).toMatchObject({ bankNet: '58.50', feeExpense: '1.50', balanced: true });
+    expect((await settlement(A, ref, id)).review).toContain('amount_disagrees_with_first_report');
+  });
+
+  it('LOW-3: requested_amount with no amount banks requested_amount but flags amount_not_reported', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    expect((await deliver(ref, null, 'ZAR', { requested_amount: 11500, fees: 350 })).statusCode).toBe(200);
+    expect(await settlement(A, ref, id)).toMatchObject({
+      payments: [{ total: '115.00', allocated: '115.00' }], review: 'review:amount_not_reported' });
+  });
+
+  it('an empty prior failure_reason is not carried as "previously: "', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    await pool.query("UPDATE paystack_payment_requests SET failure_reason = '' WHERE paystack_reference = $1", [ref]);
+    expect((await deliver(ref, 5000)).statusCode).toBe(200);
+    expect((await settlement(A, ref, id)).review).toBe('review:amount_mismatch');
+  });
+});

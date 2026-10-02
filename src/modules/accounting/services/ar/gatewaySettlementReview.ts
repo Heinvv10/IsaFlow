@@ -44,9 +44,9 @@ export const isBookCurrency = (reported: ReportedCharge): boolean => reported.cu
  *
  * `requested_amount` when Paystack reports one: the rest of `amount` is a fee the
  * customer paid, which is the gateway's money, not customer credit. Otherwise
- * `amount`. A missing or malformed amount falls back to the request (what Paystack
- * was asked to charge) and is flagged: refusing would make every webhook
- * redelivery fail. An `amount` below `requested_amount` makes the latter
+ * `amount`. A missing or malformed amount is flagged even when `requested_amount`
+ * is present, and with neither the request (what Paystack was asked to charge)
+ * is banked: refusing would make every webhook redelivery fail. An `amount` below `requested_amount` makes the latter
  * untrustworthy, so the amount is banked and both are flagged.
  */
 export function settledCharge(
@@ -58,8 +58,8 @@ export function settledCharge(
   let requestedAmount = positiveCents(reported.requestedAmountCents);
   if (requestedAmount !== null && amount !== null && amount < requestedAmount) requestedAmount = null;
   const cents = requestedAmount ?? amount;
-  if (cents === null) reviews.push('amount_not_reported');
-  else if (cents !== requestedCents) reviews.push('amount_mismatch');
+  if (amount === null) reviews.push('amount_not_reported');
+  if (cents !== null && cents !== requestedCents) reviews.push('amount_mismatch');
   if (positiveCents(reported.requestedAmountCents) !== null && requestedAmount === null) {
     reviews.push('amount_below_requested_amount');
   }
@@ -68,22 +68,23 @@ export function settledCharge(
 }
 
 /**
- * The part of the gateway's fee the MERCHANT bore, in rand: the fee less what the
- * customer paid on top of `requested_amount`. The receipt is banked at
- * requested_amount, so Bank nets to `amount - fees`, which is what Paystack
- * settles. A non-ZAR fee is not posted as rand: it is flagged instead.
+ * The fee leg to post, in rand, so that Bank nets to `amount - fees`, which is
+ * what Paystack deposits: the fee less what `amount` holds above the receipt
+ * (`bankedCents`, the receipt as booked — on a second report, what the FIRST one
+ * banked, not what this one would have). With charges passed to the customer and
+ * the receipt at requested_amount, that excess is the fee the customer paid. A
+ * non-ZAR fee is not posted as rand: it is flagged instead.
  */
 export function merchantFee(
   feeRand: number | null | undefined,
   reported: ReportedCharge,
+  bankedCents: number,
 ): { feeRand: number | null; reviews: string[] } {
   const fee = Number(feeRand ?? 0);
   if (!Number.isFinite(fee) || fee <= 0) return { feeRand: null, reviews: [] };
   if (!isBookCurrency(reported)) return { feeRand: null, reviews: ['fee_not_posted_currency'] };
   const amount = positiveCents(reported.amountCents);
-  const requestedAmount = positiveCents(reported.requestedAmountCents);
-  const customerPaid = amount !== null && requestedAmount !== null && amount >= requestedAmount
-    ? (amount - requestedAmount) / 100 : 0;
+  const customerPaid = amount !== null && amount >= bankedCents ? (amount - bankedCents) / 100 : 0;
   return { feeRand: Math.max(0, Math.round((fee - customerPaid) * 100) / 100), reviews: [] };
 }
 
@@ -104,7 +105,7 @@ export function invoiceReview(status: string | null, deletedAt: string | null): 
  * already carried kept after it.
  */
 export function composeReviewNote(previous: string | null, reviews: string[]): string {
-  if (previous === null) return `review:${reviews.join(',')}`;
+  if (!previous) return `review:${reviews.join(',')}`;
   if (!previous.startsWith('review:')) return `review:${reviews.join(',')}${PREVIOUSLY}${previous}`;
   const cut = previous.indexOf(PREVIOUSLY);
   const head = cut < 0 ? previous : previous.slice(0, cut);
