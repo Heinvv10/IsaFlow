@@ -26,7 +26,7 @@ import { claimEvidencedProvisional, settleClaimedProvisional } from './provision
 import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
-import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
+import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
 
 type Row = DbRow;
 
@@ -288,12 +288,10 @@ export async function cancelSupplierInvoice(
   // must stamp its reversal as the agent's, or list_agent_postings cannot see it.
   opts?: PostingActorOpts,
 ): Promise<SupplierInvoice> {
-  // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx —
-  // a failure after the reversal's draft INSERTs must roll them back
-  // instead of orphan-committing (see customerInvoiceCancelService).
-  return withSavepoint('cancel_supplier_invoice', () =>
-    cancelSupplierInvoiceInner(companyId, id, userId, opts),
-  );
+  // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx — a failure after the reversal's draft
+  // INSERTs must roll them back (see customerInvoiceCancelService). One lock budget for the flow (D8 round 10).
+  return withSavepoint('cancel_supplier_invoice', () => underFlowLockBudget(`Supplier invoice ${id}`, () =>
+    cancelSupplierInvoiceInner(companyId, id, userId, opts)));
 }
 
 async function cancelSupplierInvoiceInner(

@@ -33,7 +33,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reverseJournalEntry } from '../gl/journalEntryService';
 import { lockStandingChainHead } from '../shared/journalChainHead';
-import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
+import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
 import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
 
 type Row = DbRow;
@@ -74,9 +74,8 @@ export async function cancelCustomerInvoice(
   invoiceId: string,
   userId: string,
 ): Promise<CancelCustomerInvoiceResult> {
-  return withSavepoint('cancel_customer_invoice', () =>
-    cancelCustomerInvoiceInner(companyId, invoiceId, userId),
-  );
+  return withSavepoint('cancel_customer_invoice', () => underFlowLockBudget(`Invoice ${invoiceId}`, () =>
+    cancelCustomerInvoiceInner(companyId, invoiceId, userId))); // one lock budget (D8 round 10)
 }
 
 async function cancelCustomerInvoiceInner(

@@ -64,6 +64,11 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 }));
 // D8: the chain head (real-ledger proof: d8-r2-chain-head-cancel-void) is the journal itself here.
 vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({ lockStandingChainHead: async (_c: string, id: string) => id }));
+// D8 round 10: lines matched to another journal of the chain (real-ledger proof: d8-r10-mcp-void-chain-line); none here.
+vi.mock('@/modules/accounting/services/core/paymentVoidReads', async (original) => ({
+  ...await original<typeof import('@/modules/accounting/services/core/paymentVoidReads')>(),
+  findChainBankTransactions: vi.fn(async () => []),
+}));
 
 import { sql } from '@/lib/neon';
 import {

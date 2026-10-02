@@ -16,6 +16,7 @@ import { log } from '@/lib/logger';
 import { reverseJournalEntry } from '../gl/journalEntryService';
 import { lockStandingChainHead } from '../shared/journalChainHead';
 import { lockBankTransactionForUpdate } from './bankTxLock';
+import { underFlowLockBudget } from '../core/rowLockBudget';
 
 type Row = DbRow;
 
@@ -25,11 +26,16 @@ export interface DismissResult {
   bankTransactionsReset: number;
 }
 
+/** Every lock of the dismiss under ONE budget, plain UPDATEs included (D8 round 10, core/rowLockBudget). */
 export async function dismissProvisionalEntry(
   companyId: string,
   jeId: string,
   userId: string,
 ): Promise<DismissResult> {
+  return underFlowLockBudget(`Provisional entry ${jeId}`, () => dismissInner(companyId, jeId, userId));
+}
+
+async function dismissInner(companyId: string, jeId: string, userId: string): Promise<DismissResult> {
   const jeRows = (await sql`
     SELECT id, needs_evidence, status FROM gl_journal_entries
     WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
@@ -50,6 +56,14 @@ export async function dismissProvisionalEntry(
     WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID ORDER BY id
   `) as Row[];
   for (const l of lines) await lockBankTransactionForUpdate(companyId, String(l.id));
+  // Re-read under the bank-line locks (D8 round 10, brk-d8c O8): an automatic attach that committed while this
+  // waited has evidenced the entry, and the read above is stale.
+  const [still] = (await sql`
+    SELECT needs_evidence FROM gl_journal_entries WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
+  `) as Row[];
+  if (!still?.needs_evidence) {
+    throw new Error('Journal entry is not provisional — dismiss only applies to provisional entries');
+  }
   const head = await lockStandingChainHead(companyId, jeId);
   const reversal = head ? await reverseJournalEntry(companyId, head, userId) : null;
 

@@ -21,6 +21,7 @@ import {
 import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { underFlowLockBudget } from '../core/rowLockBudget';
 type Row = DbRow;
 
 /**
@@ -208,11 +209,10 @@ export async function voidSupplierPayment(
   id: string,
   userId: string,
 ): Promise<SupplierPayment> {
-  // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx — a
-  // failure after the reversal's draft INSERTs must roll them back.
-  return withSavepoint('void_supplier_payment', () =>
-    voidSupplierPaymentInner(companyId, id, userId),
-  );
+  // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx (a failure after the reversal's draft INSERTs
+  // must roll them back). Every lock under ONE budget, plain UPDATEs included (D8 round 10).
+  return withSavepoint('void_supplier_payment', () => underFlowLockBudget(`Payment ${id}`, () =>
+    voidSupplierPaymentInner(companyId, id, userId)));
 }
 
 async function voidSupplierPaymentInner(

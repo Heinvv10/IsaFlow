@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { assertDocumentNotAlreadyPosted } from '@/modules/accounting/services/gl/documentJournalClaimGuard';
 import { journalStandsUnbrokenFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
 import { findJournalChainHead } from '@/modules/accounting/services/shared/journalChainHead';
+import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
 
 type Row = DbRow;
 
@@ -43,7 +44,8 @@ export async function attachEvidenceToProvisional(
   // these callers hold the slip first — aborted that transaction, the route answered
   // 200, and withAuth's COMMIT became a silent ROLLBACK of the invoice (R-107 r1, K-157).
   try {
-    return await withSavepoint('evidence_attach', async () => {
+    // Its UPDATEs wait under ONE lock budget (D8 round 10): the bank line and the journal are not pre-locked here.
+    return await withSavepoint('evidence_attach', () => underFlowLockBudget(`Captured document ${capturedDocumentId}`, async () => {
       // Fetch raw_bytes_sha256 + confidence from the captured_documents row.
       // captured_documents stores the file hash under raw_bytes_sha256 (mig-410);
       // extraction_confidence lives in extracted_data JSON (set by VLM service).
@@ -156,7 +158,7 @@ export async function attachEvidenceToProvisional(
       }, 'evidence-attachment');
 
       return { attachedJeId: jeId, bankTxId: btId };
-    });
+    }));
   } catch (err) {
     log.warn('attachEvidenceToProvisional failed — continuing', {
       companyId,

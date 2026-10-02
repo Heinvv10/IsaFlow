@@ -26,6 +26,7 @@ import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { assertReversalDatePostable, entryDateOf, lockPeekedReversalTarget, peekReversalTarget } from './reversalDatePostable';
+import { underFlowLockBudget } from '../core/rowLockBudget';
 import { refuseSettledProvisionalLine } from '../ap/provisionalSettlementGuards';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { assertPostedForAllocation } from './bankFeedStateGuard';
@@ -789,8 +790,12 @@ function isoDay(v: unknown): string | null {
  * auto-post-undo call site — leaves the contra on the `human:<userId>` default.
  */
 export async function reverseReconciledTransaction(
-  companyId: string, bankTxId: string, userId: string,
-  opts?: PostingActorOpts & { reversalDate?: string },
+  companyId: string, bankTxId: string, userId: string, opts?: PostingActorOpts & { reversalDate?: string },
+): Promise<BankAllocationUnwindResult> { // every lock under ONE budget, plain UPDATEs included (D8 round 10)
+  return underFlowLockBudget(`Bank transaction ${bankTxId}`, () => reverseReconciledInner(companyId, bankTxId, userId, opts));
+}
+async function reverseReconciledInner(
+  companyId: string, bankTxId: string, userId: string, opts?: PostingActorOpts & { reversalDate?: string },
 ): Promise<BankAllocationUnwindResult> {
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
   if (!tx) throw new Error('Transaction not found');
@@ -826,12 +831,8 @@ export async function reverseReconciledTransaction(
   // makes a refusal mean "nothing happened"; the bank-line reset joins them so
   // a failure there cannot strand a reset line either.
   //
-  // This depends on there BEING a request transaction: withSavepoint degrades to
-  // a bare fn() outside one, and each bare `sql` then auto-commits on its own.
-  // lockBankTransactionForUpdate above throws outside a request transaction, so
-  // no caller can reach this line without one — that refusal is what keeps this
-  // guarantee true, and a future cron caller would hit it rather than silently
-  // getting the pre-fix behaviour back.
+  // This depends on there BEING a request transaction (withSavepoint degrades to a bare fn() outside one);
+  // lockBankTransactionForUpdate above throws outside one, which is what keeps this guarantee true.
   const unwound = await withSavepoint('bank_reverse_reconciled', async () => {
     let result: BankAllocationUnwindResult = {
       invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0,
@@ -847,9 +848,8 @@ export async function reverseReconciledTransaction(
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
       try {
         const reversal = reverseId ? await reverseJournalEntry(companyId, reverseId, userId, opts) : null;
-        // Carried out so reverse_bank_allocation / void_receipt can say the
-        // contra was dated past a locked VAT period.
-        // and, with the two dates, that a CLOSED fiscal period moved it to today
+        // Carried out so reverse_bank_allocation / void_receipt can say the contra was dated past a locked VAT
+        // period and, with the two dates, that a CLOSED fiscal period moved it to today
         // (2026-10-02: nine April-2025 contras landed in October while the reply
         // said nothing had moved). A chain already out (D8) posts no contra: no date.
         result = {

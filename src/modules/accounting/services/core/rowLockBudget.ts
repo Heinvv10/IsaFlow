@@ -103,3 +103,12 @@ export async function withRowLockBudget<T>(
     await restoreLockTimeout(client, previous, failure);
   }
 }
+
+/**
+ * A whole D8 flow's locking section under ONE budget (D8 round 10): every lock it takes — `FOR UPDATE` or the row
+ * lock of a plain UPDATE — waits at most ROW_LOCK_BUDGET_MS, set once and restored once; nested helpers restore it
+ * rather than reset it. A wait that runs out is `RowLockTimeoutError(what)`, 503 + Retry-After at the routes.
+ */
+export function underFlowLockBudget<T>(what: string, fn: () => Promise<T>): Promise<T> {
+  return withRowLockBudget(fn, () => new RowLockTimeoutError(what));
+}
