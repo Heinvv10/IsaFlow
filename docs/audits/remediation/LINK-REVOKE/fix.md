@@ -105,3 +105,24 @@ POST before that deploy carry `charges_balance` true and are cancelled.
   dialog callbacks reordered, `onClose` dropped, server message replaced; SAST dropped; a
   settlement guard refusing a cancelled link. Survivor, equivalent: revoke voiding the Paystack
   request row (the webhook settles by reference regardless), which is why that is not the L5 mutant.
+
+## PR #616 re-review at 6372a2613: 4 LOW, all fixed
+
+- L1 (real gap): the menu item was gated on `payment_url` only, so an invoice with a pre-deploy
+  fixed-amount link (`charges_balance` true, 30-day expiry) and no `payment_url` could not reach
+  Revoke although the server would cancel it. The invoice detail read now returns
+  `has_standing_link` (EXISTS on an active `charges_balance` link of that invoice; the read is
+  company scoped) and the item shows when `payment_url || has_standing_link`. Tests: the read
+  returns the flag (none / pre-717 link / post-717 fixed link / paid link / other company), the hook
+  offers the item for null `payment_url` + flag. Mutants killed: flag always false, flag without
+  `charges_balance`, without `status`, without the invoice join; hook gate dropped, hook gate always.
+  The flag also appears in the MCP `get_invoice` output (same read function).
+- L2 **Follow-up due 2026-10-31**: after that date change the dialog copy from "Fixed-amount links
+  created after 07:00 SAST on 1 October 2026 are not affected" to "Fixed-amount links are not
+  affected" (every pre-deploy link will have expired by then). No code change now.
+- L3 the live-link SELECT carries the same company `EXISTS` as the cancel UPDATE. Equivalent for
+  behaviour (the locking SELECT already refuses another company's invoice), so no test can go red
+  on it; it is there so each statement is scoped on its own.
+- L4 the integration suite is split: `link-revoke.int.test.ts` (functional, 23 tests incl. the new
+  flag test), `link-revoke-locking.int.test.ts` (race + 5s lock timeout, 2 tests) and
+  `link-revoke.helpers.ts`. Both pass against the fixture.
