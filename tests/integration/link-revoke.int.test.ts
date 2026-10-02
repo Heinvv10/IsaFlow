@@ -221,17 +221,20 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
     await payNow(id);
     const holder = await pool.connect();
     let committed = false;
+    let second: ReturnType<typeof revoke> | undefined;
     try {
       await holder.query('BEGIN');
       await holder.query('SELECT 1 FROM customer_invoices WHERE id = $1 FOR UPDATE', [id]);
-      const second = revoke(id); // blocks on the row lock, its statement snapshot already taken
+      const holderPid = (await holder.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
+      second = revoke(id); // blocks on the row lock, its statement snapshot already taken
       second.catch(() => undefined); // an early rejection is reported when it is awaited below
       // Wait until the revoke's locking SELECT is really blocked on a lock: no fixed sleep.
       let waiting = 0;
       for (let i = 0; i < 100 && waiting === 0; i++) {
         waiting = (await pool.query(
-          `SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()
-             AND wait_event_type = 'Lock' AND query ILIKE '%SELECT ci.payment_url%FOR NO KEY UPDATE%'`)).rowCount ?? 0;
+          `SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
+             AND pg_blocking_pids(pid) @> ARRAY[$1::int] AND query ILIKE '%SELECT ci.payment_url%FOR NO KEY UPDATE%'`,
+          [holderPid])).rowCount ?? 0;
         if (waiting === 0) await new Promise((r) => setTimeout(r, 100));
       }
       expect(waiting, 'the second revoke never blocked on the invoice lock').toBeGreaterThan(0);
@@ -244,6 +247,7 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
       expect(r.body.error?.message).toBe('No active payment link');
     } finally {
       if (!committed) await holder.query('ROLLBACK').catch(() => undefined);
+      await second?.catch(() => undefined); // the revoke must not outlive the test and race the cleanup
       holder.release();
     }
   });
