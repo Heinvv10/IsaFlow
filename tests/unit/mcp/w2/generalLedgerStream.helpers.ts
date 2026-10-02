@@ -7,6 +7,7 @@
  * client the transaction under test uses.
  */
 import { Pool } from 'pg';
+import { fixtureDbUrlProblem } from '../../../integration/fixtureDbGuard';
 import { randomUUID } from 'crypto';
 import { als } from '@/lib/als';
 import { getPoolForTests, sql } from '@/lib/neon';
@@ -85,15 +86,10 @@ export async function drain(
  * suite).
  */
 export function isDisposableFixtureTarget(): boolean {
-  try {
-    const url = new URL(process.env.DATABASE_URL ?? '');
-    const isLocal = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
-    const isFixtureDb = url.pathname.replace(/^\//, '') === 'isaflow_schema_fixture';
-    return isLocal && isFixtureDb;
-  } catch {
-    // An unparsable DATABASE_URL is not a disposable fixture — fail closed.
-    return false;
-  }
+  // Read the way pg reads it (fixtureDbGuard): `?host=` would otherwise send a
+  // "localhost" URL to another server (rev-d7-35ba3c9f2). Unparsable, or
+  // anything but the local fixture, is not a disposable target — fail closed.
+  return fixtureDbUrlProblem(process.env.DATABASE_URL, ['isaflow_schema_fixture']) === null;
 }
 
 /**
