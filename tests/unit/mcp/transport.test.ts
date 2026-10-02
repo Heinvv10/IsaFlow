@@ -215,6 +215,23 @@ describe('/api/mcp transport', () => {
     expect(result.content[0]!.text).toContain(COMPANY_ID);
   });
 
+  it('a request with NO resolved role reaches the tool as null, and a fenced tool refuses it', async () => {
+    const saved = { ...h.auth };
+    try {
+      (h.auth as Record<string, unknown>).companyRole = undefined;
+      (h.auth as Record<string, unknown>).scopes = ['read:reports', 'read:payroll', 'write:payroll'];
+      const res = makeRes();
+      await route(makeReq('POST', rpc('tools/call', { name: 'echo_ctx', arguments: {} })) as never, res);
+      expect(seenContexts.at(-1)!.companyRole).toBeNull(); // never defaulted to a role
+      const refused = makeRes();
+      await route(makeReq('POST', rpc('tools/call', { name: 'get_employee', arguments: { employee_id: '11111111-1111-4111-8111-111111111111' } })) as never, refused);
+      const text = JSON.stringify(refused.body);
+      expect(text).toMatch(/owner, admin and manager/);
+    } finally {
+      Object.assign(h.auth, saved);
+    }
+  });
+
   it('tools/call without a name → -32602', async () => {
     const res = makeRes();
     await route(makeReq('POST', rpc('tools/call', { arguments: {} })) as never, res);

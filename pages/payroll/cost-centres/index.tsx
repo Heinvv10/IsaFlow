@@ -6,6 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { Building2, Loader2, AlertCircle, Plus, Check, X } from 'lucide-react';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
 
 interface CostCentre {
   id: string;
@@ -188,19 +189,21 @@ export default function CostCentresPage() {
         <div className="p-6 space-y-4 max-w-5xl">
           {error && <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 rounded-lg p-3"><AlertCircle className="h-4 w-4" />{error}</div>}
 
-          <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
-            <div className="text-sm font-medium text-[var(--ff-text-primary)] mb-3">Add a cost centre</div>
-            <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 2fr auto' }}>
-              <input value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="Code (e.g. ADMIN)"
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] font-mono" />
-              <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Name"
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]" />
-              <button onClick={create} disabled={busy}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add
-              </button>
+          <WriteOnly>
+            <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
+              <div className="text-sm font-medium text-[var(--ff-text-primary)] mb-3">Add a cost centre</div>
+              <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 2fr auto' }}>
+                <input value={newCode} onChange={e => setNewCode(e.target.value)} placeholder="Code (e.g. ADMIN)"
+                  className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)] font-mono" />
+                <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Name"
+                  className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]" />
+                <button onClick={create} disabled={busy}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add
+                </button>
+              </div>
             </div>
-          </div>
+          </WriteOnly>
 
           {loading ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-sky-500" /></div>
@@ -265,12 +268,14 @@ export default function CostCentresPage() {
                                 className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)]"><X className="h-4 w-4 text-red-500" /></button>
                             </div>
                           ) : (
-                            <div className="inline-flex gap-3">
-                              <button onClick={() => startEdit(cc)} className="text-xs text-sky-400 hover:text-sky-300">Edit</button>
-                              <button onClick={() => toggleActive(cc)} className="text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
-                                {cc.isActive ? 'Deactivate' : 'Reactivate'}
-                              </button>
-                            </div>
+                            <WriteOnly>
+                              <div className="inline-flex gap-3">
+                                <button onClick={() => startEdit(cc)} className="text-xs text-sky-400 hover:text-sky-300">Edit</button>
+                                <button onClick={() => toggleActive(cc)} className="text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
+                                  {cc.isActive ? 'Deactivate' : 'Reactivate'}
+                                </button>
+                              </div>
+                            </WriteOnly>
                           )}
                         </td>
                       </tr>

@@ -7,6 +7,9 @@ import Link from 'next/link';
 import { Users, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
+import { useCompany } from '@/contexts/CompanyContext';
+import { canWrite } from '@/lib/auth/writeRoles';
 
 interface EmployeeListItem {
   id: string;
@@ -33,6 +36,7 @@ function StatusBadge({ active }: { active: boolean }) {
 }
 
 export default function EmployeesListPage() {
+  const mayWrite = canWrite(useCompany().companyRole); // a viewer's rows carry names only: no Start column
   const [employees, setEmployees] = useState<EmployeeListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -81,12 +85,14 @@ export default function EmployeesListPage() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">SA-compliant payroll roster</p>
               </div>
             </div>
-            <Link
-              href="/payroll/employees/new"
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium"
-            >
-              <Plus className="h-4 w-4" /> New Employee
-            </Link>
+            <WriteOnly>
+              <Link
+                href="/payroll/employees/new"
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium"
+              >
+                <Plus className="h-4 w-4" /> New Employee
+              </Link>
+            </WriteOnly>
           </div>
         </div>
 
@@ -122,12 +128,14 @@ export default function EmployeesListPage() {
             <div className="text-center py-16">
               <Users className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)] font-medium">No employees yet</p>
-              <Link
-                href="/payroll/employees/new"
-                className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium"
-              >
-                <Plus className="h-4 w-4" /> New Employee
-              </Link>
+              <WriteOnly>
+                <Link
+                  href="/payroll/employees/new"
+                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium"
+                >
+                  <Plus className="h-4 w-4" /> New Employee
+                </Link>
+              </WriteOnly>
             </div>
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
@@ -137,7 +145,7 @@ export default function EmployeesListPage() {
                     <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Emp #</th>
                     <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Name</th>
                     <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Type</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Start</th>
+                    {mayWrite && <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Start</th>}
                     <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Status</th>
                     <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium"></th>
                   </tr>
@@ -158,7 +166,7 @@ export default function EmployeesListPage() {
                         </Link>
                       </td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)] capitalize">{e.employmentType}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{e.startDate?.slice(0, 10) ?? '—'}</td>
+                      {mayWrite && <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{e.startDate?.slice(0, 10) ?? '—'}</td>}
                       <td className="py-3 px-4"><StatusBadge active={!e.endDate || new Date(e.endDate) > new Date()} /></td>
                       <td className="py-3 px-4">
                         <Link href={`/payroll/employees/${e.id}`} className="text-teal-400 hover:text-teal-300 text-xs font-medium">

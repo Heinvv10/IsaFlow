@@ -23,6 +23,7 @@ import {
   createExternalImport,
   listExternalImports,
 } from '@/modules/accounting/services/payroll/payrollExternalImportService';
+import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '4mb' } },
@@ -85,4 +86,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

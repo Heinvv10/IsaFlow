@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { AlertTriangle, Loader2, AlertCircle, UserCheck } from 'lucide-react';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface DupEmployee {
   id: string;
@@ -48,7 +49,7 @@ export default function DuplicatesPage() {
     try {
       const qs = includeTerminated ? '?includeTerminated=1' : '';
       const res = await apiFetch(`/api/payroll/duplicates${qs}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) { setError(payrollLoadMessage(res.status, 'Failed to load duplicates')); return; }
       const json = await res.json();
       setData((json.data ?? json) as DupResult);
     } catch {
