@@ -10,7 +10,7 @@ import {
 import type { AuthRole } from '@/lib/auth/types';
 import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
 import { log } from '@/lib/logger';
-import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { ApiRequestError, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 /**
  * Authenticated user shape returned from /api/auth/me
@@ -128,14 +128,11 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
         } else {
           setUser(null);
         }
-      } else if (res.status === 401 || res.status === 403) {
-        setUser(null);
       } else {
-        // A 5xx is not 'signed out': keep the current session rather than bounce the user to /login
-        log.warn('Auth check failed; keeping the current session', { status: res.status }, 'auth-context');
+        setUser(null);
       }
     } catch (err) {
-      // A dropped connection is not 'signed out' either
+      setUser(null);
       log.error('Failed to check auth session', { error: err }, 'auth-context');
     } finally {
       setLoading(false);
@@ -195,7 +192,12 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
       setUser(raw ? mapApiUser(raw) : null);
       return false;
     } catch (err) {
-      const message = apiErrorMessage(err, 'Could not sign in - try again');
+      // A 503 is an auth outage, not a wrong password: say so unless the server gave its own sentence
+      const fallback = err instanceof ApiRequestError && err.status === 503
+        ? 'Sign-in is temporarily unavailable - please try again shortly'
+        : 'Could not sign in - try again';
+      const message = err instanceof ApiRequestError && err.status === 503 && err.message === 'Could not sign in - try again'
+        ? fallback : apiErrorMessage(err, fallback);
       setError(message);
       throw new Error(message);
     } finally {
