@@ -108,6 +108,114 @@ export function documentInLedgerAsAtFragmentForRowTenant(alias: InvoiceAlias, as
   return chainParityFragment(alias, `${alias}.company_id`, '$1::date', [asAtStr]);
 }
 
+/**
+ * D7: TRUE when the entry `<entryAlias>` is a LINK of a soft-deleted invoice's
+ * or bill's reversal chain: R, R2, R3 ... past the document's own journal O,
+ * never O itself. It walks UP from the entry, so it reads that entry's own
+ * chain and no other. The one definition of "a deleted document's chain" for
+ * each reader that must leave it out:
+ *
+ *   - the AR/AP orphan scan (reconciliation/orphanControlPostings). The
+ *     sub-ledger side already accounts for the chain through its parity.
+ *   - the VAT reconciliation's REVENUE arm (reports/vatReconciliationService),
+ *     which is compared with an invoice leg that keeps a deleted invoice in
+ *     the month it was raised. NOT its VAT arms: those are compared with
+ *     returns filed from the ledger as it stands.
+ *
+ * Excluding only the entry `soft_delete_journal_reversals` records broke both
+ * of them as soon as that entry was itself reversed by hand. That row does not
+ * move; the chain does. The row must expose `id` and `reversal_of_id`; an entry
+ * that reverses nothing is decided without a walk (CASE, as above).
+ * INTERPOLATION ONLY.
+ */
+export function deletedDocumentChainLinkFragment(
+  entryAlias: 'je' | 'gje',
+  companyId: string,
+  /**
+   * 'otherMonth' narrows it to links whose document's own journal is dated in
+   * a DIFFERENT calendar month from the link (the row must expose
+   * `entry_date`): the VAT reconciliation's rate keeps a delete and its
+   * reversal that fall in one month, where they net to nothing, and drops a
+   * reversal that rolled into a later month.
+   *
+   * KNOWN LIMIT. It drops the LINK, never the document's own journal. So when
+   * the reversal is dated in an EARLIER month than its original — only a chain
+   * breaking "no reversal before its original": rows written before R-012, or
+   * a fiscal year outside the auto-create window — the original stays alone in
+   * its month and the rate there includes a deleted document (a R1000 / R75
+   * original beside a live 15% sale reads 11.25% and raises the rate issue).
+   * Left as is: well-formed chains cannot reach it, and dropping the original
+   * needs a per-line lookup on `gl_journal_entry_id`, which has no index.
+   * Pinned in k053-vat-recon-vs-filed-return ("KNOWN LIMIT").
+   */
+  only: 'any' | 'otherMonth' = 'any',
+) {
+  const deletedJournal = (table: string) => `EXISTS (SELECT 1 FROM ${table} d
+          WHERE d.company_id = $1::UUID AND d.deleted_at IS NOT NULL
+            AND d.gl_journal_entry_id = up_chain.id)`;
+  const month = only === 'otherMonth'
+    ? `AND date_trunc('month', up_chain.entry_date) <> date_trunc('month', ${entryAlias}.entry_date)`
+    : '';
+  return sql.unsafe(
+    `(CASE WHEN ${entryAlias}.reversal_of_id IS NULL THEN FALSE ELSE EXISTS (
+        WITH RECURSIVE ${chainWalk('up_chain', `${entryAlias}.id`, '$1::UUID', 'up')}
+        SELECT 1 FROM up_chain
+        WHERE up_chain.depth > 0 AND NOT up_chain.is_cycle ${month}
+          AND (${deletedJournal('customer_invoices')} OR ${deletedJournal('supplier_invoices')})
+      ) END)`,
+    [companyId],
+  );
+}
+
+/**
+ * D7: TRUE when the document's journal is REVERSED OUT of the ledger as at
+ * `asAtStr`, meaning an ODD number of the posted reversals hanging off it are
+ * dated on or before that date. Reading one link instead ("O has a posted
+ * reversal") says a document deleted and restored inside its period, O <- R <-
+ * R2, is reversed when its chain stands. Same prefix precondition as the
+ * parity predicate above. The row must expose `gl_journal_entry_id`, and the
+ * journal must be known to be posted: an unposted one has no reversals and
+ * reads FALSE. INTERPOLATION ONLY.
+ */
+export function journalReversedAsAtFragment(alias: InvoiceAlias, asAtStr: string, companyId: string) {
+  return sql.unsafe(
+    `(WITH RECURSIVE ${chainWalk('down_chain', `${alias}.gl_journal_entry_id`, '$1::UUID', 'down')}
+      SELECT COUNT(*) FILTER (WHERE down_chain.depth > 0 AND NOT down_chain.is_cycle
+                                AND down_chain.entry_date <= $2::date) % 2 = 1
+      FROM down_chain)`,
+    [companyId, asAtStr],
+  );
+}
+
+/**
+ * The ONE recursive walk every chain predicate here uses: POSTED entries of one
+ * tenant, linked by `reversal_of_id`, starting from the posted entry
+ * `seedExpr` (depth 0). 'down' follows the entries that reverse the previous
+ * one; 'up' follows the entry the previous one reverses. The UNIQUE on
+ * (company_id, reversal_of_id) keeps a real chain linear.
+ *
+ * CYCLE GUARD (D7 round 3). Nothing stops a forged `reversal_of_id` loop, and
+ * an unguarded `UNION ALL` walk never ends on one: a single loop O <-> R hung
+ * the VAT reconciliation, the VAT201 unposted check and the AR reconciliation
+ * (this parity walk) for the whole company, and the statements ran on
+ * server-side after the client gave up. `CYCLE ... SET is_cycle` stops at the
+ * first entry already on the path and flags that row; every reader skips
+ * flagged rows, so a loop reads as the chain up to the point where it closes.
+ */
+function chainWalk(name: string, seedExpr: string, tenantExpr: string, direction: 'down' | 'up'): string {
+  const step = direction === 'down' ? `j.reversal_of_id = ${name}.id` : `j.id = ${name}.reversal_of_id`;
+  return `${name} AS (
+      SELECT s.id, s.reversal_of_id, s.entry_date, 0 AS depth
+      FROM gl_journal_entries s
+      WHERE s.id = ${seedExpr} AND s.company_id = ${tenantExpr} AND s.status = 'posted'
+      UNION ALL
+      SELECT j.id, j.reversal_of_id, j.entry_date, ${name}.depth + 1
+      FROM gl_journal_entries j
+      JOIN ${name} ON ${step}
+      WHERE j.company_id = ${tenantExpr} AND j.status = 'posted'
+    ) CYCLE id SET is_cycle USING path`;
+}
+
 function chainParityFragment(
   alias: InvoiceAlias,
   tenantExpr: string,
@@ -116,20 +224,8 @@ function chainParityFragment(
 ) {
   return sql.unsafe(
     `(CASE WHEN ${alias}.deleted_at IS NULL THEN TRUE ELSE (
-        WITH RECURSIVE chain AS (
-          SELECT je.id, je.entry_date
-          FROM gl_journal_entries je
-          WHERE je.id = ${alias}.gl_journal_entry_id
-            AND je.company_id = ${tenantExpr}
-            AND je.status = 'posted'
-          UNION ALL
-          SELECT j.id, j.entry_date
-          FROM gl_journal_entries j
-          JOIN chain ON j.reversal_of_id = chain.id
-          WHERE j.company_id = ${tenantExpr}
-            AND j.status = 'posted'
-        )
-        SELECT COUNT(*) FILTER (WHERE chain.entry_date <= ${asAtExpr}) % 2 = 1
+        WITH RECURSIVE ${chainWalk('chain', `${alias}.gl_journal_entry_id`, tenantExpr, 'down')}
+        SELECT COUNT(*) FILTER (WHERE NOT chain.is_cycle AND chain.entry_date <= ${asAtExpr}) % 2 = 1
         FROM chain
       ) END)`,
     params,

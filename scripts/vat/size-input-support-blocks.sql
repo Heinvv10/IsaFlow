@@ -20,9 +20,15 @@
 --     this script measures per-journal, which is a slightly WIDER estimate —
 --     a reversed-and-reinstated claim can double-count here where the app
 --     would net it to one chain).
---   - "unposted invoice VAT" mirrors vatUnpostedInvoices.ts's population
---     directly (issued invoices / approved bills with VAT and no live
---     posted, unreversed journal) — this part is exact, not approximate.
+--   - "unposted invoice VAT" follows vatUnpostedInvoices.ts's population
+--     (issued invoices / approved bills with VAT and no posted journal still
+--     standing) but is INDICATIVE, not exact: (a) its reversal-chain parity
+--     is UNDATED — every posted link counts, where the app counts only links
+--     dated on or before the VAT period end, so a journal reversed in a LATER
+--     period is counted here and not by the app; (b) it has no arm for the
+--     app's customer `journal_dated_after_period` case; (c) its periods are
+--     the approximate bimonthly buckets above. Dating (a) alone would not
+--     make the half exact while (b) and (c) stand.
 
 \echo '=== Per-company, per-period: journals that would newly show as unsupportedInputVat ==='
 WITH period AS (
@@ -68,7 +74,7 @@ GROUP BY company_id, period_start
 ORDER BY company_id, period_start;
 
 \echo ''
-\echo '=== Per-company, per-period: unposted invoices/bills carrying VAT (exact, mirrors vatUnpostedInvoices.ts) ==='
+\echo '=== Per-company, per-period: unposted invoices/bills carrying VAT (indicative, follows vatUnpostedInvoices.ts) ==='
 WITH docs AS (
   SELECT ci.company_id, ci.invoice_date AS doc_date, COALESCE(ci.tax_amount, 0) AS unposted_vat
   FROM customer_invoices ci
@@ -79,8 +85,15 @@ WITH docs AS (
     AND (
       ci.gl_journal_entry_id IS NULL
       OR je.status IS DISTINCT FROM 'posted'
-      OR EXISTS (SELECT 1 FROM gl_journal_entries rev
-        WHERE rev.reversal_of_id = ci.gl_journal_entry_id AND rev.company_id = ci.company_id AND rev.status = 'posted')
+      -- Reversed OUT: an ODD number of posted links in its reversal chain (D7) —
+      -- a delete undone in-period, O <- R <- R2, stands and does not block.
+      OR (WITH RECURSIVE l AS (
+            SELECT r.id FROM gl_journal_entries r
+            WHERE r.reversal_of_id = ci.gl_journal_entry_id AND r.company_id = ci.company_id AND r.status = 'posted'
+            UNION ALL
+            SELECT j.id FROM gl_journal_entries j JOIN l ON j.reversal_of_id = l.id
+            WHERE j.company_id = ci.company_id AND j.status = 'posted')
+          SELECT COUNT(*) % 2 = 1 FROM l)
     )
   UNION ALL
   SELECT si.company_id, si.invoice_date,
@@ -93,8 +106,15 @@ WITH docs AS (
     AND (
       si.gl_journal_entry_id IS NULL
       OR je.status IS DISTINCT FROM 'posted'
-      OR EXISTS (SELECT 1 FROM gl_journal_entries rev
-        WHERE rev.reversal_of_id = si.gl_journal_entry_id AND rev.company_id = si.company_id AND rev.status = 'posted')
+      -- Reversed OUT: an ODD number of posted links in its reversal chain (D7) —
+      -- a delete undone in-period, O <- R <- R2, stands and does not block.
+      OR (WITH RECURSIVE l AS (
+            SELECT r.id FROM gl_journal_entries r
+            WHERE r.reversal_of_id = si.gl_journal_entry_id AND r.company_id = si.company_id AND r.status = 'posted'
+            UNION ALL
+            SELECT j.id FROM gl_journal_entries j JOIN l ON j.reversal_of_id = l.id
+            WHERE j.company_id = si.company_id AND j.status = 'posted')
+          SELECT COUNT(*) % 2 = 1 FROM l)
     )
 )
 SELECT company_id,
