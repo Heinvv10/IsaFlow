@@ -1,9 +1,9 @@
 /**
  * R-175: the limiter pool's size comes from RATE_LIMIT_POOL_MAX (default 10),
  * like the other pools, so it can be lowered without a deploy. An invalid value
- * (R-182: through the shared poolSizeFromEnv) gives min(default, 10,
+ * (R-182: through the shared poolSizeFromEnv) gives min(default,
  * ceil(Number(text))) when Number(text) is finite and above 0, else
- * min(default, 10); the cases below with a value of 10 or more give the default.
+ * min(default, 10).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -41,9 +41,14 @@ describe('RATE_LIMIT_POOL_MAX (R-175)', () => {
     expect(warn.mock.calls[0]![2]).toBe('rateLimit');
   });
 
-  it.each([['2.5', 3], ['5.0', 5], ['+5', 5], ['1e1', 10]])('%j is no longer taken as given: it gives %j (R-182)', (raw, expected) => {
+  // The R-175 reader accepted '5.0', '+5', '1e1' and '10.0' as given, without a warning
+  // (Number() is an integer). Since R-182 each is refused with one warning under the
+  // 'rateLimit' category and gives min(10, ceil(n)).
+  it.each([['2.5', 3], ['5.0', 5], ['+5', 5], ['1e1', 10], ['10.0', 10]])('%j is refused with one warning and gives %j (R-182)', (raw, expected) => {
     vi.stubEnv('RATE_LIMIT_POOL_MAX', raw);
     expect(rateLimitPoolMax()).toBe(expected);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![2]).toBe('rateLimit');
   });
 
   it('the pool is built with the configured size', async () => {

@@ -2,8 +2,8 @@
  * R-182: every pool's size is read through one validated reader. pg-pool already
  * turns NaN and 0 into 10 (see pgPoolMaxPremise.test.ts); the real dangers were
  * a huge or Infinity value and a negative one. What holds for an invalid value:
- * min(default, 10, ceil(Number(text))) when Number(text) is finite and > 0, else
- * min(default, 10), so no spelling the old Number() accepted gives a pool with
+ * min(default, ceil(Number(text))) when Number(text) is finite and > 0, else
+ * min(default, 10) (pg-pool made NaN and 0 into 10), never below the floor, so no spelling the old Number() accepted gives a pool with
  * more connections than pg-pool allowed for it.
  *
  * The reader remembers which (name, value) it has warned about for the life of
@@ -43,10 +43,11 @@ describe('poolSizeFromEnv (R-182)', () => {
   });
 
   // [spelling, size with a default of 20]. A spelling Number() read as a usable
-  // size gives min(20, 10, ceil(that size)); anything else gives 10.
+  // size gives min(20, ceil(that size)); anything else gives 10.
   it.each([
     ['5.0', 5], ['+5', 5], ['0x5', 5], ['1.0', 1], ['2.5', 3], ['0.5', 1], ['0o7', 7], ['0b11', 3],
-    ['1e1', 10], ['10.0', 10], ['0x10', 10], ['1E2', 10], ['101', 10], ['1000000', 10],
+    ['1e1', 10], ['10.0', 10], ['0x10', 16], ['1E2', 20], ['101', 20], ['1000000', 20],
+    ['20.0', 20], ['+20', 20], ['2e1', 20], ['0x14', 20], ['19.5', 20], ['15.0', 15],
     ['0', 10], ['-2', 10], ['-0', 10], ['abc', 10], ['12abc', 10], ['NaN', 10], ['Infinity', 10],
     ['-Infinity', 10], ['5_0', 10], ['٣', 10],
   ])('invalid %j gives %j, with one warning', (raw, expected) => {
@@ -86,7 +87,7 @@ describe('poolSizeFromEnv (R-182)', () => {
 
   it('records that a value was digits only (a number out of range)', () => {
     vi.stubEnv(NAME, '4242');
-    poolSizeFromEnv(NAME, 20);
+    expect(poolSizeFromEnv(NAME, 20)).toBe(20);
     expect(warn.mock.calls[0]![1]).toMatchObject({ length: 4, digitsOnly: true });
   });
 
@@ -94,6 +95,11 @@ describe('poolSizeFromEnv (R-182)', () => {
     vi.stubEnv(NAME, 'cat-test');
     poolSizeFromEnv(NAME, 20, 'rateLimit');
     expect(warn.mock.calls[0]![2]).toBe('rateLimit');
+  });
+
+  it.each(['20.0', '+20', '2e1'])('AUTH_POOL_MAX %j means the default: it does not halve the pool', (raw) => {
+    vi.stubEnv('AUTH_POOL_MAX', raw);
+    expect(authPoolMax()).toBe(20);
   });
 
   it('authPoolMax is validated and keeps its default of 20', () => {
@@ -141,10 +147,10 @@ describe('poolSizeFromEnv (R-182)', () => {
     expect(MIN_PG_POOL_MAX).toBe(2);
   });
 
-  it("'50.0' gives 10 while '50' gives 50", () => {
+  it("'50.0' gives the default 20 while '50' gives 50", () => {
     vi.stubEnv(NAME, '50');
     expect(poolSizeFromEnv(NAME, 20)).toBe(50);
     vi.stubEnv(NAME, '50.0');
-    expect(poolSizeFromEnv(NAME, 20)).toBe(10);
+    expect(poolSizeFromEnv(NAME, 20)).toBe(20);
   });
 });

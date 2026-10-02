@@ -15,9 +15,10 @@ The shared Postgres (`max_connections` 100) serves prod, dev, CI and Supabase se
 plain decimal digits, a whole number from the floor to 100 is used as given (the floor is 2 for
 `PG_POOL_MAX` and `AUTH_POOL_MAX`, 1 for the others). Unset or blank is the default, silently.
 Anything else is refused with one warning per (name, value) and gives
-`min(default, 10, ceil(Number(text)))` when `Number(text)` is finite and above 0, else
-`min(default, 10)`. So `5.0`, `+5` and `0x5` give 5, `2.5` gives 3 (pg-pool opened ceil(max)),
-`1e1` gives 10 (so `50.0` gives 10 while `50` gives 50: only ever lower, and warned); NaN and 0 give 10 as pg-pool did; negative and Infinity (broken before) give
+`min(default, ceil(Number(text)))` when `Number(text)` is finite and above 0, else
+`min(default, 10)` (round 5; earlier rounds capped these at 10 too). So `5.0`, `+5` and `0x5` give 5,
+`2.5` gives 3 (pg-pool opened ceil(max)), `1e1` gives 10, `20.0`, `+20` and `2e1` give the default 20,
+and `50.0` gives the default 20 while `50` gives 50 (never above the default, and warned); NaN and 0 give 10 as pg-pool did; negative and Infinity (broken before) give
 `min(default, 10)`. No spelling the old `Number()` accepted gives more connections than
 pg-pool allowed for it. The warning logs the name, the value's length and a digits-only flag,
 never the text (a pool variable can hold a pasted DSN). The old rate-limit reader accepted
@@ -72,7 +73,7 @@ app) alone are 80 (one variable).
 ## Tests
 - `tests/unit/lib/poolSizeFromEnv.test.ts`: unset, blank, valid, 0, negative, fractional, >100,
   text, NaN/Infinity, hex/binary/octal/exponent, `10.0`, sign, non-ASCII digit; the
-  `min(default, 10, ceil(Number(text)))` rule; one warning per (name, value); a pasted URL never
+  `min(default, ceil(Number(text)))` rule; one warning per (name, value); a pasted URL never
   reaches the log (name, length and digits-only flag only; there is no truncation); category;
   the floor and its clamp; `authPoolMax`.
 - `tests/unit/lib/poolSizesBuilt.test.ts`: pg.Pool mocked; each of 7 sites is built with the
@@ -162,3 +163,16 @@ Evidence: `green.round4.log` (184 passed in 6 files), `mutations.log` round 4.
    `rateLimit.claude.md` keeps only RATE_LIMIT_POOL_MAX's rule. Mirrors regenerated.
 4. `src/lib/neon.ts` is 475 lines (474 before this change), over the 300-line limit; the oversize
    is older than R-182 and is registered as R-184 (checked free: no R-184 in backlog.json, git log or any branch; R-183 is taken on another branch) rather than fixed here.
+
+## Review round 6 (PR #617 re-review)
+1. Rule change: a refused spelling with a finite `Number(text)` above 0 gives `min(default,
+   ceil(n))`, still never below the floor; NaN, 0, negative and Infinity keep `min(default, 10)`.
+   So `20.0`, `+20`, `2e1` on AUTH_POOL_MAX mean the default 20 and give 20 (they gave 10, halving
+   four pools and the render ceiling). Invariant: never more than pg-pool allowed for the
+   spelling, never more than the default. (Rounds 1-4 above state the earlier cap-at-10 rule.)
+   Red first: `red.round5.log` (35 failed), then green. Mutants in `mutations.log` round 6.
+2. `rateLimitPoolMax.test.ts`: the "no longer taken as given" cases assert one warning under the
+   `rateLimit` category; red against the old R-175 logic in `red.round5.ratelimit.log` (4 failed).
+3. backlog `correctedTrigger` and `pr: 617` set. 4. Dated Recent-changes lines in the auth, neon and
+   pdf `.claude.md` (PDF: an invalid AUTH_POOL_MAX now gives ceiling 2, was 3). 5. The poolLimits
+   header no longer says the numbers are restated nowhere.

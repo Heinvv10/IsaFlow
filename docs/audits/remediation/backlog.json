@@ -15069,7 +15069,7 @@
       "sourceIds": [
         "R-175"
       ],
-      "correctedTrigger": null,
+      "correctedTrigger": "pg-pool 3.13 turns NaN and 0 into 10 (max = max || poolSize || 10), so those were not unbounded. The dangers were Infinity or a huge value (no practical limit) and a negative value (truthy, so the pool is always full and every acquire waits out its timeout).",
       "severityRationale": "Needs a misconfigured environment variable; the shared Postgres has max_connections 100, so an unbounded pool could exhaust it for prod and dev together.",
       "auditedSha": "77e184aa4",
       "currentSha": "77e184aa4",
@@ -15091,10 +15091,13 @@
         "docs/audits/remediation/R-182/green.round2.log",
         "docs/audits/remediation/R-182/green.round3.log",
         "docs/audits/remediation/R-182/green.round4.log",
+        "docs/audits/remediation/R-182/red.round5.log",
+        "docs/audits/remediation/R-182/red.round5.ratelimit.log",
+        "docs/audits/remediation/R-182/green.round6.log",
         "docs/audits/remediation/R-182/mutations.log"
       ],
       "fixCommit": null,
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/617",
       "deployedSha": null,
       "historicalDataImpact": "None.",
       "canonicalItem": null,
