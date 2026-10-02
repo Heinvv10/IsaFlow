@@ -81,15 +81,15 @@ export default function IncomeStatementPage() {
         if (cancelled) return;
         if (!qStart && !qEnd) {
           const period = json.data as { startDate?: string; endDate?: string } | null;
-          if (period?.startDate) setPeriodStart(period.startDate);
-          if (period?.endDate) setPeriodEnd(clampToToday(period.endDate));
+          // Only a period that has begun (From <= To after capping to today); else keep the month-to-date default.
+          const end = period?.endDate ? clampToToday(period.endDate) : '';
+          if (period?.startDate && end >= period.startDate) { setPeriodStart(period.startDate); setPeriodEnd(end); }
         }
         setPeriodResolved(true);
       })
       .catch(() => {
         if (!cancelled) setPeriodResolved(true);
       });
-
     return () => { cancelled = true; };
   }, [router.isReady, qStart, qEnd]);
   const [report, setReport] = useState<IncomeStatementReport | null>(null);
