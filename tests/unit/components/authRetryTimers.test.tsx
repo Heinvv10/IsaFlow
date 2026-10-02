@@ -6,7 +6,7 @@
  * requests. Fake timers; only `fetch` is stubbed.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, cleanup, waitFor, act } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, act } from '@testing-library/react';
 
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 
@@ -21,8 +21,9 @@ function outageFetch() {
 
 let refreshUser: (() => Promise<void>) | null = null;
 function Probe() {
-  refreshUser = useAuth().refreshUser;
-  return null;
+  const auth = useAuth();
+  refreshUser = auth.refreshUser;
+  return <span data-testid="checking">{String(auth.authChecking)}</span>;
 }
 
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); refreshUser = null; });
@@ -54,6 +55,28 @@ describe('AuthContext retry timer during an outage', () => {
     view.unmount();
     await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('a /api/auth/me that never answers is abandoned after 10 s: the check ends and the next retry is armed', async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn()
+      .mockImplementationOnce((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        // An unbounded request would hang for good; the test then fails on the assertions below.
+        signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      }))
+      .mockImplementation(async () => json(503));
+    vi.stubGlobal('fetch', fetch);
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByTestId('checking').textContent).toBe('true');
+    await act(async () => { await vi.advanceTimersByTimeAsync(9_999); });
+    expect(screen.getByTestId('checking').textContent).toBe('true'); // still waiting at 9.999 s
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(screen.getByTestId('checking').textContent).toBe('false'); // abandoned at 10 s: Retry is usable again
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(fetch).toHaveBeenCalledTimes(2); // the 5 s retry was armed by the abandoned check
   });
 
   it('checks asked for while one is in flight join it instead of sending another request', async () => {

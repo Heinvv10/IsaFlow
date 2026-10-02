@@ -5,6 +5,9 @@ import { log } from '@/lib/logger';
 
 type RawUser = Record<string, unknown>;
 
+/** A /api/auth/me that has not answered by then is abandoned as an outage (D9): Retry comes back and the next retry is armed. */
+export const AUTH_CHECK_TIMEOUT_MS = 10_000;
+
 interface RetryState {
   active: boolean;
   settled: boolean;
@@ -36,8 +39,11 @@ export function useSessionCheck(
     setAuthChecking(true);
     const run = async () => {
       let unavailable = false;
+      // A plain timer, not AbortSignal.timeout: the abort then follows the page's own clock.
+      const controller = new AbortController();
+      const abandon = setTimeout(() => controller.abort(), AUTH_CHECK_TIMEOUT_MS);
       try {
-        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        const res = await fetch('/api/auth/me', { credentials: 'include', signal: controller.signal });
         if (res.ok) {
           const data = await res.json();
           // Support both { data: { user } } and { data: user } shapes
@@ -50,6 +56,8 @@ export function useSessionCheck(
       } catch (err) {
         unavailable = true;
         log.error('Failed to check auth session', { error: err }, 'auth-context');
+      } finally {
+        clearTimeout(abandon);
       }
       setAuthUnavailable(unavailable);
       if (!unavailable) {
