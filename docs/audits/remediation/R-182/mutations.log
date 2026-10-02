@@ -1,3 +1,4 @@
+## Round 0 (HEAD d66f5d81a; files: poolSizeFromEnv, poolSizesBuilt, rateLimitPoolMax tests; superseded counts)
 baseline (unmutated, HEAD d66f5d81a): Tests  105 passed (105)
 M1-lower-bound | src/lib/limits/poolLimits.ts | 'n >= 1 &&' -> 'n >= 0 &&' | Tests  10 failed | 95 passed (105)
 M2-upper-bound | src/lib/limits/poolLimits.ts | 'n <= LARGEST_POOL' -> 'n <= 1e9' | Tests  10 failed | 95 passed (105)
@@ -18,3 +19,13 @@ M10-bearer | src/lib/auth/bearerPipeline.ts | 'authPoolMax(),' -> 'Number(proces
 M11-appPool | src/lib/auth/withPlatformAdmin.pools.ts | 'authPoolMax()' -> 'Number(process.env.AUTH_POOL_MAX ?? 20)' | Tests  7 failed | 98 passed (105)
 M12-adminPool | src/lib/auth/withPlatformAdmin.pools.ts | 'poolSizeFromEnv('PLATFORM_ADMIN_POOL_MAX', 10)' -> 'Number(process.env.PLATFORM_ADMIN_POOL_MAX ?? 10)' | Tests  6 failed | 99 passed (105)
 M13-rateLimit | src/lib/rateLimitPool.ts | 'poolSizeFromEnv('RATE_LIMIT_POOL_MAX', DEFAULT_RATE_LIMIT_POOL_MAX)' -> 'Number(process.env.RATE_LIMIT_POOL_MAX ?? DEFAULT_RATE_LIMIT_POOL_MAX)' | Tests  15 failed | 90 passed (105)
+
+## Round 1 (HEAD 476e2657e; files: tests/unit/lib/poolSizeFromEnv.test.ts tests/unit/lib/poolSizesBuilt.test.ts tests/unit/lib/pgPoolMaxPremise.test.ts tests/unit/lib/rateLimitPoolMax.test.ts tests/unit/lib/pdf/renderSemaphore.test.ts)
+baseline (unmutated): Tests  127 passed (127)
+N1-ceiling-20 | src/lib/limits/poolLimits.ts | 'INVALID_VALUE_CEILING = 10' -> 'INVALID_VALUE_CEILING = 20' | Tests  52 failed | 75 passed (127)
+N2-no-min | src/lib/limits/poolLimits.ts | 'Math.min(fallback, INVALID_VALUE_CEILING)' -> 'fallback' | Tests  52 failed | 75 passed (127)
+N3-warn-every-call | src/lib/limits/poolLimits.ts | 'if (!warned.has(key))' -> 'if (true)' | Tests  1 failed | 126 passed (127)
+N4-no-truncate | src/lib/limits/poolLimits.ts | 'LOGGED_VALUE_LENGTH = 40' -> 'LOGGED_VALUE_LENGTH = 4000' | Tests  1 failed | 126 passed (127)
+N5-category-dropped | src/lib/rateLimitPool.ts | ', 'rateLimit')' -> ')' | Tests  8 failed | 119 passed (127)
+N6-category-ignored | src/lib/limits/poolLimits.ts | '}, category);' -> '}, 'pool');' | Tests  9 failed | 118 passed (127)
+N7-semaphore-divisor | src/lib/pdf/renderSemaphore.ts | 'poolMax / POOL_SHARE_DIVISOR' -> 'Math.max(poolMax, 12) / POOL_SHARE_DIVISOR' | Tests  2 failed | 125 passed (127)
