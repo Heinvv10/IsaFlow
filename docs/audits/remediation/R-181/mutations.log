@@ -89,3 +89,12 @@ NOTES (adversarial round 2)
 - Round 2 general mutants N1..N5 above were run on 45aeb23c5; N2 and N5 targeted the pre-clamp
   merchantFee, which P4/P5 now cover in its clamped form.
 P12 fee leg ignores (amount - banked) (round-2 suite only, after the resend's reverse-order case): 3 failed | 8 passed (11) -> KILLED
+
+ROUND 3 — fee cap and the verify-trusts-requested_amount branch (round-2 suite)
+BASELINE: 13 passed (13)
+Q1 fee leg not capped at the receipt [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 12 passed (13) -> KILLED; red: a fee larger than the receipt is capped at the receipt and flagged
+Q2 fee above the receipt not flagged [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 12 passed (13) -> KILLED; red: a fee larger than the receipt is capped at the receipt and flagged
+Q3 verify passes no fee figure (verify cannot trust requested_amount) [pages/api/portal/payments/paystack/verify.ts]: 2 failed | 11 passed (13) -> KILLED; red: verify with the fee figure trusts requested_amount: R115 banked, no review; verify trusts requested_amount within its fee (R103, R100, R3): R100 banked; the webhook with the same figures posts no fee
+Q4 verify passes no requested_amount [pages/api/portal/payments/paystack/verify.ts]: 3 failed | 10 passed (13) -> KILLED; red: verify with no fee figure banks amount (flagged unverified); the webhook fee then nets Bank to the settlement; verify with the fee figure trusts requested_amount: R115 banked, no review; verify trusts requested_amount within its fee (R103, R100, R3): R100 banked; the webhook with the same figures posts no fee
+Q5 excess equal to the fee distrusted [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 3 failed | 10 passed (13) -> KILLED; red: verify with the fee figure trusts requested_amount: R115 banked, no review; verify banks R100, then the webhook reports R103 with R3 fees: no fee expense, Bank nets R100; verify trusts requested_amount within its fee (R103, R100, R3): R100 banked; the webhook with the same figures posts no fee
+AFTER: 13 passed (13)

@@ -92,6 +92,7 @@ export function settledCharge(
  * passed to the customer and the receipt at requested_amount, `amount - banked` is
  * the fee the customer paid. A clamp that bites means Bank cannot reach the deposit
  * (or would need more than the reported fee): it is flagged, never booked as a fee.
+ * The leg is also capped at the receipt (`fee_exceeds_receipt`).
  * A non-ZAR fee is not posted as rand: it is flagged instead.
  */
 export function merchantFee(
@@ -104,8 +105,15 @@ export function merchantFee(
   if (!isBookCurrency(reported)) return { feeRand: null, reviews: ['fee_not_posted_currency'] };
   const amount = positiveCents(reported.amountCents);
   const raw = fee - (amount === null ? 0 : (amount - bankedCents) / 100);
-  const posted = Math.round(Math.min(fee, Math.max(0, raw)) * 100) / 100;
-  return { feeRand: posted, reviews: Math.abs(posted - raw) > 0.005 ? ['fee_clamped'] : [] };
+  const clamped = Math.min(fee, Math.max(0, raw));
+  // Never more than the receipt itself: a fee above it would drive Bank below zero for the charge.
+  const banked = bankedCents / 100;
+  const posted = Math.round(Math.min(clamped, banked) * 100) / 100;
+  const reviews = [
+    ...(Math.abs(clamped - raw) > 0.005 ? ['fee_clamped'] : []),
+    ...(clamped - banked > 0.005 ? ['fee_exceeds_receipt'] : []),
+  ];
+  return { feeRand: posted, reviews };
 }
 
 /**
