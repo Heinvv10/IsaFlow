@@ -12,7 +12,6 @@ import { apiResponse } from '@/lib/apiResponse';
 import {
   withAuth,
   withCsrf,
-  withWriteAccess,
   type AuthenticatedNextApiRequest,
   type CompanyAuthedRequest,
 } from '@/lib/auth';
@@ -22,6 +21,7 @@ import {
   AllocationSumError,
   DuplicateCostCentreError,
 } from '@/modules/accounting/services/payroll/payrollCostAllocationService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 const PutBody = z
   .object({
@@ -63,4 +63,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PUT']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

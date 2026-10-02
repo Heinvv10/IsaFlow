@@ -7,6 +7,8 @@ import Link from 'next/link';
 import { CalendarOff, Loader2, AlertCircle, Plus, Filter } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface LeaveRequestRow {
   id: string;
@@ -52,7 +54,7 @@ export default function LeaveIndexPage() {
       if (filterStatus) params.set('status', filterStatus);
       if (filterMonth) params.set('month', filterMonth);
       const res = await apiFetch(`/api/payroll/leave?${params.toString()}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) { setError(payrollLoadMessage(res.status, 'Failed to load leave requests')); return; }
       const json = await res.json() as { data?: LeaveRequestRow[] };
       setRequests((json.data ?? []) as LeaveRequestRow[]);
     } catch {
@@ -82,9 +84,11 @@ export default function LeaveIndexPage() {
               <Link href="/payroll/leave/balances" className="px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]">
                 Balances
               </Link>
-              <Link href="/payroll/leave/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
-                <Plus className="h-4 w-4" /> New Request
-              </Link>
+              <WriteOnly>
+                <Link href="/payroll/leave/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
+                  <Plus className="h-4 w-4" /> New Request
+                </Link>
+              </WriteOnly>
             </div>
           </div>
         </div>
@@ -130,9 +134,11 @@ export default function LeaveIndexPage() {
             <div className="text-center py-16">
               <CalendarOff className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)] font-medium">No leave requests</p>
-              <Link href="/payroll/leave/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
-                <Plus className="h-4 w-4" /> New Request
-              </Link>
+              <WriteOnly>
+                <Link href="/payroll/leave/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
+                  <Plus className="h-4 w-4" /> New Request
+                </Link>
+              </WriteOnly>
             </div>
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">

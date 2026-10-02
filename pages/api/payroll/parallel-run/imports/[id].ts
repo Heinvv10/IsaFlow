@@ -20,6 +20,7 @@ import {
   getExternalImport,
   getExternalImportPayslips,
 } from '@/modules/accounting/services/payroll/payrollExternalImportService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   const { companyId } = req as CompanyAuthedRequest;
@@ -43,4 +44,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'DELETE']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

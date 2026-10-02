@@ -10,7 +10,6 @@ import { apiResponse } from '@/lib/apiResponse';
 import {
   withAuth,
   withCsrf,
-  withWriteAccess,
   type AuthenticatedNextApiRequest,
   type CompanyAuthedRequest,
 } from '@/lib/auth';
@@ -19,6 +18,7 @@ import {
   listTrainingEvents,
   type TrainingCategory,
 } from '@/modules/accounting/services/payroll/trainingEventService';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 const CATEGORIES = [
   'aet', 'learnership', 'skills_programme', 'internship',
@@ -82,4 +82,4 @@ function getHandler(): (req: AuthenticatedNextApiRequest, res: NextApiResponse) 
   };
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(getHandler()))));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(getHandler()))));
