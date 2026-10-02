@@ -38,8 +38,8 @@ never the text (a pool variable can hold a pasted DSN). The old rate-limit reade
 
 Not changed: `withInviteToken.ts` (max 5), `pages/api/invitations/[token]/accept.ts` (2),
 `pages/api/auth/verify-email.ts` (2) and `scripts/_pg.ts` (5) use a literal `max`, not
-the environment. Other scripts build pools with no `max` (pg default 10), also not from
-the environment. Defaults are unchanged for unset and valid values.
+the environment. Other scripts use a literal `max` (`simulate-fy2026-workflows.ts` 2,
+`test-extension-ingest.mjs` 5) or none (pg default 10); none reads it from the environment. Defaults are unchanged for unset and valid values.
 
 ## Connection budget (measured from code, one app process, defaults)
 | Pool | Max | Lifetime |
@@ -84,7 +84,8 @@ app) alone are 80 (one variable).
   opens a connection, Infinity is kept, a fractional 2.5 allows three connections (ceil).
 - `tests/unit/lib/rateLimitPoolMax.test.ts` (R-175, header reworded, `rateLimit` category asserted).
 - `tests/unit/lib/pdf/renderSemaphore.test.ts`: invalid AUTH_POOL_MAX gives ceiling 2; a pool of 1
-  (`1`, `1.0`, `0.5`) is raised to 2, ceiling 1.
+  (`1`, `1.0`, `0.5`) is raised to 2, so a render's re-entry can get a second connection; the
+  ceiling stays 1 (a pool of 1 and of 2 both give 1, so the test asserts `authPoolMax() === 2` too).
 - `tests/unit/lib/neonPoolNestedSql.test.ts`: real pg-pool, fake client. A pg-pool premise test: with
   its one connection held, a size-1 pool times out on a second acquire (it does not call
   `withTransaction`). Then, through `neon.ts`: PG_POOL_MAX `1`, `1.0`, `0.5` is raised to 2 and the nested
@@ -138,7 +139,8 @@ Evidence: `green.round2.log` (exact commands; 149 passed in 5 files; wider suite
 2. `AUTH_POOL_MAX` has a minimum of 2 (`MIN_AUTH_POOL_MAX`): a PDF render holds one connection and
    the browser re-enters the API for a second from the same pools, so a pool of 1 made every
    export wait out the acquire timeout. `1`, `1.0`, `0.5` are raised to 2 with the warning.
-   The render ceiling is `max(1, floor(2/4))` = 1, so it stays at least 1 and correct.
+   The render ceiling is `max(1, floor(2/4))` = 1, so it stays at least 1 and correct. (The floor's
+   effect is that a render's re-entry can get a second connection; the ceiling is 1 either way.)
    Tested at the reader, `authPoolMax`, every AUTH_POOL_MAX pool site and the semaphore.
 
 ## Review round 4
@@ -190,3 +192,10 @@ Evidence: `green.round4.log` (184 passed in 6 files), `mutations.log` round 4.
 3. The Tests section is brought to the final file set and evidence.
 4. The first `neonPoolNestedSql.test.ts` test is renamed as the pg-pool premise test it is.
 Evidence: `green.round7.log` (224 passed in the six files; shuffle seeds 11, 202, 3033).
+
+## Review round 8
+1. The semaphore test for a pool of 1 now also asserts `authPoolMax() === 2`, so removing the floor
+   turns it red (the ceiling is 1 for a pool of 1 and of 2). The causal claim in this file and in
+   `src/lib/pdf/.claude.md` is corrected: the floor lets a render's re-entry get a second
+   connection; the ceiling stays 1. Mutant in `mutations.log` round 8.
+2. The scripts sentence now names the literal `max` values (2, 5) and the pg default.
