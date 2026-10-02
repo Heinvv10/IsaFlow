@@ -31,13 +31,22 @@ export function deltaWithWord(
    * 4.2mm on a sheet that composes within half a millimetre of its box.
    */
   points: 'points' | 'pp' = 'points',
+  /** The words for a movement that rounds to nothing — see `deltaRoundsToNil`. */
+  nil?: string,
 ): string {
-  if (delta.unit === 'percent') return pctWithWord(delta.value, up, down);
+  if (delta.unit === 'percent') return pctWithWord(delta.value, up, down, nil);
+  if (nil !== undefined && deltaRoundsToNil(delta)) return nil;
   // The magnitude through the pack's own percentage formatter, less its sign:
   // "1 310.8", grouped as every other figure on the sheet is. `toFixed` here
   // printed "1310.8 pp" beside a tile reading "1 310.8%".
   const magnitude = formatPctLevel(Math.abs(delta.value)).replace('%', '');
   return `${delta.value < 0 ? down : up} ${magnitude} ${points}`;
+}
+
+/** Whether a movement prints as 0.0, in either unit: it then has no
+ *  direction, and is neither favourable nor unfavourable. */
+export function deltaRoundsToNil(delta: PackKpiDelta): boolean {
+  return Number(Math.abs(delta.value).toFixed(1)) === 0;
 }
 
 /**
@@ -70,6 +79,7 @@ export function tileCaption(tile: PackKpiTile): string {
     }
     return DELTA_ABSENCE[tile.deltaAbsence];
   }
+  if (deltaRoundsToNil(tile.delta)) return `Unchanged on the ${tile.delta.basis}.`;
   const judgement = tile.delta.favourable ? 'a favourable' : 'an unfavourable';
   return `${deltaWithWord(tile.delta, 'Up', 'Down')} on the ${tile.delta.basis} — ${judgement} movement.`;
 }

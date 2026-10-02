@@ -28,9 +28,13 @@ export function money(n: number, scale: MoneyScale): string {
   return inProse(formatMoney(n, { scale }));
 }
 
-/** "up 12.0%" / "down 7.0%", or null when the base is not usable. */
+/** A change that rounds to 0.0%: it has no direction to name. A sentence
+ *  that says "to" a level after a change says "at" after this. */
+export const UNCHANGED = 'unchanged';
+
+/** "up 12.0%" / "down 7.0%" / "unchanged", or null when the base is not usable. */
 export function pctChangeClause(current: number, prior: number): string | null {
   const pct = marginPct(current - prior, prior);
   if (pct === null) return null;
-  return pctWithWord(pct, 'up', 'down');
+  return pctWithWord(pct, 'up', 'down', UNCHANGED);
 }

@@ -48,9 +48,10 @@ const KPI_SPARKLINE_MM = 33;
  */
 const KPI_DELTA_MEASURE_MM = 38;
 
+/** The words `KpiTileWithSparkline` prints — the same call, the same nil. */
 function deltaWords(delta: PackKpiDelta): string {
-  const direction = delta.value > 0 ? 'up' : (delta.value < 0 ? 'down' : 'flat');
-  return deltaWithWord(delta, direction, direction, 'pp');
+  const direction = delta.value > 0 ? 'up' : 'down';
+  return deltaWithWord(delta, direction, direction, 'pp', 'flat on');
 }
 
 export function kpiTileHeight(tile: KpiTile): number {

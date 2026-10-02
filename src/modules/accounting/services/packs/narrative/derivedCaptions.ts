@@ -220,7 +220,7 @@ export function positionCaption(set: PackFigureSet, scale: MoneyScale): string {
   // scorecard and the glossary call it.
   const coverClause = cover === null
     ? 'Current liabilities are not a positive base, so no cover percentage is meaningful'
-    : `Current assets cover current liabilities ${pctWithWord(cover, 'at', 'at negative')} `
+    : `Current assets cover current liabilities ${pctWithWord(cover, 'at', 'at negative', 'at nil')} `
       + `— a current ratio of ${inProse(formatTimes(currentAssets / currentLiabilities))}`;
   return `${coverClause}; working capital stands at ${inProse(formatMoney(workingCapital, { scale }))}.`;
 }

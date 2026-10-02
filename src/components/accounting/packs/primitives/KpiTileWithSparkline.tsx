@@ -20,8 +20,9 @@
 import { formatFigureText } from './packFigureText';
 import type { MoneyScale } from '@/lib/format/money';
 import { deltaWithWord } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
+import { deltaRoundsToNil } from '@/modules/accounting/services/packs/narrative/derivedTileCaptions';
 import { FootnoteMarker } from './FootnoteMarker';
-import type { PackKpiTile } from '@/modules/accounting/services/packs/pages/packPageModel';
+import type { PackKpiDelta, PackKpiTile } from '@/modules/accounting/services/packs/pages/packPageModel';
 
 export interface KpiTileWithSparklineProps {
   tile: PackKpiTile;
@@ -34,10 +35,10 @@ type DeltaDirection = 'up' | 'down' | 'flat';
 /** Sign of the delta, independent of `favourable` — a shrinking expense is a
  *  favourable DOWN, not an up; the glyph tracks arithmetic direction and the
  *  colour class (below) carries favourable/unfavourable separately. */
-function deltaDirection(value: number): DeltaDirection {
-  if (value > 0) return 'up';
-  if (value < 0) return 'down';
-  return 'flat';
+function deltaDirection(delta: PackKpiDelta): DeltaDirection {
+  // As printed: a movement of 0.04% prints 0.0%, and has no direction.
+  if (deltaRoundsToNil(delta)) return 'flat';
+  return delta.value > 0 ? 'up' : 'down';
 }
 
 /**
@@ -54,7 +55,7 @@ const DELTA_GLYPH: Record<DeltaDirection, string> = { up: '↑', down: '↓', fl
 
 export function KpiTileWithSparkline({ tile, scale }: KpiTileWithSparklineProps) {
   const { label, figure, delta, trendFootnote, sparklineSvg } = tile;
-  const direction = delta ? deltaDirection(delta.value) : null;
+  const direction = delta ? deltaDirection(delta) : null;
 
   return (
     <div className="pack-kpi-tile">
@@ -75,7 +76,7 @@ export function KpiTileWithSparkline({ tile, scale }: KpiTileWithSparklineProps)
             * words are `direction`, which `deltaDirection` derived from this
             * same value — that is what keeps "flat 0.0%" reading as flat
             * rather than as "up". */}
-          {deltaWithWord(delta, direction, direction, 'pp')} {delta.basis}
+          {deltaWithWord(delta, direction, direction, 'pp', 'flat on')} {delta.basis}
         </span>
       )}
       {sparklineSvg !== null && (

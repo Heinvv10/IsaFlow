@@ -46,7 +46,7 @@ import { pctWithWord, type MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import { scoredTargetsSentence } from './derivedCaptions';
-import { money, pctChangeClause } from './derivedProseFigures';
+import { money, pctChangeClause, UNCHANGED } from './derivedProseFigures';
 
 export { failedChecksClause, narrativeTitle } from './derivedMattersTitle';
 export { trendsTitle } from './derivedTrendsTitle';
@@ -135,7 +135,7 @@ export function highlightsTitle(set: PackFigureSet, scale: MoneyScale): string {
   const margin = marginPct(operatingProfitOf(current), current.revenue);
   const marginClause = margin === null
     ? NO_OPERATING_MARGIN_SENTENCE
-    : `Operating margin is ${pctWithWord(margin, 'a positive', 'a negative')}.`;
+    : `Operating margin is ${pctWithWord(margin, 'a positive', 'a negative', 'nil')}.`;
 
   return `${revenueClause} ${marginClause}`;
 }
@@ -148,7 +148,7 @@ export function positionTitle(set: PackFigureSet, scale: MoneyScale): string {
   if (set.prior) {
     const change = pctChangeClause(equity, set.prior.totalEquity);
     if (change !== null) {
-      return `Equity is ${change} to ${money(equity, scale)}.`;
+      return `Equity is ${change} ${change === UNCHANGED ? 'at' : 'to'} ${money(equity, scale)}.`;
     }
   }
   return `Equity of ${money(equity, scale)}.`;
@@ -163,7 +163,7 @@ export function cashTitle(set: PackFigureSet, scale: MoneyScale): string {
   if (change === null) {
     return `Cash stands at ${money(cash, scale)}; ${noComparativeBaseSentence('cash', set.prior.cash, true)}`;
   }
-  return `Cash is ${change} to ${money(cash, scale)}.`;
+  return `Cash is ${change} ${change === UNCHANGED ? 'at' : 'to'} ${money(cash, scale)}.`;
 }
 
 /**
@@ -205,6 +205,6 @@ export function incomeStatementTitle(set: PackFigureSet, scale: MoneyScale): str
   const margin = marginPct(current.revenue - current.costOfSales, current.revenue);
   return margin === null
     ? `Revenue of ${money(current.revenue, scale)} gives no meaningful margin base.`
-    : `Gross margin is ${pctWithWord(margin, 'a positive', 'a negative')} on revenue of `
+    : `Gross margin is ${pctWithWord(margin, 'a positive', 'a negative', 'nil')} on revenue of `
       + `${money(current.revenue, scale)}.`;
 }
