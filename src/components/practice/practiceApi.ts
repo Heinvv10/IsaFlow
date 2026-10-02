@@ -82,7 +82,7 @@ export async function createJobCategory(name: string): Promise<void> {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
-  await assertOk(res, 'Failed to create category');
+  await assertOk(res, 'Could not add the category - try again');
 }
 
 export async function setJobCategoryActive(id: string, isActive: boolean): Promise<void> {
@@ -90,7 +90,7 @@ export async function setJobCategoryActive(id: string, isActive: boolean): Promi
     `/api/accounting/practice/job-categories/${encodeURIComponent(id)}`,
     { method: 'PUT', body: JSON.stringify({ isActive }) },
   );
-  await assertOk(res, 'Failed to update category');
+  await assertOk(res, 'Could not update the category - try again');
 }
 
 // ---------------------------------------------------------------- work items
@@ -117,7 +117,7 @@ export async function createWorkItem(
     method: 'POST',
     body: JSON.stringify({ categoryId, name, defaultBillable }),
   });
-  await assertOk(res, 'Failed to create work item');
+  await assertOk(res, 'Could not add the work item - try again');
 }
 
 export async function setWorkItemActive(id: string, isActive: boolean): Promise<void> {
@@ -125,7 +125,7 @@ export async function setWorkItemActive(id: string, isActive: boolean): Promise<
     `/api/accounting/practice/work-items/${encodeURIComponent(id)}`,
     { method: 'PUT', body: JSON.stringify({ isActive }) },
   );
-  await assertOk(res, 'Failed to update work item');
+  await assertOk(res, 'Could not update the work item - try again');
 }
 
 // ------------------------------------------------------------------- clients
@@ -158,7 +158,7 @@ export async function createEntryTemplate(input: EntryTemplateInput): Promise<vo
     method: 'POST',
     body: JSON.stringify(input),
   });
-  await assertOk(res, 'Failed to save template');
+  await assertOk(res, 'Could not save the template - try again');
 }
 
 // ---------------------------------------------------------------------- rate

@@ -53,8 +53,10 @@ run_step "oauth-trust-flags"      bun scripts/ci/check-oauth-trust-flags.ts
 # (R-052: GitHub ran 5 of these gates while a PR showed green).
 run_step "workflow-runs-ci"       bun scripts/ci/check-workflow-runs-ci.ts
 # Client code must read the HTTP status before a response body, say what failed
-# in a plain sentence, show errors through apiErrorMessage, and check its writes
-# (D2: four defect classes found one review round at a time; this finds them all).
+# in a plain sentence, show errors through apiErrorMessage, and check its writes.
+# A type-checker based gate over every client file (selected by content, not by
+# directory); its stated limits are in scripts/ci/clientResponseRule.ts, so it
+# narrows what review has to find, it does not replace review.
 run_step "client-responses"       bun scripts/ci/check-client-responses.ts
 run_step "unit-tests"        bun run test:unit
 run_step "component-tests"   bun run test:components

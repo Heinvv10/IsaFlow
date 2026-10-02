@@ -11,9 +11,7 @@ interface Envelope { data?: Record<string, unknown> }
 const MESSAGE = 'Could not start the payment - try again';
 
 /** The 2xx body, or an empty envelope when it is empty / not JSON (the caller then reports a plain sentence). */
-async function readEnvelope(res: Response): Promise<Envelope> {
-  try { return (await res.json()) as Envelope; } catch { return {}; }
-}
+const emptyEnvelope = (): Envelope => ({});
 
 /** The hosted-checkout URL to open. Throws with the server's message when either call refuses. */
 export async function startPayNowCheckout(invoiceId: string): Promise<string> {
@@ -23,7 +21,7 @@ export async function startPayNowCheckout(invoiceId: string): Promise<string> {
     body: JSON.stringify({}),
   });
   await assertOk(link, MESSAGE);
-  const linkJson = await readEnvelope(link);
+  const linkJson = await link.json().catch(emptyEnvelope) as Envelope;
   if (typeof linkJson.data?.token !== 'string') throw new ApiEnvelopeError(MESSAGE);
 
   const checkout = await fetch('/api/portal/payments/paystack/create', {
@@ -32,7 +30,7 @@ export async function startPayNowCheckout(invoiceId: string): Promise<string> {
     body: JSON.stringify({ token: linkJson.data.token }),
   });
   await assertOk(checkout, MESSAGE);
-  const checkoutJson = await readEnvelope(checkout);
+  const checkoutJson = await checkout.json().catch(emptyEnvelope) as Envelope;
   if (typeof checkoutJson.data?.checkoutUrl !== 'string') throw new ApiEnvelopeError(MESSAGE);
   return checkoutJson.data.checkoutUrl;
 }

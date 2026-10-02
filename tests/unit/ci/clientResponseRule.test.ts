@@ -34,7 +34,7 @@ describe('(b) bare fallbacks', () => {
     expect(kinds(wrap('throw new Error(`HTTP ${res.status}`);'))).toEqual(['b']);
   });
   it('is quiet on a sentence, a state value and a comparison', () => {
-    expect(kinds(wrap(`setError('Could not save the rate - try again'); setState('error'); if (s === 'Error') return;`))).toEqual([]);
+    expect(kinds(wrap(`declare const setState: (s: 'idle' | 'error') => void; setError('Could not save the rate - try again'); setState('error'); if (s === 'Error') return;`))).toEqual([]);
   });
 });
 

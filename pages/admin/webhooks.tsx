@@ -88,15 +88,11 @@ export default function AdminWebhooksPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ status: currentlyActive ? 'disabled' : 'active' }),
       });
-      if (!res.ok) {
-        const j = await res.json() as { error?: { message?: string } };
-        showToast(j.error?.message ?? 'Update failed');
-      } else {
-        showToast(currentlyActive ? 'Webhook disabled' : 'Webhook enabled');
-        await load();
-      }
-    } catch {
-      showToast('Request failed');
+      await assertOk(res, 'Could not update the webhook - try again');
+      showToast(currentlyActive ? 'Webhook disabled' : 'Webhook enabled');
+      await load();
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not update the webhook - try again'));
     } finally {
       setActionLoading(null);
     }
@@ -111,17 +107,13 @@ export default function AdminWebhooksPage() {
         credentials: 'include',
         headers: { 'X-Admin-Request': 'true' },
       });
-      if (!res.ok) {
-        const j = await res.json() as { error?: { message?: string } };
-        showToast(j.error?.message ?? 'Delete failed');
-      } else {
-        showToast('Webhook deleted');
-        if (expanded === deleteTarget.id) setExpanded(null);
-        setDeleteTarget(null);
-        await load();
-      }
-    } catch {
-      showToast('Request failed');
+      await assertOk(res, 'Could not delete the webhook - try again');
+      showToast('Webhook deleted');
+      if (expanded === deleteTarget.id) setExpanded(null);
+      setDeleteTarget(null);
+      await load();
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not delete the webhook - try again'));
     } finally {
       setDeleteLoading(false);
     }

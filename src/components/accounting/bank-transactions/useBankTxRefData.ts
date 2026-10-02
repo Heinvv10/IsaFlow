@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useCallback } from 'react';
-import { apiFetch, apiJson } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 import { fetchAllSuppliers } from '@/lib/fetchAllSuppliers';
 import { log } from '@/lib/logger';
 import { notify } from '@/utils/toast';
@@ -74,10 +74,17 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
     // cost-centres when its schema is mid-migration) used to short-circuit
     // the whole chain and leave the page stuck on "Loading…" with no bank
     // accounts surfaced. Each fetch is now unwrapped independently.
-    const json = (r: PromiseSettledResult<Response>) =>
-      r.status === 'fulfilled' && r.value.ok
-        ? r.value.json().catch(() => null)
-        : Promise.resolve(null);
+    const json = async (r: PromiseSettledResult<Response>) => {
+      if (r.status !== 'fulfilled') return null;
+      const res = r.value;
+      try {
+        await assertOk(res, 'Could not load the reference data');
+        return await res.json();
+      } catch (err) {
+        log.warn('A bank-transactions reference list did not load', { error: err }, 'accounting-ui');
+        return null;
+      }
+    };
 
     Promise.allSettled([
       apiFetch('/api/accounting/bank-accounts'),

@@ -3,6 +3,7 @@
 
 import React, { useState } from 'react';
 import { log } from '@/lib/logger';
+import { apiErrorMessage } from '@/lib/apiFetch';
 import { Download, FileText, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 
 interface Props {
@@ -43,7 +44,7 @@ function ExportButton({
       // Reset after 3s so it can be triggered again
       setTimeout(() => setState('idle'), 3000);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = apiErrorMessage(err, 'Could not start the download - try again');
       log.error('AFS export failed', { error: err, title }, 'AfsExportTab');
       setErrorMsg(msg);
       setState('error');

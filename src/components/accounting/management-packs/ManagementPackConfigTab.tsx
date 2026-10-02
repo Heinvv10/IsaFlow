@@ -1,6 +1,7 @@
 // src/components/accounting/management-packs/ManagementPackConfigTab.tsx
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, AlertCircle, Loader2 } from 'lucide-react';
+import { apiErrorMessage } from '@/lib/apiFetch';
 import type { ManagementPackConfig, PackRecipient, PackStyle } from '@/modules/accounting/services/afs/afsTypes';
 
 const SECTIONS_META: Array<{ key: string; label: string }> = [
@@ -40,7 +41,7 @@ export function ManagementPackConfigTab({ config, onSave }: Props) {
   async function handleSave() {
     setSaving(true); setError('');
     try { await onSave(form); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Save failed'); }
+    catch (e) { setError(apiErrorMessage(e, 'Could not save the pack settings - try again')); }
     finally { setSaving(false); }
   }
 

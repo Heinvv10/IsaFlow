@@ -6,7 +6,7 @@
  * Content-Type unset for FormData bodies (browser sets the multipart boundary).
  */
 
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 
 export const QUEUE_STORAGE_KEY = 'isaflow_capture_queue';
 
@@ -37,13 +37,7 @@ export async function uploadFiles(files: File[]): Promise<UploadResult> {
     method: 'POST',
     body: form,
   });
-  if (!res.ok) {
-    const json = await res.json().catch(() => ({})) as {
-      error?: { message?: string };
-      message?: string;
-    };
-    throw new Error(json.error?.message ?? json.message ?? 'Upload failed');
-  }
+  await assertOk(res, 'Could not upload the documents - try again');
   const json = await res.json();
   const data = (json.data as Partial<UploadResult>) ?? {};
   return { eventIds: data.eventIds ?? [], documentIds: data.documentIds ?? [] };

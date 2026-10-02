@@ -20,7 +20,7 @@ export default function PortalLoginPage() {
   const [errorMessage, setErrorMessage] = useState('');
 
   const errorParam = router.query.error as string | undefined;
-  const queryError = errorParam ? (ERROR_MESSAGES[errorParam] ?? 'An error occurred.') : null;
+  const queryError = errorParam ? (ERROR_MESSAGES[errorParam] ?? 'This sign-in link could not be used. Please request a new one.') : null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

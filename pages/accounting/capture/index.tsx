@@ -8,6 +8,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Camera, Upload, X, FileText, Wifi, WifiOff, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { apiErrorMessage } from '@/lib/apiFetch';
 import {
   QUEUE_STORAGE_KEY,
   type QueuedItem,
@@ -100,7 +101,7 @@ export default function CapturePage() {
         }
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Upload failed');
+      toast.error(apiErrorMessage(err, 'Could not upload the documents - try again'));
     } finally {
       setUploading(false);
     }
